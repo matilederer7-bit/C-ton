@@ -22,3 +22,7 @@ src/cleanup_*.cjs
 src/fix_*.cjs
 src/final_pre_restart_check.ps1
 src/safe_cleanup_after_conflict.ps1
+
+finalize_housekeeping.ps1
+
+close_housekeeping_tail.ps1
