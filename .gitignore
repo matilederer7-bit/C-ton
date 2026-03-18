@@ -28,3 +28,5 @@ finalize_housekeeping.ps1
 close_housekeeping_tail.ps1
 
 seal_housekeeping.ps1
+
+close_last_housekeeping_tail.ps1
