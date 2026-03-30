@@ -15,3 +15,4 @@
 - initial `publish` validation failed with `Unsupported Media Type` when the request body was omitted
 - rerun with `Content-Type: application/json` and `{}` body validated the route correctly
 - a `deal not found` check using a non-UUID string produced a database-level `500`; rerun with a valid unknown UUID returned the expected `404`
+- no blocker was found in the second validation pass after UX tightening; the tightened flow still worked against the live backend

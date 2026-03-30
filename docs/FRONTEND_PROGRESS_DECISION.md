@@ -2,17 +2,16 @@
 
 ## Executive Decision
 
-FRONTEND CORE BUILT
+FRONTEND MVP NEAR-CLOSED
 
-## What Was Built
+## What Improved In This Pass
 
-- public deal page under `/app/deal/:dealId`
-- join flow with quantity selection and validation
-- OTP start and verify flow
-- payment/auth step against backend mock authorization
-- confirmation screen
-- buyer tracking page
-- frontend runtime wiring into the Fastify backend server
+- buyer-facing copy was tightened across the whole flow
+- loading, success, recovery, and empty states became more explicit and less technical
+- draft / closed / unavailable / invalid OTP / payment failure / missing session branches are handled more clearly
+- tracking now presents clearer business meaning and next-step guidance
+- flow storage was hardened with TTL and better resume / recovery behavior
+- the payment step now feels closer to a production integration boundary even though the provider is still mock-backed
 
 ## What Works Against Real Backend
 
@@ -26,24 +25,23 @@ FRONTEND CORE BUILT
 - `/api/payments/authorize-mock`
 - `POST /deals/:id/join`
 - `/api/participants/:id/tracking`
+- draft deal rendering with non-joinable state
+- tightened error branches for `404`, `400`, `402`, `409`
 
-## What Is Still Partial
+## What Still Feels Mock or Partial
 
 - no browser-driven E2E automation was added in this pass
-- UX copy and state explanations are strong enough for core flow use, but not yet fully polished
-- the home route is intentionally minimal and link-driven rather than a full marketing/discovery surface
-
-## What Is Still Mocked
-
 - payment authorization is still backed by the backend mock provider endpoint, not a live payment gateway
+- the home route is intentionally minimal and link-driven rather than a full discovery / marketing surface
 
-## What Blocks Full Frontend Closure
+## What Still Blocks MVP-Level Confidence
 
-- no hard blocker currently prevents frontend usage for the core buyer flow
-- remaining work is follow-up quality and expansion work, not core viability work
+- one browser-driven happy path would increase confidence materially
+- a real payment gateway integration would move the flow from near-closed MVP to stronger production confidence
+- a final copy/product review pass would help polish, but is not a core blocker
 
 ## Recommended Next Pass
 
-- add browser automation for one happy-path journey
-- harden UX copy and empty states with product review
-- decide whether to keep the mock payment step as-is for staging or swap it for a real gateway integration layer
+- add one browser automation happy path for the buyer journey
+- decide whether the next priority is real payment integration or product/copy polish
+- keep the backend contract as-is and avoid reopening backend business decisions

@@ -1,16 +1,13 @@
 # Morning Handoff - Frontend Execution
 
-## What Was Built
+## What Improved Tonight
 
-- buyer-facing frontend shell and SPA routing
-- public deal page
-- join flow with quantity selection
-- OTP verification step
-- payment authorization mock step
-- confirmation screen
-- tracking screen
+- the buyer flow became clearer and less technical across every step
+- flow recovery is now stronger when `sessionStorage` is partial, stale, or missing
+- tracking now explains status and next step in a way that is easier for a user to understand
+- the payment step now feels more like a real integration boundary and less like a dead mock screen
 
-## What Works Now
+## What Works Better Now
 
 - the backend serves the frontend under `/app/*`
 - a published deal can be loaded through the public API and shown in the frontend shell
@@ -19,25 +16,20 @@
 - join works against the live backend and creates a real participant
 - tracking works against the live backend and returns real participant state
 - basic error statuses were validated live: `404`, `400`, `402`, `409`
-
-## What Is Connected To Backend
-
-- public deal data
-- OTP
-- payment authorization mock
-- join
-- tracking
+- draft deal rendering now stays coherent and clearly non-joinable
+- payment and confirmation routes now have better recovery behavior if the flow is incomplete
 
 ## What Remains Partial
 
 - no browser automation was added yet
 - payment is still mock-backed
-- copy/polish can still improve, but core functionality is already there
+- the home route is intentionally lean and not yet a richer entry/discovery surface
 
 ## What To Do First In The Morning
 
-- open the frontend in a browser against a seeded published deal and do one manual happy-path pass
-- decide whether the next pass is browser automation or product copy refinement
+- run one browser happy-path manually against a published deal
+- decide whether the next pass should be browser automation or real payment integration
+- keep the current backend contract stable while doing so
 
 ## What Not To Reopen
 
@@ -45,3 +37,7 @@
 - repeated join allowance for the same buyer
 - backend QA / recovery / finalize / 90 percent decisions
 - repository hygiene and backend closure decisions
+
+## Can We Move Past Core?
+
+Yes. The frontend has moved beyond `FRONTEND CORE BUILT` into a near-closed MVP state, so the next work can focus on polish, browser automation, or real integrations rather than rebuilding the core buyer flow.

@@ -130,3 +130,88 @@ What was proven
 What remains open after Phase D
 - no browser automation was added in this pass
 - payment remains intentionally mock-backed
+
+## 2026-03-30 - MVP Tightening Pass
+
+### PHASE 1 - UX Tightening Pass
+
+What improved
+- clearer buyer-facing copy across deal, OTP, payment, confirmation, and tracking
+- stronger CTA wording and step framing
+- better loading language per action instead of one generic loading state
+- stronger recovery states for missing or partial flow session
+
+What changed in UX
+- deal page now explains availability more clearly by deal state
+- OTP now explains exactly what is being validated and what remains to be done
+- payment step now explains authorization versus actual charge in clearer language
+- confirmation now explains what happened and what the next step is
+- tracking now reads as a progress/status product screen instead of a raw state dump
+
+### PHASE 2 - Error and Edge Completion
+
+What was covered
+- deal not found
+- draft deal
+- closed for joining / unavailable
+- capacity exceeded
+- invalid OTP
+- missing OTP session
+- payment authorization failure
+- backend unavailable mapping remains in place
+- generic unknown error fallback remains in place
+- missing or stale frontend session now leads to explicit recovery states
+
+What improved
+- route refreshes no longer rely on silent assumptions about `sessionStorage`
+- OTP reset flow now exists
+- payment and confirmation routes now show recovery states instead of brittle redirects
+
+### PHASE 3 - Tracking and State Clarity
+
+What improved
+- tracking now explains:
+  - מצב העסקה
+  - מצב ההשתתפות
+  - המצב הכספי
+  - איפה המסלול עומד
+  - מה השלב הבא
+- journey rail was added to reduce ambiguity
+- tracking now stores a session-linked last viewed timestamp for continuity
+
+### PHASE 4 - Reduce Mock Feeling
+
+What improved
+- payment screen now presents the authorization step as a real integration boundary
+- UI explicitly explains that the current provider is mock-backed but contractually separated
+- the flow order `OTP -> authorization -> join -> confirmation -> tracking` is now explained more clearly
+
+### PHASE 5 - Session and Flow Robustness
+
+What improved
+- flow storage now uses TTL
+- stale flow is dropped instead of silently trusted forever
+- deal page can resume an existing flow
+- tracking refresh stores continuity context back into the flow
+
+### PHASE 6 - Frontend Validation Pass 2
+
+What was validated live
+- `/health`
+- live published deal page
+- draft deal page
+- OTP start / verify
+- payment authorization success
+- join success
+- tracking success
+- route delivery for deal / OTP / payment / confirmation / tracking
+- error branches:
+  - unknown deal -> `404`
+  - invalid OTP -> `400`
+  - payment failure -> `402`
+  - over-capacity join -> `409`
+
+What was proven
+- frontend tightening did not break the live backend-connected flow
+- draft deals remain non-joinable
+- tracking remains coherent after UX tightening

@@ -49,6 +49,58 @@ FRONTEND CORE BUILT
 הצעד הבא
 להריץ מעבר ידני אחד בדפדפן על עסקה מפורסמת, ואז לבחור בין אוטומציית E2E לבין חידוד UX/copy
 
+## 2026-03-30 - Frontend MVP Tightening Pass
+
+סטטוס כללי
+הושלם
+
+הכרעה
+FRONTEND MVP NEAR-CLOSED
+
+מה הושלם בפרונטד
+- tightening משמעותי של UX במסלול הקונה
+- copy ברור יותר לאורך deal / OTP / payment / confirmation / tracking
+- recovery states עבור session חלקי או חסר
+- TTL ל-`sessionStorage`
+- חיזוק tracking עם journey ברור ו-next step ברור
+- חיזוק תחושת production-like של payment authorization mock
+
+מה שופר
+- draft deal מוצג עכשיו באופן ברור כלא-joinable
+- payment ו-confirmation כבר לא נשענים על redirectים שבירים בלבד
+- tracking מסביר טוב יותר מה קרה ומה יקרה בהמשך
+- הקונה יכול להמשיך מסלול פתוח מהעסקה או להתחיל מחדש
+
+מה אומת
+- `node --check frontend/app.js`
+- `npx tsc --noEmit`
+- `npm test`
+- runtime validation pass 2 דרך `compile + node`
+- live backend validation עבור:
+  - public deal page
+  - draft deal page
+  - OTP start / verify
+  - payment authorization success
+  - join success
+  - tracking success
+  - routes: deal / OTP / payment / confirmation / tracking
+- error branches:
+  - unknown deal -> `404`
+  - invalid OTP -> `400`
+  - payment failure -> `402`
+  - over-capacity join -> `409`
+
+מה נשאר פתוח
+- browser automation happy path
+- real payment integration במקום mock provider
+- polish/copy review נוסף אם רוצים להעלות את רמת התחושה עוד צעד
+
+אחוז התקדמות משוער חדש של הפרונטד
+91 אחוז
+
+הצעד הבא
+מעבר ידני אחד בדפדפן על עסקה חיה ואז בחירה בין browser automation לבין real payment integration
+
 ## Stage 8H  מבחן עומס קיצון 2700 על תקרת 1800
 
 הושלם
