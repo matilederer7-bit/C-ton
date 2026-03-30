@@ -70,6 +70,12 @@ const ROUTE_LABELS = {
   "not-found": "עמוד לא נמצא"
 };
 
+const PAYMENT_READINESS = {
+  providerLabel: "Mock authorization provider",
+  settlementModel: "authorization קודם, charge מאוחר יותר",
+  integrationNote: "נקודת ההחלפה ל-provider אמיתי מרוכזת בתוך paymentService."
+};
+
 addEventListener("popstate", () => navigate(location.pathname, false));
 document.addEventListener("visibilitychange", () => {
   syncRoutePolling();
@@ -718,8 +724,13 @@ function renderPaymentPage(dealId) {
           <p class="small muted">כך אפשר להבין אם אתה ממשיך מסלול טרי או חוזר אליו אחרי הפסקה.</p>
         </div>
         <div class="info-strip">
-          <strong>השלב הזה כבר מרגיש כמו אינטגרציה אמיתית</strong>
-          <p class="small">ה־UI עובד מול contract תשלומים ברור: authorization קודם, join אחר כך. כרגע ה-provider הוא mock, אבל נקודת החיבור ברורה להחלפה עתידית.</p>
+          <strong>השלב הזה כבר מוכן יותר לאינטגרציה אמיתית</strong>
+          <p class="small">${PAYMENT_READINESS.settlementModel}. כרגע ה-provider הוא <span class="mono">${PAYMENT_READINESS.providerLabel}</span>, אבל ${PAYMENT_READINESS.integrationNote}</p>
+        </div>
+        <div class="summary-item">
+          <span class="muted">מוכנות השלב</span>
+          <strong>החוזה מופרד מה-UI</strong>
+          <p class="small muted">גם אם שכבת התשלום עדיין mock-backed, הזרימה כבר שומרת גבול ברור בין authorization לבין join.</p>
         </div>
       </article>
       <aside class="card hero-side stack">
@@ -774,6 +785,12 @@ function renderConfirmationPage(dealId) {
           <strong>מה קורה עכשיו?</strong>
           <p class="small">מסך המעקב יראה אם כרגע רק נרשמת, אם החיוב כבר בוצע, ואם העסקה הושלמה או נכשלה.</p>
         </div>
+        ${flow.authorizationMessage ? `
+          <div class="summary-item">
+            <span class="muted">הודעת authorization</span>
+            <p class="small">${esc(flow.authorizationMessage)}</p>
+          </div>
+        ` : ""}
         <div class="summary-item">
           <span class="muted">המסלול עודכן</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
