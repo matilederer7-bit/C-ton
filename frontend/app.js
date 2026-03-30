@@ -560,6 +560,11 @@ function renderOtpPage(dealId) {
           <strong>${flowState.title}</strong>
           <p class="small muted">${flowState.message}</p>
         </div>
+        <div class="summary-item">
+          <span class="muted">עדכון אחרון למסלול</span>
+          <strong>${relativeTime(flow.updatedAt)}</strong>
+          <p class="small muted">אם משהו מרגיש לא עדכני, אפשר לאפס את שלב ה-OTP ולהמשיך מחדש.</p>
+        </div>
         <form data-action="otp-start" class="stack">
           <div class="field">
             <label for="phone">מספר טלפון נייד</label>
@@ -619,6 +624,11 @@ function renderPaymentPage(dealId) {
           <div class="summary-item"><span class="muted">כמות</span><strong>${num(flow.qty || 0)} יח'</strong></div>
           <div class="summary-item"><span class="muted">עלות משוערת</span><strong>${currency(flow.estimatedTotal || ((flow.qty || 0) * (deal?.price_per_unit || 0)))}</strong></div>
         </div>
+        <div class="summary-item">
+          <span class="muted">עדכון אחרון למסלול</span>
+          <strong>${relativeTime(flow.updatedAt)}</strong>
+          <p class="small muted">כך אפשר להבין אם אתה ממשיך מסלול טרי או חוזר אליו אחרי הפסקה.</p>
+        </div>
         <div class="info-strip">
           <strong>השלב הזה כבר מרגיש כמו אינטגרציה אמיתית</strong>
           <p class="small">ה־UI עובד מול contract תשלומים ברור: authorization קודם, join אחר כך. כרגע ה-provider הוא mock, אבל נקודת החיבור ברורה להחלפה עתידית.</p>
@@ -676,6 +686,10 @@ function renderConfirmationPage(dealId) {
           <strong>מה קורה עכשיו?</strong>
           <p class="small">מסך המעקב יראה אם כרגע רק נרשמת, אם החיוב כבר בוצע, ואם העסקה הושלמה או נכשלה.</p>
         </div>
+        <div class="summary-item">
+          <span class="muted">המסלול עודכן</span>
+          <strong>${relativeTime(flow.updatedAt)}</strong>
+        </div>
         <div class="actions">
           <a class="button primary" href="/app/track/${encodeURIComponent(flow.participantId)}" data-nav="/app/track/${encodeURIComponent(flow.participantId)}">למסך המעקב</a>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(dealId)}" data-nav="/app/deal/${encodeURIComponent(dealId)}">חזרה לעסקה</a>
@@ -728,6 +742,7 @@ function renderTrackingPage() {
         <div class="summary-item"><span class="muted">מזהה השתתפות</span><strong class="mono">${esc(tracking.participant_id)}</strong></div>
         <div class="summary-item"><span class="muted">מזהה קונה</span><strong>${esc(tracking.buyer_id)}</strong></div>
         ${linkedFlow?.lastTrackingViewedAt ? `<div class="summary-item"><span class="muted">צפייה אחרונה במסלול</span><strong>${dt(linkedFlow.lastTrackingViewedAt)}</strong></div>` : ""}
+        ${linkedFlow?.updatedAt ? `<div class="summary-item"><span class="muted">סשן ה-flow עודכן</span><strong>${relativeTime(linkedFlow.updatedAt)}</strong></div>` : ""}
         <div class="summary-item"><span class="muted">חלון ההצטרפות</span><strong>${dt(tracking.deadline)}</strong></div>
         ${tracking.completion_window_until ? `<div class="summary-item"><span class="muted">סיום חלון השלמה</span><strong>${dt(tracking.completion_window_until)}</strong></div>` : ""}
         <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">חזרה לעסקה</a></div>
@@ -1041,6 +1056,18 @@ function num(value) {
 
 function dt(value) {
   return value ? new Intl.DateTimeFormat("he-IL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "לא זמין";
+}
+
+function relativeTime(value) {
+  if (!value) return "לא זמין";
+  const diffMs = Date.now() - new Date(value).getTime();
+  const minutes = Math.max(0, Math.round(diffMs / 60000));
+  if (minutes < 1) return "ממש עכשיו";
+  if (minutes < 60) return `לפני ${minutes} דקות`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `לפני ${hours} שעות`;
+  const days = Math.round(hours / 24);
+  return `לפני ${days} ימים`;
 }
 
 function json(value) {
