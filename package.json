@@ -7,9 +7,10 @@
     "doc": "docs"
   },
   "scripts": {
-    "dev": "node --loader ts-node/esm src/app.ts",
-    "start": "node --loader ts-node/esm src/app.ts",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "tsx src/app.ts",
+    "start": "tsx src/app.ts",
+    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/frontend_flow_validation.js",
+    "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js"
   },
   "keywords": [],
   "author": "",
@@ -17,15 +18,16 @@
   "type": "module",
   "dependencies": {
     "fastify": "^5.7.4",
+    "pg": "^8.18.0",
     "pino": "^10.3.1",
-    "zod": "^4.3.6",
-    "pg": "^8.18.0"
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.2.3",
     "@types/pg": "^8.16.0",
     "dotenv": "^17.3.1",
     "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.18"
   }
