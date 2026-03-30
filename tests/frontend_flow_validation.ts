@@ -26,12 +26,13 @@ async function ensureFrontendAssets() {
 }
 
 async function createDeal(title: string, suffix: string) {
+  const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const response = await app.inject({
     method: "POST",
     url: "/deals",
     headers: {
-      "x-request-id": `frontend-test-create-${suffix}`,
-      "idempotency-key": `frontend-test-create-${suffix}`
+      "x-request-id": `frontend-test-create-${unique}`,
+      "idempotency-key": `frontend-test-create-${unique}`
     },
     payload: {
       title,
@@ -47,12 +48,13 @@ async function createDeal(title: string, suffix: string) {
 }
 
 async function publishDeal(dealId: string, suffix: string) {
+  const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const response = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/publish`,
     headers: {
-      "x-request-id": `frontend-test-publish-${suffix}`,
-      "idempotency-key": `frontend-test-publish-${suffix}`
+      "x-request-id": `frontend-test-publish-${unique}`,
+      "idempotency-key": `frontend-test-publish-${unique}`
     },
     payload: {}
   });
