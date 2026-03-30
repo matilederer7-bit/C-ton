@@ -1,6 +1,9 @@
 const root = document.getElementById("app");
 const FLOW_KEY = "siton_flow_v2";
 const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
+const POLL_INTERVAL_MS = 12000;
+let routePollTimer = null;
+let routePollKey = "";
 
 const state = {
   loading: false,
@@ -68,6 +71,10 @@ const ROUTE_LABELS = {
 };
 
 addEventListener("popstate", () => navigate(location.pathname, false));
+document.addEventListener("visibilitychange", () => {
+  syncRoutePolling();
+  if (!document.hidden) void runRouteSilently();
+});
 
 document.addEventListener("click", (event) => {
   const navTarget = event.target.closest("[data-nav]");
@@ -138,6 +145,7 @@ function navigate(path, push = true) {
   state.error = null;
   state.banner = null;
   render();
+  syncRoutePolling();
   void runRoute();
 }
 
@@ -178,6 +186,7 @@ async function runRoute() {
       render();
     }
   }
+  syncRoutePolling();
 }
 
 async function ensureDeal(dealId) {
@@ -204,6 +213,92 @@ async function loadTracking(participantId) {
       });
     }
   }, "לא הצלחנו לטעון את המעקב.");
+}
+
+function syncRoutePolling() {
+  const pollKey = currentPollKey();
+  if (routePollKey === pollKey) return;
+
+  if (routePollTimer) {
+    clearInterval(routePollTimer);
+    routePollTimer = null;
+  }
+
+  routePollKey = pollKey;
+  if (!pollKey || document.hidden) return;
+
+  routePollTimer = setInterval(() => {
+    void runRouteSilently();
+  }, POLL_INTERVAL_MS);
+}
+
+function currentPollKey() {
+  const route = state.route;
+  if (route.name === "deal") return `deal:${route.dealId}`;
+  if (route.name === "tracking") return `tracking:${route.participantId}`;
+  return "";
+}
+
+async function runRouteSilently() {
+  const route = state.route;
+  if (document.hidden) return;
+  if (route.name === "deal") {
+    await refreshDealSilently(route.dealId);
+    return;
+  }
+  if (route.name === "tracking") {
+    await refreshTrackingSilently(route.participantId);
+  }
+}
+
+async function refreshDealSilently(dealId) {
+  try {
+    const next = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
+    const previous = state.dealPayload;
+    state.dealPayload = next;
+    if (!previous) {
+      render();
+      return;
+    }
+
+    const stateChanged = previous.deal.state !== next.deal.state;
+    const availabilityChanged = previous.availability.canJoin !== next.availability.canJoin;
+    const remainingChanged = previous.metrics.remaining_units !== next.metrics.remaining_units;
+    if (stateChanged || availabilityChanged || remainingChanged) {
+      state.banner = {
+        tone: "success",
+        title: "העסקה עודכנה",
+        message: "סטטוס העסקה או הקיבולת עודכנו בזמן אמת."
+      };
+      render();
+    }
+  } catch {}
+}
+
+async function refreshTrackingSilently(participantId) {
+  try {
+    const next = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    const previous = state.trackingPayload;
+    state.trackingPayload = next;
+    if (!previous) {
+      render();
+      return;
+    }
+
+    const changed =
+      previous.tracking.deal_state !== next.tracking.deal_state ||
+      previous.tracking.buyer_state !== next.tracking.buyer_state ||
+      previous.tracking.money_state !== next.tracking.money_state;
+
+    if (changed) {
+      state.banner = {
+        tone: "success",
+        title: "סטטוס ההשתתפות עודכן",
+        message: "המסך רענן את מצב העסקה וההשתתפות בלי לאבד את רצף החוויה."
+      };
+      render();
+    }
+  } catch {}
 }
 
 async function submitAction(action, form) {
@@ -337,17 +432,10 @@ async function payAndJoin(form) {
   if (issue) return fail("פרטי האשראי לא מלאים", issue);
 
   await busy("מאשר את המסגרת ושומר את ההצטרפות...", async () => {
-    const authorization = await api("/api/payments/authorize-mock", {
-      method: "POST",
-      body: json(payload)
-    });
-    const join = await api(`/deals/${encodeURIComponent(route.dealId)}/join`, {
-      method: "POST",
-      headers: {
-        "x-request-id": `frontend:${Date.now()}`,
-        "idempotency-key": `frontend:${route.dealId}:${flow.buyerId}:${flow.qty}`
-      },
-      body: json({ buyer_id: flow.buyerId, qty: flow.qty })
+    const authorization = await paymentService.authorize(payload);
+    const join = await buyerFlowService.joinDeal(route.dealId, {
+      buyerId: flow.buyerId,
+      qty: flow.qty
     });
     saveFlow(route.dealId, {
       paymentAuthorized: true,
@@ -831,6 +919,28 @@ async function api(url, options = {}) {
   error.status = response.status;
   throw error;
 }
+
+const paymentService = {
+  authorize(paymentDetails) {
+    return api("/api/payments/authorize-mock", {
+      method: "POST",
+      body: json(paymentDetails)
+    });
+  }
+};
+
+const buyerFlowService = {
+  joinDeal(dealId, { buyerId, qty }) {
+    return api(`/deals/${encodeURIComponent(dealId)}/join`, {
+      method: "POST",
+      headers: {
+        "x-request-id": `frontend:${Date.now()}`,
+        "idempotency-key": `frontend:${dealId}:${buyerId}:${qty}`
+      },
+      body: json({ buyer_id: buyerId, qty })
+    });
+  }
+};
 
 function friendlyError(error, fallback) {
   const message = String(error?.message || fallback || "");
