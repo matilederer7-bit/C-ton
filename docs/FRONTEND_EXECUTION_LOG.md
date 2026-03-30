@@ -215,3 +215,71 @@ What was proven
 - frontend tightening did not break the live backend-connected flow
 - draft deals remain non-joinable
 - tracking remains coherent after UX tightening
+
+## 2026-03-30 - Customer Flow Closure Pass
+
+### PHASE 1 - Realtime and Refresh Coherence
+
+What was added
+- lightweight polling for deal and tracking routes
+- silent refresh on visibility regain
+- status-change banner when deal or tracking state changes
+
+What was proven
+- critical routes can refresh without wiping the flow state
+- the buyer no longer needs to rely only on manual refresh to understand whether the status changed
+
+### PHASE 2 - Payment Readiness Tightening
+
+What was improved
+- payment step now uses a clearer service boundary through `paymentService` and `buyerFlowService`
+- authorization and join remain sequenced cleanly with a more replaceable integration boundary
+- payment success and failure behavior stay coherent while feeling less like a throwaway mock screen
+
+### PHASE 3 - Main Customer Flow Polish
+
+What improved
+- clearer copy on deal, OTP, payment, confirmation, and tracking
+- more explicit route recovery states
+- better “continue existing flow” messaging from the deal page
+- better timing context for saved flow continuity
+
+### PHASE 4 - Browser Automation or Closest Practical Substitute
+
+What was done
+- added automated frontend validation suite: `tests/frontend_flow_validation.ts`
+- extended `npm test` to include backend sanity plus frontend flow validation
+
+What was covered automatically
+- frontend asset delivery
+- public deal page shell
+- draft deal behavior
+- OTP start / verify
+- payment authorization mock
+- join success
+- tracking success
+- frontend error branches
+
+What was not added
+- full browser automation was not added in this pass
+
+### PHASE 5 - Flow Robustness Pass
+
+What improved
+- stale flow TTL remains enforced
+- tracking now writes continuity info back into saved flow state
+- OTP and payment screens now expose clearer recovery cues
+- refresh / re-entry logic is more explicit and less brittle
+
+### PHASE 6 - Final Validation Pass
+
+What was validated
+- `node --check frontend/app.js`
+- `npx tsc --noEmit`
+- `npm test`
+- frontend flow validation suite through `app.inject`
+- runtime-connected route behavior from previous live validation remains aligned
+
+What was proven
+- the frontend now has automated coverage beyond the earlier manual/runtime pass
+- the main customer path is stronger, clearer, and less mock-feeling than before

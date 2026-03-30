@@ -101,6 +101,49 @@ FRONTEND MVP NEAR-CLOSED
 הצעד הבא
 מעבר ידני אחד בדפדפן על עסקה חיה ואז בחירה בין browser automation לבין real payment integration
 
+## 2026-03-30 - Frontend Customer Flow Closure Pass
+
+סטטוס כללי
+הושלם
+
+הכרעה
+FRONTEND MVP CLOSED WITH NON-BLOCKING FOLLOW-UPS
+
+מה הושלם בבקאנד
+- הבקאנד נשאר סגור מקצועית וללא פתיחה מחדש של הכרעות הליבה
+
+מה הושלם בפרונטד
+- polling קל למסכי deal ו-tracking
+- silent refresh coherence בזמן חזרה לחלון
+- service boundary ברור יותר ל-payment authorization ול-join
+- אוטומציית validation פרקטית למסלול הקונה דרך `tests/frontend_flow_validation.ts`
+- הרחבת `npm test` כך שתכלול גם frontend validation
+
+מה נבדק
+- `node --check frontend/app.js`
+- `npx tsc --noEmit`
+- `npm test`
+- כיסוי אוטומטי ל:
+  - asset delivery
+  - public deal shell
+  - draft deal behavior
+  - OTP start / verify
+  - payment authorization mock
+  - join success
+  - tracking success
+  - error branches
+
+מה partial
+- payment עדיין mock-backed
+- full browser automation עדיין לא קיים
+- דף הבית נשאר מינימלי יחסית
+
+אחוז התקדמות חדש של הפרונטד
+95 אחוז
+
+הצעד הבא
+להחליט אם השלב הבא הוא real payment integration או browser automation, מבלי לפתוח מחדש את ה-core buyer flow
+
 ## Stage 8H  מבחן עומס קיצון 2700 על תקרת 1800
 
 הושלם

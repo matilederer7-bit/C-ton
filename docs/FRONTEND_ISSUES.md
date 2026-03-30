@@ -16,3 +16,9 @@
 - rerun with `Content-Type: application/json` and `{}` body validated the route correctly
 - a `deal not found` check using a non-UUID string produced a database-level `500`; rerun with a valid unknown UUID returned the expected `404`
 - no blocker was found in the second validation pass after UX tightening; the tightened flow still worked against the live backend
+
+## Accepted Non-Blocking Limitations
+
+- full browser automation was not added in this pass
+- closest practical substitute was added through `tests/frontend_flow_validation.ts` using `app.inject`
+- this gives automated coverage for the main customer path and key error branches, but does not yet validate actual browser DOM behavior or timed polling behavior in a real browser engine

@@ -2,7 +2,7 @@
 
 ## Executive Decision
 
-FRONTEND MVP NEAR-CLOSED
+FRONTEND MVP CLOSED WITH NON-BLOCKING FOLLOW-UPS
 
 ## What Improved In This Pass
 
@@ -12,6 +12,8 @@ FRONTEND MVP NEAR-CLOSED
 - tracking now presents clearer business meaning and next-step guidance
 - flow storage was hardened with TTL and better resume / recovery behavior
 - the payment step now feels closer to a production integration boundary even though the provider is still mock-backed
+- deal and tracking routes now have lightweight polling / silent refresh coherence
+- automated frontend validation was added through `tests/frontend_flow_validation.ts`
 
 ## What Works Against Real Backend
 
@@ -27,21 +29,26 @@ FRONTEND MVP NEAR-CLOSED
 - `/api/participants/:id/tracking`
 - draft deal rendering with non-joinable state
 - tightened error branches for `404`, `400`, `402`, `409`
+- silent refresh / polling hooks are in place for the main data-bearing customer routes
+- `npm test` now includes frontend flow validation coverage
 
-## What Still Feels Mock or Partial
+## What Still Partial
 
-- no browser-driven E2E automation was added in this pass
-- payment authorization is still backed by the backend mock provider endpoint, not a live payment gateway
 - the home route is intentionally minimal and link-driven rather than a full discovery / marketing surface
+- browser validation is still the closest-practical-substitute path rather than full browser automation
+
+## What Still Mocked
+
+- payment authorization is still backed by the backend mock provider endpoint, not a live payment gateway
 
 ## What Still Blocks MVP-Level Confidence
 
-- one browser-driven happy path would increase confidence materially
-- a real payment gateway integration would move the flow from near-closed MVP to stronger production confidence
-- a final copy/product review pass would help polish, but is not a core blocker
+- a real payment gateway integration is still the biggest gap between MVP-closed and stronger production confidence
+- one browser-driven happy path would raise confidence further, but it is no longer a blocker to calling the buyer MVP closed
+- a final polish/copy review can improve feel, but not core readiness
 
 ## Recommended Next Pass
 
-- add one browser automation happy path for the buyer journey
-- decide whether the next priority is real payment integration or product/copy polish
-- keep the backend contract as-is and avoid reopening backend business decisions
+- decide whether the next priority is real payment integration or browser automation
+- keep the backend contract stable and avoid reopening backend business decisions
+- treat the current buyer flow as closed enough for focused polish and integrations, not for a rebuild
