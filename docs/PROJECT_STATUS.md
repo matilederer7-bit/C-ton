@@ -647,3 +647,54 @@ dispatch ����� �worker:
 
 השלב הבא
 - move from internal proof to the first controlled external-activation pass behind the existing provider and webhook boundaries
+## 2026-03-31 adversarial hardening pass
+
+מה הושלם
+- adversarial hardening was completed across api abuse, input abuse, sequence abuse, idempotency abuse, webhook abuse, frontend misuse, and weird-state operational checks
+- a dedicated adversarial validation suite was added and folded into `npm test`
+- canonical adversarial decision and handoff documents were added
+
+מה נבדק
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- adversarial validation passed for:
+  - malformed deal creation payloads
+  - invalid uuid route params
+  - otp abuse paths
+  - broken flow sequencing
+  - idempotent duplicate and conflicting replay behavior
+  - malformed, unknown, and duplicate webhooks
+  - direct frontend route misuse
+
+מה תוקן
+- deal creation input validation
+- uuid validation on sensitive route params
+- otp phone and session precondition validation
+- webhook body-shape validation
+- controlled `409` mapping for broken sequence/state abuse
+
+מה עדיין פתוח
+- live provider execution
+- full provider-specific webhook matrix
+- real notification transport
+
+מה non-blocking
+- payment remains mock-backed by design
+- notifications remain log-only by design
+- no git remote is configured, so no push was performed
+
+מה תלוי ביציאה החוצה
+- first live payment provider
+- provider-specific webhook matrix expansion
+- first real notification channel
+
+אחוז התקדמות משוער
+- backend: 96%
+- frontend: 92%
+- real integrations readiness: 89%
+- full system QA: 94%
+- adversarial hardening: 95%
+- overall product readiness: 94%
+
+השלב הבא
+- start the first controlled external-activation pass and attack the chosen real provider boundary with the same adversarial methodology
