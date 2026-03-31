@@ -48,6 +48,23 @@ type OtpSession = {
   verified: boolean;
 };
 
+type DealListRow = {
+  deal_id: string;
+  title: string;
+  state: DealState;
+  price_per_unit: number;
+  min_units: number;
+  max_units: number;
+  threshold_units: number;
+  deadline: string;
+  published_at: string | null;
+  completion_window_until: string | null;
+  created_at: string;
+  commission_rate: number;
+  joined_units: number;
+  participants_count: number;
+};
+
 const otpSessions = new Map<string, OtpSession>();
 const OTP_CODE = "123456";
 const OTP_TTL_MS = 10 * 60_000;
@@ -213,6 +230,36 @@ function deriveTrackingCopy(dealState: DealState, buyerState: BuyerState, moneyS
   };
 }
 
+function mapDealListRow(row: DealListRow) {
+  const joinedUnits = Number(row.joined_units || 0);
+  const participantsCount = Number(row.participants_count || 0);
+  const maxUnits = Number(row.max_units || 0);
+  const thresholdUnits = Number(row.threshold_units || 0);
+  const remainingUnits = Math.max(0, maxUnits - joinedUnits);
+  return {
+    deal_id: row.deal_id,
+    title: row.title,
+    state: row.state,
+    price_per_unit: Number(row.price_per_unit),
+    min_units: Number(row.min_units),
+    max_units: maxUnits,
+    threshold_units: thresholdUnits,
+    deadline: row.deadline,
+    published_at: row.published_at,
+    completion_window_until: row.completion_window_until,
+    created_at: row.created_at,
+    commission_rate: Number(row.commission_rate || 0),
+    metrics: {
+      joined_units: joinedUnits,
+      remaining_units: remainingUnits,
+      participants_count: participantsCount,
+      progress_to_target_pct: Number(Math.min(100, Math.round((joinedUnits / Math.max(1, thresholdUnits)) * 100))),
+      progress_to_capacity_pct: Number(Math.min(100, Math.round((joinedUnits / Math.max(1, maxUnits)) * 100)))
+    },
+    availability: deriveDealAvailability(row.state, remainingUnits)
+  };
+}
+
 async function sendFrontendFile(reply: FastifyReply, filename: string, contentType: string) {
   const content = await readFile(join(frontendDir, filename), "utf8");
   return reply.type(contentType).send(content);
@@ -222,6 +269,51 @@ export function registerFrontendExperience(
   app: FastifyInstance,
   deps: { withTx: WithTx; paymentProvider: PaymentProvider }
 ) {
+  app.get("/api/marketplace/deals", async (req: any) => {
+    const q = String(req.query?.q || "").trim();
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT
+           d.deal_id,
+           d.title,
+           d.state,
+           d.price_per_unit,
+           d.min_units,
+           d.max_units,
+           d.threshold_units,
+           d.deadline,
+           d.published_at,
+           d.completion_window_until,
+           d.created_at,
+           d.commission_rate,
+           COALESCE(SUM(p.qty),0) AS joined_units,
+           COUNT(p.participant_id)::int AS participants_count
+         FROM siton.deals d
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         WHERE d.state <> 'Draft'
+           AND ($1 = '' OR d.title ILIKE '%' || $1 || '%' OR d.deal_id::text ILIKE '%' || $1 || '%')
+         GROUP BY d.deal_id
+         ORDER BY
+           CASE
+             WHEN d.state IN ('PendingTarget','TargetReached') THEN 0
+             WHEN d.state IN ('ClosedForJoining','ReadyForCharging','Charging','CompletionWindow') THEN 1
+             ELSE 2
+           END,
+           COALESCE(d.published_at, d.created_at) DESC
+         LIMIT 48`,
+        [q]
+      );
+
+      return {
+        ok: true,
+        q,
+        deals: (result.rows as DealListRow[]).map(mapDealListRow),
+        discovery_mode: "public-marketplace-expansion",
+        note: "This searchable marketplace surface is a product expansion beyond the original link-based spec."
+      };
+    });
+  });
+
   app.get("/api/deals/:id/public", async (req: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
@@ -293,6 +385,299 @@ export function registerFrontendExperience(
           )
         },
         availability
+      };
+    });
+  });
+
+  app.get("/api/seller/deals", async () => {
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT
+           d.deal_id,
+           d.title,
+           d.state,
+           d.price_per_unit,
+           d.min_units,
+           d.max_units,
+           d.threshold_units,
+           d.deadline,
+           d.published_at,
+           d.completion_window_until,
+           d.created_at,
+           d.commission_rate,
+           COALESCE(SUM(p.qty),0) AS joined_units,
+           COUNT(p.participant_id)::int AS participants_count
+         FROM siton.deals d
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         GROUP BY d.deal_id
+         ORDER BY d.created_at DESC
+         LIMIT 100`
+      );
+
+      const deals = (result.rows as DealListRow[]).map(mapDealListRow);
+      return {
+        ok: true,
+        seller_surface: {
+          deals,
+          totals: {
+            total_deals: deals.length,
+            live_deals: deals.filter((deal) => ["PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"].includes(deal.state)).length,
+            completed_deals: deals.filter((deal) => deal.state === "Completed").length,
+            failed_or_cancelled: deals.filter((deal) => ["Failed", "Cancelled"].includes(deal.state)).length
+          }
+        }
+      };
+    });
+  });
+
+  app.get("/api/seller/deals/:id", async (req: any) => {
+    const dealId = String(req.params.id);
+    requireUuid(dealId, "deal_id");
+
+    return deps.withTx(async (c) => {
+      const dealResult = await c.query(
+        `SELECT
+           d.deal_id,
+           d.title,
+           d.state,
+           d.price_per_unit,
+           d.min_units,
+           d.max_units,
+           d.threshold_units,
+           d.deadline,
+           d.published_at,
+           d.completion_window_until,
+           d.created_at,
+           d.commission_rate,
+           COALESCE(SUM(p.qty),0) AS joined_units,
+           COUNT(p.participant_id)::int AS participants_count
+         FROM siton.deals d
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         WHERE d.deal_id = $1
+         GROUP BY d.deal_id`,
+        [dealId]
+      );
+
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const participants = await c.query(
+        `SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at
+         FROM siton.participants
+         WHERE deal_id = $1
+         ORDER BY created_at DESC
+         LIMIT 50`,
+        [dealId]
+      );
+
+      const attempts = await c.query(
+        `SELECT attempt_type, correlation_id, result_class, created_at
+         FROM siton.payment_attempts
+         WHERE deal_id = $1
+         ORDER BY created_at DESC
+         LIMIT 20`,
+        [dealId]
+      );
+
+      return {
+        ok: true,
+        deal: mapDealListRow(dealResult.rows[0] as DealListRow),
+        participants: participants.rows,
+        payment_attempts: attempts.rows,
+        seller_actions: {
+          can_publish: (dealResult.rows[0] as DealListRow).state === "Draft",
+          edit_locked: (dealResult.rows[0] as DealListRow).state !== "Draft",
+          create_similar_supported: true
+        }
+      };
+    });
+  });
+
+  app.get("/api/affiliate/overview", async () => {
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT deal_id, title, state, commission_rate, created_at, published_at
+         FROM siton.deals
+         ORDER BY created_at DESC
+         LIMIT 50`
+      );
+
+      return {
+        ok: true,
+        affiliate_surface: {
+          attribution_status: "partial",
+          payout_status: "not_active",
+          verification_status: "not_modeled",
+          note: "Affiliate share links can be generated, but attribution and payout persistence are not implemented yet in the backend model.",
+          campaigns: result.rows.map((row: any) => ({
+            deal_id: row.deal_id,
+            title: row.title,
+            state: row.state,
+            commission_rate: Number(row.commission_rate || 0),
+            created_at: row.created_at,
+            published_at: row.published_at,
+            share_link: `/app/deal/${row.deal_id}?ref=affiliate-demo`
+          }))
+        }
+      };
+    });
+  });
+
+  app.get("/api/admin/overview", async (req: any) => {
+    const q = String(req.query?.q || "").trim();
+    return deps.withTx(async (c) => {
+      const deals = await c.query(
+        `SELECT
+           d.deal_id,
+           d.title,
+           d.state,
+           d.price_per_unit,
+           d.min_units,
+           d.max_units,
+           d.threshold_units,
+           d.deadline,
+           d.published_at,
+           d.completion_window_until,
+           d.created_at,
+           d.commission_rate,
+           COALESCE(SUM(p.qty),0) AS joined_units,
+           COUNT(p.participant_id)::int AS participants_count
+         FROM siton.deals d
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         GROUP BY d.deal_id
+         ORDER BY d.created_at DESC
+         LIMIT 100`
+      );
+
+      const search = q
+        ? await c.query(
+            `SELECT 'deal' AS entity_type, d.deal_id::text AS entity_id, d.title AS headline, d.state AS state, NULL::text AS detail
+             FROM siton.deals d
+             WHERE d.deal_id::text ILIKE '%' || $1 || '%' OR d.title ILIKE '%' || $1 || '%'
+             UNION ALL
+             SELECT 'participant' AS entity_type, p.participant_id::text AS entity_id, p.buyer_id AS headline, p.buyer_state AS state, p.deal_id::text AS detail
+             FROM siton.participants p
+             WHERE p.participant_id::text ILIKE '%' || $1 || '%' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.deal_id::text ILIKE '%' || $1 || '%'
+             ORDER BY entity_type, headline
+             LIMIT 30`,
+            [q]
+          )
+        : { rows: [] };
+
+      const rows = deals.rows as DealListRow[];
+      return {
+        ok: true,
+        q,
+        admin_surface: {
+          totals: {
+            deals: rows.length,
+            live: rows.filter((row) => ["PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"].includes(row.state)).length,
+            exceptional: rows.filter((row) => ["Failed", "Cancelled", "Charging", "CompletionWindow"].includes(row.state)).length,
+            draft: rows.filter((row) => row.state === "Draft").length
+          },
+          deals: rows.map(mapDealListRow).slice(0, 20),
+          exceptional_deals: rows.filter((row) => ["Failed", "Cancelled", "Charging", "CompletionWindow"].includes(row.state)).map(mapDealListRow).slice(0, 12),
+          search_results: search.rows
+        }
+      };
+    });
+  });
+
+  app.get("/api/admin/deals/:id/profile", async (req: any) => {
+    const dealId = String(req.params.id);
+    requireUuid(dealId, "deal_id");
+
+    return deps.withTx(async (c) => {
+      const deal = await c.query(
+        `SELECT *
+         FROM siton.deals
+         WHERE deal_id = $1`,
+        [dealId]
+      );
+      if (!deal.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const participants = await c.query(
+        `SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at
+         FROM siton.participants
+         WHERE deal_id = $1
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        [dealId]
+      );
+      const outbox = await c.query(
+        `SELECT event_type, status, available_at, created_at
+         FROM siton.outbox_events
+         WHERE aggregate_id = $1
+         ORDER BY created_at DESC
+         LIMIT 30`,
+        [dealId]
+      );
+      const attempts = await c.query(
+        `SELECT attempt_type, correlation_id, result_class, created_at
+         FROM siton.payment_attempts
+         WHERE deal_id = $1
+         ORDER BY created_at DESC
+         LIMIT 30`,
+        [dealId]
+      );
+      const audit = await c.query(
+        `SELECT entity_type, state_type, from_state, to_state, action_name, created_at
+         FROM siton.audit_log
+         WHERE deal_id = $1
+         ORDER BY created_at DESC
+         LIMIT 30`,
+        [dealId]
+      );
+
+      return {
+        ok: true,
+        profile: {
+          deal: deal.rows[0],
+          participants: participants.rows,
+          outbox: outbox.rows,
+          payment_attempts: attempts.rows,
+          audit: audit.rows
+        }
+      };
+    });
+  });
+
+  app.get("/api/admin/users/:buyerId/profile", async (req: any) => {
+    const buyerId = String(req.params.buyerId || "").trim();
+    if (!buyerId) {
+      const err: any = new Error("buyer_id required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      const participants = await c.query(
+        `SELECT p.participant_id, p.deal_id, p.qty, p.buyer_state, p.money_state, p.created_at, d.title, d.state AS deal_state
+         FROM siton.participants p
+         JOIN siton.deals d ON d.deal_id = p.deal_id
+         WHERE p.buyer_id = $1
+         ORDER BY p.created_at DESC
+         LIMIT 100`,
+        [buyerId]
+      );
+
+      return {
+        ok: true,
+        profile: {
+          buyer_id: buyerId,
+          joins: participants.rows,
+          totals: {
+            total_joins: participants.rowCount,
+            active_joins: participants.rows.filter((row: any) => !["DealCompleted", "DealFailed", "Dropped"].includes(row.buyer_state)).length
+          }
+        }
       };
     });
   });
@@ -477,9 +862,17 @@ export function registerFrontendExperience(
 
   app.get("/app", sendShell);
   app.get("/app/", sendShell);
+  app.get("/app/marketplace", sendShell);
   app.get("/app/deal/:dealId", sendShell);
   app.get("/app/join/:dealId/otp", sendShell);
   app.get("/app/join/:dealId/payment", sendShell);
   app.get("/app/join/:dealId/confirmation", sendShell);
   app.get("/app/track/:participantId", sendShell);
+  app.get("/app/seller", sendShell);
+  app.get("/app/seller/new", sendShell);
+  app.get("/app/seller/deals/:dealId", sendShell);
+  app.get("/app/affiliate", sendShell);
+  app.get("/app/admin", sendShell);
+  app.get("/app/admin/deals/:dealId", sendShell);
+  app.get("/app/admin/users/:buyerId", sendShell);
 }

@@ -55,6 +55,7 @@ p { margin: 0; line-height: 1.55; }
 .choice { padding: 16px; border-radius: 18px; border: 1px solid rgba(81, 54, 33, 0.12); background: rgba(255, 255, 255, 0.72); cursor: pointer; }
 .choice.active { border-color: rgba(170, 61, 35, 0.4); background: rgba(170, 61, 35, 0.08); }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.actions.spread { justify-content: space-between; align-items: flex-start; }
 .button, button { appearance: none; border: 0; cursor: pointer; padding: 14px 18px; border-radius: 16px; font: inherit; font-weight: 800; transition: transform 0.15s ease, opacity 0.15s ease; }
 .button.primary, button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: white; }
 .button.secondary, button.secondary { background: rgba(63, 38, 22, 0.08); color: var(--text); }
@@ -73,13 +74,17 @@ p { margin: 0; line-height: 1.55; }
 .compact { padding: 16px; border-radius: 18px; }
 .compact-section { margin-top: 0; }
 .status-rail { display: grid; gap: 10px; }
+.card-list { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.table-like { display: grid; gap: 8px; }
+.table-row { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); padding: 14px; border-radius: 16px; background: rgba(255,255,255,0.7); border: 1px solid rgba(81, 54, 33, 0.09); }
+.table-head { font-weight: 800; background: rgba(63, 38, 22, 0.08); }
 .journey-step { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-radius: 16px; background: rgba(255,255,255,0.7); border: 1px solid rgba(81, 54, 33, 0.09); }
 .journey-step.done { border-color: rgba(47, 122, 82, 0.24); background: rgba(47, 122, 82, 0.08); }
 .journey-step.current { border-color: rgba(170, 61, 35, 0.24); background: rgba(170, 61, 35, 0.08); }
 .journey-bullet { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 999px; background: rgba(36, 21, 13, 0.08); font-weight: 800; }
 a.button { text-decoration: none; display: inline-flex; align-items: center; justify-content: center; }
 @media (max-width: 900px) {
-  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields { grid-template-columns: 1fr; }
+  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields, .card-list { grid-template-columns: 1fr; }
   .shell { width: min(100vw - 18px, 1120px); padding-top: 14px; }
   .hero-main, .hero-side, .section { padding: 18px; border-radius: 20px; }
 }

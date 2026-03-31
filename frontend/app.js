@@ -11,16 +11,31 @@ const state = {
   route: parseRoute(location.pathname),
   dealPayload: null,
   trackingPayload: null,
+  marketplacePayload: null,
+  sellerPayload: null,
+  sellerDealPayload: null,
+  affiliatePayload: null,
+  adminPayload: null,
+  adminDealPayload: null,
+  adminUserPayload: null,
   error: null,
   banner: null,
   form: {
+    marketQuery: "",
+    adminQuery: "",
     qty: "1",
     phone: "",
     code: "",
     holderName: "",
     cardNumber: "",
     expiry: "",
-    cvv: ""
+    cvv: "",
+    sellerTitle: "",
+    sellerPrice: "10",
+    sellerMinUnits: "10",
+    sellerMaxUnits: "20",
+    sellerDeadline: "",
+    sellerCommissionRate: "0"
   }
 };
 
@@ -61,6 +76,14 @@ const MONEY_COPY = {
 };
 
 const ROUTE_LABELS = {
+  marketplace: "Marketplace",
+  seller: "Seller",
+  "seller-new": "New Deal",
+  "seller-deal": "Seller Deal",
+  affiliate: "Affiliate",
+  admin: "Admin",
+  "admin-deal": "Admin Deal",
+  "admin-user": "User Profile",
   home: "מסלול קונה",
   deal: "דף עסקה",
   otp: "אימות טלפון",
@@ -74,6 +97,19 @@ const PAYMENT_READINESS = {
   providerLabel: "Mock authorization provider",
   settlementModel: "authorization קודם, charge מאוחר יותר",
   integrationNote: "נקודת ההחלפה ל-provider אמיתי מרוכזת בתוך paymentService."
+};
+
+const DEAL_TONE = {
+  Draft: "warning",
+  PendingTarget: "success",
+  TargetReached: "success",
+  ClosedForJoining: "warning",
+  ReadyForCharging: "warning",
+  Charging: "warning",
+  CompletionWindow: "warning",
+  Completed: "success",
+  Failed: "danger",
+  Cancelled: "danger"
 };
 
 addEventListener("popstate", () => navigate(location.pathname, false));
@@ -96,6 +132,7 @@ document.addEventListener("click", (event) => {
     const action = actionTarget.getAttribute("data-inline-action");
     if (action === "restart-flow") restartFlow();
     if (action === "reset-otp") resetOtp();
+    if (action === "seller-clone") cloneSellerDeal(actionTarget.dataset.dealId);
   }
 });
 
@@ -127,19 +164,32 @@ function parseRoute(path) {
   const normalized = path.replace(/\/+$/, "") || "/";
   if (normalized === "/" || normalized === "/app") return { name: "home" };
   const patterns = [
+    ["marketplace", /^\/app\/marketplace$/],
     ["deal", /^\/app\/deal\/([^/]+)$/],
     ["otp", /^\/app\/join\/([^/]+)\/otp$/],
     ["payment", /^\/app\/join\/([^/]+)\/payment$/],
     ["confirmation", /^\/app\/join\/([^/]+)\/confirmation$/],
-    ["tracking", /^\/app\/track\/([^/]+)$/]
+    ["tracking", /^\/app\/track\/([^/]+)$/],
+    ["seller", /^\/app\/seller$/],
+    ["seller-new", /^\/app\/seller\/new$/],
+    ["seller-deal", /^\/app\/seller\/deals\/([^/]+)$/],
+    ["affiliate", /^\/app\/affiliate$/],
+    ["admin", /^\/app\/admin$/],
+    ["admin-deal", /^\/app\/admin\/deals\/([^/]+)$/],
+    ["admin-user", /^\/app\/admin\/users\/([^/]+)$/]
   ];
 
   for (const [name, regex] of patterns) {
     const match = normalized.match(regex);
     if (!match) continue;
+    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "marketplace") {
+      return { name };
+    }
     return name === "tracking"
       ? { name, participantId: decodeURIComponent(match[1]) }
-      : { name, dealId: decodeURIComponent(match[1]) };
+      : name === "admin-user"
+        ? { name, buyerId: decodeURIComponent(match[1]) }
+        : { name, dealId: decodeURIComponent(match[1]) };
   }
 
   return { name: "not-found" };
@@ -157,8 +207,16 @@ function navigate(path, push = true) {
 
 async function runRoute() {
   const route = state.route;
+  if (route.name === "home" || route.name === "marketplace") return loadMarketplace(state.form.marketQuery);
   if (route.name === "deal") return loadDeal(route.dealId);
   if (route.name === "tracking") return loadTracking(route.participantId);
+  if (route.name === "seller") return loadSeller();
+  if (route.name === "seller-new") return prepareSellerNew();
+  if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
+  if (route.name === "affiliate") return loadAffiliate();
+  if (route.name === "admin") return loadAdmin(state.form.adminQuery);
+  if (route.name === "admin-deal") return loadAdminDeal(route.dealId);
+  if (route.name === "admin-user") return loadAdminUser(route.buyerId);
 
   if (["otp", "payment", "confirmation"].includes(route.name)) {
     await ensureDeal(route.dealId);
@@ -221,6 +279,55 @@ async function loadTracking(participantId) {
   }, "לא הצלחנו לטעון את המעקב.");
 }
 
+async function loadMarketplace(query = "") {
+  await busy("Loading marketplace...", async () => {
+    state.marketplacePayload = await api(`/api/marketplace/deals?q=${encodeURIComponent(query || "")}`);
+  }, "Could not load marketplace deals.");
+}
+
+async function loadSeller() {
+  await busy("Loading seller workspace...", async () => {
+    state.sellerPayload = await api("/api/seller/deals");
+  }, "Could not load the seller workspace.");
+}
+
+async function prepareSellerNew() {
+  if (!state.form.sellerDeadline) {
+    state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  }
+  render();
+}
+
+async function loadSellerDeal(dealId) {
+  await busy("Loading seller deal...", async () => {
+    state.sellerDealPayload = await api(`/api/seller/deals/${encodeURIComponent(dealId)}`);
+  }, "Could not load the seller deal view.");
+}
+
+async function loadAffiliate() {
+  await busy("Loading affiliate surface...", async () => {
+    state.affiliatePayload = await api("/api/affiliate/overview");
+  }, "Could not load the affiliate surface.");
+}
+
+async function loadAdmin(query = "") {
+  await busy("Loading admin surface...", async () => {
+    state.adminPayload = await api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`);
+  }, "Could not load the admin surface.");
+}
+
+async function loadAdminDeal(dealId) {
+  await busy("Loading admin deal profile...", async () => {
+    state.adminDealPayload = await api(`/api/admin/deals/${encodeURIComponent(dealId)}/profile`);
+  }, "Could not load the admin deal profile.");
+}
+
+async function loadAdminUser(buyerId) {
+  await busy("Loading admin user profile...", async () => {
+    state.adminUserPayload = await api(`/api/admin/users/${encodeURIComponent(buyerId)}/profile`);
+  }, "Could not load the user profile.");
+}
+
 function syncRoutePolling() {
   const pollKey = currentPollKey();
   if (routePollKey === pollKey) return;
@@ -240,21 +347,46 @@ function syncRoutePolling() {
 
 function currentPollKey() {
   const route = state.route;
+  if (route.name === "home" || route.name === "marketplace") return "marketplace";
   if (route.name === "deal") return `deal:${route.dealId}`;
   if (route.name === "tracking") return `tracking:${route.participantId}`;
+  if (route.name === "seller") return "seller";
+  if (route.name === "admin") return "admin";
   return "";
 }
 
 async function runRouteSilently() {
   const route = state.route;
   if (document.hidden) return;
+  if (route.name === "home" || route.name === "marketplace") {
+    await refreshMarketplaceSilently();
+    return;
+  }
   if (route.name === "deal") {
     await refreshDealSilently(route.dealId);
     return;
   }
   if (route.name === "tracking") {
     await refreshTrackingSilently(route.participantId);
+    return;
   }
+  if (route.name === "seller") {
+    await refreshSellerSilently();
+    return;
+  }
+  if (route.name === "admin") {
+    await refreshAdminSilently();
+  }
+}
+
+async function refreshMarketplaceSilently() {
+  try {
+    const next = await api(`/api/marketplace/deals?q=${encodeURIComponent(state.form.marketQuery || "")}`);
+    if (!state.marketplacePayload || JSON.stringify(state.marketplacePayload.deals) !== JSON.stringify(next.deals)) {
+      state.marketplacePayload = next;
+      render();
+    }
+  } catch {}
 }
 
 async function refreshDealSilently(dealId) {
@@ -307,11 +439,35 @@ async function refreshTrackingSilently(participantId) {
   } catch {}
 }
 
+async function refreshSellerSilently() {
+  try {
+    const next = await api("/api/seller/deals");
+    if (!state.sellerPayload || JSON.stringify(state.sellerPayload.seller_surface.deals) !== JSON.stringify(next.seller_surface.deals)) {
+      state.sellerPayload = next;
+      render();
+    }
+  } catch {}
+}
+
+async function refreshAdminSilently() {
+  try {
+    const next = await api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`);
+    if (!state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals)) {
+      state.adminPayload = next;
+      render();
+    }
+  } catch {}
+}
+
 async function submitAction(action, form) {
+  if (action === "marketplace-search") return loadMarketplace(state.form.marketQuery);
   if (action === "start-join") return startJoin();
   if (action === "otp-start") return otpStart(form);
   if (action === "otp-verify") return otpVerify(form);
   if (action === "pay") return payAndJoin(form);
+  if (action === "seller-create") return createDeal(form);
+  if (action === "seller-publish") return publishDeal(form.dataset.dealId);
+  if (action === "admin-search") return loadAdmin(state.form.adminQuery);
 }
 
 function startJoin() {
@@ -459,18 +615,89 @@ async function payAndJoin(form) {
   }, "תפיסת המסגרת או שמירת ההצטרפות נכשלו.");
 }
 
+async function createDeal(form) {
+  const formData = new FormData(form);
+  const title = String(formData.get("sellerTitle") || "").trim();
+  const deadline = String(formData.get("sellerDeadline") || "").trim();
+  if (!title) return fail("Title is required", "Enter a title before creating the deal.");
+  if (!deadline) return fail("Deadline is required", "Select a deadline before creating the deal.");
+
+  await busy("Creating seller deal...", async () => {
+    const response = await api("/deals", {
+      method: "POST",
+      headers: {
+        "x-request-id": `seller:${Date.now()}`,
+        "idempotency-key": `seller-create:${Date.now()}`
+      },
+      body: json({
+        title,
+        price_per_unit: Number(formData.get("sellerPrice") || 0),
+        min_units: Number(formData.get("sellerMinUnits") || 0),
+        max_units: Number(formData.get("sellerMaxUnits") || 0),
+        deadline: new Date(deadline).toISOString(),
+        commission_rate: Number(formData.get("sellerCommissionRate") || 0)
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Draft deal created",
+      message: "The seller draft is ready for review and publish."
+    };
+    navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
+  }, "Seller deal creation failed.");
+}
+
+async function publishDeal(dealId) {
+  if (!dealId) return;
+  await busy("Publishing seller deal...", async () => {
+    await api(`/deals/${encodeURIComponent(dealId)}/publish`, {
+      method: "POST",
+      headers: {
+        "x-request-id": `seller-publish:${Date.now()}`,
+        "idempotency-key": `seller-publish:${dealId}`
+      }
+    });
+    state.banner = {
+      tone: "success",
+      title: "Deal published",
+      message: "The deal is now public and available for sharing."
+    };
+    await loadSellerDeal(dealId);
+  }, "Deal publish failed.");
+}
+
+function cloneSellerDeal(dealId) {
+  const deal = state.sellerDealPayload?.deal;
+  if (!deal || deal.deal_id !== dealId) return;
+  state.form.sellerTitle = `${deal.title} (copy)`;
+  state.form.sellerPrice = String(deal.price_per_unit);
+  state.form.sellerMinUnits = String(deal.min_units);
+  state.form.sellerMaxUnits = String(deal.max_units);
+  state.form.sellerCommissionRate = String(deal.commission_rate || 0);
+  state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
+  navigate("/app/seller/new");
+}
+
 function restartFlow() {
   const dealId = state.route.dealId || state.trackingPayload?.tracking?.deal_id || state.dealPayload?.deal?.deal_id;
   if (!dealId) return navigate("/app");
   removeFlow(dealId);
   state.form = {
+    marketQuery: state.form.marketQuery,
+    adminQuery: state.form.adminQuery,
     qty: String(state.dealPayload?.deal?.min_units || 1),
     phone: "",
     code: "",
     holderName: "",
     cardNumber: "",
     expiry: "",
-    cvv: ""
+    cvv: "",
+    sellerTitle: state.form.sellerTitle,
+    sellerPrice: state.form.sellerPrice,
+    sellerMinUnits: state.form.sellerMinUnits,
+    sellerMaxUnits: state.form.sellerMaxUnits,
+    sellerDeadline: state.form.sellerDeadline,
+    sellerCommissionRate: state.form.sellerCommissionRate
   };
   navigate(`/app/deal/${encodeURIComponent(dealId)}`);
 }
@@ -505,16 +732,66 @@ function render() {
 
 function renderCurrentRoute() {
   const route = state.route;
-  if (route.name === "home") return renderHome();
+  if (route.name === "home" || route.name === "marketplace") return renderHome();
   if (route.name === "deal") return renderDealPage();
   if (route.name === "otp") return renderOtpPage(route.dealId);
   if (route.name === "payment") return renderPaymentPage(route.dealId);
   if (route.name === "confirmation") return renderConfirmationPage(route.dealId);
   if (route.name === "tracking") return renderTrackingPage();
+  if (route.name === "seller") return renderSellerPage();
+  if (route.name === "seller-new") return renderSellerNewPage();
+  if (route.name === "seller-deal") return renderSellerDealPage();
+  if (route.name === "affiliate") return renderAffiliatePage();
+  if (route.name === "admin") return renderAdminPage();
+  if (route.name === "admin-deal") return renderAdminDealPage();
+  if (route.name === "admin-user") return renderAdminUserPage();
   return renderEmptyState("העמוד לא נמצא", "הקישור הזה לא קיים או שכבר אינו זמין.");
 }
 
 function renderHome() {
+  const payload = state.marketplacePayload;
+  const deals = payload?.deals || [];
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Full Product Surface</span>
+        <h1>Public marketplace plus the original buyer flow</h1>
+        <p class="muted">
+          Before this task we had a strong backend, buyer flow, internal closure, system QA, and hardening,
+          but almost no real seller, affiliate, admin, or public discovery surfaces. This page now acts as the public product hub.
+        </p>
+        <div class="actions">
+          <a class="button secondary" href="/app/seller" data-nav="/app/seller">Seller workspace</a>
+          <a class="button secondary" href="/app/affiliate" data-nav="/app/affiliate">Affiliate workspace</a>
+          <a class="button secondary" href="/app/admin" data-nav="/app/admin">Admin workspace</a>
+        </div>
+        <form class="stack" data-action="marketplace-search">
+          <div class="field">
+            <label for="marketQuery">Search public deals</label>
+            <input id="marketQuery" name="marketQuery" type="search" value="${esc(state.form.marketQuery)}" placeholder="Search by title or deal id" />
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit">Search deals</button>
+            <a class="button secondary" href="/app" data-nav="/app">Reset</a>
+          </div>
+        </form>
+        <div class="summary-item">
+          <span class="muted">Scope note</span>
+          <strong>${payload?.discovery_mode || "public marketplace"}</strong>
+          <p class="small muted">${payload?.note || "Public searchable discovery is active here as a product expansion beyond the original link-based spec."}</p>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">Public deals loaded</span><strong>${num(deals.length)}</strong></div>
+        <div class="summary-item"><span class="muted">What existed before this task</span><strong>Buyer flow, tracking, runtime, QA, hardening</strong></div>
+        <div class="summary-item"><span class="muted">What was missing before this task</span><strong>Seller, affiliate, admin, searchable public discovery</strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Public deals</h2>
+      ${deals.length ? `<div class="card-list">${deals.map(renderMarketplaceCard).join("")}</div>` : `<p class="muted">No public deals matched the current query.</p>`}
+    </section>
+  `;
   return `
     <section class="hero">
       <article class="card hero-main stack">
@@ -856,6 +1133,318 @@ function renderTrackingPage() {
   `;
 }
 
+function renderMarketplaceCard(item) {
+  return `
+    <article class="summary-item">
+      <div class="actions spread">
+        <div>
+          <span class="muted">${esc(item.state)}</span>
+          <h3>${esc(item.title)}</h3>
+        </div>
+        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(item.availability.badge || item.state)}</span>
+      </div>
+      <p class="small muted">${esc(item.availability.message || "")}</p>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Price</span><strong>${currency(item.price_per_unit)}</strong></div>
+        <div class="summary-item"><span class="muted">Joined</span><strong>${num(item.metrics.joined_units)}</strong></div>
+        <div class="summary-item"><span class="muted">Remaining</span><strong>${num(item.metrics.remaining_units)}</strong></div>
+        <div class="summary-item"><span class="muted">Deadline</span><strong>${dt(item.deadline)}</strong></div>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">Open deal</a>
+        <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">Seller view</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderSellerPage() {
+  const payload = state.sellerPayload?.seller_surface;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Seller workspace unavailable", "The seller workspace could not be loaded.");
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Seller surface</span>
+        <h1>Seller workspace across all deals</h1>
+        <p class="muted">This closes the seller black hole that existed before this task: list, draft, publish, live view, closed view, and create-similar entry are now visible in the product surface.</p>
+        <div class="metric-grid">
+          <div class="metric"><span class="muted">Total deals</span><strong>${num(payload.totals.total_deals)}</strong></div>
+          <div class="metric"><span class="muted">Live deals</span><strong>${num(payload.totals.live_deals)}</strong></div>
+          <div class="metric"><span class="muted">Completed deals</span><strong>${num(payload.totals.completed_deals)}</strong></div>
+        </div>
+        <div class="actions">
+          <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">Create a new deal</a>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">Failed or cancelled</span><strong>${num(payload.totals.failed_or_cancelled)}</strong></div>
+        <div class="summary-item"><span class="muted">Editing rule</span><strong>Draft only</strong><p class="small muted">Published deals are locked from editing, matching the current product rule.</p></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Seller deals</h2>
+      <div class="card-list">${payload.deals.map(renderSellerDealCard).join("")}</div>
+    </section>
+  `;
+}
+
+function renderSellerDealCard(item) {
+  return `
+    <article class="summary-item">
+      <div class="actions spread">
+        <div>
+          <span class="muted">${esc(item.state)}</span>
+          <h3>${esc(item.title)}</h3>
+        </div>
+        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(item.state)}</span>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Joined units</span><strong>${num(item.metrics.joined_units)}</strong></div>
+        <div class="summary-item"><span class="muted">Remaining</span><strong>${num(item.metrics.remaining_units)}</strong></div>
+        <div class="summary-item"><span class="muted">Commission</span><strong>${num(Math.round((item.commission_rate || 0) * 100))}%</strong></div>
+        <div class="summary-item"><span class="muted">Deadline</span><strong>${dt(item.deadline)}</strong></div>
+      </div>
+      <div class="actions">
+        <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">Open seller view</a>
+        <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">Open buyer view</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderSellerNewPage() {
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Seller creation</span>
+        <h1>Create a staged deal</h1>
+        <p class="muted">This uses the live backend create endpoint and keeps the current product rule that publish computes the threshold from the minimum quantity.</p>
+      </article>
+      <aside class="card hero-side stack">
+        <form data-action="seller-create" class="stack">
+          <div class="field"><label for="sellerTitle">Title</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
+          <div class="inline-fields">
+            <div class="field"><label for="sellerPrice">Price per unit</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
+            <div class="field"><label for="sellerCommissionRate">Commission rate</label><input id="sellerCommissionRate" name="sellerCommissionRate" type="number" step="0.01" value="${esc(state.form.sellerCommissionRate)}" /></div>
+          </div>
+          <div class="inline-fields">
+            <div class="field"><label for="sellerMinUnits">Minimum units</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" /></div>
+            <div class="field"><label for="sellerMaxUnits">Maximum units</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" /></div>
+          </div>
+          <div class="field"><label for="sellerDeadline">Deadline</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" /></div>
+          <button class="primary" type="submit">Create draft deal</button>
+        </form>
+      </aside>
+    </section>
+  `;
+}
+
+function renderSellerDealPage() {
+  const payload = state.sellerDealPayload;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Seller deal unavailable", "The seller detail view could not be loaded.");
+  const deal = payload.deal;
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Seller detail</span>
+        <span class="badge ${DEAL_TONE[deal.state] || "warning"}">${esc(deal.state)}</span>
+        <h1>${esc(deal.title)}</h1>
+        <p class="muted">Published deals are locked from editing. This seller screen stays aligned to the live backend truth.</p>
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">Price per unit</span><strong>${currency(deal.price_per_unit)}</strong></div>
+          <div class="summary-item"><span class="muted">Joined units</span><strong>${num(deal.metrics.joined_units)}</strong></div>
+          <div class="summary-item"><span class="muted">Participants</span><strong>${num(deal.metrics.participants_count)}</strong></div>
+          <div class="summary-item"><span class="muted">Commission</span><strong>${num(Math.round((deal.commission_rate || 0) * 100))}%</strong></div>
+        </div>
+        <div class="actions">
+          ${payload.seller_actions.can_publish ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}"><button class="primary" type="submit">Publish deal</button></form>` : ""}
+          <button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}">Create similar</button>
+          <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">Public deal page</a>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">Edit status</span><strong>${payload.seller_actions.edit_locked ? "Locked after publish" : "Editable draft"}</strong></div>
+        <div class="summary-item"><span class="muted">Created</span><strong>${dt(deal.created_at)}</strong></div>
+        <div class="summary-item"><span class="muted">Deadline</span><strong>${dt(deal.deadline)}</strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Participants</h2>
+      ${payload.participants.length ? renderRowsTable(payload.participants, ["participant_id", "buyer_id", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">No participants joined this deal yet.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Payment attempts</h2>
+      ${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<p class="muted">No payment attempts were recorded yet.</p>`}
+    </section>
+  `;
+}
+
+function renderAffiliatePage() {
+  const payload = state.affiliatePayload?.affiliate_surface;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Affiliate workspace unavailable", "The affiliate workspace could not be loaded.");
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Affiliate / distributor</span>
+        <h1>Affiliate share surface</h1>
+        <p class="muted">This area now exists in the product, but it also honestly marks the backend gaps that still block full affiliate closure.</p>
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">Attribution</span><strong>${esc(payload.attribution_status)}</strong></div>
+          <div class="summary-item"><span class="muted">Payout status</span><strong>${esc(payload.payout_status)}</strong></div>
+          <div class="summary-item"><span class="muted">Verification</span><strong>${esc(payload.verification_status)}</strong></div>
+          <div class="summary-item"><span class="muted">Reality note</span><strong>Partial by design</strong></div>
+        </div>
+        <div class="info-strip tone-warning">
+          <strong>Current limitation</strong>
+          <p>${esc(payload.note)}</p>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">Campaigns surfaced</span><strong>${num(payload.campaigns.length)}</strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Available affiliate campaigns</h2>
+      <div class="card-list">
+        ${payload.campaigns.map((campaign) => `
+          <article class="summary-item">
+            <span class="muted">${esc(campaign.state)}</span>
+            <h3>${esc(campaign.title)}</h3>
+            <p class="small muted">Commission: ${num(Math.round((campaign.commission_rate || 0) * 100))}%</p>
+            <p class="small mono">${esc(campaign.share_link)}</p>
+            <div class="actions">
+              <a class="button secondary" href="/app/deal/${encodeURIComponent(campaign.deal_id)}" data-nav="/app/deal/${encodeURIComponent(campaign.deal_id)}">Open deal</a>
+            </div>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAdminPage() {
+  const payload = state.adminPayload?.admin_surface;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Admin workspace unavailable", "The admin surface could not be loaded.");
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Admin surface</span>
+        <h1>Operational visibility across the product</h1>
+        <p class="muted">This closes the previous gap where product operation existed mostly as raw endpoints rather than an admin-facing surface.</p>
+        <form class="stack" data-action="admin-search">
+          <div class="field">
+            <label for="adminQuery">Omnisearch</label>
+            <input id="adminQuery" name="adminQuery" type="search" value="${esc(state.form.adminQuery)}" placeholder="deal id, title, participant id, buyer id" />
+          </div>
+          <button class="primary" type="submit">Search</button>
+        </form>
+        <div class="metric-grid">
+          <div class="metric"><span class="muted">Deals</span><strong>${num(payload.totals.deals)}</strong></div>
+          <div class="metric"><span class="muted">Live deals</span><strong>${num(payload.totals.live)}</strong></div>
+          <div class="metric"><span class="muted">Exceptional deals</span><strong>${num(payload.totals.exceptional)}</strong></div>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">Draft deals</span><strong>${num(payload.totals.draft)}</strong></div>
+        <div class="summary-item"><span class="muted">System status entry</span><strong><span class="mono">/health</span> and <span class="mono">/health/integrations</span></strong></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Exceptional deals</h2>
+      ${payload.exceptional_deals.length ? `<div class="card-list">${payload.exceptional_deals.map(renderAdminDealCard).join("")}</div>` : `<p class="muted">No exceptional deals were returned.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Omnisearch results</h2>
+      ${payload.search_results.length ? renderRowsTable(payload.search_results, ["entity_type", "entity_id", "headline", "state", "detail"]) : `<p class="muted">No search results yet. Run omnisearch to inspect deals, participants, or buyers.</p>`}
+    </section>
+  `;
+}
+
+function renderAdminDealCard(item) {
+  return `
+    <article class="summary-item">
+      <span class="muted">${esc(item.state)}</span>
+      <h3>${esc(item.title)}</h3>
+      <p class="small muted">Joined ${num(item.metrics.joined_units)} / ${num(item.max_units)} units</p>
+      <div class="actions">
+        <a class="button primary" href="/app/admin/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(item.deal_id)}">Open admin profile</a>
+        <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">Seller profile</a>
+      </div>
+    </article>
+  `;
+}
+
+function renderAdminDealPage() {
+  const payload = state.adminDealPayload?.profile;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Admin deal profile unavailable", "The admin deal profile could not be loaded.");
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Admin deal profile</span>
+        <h1>${esc(payload.deal.title || payload.deal.deal_id)}</h1>
+        <p class="muted">Cross-surface truth for deal state, participants, outbox, payment attempts, and audit.</p>
+        ${renderRowsTable([payload.deal], ["deal_id", "state", "price_per_unit", "min_units", "max_units", "threshold_units", "deadline", "commission_rate"])}
+      </article>
+      <aside class="card hero-side stack">
+        <div class="actions">
+          <a class="button secondary" href="/app/admin" data-nav="/app/admin">Back to admin</a>
+          <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}">Open seller view</a>
+        </div>
+      </aside>
+    </section>
+    <section class="card section stack"><h2>Participants</h2>${payload.participants.length ? renderRowsTable(payload.participants, ["participant_id", "buyer_id", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">No participants found.</p>`}</section>
+    <section class="card section stack"><h2>Outbox</h2>${payload.outbox.length ? renderRowsTable(payload.outbox, ["event_type", "status", "available_at", "created_at"]) : `<p class="muted">No outbox rows found.</p>`}</section>
+    <section class="card section stack"><h2>Payment attempts</h2>${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<p class="muted">No payment attempts found.</p>`}</section>
+    <section class="card section stack"><h2>Audit</h2>${payload.audit.length ? renderRowsTable(payload.audit, ["entity_type", "state_type", "from_state", "to_state", "action_name", "created_at"]) : `<p class="muted">No audit rows found.</p>`}</section>
+  `;
+}
+
+function renderAdminUserPage() {
+  const payload = state.adminUserPayload?.profile;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("User profile unavailable", "The admin user profile could not be loaded.");
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">Admin user profile</span>
+        <h1>${esc(payload.buyer_id)}</h1>
+        <p class="muted">This profile aggregates all joins currently stored for the buyer identifier that came through OTP verification.</p>
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">Total joins</span><strong>${num(payload.totals.total_joins)}</strong></div>
+          <div class="summary-item"><span class="muted">Active joins</span><strong>${num(payload.totals.active_joins)}</strong></div>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="actions"><a class="button secondary" href="/app/admin" data-nav="/app/admin">Back to admin</a></div>
+      </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Join history</h2>
+      ${payload.joins.length ? renderRowsTable(payload.joins, ["participant_id", "deal_id", "title", "deal_state", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">No joins were found for this buyer id.</p>`}
+    </section>
+  `;
+}
+
+function renderRowsTable(rows, columns) {
+  return `
+    <div class="table-like">
+      <div class="table-row table-head">${columns.map((column) => `<span>${esc(column)}</span>`).join("")}</div>
+      ${rows.map((row) => `<div class="table-row">${columns.map((column) => `<span>${esc(formatCell(row[column]))}</span>`).join("")}</div>`).join("")}
+    </div>
+  `;
+}
+
+function formatCell(value) {
+  if (value === null || value === undefined || value === "") return "n/a";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
 function renderRecoveryState(title, message, href) {
   return `
     <section class="card section stack">
@@ -883,7 +1472,13 @@ function renderEmptyState(title, message) {
 
 function renderNav() {
   return `
-    <nav class="page-nav">
+      <nav class="page-nav">
+        <div class="actions">
+          <a href="/app" data-nav="/app" class="button secondary">Siton</a>
+          <a href="/app/seller" data-nav="/app/seller" class="button secondary">Seller</a>
+          <a href="/app/affiliate" data-nav="/app/affiliate" class="button secondary">Affiliate</a>
+          <a href="/app/admin" data-nav="/app/admin" class="button secondary">Admin</a>
+        </div>
       <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
       <div class="route-chip">${ROUTE_LABELS[state.route.name] || "מסלול קונה"}</div>
     </nav>
@@ -1195,6 +1790,16 @@ function relativeTime(value) {
   if (hours < 24) return `לפני ${hours} שעות`;
   const days = Math.round(hours / 24);
   return `לפני ${days} ימים`;
+}
+
+function toDatetimeLocal(value) {
+  const date = new Date(value);
+  const yyyy = date.getFullYear();
+  const mm = String(date.getMonth() + 1).padStart(2, "0");
+  const dd = String(date.getDate()).padStart(2, "0");
+  const hh = String(date.getHours()).padStart(2, "0");
+  const mi = String(date.getMinutes()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
 }
 
 function json(value) {
