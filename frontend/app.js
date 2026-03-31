@@ -16,6 +16,7 @@ const state = {
   sellerDealPayload: null,
   affiliatePayload: null,
   adminPayload: null,
+  adminSystemStatusPayload: null,
   adminDealPayload: null,
   adminUserPayload: null,
   error: null,
@@ -318,7 +319,12 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("Loading admin surface...", async () => {
-    state.adminPayload = await api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`);
+    const [overview, systemStatus] = await Promise.all([
+      api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
+      api("/api/admin/system-status")
+    ]);
+    state.adminPayload = overview;
+    state.adminSystemStatusPayload = systemStatus;
   }, "Could not load the admin surface.");
 }
 
@@ -457,9 +463,17 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const next = await api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`);
-    if (!state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals)) {
+    const [next, systemStatus] = await Promise.all([
+      api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
+      api("/api/admin/system-status")
+    ]);
+    const totalsChanged = !state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals);
+    const systemChanged =
+      !state.adminSystemStatusPayload ||
+      JSON.stringify(state.adminSystemStatusPayload.system_status.operational_counts) !== JSON.stringify(systemStatus.system_status.operational_counts);
+    if (totalsChanged || systemChanged) {
       state.adminPayload = next;
+      state.adminSystemStatusPayload = systemStatus;
       render();
     }
   } catch {}
@@ -1450,6 +1464,7 @@ function renderSellerDealPage() {
             <strong>${num(row.qty)} units</strong>
           </div>
           <p class="small muted">Tracking: ${esc(row.tracking_number || "not set")} • Financial state: ${esc(row.money_state)}</p>
+          <p class="small muted">Use shipped or delivered only with a tracking number. Use issue only when you also explain the problem.</p>
           <form class="stack" data-action="seller-delivery-update" data-deal-id="${esc(deal.deal_id)}" data-participant-id="${esc(row.participant_id)}">
             <div class="inline-fields">
               <div class="field">
@@ -1551,6 +1566,7 @@ function renderAffiliatePage() {
 
 function renderAdminPage() {
   const payload = state.adminPayload?.admin_surface;
+  const systemStatus = state.adminSystemStatusPayload?.system_status;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("Admin workspace unavailable", "The admin surface could not be loaded.");
   return `
@@ -1574,7 +1590,7 @@ function renderAdminPage() {
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item"><span class="muted">Draft deals</span><strong>${num(payload.totals.draft)}</strong></div>
-        <div class="summary-item"><span class="muted">System status entry</span><strong><span class="mono">/health</span> and <span class="mono">/health/integrations</span></strong></div>
+        <div class="summary-item"><span class="muted">System status</span><strong>${systemStatus?.app_health?.ok ? "Healthy" : "Needs attention"}</strong></div>
       </aside>
     </section>
     <section class="card section stack">
@@ -1702,6 +1718,25 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">Pending webhooks</span><strong>${num(payload.forensics.pending_webhooks)}</strong></div>
         <div class="summary-item"><span class="muted">Recent audit events</span><strong>${num(payload.forensics.recent_audit_events)}</strong></div>
       </div>
+    </section>
+    <section class="card section stack">
+      <h2>System status</h2>
+      ${systemStatus ? `
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">App health</span><strong>${systemStatus.app_health.ok ? "ok" : "degraded"}</strong></div>
+          <div class="summary-item"><span class="muted">Payment mode</span><strong>${esc(systemStatus.integrations.payment.mode)}</strong></div>
+          <div class="summary-item"><span class="muted">Notifications</span><strong>${esc(systemStatus.integrations.notifications.mode)}</strong></div>
+          <div class="summary-item"><span class="muted">Active outbox</span><strong>${num(systemStatus.operational_counts.active_outbox)}</strong></div>
+          <div class="summary-item"><span class="muted">DLQ count</span><strong>${num(systemStatus.operational_counts.dlq_count)}</strong></div>
+          <div class="summary-item"><span class="muted">Pending webhooks</span><strong>${num(systemStatus.operational_counts.pending_webhooks)}</strong></div>
+          <div class="summary-item"><span class="muted">Failed webhooks</span><strong>${num(systemStatus.operational_counts.failed_webhooks)}</strong></div>
+          <div class="summary-item"><span class="muted">Open support tickets</span><strong>${num(systemStatus.operational_counts.open_support_tickets)}</strong></div>
+        </div>
+        <div class="info-strip tone-info">
+          <strong>External activation boundary</strong>
+          <p>${esc(systemStatus.notes.join(" "))}</p>
+        </div>
+      ` : `<p class="muted">System status could not be loaded.</p>`}
     </section>
   `;
 }

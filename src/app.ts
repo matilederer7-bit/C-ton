@@ -1426,7 +1426,11 @@ app.setErrorHandler((error: any, req, reply) => {
   });
 });
 
-registerFrontendExperience(app, { withTx, paymentProvider });
+registerFrontendExperience(app, {
+  withTx,
+  paymentProvider,
+  notificationSummary: getNotificationServiceSummary(notificationService)
+});
 
 app.get("/health", async () => ({ ok: true }));
 

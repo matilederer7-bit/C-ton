@@ -3,7 +3,7 @@ import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { createHash } from "crypto";
-import type { PaymentProvider } from "./payment_provider.js";
+import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import {
   AFFILIATE_FEE_SHARE_OF_PLATFORM,
   DEFAULT_AFFILIATE_CODE,
@@ -282,7 +282,15 @@ async function sendFrontendFile(reply: FastifyReply, filename: string, contentTy
 
 export function registerFrontendExperience(
   app: FastifyInstance,
-  deps: { withTx: WithTx; paymentProvider: PaymentProvider }
+  deps: {
+    withTx: WithTx;
+    paymentProvider: PaymentProvider;
+    notificationSummary: {
+      provider: string;
+      mode: string;
+      external_delivery: boolean;
+    };
+  }
 ) {
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
 
@@ -634,6 +642,16 @@ export function registerFrontendExperience(
       err.statusCode = 400;
       throw err;
     }
+    if ((status === "shipped" || status === "delivered") && !trackingNumber) {
+      const err: any = new Error("tracking number is required for shipped or delivered status");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (status === "issue" && !issueNote) {
+      const err: any = new Error("issue note is required when delivery status is issue");
+      err.statusCode = 400;
+      throw err;
+    }
 
     return deps.withTx(async (c) => {
       const participant = await c.query(
@@ -937,6 +955,49 @@ export function registerFrontendExperience(
     });
   });
 
+  app.get("/api/admin/system-status", async () => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const counts = await c.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM siton.outbox_events WHERE status IN ('pending','processing')) AS active_outbox,
+           (SELECT COUNT(*)::int FROM siton.outbox_dlq) AS dlq_count,
+           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='pending') AS pending_webhooks,
+           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='failed') AS failed_webhooks,
+           (SELECT COUNT(*)::int FROM siton.support_tickets WHERE status <> 'resolved') AS open_support_tickets`
+      );
+
+      return {
+        ok: true,
+        system_status: {
+          app_health: {
+            ok: true
+          },
+          integrations: {
+            payment: getPaymentProviderSummary(deps.paymentProvider),
+            notifications: deps.notificationSummary,
+            webhook_ingestion: {
+              duplicate_policy: "provider+event_id idempotent accept",
+              supported_events: [
+                "payment_authorized",
+                "payment_failed",
+                "charge_captured",
+                "charge_failed",
+                "recovery_captured",
+                "recovery_failed"
+              ]
+            }
+          },
+          operational_counts: counts.rows[0],
+          notes: [
+            "Payment remains intentionally mock-backed until external activation starts.",
+            "Notifications remain intentionally log-only until external activation starts."
+          ]
+        }
+      };
+    });
+  });
+
   app.get("/api/admin/deals/:id/profile", async (req: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
@@ -1197,6 +1258,48 @@ export function registerFrontendExperience(
     }
 
     return deps.withTx(async (c) => {
+      const current = await c.query(
+        `SELECT affiliate_id, verification_status, payout_status, payout_details_masked
+         FROM siton.affiliate_accounts
+         WHERE affiliate_id = $1`,
+        [affiliateId]
+      );
+
+      if (!current.rowCount) {
+        const err: any = new Error("affiliate profile not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const commissionSummary = await c.query(
+        `SELECT COALESCE(SUM(commission_amount),0) AS total_commission
+         FROM siton.affiliate_attributions
+         WHERE affiliate_id = $1
+           AND payout_status IN ('pending','approved')`,
+        [affiliateId]
+      );
+
+      const currentRow = current.rows[0] as any;
+      const verificationStatus = String(currentRow.verification_status || "");
+      const hasPayoutProfile = Boolean(String(currentRow.payout_details_masked || "").trim());
+      const totalCommission = Number(commissionSummary.rows[0]?.total_commission || 0);
+
+      if ((payoutStatus === "approved" || payoutStatus === "paid") && verificationStatus !== "verified") {
+        const err: any = new Error("affiliate payout approval requires verified affiliate");
+        err.statusCode = 409;
+        throw err;
+      }
+      if ((payoutStatus === "approved" || payoutStatus === "paid") && !hasPayoutProfile) {
+        const err: any = new Error("affiliate payout approval requires payout profile");
+        err.statusCode = 409;
+        throw err;
+      }
+      if ((payoutStatus === "approved" || payoutStatus === "paid") && totalCommission <= 0) {
+        const err: any = new Error("affiliate payout approval requires pending commission");
+        err.statusCode = 409;
+        throw err;
+      }
+
       const updated = await c.query(
         `UPDATE siton.affiliate_accounts
          SET payout_status = $2, updated_at = now()
@@ -1204,12 +1307,6 @@ export function registerFrontendExperience(
          RETURNING affiliate_id`,
         [affiliateId, payoutStatus]
       );
-
-      if (!updated.rowCount) {
-        const err: any = new Error("affiliate profile not found");
-        err.statusCode = 404;
-        throw err;
-      }
 
       if (payoutStatus === "approved" || payoutStatus === "paid") {
         await c.query(
