@@ -792,6 +792,12 @@ export function registerFrontendExperience(
         [DEFAULT_AFFILIATE_CODE, payoutMethod, masked]
       );
 
+      if (!updated.rowCount) {
+        const err: any = new Error("affiliate profile not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
       return {
         ok: true,
         affiliate_profile: updated.rows[0]
@@ -1081,8 +1087,15 @@ export function registerFrontendExperience(
            RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
           [subjectId, nextStatus, adminNote]
         );
+        if (!updated.rowCount) {
+          const err: any = new Error("seller profile not found");
+          err.statusCode = 404;
+          throw err;
+        }
         return { ok: true, subject_type: subjectType, result: updated.rows[0] };
       }
+
+      requireUuid(subjectId, "subject_id");
 
       const updated = await c.query(
         `UPDATE siton.affiliate_accounts
@@ -1098,6 +1111,11 @@ export function registerFrontendExperience(
          RETURNING affiliate_id::text AS subject_id, verification_status AS status, admin_note, payout_status`,
         [subjectId, decision === "approve" ? "verified" : "rejected", adminNote]
       );
+      if (!updated.rowCount) {
+        const err: any = new Error("affiliate profile not found");
+        err.statusCode = 404;
+        throw err;
+      }
       return { ok: true, subject_type: subjectType, result: updated.rows[0] };
     });
   });
@@ -1158,6 +1176,11 @@ export function registerFrontendExperience(
          RETURNING ticket_id, status, summary, updated_at`,
         [ticketId, status, summary]
       );
+      if (!updated.rowCount) {
+        const err: any = new Error("support ticket not found");
+        err.statusCode = 404;
+        throw err;
+      }
       return { ok: true, ticket: updated.rows[0] };
     });
   });
@@ -1174,12 +1197,19 @@ export function registerFrontendExperience(
     }
 
     return deps.withTx(async (c) => {
-      await c.query(
+      const updated = await c.query(
         `UPDATE siton.affiliate_accounts
          SET payout_status = $2, updated_at = now()
-         WHERE affiliate_id = $1`,
+         WHERE affiliate_id = $1
+         RETURNING affiliate_id`,
         [affiliateId, payoutStatus]
       );
+
+      if (!updated.rowCount) {
+        const err: any = new Error("affiliate profile not found");
+        err.statusCode = 404;
+        throw err;
+      }
 
       if (payoutStatus === "approved" || payoutStatus === "paid") {
         await c.query(
