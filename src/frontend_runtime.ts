@@ -375,7 +375,6 @@ export function registerFrontendExperience(
 
     return {
       ok: true,
-      
       otp_session_id: sessionId,
       masked_destination: maskPhone(phone),
       expires_at: new Date(session.expiresAt).toISOString(),
@@ -411,7 +410,7 @@ export function registerFrontendExperience(
     otpSessions.set(sessionId, session);
 
     return {
-      
+      ok: true,
       otp_session_id: sessionId,
       verified: true,
       buyer_id: session.phone
