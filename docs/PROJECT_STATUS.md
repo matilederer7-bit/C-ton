@@ -508,3 +508,45 @@ dispatch ����� �worker:
 
 השלב הבא
 - replace the mock payment provider with one real provider behind the new adapter boundary, then connect its webhook catalog into domain reconciliation
+## 2026-03-31 real payment and reconciliation closure
+
+מה הושלם
+- payment provider readiness surface was strengthened
+- webhook ingestion now performs domain reconciliation for the minimal charge/recovery event set
+- frontend/runtime alignment was cleaned where payment/auth APIs touch the buyer flow
+
+מה נבדק
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- charge success reconciliation was validated
+- charge failure reconciliation was validated
+- webhook duplicate handling still passed
+- health endpoints still passed
+
+מה תוקן
+- payment readiness env/config surface
+- webhook-to-domain mutation path
+- correlation and replay behavior for the minimal supported provider event set
+
+מה partial
+- active provider remains mock-backed
+- provider-ready mode exists but is not yet connected to a live external provider
+- reconciliation covers the minimal charge/recovery set, not a full provider catalog
+
+מה non-blocking
+- notifications remain log-only
+- no git remote is configured, so no push was performed
+
+מה open
+- implement one live provider adapter
+- extend reconciliation to the chosen provider's full webhook catalog
+
+אחוז התקדמות משוער
+- backend: 95%
+- frontend: 90%
+- real integrations readiness: 88%
+- real payment and reconciliation readiness: 85%
+- overall product readiness: 90%
+
+השלב הבא
+- wire one real payment provider behind the provider-ready boundary and expand webhook reconciliation from the current minimal event set to the provider's full event matrix
