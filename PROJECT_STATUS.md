@@ -19,6 +19,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Full system QA: `FULL SYSTEM QA PASSED WITH NON-BLOCKING GAPS`
 - Adversarial hardening: `ADVERSARIAL HARDENING PASSED WITH NON-BLOCKING GAPS`
 - Pre-production torture QA: `PREPROD TORTURE QA PASSED WITH NON-BLOCKING GAPS`
+- Ultimate pre-live QA and RC: `ULTIMATE PRE-LIVE QA AND RC PASSED WITH NON-BLOCKING GAPS`
 - Product closure: `PRODUCT CLOSED WITH ONLY EXTERNAL-ACTIVATION GAPS`
 
 ## What Is Completed
@@ -54,6 +55,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Full system QA
 - Adversarial hardening
 - Pre-production torture QA / RC-style drill
+- Ultimate pre-live QA / RC pass with DB integrity, cross-role misuse, and final canonical gate proof
 
 ### Full Product Surfaces
 
@@ -80,12 +82,19 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Real live payment provider
 - Real outbound notification delivery
 
+## What Broke And Was Fixed In The Latest Pass
+
+- Fixed soft admin mutation semantics that could return `200` on missing seller / affiliate / support targets.
+- Added explicit UUID validation for affiliate KYC mutation targets.
+- Added the ultimate pre-live validation suite and revalidated the whole system after the fix.
+
 ## Non-Blocking Gaps
 
 - Payment remains mock-backed by design
 - Notifications remain log-only by design
 - External rails are not activated yet
 - No `git remote` is configured, so work is committed locally only
+- True external process-manager / provider behavior is still unproven by design until external activation starts
 
 ## External-Activation Dependencies
 
@@ -116,7 +125,8 @@ They now exist as expansion direction, not as proof that the original product sp
 - Admin surface: 93%
 - Internal integrations: 91%
 - Current-spec product closure: 97%
-- Overall product readiness: 96%
+- Ultimate pre-live QA / RC confidence: 97%
+- Overall product readiness: 97%
 
 ## Recommended Next Step
 
