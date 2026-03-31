@@ -22,6 +22,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Ultimate pre-live QA and RC: `ULTIMATE PRE-LIVE QA AND RC PASSED WITH NON-BLOCKING GAPS`
 - Product closure: `PRODUCT CLOSED WITH ONLY EXTERNAL-ACTIVATION GAPS`
 - Master product deep mapping and hardening: `PRODUCT MOSTLY DEEPLY MAPPED AND HARDENED WITH NON-BLOCKING GAPS`
+- Demo / preview deployment readiness: `DEMO / PREVIEW READY WITH NON-BLOCKING GAPS`
 
 ## What Is Completed
 
@@ -80,6 +81,14 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Hardened affiliate payout semantics so approval requires verification, payout profile, and pending commission
 - Added dedicated master-depth validation and revalidated the whole product
 
+## What Was Prepared In The Latest Demo / Preview Pass
+
+- Added canonical demo deployment mode via runtime config
+- Added preview metadata route and deployment-mode visibility in integrations/admin status
+- Added global preview banner and showcase-safe messaging
+- Marked payment, receipts, delivery, payout, KYC, and notifications with explicit demo-only boundaries
+- Added demo-preview validation and revalidated the full suite
+
 ## What Is Still Open
 
 - Real invoice / receipt transport
@@ -101,6 +110,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Payment remains mock-backed by design
 - Notifications remain log-only by design
 - External rails are not activated yet
+- Some buyer-side pages still rely mainly on the global preview strip rather than surface-specific demo framing
 - No `git remote` is configured, so work is committed locally only
 - True external process-manager / provider behavior is still unproven by design until external activation starts
 - Live operational rails remain the main remaining source of depth asymmetry
@@ -143,7 +153,8 @@ They now exist as expansion direction, not as proof that the original product sp
 Do not reopen internal closure work by default.
 
 Run the next controlled pass as:
-- external activation planning
+- actual demo hosting / preview deployment setup
+- then external activation planning
 - followed by the first staged activation of one real external rail at a time
 
 Suggested order:
