@@ -597,3 +597,53 @@ dispatch ����� �worker:
 
 השלב הבא
 - keep the system closed internally and only then choose the first real provider for the external activation pass
+## 2026-03-31 full system qa pass
+
+מה הושלם
+- full-system QA was completed across backend, frontend, internal integrations, reconciliation, tracking, and operational surfaces
+- a dedicated full-system validation suite was added and wired into `npm test`
+- canonical full-system QA decision and handoff documents were added
+
+מה נבדק
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- full-system QA passed for:
+  - public deal page to tracking happy path
+  - capacity and availability coherence
+  - cancelled and unknown deal handling
+  - OTP invalid and OTP missing-session handling
+  - payment authorization failure handling
+  - charged, recovered, and dropped tracking semantics
+  - `/health`
+  - `/health/integrations`
+  - webhook unauthorized handling
+
+מה תוקן
+- otp verify frontend-facing contract now explicitly returns `ok: true`
+- full-system QA coverage was added so the system is proven as one coherent product
+
+מה עדיין פתוח
+- live external payment provider execution
+- full provider webhook catalog
+- real outbound notification delivery
+
+מה non-blocking
+- payment remains mock-backed by design
+- notifications remain log-only by design
+- no git remote is configured, so no push was performed
+
+מה תלוי ביציאה החוצה
+- first live provider adapter
+- provider-specific webhook matrix expansion
+- first real notification transport
+
+אחוז התקדמות משוער
+- backend: 95%
+- frontend: 92%
+- real integrations readiness: 88%
+- internal maximal closure: 94%
+- full system QA: 94%
+- overall product readiness: 93%
+
+השלב הבא
+- move from internal proof to the first controlled external-activation pass behind the existing provider and webhook boundaries
