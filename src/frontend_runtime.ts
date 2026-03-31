@@ -1,4 +1,5 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
@@ -78,7 +79,14 @@ const OTP_TTL_MS = 10 * 60_000;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const frontendDir = join(__dirname, "..", "frontend");
+const frontendDirCandidates = [
+  join(__dirname, "..", "frontend"),
+  join(process.cwd(), "frontend"),
+  join(process.cwd(), ".demo_dist", "frontend")
+];
+const frontendDir =
+  frontendDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) ||
+  join(process.cwd(), "frontend");
 
 function maskPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");

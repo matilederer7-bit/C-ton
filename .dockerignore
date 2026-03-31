@@ -1,0 +1,9 @@
+node_modules
+.git
+.demo_dist
+.tmp_test_dist
+coverage
+archive
+backups
+docs
+*.log
