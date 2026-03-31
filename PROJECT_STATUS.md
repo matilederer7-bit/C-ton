@@ -23,6 +23,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Product closure: `PRODUCT CLOSED WITH ONLY EXTERNAL-ACTIVATION GAPS`
 - Master product deep mapping and hardening: `PRODUCT MOSTLY DEEPLY MAPPED AND HARDENED WITH NON-BLOCKING GAPS`
 - Demo / preview deployment readiness: `DEMO / PREVIEW READY WITH NON-BLOCKING GAPS`
+- Demo deployment execution: `DEMO DEPLOYMENT PACKAGE READY WITH CLEAR FINAL STEP`
 
 ## What Is Completed
 
@@ -89,6 +90,14 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Marked payment, receipts, delivery, payout, KYC, and notifications with explicit demo-only boundaries
 - Added demo-preview validation and revalidated the full suite
 
+## What Was Prepared In The Latest Demo Deployment Execution Pass
+
+- Added compiled demo bundle path and canonical demo startup path
+- Added deployment descriptors: `Dockerfile`, `.dockerignore`, `Procfile`
+- Added `.env.demo.example`
+- Verified the compiled artifact locally through real Node startup
+- Reached package-ready state, blocked only by missing external hosting target
+
 ## What Is Still Open
 
 - Real invoice / receipt transport
@@ -114,6 +123,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - No `git remote` is configured, so work is committed locally only
 - True external process-manager / provider behavior is still unproven by design until external activation starts
 - Live operational rails remain the main remaining source of depth asymmetry
+- Demo deployment still lacks a real host target / public URL
 
 ## External-Activation Dependencies
 
@@ -153,7 +163,8 @@ They now exist as expansion direction, not as proof that the original product sp
 Do not reopen internal closure work by default.
 
 Run the next controlled pass as:
-- actual demo hosting / preview deployment setup
+- attach the prepared demo package to one real hosting target
+- verify the public preview URL
 - then external activation planning
 - followed by the first staged activation of one real external rail at a time
 
