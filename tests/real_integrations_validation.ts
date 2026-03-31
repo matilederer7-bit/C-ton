@@ -33,6 +33,46 @@ async function createDeal(title: string, suffix: string) {
   return response.json() as { deal_id: string };
 }
 
+async function post(url: string, requestId: string, payload: Record<string, unknown> = {}) {
+  return app.inject({
+    method: "POST",
+    url,
+    headers: {
+      "x-request-id": requestId,
+      "idempotency-key": requestId
+    },
+    payload
+  });
+}
+
+async function buildChargingParticipant(suffix: string, buyerId: string) {
+  const created = await createDeal(`Charging Deal ${suffix}`, suffix);
+
+  const publish = await post(`/deals/${created.deal_id}/publish`, `publish-${suffix}`);
+  assert.equal(publish.statusCode, 200);
+
+  const join = await post(`/deals/${created.deal_id}/join`, `join-${suffix}`, {
+    buyer_id: buyerId,
+    qty: 10
+  });
+  assert.equal(join.statusCode, 200);
+  const joinJson = join.json() as any;
+
+  const closeJoining = await post(`/deals/${created.deal_id}/close_joining`, `close-${suffix}`);
+  assert.equal(closeJoining.statusCode, 200);
+
+  const prepare = await post(`/deals/${created.deal_id}/prepare_charging`, `prepare-${suffix}`);
+  assert.equal(prepare.statusCode, 200);
+
+  const start = await post(`/deals/${created.deal_id}/charging/start`, `start-${suffix}`);
+  assert.equal(start.statusCode, 200);
+
+  return {
+    deal_id: created.deal_id,
+    participant_id: joinJson.participant_id as string
+  };
+}
+
 async function main() {
   await runTest("integration health exposes payment, notification, and webhook readiness", async () => {
     const response = await app.inject({
@@ -133,6 +173,80 @@ async function main() {
     const duplicateJson = duplicate.json() as any;
     assert.equal(duplicateJson.ok, true);
     assert.equal(duplicateJson.duplicate, true);
+  });
+
+  await runTest("webhook reconciliation can move a charging participant into charged success", async () => {
+    const charging = await buildChargingParticipant("charge-success", "buyer-charge-success");
+    const eventId = `evt-charge-success-${Date.now()}`;
+
+    const webhook = await app.inject({
+      method: "POST",
+      url: "/webhooks/payments/mock",
+      headers: {
+        "x-webhook-secret": "mock-webhook-secret"
+      },
+      payload: {
+        event_id: eventId,
+        event_type: "charge_captured",
+        deal_id: charging.deal_id,
+        participant_id: charging.participant_id,
+        payload: {
+          participant_id: charging.participant_id,
+          deal_id: charging.deal_id,
+          provider_reference: "cap_123"
+        }
+      }
+    });
+
+    assert.equal(webhook.statusCode, 202);
+    const webhookJson = webhook.json() as any;
+    assert.equal(webhookJson.reconciliation.status, "processed");
+
+    const tracking = await app.inject({
+      method: "GET",
+      url: `/api/participants/${charging.participant_id}/tracking`
+    });
+    assert.equal(tracking.statusCode, 200);
+    const trackingJson = tracking.json() as any;
+    assert.equal(trackingJson.tracking.buyer_state, "ChargedSuccess");
+    assert.equal(trackingJson.tracking.money_state, "ChargedSuccess");
+  });
+
+  await runTest("webhook reconciliation can move a charging participant into recovery-needed state", async () => {
+    const charging = await buildChargingParticipant("charge-fail", "buyer-charge-fail");
+    const eventId = `evt-charge-fail-${Date.now()}`;
+
+    const webhook = await app.inject({
+      method: "POST",
+      url: "/webhooks/payments/mock",
+      headers: {
+        "x-webhook-secret": "mock-webhook-secret"
+      },
+      payload: {
+        event_id: eventId,
+        event_type: "charge_failed",
+        deal_id: charging.deal_id,
+        participant_id: charging.participant_id,
+        payload: {
+          participant_id: charging.participant_id,
+          deal_id: charging.deal_id,
+          provider_reference: "cap_fail_123"
+        }
+      }
+    });
+
+    assert.equal(webhook.statusCode, 202);
+    const webhookJson = webhook.json() as any;
+    assert.equal(webhookJson.reconciliation.status, "processed");
+
+    const tracking = await app.inject({
+      method: "GET",
+      url: `/api/participants/${charging.participant_id}/tracking`
+    });
+    assert.equal(tracking.statusCode, 200);
+    const trackingJson = tracking.json() as any;
+    assert.equal(trackingJson.tracking.buyer_state, "ChargeFailedCompletion");
+    assert.equal(trackingJson.tracking.money_state, "ChargeFailedRecovery");
   });
 }
 
