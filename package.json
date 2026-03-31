@@ -9,8 +9,9 @@
   "scripts": {
     "dev": "tsx src/app.ts",
     "start": "tsx src/app.ts",
-    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/frontend_flow_validation.js",
-    "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js"
+    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/real_integrations_validation.js",
+    "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js",
+    "test:integrations": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/real_integrations_validation.js"
   },
   "keywords": [],
   "author": "",
