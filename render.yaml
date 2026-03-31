@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: siton-demo-preview
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    autoDeploy: false
+    healthCheckPath: /health
+    envVars:
+      - key: APP_DEPLOYMENT_MODE
+        value: demo-preview
+      - key: HOST
+        value: 0.0.0.0
+      - key: DB_SCHEMA
+        value: siton
+      - key: LOG_LEVEL
+        value: info
+      - key: DEBUG_SQL_LOGGING
+        value: "0"
+      - key: DEBUG_JOIN_LOGGING
+        value: "0"
+      - key: PAYMENT_PROVIDER
+        value: mockpay
+      - key: PAYMENT_PROVIDER_MODE
+        value: mock-backed
+      - key: PAYMENT_WEBHOOK_PROVIDER
+        value: mockpay
+      - key: PAYMENT_WEBHOOK_SECRET
+        generateValue: true
+      - key: NOTIFICATION_PROVIDER
+        value: log-only
+      - key: DATABASE_URL
+        fromDatabase:
+          name: siton-demo-db
+          property: connectionString
+
+databases:
+  - name: siton-demo-db
+    databaseName: siton_demo
+    user: siton_demo_user
