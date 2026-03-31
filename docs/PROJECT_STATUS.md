@@ -751,3 +751,60 @@ dispatch ����� �worker:
 
 מה השלב הבא
 - run the first controlled staging/external-activation pass behind the existing provider and webhook boundaries, instead of reopening more internal-only proof cycles
+## 2026-03-31 Full Product Closure Pass
+
+What we had before this task:
+- backend was professionally closed with non-blocking follow-ups
+- buyer-facing frontend MVP was closed with non-blocking follow-ups
+- internal closure, full-system QA, adversarial hardening, and preprod torture QA were already in place
+- product reality was still mostly buyer-centric
+- seller, affiliate, and admin existed mostly in docs, not as working product surfaces
+
+What was completed in this pass:
+- added public marketplace discovery/search APIs and UI
+- added seller surface:
+  deal list, draft creation, publish, seller deal detail, create similar
+- added affiliate overview surface with explicit partial-status honesty
+- added admin surface:
+  overview, exceptional deals, omnisearch, deal profile, user profile
+- added automated validation for the new product surface:
+  `tests/full_product_surface_validation.ts`
+
+What was fixed:
+- seller/admin surfaces originally queried `payment_attempts.status`, but the real schema uses `result_class`
+
+What was validated:
+- `node --check frontend/app.js`
+- `npx tsc --noEmit`
+- `npm run test:product-surface`
+
+Current surface status:
+- backend: professionally closed
+- buyer frontend: closed enough for MVP
+- seller: partial to mostly closed
+- affiliate: partial
+- admin: partial to mostly closed
+- integrations: internally ready enough
+- full product closure: mostly closed with clear remaining surfaces
+
+What remains open:
+- seller receipts
+- seller delivery
+- affiliate attribution, verification, and payouts
+- admin onboarding / KYC queue
+- admin settlements / support / deeper forensics
+
+What is non-blocking:
+- payment still mock-backed
+- notifications still log-only
+
+What belongs to product expansion rather than original completion:
+- public search/catalog
+- marketplace-like homepage / Amazon-style discovery
+
+Estimated product progress:
+- buyer + platform core: 90%+
+- full product according to currently expanded direction: about 70%
+
+Next step:
+- choose explicitly between finishing original-spec seller/affiliate/admin closure or continuing the new marketplace expansion track
