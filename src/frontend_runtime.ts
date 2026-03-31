@@ -69,6 +69,18 @@ function otpSessionId(phone: string) {
     .slice(0, 24);
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function requireUuid(value: string, fieldName: string) {
+  if (!isUuid(value)) {
+    const err: any = new Error(`${fieldName} must be a valid uuid`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
 function deriveDealAvailability(state: DealState, remainingUnits: number) {
   if (remainingUnits <= 0) {
     return {
@@ -212,6 +224,7 @@ export function registerFrontendExperience(
 ) {
   app.get("/api/deals/:id/public", async (req: any) => {
     const dealId = String(req.params.id);
+    requireUuid(dealId, "deal_id");
 
     return deps.withTx(async (c) => {
       const dealResult = await c.query(
@@ -286,6 +299,7 @@ export function registerFrontendExperience(
 
   app.get("/api/participants/:id/tracking", async (req: any) => {
     const participantId = String(req.params.id);
+    requireUuid(participantId, "participant_id");
 
     return deps.withTx(async (c) => {
       const participantResult = await c.query(
@@ -357,16 +371,22 @@ export function registerFrontendExperience(
 
   app.post("/api/otp/start", async (req: any) => {
     const phone = String(req.body?.phone || "").trim();
-    if (!phone) {
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) {
       const err: any = new Error("phone required");
       err.statusCode = 400;
       throw err;
     }
+    if (digits.length < 7 || digits.length > 15) {
+      const err: any = new Error("phone must contain 7 to 15 digits");
+      err.statusCode = 400;
+      throw err;
+    }
 
-    const sessionId = otpSessionId(phone);
+    const sessionId = otpSessionId(digits);
     const session: OtpSession = {
       sessionId,
-      phone,
+      phone: digits,
       createdAt: Date.now(),
       expiresAt: Date.now() + OTP_TTL_MS,
       verified: false
@@ -385,6 +405,11 @@ export function registerFrontendExperience(
   app.post("/api/otp/verify", async (req: any) => {
     const sessionId = String(req.body?.otp_session_id || "");
     const code = String(req.body?.code || "");
+    if (!sessionId) {
+      const err: any = new Error("otp_session_id required");
+      err.statusCode = 400;
+      throw err;
+    }
     const session = otpSessions.get(sessionId);
 
     if (!session) {

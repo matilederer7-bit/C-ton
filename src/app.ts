@@ -42,6 +42,51 @@ function joinDebug(message: string, payload: Record<string, unknown>) {
   console.log(message, payload);
 }
 
+function isUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function requireUuid(value: string, fieldName: string) {
+  if (!isUuid(value)) {
+    const err: any = new Error(`${fieldName} must be a valid uuid`);
+    err.statusCode = 400;
+    throw err;
+  }
+}
+
+function requirePositiveInteger(value: unknown, fieldName: string, fallback?: number) {
+  const parsed = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (!Number.isInteger(parsed) || Number(parsed) <= 0) {
+    const err: any = new Error(`${fieldName} must be a positive integer`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return Number(parsed);
+}
+
+function requireFiniteNumber(value: unknown, fieldName: string, fallback?: number) {
+  const parsed = value === undefined || value === null || value === "" ? fallback : Number(value);
+  if (typeof parsed !== "number" || !Number.isFinite(parsed)) {
+    const err: any = new Error(`${fieldName} must be a finite number`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return parsed;
+}
+
+function requireIsoDate(value: unknown, fieldName: string, fallback: Date) {
+  if (value === undefined || value === null || value === "") {
+    return fallback.toISOString();
+  }
+  const date = new Date(String(value));
+  if (Number.isNaN(date.getTime())) {
+    const err: any = new Error(`${fieldName} must be a valid datetime`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return date.toISOString();
+}
+
 type DealState =
   | "Draft"
   | "PendingTarget"
@@ -1298,7 +1343,10 @@ app.setErrorHandler((error: any, req, reply) => {
     msg.includes("State mismatch participant") ||
     msg.includes("Illegal deal_state transition") ||
     msg.includes("Illegal buyer_state transition") ||
-    msg.includes("Illegal money_state transition")
+    msg.includes("Illegal money_state transition") ||
+    msg.includes("requires ClosedForJoining") ||
+    msg.includes("requires ReadyForCharging") ||
+    msg.includes("join not allowed in deal state")
   ) {
     return reply.code(409).send({
       ok: false,
@@ -1315,9 +1363,45 @@ app.setErrorHandler((error: any, req, reply) => {
     });
   }
 
+  if (msg.includes("participant not found")) {
+    return reply.code(404).send({
+      ok: false,
+      error: "participant_not_found",
+      message: msg
+    });
+  }
+
+  if (msg.includes("otp session not found")) {
+    return reply.code(404).send({
+      ok: false,
+      error: "otp_session_not_found",
+      message: msg
+    });
+  }
+
+  if (msg.includes("otp expired")) {
+    return reply.code(400).send({
+      ok: false,
+      error: "otp_expired",
+      message: msg
+    });
+  }
+
+  if (msg.includes("invalid otp")) {
+    return reply.code(400).send({
+      ok: false,
+      error: "invalid_otp",
+      message: msg
+    });
+  }
+
   if (
     msg.includes("buyer_id required") ||
-    msg.includes("Key exists with different content")
+    msg.includes("Key exists with different content") ||
+    msg.includes("must be a valid uuid") ||
+    msg.includes("must be a positive integer") ||
+    msg.includes("must be a finite number") ||
+    msg.includes("must be a valid datetime")
   ) {
     return reply.code(400).send({
       ok: false,
@@ -1380,24 +1464,32 @@ app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
   }
 
   const body = req.body || {};
-  const eventId = String(body.event_id || "").trim();
-  const eventType = String(body.event_type || "").trim();
+  const eventId = typeof body.event_id === "string" ? body.event_id.trim() : "";
+  const eventType = typeof body.event_type === "string" ? body.event_type.trim() : "";
+  const payload = typeof body.payload === "object" && body.payload && !Array.isArray(body.payload) ? body.payload : null;
 
   await ensureWebhookStorage();
 
-  if (!eventId || !eventType) {
+  if (!eventId || !eventType || !payload) {
     return reply.code(400).send({
       ok: false,
       error: "webhook_event_invalid",
-      message: "event_id and event_type are required"
+      message: "event_id, event_type, and object payload are required"
     });
+  }
+
+  if (body.deal_id !== undefined && body.deal_id !== null) {
+    requireUuid(String(body.deal_id), "deal_id");
+  }
+  if (body.participant_id !== undefined && body.participant_id !== null) {
+    requireUuid(String(body.participant_id), "participant_id");
   }
 
   const accepted = await ingestEvent({
     provider: PAYMENT_WEBHOOK_PROVIDER,
     event_id: eventId,
     event_type: eventType,
-    payload: typeof body.payload === "object" && body.payload ? body.payload : {},
+    payload,
     deal_id: body.deal_id ? String(body.deal_id) : null,
     participant_id: body.participant_id ? String(body.participant_id) : null
   });
@@ -1435,11 +1527,11 @@ app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
   const reconciliation = await reconcilePaymentWebhookEvent({
     eventId,
     eventType,
-    correlationId: body.correlation_id ? String(body.correlation_id) : typeof body.payload?.correlation_id === "string" ? body.payload.correlation_id : null,
-    participantId: body.participant_id ? String(body.participant_id) : typeof body.payload?.participant_id === "string" ? body.payload.participant_id : null,
-    dealId: body.deal_id ? String(body.deal_id) : typeof body.payload?.deal_id === "string" ? body.payload.deal_id : null,
-    providerReference: body.provider_reference ? String(body.provider_reference) : typeof body.payload?.provider_reference === "string" ? body.payload.provider_reference : null,
-    payload: typeof body.payload === "object" && body.payload ? body.payload : {}
+    correlationId: typeof body.correlation_id === "string" ? body.correlation_id : typeof payload.correlation_id === "string" ? payload.correlation_id : null,
+    participantId: body.participant_id ? String(body.participant_id) : typeof payload.participant_id === "string" ? payload.participant_id : null,
+    dealId: body.deal_id ? String(body.deal_id) : typeof payload.deal_id === "string" ? payload.deal_id : null,
+    providerReference: typeof body.provider_reference === "string" ? body.provider_reference : typeof payload.provider_reference === "string" ? payload.provider_reference : null,
+    payload
   });
 
   const finalStatus =
@@ -1464,9 +1556,14 @@ app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
 app.post("/deals", async (req: any) => {
   const body = req.body || {};
   const requestedMinUnitsRaw = body.min_units ?? body.threshold_units ?? 10;
-  const minUnits = Math.max(1, Number(requestedMinUnitsRaw || 10));
+  const minUnits = requirePositiveInteger(requestedMinUnitsRaw, "min_units", 10);
   const requestedMaxUnitsRaw = body.max_units ?? Math.max(minUnits, 20);
-  const maxUnits = Math.max(minUnits, Number(requestedMaxUnitsRaw || 20));
+  const maxUnits = requirePositiveInteger(requestedMaxUnitsRaw, "max_units", Math.max(minUnits, 20));
+  if (maxUnits < minUnits) {
+    const err: any = new Error("max_units must be greater than or equal to min_units");
+    err.statusCode = 400;
+    throw err;
+  }
   const draftThreshold = Math.ceil(0.9 * minUnits);
 
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
@@ -1474,11 +1571,11 @@ app.post("/deals", async (req: any) => {
 
   const createPayload = {
     title: String(body.title || ""),
-    price_per_unit: Number(body.price_per_unit || 10),
+    price_per_unit: requireFiniteNumber(body.price_per_unit, "price_per_unit", 10),
     min_units: minUnits,
     max_units: maxUnits,
     threshold_units: draftThreshold,
-    deadline: body.deadline ? new Date(body.deadline).toISOString() : nowPlusMinutes(60).toISOString(),
+    deadline: requireIsoDate(body.deadline, "deadline", nowPlusMinutes(60)),
     commission_rate: Number(body.commission_rate || 0)
   };
   const createHashValue = payloadHash(createPayload);
@@ -1547,6 +1644,7 @@ app.post("/deals", async (req: any) => {
 
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
 
@@ -1624,6 +1722,7 @@ async function tryTargetReached(dealId: string, requestId: string) {
 
 app.post("/deals/:id/join", async (req: any, reply: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const body = req.body || {};
   const buyer_id = String(body.buyer_id || "");
   const qty = Number(body.qty || 1);
@@ -1743,6 +1842,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
 app.post("/deals/:id/close_joining", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}`;
 
@@ -1763,6 +1863,7 @@ app.post("/deals/:id/close_joining", async (req: any) => {
 
 app.post("/deals/:id/prepare_charging", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `prepare:${dealId}`;
 
@@ -1808,6 +1909,7 @@ app.post("/deals/:id/prepare_charging", async (req: any) => {
 
 app.post("/deals/:id/charging/start", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `start:${dealId}`;
 
@@ -1853,6 +1955,7 @@ app.post("/deals/:id/charging/start", async (req: any) => {
 
 app.post("/deals/:id/cancel", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${Date.now()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `cancel:${dealId}`;
 
@@ -1872,6 +1975,7 @@ app.post("/deals/:id/cancel", async (req: any) => {
 
 app.get("/debug/deals/:id", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const data = await withTx(async (c) => {
     const deal = await c.query(`SELECT * FROM siton.deals WHERE deal_id=$1`, [dealId]);
     const parts = await c.query(
