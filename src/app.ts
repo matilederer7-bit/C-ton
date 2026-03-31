@@ -3,6 +3,9 @@ import { createHash } from "crypto";
 import { pathToFileURL } from "url";
 import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
+import { buildPaymentProvider, getPaymentProviderSummary, type PaymentResultClass } from "./payment_provider.js";
+import { buildWebhookIngestion } from "./webhook_ingestion.js";
+import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { pool } from "./db.js";
 import {
@@ -10,9 +13,10 @@ import {
   DEBUG_JOIN_LOGGING,
   HOST,
   LOG_LEVEL,
-  MOCK_SEED,
   OUTBOX_MAX_ATTEMPTS,
   OUTBOX_POLL_MS,
+  PAYMENT_WEBHOOK_PROVIDER,
+  PAYMENT_WEBHOOK_SECRET,
   PORT
 } from "./runtime_config.js";
 
@@ -386,61 +390,6 @@ async function atomicTransition(args: {
   });
 }
 
-type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
-
-let __forcedCaptureUsed = false;
-let __forcedRecoveryUsed = false;
-
-function hashToUint32(s: string) {
-  let h = 2166136261;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-}
-
-function lcgNext(x: number) {
-  return (Math.imul(1664525, x) + 1013904223) >>> 0;
-}
-
-function rand01Deterministic(key: string) {
-  if (MOCK_SEED === null) return Math.random();
-  let x = (MOCK_SEED ^ hashToUint32(key)) >>> 0;
-  x = lcgNext(x);
-  return (x >>> 0) / 0xffffffff;
-}
-
-async function paymentCaptureMock(key: string): Promise<PaymentResultClass> {
-  if (process.env.FORCE_CAPTURE_TEMP_FAIL_ONCE === "1" && !__forcedCaptureUsed) {
-    __forcedCaptureUsed = true;
-    return "permanent_fail";
-  }
-  const r = rand01Deterministic(key);
-  if (r < 0.75) return "success";
-  if (r < 0.9) return "temporary_fail";
-  return "permanent_fail";
-}
-
-async function paymentRecoveryMock(key: string, withinWindow: boolean): Promise<PaymentResultClass> {
-  if (!withinWindow) return "permanent_fail";
-  if (process.env.FORCE_RECOVERY_SUCCESS_ONCE === "1" && !__forcedRecoveryUsed) {
-    __forcedRecoveryUsed = true;
-    return "permanent_fail";
-  }
-  const r = rand01Deterministic(key);
-  if (r < 0.5) return "success";
-  if (r < 0.8) return "temporary_fail";
-  return "permanent_fail";
-}
-
-async function refundMock(key: string): Promise<PaymentResultClass> {
-  const r = rand01Deterministic(key);
-  if (r < 0.8) return "success";
-  if (r < 0.95) return "temporary_fail";
-  return "permanent_fail";
-}
-
 async function sumJoinedUnits(c: PoolClient, dealId: string): Promise<number> {
   const r = await c.query(
     `SELECT COALESCE(SUM(qty),0) AS total
@@ -571,21 +520,21 @@ async function handleRefundEvent(
       correlation_id: correlation
     });
 
-    const result = await refundMock(correlation);
+    const result = await paymentProvider.refund(correlation);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: event.event_type === "cancel_refund" ? "cancel_refund" : "refund",
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail refund participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
+    if (result.result_class === "success") {
       await atomicTransition({
         entityType: "participant",
         entityId: p.participant_id,
@@ -597,7 +546,12 @@ async function handleRefundEvent(
         requestId: `worker:${eventId}`,
         idempotencyKey: `refund:${dealId}:${p.participant_id}`,
         outbox: null,
-        payload: { result }
+        payload: { result: result.result_class, provider: result.provider }
+      });
+      await notificationService.notify("deal_failed", {
+        deal_id: dealId,
+        participant_id: p.participant_id,
+        detail: { refund_result: result.result_class, provider: result.provider }
       });
     } else {
       throw new PermanentFailError(`permanent_fail refund participant ${p.participant_id}`);
@@ -650,30 +604,35 @@ async function handleChargeDealEvent(
       correlation_id: correlation
     });
 
-    const result = await paymentCaptureMock(correlation);
+    const result = await paymentProvider.capture(correlation);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail capture participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
+    if (result.result_class === "success") {
       await atomicMultiTransition({
         actionName: "charging.capture_success",
         requestId: `worker:${eventId}`,
         idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `capture-success:${eventId}:${p.participant_id}` },
         ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargedSuccess", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargedSuccess", payload: { result } }
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargedSuccess", payload: { result: result.result_class, provider: result.provider } },
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargedSuccess", payload: { result: result.result_class, provider: result.provider } }
         ],
         outbox: null
+      });
+      await notificationService.notify("payment_capture_succeeded", {
+        deal_id: dealId,
+        participant_id: p.participant_id,
+        detail: { provider: result.provider }
       });
     } else {
       await atomicMultiTransition({
@@ -681,10 +640,15 @@ async function handleChargeDealEvent(
         requestId: `worker:${eventId}`,
         idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `capture-fail:${eventId}:${p.participant_id}` },
         ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargeFailedRecovery", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargeFailedCompletion", payload: { result } }
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargeFailedRecovery", payload: { result: result.result_class, provider: result.provider } },
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargeFailedCompletion", payload: { result: result.result_class, provider: result.provider } }
         ],
         outbox: null
+      });
+      await notificationService.notify("payment_capture_failed", {
+        deal_id: dealId,
+        participant_id: p.participant_id,
+        detail: { provider: result.provider, failure_class: result.result_class }
       });
     }
   }
@@ -795,30 +759,35 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation
     });
 
-    const result = await paymentRecoveryMock(correlation, withinWindow);
+    const result = await paymentProvider.recover(correlation, withinWindow);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "recovery",
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail recovery participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
+    if (result.result_class === "success") {
       await atomicMultiTransition({
         actionName: "charging.recovery_success",
         requestId: `worker:${eventId}`,
         idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-success:${eventId}:${p.participant_id}` },
         ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "RecoveredCharge", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Recovered", payload: { result } }
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "RecoveredCharge", payload: { result: result.result_class, provider: result.provider } },
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Recovered", payload: { result: result.result_class, provider: result.provider } }
         ],
         outbox: null
+      });
+      await notificationService.notify("payment_recovery_succeeded", {
+        deal_id: dealId,
+        participant_id: p.participant_id,
+        detail: { provider: result.provider }
       });
     } else {
       await atomicMultiTransition({
@@ -826,10 +795,15 @@ async function handleRecoveryDealEvent(
         requestId: `worker:${eventId}`,
         idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-fail:${eventId}:${p.participant_id}` },
         ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "AuthReleased", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Dropped", payload: { result } }
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "AuthReleased", payload: { result: result.result_class, provider: result.provider } },
+          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Dropped", payload: { result: result.result_class, provider: result.provider } }
         ],
         outbox: null
+      });
+      await notificationService.notify("payment_recovery_failed", {
+        deal_id: dealId,
+        participant_id: p.participant_id,
+        detail: { provider: result.provider, failure_class: result.result_class }
       });
     }
   }
@@ -928,6 +902,10 @@ async function handleFinalizeDealEvent(
       }
     }
 
+    await notificationService.notify("deal_completed", {
+      deal_id: dealId,
+      detail: { captured_units: decision.captured, threshold: decision.threshold }
+    });
     await cleanupObsoleteDealOutboxEvents(dealId);
     return;
   }
@@ -947,6 +925,10 @@ async function handleFinalizeDealEvent(
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
+  await notificationService.notify("deal_failed", {
+    deal_id: dealId,
+    detail: { captured_units: decision.captured, threshold: decision.threshold }
+  });
   return;
 }
 
@@ -995,6 +977,10 @@ async function workerProcessEvent(event: {
     });
 
     await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
+    await notificationService.notify("deal_failed", {
+      deal_id: dealId,
+      detail: { total_joined_units: total, threshold: Number(deal.threshold_units), reason: "deadline_check" }
+    });
     await cleanupObsoleteDealOutboxEvents(dealId);
     return;
   }
@@ -1041,6 +1027,9 @@ async function workerLoop(app: ReturnType<typeof Fastify>) {
 }
 
 export const app = Fastify({ logger: { level: LOG_LEVEL } });
+const paymentProvider = buildPaymentProvider();
+const notificationService = buildNotificationService();
+const { ensureStorage: ensureWebhookStorage, ingestEvent, markEvent } = buildWebhookIngestion({ withTx });
 
 app.setErrorHandler((error: any, req, reply) => {
   const msg = error instanceof Error ? error.message : String(error || "");
@@ -1097,9 +1086,93 @@ app.setErrorHandler((error: any, req, reply) => {
   });
 });
 
-registerFrontendExperience(app, { withTx });
+registerFrontendExperience(app, { withTx, paymentProvider });
 
 app.get("/health", async () => ({ ok: true }));
+
+app.get("/health/integrations", async () => {
+  await ensureWebhookStorage();
+  return {
+    ok: true,
+    integrations: {
+      payment: getPaymentProviderSummary(paymentProvider),
+      notifications: getNotificationServiceSummary(notificationService),
+      webhook_ingestion: {
+        provider: PAYMENT_WEBHOOK_PROVIDER,
+        secret_configured: Boolean(PAYMENT_WEBHOOK_SECRET),
+        duplicate_policy: "provider+event_id idempotent accept",
+        supported_events: [
+          "payment_authorized",
+          "payment_failed",
+          "charge_captured",
+          "charge_failed"
+        ]
+      }
+    }
+  };
+});
+
+app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
+  const secret = String(req.headers["x-webhook-secret"] || "");
+  if (secret !== PAYMENT_WEBHOOK_SECRET) {
+    return reply.code(401).send({
+      ok: false,
+      error: "webhook_unauthorized",
+      message: "invalid webhook secret"
+    });
+  }
+
+  const body = req.body || {};
+  const eventId = String(body.event_id || "").trim();
+  const eventType = String(body.event_type || "").trim();
+
+  await ensureWebhookStorage();
+
+  if (!eventId || !eventType) {
+    return reply.code(400).send({
+      ok: false,
+      error: "webhook_event_invalid",
+      message: "event_id and event_type are required"
+    });
+  }
+
+  const accepted = await ingestEvent({
+    provider: PAYMENT_WEBHOOK_PROVIDER,
+    event_id: eventId,
+    event_type: eventType,
+    payload: typeof body.payload === "object" && body.payload ? body.payload : {},
+    deal_id: body.deal_id ? String(body.deal_id) : null,
+    participant_id: body.participant_id ? String(body.participant_id) : null
+  });
+
+  if (accepted.duplicate) {
+    return reply.code(200).send({
+      ok: true,
+      duplicate: true,
+      provider: accepted.provider,
+      event_id: accepted.event_id,
+      status: accepted.status
+    });
+  }
+
+  const supportedEventTypes = new Set([
+    "payment_authorized",
+    "payment_failed",
+    "charge_captured",
+    "charge_failed"
+  ]);
+
+  const finalStatus = supportedEventTypes.has(eventType) ? "processed" : "ignored";
+  const stored = await markEvent(PAYMENT_WEBHOOK_PROVIDER, eventId, finalStatus);
+
+  return reply.code(202).send({
+    ok: true,
+    duplicate: false,
+    provider: PAYMENT_WEBHOOK_PROVIDER,
+    event_id: eventId,
+    status: stored?.status ?? finalStatus
+  });
+});
 
 app.post("/deals", async (req: any) => {
   const body = req.body || {};

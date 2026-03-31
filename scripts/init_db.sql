@@ -1,3 +1,12 @@
+-- LEGACY BOOTSTRAP ONLY.
+-- This file is not the canonical source of truth for the live runtime schema.
+-- Canonical operational truth is defined by:
+-- 1. src/migrations/*
+-- 2. PROJECT_STATUS.md
+-- 3. docs/BUYER_CAPACITY_RULE_OVERRIDE.md
+-- 4. Stage 11 / Stage 12 runtime verification docs
+-- In particular, product policy does NOT allow a uniqueness rule on (deal_id, buyer_id).
+
 BEGIN;
 
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
@@ -93,9 +102,7 @@ CREATE TABLE IF NOT EXISTS participants (
   money_state money_state NOT NULL DEFAULT 'NoFinancial',
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-
-  UNIQUE (deal_id, buyer_id)
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -155,10 +162,26 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS webhook_events (
+  provider TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  payload_jsonb JSONB NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ NULL,
+  status TEXT NOT NULL DEFAULT 'pending',
+  deal_id UUID NULL REFERENCES deals(deal_id) ON DELETE RESTRICT,
+  participant_id UUID NULL REFERENCES participants(participant_id) ON DELETE RESTRICT,
+  CONSTRAINT webhook_events_pk PRIMARY KEY (provider, event_id),
+  CONSTRAINT webhook_events_status_check CHECK (status IN ('pending','processed','ignored','failed'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON participants(deal_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON payment_attempts(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_webhook_status_received ON webhook_events(status, received_at);
+CREATE INDEX IF NOT EXISTS idx_webhook_provider_received ON webhook_events(provider, received_at);
+CREATE INDEX IF NOT EXISTS idx_webhook_deal_received ON webhook_events(deal_id, received_at);
 
 DO $$
 BEGIN
