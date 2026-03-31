@@ -112,7 +112,7 @@ async function main() {
   await runTest("affiliate and admin surfaces are reachable", async () => {
     const affiliate = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
     assert.equal(affiliate.statusCode, 200);
-    assert.equal((affiliate.json() as any).affiliate_surface.attribution_status, "partial");
+    assert.ok(["ready_for_attribution", "active"].includes((affiliate.json() as any).affiliate_surface.attribution_status));
 
     const admin = await app.inject({ method: "GET", url: "/api/admin/overview?q=" });
     assert.equal(admin.statusCode, 200);

@@ -8,6 +8,7 @@ import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
+import { ensureRemainingProductSurfaceTables, roundMoney } from "./product_surface_support.js";
 import { pool } from "./db.js";
 import {
   COMPLETION_WINDOW_MINUTES,
@@ -1726,6 +1727,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const body = req.body || {};
   const buyer_id = String(body.buyer_id || "");
   const qty = Number(body.qty || 1);
+  const affiliate_ref = typeof body.affiliate_ref === "string" ? body.affiliate_ref.trim() : "";
 
   if (!buyer_id) throw new Error("buyer_id required");
   if (!Number.isInteger(qty) || qty <= 0) {
@@ -1739,9 +1741,11 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     ? String(req.headers["idempotency-key"])
     : `join:${dealId}:${buyer_id}:${requestId}`;
 
-  const joinPayload = { deal_id: dealId, buyer_id, qty };
+  const joinPayload = { deal_id: dealId, buyer_id, qty, affiliate_ref: affiliate_ref || null };
   joinDebug("[JOIN] start", { dealId, buyer_id, qty, requestId, idem });
   const joinResponse: any = { ok: true, participant_id: null };
+
+  await ensureRemainingProductSurfaceTables(withTx);
 
   const joinResult = await atomicMultiTransition({
     actionName: "participant.join_authorize",
@@ -1750,7 +1754,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     idempotency: { entityType: "deal", entityId: dealId, idempotencyKey: idem },
     buildOpsInTx: async (c) => {
       const d = await c.query(
-        `SELECT state, max_units
+        `SELECT state, max_units, commission_rate, price_per_unit
          FROM siton.deals
          WHERE deal_id=$1
          FOR UPDATE`,
@@ -1761,6 +1765,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
       const state = d.rows[0].state as DealState;
       const maxUnits = Number(d.rows[0].max_units);
+      const commissionRate = Number(d.rows[0].commission_rate || 0);
+      const pricePerUnit = Number(d.rows[0].price_per_unit || 0);
       joinDebug("[JOIN] locked deal", { dealId, state, maxUnits, idem });
 
       if (state !== "PendingTarget" && state !== "TargetReached") {
@@ -1787,6 +1793,51 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       const participantId = String(ins.rows[0].participant_id);
       joinResponse.participant_id = participantId;
       joinDebug("[JOIN] inserted participant", { dealId, participantId, buyer_id, qty, idem });
+
+      if (affiliate_ref) {
+        const affiliate = await c.query(
+          `SELECT affiliate_id, verification_status, payout_status
+           FROM siton.affiliate_accounts
+           WHERE affiliate_code=$1
+           LIMIT 1`,
+          [affiliate_ref]
+        );
+
+        if (affiliate.rowCount) {
+          const grossAmount = qty * pricePerUnit;
+          const commissionAmount = roundMoney(grossAmount * commissionRate);
+          const payoutStatus = affiliate.rows[0].verification_status === "verified" ? "approved" : "pending";
+
+          await c.query(
+            `INSERT INTO siton.affiliate_attributions (
+               affiliate_id, deal_id, participant_id, share_code, commission_rate, commission_amount, payout_status
+             )
+             VALUES ($1,$2,$3,$4,$5,$6,$7)
+             ON CONFLICT (participant_id) DO NOTHING`,
+            [
+              affiliate.rows[0].affiliate_id,
+              dealId,
+              participantId,
+              affiliate_ref,
+              commissionRate,
+              commissionAmount,
+              payoutStatus
+            ]
+          );
+
+          if (
+            affiliate.rows[0].verification_status === "verified" &&
+            affiliate.rows[0].payout_status === "pending_profile"
+          ) {
+            await c.query(
+              `UPDATE siton.affiliate_accounts
+               SET payout_status='pending_review', updated_at=now()
+               WHERE affiliate_id=$1`,
+              [affiliate.rows[0].affiliate_id]
+            );
+          }
+        }
+      }
 
       return [
         {

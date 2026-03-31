@@ -205,6 +205,12 @@ function navigate(path, push = true) {
   void runRoute();
 }
 
+function currentAffiliateRef() {
+  const params = new URLSearchParams(location.search);
+  const ref = params.get("ref");
+  return ref ? ref.trim() : "";
+}
+
 async function runRoute() {
   const route = state.route;
   if (route.name === "home" || route.name === "marketplace") return loadMarketplace(state.form.marketQuery);
@@ -467,7 +473,13 @@ async function submitAction(action, form) {
   if (action === "pay") return payAndJoin(form);
   if (action === "seller-create") return createDeal(form);
   if (action === "seller-publish") return publishDeal(form.dataset.dealId);
+  if (action === "seller-delivery-update") return updateDelivery(form);
+  if (action === "affiliate-save-payout") return saveAffiliatePayoutProfile(form);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
+  if (action === "admin-kyc-decision") return decideKyc(form);
+  if (action === "admin-support-create") return createSupportTicket(form);
+  if (action === "admin-support-update") return updateSupportTicket(form);
+  if (action === "admin-affiliate-payout") return updateAffiliatePayoutStatus(form);
 }
 
 function startJoin() {
@@ -481,6 +493,7 @@ function startJoin() {
     dealId: payload.deal.deal_id,
     dealTitle: payload.deal.title,
     qty,
+    affiliateRef: currentAffiliateRef() || getFlow(payload.deal.deal_id)?.affiliateRef || "",
     estimatedTotal: qty * payload.deal.price_per_unit,
     startedAt: new Date().toISOString()
   });
@@ -597,7 +610,8 @@ async function payAndJoin(form) {
     const authorization = await paymentService.authorize(payload);
     const join = await buyerFlowService.joinDeal(route.dealId, {
       buyerId: flow.buyerId,
-      qty: flow.qty
+      qty: flow.qty,
+      affiliateRef: flow.affiliateRef || ""
     });
     saveFlow(route.dealId, {
       paymentAuthorized: true,
@@ -676,6 +690,134 @@ function cloneSellerDeal(dealId) {
   state.form.sellerCommissionRate = String(deal.commission_rate || 0);
   state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
   navigate("/app/seller/new");
+}
+
+async function updateDelivery(form) {
+  const dealId = form.dataset.dealId;
+  const participantId = form.dataset.participantId;
+  if (!dealId || !participantId) return;
+  const formData = new FormData(form);
+  await busy("Updating delivery status...", async () => {
+    await api(`/api/seller/deals/${encodeURIComponent(dealId)}/delivery/${encodeURIComponent(participantId)}`, {
+      method: "POST",
+      body: json({
+        status: String(formData.get("deliveryStatus") || ""),
+        tracking_number: String(formData.get("trackingNumber") || ""),
+        issue_note: String(formData.get("issueNote") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Delivery status updated",
+      message: "The seller delivery surface was refreshed with the latest fulfillment status."
+    };
+    await loadSellerDeal(dealId);
+  }, "Delivery update failed.");
+}
+
+async function saveAffiliatePayoutProfile(form) {
+  const formData = new FormData(form);
+  await busy("Saving affiliate payout profile...", async () => {
+    await api("/api/affiliate/payout-profile", {
+      method: "POST",
+      body: json({
+        payout_method: String(formData.get("affiliatePayoutMethod") || ""),
+        payout_details: String(formData.get("affiliatePayoutDetails") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Affiliate payout details saved",
+      message: "The affiliate profile is now ready for admin review and later external payout activation."
+    };
+    await loadAffiliate();
+  }, "Could not save affiliate payout details.");
+}
+
+async function decideKyc(form) {
+  const subjectType = form.dataset.subjectType;
+  const subjectId = form.dataset.subjectId;
+  const decision = form.dataset.decision;
+  if (!subjectType || !subjectId || !decision) return;
+  const formData = new FormData(form);
+  await busy("Updating KYC decision...", async () => {
+    await api(`/api/admin/kyc/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}/decision`, {
+      method: "POST",
+      body: json({
+        decision,
+        admin_note: String(formData.get("adminNote") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "KYC decision recorded",
+      message: "The admin KYC queue was updated and the surface reloaded."
+    };
+    await loadAdmin(state.form.adminQuery);
+  }, "Could not update the KYC decision.");
+}
+
+async function createSupportTicket(form) {
+  const formData = new FormData(form);
+  await busy("Creating support ticket...", async () => {
+    await api("/api/admin/support", {
+      method: "POST",
+      body: json({
+        scope_type: String(formData.get("supportScopeType") || ""),
+        scope_key: String(formData.get("supportScopeKey") || ""),
+        title: String(formData.get("supportTitle") || ""),
+        priority: String(formData.get("supportPriority") || "normal"),
+        summary: String(formData.get("supportSummary") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Support ticket created",
+      message: "The ticket now appears in the admin support hub."
+    };
+    await loadAdmin(state.form.adminQuery);
+  }, "Could not create the support ticket.");
+}
+
+async function updateSupportTicket(form) {
+  const ticketId = form.dataset.ticketId;
+  if (!ticketId) return;
+  const formData = new FormData(form);
+  await busy("Updating support ticket...", async () => {
+    await api(`/api/admin/support/${encodeURIComponent(ticketId)}`, {
+      method: "POST",
+      body: json({
+        status: String(formData.get("supportTicketStatus") || ""),
+        summary: String(formData.get("supportTicketSummary") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Support ticket updated",
+      message: "The support hub was refreshed with the latest ticket status."
+    };
+    await loadAdmin(state.form.adminQuery);
+  }, "Could not update the support ticket.");
+}
+
+async function updateAffiliatePayoutStatus(form) {
+  const affiliateId = form.dataset.affiliateId;
+  if (!affiliateId) return;
+  const formData = new FormData(form);
+  await busy("Updating affiliate payout status...", async () => {
+    await api(`/api/admin/affiliate-payouts/${encodeURIComponent(affiliateId)}`, {
+      method: "POST",
+      body: json({
+        payout_status: String(formData.get("affiliatePayoutStatus") || "")
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "Affiliate payout state updated",
+      message: "The settlement surface was refreshed with the new payout state."
+    };
+    await loadAdmin(state.form.adminQuery);
+  }, "Could not update the affiliate payout state.");
 }
 
 function restartFlow() {
@@ -829,6 +971,7 @@ function renderDealPage() {
   const qtyIssue = validateQty(state.dealPayload, qty);
   const nextAction = nextDealAction(deal.state, availability.canJoin);
   const flow = getFlow(deal.deal_id);
+  const affiliateRef = currentAffiliateRef() || flow?.affiliateRef || "";
 
   return `
     <section class="hero">
@@ -849,6 +992,7 @@ function renderDealPage() {
           <div class="summary-item"><span class="muted">סגירת חלון ההצטרפות</span><strong>${dt(deal.deadline)}</strong></div>
           <div class="summary-item"><span class="muted">מספר משתתפים</span><strong>${num(metrics.participants_count)}</strong></div>
         </div>
+        ${affiliateRef ? `<div class="info-strip tone-info"><strong>Affiliate attribution active</strong><p class="small">Referral code <span class="mono">${esc(affiliateRef)}</span> will stay attached to this join flow and later appear on the affiliate and admin surfaces.</p></div>` : ""}
         ${flow ? renderExistingFlow(flow, deal.deal_id) : ""}
       </article>
       <aside class="card hero-side stack">
@@ -1245,6 +1389,8 @@ function renderSellerDealPage() {
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("Seller deal unavailable", "The seller detail view could not be loaded.");
   const deal = payload.deal;
+  const receipts = payload.receipts_surface;
+  const delivery = payload.delivery_surface;
   return `
     <section class="hero">
       <article class="card hero-main stack">
@@ -1278,6 +1424,54 @@ function renderSellerDealPage() {
       <h2>Payment attempts</h2>
       ${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<p class="muted">No payment attempts were recorded yet.</p>`}
     </section>
+    <section class="card section stack">
+      <h2>Receipts and completed-deal settlement</h2>
+      <p class="muted">${esc(receipts.note)}</p>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Receipt status</span><strong>${esc(receipts.status)}</strong></div>
+        <div class="summary-item"><span class="muted">Gross</span><strong>${currency(receipts.summary.gross_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">Siton fee</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">Affiliate allocation</span><strong>${currency(receipts.summary.affiliate_fee_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">Seller net</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">Documents</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
+      </div>
+      ${receipts.documents.length ? renderRowsTable(receipts.documents, ["receipt_id", "participant_id", "buyer_id", "qty", "gross_amount", "affiliate_name", "affiliate_fee_amount", "payout_status"]) : `<p class="muted">No seller receipts are issuable yet. Only Completed deals with ChargedSuccess or RecoveredCharge buyers generate a receipt surface.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Delivery operations</h2>
+      <p class="muted">${esc(delivery.note)}</p>
+      ${delivery.rows.length ? `<div class="card-list">${delivery.rows.map((row) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(row.status)}</span>
+              <h3>${esc(row.buyer_id)}</h3>
+            </div>
+            <strong>${num(row.qty)} units</strong>
+          </div>
+          <p class="small muted">Tracking: ${esc(row.tracking_number || "not set")} • Financial state: ${esc(row.money_state)}</p>
+          <form class="stack" data-action="seller-delivery-update" data-deal-id="${esc(deal.deal_id)}" data-participant-id="${esc(row.participant_id)}">
+            <div class="inline-fields">
+              <div class="field">
+                <label>Status</label>
+                <select name="deliveryStatus">
+                  ${["ready_to_fulfill","shipped","delivered","issue"].map((option) => `<option value="${option}" ${row.status === option ? "selected" : ""}>${option}</option>`).join("")}
+                </select>
+              </div>
+              <div class="field">
+                <label>Tracking number</label>
+                <input name="trackingNumber" type="text" value="${esc(row.tracking_number || "")}" />
+              </div>
+            </div>
+            <div class="field">
+              <label>Issue note</label>
+              <input name="issueNote" type="text" value="${esc(row.issue_note || "")}" placeholder="Optional seller issue note" />
+            </div>
+            <button class="secondary" type="submit">Save delivery update</button>
+          </form>
+        </article>
+      `).join("")}</div>` : `<p class="muted">Delivery becomes active only for buyers whose payment ended in ChargedSuccess or RecoveredCharge on a Completed deal.</p>`}
+    </section>
   `;
 }
 
@@ -1295,16 +1489,45 @@ function renderAffiliatePage() {
           <div class="summary-item"><span class="muted">Attribution</span><strong>${esc(payload.attribution_status)}</strong></div>
           <div class="summary-item"><span class="muted">Payout status</span><strong>${esc(payload.payout_status)}</strong></div>
           <div class="summary-item"><span class="muted">Verification</span><strong>${esc(payload.verification_status)}</strong></div>
-          <div class="summary-item"><span class="muted">Reality note</span><strong>Partial by design</strong></div>
+          <div class="summary-item"><span class="muted">Payout method</span><strong>${esc(payload.payout_method)}</strong></div>
         </div>
-        <div class="info-strip tone-warning">
-          <strong>Current limitation</strong>
+        <div class="info-strip tone-info">
+          <strong>Internal-ready note</strong>
           <p>${esc(payload.note)}</p>
         </div>
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item"><span class="muted">Campaigns surfaced</span><strong>${num(payload.campaigns.length)}</strong></div>
+        <div class="summary-item"><span class="muted">Payout details</span><strong>${esc(payload.payout_details_masked)}</strong></div>
       </aside>
+    </section>
+    <section class="card section stack">
+      <h2>Affiliate totals</h2>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Attributed buyers</span><strong>${num(payload.totals.total_attributions)}</strong></div>
+        <div class="summary-item"><span class="muted">Pending commissions</span><strong>${currency(payload.totals.pending_commission)}</strong></div>
+        <div class="summary-item"><span class="muted">Approved commissions</span><strong>${currency(payload.totals.approved_commission)}</strong></div>
+        <div class="summary-item"><span class="muted">Paid commissions</span><strong>${currency(payload.totals.paid_commission)}</strong></div>
+      </div>
+      <div class="summary-item">
+        <span class="muted">Verification admin note</span>
+        <strong>${esc(payload.verification_surface.admin_note || "No admin note yet")}</strong>
+      </div>
+      <form class="stack" data-action="affiliate-save-payout">
+        <div class="inline-fields">
+          <div class="field">
+            <label>Payout method</label>
+            <select name="affiliatePayoutMethod">
+              ${["bank_transfer","manual_wire"].map((option) => `<option value="${option}" ${payload.payout_method === option ? "selected" : ""}>${option}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Bank / payout details</label>
+            <input name="affiliatePayoutDetails" type="text" placeholder="IBAN / account / descriptor" />
+          </div>
+        </div>
+        <button class="primary" type="submit">Save payout readiness profile</button>
+      </form>
     </section>
     <section class="card section stack">
       <h2>Available affiliate campaigns</h2>
@@ -1314,6 +1537,7 @@ function renderAffiliatePage() {
             <span class="muted">${esc(campaign.state)}</span>
             <h3>${esc(campaign.title)}</h3>
             <p class="small muted">Commission: ${num(Math.round((campaign.commission_rate || 0) * 100))}%</p>
+            <p class="small muted">Attributed buyers: ${num(campaign.attributed_buyers)} • Pending ${currency(campaign.pending_commission)} • Approved ${currency(campaign.approved_commission)} • Paid ${currency(campaign.paid_commission)}</p>
             <p class="small mono">${esc(campaign.share_link)}</p>
             <div class="actions">
               <a class="button secondary" href="/app/deal/${encodeURIComponent(campaign.deal_id)}" data-nav="/app/deal/${encodeURIComponent(campaign.deal_id)}">Open deal</a>
@@ -1361,6 +1585,124 @@ function renderAdminPage() {
       <h2>Omnisearch results</h2>
       ${payload.search_results.length ? renderRowsTable(payload.search_results, ["entity_type", "entity_id", "headline", "state", "detail"]) : `<p class="muted">No search results yet. Run omnisearch to inspect deals, participants, or buyers.</p>`}
     </section>
+    <section class="card section stack">
+      <h2>KYC and verification queue</h2>
+      ${payload.kyc_queue.length ? `<div class="card-list">${payload.kyc_queue.map((item) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(item.subject_type)}</span>
+              <h3>${esc(item.display_name)}</h3>
+            </div>
+            <strong>${esc(item.status)}</strong>
+          </div>
+          <p class="small muted">Detail: ${esc(item.detail || "n/a")} • Updated ${dt(item.updated_at)}</p>
+          <div class="actions">
+            <form data-action="admin-kyc-decision" data-subject-type="${esc(item.subject_type)}" data-subject-id="${esc(item.subject_id)}" data-decision="approve" class="stack">
+              <input type="hidden" name="adminNote" value="Approved during remaining-surface closure pass" />
+              <button class="secondary" type="submit">Approve</button>
+            </form>
+            <form data-action="admin-kyc-decision" data-subject-type="${esc(item.subject_type)}" data-subject-id="${esc(item.subject_id)}" data-decision="reject" class="stack">
+              <input type="hidden" name="adminNote" value="Rejected during remaining-surface closure pass" />
+              <button class="secondary" type="submit">Reject</button>
+            </form>
+          </div>
+        </article>
+      `).join("")}</div>` : `<p class="muted">No KYC items are currently waiting in the queue.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Settlements and payouts</h2>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Seller completed deals</span><strong>${num(payload.settlements.seller_workspace.completed_deals)}</strong></div>
+        <div class="summary-item"><span class="muted">Seller gross</span><strong>${currency(payload.settlements.seller_workspace.gross_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">Platform fee</span><strong>${currency(payload.settlements.seller_workspace.platform_fee_amount)}</strong></div>
+      </div>
+      ${payload.settlements.affiliates.length ? `<div class="card-list">${payload.settlements.affiliates.map((item) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(item.verification_status)}</span>
+              <h3>${esc(item.display_name)}</h3>
+            </div>
+            <strong>${esc(item.payout_status)}</strong>
+          </div>
+          <p class="small muted">Pending ${currency(item.pending_commission)} • Approved ${currency(item.approved_commission)} • Paid ${currency(item.paid_commission)}</p>
+          <form data-action="admin-affiliate-payout" data-affiliate-id="${esc(item.affiliate_id)}" class="inline-fields">
+            <div class="field">
+              <label>Payout status</label>
+              <select name="affiliatePayoutStatus">
+                ${["pending_review","approved","paid","hold"].map((option) => `<option value="${option}" ${item.payout_status === option ? "selected" : ""}>${option}</option>`).join("")}
+              </select>
+            </div>
+            <button class="secondary" type="submit">Update payout</button>
+          </form>
+        </article>
+      `).join("")}</div>` : `<p class="muted">No affiliate settlement rows are available yet.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Support hub</h2>
+      <form class="stack" data-action="admin-support-create">
+        <div class="inline-fields">
+          <div class="field">
+            <label>Scope type</label>
+            <select name="supportScopeType">
+              ${["deal","participant","affiliate","seller","system"].map((option) => `<option value="${option}">${option}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>Scope key</label>
+            <input name="supportScopeKey" type="text" placeholder="deal id / participant id / seller-default" />
+          </div>
+        </div>
+        <div class="field"><label>Title</label><input name="supportTitle" type="text" placeholder="Support summary" /></div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>Priority</label>
+            <select name="supportPriority">
+              <option value="normal">normal</option>
+              <option value="high">high</option>
+            </select>
+          </div>
+          <div class="field"><label>Summary</label><input name="supportSummary" type="text" placeholder="What needs investigation?" /></div>
+        </div>
+        <button class="primary" type="submit">Create support ticket</button>
+      </form>
+      ${payload.support_tickets.length ? `<div class="card-list">${payload.support_tickets.map((ticket) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(ticket.scope_type)}:${esc(ticket.scope_key)}</span>
+              <h3>${esc(ticket.title)}</h3>
+            </div>
+            <strong>${esc(ticket.status)}</strong>
+          </div>
+          <p class="small muted">${esc(ticket.summary || "No summary")} • ${esc(ticket.priority)}</p>
+          <form data-action="admin-support-update" data-ticket-id="${esc(ticket.ticket_id)}" class="inline-fields">
+            <div class="field">
+              <label>Status</label>
+              <select name="supportTicketStatus">
+                ${["open","investigating","resolved"].map((option) => `<option value="${option}" ${ticket.status === option ? "selected" : ""}>${option}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label>Summary</label>
+              <input name="supportTicketSummary" type="text" value="${esc(ticket.summary || "")}" />
+            </div>
+            <button class="secondary" type="submit">Save ticket</button>
+          </form>
+        </article>
+      `).join("")}</div>` : `<p class="muted">No support tickets exist yet.</p>`}
+    </section>
+    <section class="card section stack">
+      <h2>Forensics and system depth</h2>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">DLQ count</span><strong>${num(payload.forensics.dlq_count)}</strong></div>
+        <div class="summary-item"><span class="muted">Failed webhooks</span><strong>${num(payload.forensics.failed_webhooks)}</strong></div>
+        <div class="summary-item"><span class="muted">Ignored webhooks</span><strong>${num(payload.forensics.ignored_webhooks)}</strong></div>
+        <div class="summary-item"><span class="muted">Pending webhooks</span><strong>${num(payload.forensics.pending_webhooks)}</strong></div>
+        <div class="summary-item"><span class="muted">Recent audit events</span><strong>${num(payload.forensics.recent_audit_events)}</strong></div>
+      </div>
+    </section>
   `;
 }
 
@@ -1400,6 +1742,9 @@ function renderAdminDealPage() {
     <section class="card section stack"><h2>Participants</h2>${payload.participants.length ? renderRowsTable(payload.participants, ["participant_id", "buyer_id", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">No participants found.</p>`}</section>
     <section class="card section stack"><h2>Outbox</h2>${payload.outbox.length ? renderRowsTable(payload.outbox, ["event_type", "status", "available_at", "created_at"]) : `<p class="muted">No outbox rows found.</p>`}</section>
     <section class="card section stack"><h2>Payment attempts</h2>${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<p class="muted">No payment attempts found.</p>`}</section>
+    <section class="card section stack"><h2>Affiliate attributions</h2>${payload.affiliate_attributions.length ? renderRowsTable(payload.affiliate_attributions, ["participant_id", "share_code", "display_name", "commission_amount", "payout_status"]) : `<p class="muted">No affiliate attributions found.</p>`}</section>
+    <section class="card section stack"><h2>Delivery records</h2>${payload.delivery.length ? renderRowsTable(payload.delivery, ["participant_id", "status", "tracking_number", "issue_note", "updated_at"]) : `<p class="muted">No delivery rows found.</p>`}</section>
+    <section class="card section stack"><h2>Support tickets</h2>${payload.support_tickets.length ? renderRowsTable(payload.support_tickets, ["ticket_id", "scope_type", "scope_key", "title", "priority", "status", "updated_at"]) : `<p class="muted">No support tickets found for this deal.</p>`}</section>
     <section class="card section stack"><h2>Audit</h2>${payload.audit.length ? renderRowsTable(payload.audit, ["entity_type", "state_type", "from_state", "to_state", "action_name", "created_at"]) : `<p class="muted">No audit rows found.</p>`}</section>
   `;
 }
@@ -1542,14 +1887,14 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
         "x-request-id": `frontend:${Date.now()}`,
         "idempotency-key": `frontend:${dealId}:${buyerId}:${qty}`
       },
-      body: json({ buyer_id: buyerId, qty })
+      body: json({ buyer_id: buyerId, qty, affiliate_ref: affiliateRef || undefined })
     });
   }
 };

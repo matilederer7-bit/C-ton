@@ -175,6 +175,73 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   CONSTRAINT webhook_events_status_check CHECK (status IN ('pending','processed','ignored','failed'))
 );
 
+CREATE TABLE IF NOT EXISTS seller_accounts (
+  seller_id TEXT PRIMARY KEY,
+  display_name TEXT NOT NULL,
+  verification_status TEXT NOT NULL DEFAULT 'approved'
+    CHECK (verification_status IN ('pending','approved','rejected')),
+  settlement_status TEXT NOT NULL DEFAULT 'active'
+    CHECK (settlement_status IN ('active','review','hold')),
+  payout_method TEXT NOT NULL DEFAULT 'bank_transfer',
+  payout_details_masked TEXT NOT NULL DEFAULT '***1234',
+  admin_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS affiliate_accounts (
+  affiliate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  affiliate_code TEXT NOT NULL UNIQUE,
+  display_name TEXT NOT NULL,
+  verification_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (verification_status IN ('pending','verified','rejected')),
+  payout_status TEXT NOT NULL DEFAULT 'pending_profile'
+    CHECK (payout_status IN ('pending_profile','pending_review','approved','paid','hold')),
+  payout_method TEXT NOT NULL DEFAULT 'bank_transfer',
+  payout_details_masked TEXT NOT NULL DEFAULT '',
+  admin_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS affiliate_attributions (
+  attribution_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  affiliate_id UUID NOT NULL REFERENCES affiliate_accounts(affiliate_id) ON DELETE CASCADE,
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  participant_id UUID NOT NULL UNIQUE REFERENCES participants(participant_id) ON DELETE CASCADE,
+  share_code TEXT NOT NULL,
+  commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0,
+  commission_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  payout_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (payout_status IN ('pending','approved','paid','void')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS delivery_records (
+  delivery_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  participant_id UUID NOT NULL UNIQUE REFERENCES participants(participant_id) ON DELETE CASCADE,
+  status TEXT NOT NULL DEFAULT 'ready_to_fulfill'
+    CHECK (status IN ('ready_to_fulfill','shipped','delivered','issue')),
+  tracking_number TEXT NULL,
+  issue_note TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS support_tickets (
+  ticket_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  scope_type TEXT NOT NULL CHECK (scope_type IN ('deal','participant','affiliate','seller','system')),
+  scope_key TEXT NOT NULL,
+  title TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('normal','high')),
+  status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','investigating','resolved')),
+  summary TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON participants(deal_id);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);
@@ -182,6 +249,10 @@ CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON payment_attempts(
 CREATE INDEX IF NOT EXISTS idx_webhook_status_received ON webhook_events(status, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_provider_received ON webhook_events(provider, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_deal_received ON webhook_events(deal_id, received_at);
+CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_deal ON affiliate_attributions(deal_id, payout_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate ON affiliate_attributions(affiliate_id, payout_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_delivery_records_deal ON delivery_records(deal_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at DESC);
 
 DO $$
 BEGIN

@@ -4,6 +4,13 @@ import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { createHash } from "crypto";
 import type { PaymentProvider } from "./payment_provider.js";
+import {
+  AFFILIATE_FEE_SHARE_OF_PLATFORM,
+  DEFAULT_AFFILIATE_CODE,
+  ensureRemainingProductSurfaceTables,
+  isChargedMoneyState,
+  summarizeMoney
+} from "./product_surface_support.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -260,6 +267,14 @@ function mapDealListRow(row: DealListRow) {
   };
 }
 
+function receiptEligible(dealState: DealState, moneyState: string) {
+  return dealState === "Completed" && isChargedMoneyState(moneyState);
+}
+
+function deliveryEligible(dealState: DealState, moneyState: string) {
+  return dealState === "Completed" && isChargedMoneyState(moneyState);
+}
+
 async function sendFrontendFile(reply: FastifyReply, filename: string, contentType: string) {
   const content = await readFile(join(frontendDir, filename), "utf8");
   return reply.type(contentType).send(content);
@@ -269,6 +284,8 @@ export function registerFrontendExperience(
   app: FastifyInstance,
   deps: { withTx: WithTx; paymentProvider: PaymentProvider }
 ) {
+  const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
+
   app.get("/api/marketplace/deals", async (req: any) => {
     const q = String(req.query?.q || "").trim();
     return deps.withTx(async (c) => {
@@ -433,6 +450,7 @@ export function registerFrontendExperience(
   app.get("/api/seller/deals/:id", async (req: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const dealResult = await c.query(
@@ -482,52 +500,308 @@ export function registerFrontendExperience(
         [dealId]
       );
 
+      const attributions = await c.query(
+        `SELECT aa.participant_id,
+                aa.share_code,
+                aa.commission_amount,
+                aa.payout_status,
+                af.display_name AS affiliate_name,
+                af.verification_status
+         FROM siton.affiliate_attributions aa
+         JOIN siton.affiliate_accounts af ON af.affiliate_id = aa.affiliate_id
+         WHERE aa.deal_id = $1`,
+        [dealId]
+      );
+
+      const deliveries = await c.query(
+        `SELECT participant_id, status, tracking_number, issue_note, updated_at
+         FROM siton.delivery_records
+         WHERE deal_id = $1
+         ORDER BY updated_at DESC`,
+        [dealId]
+      );
+
+      const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
+      const attributionByParticipant = new Map(
+        attributions.rows.map((row: any) => [String(row.participant_id), row])
+      );
+      const deliveryByParticipant = new Map(
+        deliveries.rows.map((row: any) => [String(row.participant_id), row])
+      );
+
+      const fulfilledParticipants = participants.rows
+        .filter((row: any) => receiptEligible(deal.state, String(row.money_state)))
+        .map((row: any) => {
+          const attribution = attributionByParticipant.get(String(row.participant_id)) as any;
+          const grossAmount = Number(row.qty) * Number(deal.price_per_unit);
+          return {
+            participant_id: row.participant_id,
+            buyer_id: row.buyer_id,
+            qty: Number(row.qty),
+            money_state: row.money_state,
+            buyer_state: row.buyer_state,
+            gross_amount: grossAmount,
+            receipt_id: `RCT-${String(deal.deal_id).slice(0, 8)}-${String(row.participant_id).slice(0, 6)}`,
+            share_code: attribution?.share_code ?? null,
+            affiliate_name: attribution?.affiliate_name ?? null,
+            affiliate_fee_amount: Number(attribution?.commission_amount || 0),
+            payout_status: attribution?.payout_status ?? "not_attributed"
+          };
+        });
+
+      const financialSummary = summarizeMoney({
+        grossAmount: fulfilledParticipants.reduce(
+          (sum: number, row: any) => sum + Number(row.gross_amount || 0),
+          0
+        ),
+        commissionRate: Number(deal.commission_rate || 0),
+        affiliateAmount: fulfilledParticipants.reduce(
+          (sum: number, row: any) => sum + Number(row.affiliate_fee_amount || 0),
+          0
+        )
+      });
+
+      const deliveryRows = participants.rows
+        .filter((row: any) => deliveryEligible(deal.state, String(row.money_state)))
+        .map((row: any) => {
+          const delivery = deliveryByParticipant.get(String(row.participant_id)) as any;
+          return {
+            participant_id: row.participant_id,
+            buyer_id: row.buyer_id,
+            qty: Number(row.qty),
+            money_state: row.money_state,
+            status: delivery?.status ?? "ready_to_fulfill",
+            tracking_number: delivery?.tracking_number ?? null,
+            issue_note: delivery?.issue_note ?? "",
+            updated_at: delivery?.updated_at ?? null
+          };
+        });
+
       return {
         ok: true,
-        deal: mapDealListRow(dealResult.rows[0] as DealListRow),
+        deal,
         participants: participants.rows,
         payment_attempts: attempts.rows,
+        receipts_surface: {
+          status:
+            deal.state === "Completed"
+              ? "ready"
+              : ["Failed", "Cancelled"].includes(deal.state)
+                ? "not_issued"
+                : "waiting_for_completion",
+          eligible_money_states: ["ChargedSuccess", "RecoveredCharge"],
+          note:
+            deal.state === "Completed"
+              ? "Receipts are generated only for successfully charged or recovered participants in completed deals."
+              : "Receipts stay blocked until the deal reaches Completed. Failed or cancelled deals do not issue seller receipts.",
+          summary: {
+            ...financialSummary,
+            receipt_document_count: fulfilledParticipants.length
+          },
+          documents: fulfilledParticipants
+        },
+        delivery_surface: {
+          status: deal.state === "Completed" ? "ready" : "blocked_until_completed",
+          note:
+            deal.state === "Completed"
+              ? "Only successfully charged or recovered buyers appear in delivery operations."
+              : "Delivery operations become active only after a deal completes successfully.",
+          rows: deliveryRows
+        },
         seller_actions: {
           can_publish: (dealResult.rows[0] as DealListRow).state === "Draft",
           edit_locked: (dealResult.rows[0] as DealListRow).state !== "Draft",
-          create_similar_supported: true
+          create_similar_supported: true,
+          can_manage_delivery: deal.state === "Completed"
         }
       };
     });
   });
 
-  app.get("/api/affiliate/overview", async () => {
+  app.post("/api/seller/deals/:id/delivery/:participantId", async (req: any) => {
+    const dealId = String(req.params.id);
+    const participantId = String(req.params.participantId);
+    requireUuid(dealId, "deal_id");
+    requireUuid(participantId, "participant_id");
+    await ensureProductSurfaces();
+
+    const status = String(req.body?.status || "").trim();
+    const trackingNumber = String(req.body?.tracking_number || "").trim();
+    const issueNote = String(req.body?.issue_note || "").trim();
+    const allowedStatuses = new Set(["ready_to_fulfill", "shipped", "delivered", "issue"]);
+    if (!allowedStatuses.has(status)) {
+      const err: any = new Error("delivery status is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+
     return deps.withTx(async (c) => {
-      const result = await c.query(
-        `SELECT deal_id, title, state, commission_rate, created_at, published_at
-         FROM siton.deals
-         ORDER BY created_at DESC
-         LIMIT 50`
+      const participant = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.qty, p.money_state, d.state AS deal_state
+         FROM siton.participants p
+         JOIN siton.deals d ON d.deal_id = p.deal_id
+         WHERE p.participant_id = $1 AND p.deal_id = $2`,
+        [participantId, dealId]
+      );
+
+      if (!participant.rowCount) {
+        const err: any = new Error("participant not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const row = participant.rows[0] as any;
+      if (!deliveryEligible(String(row.deal_state) as DealState, String(row.money_state))) {
+        const err: any = new Error("delivery update requires completed deal with charged buyer");
+        err.statusCode = 409;
+        throw err;
+      }
+
+      const upserted = await c.query(
+        `INSERT INTO siton.delivery_records (
+           deal_id, participant_id, status, tracking_number, issue_note
+         )
+         VALUES ($1,$2,$3,$4,$5)
+         ON CONFLICT (participant_id) DO UPDATE
+         SET status = EXCLUDED.status,
+             tracking_number = EXCLUDED.tracking_number,
+             issue_note = EXCLUDED.issue_note,
+             updated_at = now()
+         RETURNING participant_id, status, tracking_number, issue_note, updated_at`,
+        [dealId, participantId, status, trackingNumber || null, issueNote]
       );
 
       return {
         ok: true,
+        delivery: upserted.rows[0]
+      };
+    });
+  });
+
+  app.get("/api/affiliate/overview", async () => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const affiliate = await c.query(
+        `SELECT affiliate_id, affiliate_code, display_name, verification_status, payout_status,
+                payout_method, payout_details_masked, admin_note
+         FROM siton.affiliate_accounts
+         WHERE affiliate_code = $1
+         LIMIT 1`,
+        [DEFAULT_AFFILIATE_CODE]
+      );
+      const profile = affiliate.rows[0] as any;
+
+      const campaigns = await c.query(
+        `SELECT d.deal_id,
+                d.title,
+                d.state,
+                d.commission_rate,
+                d.created_at,
+                d.published_at,
+                COUNT(a.participant_id)::int AS attributed_buyers,
+                COALESCE(SUM(a.commission_amount),0) AS attributed_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='pending' THEN a.commission_amount ELSE 0 END),0) AS pending_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='approved' THEN a.commission_amount ELSE 0 END),0) AS approved_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='paid' THEN a.commission_amount ELSE 0 END),0) AS paid_commission
+         FROM siton.deals d
+         LEFT JOIN siton.affiliate_attributions a
+           ON a.deal_id = d.deal_id
+          AND a.affiliate_id = $1
+         GROUP BY d.deal_id
+         ORDER BY d.created_at DESC
+         LIMIT 50`,
+        [profile.affiliate_id]
+      );
+
+      const attributionTotals = await c.query(
+        `SELECT
+           COUNT(*)::int AS total_attributions,
+           COALESCE(SUM(commission_amount),0) AS total_commission,
+           COALESCE(SUM(CASE WHEN payout_status='pending' THEN commission_amount ELSE 0 END),0) AS pending_commission,
+           COALESCE(SUM(CASE WHEN payout_status='approved' THEN commission_amount ELSE 0 END),0) AS approved_commission,
+           COALESCE(SUM(CASE WHEN payout_status='paid' THEN commission_amount ELSE 0 END),0) AS paid_commission
+         FROM siton.affiliate_attributions
+         WHERE affiliate_id = $1`,
+        [profile.affiliate_id]
+      );
+      const totals = attributionTotals.rows[0] as any;
+
+      return {
+        ok: true,
         affiliate_surface: {
-          attribution_status: "partial",
-          payout_status: "not_active",
-          verification_status: "not_modeled",
-          note: "Affiliate share links can be generated, but attribution and payout persistence are not implemented yet in the backend model.",
-          campaigns: result.rows.map((row: any) => ({
+          attribution_status: totals.total_attributions > 0 ? "active" : "ready_for_attribution",
+          payout_status: profile.payout_status,
+          verification_status: profile.verification_status,
+          payout_method: profile.payout_method,
+          payout_details_masked: profile.payout_details_masked || "missing",
+          note: "Affiliate attribution is now persisted internally. External payout execution is still inactive until external activation starts.",
+          totals: {
+            total_attributions: Number(totals.total_attributions || 0),
+            total_commission: Number(totals.total_commission || 0),
+            pending_commission: Number(totals.pending_commission || 0),
+            approved_commission: Number(totals.approved_commission || 0),
+            paid_commission: Number(totals.paid_commission || 0)
+          },
+          verification_surface: {
+            status: profile.verification_status,
+            admin_note: profile.admin_note || "",
+            can_submit_payout_profile: true
+          },
+          campaigns: campaigns.rows.map((row: any) => ({
             deal_id: row.deal_id,
             title: row.title,
             state: row.state,
             commission_rate: Number(row.commission_rate || 0),
             created_at: row.created_at,
             published_at: row.published_at,
-            share_link: `/app/deal/${row.deal_id}?ref=affiliate-demo`
+            attributed_buyers: Number(row.attributed_buyers || 0),
+            attributed_commission: Number(row.attributed_commission || 0),
+            pending_commission: Number(row.pending_commission || 0),
+            approved_commission: Number(row.approved_commission || 0),
+            paid_commission: Number(row.paid_commission || 0),
+            share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(profile.affiliate_code)}`
           }))
         }
       };
     });
   });
 
+  app.post("/api/affiliate/payout-profile", async (req: any) => {
+    await ensureProductSurfaces();
+    const payoutMethod = String(req.body?.payout_method || "").trim();
+    const payoutDetails = String(req.body?.payout_details || "").trim();
+    if (!payoutMethod || !payoutDetails) {
+      const err: any = new Error("payout_method and payout_details are required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      const masked = payoutDetails.length <= 4 ? payoutDetails : `***${payoutDetails.slice(-4)}`;
+      const updated = await c.query(
+        `UPDATE siton.affiliate_accounts
+         SET payout_method = $2,
+             payout_details_masked = $3,
+             payout_status = CASE
+               WHEN verification_status='verified' THEN 'pending_review'
+               ELSE 'pending_profile'
+             END,
+             updated_at = now()
+         WHERE affiliate_code = $1
+         RETURNING affiliate_code, payout_method, payout_details_masked, payout_status`,
+        [DEFAULT_AFFILIATE_CODE, payoutMethod, masked]
+      );
+
+      return {
+        ok: true,
+        affiliate_profile: updated.rows[0]
+      };
+    });
+  });
+
   app.get("/api/admin/overview", async (req: any) => {
     const q = String(req.query?.q || "").trim();
+    await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const deals = await c.query(
         `SELECT
@@ -567,7 +841,62 @@ export function registerFrontendExperience(
           )
         : { rows: [] };
 
+      const kycQueue = await c.query(
+        `SELECT 'seller' AS subject_type,
+                seller_id AS subject_id,
+                display_name,
+                verification_status AS status,
+                settlement_status AS detail,
+                updated_at
+         FROM siton.seller_accounts
+         UNION ALL
+         SELECT 'affiliate' AS subject_type,
+                affiliate_id::text AS subject_id,
+                display_name,
+                verification_status AS status,
+                payout_status AS detail,
+                updated_at
+         FROM siton.affiliate_accounts
+         ORDER BY updated_at DESC`
+      );
+
+      const support = await c.query(
+        `SELECT ticket_id, scope_type, scope_key, title, priority, status, summary, created_at, updated_at
+         FROM siton.support_tickets
+         ORDER BY updated_at DESC
+         LIMIT 30`
+      );
+
+      const affiliateSettlements = await c.query(
+        `SELECT af.affiliate_id::text AS affiliate_id,
+                af.display_name,
+                af.verification_status,
+                af.payout_status,
+                COALESCE(SUM(a.commission_amount),0) AS total_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='pending' THEN a.commission_amount ELSE 0 END),0) AS pending_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='approved' THEN a.commission_amount ELSE 0 END),0) AS approved_commission,
+                COALESCE(SUM(CASE WHEN a.payout_status='paid' THEN a.commission_amount ELSE 0 END),0) AS paid_commission
+         FROM siton.affiliate_accounts af
+         LEFT JOIN siton.affiliate_attributions a ON a.affiliate_id = af.affiliate_id
+         GROUP BY af.affiliate_id
+         ORDER BY af.display_name`
+      );
+
+      const forensics = await c.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM siton.outbox_dlq) AS dlq_count,
+           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='failed') AS failed_webhooks,
+           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='ignored') AS ignored_webhooks,
+           (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='pending') AS pending_webhooks,
+           (SELECT COUNT(*)::int FROM siton.audit_log WHERE created_at > now() - interval '24 hours') AS recent_audit_events`
+      );
+
       const rows = deals.rows as DealListRow[];
+      const completedDeals = rows.filter((row) => row.state === "Completed");
+      const sellerSettlementGross = completedDeals.reduce(
+        (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0),
+        0
+      );
       return {
         ok: true,
         q,
@@ -580,7 +909,23 @@ export function registerFrontendExperience(
           },
           deals: rows.map(mapDealListRow).slice(0, 20),
           exceptional_deals: rows.filter((row) => ["Failed", "Cancelled", "Charging", "CompletionWindow"].includes(row.state)).map(mapDealListRow).slice(0, 12),
-          search_results: search.rows
+          search_results: search.rows,
+          kyc_queue: kycQueue.rows,
+          settlements: {
+            seller_workspace: {
+              completed_deals: completedDeals.length,
+              gross_amount: sellerSettlementGross,
+              platform_fee_amount: Number(
+                completedDeals.reduce(
+                  (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0) * Number(row.commission_rate || 0),
+                  0
+                ).toFixed(2)
+              )
+            },
+            affiliates: affiliateSettlements.rows
+          },
+          support_tickets: support.rows,
+          forensics: forensics.rows[0]
         }
       };
     });
@@ -589,6 +934,7 @@ export function registerFrontendExperience(
   app.get("/api/admin/deals/:id/profile", async (req: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const deal = await c.query(
@@ -635,6 +981,29 @@ export function registerFrontendExperience(
          LIMIT 30`,
         [dealId]
       );
+      const deliveries = await c.query(
+        `SELECT participant_id, status, tracking_number, issue_note, updated_at
+         FROM siton.delivery_records
+         WHERE deal_id = $1
+         ORDER BY updated_at DESC`,
+        [dealId]
+      );
+      const attributions = await c.query(
+        `SELECT aa.participant_id, aa.share_code, aa.commission_amount, aa.payout_status, af.display_name
+         FROM siton.affiliate_attributions aa
+         JOIN siton.affiliate_accounts af ON af.affiliate_id = aa.affiliate_id
+         WHERE aa.deal_id = $1
+         ORDER BY aa.created_at DESC`,
+        [dealId]
+      );
+      const tickets = await c.query(
+        `SELECT ticket_id, scope_type, scope_key, title, priority, status, summary, updated_at
+         FROM siton.support_tickets
+         WHERE (scope_type='deal' AND scope_key=$1) OR (scope_type='system')
+         ORDER BY updated_at DESC
+         LIMIT 20`,
+        [dealId]
+      );
 
       return {
         ok: true,
@@ -643,7 +1012,10 @@ export function registerFrontendExperience(
           participants: participants.rows,
           outbox: outbox.rows,
           payment_attempts: attempts.rows,
-          audit: audit.rows
+          audit: audit.rows,
+          delivery: deliveries.rows,
+          affiliate_attributions: attributions.rows,
+          support_tickets: tickets.rows
         }
       };
     });
@@ -679,6 +1051,147 @@ export function registerFrontendExperience(
           }
         }
       };
+    });
+  });
+
+  app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any) => {
+    const subjectType = String(req.params.subjectType || "").trim();
+    const subjectId = String(req.params.subjectId || "").trim();
+    const decision = String(req.body?.decision || "").trim();
+    const adminNote = String(req.body?.admin_note || "").trim();
+    if (!["seller", "affiliate"].includes(subjectType)) {
+      const err: any = new Error("subject_type is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!["approve", "reject"].includes(decision)) {
+      const err: any = new Error("decision is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const nextStatus = decision === "approve" ? "approved" : "rejected";
+      if (subjectType === "seller") {
+        const updated = await c.query(
+          `UPDATE siton.seller_accounts
+           SET verification_status = $2, admin_note = $3, updated_at = now()
+           WHERE seller_id = $1
+           RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
+          [subjectId, nextStatus, adminNote]
+        );
+        return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+      }
+
+      const updated = await c.query(
+        `UPDATE siton.affiliate_accounts
+         SET verification_status = $2,
+             payout_status = CASE
+               WHEN $2='verified' AND payout_details_masked <> '' THEN 'pending_review'
+               WHEN $2='rejected' THEN 'hold'
+               ELSE payout_status
+             END,
+             admin_note = $3,
+             updated_at = now()
+         WHERE affiliate_id = $1::uuid
+         RETURNING affiliate_id::text AS subject_id, verification_status AS status, admin_note, payout_status`,
+        [subjectId, decision === "approve" ? "verified" : "rejected", adminNote]
+      );
+      return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/support", async (req: any) => {
+    await ensureProductSurfaces();
+    const scopeType = String(req.body?.scope_type || "").trim();
+    const scopeKey = String(req.body?.scope_key || "").trim();
+    const title = String(req.body?.title || "").trim();
+    const priority = String(req.body?.priority || "normal").trim();
+    const summary = String(req.body?.summary || "").trim();
+    if (!scopeType || !scopeKey || !title) {
+      const err: any = new Error("scope_type, scope_key, and title are required");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!["deal", "participant", "affiliate", "seller", "system"].includes(scopeType)) {
+      const err: any = new Error("support scope_type is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!["normal", "high"].includes(priority)) {
+      const err: any = new Error("support priority is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      const inserted = await c.query(
+        `INSERT INTO siton.support_tickets (scope_type, scope_key, title, priority, summary)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING ticket_id, scope_type, scope_key, title, priority, status, summary, created_at`,
+        [scopeType, scopeKey, title, priority, summary]
+      );
+      return { ok: true, ticket: inserted.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/support/:ticketId", async (req: any) => {
+    await ensureProductSurfaces();
+    const ticketId = String(req.params.ticketId || "");
+    requireUuid(ticketId, "ticket_id");
+    const status = String(req.body?.status || "").trim();
+    const summary = String(req.body?.summary || "").trim();
+    if (!["open", "investigating", "resolved"].includes(status)) {
+      const err: any = new Error("support status is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      const updated = await c.query(
+        `UPDATE siton.support_tickets
+         SET status = $2,
+             summary = CASE WHEN $3 = '' THEN summary ELSE $3 END,
+             updated_at = now()
+         WHERE ticket_id = $1
+         RETURNING ticket_id, status, summary, updated_at`,
+        [ticketId, status, summary]
+      );
+      return { ok: true, ticket: updated.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/affiliate-payouts/:affiliateId", async (req: any) => {
+    await ensureProductSurfaces();
+    const affiliateId = String(req.params.affiliateId || "");
+    requireUuid(affiliateId, "affiliate_id");
+    const payoutStatus = String(req.body?.payout_status || "").trim();
+    if (!["pending_review", "approved", "paid", "hold"].includes(payoutStatus)) {
+      const err: any = new Error("affiliate payout_status is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      await c.query(
+        `UPDATE siton.affiliate_accounts
+         SET payout_status = $2, updated_at = now()
+         WHERE affiliate_id = $1`,
+        [affiliateId, payoutStatus]
+      );
+
+      if (payoutStatus === "approved" || payoutStatus === "paid") {
+        await c.query(
+          `UPDATE siton.affiliate_attributions
+           SET payout_status = $2, updated_at = now()
+           WHERE affiliate_id = $1
+             AND payout_status IN ('pending','approved')`,
+          [affiliateId, payoutStatus === "paid" ? "paid" : "approved"]
+        );
+      }
+
+      return { ok: true, affiliate_id: affiliateId, payout_status: payoutStatus };
     });
   });
 
