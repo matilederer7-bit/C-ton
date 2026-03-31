@@ -550,3 +550,50 @@ dispatch ����� �worker:
 
 השלב הבא
 - wire one real payment provider behind the provider-ready boundary and expand webhook reconciliation from the current minimal event set to the provider's full event matrix
+## 2026-03-31 internal maximal closure
+
+מה הושלם
+- internal closure audit was completed across product, frontend, backend, runtime, payment abstraction, webhook reconciliation, tests, and operational confidence
+- real integration validation was expanded to cover recovery success, recovery failure, and unsupported webhook-event safety
+- canonical internal-closure decision and handoff documents were added
+
+מה נבדק
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- integration validation passed for:
+  - payment authorization contract
+  - duplicate webhook handling
+  - charge success reconciliation
+  - charge failure reconciliation
+  - recovery success reconciliation
+  - recovery failure reconciliation
+  - unsupported webhook-event safety
+
+מה תוקן
+- internal validation depth around payment/webhook reconciliation
+- canonical truth for what is internally closed versus what depends on future external activation
+
+מה עדיין פתוח
+- live payment provider execution
+- full provider-specific webhook event catalog
+- real outbound notification transport
+
+מה non-blocking
+- payment remains mock-backed by design
+- notifications remain log-only by design
+- no git remote is configured, so no push was performed
+
+מה תלוי ביציאה החוצה
+- first live provider adapter
+- real provider webhook catalog mapping
+- first real notification provider
+
+אחוז התקדמות משוער
+- backend: 95%
+- frontend: 90%
+- real integrations readiness: 88%
+- internal maximal closure: 94%
+- overall product readiness: 91%
+
+השלב הבא
+- keep the system closed internally and only then choose the first real provider for the external activation pass
