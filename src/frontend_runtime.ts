@@ -285,6 +285,8 @@ export function registerFrontendExperience(
   deps: {
     withTx: WithTx;
     paymentProvider: PaymentProvider;
+    deploymentMode: string;
+    isDemoPreview: boolean;
     notificationSummary: {
       provider: string;
       mode: string;
@@ -293,6 +295,30 @@ export function registerFrontendExperience(
   }
 ) {
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
+
+  app.get("/api/preview/meta", async () => ({
+    ok: true,
+    preview: {
+      deployment_mode: deps.deploymentMode,
+      is_demo_preview: deps.isDemoPreview,
+      public_label: deps.isDemoPreview ? "Demo / Preview" : "Internal runtime",
+      guardrails: {
+        payment_is_real: false,
+        invoice_is_real: false,
+        shipping_is_real: false,
+        payout_is_real: false,
+        kyc_is_real: false,
+        notifications_are_real: deps.notificationSummary.external_delivery
+      },
+      notes: [
+        "This environment is intended for live showcase and preview only.",
+        "Payment, invoice, shipping, payout, and KYC rails remain inactive until external activation starts.",
+        deps.notificationSummary.external_delivery
+          ? "Notification delivery is externally active."
+          : "Notifications remain log-only in this environment."
+      ]
+    }
+  }));
 
   app.get("/api/marketplace/deals", async (req: any) => {
     const q = String(req.query?.q || "").trim();
@@ -600,7 +626,7 @@ export function registerFrontendExperience(
           eligible_money_states: ["ChargedSuccess", "RecoveredCharge"],
           note:
             deal.state === "Completed"
-              ? "Receipts are generated only for successfully charged or recovered participants in completed deals."
+              ? "Receipts are generated only for successfully charged or recovered participants in completed deals. In demo or preview this remains an internal-ready receipt surface, not an external invoice rail."
               : "Receipts stay blocked until the deal reaches Completed. Failed or cancelled deals do not issue seller receipts.",
           summary: {
             ...financialSummary,
@@ -612,7 +638,7 @@ export function registerFrontendExperience(
           status: deal.state === "Completed" ? "ready" : "blocked_until_completed",
           note:
             deal.state === "Completed"
-              ? "Only successfully charged or recovered buyers appear in delivery operations."
+              ? "Only successfully charged or recovered buyers appear in delivery operations. Demo mode records fulfillment intent and tracking semantics, but does not claim live carrier execution."
               : "Delivery operations become active only after a deal completes successfully.",
           rows: deliveryRows
         },
@@ -752,7 +778,7 @@ export function registerFrontendExperience(
           verification_status: profile.verification_status,
           payout_method: profile.payout_method,
           payout_details_masked: profile.payout_details_masked || "missing",
-          note: "Affiliate attribution is now persisted internally. External payout execution is still inactive until external activation starts.",
+          note: "Affiliate attribution is persisted internally. Demo mode shows payout readiness and payout-state semantics, but no live payout rail is active yet.",
           totals: {
             total_attributions: Number(totals.total_attributions || 0),
             total_commission: Number(totals.total_commission || 0),
@@ -973,6 +999,10 @@ export function registerFrontendExperience(
           app_health: {
             ok: true
           },
+          deployment: {
+            mode: deps.deploymentMode,
+            is_demo_preview: deps.isDemoPreview
+          },
           integrations: {
             payment: getPaymentProviderSummary(deps.paymentProvider),
             notifications: deps.notificationSummary,
@@ -990,6 +1020,9 @@ export function registerFrontendExperience(
           },
           operational_counts: counts.rows[0],
           notes: [
+            deps.isDemoPreview
+              ? "This runtime is configured for demo / preview deployment and should not be presented as a live commercial environment."
+              : "This runtime is not marked as commercial-live.",
             "Payment remains intentionally mock-backed until external activation starts.",
             "Notifications remain intentionally log-only until external activation starts."
           ]

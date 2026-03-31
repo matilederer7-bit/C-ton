@@ -9,6 +9,7 @@ const state = {
   loading: false,
   loadingMessage: "",
   route: parseRoute(location.pathname),
+  previewMeta: null,
   dealPayload: null,
   trackingPayload: null,
   marketplacePayload: null,
@@ -157,8 +158,17 @@ boot();
 
 async function boot() {
   hydrateForm();
+  await loadPreviewMeta();
   render();
   await runRoute();
+}
+
+async function loadPreviewMeta() {
+  try {
+    state.previewMeta = await api("/api/preview/meta");
+  } catch {
+    state.previewMeta = null;
+  }
 }
 
 function parseRoute(path) {
@@ -878,11 +888,23 @@ function render() {
   root.innerHTML = `
     <main class="shell">
       ${renderNav()}
+      ${renderPreviewStrip()}
       ${state.banner ? renderBanner(state.banner) : ""}
       ${state.error ? renderErrorCard(state.error) : ""}
       ${state.loading ? renderInfoStrip(state.loadingMessage || "טוען...") : ""}
       ${renderCurrentRoute()}
     </main>
+  `;
+}
+
+function renderPreviewStrip() {
+  const preview = state.previewMeta?.preview;
+  if (!preview?.is_demo_preview) return "";
+  return `
+    <section class="info-strip tone-warning">
+      <strong>${esc(preview.public_label)} deployment</strong>
+      <p>This environment is for showcase and preview only. Payment, receipts, shipping, payouts, KYC, and notifications are displayed with internal-ready semantics only and are not live external rails.</p>
+    </section>
   `;
 }
 
@@ -907,14 +929,14 @@ function renderCurrentRoute() {
 function renderHome() {
   const payload = state.marketplacePayload;
   const deals = payload?.deals || [];
+  const preview = state.previewMeta?.preview;
   return `
     <section class="hero">
       <article class="card hero-main stack">
-        <span class="eyebrow">Full Product Surface</span>
-        <h1>Public marketplace plus the original buyer flow</h1>
+        <span class="eyebrow">${esc(preview?.public_label || "Preview product surface")}</span>
+        <h1>Public product preview with buyer, seller, affiliate, and admin surfaces</h1>
         <p class="muted">
-          Before this task we had a strong backend, buyer flow, internal closure, system QA, and hardening,
-          but almost no real seller, affiliate, admin, or public discovery surfaces. This page now acts as the public product hub.
+          This preview environment lets you open public deals, walk the buyer journey, and inspect seller, affiliate, and admin workspaces without pretending that live payment or external operational rails are already active.
         </p>
         <div class="actions">
           <a class="button secondary" href="/app/seller" data-nav="/app/seller">Seller workspace</a>
@@ -932,15 +954,15 @@ function renderHome() {
           </div>
         </form>
         <div class="summary-item">
-          <span class="muted">Scope note</span>
-          <strong>${payload?.discovery_mode || "public marketplace"}</strong>
-          <p class="small muted">${payload?.note || "Public searchable discovery is active here as a product expansion beyond the original link-based spec."}</p>
+          <span class="muted">Preview scope</span>
+          <strong>${payload?.discovery_mode || "public marketplace preview"}</strong>
+          <p class="small muted">${payload?.note || "Public searchable discovery is available in preview, but this environment still stops short of live commercial activation."}</p>
         </div>
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item"><span class="muted">Public deals loaded</span><strong>${num(deals.length)}</strong></div>
-        <div class="summary-item"><span class="muted">What existed before this task</span><strong>Buyer flow, tracking, runtime, QA, hardening</strong></div>
-        <div class="summary-item"><span class="muted">What was missing before this task</span><strong>Seller, affiliate, admin, searchable public discovery</strong></div>
+        <div class="summary-item"><span class="muted">Deployment mode</span><strong>${esc(preview?.deployment_mode || "preview")}</strong></div>
+        <div class="summary-item"><span class="muted">Commercial rails</span><strong>Disabled in demo</strong></div>
       </aside>
     </section>
     <section class="card section stack">
@@ -1022,6 +1044,10 @@ function renderDealPage() {
             <span class="muted">עלות משוערת</span>
             <strong>${currency(Math.max(0, qty) * deal.price_per_unit)}</strong>
             <p class="small muted">בשלב הזה נשמרת תפיסת מסגרת בלבד. חיוב אמיתי יקרה רק אם העסקה תושלם.</p>
+          </div>
+          <div class="info-strip tone-warning">
+            <strong>Demo / preview guardrail</strong>
+            <p class="small">This buyer journey is live for showcase purposes, but it must not be described as real charging or commercial checkout.</p>
           </div>
           <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${nextAction.cta}</button>
         </form>
@@ -1141,6 +1167,13 @@ function renderPaymentPage(dealId) {
   }
 
   const deal = state.dealPayload?.deal;
+  const previewPaymentGuardrail = `
+    <div class="info-strip tone-warning">
+      <strong>Demo payment guardrail</strong>
+      <p class="small">This page demonstrates authorization flow only. It must not be presented as live charging, real settlement, or commercial payment processing.</p>
+    </div>
+  `;
+  const previewPaymentNote = `<p class="small muted">Preview mode: this authorization remains mock-backed and never touches a live payment rail.</p>`;
   return `
     <section class="hero">
       <article class="card hero-main stack">
@@ -1169,6 +1202,7 @@ function renderPaymentPage(dealId) {
         </div>
       </article>
       <aside class="card hero-side stack">
+        ${previewPaymentGuardrail}
         <form data-action="pay" class="stack">
           <div class="field"><label for="holderName">שם בעל הכרטיס</label><input id="holderName" name="holderName" type="text" value="${esc(state.form.holderName)}" autocomplete="cc-name" /></div>
           <div class="field"><label for="cardNumber">מספר כרטיס</label><input id="cardNumber" name="cardNumber" type="text" inputmode="numeric" value="${esc(state.form.cardNumber)}" autocomplete="cc-number" placeholder="4111111111111111" /></div>
@@ -1178,6 +1212,7 @@ function renderPaymentPage(dealId) {
           </div>
           <button class="primary" type="submit">אשר מסגרת והשלם הצטרפות</button>
           <p class="small muted">לבדיקת כשל mock אפשר להשתמש בכרטיס שמסתיים ב-0000.</p>
+          ${previewPaymentNote}
         </form>
       </aside>
     </section>
@@ -1450,6 +1485,7 @@ function renderSellerDealPage() {
         <div class="summary-item"><span class="muted">Documents</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
       </div>
       ${receipts.documents.length ? renderRowsTable(receipts.documents, ["receipt_id", "participant_id", "buyer_id", "qty", "gross_amount", "affiliate_name", "affiliate_fee_amount", "payout_status"]) : `<p class="muted">No seller receipts are issuable yet. Only Completed deals with ChargedSuccess or RecoveredCharge buyers generate a receipt surface.</p>`}
+      <p class="small muted">Demo note: this is an internal receipt/readiness surface, not an externally issued invoice or accounting document.</p>
     </section>
     <section class="card section stack">
       <h2>Delivery operations</h2>
@@ -1486,6 +1522,7 @@ function renderSellerDealPage() {
           </form>
         </article>
       `).join("")}</div>` : `<p class="muted">Delivery becomes active only for buyers whose payment ended in ChargedSuccess or RecoveredCharge on a Completed deal.</p>`}
+      <p class="small muted">Demo note: delivery updates model fulfillment workflow and tracking semantics only. They do not claim live carrier execution.</p>
     </section>
   `;
 }
@@ -1509,6 +1546,10 @@ function renderAffiliatePage() {
         <div class="info-strip tone-info">
           <strong>Internal-ready note</strong>
           <p>${esc(payload.note)}</p>
+        </div>
+        <div class="info-strip tone-warning">
+          <strong>Preview payout boundary</strong>
+          <p>Affiliate payout states shown here are readiness and settlement semantics only. No external payout rail is active in demo / preview deployment.</p>
         </div>
       </article>
       <aside class="card hero-side stack">
@@ -1591,6 +1632,7 @@ function renderAdminPage() {
       <aside class="card hero-side stack">
         <div class="summary-item"><span class="muted">Draft deals</span><strong>${num(payload.totals.draft)}</strong></div>
         <div class="summary-item"><span class="muted">System status</span><strong>${systemStatus?.app_health?.ok ? "Healthy" : "Needs attention"}</strong></div>
+        <div class="summary-item"><span class="muted">Runtime mode</span><strong>${esc(systemStatus?.deployment?.mode || state.previewMeta?.preview?.deployment_mode || "preview")}</strong></div>
       </aside>
     </section>
     <section class="card section stack">

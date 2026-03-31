@@ -11,9 +11,11 @@ import { registerFrontendExperience } from "./frontend_runtime.js";
 import { ensureRemainingProductSurfaceTables, roundMoney } from "./product_surface_support.js";
 import { pool } from "./db.js";
 import {
+  APP_DEPLOYMENT_MODE,
   COMPLETION_WINDOW_MINUTES,
   DEBUG_JOIN_LOGGING,
   HOST,
+  IS_DEMO_PREVIEW,
   LOG_LEVEL,
   OUTBOX_MAX_ATTEMPTS,
   OUTBOX_POLL_MS,
@@ -1429,7 +1431,9 @@ app.setErrorHandler((error: any, req, reply) => {
 registerFrontendExperience(app, {
   withTx,
   paymentProvider,
-  notificationSummary: getNotificationServiceSummary(notificationService)
+  notificationSummary: getNotificationServiceSummary(notificationService),
+  deploymentMode: APP_DEPLOYMENT_MODE,
+  isDemoPreview: IS_DEMO_PREVIEW
 });
 
 app.get("/health", async () => ({ ok: true }));
@@ -1438,6 +1442,7 @@ app.get("/health/integrations", async () => {
   await ensureWebhookStorage();
   return {
     ok: true,
+    deployment_mode: APP_DEPLOYMENT_MODE,
     integrations: {
       payment: getPaymentProviderSummary(paymentProvider),
       notifications: getNotificationServiceSummary(notificationService),

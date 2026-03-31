@@ -34,3 +34,5 @@ export const PAYMENT_WEBHOOK_PROVIDER = process.env.PAYMENT_WEBHOOK_PROVIDER || 
 export const PAYMENT_AUTH_DECLINE_SUFFIX = process.env.PAYMENT_AUTH_DECLINE_SUFFIX || "0000";
 export const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "mock-webhook-secret";
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
+export const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
+export const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
