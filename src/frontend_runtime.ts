@@ -374,6 +374,7 @@ export function registerFrontendExperience(
     otpSessions.set(sessionId, session);
 
     return {
+      ok: true,
       
       otp_session_id: sessionId,
       masked_destination: maskPhone(phone),
@@ -431,7 +432,6 @@ export function registerFrontendExperience(
 
     return result;
 
-    
 
     return {
       ok: true,

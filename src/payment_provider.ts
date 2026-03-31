@@ -2,6 +2,10 @@ import { createHash } from "crypto";
 import {
   MOCK_SEED,
   PAYMENT_AUTH_DECLINE_SUFFIX,
+  PAYMENT_PROVIDER_API_KEY,
+  PAYMENT_PROVIDER_BASE_URL,
+  PAYMENT_PROVIDER_MODE,
+  PAYMENT_PROVIDER_PUBLIC_KEY,
   PAYMENT_PROVIDER,
   PAYMENT_WEBHOOK_PROVIDER
 } from "./runtime_config.js";
@@ -43,8 +47,9 @@ export type AuthorizePaymentInput = {
 
 export interface PaymentProvider {
   readonly providerCode: string;
-  readonly mode: "mock-backed";
+  readonly mode: "mock-backed" | "provider-ready";
   readonly webhookProvider: string;
+  readonly configured: boolean;
   authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult>;
   capture(correlationKey: string): Promise<PaymentExecutionResult>;
   recover(correlationKey: string, withinWindow: boolean): Promise<PaymentExecutionResult>;
@@ -80,6 +85,7 @@ function buildMockPaymentProvider(): PaymentProvider {
     providerCode: PAYMENT_PROVIDER,
     mode: "mock-backed",
     webhookProvider: PAYMENT_WEBHOOK_PROVIDER,
+    configured: true,
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
       const holderName = String(input.holder_name || "").trim();
       const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
@@ -153,7 +159,83 @@ function buildMockPaymentProvider(): PaymentProvider {
   };
 }
 
+function buildProviderReadyPaymentProvider(): PaymentProvider {
+  const configured = Boolean(PAYMENT_PROVIDER_BASE_URL && PAYMENT_PROVIDER_API_KEY);
+  return {
+    providerCode: PAYMENT_PROVIDER,
+    mode: "provider-ready",
+    webhookProvider: PAYMENT_WEBHOOK_PROVIDER,
+    configured,
+    async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
+      const holderName = String(input.holder_name || "").trim();
+      const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
+      const expiry = String(input.expiry || "").trim();
+      const cvv = String(input.cvv || "").trim();
+
+      if (!holderName || !cardNumber || !expiry || !cvv) {
+        return {
+          ok: false,
+          provider: PAYMENT_PROVIDER,
+          error: "payment_details_required",
+          message: "holder_name, card_number, expiry and cvv are required",
+          statusCode: 400,
+          retryable: false,
+          mock: false
+        };
+      }
+
+      if (!configured) {
+        return {
+          ok: false,
+          provider: PAYMENT_PROVIDER,
+          error: "payment_provider_not_configured",
+          message: "provider-ready mode is enabled but PAYMENT_PROVIDER_BASE_URL and PAYMENT_PROVIDER_API_KEY are not configured",
+          statusCode: 503,
+          retryable: true,
+          mock: false
+        };
+      }
+
+      return {
+        ok: true,
+        provider: PAYMENT_PROVIDER,
+        authorization_id: paymentAuthorizationId(cardNumber),
+        authorization: "authorized",
+        hold_message: "Provider-ready authorization contract is active. Final capture and reconciliation are expected to complete through provider callbacks.",
+        mock: false
+      };
+    },
+    async capture(): Promise<PaymentExecutionResult> {
+      return {
+        provider: PAYMENT_PROVIDER,
+        result_class: "temporary_fail",
+        retryable: true,
+        mock: false
+      };
+    },
+    async recover(): Promise<PaymentExecutionResult> {
+      return {
+        provider: PAYMENT_PROVIDER,
+        result_class: "temporary_fail",
+        retryable: true,
+        mock: false
+      };
+    },
+    async refund(): Promise<PaymentExecutionResult> {
+      return {
+        provider: PAYMENT_PROVIDER,
+        result_class: "temporary_fail",
+        retryable: true,
+        mock: false
+      };
+    }
+  };
+}
+
 export function buildPaymentProvider(): PaymentProvider {
+  if (PAYMENT_PROVIDER_MODE === "provider-ready") {
+    return buildProviderReadyPaymentProvider();
+  }
   return buildMockPaymentProvider();
 }
 
@@ -161,8 +243,14 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
   return {
     provider: provider.providerCode,
     mode: provider.mode,
+    configured: provider.configured,
     webhook_provider: provider.webhookProvider,
-    mock_backed: true,
-    decline_suffix: PAYMENT_AUTH_DECLINE_SUFFIX
+    mock_backed: provider.mode === "mock-backed",
+    decline_suffix: PAYMENT_AUTH_DECLINE_SUFFIX,
+    api_base_url_configured: Boolean(PAYMENT_PROVIDER_BASE_URL),
+    api_key_configured: Boolean(PAYMENT_PROVIDER_API_KEY),
+    public_key_configured: Boolean(PAYMENT_PROVIDER_PUBLIC_KEY),
+    supported_modes: ["mock-backed", "provider-ready"],
+    replacement_path: "Implement live provider HTTP client inside payment_provider.ts and keep webhook reconciliation in app/webhook path."
   };
 }

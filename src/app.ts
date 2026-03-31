@@ -6,6 +6,7 @@ import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary, type PaymentResultClass } from "./payment_provider.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
+import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { pool } from "./db.js";
 import {
@@ -1030,6 +1031,260 @@ export const app = Fastify({ logger: { level: LOG_LEVEL } });
 const paymentProvider = buildPaymentProvider();
 const notificationService = buildNotificationService();
 const { ensureStorage: ensureWebhookStorage, ingestEvent, markEvent } = buildWebhookIngestion({ withTx });
+const { resolveTarget: resolveWebhookTarget, classifyEvent: classifyWebhookEvent } = buildPaymentReconciliation({ withTx });
+
+async function reconcilePaymentWebhookEvent(args: {
+  eventId: string;
+  eventType: string;
+  correlationId?: string | null;
+  participantId?: string | null;
+  dealId?: string | null;
+  providerReference?: string | null;
+  payload: Record<string, unknown>;
+}) {
+  const target = await resolveWebhookTarget({
+    event_id: args.eventId,
+    event_type: args.eventType,
+    correlation_id: args.correlationId ?? null,
+    participant_id: args.participantId ?? null,
+    deal_id: args.dealId ?? null,
+    provider_reference: args.providerReference ?? null,
+    payload: args.payload
+  });
+
+  const resolution = classifyWebhookEvent(args.eventType, target);
+  if (args.eventType === "payment_authorized" || args.eventType === "payment_failed") {
+    return {
+      status: "processed" as const,
+      reason: "authorization_event_recorded",
+      participant_id: target?.participant_id ?? null,
+      deal_id: target?.deal_id ?? args.dealId ?? null
+    };
+  }
+
+  if (resolution.status !== "processed") {
+    return {
+      status: resolution.status,
+      reason: resolution.reason,
+      participant_id: target?.participant_id ?? null,
+      deal_id: target?.deal_id ?? args.dealId ?? null
+    };
+  }
+
+  if (!target) {
+    return {
+      status: "failed" as const,
+      reason: "missing_correlation_target",
+      participant_id: null,
+      deal_id: args.dealId ?? null
+    };
+  }
+
+  const correlationId = args.correlationId ?? target.correlation_id ?? `${args.eventType}:${target.participant_id}`;
+
+  if (args.eventType === "charge_captured") {
+    await finalizeAttemptResult({
+      participant_id: target.participant_id,
+      deal_id: target.deal_id,
+      attempt_type: "charge_start",
+      correlation_id: correlationId,
+      result_class: "success"
+    });
+
+    await atomicMultiTransition({
+      actionName: "webhook.charge_captured",
+      requestId: `webhook:${args.eventId}`,
+      idempotency: {
+        entityType: "participant",
+        entityId: target.participant_id,
+        idempotencyKey: `webhook-charge-captured:${args.eventId}:${target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeAttempt",
+          toState: "ChargedSuccess",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        },
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargingAttempt",
+          toState: "ChargedSuccess",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        }
+      ],
+      outbox: null
+    });
+
+    await notificationService.notify("payment_capture_succeeded", {
+      deal_id: target.deal_id,
+      participant_id: target.participant_id,
+      detail: { source: "webhook", provider_reference: args.providerReference ?? null }
+    });
+
+    return { status: "processed" as const, reason: resolution.reason, participant_id: target.participant_id, deal_id: target.deal_id };
+  }
+
+  if (args.eventType === "charge_failed") {
+    await finalizeAttemptResult({
+      participant_id: target.participant_id,
+      deal_id: target.deal_id,
+      attempt_type: "charge_start",
+      correlation_id: correlationId,
+      result_class: "permanent_fail"
+    });
+
+    await atomicMultiTransition({
+      actionName: "webhook.charge_failed",
+      requestId: `webhook:${args.eventId}`,
+      idempotency: {
+        entityType: "participant",
+        entityId: target.participant_id,
+        idempotencyKey: `webhook-charge-failed:${args.eventId}:${target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeAttempt",
+          toState: "ChargeFailedRecovery",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        },
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargingAttempt",
+          toState: "ChargeFailedCompletion",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        }
+      ],
+      outbox: null
+    });
+
+    await notificationService.notify("payment_capture_failed", {
+      deal_id: target.deal_id,
+      participant_id: target.participant_id,
+      detail: { source: "webhook", provider_reference: args.providerReference ?? null }
+    });
+
+    return { status: "processed" as const, reason: resolution.reason, participant_id: target.participant_id, deal_id: target.deal_id };
+  }
+
+  if (args.eventType === "recovery_captured") {
+    await finalizeAttemptResult({
+      participant_id: target.participant_id,
+      deal_id: target.deal_id,
+      attempt_type: "recovery",
+      correlation_id: correlationId,
+      result_class: "success"
+    });
+
+    await atomicMultiTransition({
+      actionName: "webhook.recovery_captured",
+      requestId: `webhook:${args.eventId}`,
+      idempotency: {
+        entityType: "participant",
+        entityId: target.participant_id,
+        idempotencyKey: `webhook-recovery-captured:${args.eventId}:${target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeFailedRecovery",
+          toState: "RecoveredCharge",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        },
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargeFailedCompletion",
+          toState: "Recovered",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        }
+      ],
+      outbox: null
+    });
+
+    await notificationService.notify("payment_recovery_succeeded", {
+      deal_id: target.deal_id,
+      participant_id: target.participant_id,
+      detail: { source: "webhook", provider_reference: args.providerReference ?? null }
+    });
+
+    return { status: "processed" as const, reason: resolution.reason, participant_id: target.participant_id, deal_id: target.deal_id };
+  }
+
+  if (args.eventType === "recovery_failed") {
+    await finalizeAttemptResult({
+      participant_id: target.participant_id,
+      deal_id: target.deal_id,
+      attempt_type: "recovery",
+      correlation_id: correlationId,
+      result_class: "permanent_fail"
+    });
+
+    await atomicMultiTransition({
+      actionName: "webhook.recovery_failed",
+      requestId: `webhook:${args.eventId}`,
+      idempotency: {
+        entityType: "participant",
+        entityId: target.participant_id,
+        idempotencyKey: `webhook-recovery-failed:${args.eventId}:${target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeFailedRecovery",
+          toState: "AuthReleased",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        },
+        {
+          entityType: "participant",
+          entityId: target.participant_id,
+          dealId: target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargeFailedCompletion",
+          toState: "Dropped",
+          payload: { provider_reference: args.providerReference ?? null, source: "webhook" }
+        }
+      ],
+      outbox: null
+    });
+
+    await notificationService.notify("payment_recovery_failed", {
+      deal_id: target.deal_id,
+      participant_id: target.participant_id,
+      detail: { source: "webhook", provider_reference: args.providerReference ?? null }
+    });
+
+    return { status: "processed" as const, reason: resolution.reason, participant_id: target.participant_id, deal_id: target.deal_id };
+  }
+
+  return {
+    status: "ignored" as const,
+    reason: "unsupported_event_type",
+    participant_id: target.participant_id,
+    deal_id: target.deal_id
+  };
+}
 
 app.setErrorHandler((error: any, req, reply) => {
   const msg = error instanceof Error ? error.message : String(error || "");
@@ -1105,7 +1360,9 @@ app.get("/health/integrations", async () => {
           "payment_authorized",
           "payment_failed",
           "charge_captured",
-          "charge_failed"
+          "charge_failed",
+          "recovery_captured",
+          "recovery_failed"
         ]
       }
     }
@@ -1159,10 +1416,39 @@ app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
     "payment_authorized",
     "payment_failed",
     "charge_captured",
-    "charge_failed"
+    "charge_failed",
+    "recovery_captured",
+    "recovery_failed"
   ]);
 
-  const finalStatus = supportedEventTypes.has(eventType) ? "processed" : "ignored";
+  if (!supportedEventTypes.has(eventType)) {
+    const stored = await markEvent(PAYMENT_WEBHOOK_PROVIDER, eventId, "ignored");
+    return reply.code(202).send({
+      ok: true,
+      duplicate: false,
+      provider: PAYMENT_WEBHOOK_PROVIDER,
+      event_id: eventId,
+      status: stored?.status ?? "ignored"
+    });
+  }
+
+  const reconciliation = await reconcilePaymentWebhookEvent({
+    eventId,
+    eventType,
+    correlationId: body.correlation_id ? String(body.correlation_id) : typeof body.payload?.correlation_id === "string" ? body.payload.correlation_id : null,
+    participantId: body.participant_id ? String(body.participant_id) : typeof body.payload?.participant_id === "string" ? body.payload.participant_id : null,
+    dealId: body.deal_id ? String(body.deal_id) : typeof body.payload?.deal_id === "string" ? body.payload.deal_id : null,
+    providerReference: body.provider_reference ? String(body.provider_reference) : typeof body.payload?.provider_reference === "string" ? body.payload.provider_reference : null,
+    payload: typeof body.payload === "object" && body.payload ? body.payload : {}
+  });
+
+  const finalStatus =
+    reconciliation.status === "processed"
+      ? "processed"
+      : reconciliation.status === "ignored"
+        ? "ignored"
+        : "failed";
+
   const stored = await markEvent(PAYMENT_WEBHOOK_PROVIDER, eventId, finalStatus);
 
   return reply.code(202).send({
@@ -1170,7 +1456,8 @@ app.post("/webhooks/payments/mock", async (req: any, reply: any) => {
     duplicate: false,
     provider: PAYMENT_WEBHOOK_PROVIDER,
     event_id: eventId,
-    status: stored?.status ?? finalStatus
+    status: stored?.status ?? finalStatus,
+    reconciliation
   });
 });
 
