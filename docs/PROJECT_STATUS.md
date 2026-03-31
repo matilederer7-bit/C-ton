@@ -808,3 +808,75 @@ Estimated product progress:
 
 Next step:
 - choose explicitly between finishing original-spec seller/affiliate/admin closure or continuing the new marketplace expansion track
+
+## 2026-03-31 Remaining Product Surfaces Closure Pass
+
+מה הושלם בבקאנד
+- backend remained professionally closed and served as the base for the remaining product-surface closure
+- join flow now persists `affiliate_ref` into internal attribution when a valid affiliate code is present
+- new internal support tables were added for:
+  seller accounts, affiliate accounts, affiliate attributions, delivery records, support tickets
+
+מה הושלם בפרונטד קונה
+- buyer flow remained stable
+- public deal flow now preserves affiliate referral context into the real join path
+
+מה הושלם במוכר
+- seller receipts surface for completed deals
+- seller financial closure view:
+  gross, Siton fee, affiliate allocation, seller net
+- seller delivery operations for charged / recovered buyers only
+- seller delivery status updates with tracking number and issue note
+
+מה הושלם במפיץ
+- affiliate attribution persistence
+- affiliate payout readiness profile
+- affiliate verification and payout semantics
+- campaign performance view with pending / approved / paid commission visibility
+
+מה הושלם באדמין
+- KYC queue across seller and affiliate entities
+- settlement overview for seller/platform/affiliate visibility
+- support hub with ticket creation and status updates
+- deeper forensics on admin deal profiles:
+  delivery, affiliate attribution, support context
+
+מה הושלם באינטגרציות
+- product surfaces are now internally ready for later activation of:
+  invoicing, shipping, payouts, KYC, and support tooling
+
+מה הושלם ב-full product closure
+- the remaining current-spec surfaces were closed internally
+- the product is no longer only a strong buyer system plus partial back-office placeholders
+
+מה עדיין פתוח
+- external invoice / receipt transport
+- external shipping provider
+- external payout execution
+- external KYC provider
+- external support tooling
+
+מה non-blocking
+- payment remains mock-backed
+- notifications remain log-only
+- no git remote is configured, so no push was performed
+
+מה תלוי ביציאה החוצה
+- first live provider activation for the relevant external rails
+
+מה שייך רק להרחבת מוצר
+- public marketplace search / catalog
+- Amazon-style mall / discovery experience
+
+אחוז התקדמות משוער של המוצר
+- backend: 96%
+- buyer frontend: 95%
+- seller surface: 94%
+- affiliate surface: 92%
+- admin surface: 93%
+- internal integrations: 91%
+- current-spec product closure: 97%
+- overall product readiness: 96%
+
+מה השלב הבא
+- move from internal product completion to the first controlled external-activation pass
