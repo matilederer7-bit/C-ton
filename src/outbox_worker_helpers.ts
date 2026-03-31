@@ -7,6 +7,7 @@ export type OutboxEventRow = {
   aggregate_id: string;
   payload: any;
   attempt_count: number;
+  processing_started_at?: string | Date | null;
 };
 
 export function buildOutboxWorkerHelpers(deps: {
@@ -35,7 +36,9 @@ export function buildOutboxWorkerHelpers(deps: {
       const r = await c.query(
         `
         UPDATE siton.outbox_events
-        SET status='processing', updated_at=now()
+        SET status='processing',
+            processing_started_at=now(),
+            updated_at=now()
         WHERE event_uuid IN (
           SELECT event_uuid
           FROM siton.outbox_events
@@ -45,11 +48,35 @@ export function buildOutboxWorkerHelpers(deps: {
           FOR UPDATE SKIP LOCKED
           LIMIT $1
         )
-        RETURNING event_uuid, event_type, aggregate_type, aggregate_id, payload, attempt_count
+        RETURNING event_uuid, event_type, aggregate_type, aggregate_id, payload, attempt_count, processing_started_at
         `,
         [limit]
       );
       return r.rows as OutboxEventRow[];
+    });
+  }
+
+  async function reclaimStuckProcessing(timeoutMs: number): Promise<number> {
+    return deps.withTx(async (c) => {
+      await c.query(`SELECT set_config('siton.is_worker','true',true)`);
+      const r = await c.query(
+        `
+        UPDATE siton.outbox_events
+        SET status='pending',
+            sent=false,
+            last_error=COALESCE(last_error, 'worker_reclaim_after_restart'),
+            processing_started_at=null,
+            available_at=now(),
+            updated_at=now()
+        WHERE status='processing'
+          AND (
+            processing_started_at IS NULL
+            OR processing_started_at < now() - ($1::text || ' milliseconds')::interval
+          )
+        `,
+        [String(timeoutMs)]
+      );
+      return Number(r.rowCount || 0);
     });
   }
 
@@ -62,6 +89,7 @@ export function buildOutboxWorkerHelpers(deps: {
              sent=true,
              sent_at=now(),
              last_error=null,
+             processing_started_at=null,
              updated_at=now()
          WHERE event_uuid=$1`,
         [eventId]
@@ -82,12 +110,12 @@ export function buildOutboxWorkerHelpers(deps: {
       await c.query(
         `INSERT INTO siton.outbox_dlq (
            event_uuid, event_type, aggregate_type, aggregate_id, payload,
-           status, attempt_count, available_at, locked_at, sent, sent_at,
+           status, attempt_count, available_at, sent, sent_at,
            last_error, created_at, updated_at
          )
          SELECT
            event_uuid, event_type, aggregate_type, aggregate_id, payload,
-           status, attempt_count, available_at, locked_at, sent, sent_at,
+           status, attempt_count, available_at, sent, sent_at,
            last_error, created_at, updated_at
          FROM siton.outbox_events
          WHERE event_uuid=$1`,
@@ -116,6 +144,7 @@ export function buildOutboxWorkerHelpers(deps: {
                sent=false,
                last_error=$2,
                available_at=$3,
+               processing_started_at=null,
                updated_at=now()
            WHERE event_uuid=$1`,
           [eventId, msg, retryAt.toISOString()]
@@ -137,12 +166,12 @@ export function buildOutboxWorkerHelpers(deps: {
         await c.query(
           `INSERT INTO siton.outbox_dlq (
              event_uuid, event_type, aggregate_type, aggregate_id, payload,
-             status, attempt_count, available_at, locked_at, sent, sent_at,
+             status, attempt_count, available_at, sent, sent_at,
              last_error, created_at, updated_at
            )
            SELECT
              event_uuid, event_type, aggregate_type, aggregate_id, payload,
-             status, attempt_count, available_at, locked_at, sent, sent_at,
+             status, attempt_count, available_at, sent, sent_at,
              last_error, created_at, updated_at
            FROM siton.outbox_events
            WHERE event_uuid=$1`,
@@ -159,6 +188,7 @@ export function buildOutboxWorkerHelpers(deps: {
              attempt_count=attempt_count+1,
              last_error=$2,
              available_at=$3,
+             processing_started_at=null,
              updated_at=now()
          WHERE event_uuid=$1`,
         [eventId, msg, nextAt.toISOString()]
@@ -168,6 +198,7 @@ export function buildOutboxWorkerHelpers(deps: {
 
   return {
     claimOutboxBatch,
+    reclaimStuckProcessing,
     markOutboxSent,
     markOutboxFailed
   };

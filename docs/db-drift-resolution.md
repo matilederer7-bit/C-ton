@@ -48,7 +48,7 @@
 5. locked_at
 - קיים כחלק ממודל outbox
 - לא הוכרע במסמך זה כשדה עסקי נוסף מעבר למה שרץ בפועל
-- כל הקשחה נוספת סביבו תיעשה רק במסגרת refactor/DB alignment נפרד
+- כל הקשחה נוספת סביבו תיעשה רק במסגרת refactor או DB alignment נפרד
 
 6. webhook_events
 - לא חלק מהזרימה הפעילה הנוכחית
@@ -84,4 +84,5 @@
 - רפקטור: הושלם
 - DB critical alignment: הושלם
 - runtime alignment: הושלם
-- documentation alignment: הושלם לשלב הנוכחי
+- documentation alignment הקריטי לשלב הנוכחי: הושלם
+- יישור תיעודי מלא של כלל המסמכים: עדיין פתוח
