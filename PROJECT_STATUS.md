@@ -24,6 +24,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Master product deep mapping and hardening: `PRODUCT MOSTLY DEEPLY MAPPED AND HARDENED WITH NON-BLOCKING GAPS`
 - Demo / preview deployment readiness: `DEMO / PREVIEW READY WITH NON-BLOCKING GAPS`
 - Demo deployment execution: `DEMO DEPLOYMENT PACKAGE READY WITH CLEAR FINAL STEP`
+- Render demo deployment: `RENDER DEMO READY WITH SINGLE EXTERNAL STEP`
 
 ## What Is Completed
 
@@ -98,6 +99,14 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Verified the compiled artifact locally through real Node startup
 - Reached package-ready state, blocked only by missing external hosting target
 
+## What Was Prepared In The Latest Render Demo Deployment Pass
+
+- Added `render.yaml` as the single Render blueprint source
+- Added canonical demo DB bootstrap for fresh databases
+- Wired the demo runtime so startup now bootstraps the DB before serving the compiled app
+- Verified the final Render-oriented runtime path locally
+- Reduced the live-URL blocker to one external hosting step: Git repo + Render blueprint deploy
+
 ## What Is Still Open
 
 - Real invoice / receipt transport
@@ -124,6 +133,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - True external process-manager / provider behavior is still unproven by design until external activation starts
 - Live operational rails remain the main remaining source of depth asymmetry
 - Demo deployment still lacks a real host target / public URL
+- Render deployment still needs one external dashboard / Git hosting step to create the live URL
 
 ## External-Activation Dependencies
 
@@ -163,13 +173,15 @@ They now exist as expansion direction, not as proof that the original product sp
 Do not reopen internal closure work by default.
 
 Run the next controlled pass as:
-- attach the prepared demo package to one real hosting target
-- verify the public preview URL
+- attach the prepared Render blueprint to one Git repo Render can access
+- deploy the live preview URL
+- verify the public Render URL
 - then external activation planning
 - followed by the first staged activation of one real external rail at a time
 
 Suggested order:
-1. payment / receipts / payouts
-2. KYC
-3. shipping
-4. outbound notifications / support tooling
+1. Render live preview deployment
+2. payment / receipts / payouts
+3. KYC
+4. shipping
+5. outbound notifications / support tooling
