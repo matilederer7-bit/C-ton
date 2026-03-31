@@ -698,3 +698,56 @@ dispatch ����� �worker:
 
 השלב הבא
 - start the first controlled external-activation pass and attack the chosen real provider boundary with the same adversarial methodology
+
+## 2026-03-31 preprod torture qa pass
+
+מה הושלם
+- pre-production torture QA and RC-style drill were completed across mixed load, soak-like reads, ugly ordering, route misuse, and operational pressure
+- a dedicated preprod torture validation suite was added and folded into `npm test`
+- canonical preprod torture decision and handoff documents were added
+
+מה נבדק
+- `npx tsc --noEmit` passed
+- `npm test` passed
+- preprod torture validation passed for:
+  - concurrent deal reads, shell loads, OTP, payment, and join pressure
+  - exact `max_units` enforcement under concurrent joins
+  - soak-style public/tracking reads without silent degradation
+  - out-of-order and duplicate charge/recovery webhook handling
+  - stale or missing flow context
+  - `/health`
+  - `/health/integrations`
+  - unauthorized webhook rejection under pressure
+
+מה תוקן
+- a dedicated torture/preprod harness was added so RC confidence now rests on automated mixed-load and ugly-sequence proof
+- the torture harness was corrected to assert the real runtime contract rather than a non-canonical payment-attempt assumption
+
+מה עדיין פתוח
+- live provider execution
+- full provider-specific webhook matrix
+- real outbound notification transport
+- true external-process restart proof under staging-like runtime conditions
+
+מה non-blocking
+- payment remains mock-backed by design
+- notifications remain log-only by design
+- no git remote is configured, so no push was performed
+
+מה תלוי ביציאה החוצה
+- first live payment provider
+- provider-specific webhook expansion
+- real notification channel
+- staging-like restart/recovery proof outside `app.inject`
+
+אחוז התקדמות משוער של המוצר
+- backend: 96%
+- frontend: 92%
+- real integrations readiness: 89%
+- full system QA: 94%
+- adversarial hardening: 95%
+- preprod torture QA: 96%
+- overall product readiness: 95%
+
+מה השלב הבא
+- run the first controlled staging/external-activation pass behind the existing provider and webhook boundaries, instead of reopening more internal-only proof cycles
