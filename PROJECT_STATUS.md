@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-03-31
+Last updated: 2026-04-01
 
 ## Canonical Status
 
@@ -25,6 +25,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Demo / preview deployment readiness: `DEMO / PREVIEW READY WITH NON-BLOCKING GAPS`
 - Demo deployment execution: `DEMO DEPLOYMENT PACKAGE READY WITH CLEAR FINAL STEP`
 - Render demo deployment: `RENDER DEMO READY WITH SINGLE EXTERNAL STEP`
+- Render free-tier alignment: `RENDER FREE BLUEPRINT READY`
 
 ## What Is Completed
 
@@ -107,6 +108,13 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Verified the final Render-oriented runtime path locally
 - Reduced the live-URL blocker to one external hosting step: Git repo + Render blueprint deploy
 
+## What Was Prepared In The Latest Render Free-Tier Alignment Pass
+
+- Identified that paid pricing came from omitted Blueprint `plan` fields
+- Pinned the Render web service to `plan: free`
+- Pinned the Render Postgres database to `plan: free`
+- Kept the Blueprint path as the simplest and most stable free demo path
+
 ## What Is Still Open
 
 - Real invoice / receipt transport
@@ -134,6 +142,7 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Live operational rails remain the main remaining source of depth asymmetry
 - Demo deployment still lacks a real host target / public URL
 - Render deployment still needs one external dashboard / Git hosting step to create the live URL
+- Render free Postgres still carries platform limits such as one free DB per workspace and a 30-day lifetime
 
 ## External-Activation Dependencies
 
@@ -174,6 +183,7 @@ Do not reopen internal closure work by default.
 
 Run the next controlled pass as:
 - attach the prepared Render blueprint to one Git repo Render can access
+- confirm free-tier pricing in Render for the updated Blueprint
 - deploy the live preview URL
 - verify the public Render URL
 - then external activation planning

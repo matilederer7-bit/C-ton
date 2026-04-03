@@ -2,6 +2,7 @@ services:
   - type: web
     name: siton-demo-preview
     runtime: docker
+    plan: free
     dockerfilePath: ./Dockerfile
     autoDeploy: false
     healthCheckPath: /health
@@ -35,5 +36,6 @@ services:
 
 databases:
   - name: siton-demo-db
+    plan: free
     databaseName: siton_demo
     user: siton_demo_user
