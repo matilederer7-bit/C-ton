@@ -74,6 +74,7 @@ END $$;
 
 CREATE TABLE IF NOT EXISTS deals (
   deal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  seller_id TEXT NULL,
   state deal_state NOT NULL DEFAULT 'Draft',
 
   title TEXT NOT NULL DEFAULT '',
@@ -100,9 +101,23 @@ CREATE TABLE IF NOT EXISTS participants (
 
   buyer_state buyer_state NOT NULL DEFAULT 'NotJoined',
   money_state money_state NOT NULL DEFAULT 'NoFinancial',
+  delivery_option_id UUID NULL,
+  delivery_method_type TEXT NULL,
+  delivery_method_label TEXT NULL,
+  delivery_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
 
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS deal_delivery_options (
+  option_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  option_type TEXT NOT NULL CHECK (option_type IN ('delivery','pickup','distribution_point')),
+  label TEXT NOT NULL,
+  cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -243,6 +258,9 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON participants(deal_id);
+CREATE INDEX IF NOT EXISTS idx_participants_delivery_option ON participants(delivery_option_id);
+CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal ON deal_delivery_options(deal_id, sort_order, created_at);
+CREATE INDEX IF NOT EXISTS idx_deals_seller_created ON deals(seller_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON payment_attempts(correlation_id);

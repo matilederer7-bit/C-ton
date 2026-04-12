@@ -24,6 +24,9 @@ export const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) :
 
 export const DEBUG_SQL_LOGGING = process.env.DEBUG_SQL_LOGGING === "1";
 export const DEBUG_JOIN_LOGGING = process.env.DEBUG_JOIN_LOGGING === "1";
+export const DEBUG_SURFACES_ENABLED = process.env.DEBUG_SURFACES_ENABLED === "1";
+export const DEBUG_SURFACES_ACCESS_KEY = process.env.DEBUG_SURFACES_ACCESS_KEY || "";
+export const DEBUG_SURFACES_ACTIVE = DEBUG_SURFACES_ENABLED && Boolean(DEBUG_SURFACES_ACCESS_KEY.trim());
 export const LOG_LEVEL = process.env.LOG_LEVEL || "info";
 export const PAYMENT_PROVIDER = process.env.PAYMENT_PROVIDER || "mockpay";
 export const PAYMENT_PROVIDER_MODE = process.env.PAYMENT_PROVIDER_MODE || "mock-backed";

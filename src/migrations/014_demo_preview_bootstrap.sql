@@ -70,6 +70,7 @@ $$;
 
 CREATE TABLE IF NOT EXISTS siton.deals (
   deal_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  seller_id TEXT NULL,
   state siton.deal_state NOT NULL DEFAULT 'Draft',
   title TEXT NOT NULL DEFAULT '',
   price_per_unit NUMERIC(12,2) NOT NULL,
@@ -91,10 +92,24 @@ CREATE TABLE IF NOT EXISTS siton.participants (
   qty INT NOT NULL CHECK (qty > 0 AND qty <= 1000),
   buyer_state siton.buyer_state NOT NULL DEFAULT 'NotJoined',
   money_state siton.money_state NOT NULL DEFAULT 'NoFinancial',
+  delivery_option_id UUID NULL,
+  delivery_method_type TEXT NULL,
+  delivery_method_label TEXT NULL,
+  delivery_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
   locked_at TIMESTAMPTZ NULL,
   version INT NOT NULL DEFAULT 1,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS siton.deal_delivery_options (
+  option_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
+  option_type TEXT NOT NULL CHECK (option_type IN ('delivery','pickup','distribution_point')),
+  label TEXT NOT NULL,
+  cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
+  sort_order INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS siton.audit_log (
@@ -174,8 +189,11 @@ ON siton.payment_attempts(participant_id, deal_id, attempt_type, correlation_id)
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON siton.participants(deal_id);
 CREATE INDEX IF NOT EXISTS idx_participants_deal_locked_buyer ON siton.participants(deal_id, locked_at, buyer_state);
 CREATE INDEX IF NOT EXISTS idx_participants_deal_buyer_money ON siton.participants(deal_id, buyer_state, money_state);
+CREATE INDEX IF NOT EXISTS idx_participants_delivery_option ON siton.participants(delivery_option_id);
+CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal ON siton.deal_delivery_options(deal_id, sort_order, created_at);
 CREATE INDEX IF NOT EXISTS idx_deals_state_published_at ON siton.deals(state, published_at);
 CREATE INDEX IF NOT EXISTS idx_deals_state_completion_window_until ON siton.deals(state, completion_window_until);
+CREATE INDEX IF NOT EXISTS idx_deals_seller_created ON siton.deals(seller_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON siton.outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON siton.payment_attempts(participant_id, deal_id, attempt_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON siton.payment_attempts(correlation_id);

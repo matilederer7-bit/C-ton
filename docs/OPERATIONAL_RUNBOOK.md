@@ -99,7 +99,7 @@ node scripts/run_pg_query.cjs "select event_uuid, event_type, status, available_
 Replace `<DEAL_ID>` with the relevant deal.
 
 ```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/debug/deals/<DEAL_ID> | Select-Object -ExpandProperty Content
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/debug/deals/<DEAL_ID> -Headers @{ 'x-debug-access-key' = '<DEBUG_SURFACES_ACCESS_KEY>' } | Select-Object -ExpandProperty Content
 ```
 
 ## Worker Restart
@@ -129,4 +129,4 @@ Expected:
 1. `GET /health` returns `{"ok":true}`.
 2. Stuck outbox query returns empty.
 3. DLQ has no fresh unexpected entries after RC start.
-4. One known deal inspected via `/debug/deals/:id` looks internally consistent.
+4. One known deal inspected via `/debug/deals/:id` looks internally consistent when explicit debug access is enabled and the request includes `x-debug-access-key`.

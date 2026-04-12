@@ -26,6 +26,9 @@
     "test:demo-preview": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/demo_preview_deployment_validation.js",
     "test:demo-package": "npm run build:demo"
   },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "keywords": [],
   "author": "",
   "license": "ISC",

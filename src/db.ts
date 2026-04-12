@@ -1,7 +1,12 @@
 import { Pool } from "pg";
 import { DATABASE_URL, DB_SCHEMA, DEBUG_SQL_LOGGING } from "./runtime_config.js";
 
-export const pool = new Pool({ connectionString: DATABASE_URL });
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  connectionTimeoutMillis: 10_000,
+  statement_timeout: 30_000,
+  query_timeout: 30_000
+});
 
 function decorateClientQuery(client: any) {
   if (!DEBUG_SQL_LOGGING || client.__sqlLoggingWrapped) return;

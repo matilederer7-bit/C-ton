@@ -73,7 +73,7 @@ function rand01Deterministic(key: string) {
   if (MOCK_SEED === null) return Math.random();
   let x = (MOCK_SEED ^ hashToUint32(key)) >>> 0;
   x = lcgNext(x);
-  return (x >>> 0) / 0xffffffff;
+  return (x >>> 0) / 0x100000000;
 }
 
 function paymentAuthorizationId(cardNumber: string) {

@@ -145,12 +145,38 @@ async function pushWebhook(args: {
 }
 
 async function debugDeal(dealId: string) {
-  const response = await app.inject({
-    method: "GET",
-    url: `/debug/deals/${dealId}`
-  });
-  assert.equal(response.statusCode, 200);
-  return response.json() as any;
+  const previousEnabled = process.env.DEBUG_SURFACES_ENABLED;
+  const previousAccessKey = process.env.DEBUG_SURFACES_ACCESS_KEY;
+  process.env.DEBUG_SURFACES_ENABLED = "1";
+  process.env.DEBUG_SURFACES_ACCESS_KEY = "preprod-debug-key";
+  try {
+    const blocked = await app.inject({
+      method: "GET",
+      url: `/debug/deals/${dealId}`
+    });
+    assert.equal(blocked.statusCode, 403);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/debug/deals/${dealId}`,
+      headers: {
+        "x-debug-access-key": "preprod-debug-key"
+      }
+    });
+    assert.equal(response.statusCode, 200);
+    return response.json() as any;
+  } finally {
+    if (previousEnabled === undefined) {
+      delete process.env.DEBUG_SURFACES_ENABLED;
+    } else {
+      process.env.DEBUG_SURFACES_ENABLED = previousEnabled;
+    }
+    if (previousAccessKey === undefined) {
+      delete process.env.DEBUG_SURFACES_ACCESS_KEY;
+    } else {
+      process.env.DEBUG_SURFACES_ACCESS_KEY = previousAccessKey;
+    }
+  }
 }
 
 async function authorizeBuyer(suffix: string) {
@@ -222,9 +248,9 @@ async function main() {
       Promise.all(joinRequests)
     ]);
 
-    assert.ok(publicResponses.every((response) => response.statusCode === 200));
-    assert.ok(shellResponses.every((response) => response.statusCode === 200));
-    assert.ok(joinResponses.every((response) => response.statusCode === 200 || response.statusCode === 409));
+    assert.ok(publicResponses.every((response: any) => response.statusCode === 200));
+    assert.ok(shellResponses.every((response: any) => response.statusCode === 200));
+    assert.ok(joinResponses.every((response: any) => response.statusCode === 200 || response.statusCode === 409));
 
     const debug = await debugDeal(created.deal_id);
     const joinedUnits = debug.participants.reduce(
@@ -402,7 +428,7 @@ async function main() {
         })
       )
     );
-    assert.ok(pressureRequests.every((response) => response.statusCode === 200));
+    assert.ok(pressureRequests.every((response: any) => response.statusCode === 200));
 
     const keyRoutes = await Promise.all([
       app.inject({ method: "GET", url: `/api/deals/${created.deal_id}/public` }),

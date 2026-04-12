@@ -14,6 +14,13 @@ ENV PORT=3000
 
 RUN npm run build:demo
 
+# Run as non-root user
+RUN useradd -m -u 1000 appuser
+USER appuser
+
 EXPOSE 3000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
 CMD ["npm", "run", "start:demo:prod"]

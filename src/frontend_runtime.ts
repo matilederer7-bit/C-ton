@@ -4,10 +4,12 @@ import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
 import { createHash } from "crypto";
+import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import {
   AFFILIATE_FEE_SHARE_OF_PLATFORM,
   DEFAULT_AFFILIATE_CODE,
+  DEFAULT_SELLER_ID,
   ensureRemainingProductSurfaceTables,
   isChargedMoneyState,
   summarizeMoney
@@ -54,10 +56,12 @@ type OtpSession = {
   createdAt: number;
   expiresAt: number;
   verified: boolean;
+  attemptCount: number;
 };
 
 type DealListRow = {
   deal_id: string;
+  seller_id?: string;
   title: string;
   state: DealState;
   price_per_unit: number;
@@ -76,6 +80,15 @@ type DealListRow = {
 const otpSessions = new Map<string, OtpSession>();
 const OTP_CODE = "123456";
 const OTP_TTL_MS = 10 * 60_000;
+const OTP_MAX_ATTEMPTS = 5;
+
+// Purge expired OTP sessions every 5 minutes to prevent memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of otpSessions) {
+    if (now > session.expiresAt) otpSessions.delete(id);
+  }
+}, 5 * 60_000).unref();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -87,6 +100,88 @@ const frontendDirCandidates = [
 const frontendDir =
   frontendDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) ||
   join(process.cwd(), "frontend");
+
+function normalizeSellerId(value: unknown) {
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return normalized || DEFAULT_SELLER_ID;
+}
+
+function normalizeSellerDisplayName(value: unknown, fallbackId: string) {
+  const normalized = String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
+  return normalized || fallbackId;
+}
+
+async function ensureSellerAccount(c: any, sellerId: string, displayName?: string | null) {
+  const normalizedSellerId = normalizeSellerId(sellerId);
+  const normalizedDisplayName = normalizeSellerDisplayName(displayName, normalizedSellerId);
+  const result = await c.query(
+    `INSERT INTO siton.seller_accounts (
+       seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note
+     )
+     VALUES ($1, $2, 'approved', 'active', 'bank_transfer', '***1234', 'Minimum seller identity context')
+     ON CONFLICT (seller_id) DO UPDATE
+     SET display_name = CASE
+           WHEN siton.seller_accounts.display_name IS NULL OR btrim(siton.seller_accounts.display_name) = '' THEN EXCLUDED.display_name
+           WHEN $3 THEN EXCLUDED.display_name
+           ELSE siton.seller_accounts.display_name
+         END,
+         updated_at = now()
+     RETURNING seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at`,
+    [normalizedSellerId, normalizedDisplayName, Boolean(displayName && String(displayName).trim())]
+  );
+  return result.rows[0] as any;
+}
+
+async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
+  const headerSellerId = req.headers?.["x-seller-id"];
+  const headerSellerDisplayName = req.headers?.["x-seller-display-name"];
+  const querySellerId = req.query?.seller_id;
+  const querySellerDisplayName = req.query?.seller_display_name;
+  const requestedSellerId = normalizeSellerId(headerSellerId || querySellerId || DEFAULT_SELLER_ID);
+  const requestedDisplayName = normalizeSellerDisplayName(
+    headerSellerDisplayName || querySellerDisplayName,
+    requestedSellerId
+  );
+
+  const existing = await c.query(
+    `SELECT seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at
+     FROM siton.seller_accounts
+     WHERE seller_id = $1
+     LIMIT 1`,
+    [requestedSellerId]
+  );
+
+  const profile =
+    existing.rowCount || options?.autoCreate
+      ? existing.rowCount
+        ? existing.rows[0]
+        : await ensureSellerAccount(c, requestedSellerId, requestedDisplayName)
+      : await ensureSellerAccount(c, DEFAULT_SELLER_ID, requestedDisplayName);
+
+  return {
+    seller_id: String(profile.seller_id),
+    display_name: String(profile.display_name || profile.seller_id),
+    verification_status: String(profile.verification_status || "approved"),
+    settlement_status: String(profile.settlement_status || "active"),
+    payout_method: String(profile.payout_method || "bank_transfer"),
+    payout_details_masked: String(profile.payout_details_masked || ""),
+    admin_note: String(profile.admin_note || ""),
+    created_at: String(profile.created_at || ""),
+    updated_at: String(profile.updated_at || ""),
+    is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+    context_source:
+      requestedSellerId === DEFAULT_SELLER_ID && !(headerSellerId || querySellerId)
+        ? "default_fallback"
+        : existing.rowCount || options?.autoCreate
+          ? "explicit"
+          : "default_fallback"
+  };
+}
 
 function maskPhone(phone: string) {
   const digits = phone.replace(/\D/g, "");
@@ -253,6 +348,7 @@ function mapDealListRow(row: DealListRow) {
   const remainingUnits = Math.max(0, maxUnits - joinedUnits);
   return {
     deal_id: row.deal_id,
+    seller_id: row.seller_id ?? DEFAULT_SELLER_ID,
     title: row.title,
     state: row.state,
     price_per_unit: Number(row.price_per_unit),
@@ -300,16 +396,25 @@ export function registerFrontendExperience(
       mode: string;
       external_delivery: boolean;
     };
+    debugSurfacesEnabled?: boolean;
   }
 ) {
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
+  const operationalReadiness = () =>
+    buildOperationalReadinessSummary({
+      deploymentMode: deps.deploymentMode,
+      isDemoPreview: deps.isDemoPreview,
+      payment: getPaymentProviderSummary(deps.paymentProvider),
+      notifications: deps.notificationSummary,
+      debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled)
+    });
 
   app.get("/api/preview/meta", async () => ({
     ok: true,
     preview: {
       deployment_mode: deps.deploymentMode,
       is_demo_preview: deps.isDemoPreview,
-      public_label: deps.isDemoPreview ? "Demo / Preview" : "Internal runtime",
+      public_label: deps.isDemoPreview ? "Demo / Preview" : "Configured runtime",
       guardrails: {
         payment_is_real: false,
         invoice_is_real: false,
@@ -319,57 +424,124 @@ export function registerFrontendExperience(
         notifications_are_real: deps.notificationSummary.external_delivery
       },
       notes: [
-        "This environment is intended for live showcase and preview only.",
-        "Payment, invoice, shipping, payout, and KYC rails remain inactive until external activation starts.",
+        deps.isDemoPreview
+          ? "This environment is intended for live showcase and preview only."
+          : "This runtime is configured, but the external rails still need separate production activation work.",
+        operationalReadiness().payment_provider.what_is_mock,
         deps.notificationSummary.external_delivery
           ? "Notification delivery is externally active."
           : "Notifications remain log-only in this environment."
-      ]
+      ],
+      operational_readiness: operationalReadiness()
     }
   }));
 
-  app.get("/api/marketplace/deals", async (req: any) => {
-    const q = String(req.query?.q || "").trim();
+  app.get("/api/site/home", async (req: any) => {
     return deps.withTx(async (c) => {
-      const result = await c.query(
+      await ensureProductSurfaces();
+      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const totals = await c.query(
         `SELECT
-           d.deal_id,
-           d.title,
-           d.state,
-           d.price_per_unit,
-           d.min_units,
-           d.max_units,
-           d.threshold_units,
-           d.deadline,
-           d.published_at,
-           d.completion_window_until,
-           d.created_at,
-           d.commission_rate,
-           COALESCE(SUM(p.qty),0) AS joined_units,
-           COUNT(p.participant_id)::int AS participants_count
-         FROM siton.deals d
-         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
-         WHERE d.state <> 'Draft'
-           AND ($1 = '' OR d.title ILIKE '%' || $1 || '%' OR d.deal_id::text ILIKE '%' || $1 || '%')
-         GROUP BY d.deal_id
-         ORDER BY
-           CASE
-             WHEN d.state IN ('PendingTarget','TargetReached') THEN 0
-             WHEN d.state IN ('ClosedForJoining','ReadyForCharging','Charging','CompletionWindow') THEN 1
-             ELSE 2
-           END,
-           COALESCE(d.published_at, d.created_at) DESC
-         LIMIT 48`,
-        [q]
+           COUNT(*)::int AS total_deals,
+           COUNT(*) FILTER (WHERE state IN ('PendingTarget','TargetReached','ClosedForJoining','ReadyForCharging','Charging','CompletionWindow'))::int AS live_deals,
+           COUNT(*) FILTER (WHERE state = 'Completed')::int AS completed_deals,
+           COUNT(*) FILTER (WHERE state IN ('Failed','Cancelled'))::int AS failed_or_cancelled
+         FROM siton.deals`
       );
 
+      const row = totals.rows[0] as any;
       return {
         ok: true,
-        q,
-        deals: (result.rows as DealListRow[]).map(mapDealListRow),
-        discovery_mode: "public-marketplace-expansion",
-        note: "This searchable marketplace surface is a product expansion beyond the original link-based spec."
+        site: {
+          brand: "Siton",
+          product_direction: "link-first-group-deals",
+          positioning:
+            "Commercial main site for opening a deal, publishing a personal deal page, and sharing a direct buyer link.",
+          buyer_entry_note:
+            "Buyers should enter through a direct deal link. There is no public catalog or searchable marketplace in the active product direction.",
+          seller_entry: {
+            create_deal_url: "/app/seller/new",
+            manage_deals_url: "/app/seller"
+          },
+          seller_context: {
+            seller_id: sellerContext.seller_id,
+            display_name: sellerContext.display_name,
+            verification_status: sellerContext.verification_status,
+            settlement_status: sellerContext.settlement_status,
+            is_default_context: sellerContext.is_default_context,
+            context_source: sellerContext.context_source
+          },
+          v1_scope: [
+            "Main brand site",
+            "Seller-first deal creation",
+            "Personal public deal page",
+            "Direct distribution link",
+            "Buyer OTP + authorization-only join flow",
+            "Buyer tracking screen",
+            "Basic seller management"
+          ],
+          out_of_scope: [
+            "Public marketplace catalog",
+            "Public deal search",
+            "Mall-style browsing experience"
+          ],
+          proof_points: {
+            total_deals: Number(row.total_deals || 0),
+            live_deals: Number(row.live_deals || 0),
+            completed_deals: Number(row.completed_deals || 0),
+            failed_or_cancelled: Number(row.failed_or_cancelled || 0)
+          }
+        }
       };
+    });
+  });
+
+  app.get("/api/seller/context", async (req: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      return {
+        ok: true,
+        seller_context: {
+          ...sellerContext,
+          workspace_url: "/app/seller",
+          create_deal_url: "/app/seller/new"
+        }
+      };
+    });
+  });
+
+  app.post("/api/seller/context", async (req: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerId = normalizeSellerId(req.body?.seller_id || req.headers?.["x-seller-id"] || DEFAULT_SELLER_ID);
+      const displayName = normalizeSellerDisplayName(
+        req.body?.display_name || req.headers?.["x-seller-display-name"],
+        sellerId
+      );
+      const profile = await ensureSellerAccount(c, sellerId, displayName);
+      return {
+        ok: true,
+        seller_context: {
+          seller_id: String(profile.seller_id),
+          display_name: String(profile.display_name || profile.seller_id),
+          verification_status: String(profile.verification_status || "approved"),
+          settlement_status: String(profile.settlement_status || "active"),
+          is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+          context_source: "explicit",
+          workspace_url: "/app/seller",
+          create_deal_url: "/app/seller/new"
+        }
+      };
+    });
+  });
+
+  app.get("/api/marketplace/deals", async (_req: any, reply: any) => {
+    return reply.code(410).send({
+      ok: false,
+      code: "PUBLIC_MARKETPLACE_REMOVED",
+      message:
+        "Public searchable marketplace discovery is not part of the current Siton product direction. Use the main site for seller entry and direct deal links for buyers."
     });
   });
 
@@ -378,6 +550,7 @@ export function registerFrontendExperience(
     requireUuid(dealId, "deal_id");
 
     return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
       const dealResult = await c.query(
         `SELECT deal_id, title, state, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until, created_at
          FROM siton.deals
@@ -395,6 +568,13 @@ export function registerFrontendExperience(
         `SELECT COALESCE(SUM(qty),0) AS joined_units, COUNT(*)::int AS participants_count
          FROM siton.participants
          WHERE deal_id=$1`,
+        [dealId]
+      );
+      const deliveryOptions = await c.query(
+        `SELECT option_id, option_type, label, cost, sort_order
+         FROM siton.deal_delivery_options
+         WHERE deal_id=$1
+         ORDER BY sort_order ASC, created_at ASC`,
         [dealId]
       );
 
@@ -430,7 +610,14 @@ export function registerFrontendExperience(
           deadline: deal.deadline,
           published_at: deal.published_at,
           completion_window_until: deal.completion_window_until,
-          created_at: deal.created_at
+          created_at: deal.created_at,
+          delivery_options: deliveryOptions.rows.map((row: any) => ({
+            option_id: row.option_id,
+            option_type: row.option_type,
+            label: row.label,
+            cost: Number(row.cost || 0),
+            sort_order: Number(row.sort_order || 0)
+          }))
         },
         metrics: {
           joined_units: joinedUnits,
@@ -448,11 +635,15 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/seller/deals", async () => {
+  app.get("/api/seller/deals", async (req: any) => {
+    await ensureProductSurfaces();
     return deps.withTx(async (c) => {
+      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerId = sellerContext.seller_id;
       const result = await c.query(
         `SELECT
            d.deal_id,
+           COALESCE(d.seller_id, $1) AS seller_id,
            d.title,
            d.state,
            d.price_per_unit,
@@ -468,15 +659,18 @@ export function registerFrontendExperience(
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         WHERE COALESCE(d.seller_id, $1) = $1
          GROUP BY d.deal_id
          ORDER BY d.created_at DESC
-         LIMIT 100`
+         LIMIT 100`,
+        [sellerId]
       );
 
       const deals = (result.rows as DealListRow[]).map(mapDealListRow);
       return {
         ok: true,
         seller_surface: {
+          seller_profile: sellerContext,
           deals,
           totals: {
             total_deals: deals.length,
@@ -495,9 +689,12 @@ export function registerFrontendExperience(
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
+      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerId = sellerContext.seller_id;
       const dealResult = await c.query(
         `SELECT
            d.deal_id,
+           COALESCE(d.seller_id, $2) AS seller_id,
            d.title,
            d.state,
            d.price_per_unit,
@@ -514,8 +711,9 @@ export function registerFrontendExperience(
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
          WHERE d.deal_id = $1
+           AND COALESCE(d.seller_id, $2) = $2
          GROUP BY d.deal_id`,
-        [dealId]
+        [dealId, sellerId]
       );
 
       if (!dealResult.rowCount) {
@@ -525,11 +723,19 @@ export function registerFrontendExperience(
       }
 
       const participants = await c.query(
-        `SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at
+        `SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at,
+                delivery_method_type, delivery_method_label, delivery_cost
          FROM siton.participants
          WHERE deal_id = $1
          ORDER BY created_at DESC
          LIMIT 50`,
+        [dealId]
+      );
+      const deliveryOptions = await c.query(
+        `SELECT option_id, option_type, label, cost, sort_order
+         FROM siton.deal_delivery_options
+         WHERE deal_id = $1
+         ORDER BY sort_order ASC, created_at ASC`,
         [dealId]
       );
 
@@ -622,6 +828,17 @@ export function registerFrontendExperience(
       return {
         ok: true,
         deal,
+        seller_profile: {
+          ...sellerContext,
+          direct_link: `/app/deal/${dealId}`
+        },
+        delivery_options: deliveryOptions.rows.map((row: any) => ({
+          option_id: row.option_id,
+          option_type: row.option_type,
+          label: row.label,
+          cost: Number(row.cost || 0),
+          sort_order: Number(row.sort_order || 0)
+        })),
         participants: participants.rows,
         payment_attempts: attempts.rows,
         receipts_surface: {
@@ -688,12 +905,13 @@ export function registerFrontendExperience(
     }
 
     return deps.withTx(async (c) => {
+      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
       const participant = await c.query(
-        `SELECT p.participant_id, p.buyer_id, p.qty, p.money_state, d.state AS deal_state
+        `SELECT p.participant_id, p.buyer_id, p.qty, p.money_state, d.state AS deal_state, COALESCE(d.seller_id, $3) AS seller_id
          FROM siton.participants p
          JOIN siton.deals d ON d.deal_id = p.deal_id
          WHERE p.participant_id = $1 AND p.deal_id = $2`,
-        [participantId, dealId]
+        [participantId, dealId, sellerContext.seller_id]
       );
 
       if (!participant.rowCount) {
@@ -703,6 +921,11 @@ export function registerFrontendExperience(
       }
 
       const row = participant.rows[0] as any;
+      if (String(row.seller_id) !== sellerContext.seller_id) {
+        const err: any = new Error("seller context does not match the requested deal");
+        err.statusCode = 404;
+        throw err;
+      }
       if (!deliveryEligible(String(row.deal_state) as DealState, String(row.money_state))) {
         const err: any = new Error("delivery update requires completed deal with charged buyer");
         err.statusCode = 409;
@@ -858,7 +1081,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/overview", async (req: any) => {
-    const q = String(req.query?.q || "").trim();
+    const q = String(req.query?.q || "").trim().slice(0, 200);
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const deals = await c.query(
@@ -1016,6 +1239,8 @@ export function registerFrontendExperience(
             notifications: deps.notificationSummary,
             webhook_ingestion: {
               duplicate_policy: "provider+event_id idempotent accept",
+              canonical_route: "/webhooks/payments",
+              legacy_route_alias: "/webhooks/payments/mock",
               supported_events: [
                 "payment_authorized",
                 "payment_failed",
@@ -1026,12 +1251,13 @@ export function registerFrontendExperience(
               ]
             }
           },
+          readiness: operationalReadiness(),
           operational_counts: counts.rows[0],
           notes: [
             deps.isDemoPreview
               ? "This runtime is configured for demo / preview deployment and should not be presented as a live commercial environment."
               : "This runtime is not marked as commercial-live.",
-            "Payment remains intentionally mock-backed until external activation starts.",
+            operationalReadiness().payment_provider.what_is_mock,
             "Notifications remain intentionally log-only until external activation starts."
           ]
         }
@@ -1376,6 +1602,9 @@ export function registerFrontendExperience(
            p.qty,
            p.buyer_state,
            p.money_state,
+           p.delivery_method_type,
+           p.delivery_method_label,
+           p.delivery_cost,
            p.created_at,
            d.title,
            d.state AS deal_state,
@@ -1401,6 +1630,9 @@ export function registerFrontendExperience(
         qty: number;
         buyer_state: BuyerState;
         money_state: MoneyState;
+        delivery_method_type: string | null;
+        delivery_method_label: string | null;
+        delivery_cost: number;
         created_at: string;
         title: string;
         deal_state: DealState;
@@ -1418,7 +1650,10 @@ export function registerFrontendExperience(
           deal_id: row.deal_id,
           buyer_id: row.buyer_id,
           qty: Number(row.qty),
-          estimated_total: Number(row.qty) * Number(row.price_per_unit),
+          delivery_method_type: row.delivery_method_type,
+          delivery_method_label: row.delivery_method_label,
+          delivery_cost: Number(row.delivery_cost || 0),
+          estimated_total: Number(row.qty) * Number(row.price_per_unit) + Number(row.delivery_cost || 0),
           buyer_state: row.buyer_state,
           money_state: row.money_state,
           deal_state: row.deal_state,
@@ -1455,7 +1690,8 @@ export function registerFrontendExperience(
       phone: digits,
       createdAt: Date.now(),
       expiresAt: Date.now() + OTP_TTL_MS,
-      verified: false
+      verified: false,
+      attemptCount: 0
     };
     otpSessions.set(sessionId, session);
 
@@ -1491,7 +1727,16 @@ export function registerFrontendExperience(
       throw err;
     }
 
+    if (session.attemptCount >= OTP_MAX_ATTEMPTS) {
+      otpSessions.delete(sessionId);
+      const err: any = new Error("too many otp attempts, please request a new code");
+      err.statusCode = 429;
+      throw err;
+    }
+
     if (code !== OTP_CODE) {
+      session.attemptCount += 1;
+      otpSessions.set(sessionId, session);
       const err: any = new Error("invalid otp");
       err.statusCode = 400;
       throw err;
@@ -1508,7 +1753,7 @@ export function registerFrontendExperience(
     };
   });
 
-  app.post("/api/payments/authorize-mock", async (req: any, reply: any) => {
+  const handleAuthorizePayment = async (req: any, reply: any) => {
     const result = await deps.paymentProvider.authorize({
       holder_name: String(req.body?.holder_name || ""),
       card_number: String(req.body?.card_number || ""),
@@ -1521,15 +1766,9 @@ export function registerFrontendExperience(
     }
 
     return result;
-
-
-    return {
-      ok: true,
-      
-      
-      hold_message: "בוצעה תפיסת מסגרת מדומה. החיוב בפועל יתבצע רק אם העסקה תושלם."
-    };
-  });
+  };
+  app.post("/api/payments/authorize", handleAuthorizePayment);
+  app.post("/api/payments/authorize-mock", handleAuthorizePayment);
 
   app.get("/app/assets/styles.css", async (_req, reply) =>
     sendFrontendFile(reply, "styles.css", "text/css; charset=utf-8")
@@ -1543,7 +1782,13 @@ export function registerFrontendExperience(
 
   app.get("/app", sendShell);
   app.get("/app/", sendShell);
-  app.get("/app/marketplace", sendShell);
+  app.get("/app/marketplace", async (_req: any, reply: FastifyReply) => {
+    return reply.redirect("/app");
+  });
+  app.get("/app/terms", sendShell);
+  app.get("/app/privacy", sendShell);
+  app.get("/app/refunds", sendShell);
+  app.get("/app/contact", sendShell);
   app.get("/app/deal/:dealId", sendShell);
   app.get("/app/join/:dealId/otp", sendShell);
   app.get("/app/join/:dealId/payment", sendShell);

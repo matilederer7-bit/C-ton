@@ -26,6 +26,7 @@ await run("preview meta exposes demo guardrails", async () => {
   assert.equal(payload.preview.guardrails.shipping_is_real, false);
   assert.equal(payload.preview.guardrails.payout_is_real, false);
   assert.equal(payload.preview.guardrails.kyc_is_real, false);
+  assert.equal(payload.preview.operational_readiness.debug_surfaces.state, "disabled");
 });
 
 await run("integrations health reports deployment mode and mock-backed rails", async () => {
@@ -38,6 +39,15 @@ await run("integrations health reports deployment mode and mock-backed rails", a
   assert.equal(payload.deployment_mode, "demo-preview");
   assert.equal(payload.integrations.payment.mode, "mock-backed");
   assert.equal(payload.integrations.notifications.mode, "log-only");
+  assert.equal(payload.operational_readiness.preview_demo_mode.state, "active-demo-preview");
+});
+
+await run("debug deal route stays blocked by default even in demo-preview", async () => {
+  const response = await app.inject({
+    method: "GET",
+    url: "/debug/deals/9e594fc6-7713-4005-8b42-edaf0bc520ed"
+  });
+  assert.equal(response.statusCode, 404);
 });
 
 await run("admin system status keeps explicit demo boundary", async () => {

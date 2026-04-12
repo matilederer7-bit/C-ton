@@ -107,12 +107,16 @@ async function main() {
     assert.equal(payload.integrations.payment.provider, "mockpay");
     assert.equal(payload.integrations.notifications.provider, "log-only");
     assert.equal(payload.integrations.webhook_ingestion.provider, "mockpay");
+    assert.equal(payload.integrations.webhook_ingestion.canonical_route, "/webhooks/payments");
+    assert.equal(payload.operational_readiness.payment_provider.state, "mock");
+    assert.equal(payload.operational_readiness.sms.state, "not-connected");
+    assert.match(payload.operational_readiness.seller_identity.context_leakage_risk, /high/i);
   });
 
-  await runTest("payment authorization contract returns provider metadata", async () => {
+  await runTest("payment authorization contract returns provider metadata on the canonical route", async () => {
     const response = await app.inject({
       method: "POST",
-      url: "/api/payments/authorize-mock",
+      url: "/api/payments/authorize",
       payload: {
         holder_name: "Integration Buyer",
         card_number: "4111111111111111",
@@ -127,6 +131,23 @@ async function main() {
     assert.equal(payload.provider, "mockpay");
     assert.equal(payload.authorization, "authorized");
     assert.equal(payload.mock, true);
+  });
+
+  await runTest("legacy payment authorization route remains available as a compatibility alias", async () => {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/payments/authorize-mock",
+      payload: {
+        holder_name: "Integration Buyer",
+        card_number: "4111111111111111",
+        expiry: "12/28",
+        cvv: "123"
+      }
+    });
+
+    assert.equal(response.statusCode, 200);
+    const payload = response.json() as any;
+    assert.equal(payload.ok, true);
   });
 
   await runTest("payment authorization failure stays mapped through provider boundary", async () => {
@@ -154,7 +175,7 @@ async function main() {
 
     const first = await app.inject({
       method: "POST",
-      url: "/webhooks/payments/mock",
+      url: "/webhooks/payments",
       headers: {
         "x-webhook-secret": "mock-webhook-secret"
       },

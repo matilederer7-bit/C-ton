@@ -30,12 +30,14 @@ export function summarizeMoney(args: {
 }
 
 export function roundMoney(value: number) {
-  return Number(Number(value || 0).toFixed(2));
+  // Use Math.round with scaling to avoid toFixed floating-point artifacts
+  return Math.round((Number(value) || 0) * 100) / 100;
 }
 
 export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
   if (!ensurePromise) {
-    ensurePromise = withTx(async (c) => {
+    // Assign the promise BEFORE starting async work to prevent concurrent duplicate executions
+    ensurePromise = (async () => await withTx(async (c) => {
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.seller_accounts (
           seller_id TEXT PRIMARY KEY,
@@ -121,6 +123,44 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         CREATE INDEX IF NOT EXISTS idx_support_tickets_status
         ON siton.support_tickets (status, created_at DESC)`);
 
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.deal_delivery_options (
+          option_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
+          option_type TEXT NOT NULL CHECK (option_type IN ('delivery','pickup','distribution_point')),
+          label TEXT NOT NULL,
+          cost NUMERIC(12,2) NOT NULL DEFAULT 0 CHECK (cost >= 0),
+          sort_order INT NOT NULL DEFAULT 0,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )`);
+
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_option_id UUID NULL
+          REFERENCES siton.deal_delivery_options(option_id) ON DELETE SET NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_method_type TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_method_label TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_cost NUMERIC(12,2) NOT NULL DEFAULT 0
+      `);
+
+      await c.query(`
+        CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal
+        ON siton.deal_delivery_options (deal_id, sort_order, created_at)
+      `);
+      await c.query(`
+        CREATE INDEX IF NOT EXISTS idx_participants_delivery_option
+        ON siton.participants (delivery_option_id)
+      `);
+
       await c.query(
         `INSERT INTO siton.seller_accounts (
            seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note
@@ -130,6 +170,23 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         [DEFAULT_SELLER_ID]
       );
 
+      await c.query(`
+        ALTER TABLE siton.deals
+        ADD COLUMN IF NOT EXISTS seller_id TEXT
+      `);
+
+      await c.query(
+        `UPDATE siton.deals
+         SET seller_id = $1
+         WHERE seller_id IS NULL OR btrim(seller_id) = ''`,
+        [DEFAULT_SELLER_ID]
+      );
+
+      await c.query(`
+        CREATE INDEX IF NOT EXISTS idx_deals_seller_created
+        ON siton.deals (seller_id, created_at DESC)
+      `);
+
       await c.query(
         `INSERT INTO siton.affiliate_accounts (
            affiliate_code, display_name, verification_status, payout_status, payout_method, payout_details_masked, admin_note
@@ -138,7 +195,7 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
          ON CONFLICT (affiliate_code) DO NOTHING`,
         [DEFAULT_AFFILIATE_CODE, DEFAULT_AFFILIATE_NAME]
       );
-    }).catch((error) => {
+    }))().catch((error) => {
       ensurePromise = null;
       throw error;
     });
