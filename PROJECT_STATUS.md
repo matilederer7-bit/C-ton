@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-12
+Last updated: 2026-04-12 (security hardening pass 2)
 
 ## Canonical Status
 
@@ -282,6 +282,60 @@ A full audit covering all source files was completed. Findings and fixes across 
 - Rate limiter is in-memory and per-instance — not cluster-safe (acceptable for single-instance demo)
 - No real SMS, email, invoice, payment, payout, or KYC transport
 
+## What Was Completed In The Security Hardening Pass 2 (2026-04-12)
+
+### Phase 2 — Implementation hardening
+
+- **Admin auth (`requireAdminKey`)**: Switched from string `!==` to `timingSafeEqual` (Buffer comparison) to prevent key-length oracle attacks
+- **Rate limiter (`src/app.ts`)**:
+  - Added `trustProxy: true` to Fastify — `req.ip` now correctly resolves client IP from `X-Forwarded-For` when behind Render's proxy
+  - Rate limit keys namespaced (`g:ip` for global, `s:ip` for sensitive)
+  - Added per-path tighter limit for OTP and deal-creation endpoints (`RATE_LIMIT_SENSITIVE_MAX=20`, env-configurable)
+  - Fixed path matching bug (trailing-slash mismatch in `isSensitivePath`)
+- **HMAC webhook replay protection (`src/frontend_runtime.ts`)**:
+  - Added `x-webhook-timestamp` header validation — rejects requests older than 5 minutes or more than 5 minutes in the future
+  - Timestamp is included in the signing input (`${timestamp}.${body}`) so a valid signature from a replayed request cannot be detached and reused
+  - `verifyWebhookSignature` now accepts timestamp as a third parameter
+
+### Phase 3 — New security tests (all passing)
+
+| Suite | Tests | Result |
+|---|---|---|
+| `rate_limiter_validation` | 5 | PASS |
+| `admin_auth_validation` | 6 | PASS |
+| `webhook_hmac_validation` | 8 | PASS |
+
+**Rate limiter tests cover:**
+- Under-limit requests are allowed
+- Over-limit returns 429 with `Retry-After`
+- Per-IP counters are independent
+- Sensitive-path stricter limit fires before global limit
+- Window expiry is bounded correctly by `Retry-After`
+
+**Admin auth tests cover:**
+- Missing key → 401
+- Wrong key → 401
+- Empty key → 401
+- Whitespace-only key → 401
+- Correct key passes auth (may get DB error after, not 401)
+- Multiple endpoints all require the key
+
+**Webhook HMAC tests cover:**
+- Valid signature + valid timestamp → passes auth
+- Missing signature → 401
+- Wrong signature → 401
+- Signature from different secret → 401
+- Stale timestamp (6 min old) → 401
+- Far-future timestamp (6 min ahead) → 401
+- Recent timestamp (4.5 min old, within window) → passes
+- Mock webhook endpoint also enforces signature
+
+### All pre-existing non-DB tests still pass
+
+- `otp_runtime_guard_validation` — PASS (2/2)
+- `debug_surface_guard_validation` — PASS (3/3)
+- `webhook_secret_policy_validation` — PASS (4/4)
+
 ## Estimated Progress
 
 - Backend: 99%
@@ -291,7 +345,7 @@ A full audit covering all source files was completed. Findings and fixes across 
 - Affiliate surface: 94%
 - Admin surface: 97%
 - Internal integrations: 96%
-- Security hardening: 95%
+- Security hardening: 99%
 - Current-spec product closure: 99%
 - Ultimate pre-live QA / RC confidence: 97%
 - Master product depth / internal hardening: 99%
@@ -300,7 +354,7 @@ A full audit covering all source files was completed. Findings and fixes across 
 ## Recommended Next Step
 
 1. Deploy to Render (single external step: push repo + activate blueprint)
-2. If going toward production: set `ADMIN_API_KEY` and `PAYMENT_WEBHOOK_SECRET` env vars in Render dashboard
+2. If going toward production: set `ADMIN_API_KEY`, `PAYMENT_WEBHOOK_SECRET`, `SELLER_SESSION_SECRET`, `SELLER_AUTH_CREDENTIALS` env vars in Render dashboard
 3. Continue product-direction alignment (copy/navigation cleanup) as separate pass
 
 ## Delivery Persistence Checkpoint
@@ -627,3 +681,42 @@ A full audit covering all source files was completed. Findings and fixes across 
   `100%` of the seller-auth planning pass
 - Next step:
   execute `Track A` from `docs/SELLER_AUTH_ATTACK_PLAN.md`: define the non-demo seller session authority boundary, remove caller-selected seller identity as production authority, keep `demo-preview` explicitly isolated, and only then consider whether a broader production account lifecycle program should be opened
+
+## Seller Auth Controlled-Launch Implementation
+
+- What was completed:
+  implemented the minimum real seller-auth boundary for `non-demo` runtimes by moving seller authority to a server-trusted signed session cookie; added shared seller-auth helpers in `src/seller_auth.ts`; added non-demo seller-auth config in `src/runtime_config.ts`; updated `src/frontend_runtime.ts` so seller workspace access, seller detail, seller delivery updates, seller-context reads, and preview/home metadata now resolve seller authority from the server session in `non-demo` while keeping `demo-preview` on the explicitly isolated context-switching path; updated `src/app.ts` so legacy create/publish routes now derive seller authority from the server session in `non-demo` and persist `seller_id` from that authority instead of trusting caller headers; updated `frontend/app.js` so seller surfaces use seller-session login/logout UX in `non-demo`, stop relying on `localStorage` or `x-seller-id` as authority there, and keep manual seller-context switching only in demo mode; added focused validations in `tests/seller_auth_session_validation.ts` and `tests/seller_auth_authority_validation.ts`
+- What was checked:
+  `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --noEmit`; focused validation via `node .tmp_test_dist/tests/seller_auth_session_validation.js`; focused validation via `node .tmp_test_dist/tests/seller_auth_authority_validation.js`; live HTTP QA against a temporary `frontend_runtime` instance on `127.0.0.1:3050` proving `401` without session, `200` login with invited seller credentials, and `200` seller workspace access while a forged `x-seller-id` header was ignored in favor of the server session
+- What is open:
+  this closes the controlled-launch seller-auth floor, not the full production auth program; invited-seller credentials are still env-driven rather than full public onboarding, there is still no broader permissions matrix, and open multi-tenant public seller signup/recovery remains outside this pass
+- Progress percentage:
+  `100%` of the controlled-launch seller-auth implementation pass
+- Next step:
+  freeze the controlled-launch session boundary as the new non-demo baseline, then decide whether the next program is live payment authorization rail or the broader mature seller-auth/account lifecycle
+
+## Payment Rail Attack Plan Completed
+
+- What was completed:
+  mapped the current payment rail end to end and converted it into an execution document in `docs/PAYMENT_RAIL_ATTACK_PLAN.md`; documented exactly what is already real today inside the app rail (state machine, outbox discipline, payment-attempt audit, webhook ingestion storage, duplicate handling, and minimal reconciliation), what remains mock or placeholder (`authorize`, `capture`, `recover`, `refund` execution inside `src/payment_provider.ts`), where the frontend already assumes a meaningful authorization boundary, where aliases and webhook routes already exist, which envs/secrets are already part of the shape, and which invariants must not be broken while moving to a real provider
+- What was checked:
+  `docs/P0_ATTACK_PLAN.md`, `docs/REAL_PAYMENT_AND_RECONCILIATION_DECISION.md`, `docs/STAGE4_OPERATIONAL_READINESS_MAP.md`, `src/payment_provider.ts`, `src/payment_reconciliation.ts`, `src/webhook_ingestion.ts`, `src/payment_attempt_helpers.ts`, `src/app.ts`, `src/frontend_runtime.ts`, `frontend/app.js`, and the existing payment-facing validations referenced in `tests/frontend_flow_validation.ts`, `tests/real_integrations_validation.ts`, `tests/preprod_torture_validation.ts`, and `tests/ultimate_prelive_qa_rc_validation.ts`
+- What is open:
+  no real external payment transport is active yet; the next concrete implementation program is still open and should begin with one real authorization rail behind the existing abstraction, followed only later by capture/recovery/refund and the chosen provider's full webhook matrix
+- Progress percentage:
+  `100%` of the payment-rail planning pass
+- Next step:
+  start the implementation program at Stage 1 from `docs/PAYMENT_RAIL_ATTACK_PLAN.md`: one chosen provider, real authorization HTTP client, strict non-demo env contract, real provider correlation persistence, and no capture/recovery/refund expansion in the same first patch
+
+## Real Authorization Rail Stage 1
+
+- What was completed:
+  replaced the synthetic `provider-ready` authorization path with a real outbound HTTP authorization rail behind the existing provider abstraction in `src/payment_provider.ts`; kept `mock-backed` and `demo-preview` isolated; added strict non-demo env support for `PAYMENT_PROVIDER_AUTH_PATH` and `PAYMENT_PROVIDER_TIMEOUT_MS` in `src/runtime_config.ts`; wired `/api/payments/authorize` and the legacy `/api/payments/authorize-mock` alias to pass real authorization amount/currency/deal/buyer context through `src/frontend_runtime.ts`; updated `frontend/app.js` to send `amount_minor` and preserve returned provider trace in the buyer flow; updated `src/app.ts` so a successful join now records `authorization_id`, `authorization_provider`, and `authorization_correlation_id` inside the existing `participant.join_authorize` audit payload instead of an unqualified mock marker; aligned `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` with the new truth
+- What was checked:
+  `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused validation via `node .tmp_test_dist/tests/payment_authorization_real_rail_validation.js`; focused env-guard validation via `node .tmp_test_dist/tests/payment_authorization_env_guard_validation.js`; live HTTP QA against a temporary runtime on `127.0.0.1:3072` with a local provider stub proving `POST /api/payments/authorize` returned `200` with `mock:false` and a real `provider_reference`, while `POST /api/payments/authorize-mock` returned `402` with `mock:false` and `card_declined` instead of bypassing to a mock path; an additional `frontend_flow_validation` pass was attempted and confirmed the existing buyer/public shell still loads, but the suite remains partly blocked by pre-existing `app.ts` environment drift unrelated to the new authorization rail
+- What is open:
+  `capture`, `recovery`, and `refund` are still non-live; no real invoice/accounting rail or notifications were opened in this pass; `src/app.ts` and `src/frontend_runtime.ts` still carry architectural drift outside the authorization boundary; broader end-to-end payment truth still depends on the later webhook/catalog and capture phases
+- Progress percentage:
+  `100%` of Stage 1 real authorization rail
+- Next step:
+  freeze the real authorization rail as the new non-demo baseline, then move only to the next payment stage in order: tighten provider-specific webhook truth and the capture path without reopening auth, notifications, or invoice/accounting in the same patch

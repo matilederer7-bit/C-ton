@@ -4,6 +4,16 @@ import { randomUUID } from "crypto";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
+import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
+import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
+import { registerFrontendExperience } from "./frontend_runtime.js";
+import {
+  SELLER_SESSION_COOKIE,
+  normalizeSellerDisplayName,
+  normalizeSellerId,
+  parseCookies,
+  readSellerSessionToken
+} from "./seller_auth.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -17,6 +27,9 @@ const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
 
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
+const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
+const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
+const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
 
 const pool = new Pool({ connectionString: DATABASE_URL });
 
@@ -32,6 +45,45 @@ function debugSurfaceAuthorized(req: any) {
   if (!debugSurfacesActive()) return false;
   const presented = String(req.headers?.[DEBUG_SURFACES_HEADER] || "").trim();
   return Boolean(presented) && presented === debugSurfaceAccessKey();
+}
+
+function sellerSessionContext(req: any) {
+  if (IS_DEMO_PREVIEW || !SELLER_SESSION_SECRET) return null;
+  const cookies = parseCookies(req.headers?.cookie);
+  return readSellerSessionToken(cookies[SELLER_SESSION_COOKIE], SELLER_SESSION_SECRET);
+}
+
+function sellerAuthorityFromDemoRequest(req: any) {
+  const sellerId = normalizeSellerId(req.body?.seller_id || req.headers?.["x-seller-id"]);
+  return {
+    seller_id: sellerId,
+    display_name: normalizeSellerDisplayName(req.body?.seller_display_name || req.headers?.["x-seller-display-name"], sellerId),
+    context_source: "demo_context"
+  };
+}
+
+function requireSellerAuthority(req: any) {
+  if (IS_DEMO_PREVIEW) {
+    return sellerAuthorityFromDemoRequest(req);
+  }
+  if (!SELLER_SESSION_SECRET) {
+    const err: any = new Error("seller auth is not configured for this non-demo runtime");
+    err.statusCode = 503;
+    err.code = "seller_auth_unavailable";
+    throw err;
+  }
+  const session = sellerSessionContext(req);
+  if (!session) {
+    const err: any = new Error("seller session is required for this non-demo runtime");
+    err.statusCode = 401;
+    err.code = "seller_auth_required";
+    throw err;
+  }
+  return {
+    seller_id: session.seller_id,
+    display_name: session.display_name,
+    context_source: "server_session"
+  };
 }
 
 type DealState =
@@ -999,17 +1051,26 @@ async function workerLoop(app: ReturnType<typeof Fastify>) {
   }
 }
 
-const app = Fastify({ logger: true });
+const app = Fastify({ logger: true, trustProxy: true });
 export { app };
 
 // ---------------------------------------------------------------------------
 // In-memory rate limiter
 // Configurable via RATE_LIMIT_MAX (requests per window) and
 // RATE_LIMIT_WINDOW_MS (window duration in ms). Off when RATE_LIMIT_MAX=0.
-// Uses a fixed-window counter keyed by IP address.
+// Uses a fixed-window counter keyed by client IP.
+//
+// Behind Render (or any proxy with trustProxy:true), req.ip already resolves
+// the first untrusted IP from X-Forwarded-For via Fastify's built-in handling.
+// Sensitive endpoints (OTP, join-deal) use a tighter per-path sub-limit.
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 200);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
+// Stricter limit for sensitive mutation endpoints (OTP, joining a deal)
+const RATE_LIMIT_SENSITIVE_MAX = Number(process.env.RATE_LIMIT_SENSITIVE_MAX ?? 20);
+
+// Paths that get the tighter per-IP limit (prefix match without trailing slash)
+const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals"];
 
 type RateLimitEntry = { count: number; resetAt: number };
 const rateLimitStore = new Map<string, RateLimitEntry>();
@@ -1023,22 +1084,50 @@ const rateLimitPurge = setInterval(() => {
 }, 5 * 60_000);
 rateLimitPurge.unref();
 
+function isSensitivePath(url: string): boolean {
+  return SENSITIVE_PATHS.some((p) => url === p || url.startsWith(p + "/") || url.startsWith(p + "?"));
+}
+
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
+    // req.ip is the correct client IP when trustProxy:true is set —
+    // Fastify reads X-Forwarded-For and returns the first untrusted address.
     const ip = req.ip || "unknown";
+    const url = req.url || "";
     const now = Date.now();
-    const existing = rateLimitStore.get(ip);
 
-    if (!existing || existing.resetAt <= now) {
-      rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    // Global limit bucket
+    const globalKey = `g:${ip}`;
+    const globalEntry = rateLimitStore.get(globalKey);
+    if (!globalEntry || globalEntry.resetAt <= now) {
+      rateLimitStore.set(globalKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
     } else {
-      existing.count += 1;
-      if (existing.count > RATE_LIMIT_MAX) {
-        const retryAfterSecs = Math.ceil((existing.resetAt - now) / 1000);
+      globalEntry.count += 1;
+      if (globalEntry.count > RATE_LIMIT_MAX) {
+        const retryAfterSecs = Math.ceil((globalEntry.resetAt - now) / 1000);
         void reply
           .code(429)
           .header("Retry-After", String(retryAfterSecs))
           .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+        return;
+      }
+    }
+
+    // Sensitive-endpoint stricter bucket
+    if (RATE_LIMIT_SENSITIVE_MAX > 0 && isSensitivePath(url)) {
+      const sensitiveKey = `s:${ip}`;
+      const sensitiveEntry = rateLimitStore.get(sensitiveKey);
+      if (!sensitiveEntry || sensitiveEntry.resetAt <= now) {
+        rateLimitStore.set(sensitiveKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+      } else {
+        sensitiveEntry.count += 1;
+        if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
+          const retryAfterSecs = Math.ceil((sensitiveEntry.resetAt - now) / 1000);
+          void reply
+            .code(429)
+            .header("Retry-After", String(retryAfterSecs))
+            .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+        }
       }
     }
   });
@@ -1057,6 +1146,7 @@ app.get("/health", async () => ({ ok: true }));
 
 app.post("/deals", async (req: any) => {
   const body = req.body || {};
+  const sellerAuthority = requireSellerAuthority(req);
   const title = String(body.title || "").trim();
   if (!title) {
     const err: any = new Error("title is required");
@@ -1083,8 +1173,8 @@ app.post("/deals", async (req: any) => {
   const r = await withTx(async (c) => {
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       (title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
        RETURNING deal_id, state`,
       [
         title,
@@ -1093,7 +1183,8 @@ app.post("/deals", async (req: any) => {
         maxUnits,
         draftThreshold,
         body.deadline ? new Date(body.deadline).toISOString() : nowPlusMinutes(60).toISOString(),
-        Number(body.commission_rate || 0)
+        Number(body.commission_rate || 0),
+        sellerAuthority.seller_id
       ]
     );
     return ins.rows[0];
@@ -1104,8 +1195,23 @@ app.post("/deals", async (req: any) => {
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
+  const sellerAuthority = requireSellerAuthority(req);
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
+
+  await withTx(async (c) => {
+    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  });
 
   return atomicTransition({
     entityType: "deal",
@@ -1163,6 +1269,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const dealId = String(req.params.id);
   const body = req.body || {};
   const buyer_id = String(body.buyer_id || "");
+  const authorizationId = String(body.authorization_id || "").trim();
+  const authorizationProvider = String(body.authorization_provider || "").trim();
+  const authorizationCorrelationId = String(body.authorization_correlation_id || "").trim();
   const qtyRaw = Number(body.qty ?? 1);
 
   if (!buyer_id) {
@@ -1231,13 +1340,21 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   });
 
   if (participant.buyer_state === "NotJoined") {
+    const authorizationPayload = authorizationId
+      ? {
+          authorization: "provider_authorized",
+          authorization_id: authorizationId,
+          authorization_provider: authorizationProvider || "unknown",
+          authorization_correlation_id: authorizationCorrelationId || null
+        }
+      : { authorization: "mock_success" };
     await atomicMultiTransition({
       actionName: "participant.join_authorize",
       requestId,
       idempotency: { entityType: "participant", entityId: participant.participant_id, idempotencyKey: idem },
       ops: [
-        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "buyer_state", fromState: "NotJoined", toState: "JoinedAuthorized", payload: { authorization: "mock_success" } },
-        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "money_state", fromState: "NoFinancial", toState: "AuthHeld", payload: { authorization: "mock_success" } }
+        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "buyer_state", fromState: "NotJoined", toState: "JoinedAuthorized", payload: authorizationPayload },
+        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "money_state", fromState: "NoFinancial", toState: "AuthHeld", payload: authorizationPayload }
       ],
       outbox: null
     });
@@ -1430,6 +1547,19 @@ app.get("/debug/deals/:id", async (req: any) => {
     return { deal: deal.rows[0] || null, participants: parts.rows, outbox: outbox.rows, dlq: dlq.rows, payment_attempts: attempts.rows };
   });
   return data;
+});
+
+// Wire frontend experience routes onto the same app instance.
+// This must happen before listen() so tests that import `app` see all routes.
+const paymentProvider = buildPaymentProvider();
+const notificationService = buildNotificationService();
+registerFrontendExperience(app, {
+  withTx,
+  paymentProvider,
+  deploymentMode: APP_DEPLOYMENT_MODE,
+  isDemoPreview: IS_DEMO_PREVIEW,
+  notificationSummary: getNotificationServiceSummary(notificationService),
+  debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1"
 });
 
 let workerRunning = false;

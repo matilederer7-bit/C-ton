@@ -10,7 +10,11 @@ import {
   ADMIN_API_KEY,
   PAYMENT_WEBHOOK_SECRET,
   PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
-  PAYMENT_WEBHOOK_SECRET_IS_SAFE
+  PAYMENT_WEBHOOK_SECRET_IS_SAFE,
+  SELLER_AUTH_CONFIGURED,
+  SELLER_AUTH_CREDENTIALS,
+  SELLER_AUTH_MODE,
+  SELLER_SESSION_SECRET
 } from "./runtime_config.js";
 import {
   AFFILIATE_FEE_SHARE_OF_PLATFORM,
@@ -22,6 +26,17 @@ import {
 } from "./product_surface_support.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
+import {
+  SELLER_SESSION_COOKIE,
+  SELLER_SESSION_TTL_SECONDS,
+  buildSellerSessionToken,
+  normalizeSellerDisplayName,
+  normalizeSellerId,
+  parseCookies,
+  readSellerSessionToken,
+  serializeExpiredSellerSessionCookie,
+  serializeSellerSessionCookie
+} from "./seller_auth.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -108,21 +123,6 @@ const frontendDirCandidates = [
 const frontendDir =
   frontendDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) ||
   join(process.cwd(), "frontend");
-
-function normalizeSellerId(value: unknown) {
-  const normalized = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 64);
-  return normalized || DEFAULT_SELLER_ID;
-}
-
-function normalizeSellerDisplayName(value: unknown, fallbackId: string) {
-  const normalized = String(value || "").trim().replace(/\s+/g, " ").slice(0, 80);
-  return normalized || fallbackId;
-}
 
 async function ensureSellerAccount(c: any, sellerId: string, displayName?: string | null) {
   const normalizedSellerId = normalizeSellerId(sellerId);
@@ -409,6 +409,23 @@ export function registerFrontendExperience(
       external_delivery: boolean;
     };
     debugSurfacesEnabled?: boolean;
+    applyPaymentWebhookClassification?: (args: {
+      event: {
+        provider: string;
+        event_id: string;
+        event_type: string;
+        correlation_id: string | null;
+        participant_id: string | null;
+        deal_id: string | null;
+        provider_reference: string | null;
+        payload: Record<string, unknown>;
+      };
+      target: any;
+      classification: {
+        status: "processed" | "ignored" | "failed";
+        reason: string;
+      };
+    }) => Promise<void>;
   }
 ) {
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
@@ -420,7 +437,9 @@ export function registerFrontendExperience(
       notifications: deps.notificationSummary,
       debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled),
       webhookSecretSafe: PAYMENT_WEBHOOK_SECRET_IS_SAFE,
-      webhookSecretIsDefault: PAYMENT_WEBHOOK_SECRET_IS_DEFAULT
+      webhookSecretIsDefault: PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
+      sellerAuthMode: deps.isDemoPreview ? "demo-context" : "server-session",
+      sellerAuthConfigured: deps.isDemoPreview ? true : SELLER_AUTH_CONFIGURED
     });
 
   // Webhook ingestion + reconciliation helpers (used by /webhooks/payments)
@@ -431,15 +450,34 @@ export function registerFrontendExperience(
    * Verify HMAC-SHA256 webhook signature.
    * Only enforced when PAYMENT_WEBHOOK_SECRET is a real (non-demo) secret.
    * Compares using timingSafeEqual to prevent timing attacks.
+   * Also validates x-webhook-timestamp header (Unix seconds) against a 5-minute
+   * replay window to prevent replay attacks.
    */
-  function verifyWebhookSignature(rawBody: string, signatureHeader: string | undefined): boolean {
+  const WEBHOOK_REPLAY_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+
+  function verifyWebhookSignature(
+    rawBody: string,
+    signatureHeader: string | undefined,
+    timestampHeader: string | undefined
+  ): boolean {
     if (!PAYMENT_WEBHOOK_SECRET_IS_SAFE || !PAYMENT_WEBHOOK_SECRET) {
       // Demo/dev mode — skip verification
       return true;
     }
     if (!signatureHeader) return false;
+
+    // Replay protection: reject requests older than 5 minutes or with future timestamps
+    if (timestampHeader) {
+      const ts = Number(timestampHeader);
+      if (!Number.isFinite(ts) || Math.abs(Date.now() - ts * 1000) > WEBHOOK_REPLAY_WINDOW_MS) {
+        return false;
+      }
+    }
+
     try {
-      const expected = createHmac("sha256", PAYMENT_WEBHOOK_SECRET).update(rawBody).digest("hex");
+      // Include timestamp in the signed payload when present (prevents replay without timestamp)
+      const signingInput = timestampHeader ? `${timestampHeader}.${rawBody}` : rawBody;
+      const expected = createHmac("sha256", PAYMENT_WEBHOOK_SECRET).update(signingInput).digest("hex");
       const expectedBuf = Buffer.from(expected, "hex");
       const providedBuf = Buffer.from(signatureHeader.replace(/^sha256=/, ""), "hex");
       if (expectedBuf.length !== providedBuf.length) return false;
@@ -457,11 +495,113 @@ export function registerFrontendExperience(
   function requireAdminKey(req: FastifyRequest, reply: FastifyReply): boolean {
     if (!ADMIN_API_KEY) return true; // No key configured — open access
     const provided = String((req.headers as Record<string, string | undefined>)["x-admin-key"] || "").trim();
-    if (!provided || provided !== ADMIN_API_KEY) {
+    if (!provided) {
+      void reply.code(401).send({ error: "admin_auth_required", message: "x-admin-key header is missing or invalid" });
+      return false;
+    }
+    // Timing-safe comparison to prevent key-length oracle attacks
+    const expectedBuf = Buffer.from(ADMIN_API_KEY, "utf8");
+    const providedBuf = Buffer.from(provided, "utf8");
+    if (expectedBuf.length !== providedBuf.length || !timingSafeEqual(expectedBuf, providedBuf)) {
       void reply.code(401).send({ error: "admin_auth_required", message: "x-admin-key header is missing or invalid" });
       return false;
     }
     return true;
+  }
+
+  function sellerAuthSummary(sellerContext?: any) {
+    return {
+      mode: deps.isDemoPreview ? "demo-context" : SELLER_AUTH_MODE,
+      configured: deps.isDemoPreview ? true : SELLER_AUTH_CONFIGURED,
+      authenticated: deps.isDemoPreview ? true : Boolean(sellerContext),
+      allow_manual_context_switch: deps.isDemoPreview,
+      seller_context: sellerContext
+        ? {
+            seller_id: sellerContext.seller_id,
+            display_name: sellerContext.display_name,
+            verification_status: sellerContext.verification_status,
+            settlement_status: sellerContext.settlement_status,
+            is_default_context: sellerContext.is_default_context,
+            context_source: sellerContext.context_source
+          }
+        : null
+    };
+  }
+
+  function rejectSellerAuthUnavailable(reply: FastifyReply) {
+    return reply.code(503).send({
+      error: "seller_auth_unavailable",
+      message: "seller auth is not configured for this non-demo runtime"
+    });
+  }
+
+  function rejectSellerAuthRequired(reply: FastifyReply) {
+    return reply.code(401).send({
+      error: "seller_auth_required",
+      message: "seller session is required for this non-demo runtime"
+    });
+  }
+
+  function rejectManualSellerContextSwitch(reply: FastifyReply) {
+    return reply.code(403).send({
+      error: "seller_context_switch_disabled",
+      message: "manual seller context switching is disabled outside demo-preview"
+    });
+  }
+
+  async function readSellerSessionContext(req: any, c: any) {
+    if (deps.isDemoPreview) return null;
+    if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) return null;
+    const cookies = parseCookies(req.headers?.cookie);
+    const session = readSellerSessionToken(cookies[SELLER_SESSION_COOKIE], SELLER_SESSION_SECRET);
+    if (!session) return null;
+
+    const existing = await c.query(
+      `SELECT seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at
+       FROM siton.seller_accounts
+       WHERE seller_id = $1
+       LIMIT 1`,
+      [session.seller_id]
+    );
+
+    const profile =
+      existing.rowCount
+        ? existing.rows[0]
+        : await ensureSellerAccount(c, session.seller_id, session.display_name);
+
+    return {
+      seller_id: String(profile.seller_id),
+      display_name: String(profile.display_name || profile.seller_id),
+      verification_status: String(profile.verification_status || "approved"),
+      settlement_status: String(profile.settlement_status || "active"),
+      payout_method: String(profile.payout_method || "bank_transfer"),
+      payout_details_masked: String(profile.payout_details_masked || ""),
+      admin_note: String(profile.admin_note || ""),
+      created_at: String(profile.created_at || ""),
+      updated_at: String(profile.updated_at || ""),
+      is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+      context_source: "server_session"
+    };
+  }
+
+  async function resolveOptionalSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
+    if (deps.isDemoPreview) return resolveSellerContext(req, c, options);
+    if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) return null;
+    return readSellerSessionContext(req, c);
+  }
+
+  async function resolveRequiredSellerContext(req: any, reply: FastifyReply, c: any, options?: { autoCreate?: boolean }) {
+    if (deps.isDemoPreview) return resolveSellerContext(req, c, options);
+    if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) {
+      rejectSellerAuthUnavailable(reply);
+      return null;
+    }
+    const sellerContext = await readSellerSessionContext(req, c);
+    if (!sellerContext) {
+      rejectSellerAuthRequired(reply);
+      return null;
+    }
+    return sellerContext;
   }
 
   app.get("/api/preview/meta", async () => ({
@@ -487,14 +627,89 @@ export function registerFrontendExperience(
           ? "Notification delivery is externally active."
           : "Notifications remain log-only in this environment."
       ],
+      seller_auth: sellerAuthSummary(),
       operational_readiness: operationalReadiness()
     }
   }));
 
+  app.get("/api/seller/session", async (req: any, reply: any) => {
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
+      if (!deps.isDemoPreview && !SELLER_AUTH_CONFIGURED) {
+        return reply.code(503).send({
+          ok: false,
+          seller_auth: sellerAuthSummary(),
+          error: "seller_auth_unavailable",
+          message: "seller auth is not configured for this non-demo runtime"
+        });
+      }
+      return {
+        ok: true,
+        seller_auth: sellerAuthSummary(sellerContext)
+      };
+    });
+  });
+
+  app.post("/api/seller/session/login", async (req: any, reply: any) => {
+    if (deps.isDemoPreview) {
+      return reply.code(409).send({
+        ok: false,
+        error: "seller_auth_not_needed_in_demo",
+        message: "demo-preview uses explicit seller context switching instead of seller login"
+      });
+    }
+    if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) {
+      return rejectSellerAuthUnavailable(reply);
+    }
+
+    const sellerId = normalizeSellerId(req.body?.seller_id);
+    const accessCode = String(req.body?.access_code || "").trim();
+    const credential = SELLER_AUTH_CREDENTIALS.find((row) => row.seller_id === sellerId);
+    if (!credential || !accessCode || accessCode !== credential.access_code) {
+      return reply.code(401).send({
+        ok: false,
+        error: "seller_auth_invalid_credentials",
+        message: "seller id or access code is invalid"
+      });
+    }
+
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      const profile = await ensureSellerAccount(c, credential.seller_id, credential.display_name);
+      const sessionPayload = {
+        seller_id: String(profile.seller_id),
+        display_name: String(profile.display_name || profile.seller_id),
+        iat: Date.now(),
+        exp: Date.now() + SELLER_SESSION_TTL_SECONDS * 1000
+      };
+      const token = buildSellerSessionToken(sessionPayload, SELLER_SESSION_SECRET);
+      reply.header("set-cookie", serializeSellerSessionCookie(token, SELLER_SESSION_TTL_SECONDS));
+      return {
+        ok: true,
+        seller_auth: sellerAuthSummary({
+          ...sessionPayload,
+          verification_status: String(profile.verification_status || "approved"),
+          settlement_status: String(profile.settlement_status || "active"),
+          is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+          context_source: "server_session"
+        })
+      };
+    });
+  });
+
+  app.post("/api/seller/session/logout", async (_req: any, reply: any) => {
+    reply.header("set-cookie", serializeExpiredSellerSessionCookie());
+    return {
+      ok: true,
+      seller_auth: sellerAuthSummary()
+    };
+  });
+
   app.get("/api/site/home", async (req: any) => {
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
-      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       const totals = await c.query(
         `SELECT
            COUNT(*)::int AS total_deals,
@@ -518,14 +733,17 @@ export function registerFrontendExperience(
             create_deal_url: "/app/seller/new",
             manage_deals_url: "/app/seller"
           },
-          seller_context: {
-            seller_id: sellerContext.seller_id,
-            display_name: sellerContext.display_name,
-            verification_status: sellerContext.verification_status,
-            settlement_status: sellerContext.settlement_status,
-            is_default_context: sellerContext.is_default_context,
-            context_source: sellerContext.context_source
-          },
+          seller_context: sellerContext
+            ? {
+                seller_id: sellerContext.seller_id,
+                display_name: sellerContext.display_name,
+                verification_status: sellerContext.verification_status,
+                settlement_status: sellerContext.settlement_status,
+                is_default_context: sellerContext.is_default_context,
+                context_source: sellerContext.context_source
+              }
+            : null,
+          seller_auth: sellerAuthSummary(sellerContext),
           v1_scope: [
             "Main brand site",
             "Seller-first deal creation",
@@ -551,10 +769,11 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/seller/context", async (req: any) => {
+  app.get("/api/seller/context", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
-      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerContext = await resolveRequiredSellerContext(req, reply as any, c, { autoCreate: true });
+      if (!sellerContext) return reply;
       return {
         ok: true,
         seller_context: {
@@ -566,8 +785,11 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/seller/context", async (req: any) => {
+  app.post("/api/seller/context", async (req: any, reply: any) => {
     await ensureProductSurfaces();
+    if (!deps.isDemoPreview) {
+      return rejectManualSellerContextSwitch(reply);
+    }
     return deps.withTx(async (c) => {
       const sellerId = normalizeSellerId(req.body?.seller_id || req.headers?.["x-seller-id"] || DEFAULT_SELLER_ID);
       const displayName = normalizeSellerDisplayName(
@@ -586,7 +808,15 @@ export function registerFrontendExperience(
           context_source: "explicit",
           workspace_url: "/app/seller",
           create_deal_url: "/app/seller/new"
-        }
+        },
+        seller_auth: sellerAuthSummary({
+          seller_id: String(profile.seller_id),
+          display_name: String(profile.display_name || profile.seller_id),
+          verification_status: String(profile.verification_status || "approved"),
+          settlement_status: String(profile.settlement_status || "active"),
+          is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+          context_source: "explicit"
+        })
       };
     });
   });
@@ -690,10 +920,11 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/seller/deals", async (req: any) => {
+  app.get("/api/seller/deals", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
-      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
       const sellerId = sellerContext.seller_id;
       const result = await c.query(
         `SELECT
@@ -726,6 +957,7 @@ export function registerFrontendExperience(
         ok: true,
         seller_surface: {
           seller_profile: sellerContext,
+          seller_auth: sellerAuthSummary(sellerContext),
           deals,
           totals: {
             total_deals: deals.length,
@@ -738,13 +970,14 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/seller/deals/:id", async (req: any) => {
+  app.get("/api/seller/deals/:id", async (req: any, reply: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
-      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
       const sellerId = sellerContext.seller_id;
       const dealResult = await c.query(
         `SELECT
@@ -887,6 +1120,7 @@ export function registerFrontendExperience(
           ...sellerContext,
           direct_link: `/app/deal/${dealId}`
         },
+        seller_auth: sellerAuthSummary(sellerContext),
         delivery_options: deliveryOptions.rows.map((row: any) => ({
           option_id: row.option_id,
           option_type: row.option_type,
@@ -932,7 +1166,7 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/seller/deals/:id/delivery/:participantId", async (req: any) => {
+  app.post("/api/seller/deals/:id/delivery/:participantId", async (req: any, reply: any) => {
     const dealId = String(req.params.id);
     const participantId = String(req.params.participantId);
     requireUuid(dealId, "deal_id");
@@ -960,7 +1194,8 @@ export function registerFrontendExperience(
     }
 
     return deps.withTx(async (c) => {
-      const sellerContext = await resolveSellerContext(req, c, { autoCreate: true });
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
       const participant = await c.query(
         `SELECT p.participant_id, p.buyer_id, p.qty, p.money_state, d.state AS deal_state, COALESCE(d.seller_id, $3) AS seller_id
          FROM siton.participants p
@@ -1143,11 +1378,11 @@ export function registerFrontendExperience(
   // ---------------------------------------------------------------------------
   async function handleWebhookPayments(req: FastifyRequest, reply: FastifyReply) {
     const rawBody = JSON.stringify(req.body); // Fastify has already parsed JSON
-    const signatureHeader = String(
-      (req.headers as Record<string, string | undefined>)["x-webhook-signature"] || ""
-    );
+    const headers = req.headers as Record<string, string | undefined>;
+    const signatureHeader = String(headers["x-webhook-signature"] || "");
+    const timestampHeader = String(headers["x-webhook-timestamp"] || "");
 
-    if (!verifyWebhookSignature(rawBody, signatureHeader || undefined)) {
+    if (!verifyWebhookSignature(rawBody, signatureHeader || undefined, timestampHeader || undefined)) {
       return reply.code(401).send({
         error: "invalid_webhook_signature",
         message: "HMAC signature verification failed"
@@ -1170,6 +1405,11 @@ export function registerFrontendExperience(
     const correlationId = body["correlation_id"] ? String(body["correlation_id"]) : null;
     const participantId = body["participant_id"] ? String(body["participant_id"]) : null;
     const dealId = body["deal_id"] ? String(body["deal_id"]) : null;
+    const providerReference = body["provider_reference"]
+      ? String(body["provider_reference"])
+      : payload["provider_reference"]
+        ? String(payload["provider_reference"])
+        : null;
 
     // Ingest (idempotent — duplicate provider+event_id returns existing status)
     const ingested = await webhookIngestion.ingestEvent({
@@ -1197,10 +1437,28 @@ export function registerFrontendExperience(
       correlation_id: correlationId,
       participant_id: participantId,
       deal_id: dealId,
+      provider_reference: providerReference,
       payload
     });
 
     const classification = paymentReconciliation.classifyEvent(eventType, target);
+
+    if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
+      await deps.applyPaymentWebhookClassification({
+        event: {
+          provider,
+          event_id: eventId,
+          event_type: eventType,
+          correlation_id: correlationId,
+          participant_id: participantId,
+          deal_id: dealId,
+          provider_reference: providerReference,
+          payload
+        },
+        target,
+        classification
+      });
+    }
 
     // Mark event with the classification result
     await webhookIngestion.markEvent(provider, eventId, classification.status);
@@ -1905,12 +2163,19 @@ export function registerFrontendExperience(
   });
 
   const handleAuthorizePayment = async (req: any, reply: any) => {
-    const result = await deps.paymentProvider.authorize({
+    const authorizeInput: Parameters<typeof deps.paymentProvider.authorize>[0] = {
       holder_name: String(req.body?.holder_name || ""),
       card_number: String(req.body?.card_number || ""),
       expiry: String(req.body?.expiry || ""),
-      cvv: String(req.body?.cvv || "")
-    });
+      cvv: String(req.body?.cvv || ""),
+      amount_minor: req.body?.amount_minor,
+      currency: String(req.body?.currency || ""),
+      request_id: String(req.headers?.["x-request-id"] || req.id || "")
+    };
+    if (req.body?.buyer_id) authorizeInput.buyer_id = String(req.body.buyer_id);
+    if (req.body?.deal_id) authorizeInput.deal_id = String(req.body.deal_id);
+    if (req.body?.correlation_id) authorizeInput.correlation_id = String(req.body.correlation_id);
+    const result = await deps.paymentProvider.authorize(authorizeInput);
 
     if (!result.ok) {
       return reply.code(result.statusCode).send(result);
