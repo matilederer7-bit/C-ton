@@ -1,11 +1,17 @@
-import type { FastifyInstance, FastifyReply } from "fastify";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { fileURLToPath } from "url";
-import { createHash } from "crypto";
+import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
+import {
+  ADMIN_API_KEY,
+  PAYMENT_WEBHOOK_SECRET,
+  PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
+  PAYMENT_WEBHOOK_SECRET_IS_SAFE
+} from "./runtime_config.js";
 import {
   AFFILIATE_FEE_SHARE_OF_PLATFORM,
   DEFAULT_AFFILIATE_CODE,
@@ -14,6 +20,8 @@ import {
   isChargedMoneyState,
   summarizeMoney
 } from "./product_surface_support.js";
+import { buildWebhookIngestion } from "./webhook_ingestion.js";
+import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -53,6 +61,7 @@ type MoneyState =
 type OtpSession = {
   sessionId: string;
   phone: string;
+  code: string;
   createdAt: number;
   expiresAt: number;
   verified: boolean;
@@ -78,7 +87,6 @@ type DealListRow = {
 };
 
 const otpSessions = new Map<string, OtpSession>();
-const OTP_CODE = "123456";
 const OTP_TTL_MS = 10 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 
@@ -194,6 +202,10 @@ function otpSessionId(phone: string) {
     .update(`${phone}:${Date.now()}:${Math.random()}`)
     .digest("hex")
     .slice(0, 24);
+}
+
+function generateOtpCode() {
+  return String(randomInt(0, 1_000_000)).padStart(6, "0");
 }
 
 function isUuid(value: string) {
@@ -406,8 +418,51 @@ export function registerFrontendExperience(
       isDemoPreview: deps.isDemoPreview,
       payment: getPaymentProviderSummary(deps.paymentProvider),
       notifications: deps.notificationSummary,
-      debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled)
+      debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled),
+      webhookSecretSafe: PAYMENT_WEBHOOK_SECRET_IS_SAFE,
+      webhookSecretIsDefault: PAYMENT_WEBHOOK_SECRET_IS_DEFAULT
     });
+
+  // Webhook ingestion + reconciliation helpers (used by /webhooks/payments)
+  const webhookIngestion = buildWebhookIngestion({ withTx: deps.withTx });
+  const paymentReconciliation = buildPaymentReconciliation({ withTx: deps.withTx });
+
+  /**
+   * Verify HMAC-SHA256 webhook signature.
+   * Only enforced when PAYMENT_WEBHOOK_SECRET is a real (non-demo) secret.
+   * Compares using timingSafeEqual to prevent timing attacks.
+   */
+  function verifyWebhookSignature(rawBody: string, signatureHeader: string | undefined): boolean {
+    if (!PAYMENT_WEBHOOK_SECRET_IS_SAFE || !PAYMENT_WEBHOOK_SECRET) {
+      // Demo/dev mode — skip verification
+      return true;
+    }
+    if (!signatureHeader) return false;
+    try {
+      const expected = createHmac("sha256", PAYMENT_WEBHOOK_SECRET).update(rawBody).digest("hex");
+      const expectedBuf = Buffer.from(expected, "hex");
+      const providedBuf = Buffer.from(signatureHeader.replace(/^sha256=/, ""), "hex");
+      if (expectedBuf.length !== providedBuf.length) return false;
+      return timingSafeEqual(expectedBuf, providedBuf);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Admin API key guard.
+   * If ADMIN_API_KEY env var is set, all /api/admin/* routes require the
+   * x-admin-key header to match. Empty key = open access (demo/dev).
+   */
+  function requireAdminKey(req: FastifyRequest, reply: FastifyReply): boolean {
+    if (!ADMIN_API_KEY) return true; // No key configured — open access
+    const provided = String((req.headers as Record<string, string | undefined>)["x-admin-key"] || "").trim();
+    if (!provided || provided !== ADMIN_API_KEY) {
+      void reply.code(401).send({ error: "admin_auth_required", message: "x-admin-key header is missing or invalid" });
+      return false;
+    }
+    return true;
+  }
 
   app.get("/api/preview/meta", async () => ({
     ok: true,
@@ -1080,7 +1135,95 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/admin/overview", async (req: any) => {
+  // ---------------------------------------------------------------------------
+  // Webhook ingestion endpoint
+  // Receives payment provider callbacks, verifies HMAC, deduplicates, classifies.
+  // In mock-backed mode the mock provider never sends real webhooks — this route
+  // exists so the system is wired correctly when a live provider is connected.
+  // ---------------------------------------------------------------------------
+  async function handleWebhookPayments(req: FastifyRequest, reply: FastifyReply) {
+    const rawBody = JSON.stringify(req.body); // Fastify has already parsed JSON
+    const signatureHeader = String(
+      (req.headers as Record<string, string | undefined>)["x-webhook-signature"] || ""
+    );
+
+    if (!verifyWebhookSignature(rawBody, signatureHeader || undefined)) {
+      return reply.code(401).send({
+        error: "invalid_webhook_signature",
+        message: "HMAC signature verification failed"
+      });
+    }
+
+    const body = req.body as Record<string, unknown>;
+    const provider = String(body["provider"] || "unknown");
+    const eventId = String(body["event_id"] || "");
+    const eventType = String(body["event_type"] || "");
+
+    if (!eventId) {
+      return reply.code(400).send({ error: "missing_event_id", message: "event_id is required" });
+    }
+    if (!eventType) {
+      return reply.code(400).send({ error: "missing_event_type", message: "event_type is required" });
+    }
+
+    const payload = (body["payload"] as Record<string, unknown> | undefined) ?? {};
+    const correlationId = body["correlation_id"] ? String(body["correlation_id"]) : null;
+    const participantId = body["participant_id"] ? String(body["participant_id"]) : null;
+    const dealId = body["deal_id"] ? String(body["deal_id"]) : null;
+
+    // Ingest (idempotent — duplicate provider+event_id returns existing status)
+    const ingested = await webhookIngestion.ingestEvent({
+      provider,
+      event_id: eventId,
+      event_type: eventType,
+      payload,
+      deal_id: dealId,
+      participant_id: participantId
+    });
+
+    if (ingested.duplicate) {
+      return reply.code(200).send({
+        ok: true,
+        duplicate: true,
+        event_id: eventId,
+        status: ingested.status
+      });
+    }
+
+    // Classify the event using reconciliation logic
+    const target = await paymentReconciliation.resolveTarget({
+      event_id: eventId,
+      event_type: eventType,
+      correlation_id: correlationId,
+      participant_id: participantId,
+      deal_id: dealId,
+      payload
+    });
+
+    const classification = paymentReconciliation.classifyEvent(eventType, target);
+
+    // Mark event with the classification result
+    await webhookIngestion.markEvent(provider, eventId, classification.status);
+
+    return reply.code(200).send({
+      ok: true,
+      duplicate: false,
+      event_id: eventId,
+      status: classification.status,
+      reason: classification.reason
+    });
+  }
+
+  app.post("/webhooks/payments", handleWebhookPayments);
+  // Legacy alias kept for backward compatibility with mock provider config
+  app.post("/webhooks/payments/mock", handleWebhookPayments);
+
+  // ---------------------------------------------------------------------------
+  // Admin routes — protected by requireAdminKey when ADMIN_API_KEY is set
+  // ---------------------------------------------------------------------------
+
+  app.get("/api/admin/overview", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const q = String(req.query?.q || "").trim().slice(0, 200);
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
@@ -1212,7 +1355,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/admin/system-status", async () => {
+  app.get("/api/admin/system-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const counts = await c.query(
@@ -1265,7 +1409,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/admin/deals/:id/profile", async (req: any) => {
+  app.get("/api/admin/deals/:id/profile", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
@@ -1355,7 +1500,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/admin/users/:buyerId/profile", async (req: any) => {
+  app.get("/api/admin/users/:buyerId/profile", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const buyerId = String(req.params.buyerId || "").trim();
     if (!buyerId) {
       const err: any = new Error("buyer_id required");
@@ -1388,7 +1534,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any) => {
+  app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const subjectType = String(req.params.subjectType || "").trim();
     const subjectId = String(req.params.subjectId || "").trim();
     const decision = String(req.body?.decision || "").trim();
@@ -1448,7 +1595,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/admin/support", async (req: any) => {
+  app.post("/api/admin/support", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
     const scopeType = String(req.body?.scope_type || "").trim();
     const scopeKey = String(req.body?.scope_key || "").trim();
@@ -1482,7 +1630,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/admin/support/:ticketId", async (req: any) => {
+  app.post("/api/admin/support/:ticketId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
     const ticketId = String(req.params.ticketId || "");
     requireUuid(ticketId, "ticket_id");
@@ -1513,7 +1662,8 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/admin/affiliate-payouts/:affiliateId", async (req: any) => {
+  app.post("/api/admin/affiliate-payouts/:affiliateId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
     const affiliateId = String(req.params.affiliateId || "");
     requireUuid(affiliateId, "affiliate_id");
@@ -1688,6 +1838,7 @@ export function registerFrontendExperience(
     const session: OtpSession = {
       sessionId,
       phone: digits,
+      code: generateOtpCode(),
       createdAt: Date.now(),
       expiresAt: Date.now() + OTP_TTL_MS,
       verified: false,
@@ -1700,7 +1851,7 @@ export function registerFrontendExperience(
       otp_session_id: sessionId,
       masked_destination: maskPhone(phone),
       expires_at: new Date(session.expiresAt).toISOString(),
-      development_code: OTP_CODE
+      development_code: deps.isDemoPreview ? session.code : undefined
     };
   });
 
@@ -1734,7 +1885,7 @@ export function registerFrontendExperience(
       throw err;
     }
 
-    if (code !== OTP_CODE) {
+    if (code !== session.code) {
       session.attemptCount += 1;
       otpSessions.set(sessionId, session);
       const err: any = new Error("invalid otp");

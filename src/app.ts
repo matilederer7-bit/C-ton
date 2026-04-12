@@ -411,10 +411,12 @@ async function refundMock(key: string): Promise<PaymentResultClass> {
 }
 
 async function sumJoinedUnits(c: PoolClient, dealId: string): Promise<number> {
+  // Exclude participants whose authorization was released — they no longer hold inventory
   const r = await c.query(
     `SELECT COALESCE(SUM(qty),0) AS total
      FROM siton.participants
-     WHERE deal_id=$1`,
+     WHERE deal_id=$1
+       AND buyer_state NOT IN ('DealFailed','Dropped')`,
     [dealId]
   );
   return Number(r.rows[0].total || 0);
@@ -1000,6 +1002,48 @@ async function workerLoop(app: ReturnType<typeof Fastify>) {
 const app = Fastify({ logger: true });
 export { app };
 
+// ---------------------------------------------------------------------------
+// In-memory rate limiter
+// Configurable via RATE_LIMIT_MAX (requests per window) and
+// RATE_LIMIT_WINDOW_MS (window duration in ms). Off when RATE_LIMIT_MAX=0.
+// Uses a fixed-window counter keyed by IP address.
+// ---------------------------------------------------------------------------
+const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 200);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
+
+type RateLimitEntry = { count: number; resetAt: number };
+const rateLimitStore = new Map<string, RateLimitEntry>();
+
+// Purge expired entries every 5 minutes to prevent unbounded memory growth
+const rateLimitPurge = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of rateLimitStore) {
+    if (entry.resetAt <= now) rateLimitStore.delete(key);
+  }
+}, 5 * 60_000);
+rateLimitPurge.unref();
+
+if (RATE_LIMIT_MAX > 0) {
+  app.addHook("onRequest", async (req, reply) => {
+    const ip = req.ip || "unknown";
+    const now = Date.now();
+    const existing = rateLimitStore.get(ip);
+
+    if (!existing || existing.resetAt <= now) {
+      rateLimitStore.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    } else {
+      existing.count += 1;
+      if (existing.count > RATE_LIMIT_MAX) {
+        const retryAfterSecs = Math.ceil((existing.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    }
+  });
+}
+
 app.setErrorHandler((error: any, _req, reply) => {
   const statusCode = Number(error.statusCode || error.status || 0);
   const code = statusCode >= 400 && statusCode < 600 ? statusCode : 500;
@@ -1156,11 +1200,13 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
-    // How many units are held by other buyers (excluding this buyer's existing reservation)
+    // How many units are held by other buyers (excluding this buyer's existing reservation,
+    // and excluding released participants who no longer hold inventory)
     const otherUnitsRow = await c.query(
       `SELECT COALESCE(SUM(qty), 0) AS total
        FROM siton.participants
-       WHERE deal_id=$1 AND buyer_id != $2`,
+       WHERE deal_id=$1 AND buyer_id != $2
+         AND buyer_state NOT IN ('DealFailed','Dropped')`,
       [dealId, buyer_id]
     );
     const occupiedByOthers = Number(otherUnitsRow.rows[0].total);

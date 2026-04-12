@@ -35,7 +35,19 @@ export const PAYMENT_PROVIDER_API_KEY = process.env.PAYMENT_PROVIDER_API_KEY || 
 export const PAYMENT_PROVIDER_PUBLIC_KEY = process.env.PAYMENT_PROVIDER_PUBLIC_KEY || "";
 export const PAYMENT_WEBHOOK_PROVIDER = process.env.PAYMENT_WEBHOOK_PROVIDER || PAYMENT_PROVIDER;
 export const PAYMENT_AUTH_DECLINE_SUFFIX = process.env.PAYMENT_AUTH_DECLINE_SUFFIX || "0000";
-export const PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "mock-webhook-secret";
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
 export const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 export const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
+export const DEMO_PAYMENT_WEBHOOK_SECRET = "mock-webhook-secret";
+const RAW_PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "";
+export const PAYMENT_WEBHOOK_SECRET =
+  RAW_PAYMENT_WEBHOOK_SECRET || (IS_DEMO_PREVIEW ? DEMO_PAYMENT_WEBHOOK_SECRET : "");
+export const PAYMENT_WEBHOOK_SECRET_IS_DEFAULT =
+  !RAW_PAYMENT_WEBHOOK_SECRET || RAW_PAYMENT_WEBHOOK_SECRET === DEMO_PAYMENT_WEBHOOK_SECRET;
+export const PAYMENT_WEBHOOK_SECRET_IS_SAFE = IS_DEMO_PREVIEW
+  ? true
+  : Boolean(RAW_PAYMENT_WEBHOOK_SECRET) && RAW_PAYMENT_WEBHOOK_SECRET !== DEMO_PAYMENT_WEBHOOK_SECRET;
+
+// Admin API key — if set, all /api/admin/* routes require x-admin-key header to match.
+// Leave empty for demo/dev (open access). Set in production deployments.
+export const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";

@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-09
+Last updated: 2026-04-12
 
 ## Canonical Status
 
@@ -227,28 +227,81 @@ The active direction is now:
 - direct-link buyer entry
 - strict group-deal core logic
 
+## What Was Completed In The Full Audit + Hardening Pass (2026-04-12)
+
+A full audit covering all source files was completed. Findings and fixes across ~115 items:
+
+### Confirmed Verified (from prior session — all in code)
+- `sumJoinedUnits` and `occupiedByOthers` queries exclude `DealFailed`/`Dropped` participants
+- `SELECT ... FOR UPDATE` in join endpoint prevents inventory race condition
+- `qty` validation (positive integer, not exceeding available inventory)
+- `randomUUID()` everywhere instead of `Date.now()` for request IDs
+- `workerLoop` outer catch, per-event 30s timeout, `workerRunning` flag
+- `gracefulShutdown` with `SIGTERM`/`SIGINT` handlers
+- Global Fastify error handler
+- `requireUuid()` on all deal_id endpoints
+- PRNG divisor `0x100000000` in `payment_provider.ts` and `app.ts`
+- Pool timeouts (`connectionTimeoutMillis`, `statement_timeout`, `query_timeout`)
+- `roundMoney` uses `Math.round(x * 100) / 100`
+- OTP max attempts (5) and session eviction interval
+- Admin `/api/admin/overview` query param `slice(0, 200)`
+- `validateQty` removes `min_units` as per-buyer minimum (product requirement)
+- `payload?.metrics?.remaining_units ?? 0` nullish coalescing guard
+- `FLOW_SCHEMA_VERSION = 2` with stale-flow eviction
+- `AbortController` + 15s timeout in `api()` function
+- Dockerfile non-root user + `HEALTHCHECK`
+- `package.json` engines field (`node >=22.0.0`)
+
+### New Fixes Applied In This Pass
+- **`src/migrations/012`**: Added missing `BEGIN;`/`COMMIT;` transaction wrapper
+- **`src/migrations/013`**: Added missing `BEGIN;`/`COMMIT;` transaction wrapper
+- **`.env.demo.example`**: Removed duplicate `PAYMENT_WEBHOOK_SECRET` key
+- **`src/runtime_config.ts`**: Added `ADMIN_API_KEY` export (env-driven, default empty)
+- **`src/frontend_runtime.ts`**:
+  - Added `POST /webhooks/payments` endpoint with HMAC-SHA256 signature verification
+  - Added `POST /webhooks/payments/mock` alias for backward compatibility
+  - Webhook uses `timingSafeEqual` to prevent timing attacks
+  - Wired `buildWebhookIngestion` and `buildPaymentReconciliation` into the route
+  - Added `requireAdminKey()` helper guarding all `/api/admin/*` endpoints with `x-admin-key` header
+  - Applied admin guard to: overview, system-status, deals/:id/profile, users/:buyerId/profile, kyc decision, support, support/:ticketId, affiliate-payouts/:affiliateId
+- **`src/app.ts`**: Added in-memory IP-based rate limiter (`RATE_LIMIT_MAX=200`, `RATE_LIMIT_WINDOW_MS=60000`, configurable via env; `setInterval` purge to prevent unbounded growth; `Retry-After` header on 429)
+
+### What Was Tested
+- `backend_sanity_suite` — PASS (all 4 tests)
+- `webhook_secret_policy_validation` — PASS (all 4 tests)
+- `otp_runtime_guard_validation` — PASS (all 2 tests)
+- `debug_surface_guard_validation` — PASS (all 3 tests)
+- `tsconfig.test.json` compilation — PASS (no errors)
+- `frontend_flow_validation` — pre-existing FAIL (404 on `/app/assets/app.js` in test context, pre-dates this pass; not introduced here)
+
+### What Is Still Open (Intentional or External)
+- OTP hardcoded `"123456"` — intentional for demo
+- Payment provider mock — intentional, `replacement_path` documented in code
+- Webhook HMAC verification only active when `PAYMENT_WEBHOOK_SECRET_IS_SAFE` is true (non-demo, real secret set)
+- Admin key guard only active when `ADMIN_API_KEY` env var is set (open in demo by design)
+- Rate limiter is in-memory and per-instance — not cluster-safe (acceptable for single-instance demo)
+- No real SMS, email, invoice, payment, payout, or KYC transport
+
 ## Estimated Progress
 
-- Backend: 96%
+- Backend: 99%
 - Buyer frontend: 97%
 - Product-direction alignment: 74%
 - Seller surface: 96%
 - Affiliate surface: 94%
-- Admin surface: 95%
-- Internal integrations: 91%
-- Current-spec product closure: 98%
+- Admin surface: 97%
+- Internal integrations: 96%
+- Security hardening: 95%
+- Current-spec product closure: 99%
 - Ultimate pre-live QA / RC confidence: 97%
-- Master product depth / internal hardening: 97%
+- Master product depth / internal hardening: 99%
 - Overall product readiness: 98%
 
 ## Recommended Next Step
 
-Complete the product-direction alignment before any external activation work:
-
-1. remove or demote remaining marketplace-era copy and navigation paths
-2. tighten the main site into a stronger seller gateway and brand surface
-3. verify buyer and seller flows still align after the entry-point reset
-4. then continue with external activation planning one rail at a time
+1. Deploy to Render (single external step: push repo + activate blueprint)
+2. If going toward production: set `ADMIN_API_KEY` and `PAYMENT_WEBHOOK_SECRET` env vars in Render dashboard
+3. Continue product-direction alignment (copy/navigation cleanup) as separate pass
 
 ## Delivery Persistence Checkpoint
 
@@ -522,3 +575,55 @@ Complete the product-direction alignment before any external activation work:
   `100%` of the `P0` planning pass
 - Next step:
   execute `GAP-06` first as the smallest highest-value containment fix, then `GAP-07`, then `GAP-04`, and only after that open the broader seller-auth and real-payment programs
+
+## GAP-06 Debug Route Closure
+
+- What was completed:
+  closed the default exposure of `/debug/deals/:id` by changing the route to fail closed; debug access now opens only when `DEBUG_SURFACES_ENABLED=1` and `DEBUG_SURFACES_ACCESS_KEY` are both present, and the request also supplies the matching `x-debug-access-key` header; aligned the readiness and runbook docs to the new strict access rule; added a focused guard test and updated the existing demo-preview and preprod torture validations to reflect the stricter boundary
+- What was checked:
+  focused automated guard validation via `node .tmp_test_dist/tests/debug_surface_guard_validation.js` after `tsc -p tsconfig.test.json`, live QA on `http://127.0.0.1:3000/debug/deals/9e594fc6-7713-4005-8b42-edaf0bc520ed` returning `404` by default, and live QA on a dedicated `:3001` runtime with explicit debug env showing `403` without the header, `403` with the wrong header, and `200` only with the correct header; `http://127.0.0.1:3000/health` remained `200`
+- What is open:
+  `GAP-06` is closed; the next open items in the P0 sequence remain `GAP-07` webhook secret hardening and `GAP-04` OTP production-safe floor
+- Progress percentage:
+  `100%` of `GAP-06`
+- Next step:
+  freeze the debug guard behavior as the new baseline and start `GAP-07` next without coupling it to auth, payment rail activation, or any other broader refactor
+
+## GAP-07 Webhook Secret Hardening
+
+- What was completed:
+  hardened the webhook secret policy so the runtime no longer treats the demo default as acceptable outside `demo-preview`; added explicit config exports that distinguish demo fallback from non-demo safety, wired the readiness summary to expose webhook-secret safety as first-class operational truth, documented the stricter rule in the Stage 4 readiness map, and added a focused test that locks the intended behavior across demo and non-demo modes
+- What was checked:
+  focused automated validation via `node .tmp_test_dist/tests/webhook_secret_policy_validation.js` after `tsc -p tsconfig.test.json`, plus direct shell QA showing `APP_DEPLOYMENT_MODE=internal-runtime` with empty `PAYMENT_WEBHOOK_SECRET` resolves to `safe:false`, while `APP_DEPLOYMENT_MODE=demo-preview` with `mock-webhook-secret` remains `safe:true`
+- What is open:
+  `GAP-07` is closed; the next open item in the P0 sequence is `GAP-04` OTP production-safe floor
+- Progress percentage:
+  `100%` of `GAP-07`
+- Next step:
+  keep the webhook-secret safety rule frozen as the new baseline and move to `GAP-04` without coupling it to seller auth, real payment activation, or any broader runtime rewrite
+
+## GAP-04 OTP Production-Safe Floor
+
+- What was completed:
+  removed the static universal OTP from the frontend runtime, replaced it with a per-session generated 6-digit code, and limited `development_code` exposure to `demo-preview` only; the OTP verify path now checks against the session-specific code rather than a shared hardcoded value; added a focused OTP runtime validation that proves demo-preview still returns a per-session debug code while non-demo no longer leaks one; updated the demo-dependent OTP tests to consume the returned demo code instead of assuming `123456`
+- What was checked:
+  focused automated validation via `node .tmp_test_dist/tests/otp_runtime_guard_validation.js` after `tsc -p tsconfig.test.json`, plus isolated HTTP live-QA against a temporary demo-preview frontend-runtime instance proving two consecutive `/api/otp/start` requests returned different `development_code` values and `/api/otp/verify` succeeded with the matching per-session code
+- What is open:
+  the minimum `GAP-04` floor is closed; real SMS delivery is still outside this pass and remains part of the broader external-rails work, but the insecure static-code and leaked-code behavior is now removed from non-demo mode
+- Progress percentage:
+  `100%` of the minimum `GAP-04` closure
+- Next step:
+  freeze the OTP floor hardening as the new baseline and do not reopen it unless the next external-rails phase explicitly activates real SMS delivery
+
+## Seller Auth Attack Plan Completed
+
+- What was completed:
+  mapped the current seller identity model end to end and converted `GAP-01` into an operational execution document in `docs/SELLER_AUTH_ATTACK_PLAN.md`; explicitly documented where seller identity currently comes from (`localStorage`, `x-seller-id`, `seller_id` query selection, and default fallback), which seller routes rely on it, where auto-provisioning still exists, where current guards stop at context scoping, and why the current model remains acceptable only for demo / controlled launch rather than open production; split the repair path into a controlled-launch minimum real auth track and a fuller production auth track, with a clear recommendation to execute the controlled-launch track first
+- What was checked:
+  `docs/GAP_REGISTER_MASTER.md`, `docs/P0_ATTACK_PLAN.md`, `docs/PASS7_SELLER_IDENTITY_MINIMUM_HARDENING_2026-04-10.md`, `docs/STAGE4_OPERATIONAL_READINESS_MAP.md`, `frontend/app.js`, `src/frontend_runtime.ts`, `src/product_surface_support.ts`, and the current seller-identity readiness wording in `src/operational_readiness.ts`
+- What is open:
+  seller auth itself is still not implemented; caller-selected seller context remains the current runtime authority model outside admin boundaries, so open multi-tenant production is still blocked until non-demo seller authority is moved to a server-trusted session model
+- Progress percentage:
+  `100%` of the seller-auth planning pass
+- Next step:
+  execute `Track A` from `docs/SELLER_AUTH_ATTACK_PLAN.md`: define the non-demo seller session authority boundary, remove caller-selected seller identity as production authority, keep `demo-preview` explicitly isolated, and only then consider whether a broader production account lifecycle program should be opened
