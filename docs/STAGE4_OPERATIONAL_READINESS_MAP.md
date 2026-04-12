@@ -25,6 +25,8 @@
   in `provider-ready`, authorization can be presented as provider-ready if env exists, but capture / recovery / refund are still placeholder and not truly live.
 - Env dependencies:
   `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
+- Webhook secret policy:
+  `demo-preview` may explicitly use the demo secret, but any non-demo runtime is now unsafe if `PAYMENT_WEBHOOK_SECRET` is missing or still equals `mock-webhook-secret`.
 - Readiness:
   not truly activatable end to end yet.
 

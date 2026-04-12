@@ -2898,7 +2898,7 @@ function fallbackStatus(status) {
 
 function validateQty(payload, qty) {
   if (!Number.isInteger(qty) || qty < 1) return "יש להזין כמות שלמה וחיובית.";
-  const left = Number(payload.metrics.remaining_units || 0);
+  const left = Number(payload?.metrics?.remaining_units ?? 0);
   if (qty > left) return `כרגע נותרו רק ${left} יחידות פנויות לעסקה הזו.`;
   return "";
 }

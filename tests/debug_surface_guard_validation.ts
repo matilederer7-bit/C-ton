@@ -87,3 +87,5 @@ if (originalAccessKey === undefined) {
 } else {
   process.env.DEBUG_SURFACES_ACCESS_KEY = originalAccessKey;
 }
+
+process.exit(0);

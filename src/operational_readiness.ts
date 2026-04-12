@@ -22,6 +22,10 @@ export function buildOperationalReadinessSummary(args: {
   payment: PaymentSummary;
   notifications: NotificationSummary;
   debugSurfacesEnabled: boolean;
+  webhookSecretSafe: boolean;
+  webhookSecretIsDefault: boolean;
+  sellerAuthMode: "demo-context" | "server-session";
+  sellerAuthConfigured: boolean;
 }) {
   const payment = args.payment;
   const notifications = args.notifications;
@@ -90,6 +94,19 @@ export function buildOperationalReadinessSummary(args: {
       what_is_partial: "webhook ingestion and reconciliation are real app rails, but they currently terminate into mock or placeholder payment execution behavior",
       can_activate_now: payment.mode === "provider-ready" && payment.configured ? "partially" : "no"
     },
+    webhook_secret_policy: {
+      state: args.webhookSecretSafe ? "safe" : "unsafe-default-or-missing",
+      what_is_real: args.webhookSecretSafe
+        ? "non-demo runtime has an explicit non-default webhook secret"
+        : "none outside controlled demo fallback",
+      what_is_mock: args.webhookSecretIsDefault
+        ? "runtime is still relying on the known demo/default webhook secret"
+        : "none",
+      what_is_missing: args.webhookSecretSafe
+        ? "rotation policy and secret-management discipline still depend on deployment setup"
+        : "explicit non-default webhook secret for non-demo activation",
+      can_activate_now: args.webhookSecretSafe ? "yes" : "no"
+    },
     sms: {
       state: "not-connected",
       what_is_real: "OTP session storage and verification flow inside the app",
@@ -143,13 +160,30 @@ export function buildOperationalReadinessSummary(args: {
       can_activate_now: args.debugSurfacesEnabled ? "yes-for-controlled-debug-only" : "no"
     },
     seller_identity: {
-      state: "minimum-context-scoping",
-      frontend_persistence: "localStorage",
-      backend_selector: ["x-seller-id header", "seller_id query param", "default seller fallback"],
-      hardening_boundary: "seller-scoped publish and seller-management routes reject mismatched seller context, but there is still no real authentication layer",
+      state: args.sellerAuthMode === "demo-context" ? "demo-context-scoping" : args.sellerAuthConfigured ? "server-session-controlled-launch" : "server-session-unconfigured",
+      frontend_persistence: args.sellerAuthMode === "demo-context" ? "localStorage" : "server-trusted session cookie",
+      backend_selector:
+        args.sellerAuthMode === "demo-context"
+          ? ["x-seller-id header", "seller_id query param", "default seller fallback"]
+          : ["server-issued seller session"],
+      hardening_boundary:
+        args.sellerAuthMode === "demo-context"
+          ? "seller-scoped publish and seller-management routes reject mismatched seller context, but there is still no real authentication layer"
+          : args.sellerAuthConfigured
+            ? "non-demo seller surfaces resolve authority from a server-issued seller session, while demo-preview stays on an explicitly isolated context-switching path"
+            : "non-demo seller auth is expected to use server-issued sessions, but runtime secrets or invited-seller credentials are not fully configured",
       context_leakage_risk:
-        "high for a true multi-tenant public launch, because a caller can still choose seller context without proving identity; acceptable only for controlled demo, single-tenant operation, or tightly supervised first launch",
-      launch_readiness: "not sufficient for open multi-tenant launch; acceptable only for controlled demo / constrained first launch"
+        args.sellerAuthMode === "demo-context"
+          ? "high for a true multi-tenant public launch, because a caller can still choose seller context without proving identity; acceptable only for controlled demo, single-tenant operation, or tightly supervised first launch"
+          : args.sellerAuthConfigured
+            ? "reduced for controlled launch because caller-supplied seller headers are no longer authoritative in non-demo runtime; still not a full multi-tenant account platform"
+            : "seller authority is intended to be server-trusted, but the runtime is not fully configured for controlled-launch auth yet",
+      launch_readiness:
+        args.sellerAuthMode === "demo-context"
+          ? "acceptable only for controlled demo / constrained first launch"
+          : args.sellerAuthConfigured
+            ? "acceptable for controlled seller launch; still not the final open multi-tenant auth model"
+            : "not sufficient until seller session secret and invited-seller credentials are configured"
     },
     production_assumptions: {
       state: "not-fully-met",

@@ -195,7 +195,7 @@ async function authorizeBuyer(suffix: string) {
     url: "/api/otp/verify",
     payload: {
       otp_session_id: otpStartJson.otp_session_id,
-      code: "123456"
+      code: otpStartJson.development_code
     }
   });
   assert.equal(otpVerify.statusCode, 200);
