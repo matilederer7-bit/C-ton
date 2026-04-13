@@ -187,7 +187,7 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /siton_seller_context_v1/);
-    assert.match(response.body, /"x-seller-id": sellerContext\.seller_id/);
+    assert.match(response.body, /usesDemoSellerContext\(\) \? \{ "x-seller-id": sellerContext\.seller_id \} : \{\}/);
     assert.doesNotMatch(response.body, /"x-seller-display-name": sellerContext\.display_name/);
     assert.match(response.body, /function normalizeSellerDisplayName\(sellerId, displayName\)/);
     assert.match(response.body, /זהות המוכר הפעילה/);

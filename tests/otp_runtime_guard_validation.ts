@@ -19,6 +19,8 @@ function fakePaymentProvider() {
         ok: true as const,
         provider: "mockpay",
         authorization_id: "auth_test",
+        provider_reference: "ref_test",
+        correlation_id: "corr_test",
         authorization: "authorized" as const,
         hold_message: "test",
         mock: true

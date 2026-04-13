@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import { parseSellerAuthCredentials } from "./seller_auth.js";
 
 dotenv.config();
 
@@ -33,11 +34,21 @@ export const PAYMENT_PROVIDER_MODE = process.env.PAYMENT_PROVIDER_MODE || "mock-
 export const PAYMENT_PROVIDER_BASE_URL = process.env.PAYMENT_PROVIDER_BASE_URL || "";
 export const PAYMENT_PROVIDER_API_KEY = process.env.PAYMENT_PROVIDER_API_KEY || "";
 export const PAYMENT_PROVIDER_PUBLIC_KEY = process.env.PAYMENT_PROVIDER_PUBLIC_KEY || "";
+export const PAYMENT_PROVIDER_AUTH_PATH = process.env.PAYMENT_PROVIDER_AUTH_PATH || "/authorize";
+export const PAYMENT_PROVIDER_CAPTURE_PATH = process.env.PAYMENT_PROVIDER_CAPTURE_PATH || "/capture";
+export const PAYMENT_PROVIDER_TIMEOUT_MS = readNumberEnv("PAYMENT_PROVIDER_TIMEOUT_MS", 8000);
+export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY || "ILS";
 export const PAYMENT_WEBHOOK_PROVIDER = process.env.PAYMENT_WEBHOOK_PROVIDER || PAYMENT_PROVIDER;
 export const PAYMENT_AUTH_DECLINE_SUFFIX = process.env.PAYMENT_AUTH_DECLINE_SUFFIX || "0000";
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
 export const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 export const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
+export const SELLER_AUTH_MODE = IS_DEMO_PREVIEW ? "demo-context" : "server-session";
+export const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
+export const SELLER_AUTH_CREDENTIALS = parseSellerAuthCredentials(process.env.SELLER_AUTH_CREDENTIALS);
+export const SELLER_AUTH_CONFIGURED = IS_DEMO_PREVIEW
+  ? true
+  : Boolean(SELLER_SESSION_SECRET) && SELLER_AUTH_CREDENTIALS.length > 0;
 export const DEMO_PAYMENT_WEBHOOK_SECRET = "mock-webhook-secret";
 const RAW_PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "";
 export const PAYMENT_WEBHOOK_SECRET =

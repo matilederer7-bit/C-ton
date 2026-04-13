@@ -14,6 +14,7 @@ const state = {
   previewMeta: null,
   homePayload: null,
   sellerContext: null,
+  sellerAuth: null,
   dealPayload: null,
   trackingPayload: null,
   marketplacePayload: null,
@@ -40,6 +41,7 @@ const state = {
     sellerTitle: "",
     sellerContextId: "",
     sellerContextName: "",
+    sellerAccessCode: "",
     sellerPrice: "10",
     sellerMinUnits: "10",
     sellerMaxUnits: "20",
@@ -181,9 +183,10 @@ boot();
 async function boot() {
   consumeQaSeedFromHash();
   state.route = parseRoute(location.pathname);
+  await loadPreviewMeta();
   hydrateSellerContext();
   hydrateForm();
-  await loadPreviewMeta();
+  await loadSellerSession();
   render();
   await runRoute();
 }
@@ -214,6 +217,28 @@ async function loadPreviewMeta() {
     state.previewMeta = await api("/api/preview/meta");
   } catch {
     state.previewMeta = null;
+  }
+}
+
+async function loadSellerSession() {
+  try {
+    const payload = await api("/api/seller/session");
+    state.sellerAuth = payload?.seller_auth || null;
+    if (state.sellerAuth?.seller_context) {
+      syncSellerContext(state.sellerAuth.seller_context);
+    }
+  } catch (error) {
+    if (Number(error?.status || 0) === 503) {
+      state.sellerAuth = {
+        mode: "server-session",
+        configured: false,
+        authenticated: false,
+        allow_manual_context_switch: false,
+        seller_context: null
+      };
+      return;
+    }
+    state.sellerAuth = null;
   }
 }
 
@@ -348,6 +373,7 @@ async function loadTracking(participantId) {
 async function loadHome() {
   await busy("טוען את האתר הראשי של סיטון...", async () => {
     state.homePayload = await api("/api/site/home");
+    state.sellerAuth = state.homePayload?.site?.seller_auth || state.sellerAuth;
     syncSellerContext(state.homePayload?.site?.seller_context || null);
   }, "לא הצלחנו לטעון את האתר הראשי של סיטון.");
 }
@@ -355,6 +381,7 @@ async function loadHome() {
 async function loadSeller() {
   await busy("טוען את אזור המוכר...", async () => {
     state.sellerPayload = await api("/api/seller/deals");
+    state.sellerAuth = state.sellerPayload?.seller_surface?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerPayload?.seller_surface?.seller_profile || null);
   }, "לא הצלחנו לטעון את אזור המוכר.");
 }
@@ -369,6 +396,7 @@ async function prepareSellerNew() {
 async function loadSellerDeal(dealId) {
   await busy("טוען את ניהול העסקה...", async () => {
     state.sellerDealPayload = await api(`/api/seller/deals/${encodeURIComponent(dealId)}`);
+    state.sellerAuth = state.sellerDealPayload?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerDealPayload?.seller_profile || null);
   }, "לא הצלחנו לטעון את מסך ניהול העסקה.");
 }
@@ -504,6 +532,7 @@ async function refreshTrackingSilently(participantId) {
 async function refreshSellerSilently() {
   try {
     const next = await api("/api/seller/deals");
+    state.sellerAuth = next?.seller_surface?.seller_auth || state.sellerAuth;
     syncSellerContext(next?.seller_surface?.seller_profile || null);
     if (!state.sellerPayload || JSON.stringify(state.sellerPayload.seller_surface.deals) !== JSON.stringify(next.seller_surface.deals)) {
       state.sellerPayload = next;
@@ -538,6 +567,8 @@ async function submitAction(action, form) {
   if (action === "pay") return payAndJoin(form);
   if (action === "seller-create") return createDeal(form);
   if (action === "seller-context") return saveSellerContextFromForm(form);
+  if (action === "seller-login") return loginSellerFromForm(form);
+  if (action === "seller-logout") return logoutSeller();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId);
   if (action === "seller-delivery-update") return updateDelivery(form);
   if (action === "affiliate-save-payout") return saveAffiliatePayoutProfile(form);
@@ -675,7 +706,11 @@ async function payAndJoin(form) {
     holder_name: String(formData.get("holderName") || "").trim(),
     card_number: String(formData.get("cardNumber") || "").replace(/\s+/g, ""),
     expiry: String(formData.get("expiry") || "").trim(),
-    cvv: String(formData.get("cvv") || "").trim()
+    cvv: String(formData.get("cvv") || "").trim(),
+    amount_minor: Math.round(Number(flow.estimatedTotal || 0) * 100),
+    currency: "ILS",
+    buyer_id: flow.buyerId,
+    deal_id: route.dealId
   };
   const issue = validatePayment(payload);
   if (issue) return fail("פרטי האשראי לא מלאים", issue);
@@ -686,7 +721,10 @@ async function payAndJoin(form) {
       buyerId: flow.buyerId,
       qty: flow.qty,
       affiliateRef: flow.affiliateRef || "",
-      deliveryOptionId: flow.deliveryOptionId || ""
+      deliveryOptionId: flow.deliveryOptionId || "",
+      authorizationId: authorization.authorization_id,
+      authorizationProvider: authorization.provider,
+      authorizationCorrelationId: authorization.correlation_id
     });
     saveFlow(route.dealId, {
       paymentAuthorized: true,
@@ -769,6 +807,9 @@ async function publishDeal(dealId) {
 }
 
 async function saveSellerContextFromForm(form) {
+  if (!usesDemoSellerContext()) {
+    return fail("החלפת זהות כבויה", "בסביבת non-demo זהות המוכר נקבעת דרך session שרת ולא דרך שמירה מקומית.");
+  }
   const formData = new FormData(form);
   const sellerId = String(formData.get("sellerContextId") || "").trim();
   const displayName = String(formData.get("sellerContextName") || "").trim();
@@ -796,6 +837,52 @@ async function saveSellerContextFromForm(form) {
       render();
     }
   }, "לא הצלחנו לשמור את זהות המוכר הפעילה.");
+}
+
+async function loginSellerFromForm(form) {
+  const formData = new FormData(form);
+  const sellerId = String(formData.get("sellerContextId") || "").trim();
+  const accessCode = String(formData.get("sellerAccessCode") || "").trim();
+  if (!sellerId || !accessCode) {
+    return fail("חסר זיהוי מוכר", "יש להזין מזהה מוכר וקוד גישה כדי לפתוח session מוכר.");
+  }
+
+  await busy("פותח session מוכר מאובטח...", async () => {
+    const payload = await api("/api/seller/session/login", {
+      method: "POST",
+      body: json({
+        seller_id: sellerId,
+        access_code: accessCode
+      })
+    });
+    state.sellerAuth = payload?.seller_auth || null;
+    syncSellerContext(payload?.seller_auth?.seller_context || null);
+    state.form.sellerAccessCode = "";
+    state.banner = {
+      tone: "success",
+      title: "session המוכר נפתח",
+      message: `העבודה באזור המוכר מתבצעת עכשיו תחת ${state.sellerAuth?.seller_context?.display_name || sellerId}.`
+    };
+    await runRoute();
+  }, "פתיחת session המוכר נכשלה.");
+}
+
+async function logoutSeller() {
+  await busy("מנתק את session המוכר...", async () => {
+    const payload = await api("/api/seller/session/logout", {
+      method: "POST"
+    });
+    state.sellerAuth = payload?.seller_auth || null;
+    state.sellerPayload = null;
+    state.sellerDealPayload = null;
+    state.sellerContext = null;
+    state.banner = {
+      tone: "success",
+      title: "session המוכר נותק",
+      message: "אזור המוכר עבר למצב נעול עד להתחברות מחדש."
+    };
+    await runRoute();
+  }, "ניתוק session המוכר נכשל.");
 }
 
 function cloneSellerDeal(dealId) {
@@ -1619,6 +1706,10 @@ function renderMarketplaceCard(item) {
 }
 
 function renderSellerPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) {
+    return renderSellerAuthGate();
+  }
   const payload = state.sellerPayload?.seller_surface;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("אזור המוכר לא זמין", "לא הצלחנו לטעון עכשיו את אזור המוכר.");
@@ -1738,6 +1829,10 @@ function renderSellerDealCard(item) {
 }
 
 function renderSellerNewPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) {
+    return renderSellerAuthGate();
+  }
   const sellerContext = currentSellerContext();
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
@@ -1849,6 +1944,10 @@ function renderSellerNewPage() {
 }
 
 function renderSellerDealPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) {
+    return renderSellerAuthGate();
+  }
   const payload = state.sellerDealPayload;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("ניהול העסקה לא זמין", "לא הצלחנו לטעון עכשיו את מסך ניהול העסקה.");
@@ -2797,7 +2896,7 @@ async function api(url, options = {}) {
       signal: controller.signal,
       headers: {
         "content-type": "application/json",
-        "x-seller-id": sellerContext.seller_id,
+        ...(usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}),
         ...(options.headers || {})
       },
       ...options
@@ -2830,7 +2929,7 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, authorizationId, authorizationProvider, authorizationCorrelationId }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
@@ -2841,7 +2940,10 @@ const buyerFlowService = {
         buyer_id: buyerId,
         qty,
         affiliate_ref: affiliateRef || undefined,
-        delivery_option_id: deliveryOptionId || undefined
+        delivery_option_id: deliveryOptionId || undefined,
+        authorization_id: authorizationId || undefined,
+        authorization_provider: authorizationProvider || undefined,
+        authorization_correlation_id: authorizationCorrelationId || undefined
       })
     });
   }
@@ -2857,6 +2959,18 @@ function friendlyError(error, fallback) {
   }
   if (status === 404 && lower.includes("participant not found")) {
     return { title: "לא מצאנו את ההשתתפות", message: "קישור המעקב הזה כבר לא תקין או שאינו שייך להשתתפות קיימת." };
+  }
+  if (status === 401 && lower.includes("seller session is required")) {
+    return { title: "נדרשת התחברות מוכר", message: "ב-runtime הזה אזור המוכר נפתח רק עם session מוכר שהשרת מכיר. צריך להתחבר מחדש כדי להמשיך." };
+  }
+  if (status === 401 && lower.includes("seller id or access code is invalid")) {
+    return { title: "פרטי הגישה לא נכונים", message: "מזהה המוכר או קוד הגישה לא תואמים לרשימת המוכרים המורשים של סביבת ה-launch." };
+  }
+  if (status === 403 && lower.includes("manual seller context switching is disabled")) {
+    return { title: "החלפת זהות ידנית נחסמה", message: "במסלול non-demo השרת קובע את זהות המוכר דרך session פעיל, ולכן אי אפשר להחליף זהות דרך הטופס המקומי." };
+  }
+  if (status === 503 && lower.includes("seller auth is not configured")) {
+    return { title: "seller auth לא הוגדר בסביבה", message: "הסביבה נמצאת כבר במסלול non-demo, אבל חסרים secret או invited seller credentials. לכן אזור המוכר חסום עד שהקונפיגורציה תושלם." };
   }
   if (lower.includes("join not allowed")) {
     return { title: "חלון ההצטרפות כבר סגור", message: "אי אפשר להצטרף לעסקה במצב הנוכחי שלה. אם כבר נרשמת, אפשר לעבור למעקב." };
@@ -3020,7 +3134,37 @@ function defaultSellerContext() {
   };
 }
 
+function sellerAuthMode() {
+  return (
+    state.sellerAuth?.mode ||
+    state.homePayload?.site?.seller_auth?.mode ||
+    state.previewMeta?.preview?.seller_auth?.mode ||
+    (state.previewMeta?.preview?.is_demo_preview ? "demo-context" : "server-session")
+  );
+}
+
+function usesDemoSellerContext() {
+  return sellerAuthMode() === "demo-context";
+}
+
+function currentSellerAuth() {
+  return (
+    state.sellerAuth ||
+    state.homePayload?.site?.seller_auth ||
+    state.previewMeta?.preview?.seller_auth || {
+      mode: sellerAuthMode(),
+      configured: usesDemoSellerContext(),
+      authenticated: usesDemoSellerContext(),
+      allow_manual_context_switch: usesDemoSellerContext(),
+      seller_context: null
+    }
+  );
+}
+
 function readSellerContext() {
+  if (!usesDemoSellerContext()) {
+    return state.sellerAuth?.seller_context || state.homePayload?.site?.seller_context || defaultSellerContext();
+  }
   try {
     const parsed = JSON.parse(localStorage.getItem(SELLER_CONTEXT_KEY) || "null");
     if (!parsed || typeof parsed !== "object") return defaultSellerContext();
@@ -3058,7 +3202,9 @@ function syncSellerContext(next) {
   state.sellerContext = normalized;
   state.form.sellerContextId = normalized.seller_id || "";
   state.form.sellerContextName = normalized.display_name || "";
-  localStorage.setItem(SELLER_CONTEXT_KEY, JSON.stringify(normalized));
+  if (usesDemoSellerContext()) {
+    localStorage.setItem(SELLER_CONTEXT_KEY, JSON.stringify(normalized));
+  }
   return normalized;
 }
 
@@ -3082,8 +3228,68 @@ function hydrateFormFromFlow(flow) {
   state.form.phone = flow.phone || "";
 }
 
+function renderSellerAuthGate() {
+  const auth = currentSellerAuth();
+  const configured = auth.configured !== false;
+  return `
+    <section class="hero">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">אזור המוכר</span>
+        <h1>${configured ? "נדרשת התחברות מוכר" : "seller auth עדיין לא הוגדר"}</h1>
+        <p class="muted">${configured ? "ב-runtime הזה אזור המוכר נשען על session מוכר שנקבע בשרת. בלי session תקין אי אפשר לפתוח, לפרסם או לנהל עסקאות." : "ה-runtime כבר במסלול non-demo, אבל חסרים secret או invited seller credentials. זה נחסם בכוונה כדי לא לייצר תחושת ביטחון שגויה."}</p>
+        <div class="trust-band">
+          <div class="trust-point"><span class="muted">מקור הסמכות</span><strong>session שרת</strong></div>
+          <div class="trust-point"><span class="muted">מה כבר לא קובע</span><strong>localStorage או header</strong></div>
+          <div class="trust-point"><span class="muted">מסלול דמו</span><strong>נשאר מבודד בנפרד</strong></div>
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        ${renderSellerContextPanel(auth.seller_context || currentSellerContext())}
+      </aside>
+    </section>
+  `;
+}
+
 function renderSellerContextPanel(context) {
   const sellerContext = { ...defaultSellerContext(), ...(context || {}) };
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext()) {
+    return `
+      <section class="summary-item stack">
+        <div class="actions spread">
+          <div>
+            <span class="muted">גישה למשטח המוכר</span>
+            <strong>${auth.authenticated ? esc(sellerContext.display_name) : auth.configured === false ? "נדרש חיבור סביבה" : "התחברות מוכר"}</strong>
+          </div>
+          <span class="badge ${auth.authenticated ? "success" : auth.configured === false ? "danger" : "warning"}">${auth.authenticated ? "session פעיל" : auth.configured === false ? "לא מוגדר" : "נעול"}</span>
+        </div>
+        <p class="small muted">${auth.authenticated ? `השרת מזהה כרגע את המוכר כ-<span class="mono">${esc(sellerContext.seller_id)}</span>, והמסכים נשענים על session שרת ולא על header מקומי.` : auth.configured === false ? "הסביבה לא קיבלה עדיין SELLER_SESSION_SECRET או invited seller credentials, ולכן אזור המוכר חסום בכוונה." : "כדי להיכנס לאזור המוכר צריך מזהה מוכר וקוד גישה שהוגדרו מראש ל-launch המבוקר."}</p>
+        ${auth.authenticated ? `
+          <form data-action="seller-logout" class="stack">
+            <div class="actions">
+              <button class="secondary" type="submit">ניתוק session מוכר</button>
+            </div>
+          </form>
+        ` : auth.configured === false ? "" : `
+          <form data-action="seller-login" class="stack">
+            <div class="inline-fields">
+              <div class="field">
+                <label for="sellerContextId">מזהה מוכר</label>
+                <input id="sellerContextId" name="sellerContextId" type="text" data-dir="ltr" value="${esc(state.form.sellerContextId || "")}" placeholder="seller-north" />
+              </div>
+              <div class="field">
+                <label for="sellerAccessCode">קוד גישה</label>
+                <input id="sellerAccessCode" name="sellerAccessCode" type="password" data-dir="ltr" value="${esc(state.form.sellerAccessCode || "")}" placeholder="launch-code" />
+              </div>
+            </div>
+            <div class="actions">
+              <button class="primary" type="submit">פתיחת session מוכר</button>
+            </div>
+          </form>
+        `}
+      </section>
+    `;
+  }
   if (
     sellerContext.seller_id === "seller-default" &&
     (!sellerContext.display_name || sellerContext.display_name === "Default Seller Workspace")

@@ -7,6 +7,8 @@ import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
+import { buildWebhookIngestion } from "./webhook_ingestion.js";
+import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
   SELLER_SESSION_COOKIE,
   normalizeSellerDisplayName,
@@ -263,6 +265,9 @@ const {
   withTx
 });
 
+const webhookIngestion = buildWebhookIngestion({ withTx });
+const paymentReconciliation = buildPaymentReconciliation({ withTx });
+
 async function atomicMultiTransition(args: {
   actionName: string;
   requestId: string;
@@ -462,6 +467,249 @@ async function refundMock(key: string): Promise<PaymentResultClass> {
   return "permanent_fail";
 }
 
+function paymentMinorAmount(args: { qty: number; pricePerUnit: number; deliveryCost: number }) {
+  const total = Number(args.qty || 0) * Number(args.pricePerUnit || 0) + Number(args.deliveryCost || 0);
+  return Math.max(0, Math.round(total * 100));
+}
+
+async function applyPaymentWebhookClassification(args: {
+  event: {
+    provider: string;
+    event_id: string;
+    event_type: string;
+    correlation_id: string | null;
+    participant_id: string | null;
+    deal_id: string | null;
+    provider_reference: string | null;
+    payload: Record<string, unknown>;
+  };
+  target: {
+    participant_id: string;
+    deal_id: string;
+    attempt_type: "charge_start" | "recovery";
+    correlation_id: string | null;
+    buyer_state: string;
+    money_state: string;
+  } | null;
+  classification: {
+    status: "processed" | "ignored" | "failed";
+    reason: string;
+  };
+}) {
+  if (args.classification.status !== "processed" || !args.target) return;
+
+  const requestId = `webhook:${args.event.event_id}`;
+  const eventPayload = {
+    provider: args.event.provider,
+    event_id: args.event.event_id,
+    provider_reference: args.event.provider_reference,
+    correlation_id: args.event.correlation_id,
+    reason: args.classification.reason
+  };
+
+  if (args.event.event_type === "charge_captured") {
+    await atomicMultiTransition({
+      actionName: "charging.capture_success",
+      requestId,
+      idempotency: {
+        entityType: "participant",
+        entityId: args.target.participant_id,
+        idempotencyKey: `capture-success:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeAttempt",
+          toState: "ChargedSuccess",
+          payload: eventPayload
+        },
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargingAttempt",
+          toState: "ChargedSuccess",
+          payload: eventPayload
+        }
+      ],
+      outbox: null
+    });
+    return;
+  }
+
+  if (args.event.event_type === "charge_failed") {
+    await atomicMultiTransition({
+      actionName: "charging.capture_failed",
+      requestId,
+      idempotency: {
+        entityType: "participant",
+        entityId: args.target.participant_id,
+        idempotencyKey: `capture-fail:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeAttempt",
+          toState: "ChargeFailedRecovery",
+          payload: eventPayload
+        },
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargingAttempt",
+          toState: "ChargeFailedCompletion",
+          payload: eventPayload
+        }
+      ],
+      outbox: null
+    });
+    return;
+  }
+
+  if (args.event.event_type === "recovery_captured") {
+    await atomicMultiTransition({
+      actionName: "charging.recovery_success",
+      requestId,
+      idempotency: {
+        entityType: "participant",
+        entityId: args.target.participant_id,
+        idempotencyKey: `recovery-success:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeFailedRecovery",
+          toState: "RecoveredCharge",
+          payload: eventPayload
+        },
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargeFailedCompletion",
+          toState: "Recovered",
+          payload: eventPayload
+        }
+      ],
+      outbox: null
+    });
+    return;
+  }
+
+  if (args.event.event_type === "recovery_failed") {
+    await atomicMultiTransition({
+      actionName: "charging.recovery_failed",
+      requestId,
+      idempotency: {
+        entityType: "participant",
+        entityId: args.target.participant_id,
+        idempotencyKey: `recovery-fail:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`
+      },
+      ops: [
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "money_state",
+          fromState: "ChargeFailedRecovery",
+          toState: "AuthReleased",
+          payload: eventPayload
+        },
+        {
+          entityType: "participant",
+          entityId: args.target.participant_id,
+          dealId: args.target.deal_id,
+          stateType: "buyer_state",
+          fromState: "ChargeFailedCompletion",
+          toState: "Dropped",
+          payload: eventPayload
+        }
+      ],
+      outbox: null
+    });
+  }
+}
+
+async function ingestAndProcessPaymentEvent(args: {
+  provider: string;
+  event_id: string;
+  event_type: string;
+  correlation_id?: string | null;
+  participant_id?: string | null;
+  deal_id?: string | null;
+  provider_reference?: string | null;
+  payload: Record<string, unknown>;
+}) {
+  const ingested = await webhookIngestion.ingestEvent({
+    provider: args.provider,
+    event_id: args.event_id,
+    event_type: args.event_type,
+    payload: {
+      ...args.payload,
+      correlation_id: args.correlation_id ?? null,
+      provider_reference: args.provider_reference ?? null
+    },
+    deal_id: args.deal_id ?? null,
+    participant_id: args.participant_id ?? null
+  });
+
+  if (ingested.duplicate) {
+    return {
+      duplicate: true,
+      status: ingested.status,
+      reason: "duplicate_event"
+    };
+  }
+
+  const target = await paymentReconciliation.resolveTarget({
+    event_id: args.event_id,
+    event_type: args.event_type,
+    correlation_id: args.correlation_id ?? null,
+    participant_id: args.participant_id ?? null,
+    deal_id: args.deal_id ?? null,
+    provider_reference: args.provider_reference ?? null,
+    payload: args.payload
+  });
+  const classification = paymentReconciliation.classifyEvent(args.event_type, target);
+
+  if (classification.status === "processed") {
+    await applyPaymentWebhookClassification({
+      event: {
+        provider: args.provider,
+        event_id: args.event_id,
+        event_type: args.event_type,
+        correlation_id: args.correlation_id ?? null,
+        participant_id: args.participant_id ?? null,
+        deal_id: args.deal_id ?? null,
+        provider_reference: args.provider_reference ?? null,
+        payload: args.payload
+      },
+      target,
+      classification
+    });
+  }
+
+  await webhookIngestion.markEvent(args.provider, args.event_id, classification.status);
+  return {
+    duplicate: false,
+    status: classification.status,
+    reason: classification.reason
+  };
+}
+
 async function sumJoinedUnits(c: PoolClient, dealId: string): Promise<number> {
   // Exclude participants whose authorization was released — they no longer hold inventory
   const r = await c.query(
@@ -623,13 +871,44 @@ async function handleChargeDealEvent(
 
   const participants = await withTx(async (c) => {
     const r = await c.query(
-      `SELECT participant_id, buyer_state, money_state
-       FROM siton.participants
-       WHERE deal_id=$1
-       ORDER BY created_at ASC`,
+      `SELECT
+         p.participant_id,
+         p.buyer_id,
+         p.qty,
+         p.delivery_cost,
+         p.buyer_state,
+         p.money_state,
+         d.price_per_unit,
+         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(auth.payload->>'authorization_provider', '') AS authorization_provider,
+         COALESCE(auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN LATERAL (
+         SELECT payload
+         FROM siton.audit_log
+         WHERE entity_type = 'participant'
+           AND entity_id = p.participant_id
+           AND action_name = 'participant.join_authorize'
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) auth ON true
+       WHERE p.deal_id=$1
+       ORDER BY p.created_at ASC`,
       [dealId]
     );
-    return r.rows as Array<{ participant_id: string; buyer_state: BuyerState; money_state: MoneyState }>;
+    return r.rows as Array<{
+      participant_id: string;
+      buyer_id: string;
+      qty: number;
+      delivery_cost: number;
+      buyer_state: BuyerState;
+      money_state: MoneyState;
+      price_per_unit: number;
+      authorization_id: string;
+      authorization_provider: string;
+      authorization_correlation_id: string;
+    }>;
   });
 
   for (const p of participants) {
@@ -643,41 +922,48 @@ async function handleChargeDealEvent(
       correlation_id: correlation
     });
 
-    const result = await paymentCaptureMock(correlation);
+    const captureInput: Parameters<typeof paymentProvider.capture>[0] = {
+      amount_minor: paymentMinorAmount({
+        qty: Number(p.qty || 0),
+        pricePerUnit: Number(p.price_per_unit || 0),
+        deliveryCost: Number(p.delivery_cost || 0)
+      }),
+      currency: "ILS",
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      buyer_id: p.buyer_id,
+      correlation_id: correlation,
+      request_id: `worker:${eventId}`
+    };
+    if (p.authorization_id) captureInput.authorization_id = p.authorization_id;
+    const result = await paymentProvider.capture(captureInput);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail capture participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
-      await atomicMultiTransition({
-        actionName: "charging.capture_success",
-        requestId: `worker:${eventId}`,
-        idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `capture-success:${eventId}:${p.participant_id}` },
-        ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargedSuccess", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargedSuccess", payload: { result } }
-        ],
-        outbox: null
-      });
-    } else {
-      await atomicMultiTransition({
-        actionName: "charging.capture_failed",
-        requestId: `worker:${eventId}`,
-        idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `capture-fail:${eventId}:${p.participant_id}` },
-        ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeAttempt", toState: "ChargeFailedRecovery", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargingAttempt", toState: "ChargeFailedCompletion", payload: { result } }
-        ],
-        outbox: null
+    if (result.reconciliation_event_type) {
+      await ingestAndProcessPaymentEvent({
+        provider: result.provider,
+        event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
+        event_type: result.reconciliation_event_type,
+        correlation_id: result.correlation_id || correlation,
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        provider_reference: result.provider_reference || p.authorization_id || null,
+        payload: {
+          source: "capture_worker",
+          provider_reference: result.provider_reference || p.authorization_id || null,
+          authorization_id: p.authorization_id || null
+        }
       });
     }
   }
@@ -1009,6 +1295,77 @@ async function workerProcessEvent(event: {
   if (event.event_type === "refund_issue" || event.event_type === "cancel_refund") {
     await handleRefundEvent(event, eventId);
     return;
+  }
+}
+
+export async function processNextPendingOutboxEvent(limit = 1) {
+  const batch = await claimOutboxBatch(limit);
+  if (batch.length === 0) return null;
+  const event = batch[0];
+  if (!event) return null;
+  try {
+    await workerProcessEvent(event);
+    await markOutboxSent(event.event_uuid);
+    return {
+      event_uuid: event.event_uuid,
+      event_type: event.event_type,
+      status: "sent" as const
+    };
+  } catch (error) {
+    await markOutboxFailed(event.event_uuid, Number(event.attempt_count || 0), error);
+    return {
+      event_uuid: event.event_uuid,
+      event_type: event.event_type,
+      status: "failed" as const,
+      error: String(error instanceof Error ? error.message : error)
+    };
+  }
+}
+
+export async function processOutboxEventById(eventId: string) {
+  const claimed = await withTx(async (c) => {
+    await c.query(`SELECT set_config('siton.is_worker','true',true)`);
+    const result = await c.query(
+      `UPDATE siton.outbox_events
+       SET status='processing',
+           processing_started_at=now(),
+           updated_at=now()
+       WHERE event_uuid = $1
+         AND status='pending'
+       RETURNING event_uuid, event_type, aggregate_type, aggregate_id, payload, attempt_count, processing_started_at`,
+      [eventId]
+    );
+    return result.rows[0] as
+      | {
+          event_uuid: string;
+          event_type: string;
+          aggregate_type: string;
+          aggregate_id: string;
+          payload: any;
+          attempt_count: number;
+          processing_started_at?: string | Date | null;
+        }
+      | undefined;
+  });
+
+  if (!claimed) return null;
+
+  try {
+    await workerProcessEvent(claimed);
+    await markOutboxSent(claimed.event_uuid);
+    return {
+      event_uuid: claimed.event_uuid,
+      event_type: claimed.event_type,
+      status: "sent" as const
+    };
+  } catch (error) {
+    await markOutboxFailed(claimed.event_uuid, Number(claimed.attempt_count || 0), error);
+    return {
+      event_uuid: claimed.event_uuid,
+      event_type: claimed.event_type,
+      status: "failed" as const,
+      error: String(error instanceof Error ? error.message : error)
+    };
   }
 }
 const WORKER_EVENT_TIMEOUT_MS = 30_000;
@@ -1559,7 +1916,8 @@ registerFrontendExperience(app, {
   deploymentMode: APP_DEPLOYMENT_MODE,
   isDemoPreview: IS_DEMO_PREVIEW,
   notificationSummary: getNotificationServiceSummary(notificationService),
-  debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1"
+  debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1",
+  applyPaymentWebhookClassification
 });
 
 let workerRunning = false;
