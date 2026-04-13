@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-12 (security hardening pass 2)
+Last updated: 2026-04-13 (Wave 1 join flow QA)
 
 ## Canonical Status
 
@@ -332,6 +332,66 @@ A full audit covering all source files was completed. Findings and fixes across 
 
 ### All pre-existing non-DB tests still pass
 
+- `otp_runtime_guard_validation` — PASS (2/2)
+- `debug_surface_guard_validation` — PASS (3/3)
+- `webhook_secret_policy_validation` — PASS (4/4)
+
+## What Was Completed In Wave 1 — Join Flow QA (2026-04-13)
+
+A targeted audit of the join/capacity flow: `POST /deals/:id/join` in `src/app.ts`.
+
+### Bugs Found and Fixed
+
+**Bug 1 — CRITICAL: `ON CONFLICT` without UNIQUE constraint (runtime PostgreSQL error)**
+- `INSERT … ON CONFLICT (deal_id, buyer_id)` requires a UNIQUE constraint on `(deal_id, buyer_id)`.
+  No such constraint exists in any migration → every join attempt would throw a PostgreSQL error at runtime.
+- Fix: Removed the `ON CONFLICT … DO UPDATE` clause entirely. Each join now does a plain `INSERT`,
+  which is correct — multiple purchases by the same buyer create separate participant rows.
+
+**Bug 2 — CRITICAL: Oversell via buyer-exclusion in capacity check**
+- Capacity query used `WHERE buyer_id != $2`, which excluded the requesting buyer's existing reservations
+  when counting occupied units. This allowed a buyer who already held N units to request more,
+  pushing the total beyond `max_units`.
+- Fix: Removed the `buyer_id !=` clause. Capacity check now counts ALL active participants' units,
+  making the check truly global. Variable renamed from `occupiedByOthers`/`availableForThisBuyer`
+  to `alreadyReserved`/`remaining` for clarity.
+
+**Bug 3 — HIGH: Idempotency key not per-request (broken replay protection for multi-purchase)**
+- Auto-generated key was `join:{dealId}:{buyer_id}` — same for every purchase by the same buyer.
+  Since `atomicMultiTransition` idempotency is scoped to `participant_id` (always new for each row),
+  the key never actually deduped anything across separate purchases.
+- Fix: Auto-generated key is now `join:{dealId}:{buyer_id}:{requestId}`, unique per request.
+  A pre-INSERT idempotency check (inside the deal-locked transaction, querying `idempotency_log`)
+  was added to properly deduplicate replayed explicit keys.
+
+**Bug 4 — MEDIUM: Missing UUID validation on deal_id**
+- `POST /deals/:id/join` did not call `requireUuid(dealId, "deal_id")` at handler entry,
+  unlike every other deal-scoped endpoint. Malformed IDs would reach the DB query and cause
+  a PostgreSQL error instead of a clean 400.
+- Fix: Added `requireUuid(dealId, "deal_id")` as the first line of the handler body.
+
+### Product Rule Confirmed
+No per-buyer limit on number of purchases. Only constraint is `max_units` total across all active participants.
+The fix to Bug 1 (plain INSERT, no conflict-update) directly enables multiple rows per buyer.
+
+### Tests Added — `tests/join_flow_qa_validation.ts` (9/9 PASS)
+
+| Test | What it covers |
+|---|---|
+| non-UUID deal_id returns 400 | Bug 4 fix |
+| empty/whitespace deal_id returns 400 or 404 | Bug 4 fix + routing |
+| missing buyer_id returns 400 | input guard regression |
+| qty=0 returns 400 | input guard regression |
+| qty=-1 returns 400 | input guard regression |
+| qty=1.5 returns 400 | input guard regression |
+| auto-generated keys differ between requests | Bug 3 fix |
+| explicit idempotency-key header is respected | Bug 3 fix |
+| endpoint is registered (not routing-404) | handler registration |
+
+### All Prior Non-DB Tests Still Pass
+- `rate_limiter_validation` — PASS (5/5)
+- `admin_auth_validation` — PASS (6/6)
+- `webhook_hmac_validation` — PASS (8/8)
 - `otp_runtime_guard_validation` — PASS (2/2)
 - `debug_surface_guard_validation` — PASS (3/3)
 - `webhook_secret_policy_validation` — PASS (4/4)
@@ -746,6 +806,19 @@ A full audit covering all source files was completed. Findings and fixes across 
   `100%` of the recovery-rail stage
 - Next step:
   freeze authorization + capture + recovery as the new non-demo baseline and only then decide whether to open refund rail or step back to the other production blockers, without reopening state-model, repeat-joins, invoice/accounting, or notification work in the same patch
+
+## Payment Rail Stage 4: Refund Rail Verified
+
+- What was completed:
+  finalized the refund rail on top of the real authorization/capture/recovery stack by wiring `refund_issue` / `cancel_refund` through the real provider refund client in `src/payment_provider.ts`; updated `src/app.ts` so refund execution reads traceable authorization and capture/recovery references from the existing audit rail, records the refund attempt before I/O, and routes `refund_issued` outcomes through webhook ingestion + reconciliation truth instead of relying on a silent direct-success fallback; added `refund_issued` classification to `src/payment_reconciliation.ts`; updated `src/operational_readiness.ts` and `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` so readiness now reflects that the core payment execution rail is live across authorization + capture + recovery + refund
+- What was checked:
+  `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused validation via `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`; regression validation via `node .tmp_test_dist/tests/payment_recovery_real_rail_validation.js`; live local QA through the refund validation runtime on `127.0.0.1:3087` proved `/api/preview/meta` reports `authorization-capture-recovery-refund-partial`, provider-backed refund success moves `money_state` to `Refunded`, late refund webhooks are ignored after success, duplicate refund replays remain duplicate-safe, permanent-fail refunds move the outbox event to `outbox_dlq` without corrupting participant state, and timeout keeps the outbox pending without forcing an invalid transition
+- What is open:
+  invoice/accounting transport, real SMS, real email, real notification delivery, and true open-production seller auth remain outside this pass; the core payment execution rail is now complete in `provider-ready` mode, but the broader commercial external envelope is still not fully live
+- Progress percentage:
+  `100%` of the verified refund-rail stage; the core payment execution rail is fully closed
+- Next step:
+  freeze the payment rail as the new non-demo baseline and move to the next independent external blocker without reopening payment execution paths, state-model work, repeat-joins, or invoice/accounting in the same patch
 
 ## Payment Rail Stage 4: Refund Rail
 

@@ -486,7 +486,7 @@ async function applyPaymentWebhookClassification(args: {
   target: {
     participant_id: string;
     deal_id: string;
-    attempt_type: "charge_start" | "recovery";
+    attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund";
     correlation_id: string | null;
     buyer_state: string;
     money_state: string;
@@ -1069,36 +1069,31 @@ async function handleChargeDealEvent(
         payload: { deal_id: dealId },
         available_at: windowUntil
       },
-      payload: { completion_window_until: windowUntil.toISOString() }
+      payload: { completion_window_until: windowUntil.toISOString() },
+      insideTx: async (c) => {
+        const recoveryCount = await c.query(
+          `SELECT COUNT(*) AS cnt
+           FROM siton.participants
+           WHERE deal_id=$1
+             AND buyer_state='ChargeFailedCompletion'
+             AND money_state='ChargeFailedRecovery'`,
+          [dealId]
+        );
+        if (Number(recoveryCount.rows[0]?.cnt || 0) > 0) {
+          await c.query(
+            `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+             VALUES ('recovery_deal','deal',$1,$2,'pending',0, now())
+             ON CONFLICT DO NOTHING`,
+            [dealId, JSON.stringify({ deal_id: dealId })]
+          );
+        }
+      }
     });
 
     app.log.info({ dealId, eventId, transitionResult }, "charge_deal after completion transition");
   } catch (e) {
     app.log.error({ dealId, eventId, err: String(e instanceof Error ? e.message : e) }, "charge_deal completion transition failed");
     throw e;
-  }
-
-  const needRecovery = await withTx(async (c) => {
-    const r = await c.query(
-      `SELECT COUNT(*) AS cnt
-       FROM siton.participants
-       WHERE deal_id=$1
-         AND buyer_state='ChargeFailedCompletion'
-         AND money_state='ChargeFailedRecovery'`,
-      [dealId]
-    );
-    return Number(r.rows[0].cnt || 0) > 0;
-  });
-
-  if (needRecovery) {
-    await withTx(async (c) => {
-      await c.query(`SELECT set_config('siton.is_worker','true',true)`);
-      await c.query(
-        `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-         VALUES ('recovery_deal','deal',$1,$2,'pending',0, now())`,
-        [dealId, JSON.stringify({ deal_id: dealId })]
-      );
-    });
   }
 
   await cleanupObsoleteDealOutboxEvents(dealId);
@@ -1754,6 +1749,7 @@ async function tryTargetReached(dealId: string, requestId: string) {
 
 app.post("/deals/:id/join", async (req: any, reply: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const body = req.body || {};
   const buyer_id = String(body.buyer_id || "");
   const authorizationId = String(body.authorization_id || "").trim();
@@ -1774,7 +1770,10 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const qty = qtyRaw;
 
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
-  const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `join:${dealId}:${buyer_id}`;
+  // Idempotency key is per-request, not per-buyer — ensures each purchase attempt has a unique key
+  const idem = req.headers["idempotency-key"]
+    ? String(req.headers["idempotency-key"])
+    : `join:${dealId}:${buyer_id}:${requestId}`;
 
   const participant = await withTx(async (c) => {
     // Lock the deal row to prevent concurrent over-booking
@@ -1796,21 +1795,38 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
-    // How many units are held by other buyers (excluding this buyer's existing reservation,
-    // and excluding released participants who no longer hold inventory)
-    const otherUnitsRow = await c.query(
+    // Pre-INSERT idempotency check: if this exact idempotency key was already committed for
+    // a participant on this deal+buyer pair, return that participant directly without re-inserting.
+    const idemCheck = await c.query(
+      `SELECT p.participant_id, p.buyer_state, p.money_state
+       FROM siton.idempotency_log il
+       JOIN siton.participants p ON p.participant_id = il.entity_id
+       WHERE il.entity_type = 'participant'
+         AND il.action_name = 'participant.join_authorize'
+         AND il.idempotency_key = $1
+         AND p.deal_id = $2
+         AND p.buyer_id = $3
+       LIMIT 1`,
+      [idem, dealId, buyer_id]
+    );
+    if (idemCheck.rowCount) {
+      return idemCheck.rows[0] as { participant_id: string; buyer_state: BuyerState; money_state: MoneyState };
+    }
+
+    // Count ALL active units on this deal (all buyers) to enforce max_units ceiling
+    const reservedRow = await c.query(
       `SELECT COALESCE(SUM(qty), 0) AS total
        FROM siton.participants
-       WHERE deal_id=$1 AND buyer_id != $2
+       WHERE deal_id=$1
          AND buyer_state NOT IN ('DealFailed','Dropped')`,
-      [dealId, buyer_id]
+      [dealId]
     );
-    const occupiedByOthers = Number(otherUnitsRow.rows[0].total);
-    const availableForThisBuyer = maxUnits - occupiedByOthers;
+    const alreadyReserved = Number(reservedRow.rows[0].total);
+    const remaining = maxUnits - alreadyReserved;
 
-    if (qty > availableForThisBuyer) {
+    if (qty > remaining) {
       const err: any = new Error(
-        `requested quantity (${qty}) exceeds available inventory (${Math.max(0, availableForThisBuyer)})`
+        `requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`
       );
       err.statusCode = 409;
       throw err;
@@ -1819,7 +1835,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const ins = await c.query(
       `INSERT INTO siton.participants(deal_id, buyer_id, qty, buyer_state, money_state)
        VALUES ($1,$2,$3,'NotJoined','NoFinancial')
-       ON CONFLICT (deal_id, buyer_id) DO UPDATE SET qty=EXCLUDED.qty
        RETURNING participant_id, buyer_state, money_state`,
       [dealId, buyer_id, qty]
     );
