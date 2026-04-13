@@ -720,3 +720,16 @@ A full audit covering all source files was completed. Findings and fixes across 
   `100%` of Stage 1 real authorization rail
 - Next step:
   freeze the real authorization rail as the new non-demo baseline, then move only to the next payment stage in order: tighten provider-specific webhook truth and the capture path without reopening auth, notifications, or invoice/accounting in the same patch
+
+## Payment Rail Stage 2: Webhook Truth + Capture Path
+
+- What was completed:
+  replaced the remaining mock `charge_deal` execution path with a real provider-backed capture call in `src/payment_provider.ts` for `provider-ready` non-demo runtime; added strict env support for `PAYMENT_PROVIDER_CAPTURE_PATH` and provider currency wiring in `src/runtime_config.ts`; updated `src/app.ts` so charge execution now reads the recorded authorization trace from the existing `participant.join_authorize` audit payload, records the capture attempt before I/O, calls the real provider capture rail, and routes success or terminal failure back through the existing webhook ingestion + reconciliation truth path instead of mutating participant money states directly from mock code; kept temporary failures on the outbox retry path so no invalid transition is forced on timeout or unknown result; extended `src/frontend_runtime.ts` and `src/operational_readiness.ts` so preview/admin readiness now reflects live authorization + capture while still honestly marking recovery/refund as non-live; aligned `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` with the new capture/webhook truth baseline; added focused validation in `tests/payment_capture_webhook_real_rail_validation.ts`
+- What was checked:
+  `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused validation via `node .tmp_test_dist/tests/payment_capture_webhook_real_rail_validation.js`; live HTTP QA against a temporary runtime on `127.0.0.1:3085` with a local provider stub proving `/api/preview/meta` exposed the updated partial payment readiness, `processOutboxEventById(...)` drove a real provider-backed capture call, `GET /api/participants/:id/tracking` showed `ChargedSuccess` after a successful capture and `ChargeFailedCompletion` / `ChargeFailedRecovery` after a declined capture, and `POST /webhooks/payments` treated a late fail event as `ignored` and a replay of the same event as `duplicate:true`
+- What is open:
+  recovery and refund are still not live; invoice/accounting, real notifications, and broader financial reconciliation remain outside this pass; payment truth is now real for authorization + capture only, so the remaining production blockers are the downstream money lifecycle rails and the other external systems already mapped in the gap register
+- Progress percentage:
+  `100%` of the webhook-truth + capture-path stage
+- Next step:
+  freeze authorization + capture as the new non-demo baseline, then decide whether the next payment program is recovery rail or the remaining production blockers outside payments, without reopening state-model, repeat-joins, or invoice/accounting work in the same patch

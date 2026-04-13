@@ -14,17 +14,17 @@
 
 ## Payment Provider
 
-- Current provider code: `mockpay`.
+- Current provider code is env-driven via `PAYMENT_PROVIDER`; demo defaults still use `mockpay`.
 - Current mode options:
   `mock-backed`, `provider-ready`.
 - Real now:
-  provider selection, authorization contract boundary, payment attempt persistence, outbox scheduling, reconciliation flow.
+  provider selection, live authorization transport in `provider-ready`, authorization contract boundary, payment attempt persistence, outbox scheduling, reconciliation flow.
 - Mock now:
   in `mock-backed`, authorization / capture / recovery / refund outcomes are simulated in-app.
 - Partial only:
-  in `provider-ready`, authorization can be presented as provider-ready if env exists, but capture / recovery / refund are still placeholder and not truly live.
+  in `provider-ready`, authorization now runs through a real outbound HTTP transport when env exists, but capture / recovery / refund are still placeholder and not truly live.
 - Env dependencies:
-  `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
+  `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_AUTH_PATH`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_PROVIDER_TIMEOUT_MS`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
 - Webhook secret policy:
   `demo-preview` may explicitly use the demo secret, but any non-demo runtime is now unsafe if `PAYMENT_WEBHOOK_SECRET` is missing or still equals `mock-webhook-secret`.
 - Readiness:
@@ -33,11 +33,11 @@
 ## Authorization / Charge / Recovery
 
 - Real now:
-  state-machine transitions, idempotency, deal charging orchestration, recovery orchestration, webhook reconciliation, payment attempt audit trail.
+  state-machine transitions, idempotency, deal charging orchestration, webhook ingestion persistence, duplicate handling, late-webhook safety, payment attempt audit trail, real authorization transport, and real capture transport.
 - Mock now:
-  execution results still come from mock or placeholder payment provider logic.
+  recovery and refund execution still come from mock or placeholder payment provider logic.
 - Partial only:
-  webhook ingestion is real as an app rail, but downstream provider execution is not fully real.
+  authorization and capture are real in `provider-ready`, but recovery/refund and the broader external money lifecycle are still not live.
 - Readiness:
   partially testable, not production-live.
 
@@ -132,16 +132,17 @@
 ## Production Assumptions
 
 - Can operate now:
-  core app runtime, DB-backed deal flow, public and seller surfaces, legal/trust shell, webhook persistence, operational health views.
+  core app runtime, DB-backed deal flow, public and seller surfaces, legal/trust shell, webhook persistence, operational health views, real authorization transport, and real capture transport.
 - Can operate partially:
-  payment orchestration semantics, receipt surface, seller scoping, demo-preview deployment.
+  payment orchestration semantics, payment capture truth via webhook processing, receipt surface, seller scoping, demo-preview deployment.
 - Cannot operate truly yet:
-  live payment capture/recovery/refund, real SMS, real email, real invoice/accounting transport, true seller auth.
+  live payment recovery/refund, real SMS, real email, real invoice/accounting transport, true open-production seller auth.
 
 ## Stage 4 Closures
 
 - Added canonical payment route alias: `/api/payments/authorize`.
 - Added canonical webhook route alias: `/webhooks/payments`.
+- Added real provider-backed capture execution and webhook-truth state application for `provider-ready` non-demo runtime.
 - Added structured `operational_readiness` summary to:
   `/health/integrations`
   `/api/preview/meta`
