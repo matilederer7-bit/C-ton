@@ -6,6 +6,8 @@ import {
   PAYMENT_PROVIDER_AUTH_PATH,
   PAYMENT_PROVIDER_BASE_URL,
   PAYMENT_PROVIDER_CAPTURE_PATH,
+  PAYMENT_PROVIDER_RECOVERY_PATH,
+  PAYMENT_PROVIDER_REFUND_PATH,
   PAYMENT_PROVIDER_CURRENCY,
   PAYMENT_PROVIDER_MODE,
   PAYMENT_PROVIDER_PUBLIC_KEY,
@@ -44,7 +46,13 @@ export type PaymentExecutionResult = {
   mock: boolean;
   provider_reference?: string | null;
   correlation_id?: string | null;
-  reconciliation_event_type?: "charge_captured" | "charge_failed" | null;
+  reconciliation_event_type?:
+    | "charge_captured"
+    | "charge_failed"
+    | "recovery_captured"
+    | "recovery_failed"
+    | "refund_issued"
+    | null;
 };
 
 export type AuthorizePaymentInput = {
@@ -71,6 +79,30 @@ export type CapturePaymentInput = {
   request_id?: string;
 };
 
+export type RecoverPaymentInput = {
+  authorization_id?: string;
+  amount_minor?: number;
+  currency?: string;
+  participant_id?: string;
+  deal_id?: string;
+  buyer_id?: string;
+  correlation_id?: string;
+  request_id?: string;
+  within_window?: boolean;
+};
+
+export type RefundPaymentInput = {
+  authorization_id?: string;
+  capture_reference?: string;
+  amount_minor?: number;
+  currency?: string;
+  participant_id?: string;
+  deal_id?: string;
+  buyer_id?: string;
+  correlation_id?: string;
+  request_id?: string;
+};
+
 export interface PaymentProvider {
   readonly providerCode: string;
   readonly mode: "mock-backed" | "provider-ready";
@@ -78,8 +110,8 @@ export interface PaymentProvider {
   readonly configured: boolean;
   authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult>;
   capture(input: CapturePaymentInput): Promise<PaymentExecutionResult>;
-  recover(correlationKey: string, withinWindow: boolean): Promise<PaymentExecutionResult>;
-  refund(correlationKey: string): Promise<PaymentExecutionResult>;
+  recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult>;
+  refund(input: RefundPaymentInput): Promise<PaymentExecutionResult>;
 }
 
 function hashToUint32(value: string): number {
@@ -112,6 +144,10 @@ function buildAuthorizationCorrelationId() {
 
 function buildCaptureCorrelationId() {
   return `paycap_${randomUUID().replace(/-/g, "")}`;
+}
+
+function buildRecoveryCorrelationId() {
+  return `payrec_${randomUUID().replace(/-/g, "")}`;
 }
 
 function parseExpiry(expiry: string) {
@@ -150,6 +186,22 @@ function classifyCaptureEventType(payload: any): "charge_captured" | "charge_fai
   }
   if (["charge_failed", "failed", "declined", "rejected", "permanent_fail"].includes(value)) {
     return "charge_failed";
+  }
+  return null;
+}
+
+function classifyRecoveryEventType(payload: any): "recovery_captured" | "recovery_failed" | null {
+  const value = String(
+    payload?.event_type || payload?.status || payload?.result || payload?.recovery_status || ""
+  )
+    .trim()
+    .toLowerCase();
+  if (!value) return null;
+  if (["recovery_captured", "recovered", "captured", "succeeded", "success", "approved"].includes(value)) {
+    return "recovery_captured";
+  }
+  if (["recovery_failed", "failed", "declined", "rejected", "permanent_fail"].includes(value)) {
+    return "recovery_failed";
   }
   return null;
 }
@@ -291,16 +343,56 @@ function buildMockPaymentProvider(): PaymentProvider {
         reconciliation_event_type: "charge_failed"
       };
     },
-    async recover(correlationKey: string, withinWindow: boolean): Promise<PaymentExecutionResult> {
-      if (!withinWindow) return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
+    async recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult> {
+      const correlationKey = String(input.correlation_id || "").trim() || buildRecoveryCorrelationId();
+      const authorizationId = String(input.authorization_id || "").trim();
+      if (!withinWindow) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "permanent_fail",
+          retryable: false,
+          mock: true,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationKey,
+          reconciliation_event_type: "recovery_failed"
+        };
+      }
       const r = rand01Deterministic(correlationKey);
-      if (r < 0.5) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true };
-      if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true };
-      return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
+      if (r < 0.5) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "success",
+          retryable: false,
+          mock: true,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationKey,
+          reconciliation_event_type: "recovery_captured"
+        };
+      }
+      if (r < 0.8) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "temporary_fail",
+          retryable: true,
+          mock: true,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationKey
+        };
+      }
+      return {
+        provider: PAYMENT_PROVIDER,
+        result_class: "permanent_fail",
+        retryable: false,
+        mock: true,
+        provider_reference: authorizationId || null,
+        correlation_id: correlationKey,
+        reconciliation_event_type: "recovery_failed"
+      };
     },
-    async refund(correlationKey: string): Promise<PaymentExecutionResult> {
+    async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
+      const correlationKey = String(input.correlation_id || "").trim() || "mock-refund";
       const r = rand01Deterministic(correlationKey);
-      if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true };
+      if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" };
       if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true };
       return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
     }
@@ -311,6 +403,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
   const configured = Boolean(PAYMENT_PROVIDER_BASE_URL && PAYMENT_PROVIDER_API_KEY);
   const authorizationUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_AUTH_PATH)}`;
   const captureUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_CAPTURE_PATH)}`;
+  const recoveryUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_RECOVERY_PATH)}`;
   return {
     providerCode: PAYMENT_PROVIDER,
     mode: "provider-ready",
@@ -535,21 +628,166 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         };
       }
     },
-    async recover(): Promise<PaymentExecutionResult> {
-      return {
-        provider: PAYMENT_PROVIDER,
-        result_class: "temporary_fail",
-        retryable: true,
-        mock: false
-      };
+    async recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult> {
+      const authorizationId = String(input.authorization_id || "").trim();
+      const amountMinor = Number(input.amount_minor);
+      const currency = String(input.currency || PAYMENT_PROVIDER_CURRENCY || "").trim().toUpperCase();
+      const correlationId = String(input.correlation_id || "").trim() || buildRecoveryCorrelationId();
+      const requestId = String(input.request_id || "").trim() || correlationId;
+
+      if (!withinWindow) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "permanent_fail",
+          retryable: false,
+          mock: false,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationId,
+          reconciliation_event_type: "recovery_failed"
+        };
+      }
+
+      if (!configured) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "temporary_fail",
+          retryable: true,
+          mock: false,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationId
+        };
+      }
+
+      if (!authorizationId || !Number.isInteger(amountMinor) || amountMinor <= 0 || !/^[A-Z]{3}$/.test(currency)) {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "temporary_fail",
+          retryable: true,
+          mock: false,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationId
+        };
+      }
+
+      try {
+        const response = await fetch(recoveryUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`,
+            "idempotency-key": correlationId,
+            "x-request-id": requestId
+          },
+          body: JSON.stringify({
+            authorization_id: authorizationId,
+            amount_minor: amountMinor,
+            currency,
+            reference: correlationId,
+            within_window: true,
+            deal_id: input.deal_id ? String(input.deal_id) : undefined,
+            participant_id: input.participant_id ? String(input.participant_id) : undefined,
+            buyer_id: input.buyer_id ? String(input.buyer_id) : undefined
+          }),
+          signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
+        });
+
+        const payload = await parseJsonSafely(response);
+        const reconciliationEventType = classifyRecoveryEventType(payload);
+        if (!response.ok || payload?.ok === false) {
+          const retryable = response.status >= 500 || response.status === 429;
+          return {
+            provider: PAYMENT_PROVIDER,
+            result_class: retryable ? "temporary_fail" : "permanent_fail",
+            retryable,
+            mock: false,
+            provider_reference:
+              String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
+            correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+            reconciliation_event_type: retryable ? null : reconciliationEventType ?? "recovery_failed"
+          };
+        }
+
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "success",
+          retryable: false,
+          mock: false,
+          provider_reference:
+            String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
+          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          reconciliation_event_type: reconciliationEventType ?? "recovery_captured"
+        };
+      } catch {
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "temporary_fail",
+          retryable: true,
+          mock: false,
+          provider_reference: authorizationId || null,
+          correlation_id: correlationId
+        };
+      }
     },
-    async refund(): Promise<PaymentExecutionResult> {
-      return {
-        provider: PAYMENT_PROVIDER,
-        result_class: "temporary_fail",
-        retryable: true,
-        mock: false
-      };
+    async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
+      const authorizationId = String(input.authorization_id || "").trim();
+      const captureReference = String(input.capture_reference || "").trim();
+      const amountMinor = Number(input.amount_minor);
+      const currency = String(input.currency || PAYMENT_PROVIDER_CURRENCY || "").trim().toUpperCase();
+      const correlationId = String(input.correlation_id || "").trim() || `payrefund_${randomUUID().replace(/-/g, "")}`;
+      const requestId = String(input.request_id || "").trim() || correlationId;
+      const refundUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_REFUND_PATH)}`;
+
+      if (!configured) {
+        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: false, correlation_id: correlationId };
+      }
+
+      try {
+        const response = await fetch(refundUrl, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`,
+            "idempotency-key": correlationId,
+            "x-request-id": requestId
+          },
+          body: JSON.stringify({
+            authorization_id: authorizationId || undefined,
+            capture_reference: captureReference || authorizationId || undefined,
+            amount_minor: Number.isInteger(amountMinor) && amountMinor > 0 ? amountMinor : undefined,
+            currency: /^[A-Z]{3}$/.test(currency) ? currency : undefined,
+            reference: correlationId,
+            deal_id: input.deal_id ? String(input.deal_id) : undefined,
+            participant_id: input.participant_id ? String(input.participant_id) : undefined,
+            buyer_id: input.buyer_id ? String(input.buyer_id) : undefined
+          }),
+          signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
+        });
+
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || payload?.ok === false) {
+          return {
+            provider: PAYMENT_PROVIDER,
+            result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail",
+            retryable: response.status >= 500 || response.status === 429,
+            mock: false,
+            provider_reference: String(payload?.provider_reference || captureReference || authorizationId || "").trim() || null,
+            correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+            reconciliation_event_type: null
+          };
+        }
+
+        return {
+          provider: PAYMENT_PROVIDER,
+          result_class: "success",
+          retryable: false,
+          mock: false,
+          provider_reference: String(payload?.provider_reference || payload?.refund_id || captureReference || authorizationId || "").trim() || null,
+          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          reconciliation_event_type: "refund_issued"
+        };
+      } catch {
+        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: false, correlation_id: correlationId };
+      }
     }
   };
 }
@@ -574,7 +812,12 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     public_key_configured: Boolean(PAYMENT_PROVIDER_PUBLIC_KEY),
     authorization_path: PAYMENT_PROVIDER_AUTH_PATH,
     capture_path: PAYMENT_PROVIDER_CAPTURE_PATH,
+    recovery_path: PAYMENT_PROVIDER_RECOVERY_PATH,
+    refund_path: PAYMENT_PROVIDER_REFUND_PATH,
     authorization_transport_live: provider.mode === "provider-ready" && provider.configured,
+    capture_transport_live: provider.mode === "provider-ready" && provider.configured,
+    recovery_transport_live: provider.mode === "provider-ready" && provider.configured,
+    refund_transport_live: provider.mode === "provider-ready" && provider.configured,
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
     supported_modes: ["mock-backed", "provider-ready"],
     replacement_path: "Implement live provider HTTP client inside payment_provider.ts and keep webhook reconciliation in app/webhook path."

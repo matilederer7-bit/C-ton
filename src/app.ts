@@ -640,6 +640,25 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    return;
+  }
+
+  if (args.event.event_type === "refund_issued") {
+    // money_state transition: ChargedSuccess or RecoveredCharge → Refunded
+    // buyer_state is not transitioned here — refund does not change buyer participation state
+    await atomicTransition({
+      entityType: "participant",
+      entityId: args.target.participant_id,
+      dealId: args.target.deal_id,
+      stateType: "money_state",
+      fromState: args.target.money_state as MoneyState,
+      toState: "Refunded",
+      actionName: "refund.issue",
+      requestId,
+      idempotencyKey: `refund-issued:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`,
+      outbox: null,
+      payload: eventPayload
+    });
   }
 }
 
@@ -800,55 +819,115 @@ async function handleRefundEvent(
 ) {
   const dealId = event.aggregate_id;
 
-  const needRefund = await withTx(async (c) => {
+  const needRefundWithTrace = await withTx(async (c) => {
     const r = await c.query(
-      `SELECT participant_id, money_state
-       FROM siton.participants
-       WHERE deal_id=$1
-         AND money_state IN ('ChargedSuccess','RecoveredCharge')
-       ORDER BY created_at ASC`,
+      `SELECT
+         p.participant_id,
+         p.buyer_id,
+         p.qty,
+         p.delivery_cost,
+         p.money_state,
+         d.price_per_unit,
+         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(cap.payload->>'provider_reference', auth.payload->>'authorization_id', '') AS capture_reference
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN LATERAL (
+         SELECT payload
+         FROM siton.audit_log
+         WHERE entity_type = 'participant'
+           AND entity_id = p.participant_id
+           AND action_name = 'participant.join_authorize'
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) auth ON true
+       LEFT JOIN LATERAL (
+         SELECT payload
+         FROM siton.audit_log
+         WHERE entity_type = 'participant'
+           AND entity_id = p.participant_id
+           AND action_name IN ('charging.capture_success','charging.recovery_success','charging.charge_success','payment.capture_success')
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) cap ON true
+       WHERE p.deal_id=$1
+         AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
+       ORDER BY p.created_at ASC`,
       [dealId]
     );
-    return r.rows as Array<{ participant_id: string; money_state: MoneyState }>;
+    return r.rows as Array<{
+      participant_id: string;
+      buyer_id: string;
+      qty: number;
+      delivery_cost: number;
+      money_state: MoneyState;
+      price_per_unit: number;
+      authorization_id: string;
+      capture_reference: string;
+    }>;
   });
 
-  for (const p of needRefund) {
+  for (const p of needRefundWithTrace) {
     const correlation = `${event.event_type}:refund:${eventId}:${p.participant_id}`;
+    const attemptType = event.event_type === "cancel_refund" ? "cancel_refund" : "refund";
     await recordAttemptBeforeIo({
       participant_id: p.participant_id,
       deal_id: dealId,
-      attempt_type: event.event_type === "cancel_refund" ? "cancel_refund" : "refund",
+      attempt_type: attemptType,
       correlation_id: correlation
     });
 
-    const result = await refundMock(correlation);
+    const refundInput: Parameters<typeof paymentProvider.refund>[0] = {
+      amount_minor: paymentMinorAmount({
+        qty: Number(p.qty || 0),
+        pricePerUnit: Number(p.price_per_unit || 0),
+        deliveryCost: Number(p.delivery_cost || 0)
+      }),
+      currency: "ILS",
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      buyer_id: p.buyer_id,
+      correlation_id: correlation,
+      request_id: `worker:${eventId}`
+    };
+    if (p.authorization_id) refundInput.authorization_id = p.authorization_id;
+    if (p.capture_reference) refundInput.capture_reference = p.capture_reference;
+    const result = await paymentProvider.refund(refundInput);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
-      attempt_type: event.event_type === "cancel_refund" ? "cancel_refund" : "refund",
+      attempt_type: attemptType,
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail refund participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
-      await atomicTransition({
-        entityType: "participant",
-        entityId: p.participant_id,
-        dealId,
-        stateType: "money_state",
-        fromState: p.money_state,
-        toState: "Refunded",
-        actionName: "refund.issue",
-        requestId: `worker:${eventId}`,
-        idempotencyKey: `refund:${dealId}:${p.participant_id}`,
-        outbox: null,
-        payload: { result }
+    // Route through webhook reconciliation truth when the provider emits a refund event
+    if (result.reconciliation_event_type === "refund_issued") {
+      await ingestAndProcessPaymentEvent({
+        provider: result.provider,
+        event_id: `${eventId}:${p.participant_id}:refund_issued`,
+        event_type: "refund_issued",
+        correlation_id: result.correlation_id || correlation,
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        provider_reference: result.provider_reference || p.capture_reference || p.authorization_id || null,
+        payload: {
+          source: "refund_worker",
+          provider_reference: result.provider_reference || null,
+          authorization_id: p.authorization_id || null,
+          capture_reference: p.capture_reference || null
+        }
       });
+      continue;
+    }
+
+    if (result.result_class === "success") {
+      throw new Error(`refund_missing_reconciliation_event_type participant ${p.participant_id}`);
     } else {
       throw new PermanentFailError(`permanent_fail refund participant ${p.participant_id}`);
     }
@@ -1052,17 +1131,46 @@ async function handleRecoveryDealEvent(
     return Boolean(r.rows[0]?.within);
   });
 
+  if (!withinWindow) {
+    return;
+  }
+
   const participants = await withTx(async (c) => {
     const r = await c.query(
-      `SELECT participant_id
-       FROM siton.participants
-       WHERE deal_id=$1
-         AND buyer_state='ChargeFailedCompletion'
-         AND money_state='ChargeFailedRecovery'
-       ORDER BY created_at ASC`,
+      `SELECT
+         p.participant_id,
+         p.buyer_id,
+         p.qty,
+         p.delivery_cost,
+         d.price_per_unit,
+         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN LATERAL (
+         SELECT payload
+         FROM siton.audit_log
+         WHERE entity_type = 'participant'
+           AND entity_id = p.participant_id
+           AND action_name = 'participant.join_authorize'
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) auth ON true
+       WHERE p.deal_id=$1
+         AND p.buyer_state='ChargeFailedCompletion'
+         AND p.money_state='ChargeFailedRecovery'
+       ORDER BY p.created_at ASC`,
       [dealId]
     );
-    return r.rows as Array<{ participant_id: string }>;
+    return r.rows as Array<{
+      participant_id: string;
+      buyer_id: string;
+      qty: number;
+      delivery_cost: number;
+      price_per_unit: number;
+      authorization_id: string;
+      authorization_correlation_id: string;
+    }>;
   });
 
   for (const p of participants) {
@@ -1074,43 +1182,65 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation
     });
 
-    const result = await paymentRecoveryMock(correlation, withinWindow);
+    const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
+      amount_minor: paymentMinorAmount({
+        qty: Number(p.qty || 0),
+        pricePerUnit: Number(p.price_per_unit || 0),
+        deliveryCost: Number(p.delivery_cost || 0)
+      }),
+      currency: "ILS",
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      buyer_id: p.buyer_id,
+      correlation_id: correlation,
+      request_id: `worker:${eventId}`,
+      within_window: withinWindow
+    };
+    if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
+    const result = await paymentProvider.recover(recoverInput, withinWindow);
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "recovery",
       correlation_id: correlation,
-      result_class: result
+      result_class: result.result_class
     });
 
-    if (result === "temporary_fail") {
+    if (result.result_class === "temporary_fail") {
       throw new Error(`temporary_fail recovery participant ${p.participant_id}`);
     }
 
-    if (result === "success") {
-      await atomicMultiTransition({
-        actionName: "charging.recovery_success",
-        requestId: `worker:${eventId}`,
-        idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-success:${eventId}:${p.participant_id}` },
-        ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "RecoveredCharge", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Recovered", payload: { result } }
-        ],
-        outbox: null
+    // Route through the webhook reconciliation truth path when the provider emits an event type
+    if (result.reconciliation_event_type) {
+      await ingestAndProcessPaymentEvent({
+        provider: result.provider,
+        event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
+        event_type: result.reconciliation_event_type,
+        correlation_id: result.correlation_id || correlation,
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        provider_reference: result.provider_reference || p.authorization_id || null,
+        payload: {
+          source: "recovery_worker",
+          provider_reference: result.provider_reference || p.authorization_id || null,
+          authorization_id: p.authorization_id || null
+        }
       });
-    } else {
-      await atomicMultiTransition({
-        actionName: "charging.recovery_failed",
-        requestId: `worker:${eventId}`,
-        idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-fail:${eventId}:${p.participant_id}` },
-        ops: [
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "AuthReleased", payload: { result } },
-          { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Dropped", payload: { result } }
-        ],
-        outbox: null
-      });
+      continue;
     }
+
+    // Fallback: permanent_fail with no reconciliation event — apply state directly
+    await atomicMultiTransition({
+      actionName: "charging.recovery_failed",
+      requestId: `worker:${eventId}`,
+      idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-fail:${eventId}:${p.participant_id}` },
+      ops: [
+        { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "AuthReleased", payload: { result: result.result_class } },
+        { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Dropped", payload: { result: result.result_class } }
+      ],
+      outbox: null
+    });
   }
 
   return;

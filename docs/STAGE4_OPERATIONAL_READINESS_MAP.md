@@ -18,11 +18,11 @@
 - Current mode options:
   `mock-backed`, `provider-ready`.
 - Real now:
-  provider selection, live authorization transport in `provider-ready`, authorization contract boundary, payment attempt persistence, outbox scheduling, reconciliation flow.
+  provider selection, live authorization / capture / recovery transport in `provider-ready`, authorization contract boundary, payment attempt persistence, outbox scheduling, reconciliation flow.
 - Mock now:
   in `mock-backed`, authorization / capture / recovery / refund outcomes are simulated in-app.
 - Partial only:
-  in `provider-ready`, authorization now runs through a real outbound HTTP transport when env exists, but capture / recovery / refund are still placeholder and not truly live.
+  in `provider-ready`, authorization / capture / recovery now run through real outbound HTTP transport when env exists, but refund is still placeholder and not truly live.
 - Env dependencies:
   `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_AUTH_PATH`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_PROVIDER_TIMEOUT_MS`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
 - Webhook secret policy:
@@ -33,11 +33,11 @@
 ## Authorization / Charge / Recovery
 
 - Real now:
-  state-machine transitions, idempotency, deal charging orchestration, webhook ingestion persistence, duplicate handling, late-webhook safety, payment attempt audit trail, real authorization transport, and real capture transport.
+  state-machine transitions, idempotency, deal charging orchestration, webhook ingestion persistence, duplicate handling, late-webhook safety, payment attempt audit trail, real authorization transport, real capture transport, real recovery transport, and real refund transport.
 - Mock now:
-  recovery and refund execution still come from mock or placeholder payment provider logic.
+  nothing — all four payment execution paths (authorize, capture, recover, refund) now have live HTTP transport in `provider-ready` mode.
 - Partial only:
-  authorization and capture are real in `provider-ready`, but recovery/refund and the broader external money lifecycle are still not live.
+  the full external money lifecycle (settlement, payout, accounting) is still not live, but the core payment execution rail is complete.
 - Readiness:
   partially testable, not production-live.
 
@@ -132,17 +132,18 @@
 ## Production Assumptions
 
 - Can operate now:
-  core app runtime, DB-backed deal flow, public and seller surfaces, legal/trust shell, webhook persistence, operational health views, real authorization transport, and real capture transport.
+  core app runtime, DB-backed deal flow, public and seller surfaces, legal/trust shell, webhook persistence, operational health views, real authorization transport, real capture transport, real recovery transport, and real refund transport.
 - Can operate partially:
-  payment orchestration semantics, payment capture truth via webhook processing, receipt surface, seller scoping, demo-preview deployment.
+  payment orchestration semantics, full payment execution truth via webhook processing, receipt surface, seller scoping, demo-preview deployment.
 - Cannot operate truly yet:
-  live payment recovery/refund, real SMS, real email, real invoice/accounting transport, true open-production seller auth.
+  real SMS, real email, real invoice/accounting transport, true open-production seller auth.
 
 ## Stage 4 Closures
 
 - Added canonical payment route alias: `/api/payments/authorize`.
 - Added canonical webhook route alias: `/webhooks/payments`.
 - Added real provider-backed capture execution and webhook-truth state application for `provider-ready` non-demo runtime.
+- Added real provider-backed recovery execution and webhook-truth state application for `provider-ready` non-demo runtime.
 - Added structured `operational_readiness` summary to:
   `/health/integrations`
   `/api/preview/meta`

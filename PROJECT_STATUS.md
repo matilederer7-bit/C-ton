@@ -733,3 +733,30 @@ A full audit covering all source files was completed. Findings and fixes across 
   `100%` of the webhook-truth + capture-path stage
 - Next step:
   freeze authorization + capture as the new non-demo baseline, then decide whether the next payment program is recovery rail or the remaining production blockers outside payments, without reopening state-model, repeat-joins, or invoice/accounting work in the same patch
+
+## Payment Rail Stage 3: Recovery Rail
+
+- What was completed:
+  replaced the mock `recovery_deal` execution path with a real provider-backed recovery call in `src/payment_provider.ts` for `provider-ready` non-demo runtime; added explicit recovery event classification to `recovery_captured` / `recovery_failed`; updated `src/app.ts` so recovery execution now stays strictly inside `CompletionWindow`, records the recovery attempt before I/O, calls the real provider recovery rail, and routes terminal outcomes through the existing webhook ingestion + reconciliation truth path instead of mutating states directly from mock logic; kept temporary failures on the outbox retry path and rejected missing reconciliation truth instead of silently forcing an unsafe fallback; aligned `src/operational_readiness.ts` and `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` so readiness now reflects live authorization + capture + recovery while still honestly marking refund as non-live; added focused validation in `tests/payment_recovery_real_rail_validation.ts`
+- What was checked:
+  `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused validation via `node .tmp_test_dist/tests/payment_recovery_real_rail_validation.js`; regression validation via `node .tmp_test_dist/tests/payment_capture_webhook_real_rail_validation.js`; live local QA through the recovery validation runtime on `127.0.0.1:3086` proved `/api/preview/meta` reports `authorization-capture-recovery-partial`, provider-backed recovery success moves a participant to `Recovered` / `RecoveredCharge`, declined recovery moves to `Dropped` / `AuthReleased`, timeout keeps the outbox pending without an invalid transition, late recovery failure webhooks are ignored after success, duplicate replays remain duplicate-safe, and recovery does not execute outside the completion window
+- What is open:
+  refund remains non-live; invoice/accounting, real notifications, and the other mapped non-payment blockers remain outside this pass; payment truth is now real for authorization + capture + recovery only, so the remaining money-rail blocker is refund and the broader external-finance envelope already mapped elsewhere
+- Progress percentage:
+  `100%` of the recovery-rail stage
+- Next step:
+  freeze authorization + capture + recovery as the new non-demo baseline and only then decide whether to open refund rail or step back to the other production blockers, without reopening state-model, repeat-joins, invoice/accounting, or notification work in the same patch
+
+## Payment Rail Stage 4: Refund Rail
+
+- What was completed:
+  replaced the mock `refund_issue` / `cancel_refund` execution path with a real provider-backed refund call in `src/payment_provider.ts` for `provider-ready` non-demo runtime; added `PAYMENT_PROVIDER_REFUND_PATH` and `PAYMENT_PROVIDER_RECOVERY_PATH` to `src/runtime_config.ts`; added `RefundPaymentInput` type; updated `handleRefundEvent` in `src/app.ts` to read the capture reference trace from the audit log (via `participant.join_authorize` for auth_id and `charging.charge_success`/`payment.capture_success` for capture_reference), record the refund attempt before I/O, call the real provider refund rail, and route `refund_issued` events through the webhook ingestion + reconciliation truth path; added `refund_issued` handling to `applyPaymentWebhookClassification` so a live provider refund confirmation transitions `money_state` → `Refunded` atomically; updated `docs/STAGE4_OPERATIONAL_READINESS_MAP.md` and `PROJECT_STATUS.md` to reflect that all four execution paths are now live in `provider-ready`
+- What was checked:
+  `./node_modules/.bin/tsc -p tsconfig.test.json --outDir .tmp_test_dist` (exit 0); full 31-test non-DB regression suite passing after changes; all security hardening, OTP, webhook, admin auth, rate limiter, and seller auth tests green
+- What is open:
+  invoice/accounting transport, real SMS, real email, real notification delivery, true open-production seller auth — none of these were opened in this pass; the payment execution rail is now complete end-to-end in `provider-ready` mode
+- Progress percentage:
+  `100%` of the refund-rail stage; payment execution rail is fully closed
+- Next step:
+  all four payment execution paths (authorize, capture, recover, refund) are now real in `provider-ready` mode — the remaining external-activation blockers are notifications, invoice/accounting, and production seller auth, which are each independent tracks
+
