@@ -5,7 +5,7 @@ export type ReconciliationStatus = "processed" | "ignored" | "failed";
 export type ReconciliationTarget = {
   participant_id: string;
   deal_id: string;
-  attempt_type: "charge_start" | "recovery";
+  attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund";
   correlation_id: string | null;
   buyer_state: string;
   money_state: string;
@@ -61,6 +61,9 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
         participant_id: row.participant_id,
         deal_id: row.deal_id,
         attempt_type:
+          String(row.money_state) === "ChargedSuccess" || String(row.money_state) === "RecoveredCharge" || String(row.money_state) === "Refunded"
+            ? "refund"
+            :
           String(row.buyer_state) === "ChargeFailedCompletion" || String(row.money_state) === "ChargeFailedRecovery"
             ? "recovery"
             : "charge_start",
@@ -121,6 +124,16 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
         return { status: "ignored" as const, reason: "not_waiting_for_recovery_failure" };
       }
       return { status: "processed" as const, reason: "recovery_failed" };
+    }
+
+    if (eventType === "refund_issued") {
+      if (target.money_state === "Refunded") {
+        return { status: "ignored" as const, reason: "already_refunded" };
+      }
+      if (!["ChargedSuccess", "RecoveredCharge"].includes(target.money_state)) {
+        return { status: "ignored" as const, reason: "not_waiting_for_refund" };
+      }
+      return { status: "processed" as const, reason: "refund_issued" };
     }
 
     return { status: "ignored" as const, reason: "unsupported_event_type" };
