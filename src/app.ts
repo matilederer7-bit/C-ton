@@ -26,6 +26,7 @@ const DATABASE_URL =
 const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES || 15);
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
+const DISABLE_OUTBOX_WORKER = process.env.DISABLE_OUTBOX_WORKER === "1";
 
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
@@ -1017,19 +1018,25 @@ async function handleChargeDealEvent(
     if (p.authorization_id) captureInput.authorization_id = p.authorization_id;
     const result = await paymentProvider.capture(captureInput);
 
-    await finalizeAttemptResult({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "charge_start",
-      correlation_id: correlation,
-      result_class: result.result_class
-    });
-
     if (result.result_class === "temporary_fail") {
+      await finalizeAttemptResult({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: "charge_start",
+        correlation_id: correlation,
+        result_class: "temporary_fail"
+      });
       throw new Error(`temporary_fail capture participant ${p.participant_id}`);
     }
 
     if (result.reconciliation_event_type) {
+      await finalizeAttemptResult({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: "charge_start",
+        correlation_id: correlation,
+        result_class: result.result_class
+      });
       await ingestAndProcessPaymentEvent({
         provider: result.provider,
         event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
@@ -1044,10 +1051,24 @@ async function handleChargeDealEvent(
           authorization_id: p.authorization_id || null
         }
       });
+      continue;
     }
+
+    await finalizeAttemptResult({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "charge_start",
+      correlation_id: correlation,
+      result_class: "unknown"
+    });
+    throw new Error(`capture_missing_reconciliation_event_type participant ${p.participant_id}`);
   }
 
-  const windowUntil = await withTx(async (c) => setCompletionWindowOnce(c, dealId));
+  const windowUntil = await withTx(async (c) => {
+    const r = await c.query(`SELECT completion_window_until FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) throw new Error("deal not found");
+    return r.rows[0].completion_window_until ? new Date(r.rows[0].completion_window_until) : nowPlusMinutes(COMPLETION_WINDOW_MINUTES);
+  });
   app.log.info({ dealId, eventId, windowUntil: windowUntil.toISOString() }, "charge_deal before completion transition");
 
   let transitionResult;
@@ -1062,15 +1083,16 @@ async function handleChargeDealEvent(
       actionName: "charging.to_completion_window",
       requestId: `worker:${eventId}`,
       idempotencyKey: `deal-to-window:${eventId}:${dealId}`,
-      outbox: {
-        event_type: "finalize_deal",
-        aggregate_type: "deal",
-        aggregate_id: dealId,
-        payload: { deal_id: dealId },
-        available_at: windowUntil
-      },
+      outbox: null,
       payload: { completion_window_until: windowUntil.toISOString() },
       insideTx: async (c) => {
+        const actualWindow = await setCompletionWindowOnce(c, dealId);
+        await c.query(
+          `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+           VALUES ('finalize_deal','deal',$1,$2,'pending',0,$3)
+           ON CONFLICT DO NOTHING`,
+          [dealId, JSON.stringify({ deal_id: dealId }), actualWindow.toISOString()]
+        );
         const recoveryCount = await c.query(
           `SELECT COUNT(*) AS cnt
            FROM siton.participants
@@ -1087,6 +1109,7 @@ async function handleChargeDealEvent(
             [dealId, JSON.stringify({ deal_id: dealId })]
           );
         }
+        await c.query(`SELECT set_config('siton.outbox_written', '1', true)`);
       }
     });
 
@@ -1194,20 +1217,26 @@ async function handleRecoveryDealEvent(
     if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
     const result = await paymentProvider.recover(recoverInput, withinWindow);
 
-    await finalizeAttemptResult({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      correlation_id: correlation,
-      result_class: result.result_class
-    });
-
     if (result.result_class === "temporary_fail") {
+      await finalizeAttemptResult({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: "recovery",
+        correlation_id: correlation,
+        result_class: "temporary_fail"
+      });
       throw new Error(`temporary_fail recovery participant ${p.participant_id}`);
     }
 
     // Route through the webhook reconciliation truth path when the provider emits an event type
     if (result.reconciliation_event_type) {
+      await finalizeAttemptResult({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: "recovery",
+        correlation_id: correlation,
+        result_class: result.result_class
+      });
       await ingestAndProcessPaymentEvent({
         provider: result.provider,
         event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
@@ -1226,16 +1255,14 @@ async function handleRecoveryDealEvent(
     }
 
     // Fallback: permanent_fail with no reconciliation event — apply state directly
-    await atomicMultiTransition({
-      actionName: "charging.recovery_failed",
-      requestId: `worker:${eventId}`,
-      idempotency: { entityType: "participant", entityId: p.participant_id, idempotencyKey: `recovery-fail:${eventId}:${p.participant_id}` },
-      ops: [
-        { entityType: "participant", entityId: p.participant_id, dealId, stateType: "money_state", fromState: "ChargeFailedRecovery", toState: "AuthReleased", payload: { result: result.result_class } },
-        { entityType: "participant", entityId: p.participant_id, dealId, stateType: "buyer_state", fromState: "ChargeFailedCompletion", toState: "Dropped", payload: { result: result.result_class } }
-      ],
-      outbox: null
+    await finalizeAttemptResult({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      result_class: "unknown"
     });
+    throw new Error(`recovery_missing_reconciliation_event_type participant ${p.participant_id}`);
   }
 
   return;
@@ -1315,17 +1342,17 @@ async function handleFinalizeDealEvent(
           idempotencyKey: `p-dealcompleted:${dealId}:${p.participant_id}`,
           outbox: null
         });
-      } else if (p.buyer_state === "Dropped") {
+      } else if (BUYER_TRANSITIONS[p.buyer_state]?.includes("DealFailed")) {
         await atomicTransition({
           entityType: "participant",
           entityId: p.participant_id,
           dealId,
           stateType: "buyer_state",
-          fromState: "Dropped",
+          fromState: p.buyer_state,
           toState: "DealFailed",
           actionName: "deal.fail_participant_after_completed",
           requestId: `worker:${eventId}`,
-          idempotencyKey: `p-dropped-to-failed:${dealId}:${p.participant_id}`,
+          idempotencyKey: `p-fail-after-completed:${dealId}:${p.participant_id}:${p.buyer_state}`,
           outbox: null
         });
       }
@@ -1832,16 +1859,18 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
+    // INSERT participant, then immediately apply state transitions + write audit + idem_log
+    // all within the same deal-locked transaction. This prevents the race where concurrent
+    // requests slip through the idempotency check during the gap between participant INSERT
+    // (end of withTx) and idem_log write (end of atomicMultiTransition).
     const ins = await c.query(
       `INSERT INTO siton.participants(deal_id, buyer_id, qty, buyer_state, money_state)
        VALUES ($1,$2,$3,'NotJoined','NoFinancial')
-       RETURNING participant_id, buyer_state, money_state`,
+       RETURNING participant_id`,
       [dealId, buyer_id, qty]
     );
-    return ins.rows[0] as { participant_id: string; buyer_state: BuyerState; money_state: MoneyState };
-  });
+    const pid = ins.rows[0].participant_id as string;
 
-  if (participant.buyer_state === "NotJoined") {
     const authorizationPayload = authorizationId
       ? {
           authorization: "provider_authorized",
@@ -1850,17 +1879,49 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
           authorization_correlation_id: authorizationCorrelationId || null
         }
       : { authorization: "mock_success" };
-    await atomicMultiTransition({
-      actionName: "participant.join_authorize",
-      requestId,
-      idempotency: { entityType: "participant", entityId: participant.participant_id, idempotencyKey: idem },
-      ops: [
-        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "buyer_state", fromState: "NotJoined", toState: "JoinedAuthorized", payload: authorizationPayload },
-        { entityType: "participant", entityId: participant.participant_id, dealId, stateType: "money_state", fromState: "NoFinancial", toState: "AuthHeld", payload: authorizationPayload }
-      ],
-      outbox: null
-    });
-  }
+
+    // Set session config expected by audit/outbox trigger guards
+    await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
+    await c.query(`SELECT set_config('siton.action_name', 'participant.join_authorize', true)`);
+    await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
+    await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
+
+    const payloadJson = JSON.stringify(authorizationPayload);
+    await c.query(
+      `INSERT INTO siton.audit_log
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'buyer_state','NotJoined','JoinedAuthorized','participant.join_authorize',$3,$4,$5)`,
+      [pid, dealId, requestId, idem, payloadJson]
+    );
+    await c.query(
+      `INSERT INTO siton.audit_log
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'money_state','NoFinancial','AuthHeld','participant.join_authorize',$3,$4,$5)`,
+      [pid, dealId, requestId, idem, payloadJson]
+    );
+    await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+
+    const bsUpd = await c.query(
+      `UPDATE siton.participants SET buyer_state='JoinedAuthorized' WHERE participant_id=$1 AND buyer_state='NotJoined'`,
+      [pid]
+    );
+    if (bsUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NotJoined`);
+    const msUpd = await c.query(
+      `UPDATE siton.participants SET money_state='AuthHeld' WHERE participant_id=$1 AND money_state='NoFinancial'`,
+      [pid]
+    );
+    if (msUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NoFinancial`);
+
+    await c.query(
+      `INSERT INTO siton.idempotency_log
+       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb)
+       VALUES ('participant',$1,'participant.join_authorize',$2,'OK',$3)`,
+      [pid, idem, JSON.stringify({ ok: true })]
+    );
+    await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
+
+    return { participant_id: pid, buyer_state: "JoinedAuthorized" as BuyerState, money_state: "AuthHeld" as MoneyState };
+  });
 
   const targetAttempt = await withTx(async (c) => {
     const d = await c.query(`SELECT state, threshold_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
@@ -1957,11 +2018,14 @@ app.post("/deals/:id/charging/start", async (req: any) => {
       const deal = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
       if (!deal.rowCount) throw new Error("deal not found");
       const state = deal.rows[0].state as DealState;
+      if (state !== "ReadyForCharging") {
+        const err: any = new Error("deal is not ready for charging");
+        err.statusCode = 409;
+        throw err;
+      }
 
       const ops: TransitionOp[] = [];
-      if (state === "ReadyForCharging") {
-        ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ReadyForCharging", toState: "Charging" });
-      }
+      ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ReadyForCharging", toState: "Charging" });
 
       const parts = await c.query(
         `SELECT participant_id, buyer_state, money_state
@@ -2068,8 +2132,10 @@ registerFrontendExperience(app, {
 let workerRunning = false;
 
 (async () => {
-  workerRunning = true;
-  workerLoop(app).catch((e) => app.log.error(e));
+  if (!DISABLE_OUTBOX_WORKER) {
+    workerRunning = true;
+    workerLoop(app).catch((e) => app.log.error(e));
+  }
 
   await app.listen({ port: PORT, host: HOST });
 

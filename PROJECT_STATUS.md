@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-13 (Wave 1 join flow QA)
+Last updated: 2026-04-14 (Wave 1 concurrency proof)
 
 ## Canonical Status
 
@@ -395,6 +395,65 @@ The fix to Bug 1 (plain INSERT, no conflict-update) directly enables multiple ro
 - `otp_runtime_guard_validation` — PASS (2/2)
 - `debug_surface_guard_validation` — PASS (3/3)
 - `webhook_secret_policy_validation` — PASS (4/4)
+
+## What Was Completed In Wave 1 — Concurrency Proof (2026-04-14)
+
+A hard evidence round against the live DB following the initial bug fixes. All scenarios used real
+DB transactions, real concurrent `app.inject()` calls, and direct DB queries for evidence.
+
+### Fifth Bug Found and Fixed During Proof
+
+**Bug 5 — HIGH: Idempotency race under concurrent load (transaction gap)**
+
+- **Root cause**: The participant `INSERT` and the `idempotency_log` write were in separate transactions.
+  The deal's `SELECT FOR UPDATE` lock was released after the participant was created, but before
+  the idem log entry was committed. Concurrent requests that acquired the lock in that window
+  would see an empty idem log and each create a fresh participant with the same explicit key.
+- **Evidence**: I3 scenario — 20 concurrent requests with the same explicit idempotency key created
+  10 participants (10 unique participant_ids in DB) instead of 1. All 10 slots were consumed,
+  leaving 0 capacity for other buyers.
+- **Fix** (`src/app.ts`): Inlined state transitions (buyer_state, money_state), audit log writes, and
+  `idempotency_log` INSERT into the single deal-locked `withTx`. The lock is now held through
+  all writes atomically. Removed the separate `atomicMultiTransition` call from the join path.
+- **After fix**: I3 — 20 concurrent same-key requests → `unique participant_ids=1`, `participants=1`,
+  `qty_sum=1`, `audit=2`, `idem=1`. Zero race condition.
+
+### Proof Results — `tests/concurrency_proof.ts` (14/14 PASS)
+
+| Scenario | Description | Requests | Evidence |
+|---|---|---|---|
+| S1 | 70 concurrent joins, max=10 | 70 | succeeded=10, qty_sum=10, rejected=60 |
+| S2 | 200 concurrent joins, max=20 | 200 | succeeded=20, qty_sum=20, rejected=180 |
+| S3 | Mixed qty (1/2/3), max=15 | 20 | qty_sum=15, no oversell |
+| S4 | Same buyer, 10 concurrent, max=5 | 10 | 5 participants created, qty_sum=5, max enforced |
+| S5 | Last unit race, 50 requests, max=1 | 50 | succeeded=1, qty_sum=1, 49 rejected |
+| S6 | Bulk request takes all 8 units | 2 | first=200, second=409, qty_sum=8 |
+| S7 | 5×qty=5 competing, max=10 | 5 | succeeded=2, qty_sum=10 |
+| I1 | Same key replayed 3× | 3 | same participant_id returned, audit=2, idem=1 |
+| I2 | Same key, different qty replay | 2 | same participant_id, qty_sum=1 (not 4) |
+| I3 | 20 concurrent same-key retries | 20 | unique_pids=1, participants=1, idem=1 |
+| M1 | Same buyer, 5 sequential auto-keys | 5 | 5 distinct participants, idem=5 |
+| M2 | Same buyer bounded by max_units=3 | 5 | 3 participants, qty_sum=3 |
+| M3 | 3 purchases, 3 explicit distinct keys | 3 | 3 distinct participants, idem=3 |
+| CONSISTENCY | No proof deal residue in DB | — | leftover=0 |
+
+### DB Evidence (post all scenarios)
+
+- No proof deals, participants, or idem_log entries remain in DB after cleanup
+- `audit_log` entries persist (append-only by DB trigger) but are orphaned
+- `max_units` was never exceeded in any scenario across all 13 scenarios
+- No deadlocks, no 5xx errors, no false success responses
+
+### Summary Statement
+
+| Claim | Evidence |
+|---|---|
+| No oversell | S1-S7: qty_sum ≤ max_units in all 14 scenarios |
+| Concurrency safe | S1(70 req), S2(200 req), S3(mixed qty), S4(same buyer), S5(last unit), S7(competing bulk) all within bounds |
+| Idempotency correct | I1(replay), I2(payload mismatch), I3(20 concurrent same-key) → each produces exactly 1 participant |
+| Multi-purchase works | M1(sequential), M2(bounded), M3(explicit keys) → multiple participants per buyer, capacity respected |
+| audit consistent | audit_count = participants × 2 in all scenarios (buyer_state + money_state per join) |
+| idem consistent | idem_count = participants in all scenarios |
 
 ## Estimated Progress
 
@@ -819,6 +878,19 @@ The fix to Bug 1 (plain INSERT, no conflict-update) directly enables multiple ro
   `100%` of the verified refund-rail stage; the core payment execution rail is fully closed
 - Next step:
   freeze the payment rail as the new non-demo baseline and move to the next independent external blocker without reopening payment execution paths, state-model work, repeat-joins, or invoice/accounting in the same patch
+
+## Wave 2: State / Audit / Outbox Hardening Verified
+
+- What was completed:
+  hardened the runtime and DB state boundary so illegal `DealState`, `BuyerState`, and `MoneyState` jumps are now blocked in the database even if transaction flags are forged; aligned bootstrap flag references to `siton.*`; tightened `require_action_name` to an explicit runtime vocabulary with a deliberate `test.*` namespace for test-only helpers; made `audit_log` append-only and validated legal `audit_log` transitions on insert; expanded deal-level outbox enforcement so `deal.publish`, `charging.start`, `charging.to_completion_window`, `charging.finalize_failed`, and `deal.cancel` all require outbox in the same transaction; and moved `recovery_deal` enqueue into the same `charging.to_completion_window` transaction so recovery orchestration is no longer created in a separate follow-up transaction
+- What was checked:
+  static scan via `rg -n "UPDATE siton\\.deals SET state|UPDATE siton\\.participants SET buyer_state|UPDATE siton\\.participants SET money_state|set_config\\('siton\\.(action_name|audit_written|outbox_written)'" src tests scripts`; `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused validation via `node .tmp_test_dist/tests/state_engine_atomicity_validation.js`; targeted regression via `node .tmp_test_dist/tests/payment_capture_webhook_real_rail_validation.js`
+- What is open:
+  production/runtime state mutation paths are now closed through the DB enforcement layer for this wave; the remaining bypass-shaped items found here are explicit test helpers in `tests/remaining_product_surfaces_validation.ts`, `tests/master_product_depth_validation.ts`, and `tests/ultimate_prelive_qa_rc_validation.ts`, which still use `test.*` action names and direct SQL to accelerate surface tests and should stay classified as test-only debt rather than production authority
+- Progress percentage:
+  `100%` of Wave 2 production-path hardening; `test-only debt` remains documented but is not a live-runtime bypass
+- Next step:
+  freeze Wave 2 at this new baseline and hand control back to the next independent track without reopening join/capacity work, payment flow expansion, or unrelated surface redesign in the same pass
 
 ## Payment Rail Stage 4: Refund Rail
 
