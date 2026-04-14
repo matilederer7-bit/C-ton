@@ -249,6 +249,7 @@ class PermanentFailError extends Error {
 
 const {
   claimOutboxBatch,
+  reclaimStuckProcessing,
   markOutboxSent,
   markOutboxFailed
 } = buildOutboxWorkerHelpers({
@@ -473,6 +474,36 @@ function paymentMinorAmount(args: { qty: number; pricePerUnit: number; deliveryC
   return Math.max(0, Math.round(total * 100));
 }
 
+function attemptResultClassFromWebhookEvent(eventType: string): PaymentResultClass | null {
+  if (eventType === "charge_captured" || eventType === "recovery_captured" || eventType === "refund_issued") {
+    return "success";
+  }
+  if (eventType === "charge_failed" || eventType === "recovery_failed") {
+    return "permanent_fail";
+  }
+  return null;
+}
+
+async function finalizeAttemptFromWebhookIfNeeded(args: {
+  eventType: string;
+  target: {
+    participant_id: string;
+    deal_id: string;
+    attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund";
+    correlation_id: string | null;
+  };
+}) {
+  const resultClass = attemptResultClassFromWebhookEvent(args.eventType);
+  if (!resultClass || !args.target.correlation_id) return;
+  await finalizeAttemptResult({
+    participant_id: args.target.participant_id,
+    deal_id: args.target.deal_id,
+    attempt_type: args.target.attempt_type,
+    correlation_id: args.target.correlation_id,
+    result_class: resultClass
+  });
+}
+
 async function applyPaymentWebhookClassification(args: {
   event: {
     provider: string;
@@ -539,6 +570,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -573,6 +605,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -607,6 +640,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -641,6 +675,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -660,6 +695,7 @@ async function applyPaymentWebhookClassification(args: {
       outbox: null,
       payload: eventPayload
     });
+    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
   }
 }
 
@@ -673,20 +709,23 @@ async function ingestAndProcessPaymentEvent(args: {
   provider_reference?: string | null;
   payload: Record<string, unknown>;
 }) {
-  const ingested = await webhookIngestion.ingestEvent({
+  const ingested = await webhookIngestion.claimEvent({
     provider: args.provider,
     event_id: args.event_id,
     event_type: args.event_type,
     payload: {
-      ...args.payload,
+      event_type: args.event_type,
       correlation_id: args.correlation_id ?? null,
-      provider_reference: args.provider_reference ?? null
+      provider_reference: args.provider_reference ?? null,
+      deal_id: args.deal_id ?? null,
+      participant_id: args.participant_id ?? null,
+      payload: args.payload ?? {}
     },
     deal_id: args.deal_id ?? null,
     participant_id: args.participant_id ?? null
   });
 
-  if (ingested.duplicate) {
+  if (ingested.duplicate && !ingested.should_process) {
     return {
       duplicate: true,
       status: ingested.status,
@@ -694,40 +733,46 @@ async function ingestAndProcessPaymentEvent(args: {
     };
   }
 
-  const target = await paymentReconciliation.resolveTarget({
-    event_id: args.event_id,
-    event_type: args.event_type,
-    correlation_id: args.correlation_id ?? null,
-    participant_id: args.participant_id ?? null,
-    deal_id: args.deal_id ?? null,
-    provider_reference: args.provider_reference ?? null,
-    payload: args.payload
-  });
-  const classification = paymentReconciliation.classifyEvent(args.event_type, target);
-
-  if (classification.status === "processed") {
-    await applyPaymentWebhookClassification({
-      event: {
-        provider: args.provider,
-        event_id: args.event_id,
-        event_type: args.event_type,
-        correlation_id: args.correlation_id ?? null,
-        participant_id: args.participant_id ?? null,
-        deal_id: args.deal_id ?? null,
-        provider_reference: args.provider_reference ?? null,
-        payload: args.payload
-      },
-      target,
-      classification
+  try {
+    const target = await paymentReconciliation.resolveTarget({
+      event_id: args.event_id,
+      event_type: args.event_type,
+      correlation_id: args.correlation_id ?? null,
+      participant_id: args.participant_id ?? null,
+      deal_id: args.deal_id ?? null,
+      provider_reference: args.provider_reference ?? null,
+      payload: args.payload
     });
-  }
+    const classification = paymentReconciliation.classifyEvent(args.event_type, target);
 
-  await webhookIngestion.markEvent(args.provider, args.event_id, classification.status);
-  return {
-    duplicate: false,
-    status: classification.status,
-    reason: classification.reason
-  };
+    if (classification.status === "processed") {
+      await applyPaymentWebhookClassification({
+        event: {
+          provider: args.provider,
+          event_id: args.event_id,
+          event_type: args.event_type,
+          correlation_id: args.correlation_id ?? null,
+          participant_id: args.participant_id ?? null,
+          deal_id: args.deal_id ?? null,
+          provider_reference: args.provider_reference ?? null,
+          payload: args.payload
+        },
+        target,
+        classification
+      });
+    }
+
+    await webhookIngestion.markEvent(args.provider, args.event_id, classification.status, classification.reason);
+    return {
+      duplicate: Boolean(ingested.duplicate),
+      status: classification.status,
+      reason: classification.reason
+    };
+  } catch (error) {
+    const failureReason = String(error instanceof Error ? error.message : error || "webhook_processing_failed").slice(0, 240);
+    await webhookIngestion.markEvent(args.provider, args.event_id, "failed", failureReason);
+    throw error;
+  }
 }
 
 async function sumJoinedUnits(c: PoolClient, dealId: string): Promise<number> {
@@ -1521,10 +1566,29 @@ export async function processOutboxEventById(eventId: string) {
   }
 }
 const WORKER_EVENT_TIMEOUT_MS = 30_000;
+// Events stuck in 'processing' longer than this are recycled back to 'pending'.
+// Set to 2× WORKER_EVENT_TIMEOUT_MS so a legitimately-slow event can finish
+// before the reclaim window opens.
+const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60_000);
+// Run the stuck-event reclaim every N poll cycles to amortise its cost.
+const RECLAIM_EVERY_N_POLLS = 10;
 
 async function workerLoop(app: ReturnType<typeof Fastify>) {
+  let pollCount = 0;
   while (true) {
     try {
+      // Periodically reclaim events that got stuck in 'processing' (e.g. after a crash).
+      if (pollCount % RECLAIM_EVERY_N_POLLS === 0) {
+        const reclaimed = await reclaimStuckProcessing(WORKER_STUCK_TIMEOUT_MS).catch((e: unknown) => {
+          app.log.error({ err: e }, "workerLoop: reclaimStuckProcessing failed");
+          return 0;
+        });
+        if (reclaimed > 0) {
+          app.log.warn({ reclaimed }, "workerLoop: reclaimed stuck processing events");
+        }
+      }
+      pollCount++;
+
       const batch = await claimOutboxBatch(10);
       if (batch.length === 0) {
         await new Promise((r) => setTimeout(r, OUTBOX_POLL_MS));

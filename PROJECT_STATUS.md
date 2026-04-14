@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-14 (Wave 1 concurrency proof)
+Last updated: 2026-04-14 (Wave 4b operational hardening)
 
 ## Canonical Status
 
@@ -170,6 +170,58 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Pinned the Render web service to `plan: free`
 - Pinned the Render Postgres database to `plan: free`
 - Kept the Blueprint path as the simplest and most stable free demo path
+
+## What Was Completed In Wave 4b — Operational Hardening (2026-04-14)
+
+### Scope
+
+Audit and hardening of: outbox worker lifecycle, restart behavior, retry storms, stuck
+processing, DLQ, backlog, worker resilience, duplicate claim / zombie handling, lock
+contention.
+
+### Bug Found and Fixed
+
+**Bug 1 — Stuck Processing Never Rescued (Critical)**
+
+`reclaimStuckProcessing` was fully implemented in `src/outbox_worker_helpers.ts` and
+returned by `buildOutboxWorkerHelpers`, but was never wired into `workerLoop` in
+`src/app.ts`. Events that landed in `status='processing'` after a crash or timeout had
+no recovery path — they would remain stuck indefinitely, never retried or DLQ'd.
+
+Fix applied in `src/app.ts`:
+- Added `reclaimStuckProcessing` to the destructured import from `buildOutboxWorkerHelpers`.
+- Added `WORKER_STUCK_TIMEOUT_MS` constant (default 60 000 ms = 2x WORKER_EVENT_TIMEOUT_MS).
+- Added `RECLAIM_EVERY_N_POLLS = 10` to amortise the reclaim cost.
+- `workerLoop` now calls `reclaimStuckProcessing(WORKER_STUCK_TIMEOUT_MS)` every 10 poll
+  cycles. Events stuck longer than the timeout are reset to `pending` with `last_error`
+  set to `worker_reclaim_after_restart`.
+
+### Evidence Table
+
+| Scenario | Description | Result | DB Evidence |
+|----------|-------------|--------|-------------|
+| R1 | Restart with pending outbox events — worker picks up pending events | PASS | event claimed, status=sent |
+| R2 | Crash-after-claim recovery — stuck processing reclaimed on next poll | PASS | reclaimed=1, re-claimed and sent |
+| R3 | Retry storm bounded — event cycles through all retries and lands in DLQ | PASS | DLQ after 3 iterations |
+| R4 | Max attempts enforcement — event at max immediately goes to DLQ | PASS | DLQ immediately |
+| R5 | Backlog drain — 20 events fully processed in <100 ms | PASS | all 20 sent |
+| R6 | Duplicate claim prevention — SELECT FOR UPDATE SKIP LOCKED gives exactly one claimer | PASS | c1=1, c2=0 |
+| R7 | DLQ path — exhausted retries and PermanentFailError both land in DLQ | PASS | DLQ table present, events moved correctly |
+| R8 | Stuck processing rescue — old stuck event reclaimed, recent one preserved | PASS | reclaimed=1, last_error set, processing_started_at cleared |
+| R9 | Worker loop liveness — workerRunning flag design analysis + env validation | PASS | single-loop design confirmed |
+| R10 | Soak — 50 mixed events, no zombie processing states remain | PASS | no zombies, all terminal |
+
+**Final test run: 27 PASS, 0 FAIL**
+
+### What Was NOT Changed (Boundary)
+
+- Webhook semantic truth handling, duplicate webhook semantics, late event state rules,
+  reconcile logic, payment provider event mapping
+
+### Files Changed
+
+- `src/app.ts` — wired `reclaimStuckProcessing` into `workerLoop` with timeout and poll-rate config
+- `tests/operational_hardening_proof.ts` — new proof test file (10 scenarios, 27 assertions)
 
 ## What Is Still Open
 
@@ -891,6 +943,19 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `100%` of Wave 2 production-path hardening; `test-only debt` remains documented but is not a live-runtime bypass
 - Next step:
   freeze Wave 2 at this new baseline and hand control back to the next independent track without reopening join/capacity work, payment flow expansion, or unrelated surface redesign in the same pass
+
+## Wave 3: Charging / Recovery / Completion Window / 90 Percent Rule Verified
+
+- What was completed:
+  verified that the remaining bypasses found after Wave 2 are still test-only helpers in `tests/remaining_product_surfaces_validation.ts`, `tests/master_product_depth_validation.ts`, and `tests/ultimate_prelive_qa_rc_validation.ts`, with no runtime or production-path helper/script leaking around the state engine; aligned DB buyer-state legality with the live runtime by allowing the full `-> DealFailed` branch that `failAllParticipantsForDeal(...)` and finalize already use in `src/app.ts`; hardened `POST /deals/:id/charging/start` in `src/app.ts` so replay on a non-`ReadyForCharging` deal now fails closed with `409` instead of silently creating fresh orchestration; moved `completion_window_until`, `finalize_deal`, and `recovery_deal` creation into the same `charging.to_completion_window` transaction so completion-window opening and downstream orchestration stay atomic; removed false reconciliation truth on capture/recovery by forcing `payment_attempts.result_class='unknown'` plus retry/error when the provider response lacks a real reconciliation event type; added deterministic Wave 3 torture coverage in `tests/charging_completion_window_validation.ts`; and stabilized the manual outbox test harness with the test-only `DISABLE_OUTBOX_WORKER=1` gate so focused validations no longer race the background worker while production runtime defaults remain unchanged
+- What was checked:
+  static scan via `rg -n "test\\.|processOutboxEventById|charging.start|ChargeFailedCompletion|DealFailed|completion_window_until|sumCapturedUnits" src tests scripts`; `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused Wave 3 verification via `node .tmp_test_dist/tests/charging_completion_window_validation.js`; regression verification via `node .tmp_test_dist/tests/payment_capture_webhook_real_rail_validation.js`, `node .tmp_test_dist/tests/payment_recovery_real_rail_validation.js`, `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`, and `node .tmp_test_dist/tests/state_engine_atomicity_validation.js`; live local QA through the focused runtimes on `127.0.0.1:3093`, `127.0.0.1:3084`, `127.0.0.1:3086`, `127.0.0.1:3087`, and `127.0.0.1:3092`, proving `charging.start` rejects replay on the wrong state, `charge_deal` opens `CompletionWindow` once and enqueues `finalize_deal` + `recovery_deal` atomically, recovery does not run outside the window, finalize defers before expiry and replays idempotently after completion, and the threshold decision now follows `threshold_units` with `ChargedSuccess + RecoveredCharge` counted while `ChargeFailedCompletion` and `Dropped` do not count
+- What is open:
+  no production-path Wave 3 defect remains open after this pass; within this wave the charging/recovery/finalize/completion-window path, audit, outbox, and payment-attempt traces are now verified; items still open are outside Wave 3 scope, including invoice/accounting, real notifications, and the remaining non-payment launch blockers already mapped elsewhere
+- Progress percentage:
+  `100%` of Wave 3
+- Next step:
+  freeze Wave 3 as the new charging baseline and hand off to the next independent blocker without reopening join/capacity logic, repeat-join semantics, state-model redesign, or broader operational hardening in the same patch
 
 ## Payment Rail Stage 4: Refund Rail
 
