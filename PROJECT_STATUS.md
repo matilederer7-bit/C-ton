@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-14 (Wave 4b operational hardening)
+Last updated: 2026-04-14 (Wave 4b operational layer — reclaim precision + status endpoint)
 
 ## Canonical Status
 
@@ -222,6 +222,48 @@ Fix applied in `src/app.ts`:
 
 - `src/app.ts` — wired `reclaimStuckProcessing` into `workerLoop` with timeout and poll-rate config
 - `tests/operational_hardening_proof.ts` — new proof test file (10 scenarios, 27 assertions)
+
+## What Was Completed In The Wave 4b Operational Layer (2026-04-14)
+
+### Scope
+
+Closed a thin but complete operational layer around the Wave 4b `reclaimStuckProcessing` fix:
+added a health endpoint, targeted proof tests, and operational documentation.
+
+### Changes
+
+**`/api/admin/outbox-status` endpoint** (`src/frontend_runtime.ts`)
+- Returns per-bucket counts (`pending`, `processing`, `sent`, `failed`, `dlq`)
+- Returns `oldest_pending_age_s`, `oldest_processing_age_s`, `stuck_candidates`, `stuck_timeout_ms`
+- Returns `worker.running` (live flag from in-process worker loop)
+- Fixed SQL: `FILTER` clause moved inside the aggregate (`MIN(...) FILTER (WHERE ...)`)
+- Wired `getWorkerRunning` and `workerStuckTimeoutMs` deps into `registerFrontendExperience` call (`src/app.ts`)
+
+**Targeted proof tests** (`tests/outbox_reclaim_precision_proof.ts`, 9 tests, all PASS)
+- A1–A4: Reclaim window precision — old events reclaimed, young events left alone, `processing_started_at=NULL` always reclaimed
+- B1–B5: No duplicate processing after reclaim — single claim after reclaim, concurrent reclaim atomicity, DLQ path after reclaim, endpoint shape and stuck_candidates accuracy
+
+**Operational documentation** (`docs/OUTBOX_WORKER_OPERATIONS.md`)
+- Explains stuck timeout, reclaim interval, DLQ semantics
+- Defines what a clean system looks like (numeric targets)
+- Post-restart checklist (5 steps)
+- Environment variable reference
+
+### Evidence
+
+| Test | Description | Result |
+|------|-------------|--------|
+| A1 | Old event (beyond timeout) reclaimed to pending, last_error set | PASS |
+| A2 | Young event (within timeout) NOT reclaimed | PASS |
+| A3 | Simultaneous old+young: only old is reclaimed | PASS |
+| A4 | `processing_started_at=NULL` always reclaimed (defensive path) | PASS |
+| B1 | Reclaimed event claimable exactly once, status=sent after markOutboxSent | PASS |
+| B2 | Two concurrent reclaim calls: total=2, no double-count | PASS |
+| B3 | Reclaimed then permanently failed goes to DLQ, no phantom sent row | PASS |
+| B4 | `/api/admin/outbox-status` returns 200 with all required fields | PASS |
+| B5 | `stuck_candidates` reflects actual stuck event count, drops after cleanup | PASS |
+
+**Final test run: 9 PASS, 0 FAIL**
 
 ## What Is Still Open
 
@@ -970,3 +1012,16 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
 - Next step:
   all four payment execution paths (authorize, capture, recover, refund) are now real in `provider-ready` mode — the remaining external-activation blockers are notifications, invoice/accounting, and production seller auth, which are each independent tracks
 
+
+## Wave 4a: Webhook Truth / Duplicate / Late / Reconcile Verified
+
+- What was completed:
+  hardened the webhook truth path in `src/webhook_ingestion.ts`, `src/payment_reconciliation.ts`, and `src/frontend_runtime.ts` so provider callbacks are now claimed through an explicit `processing` state instead of a loose insert-only flow; previously `failed` webhook rows can now be retried with the same `provider + event_id` and re-enter processing instead of being dead-deduped forever; stored webhook payloads now persist top-level `event_type`, `correlation_id`, `provider_reference`, `deal_id`, and `participant_id` for traceability; classification reasons are written back into `webhook_events`; participant fallback reconciliation now recovers the latest matching `payment_attempts.correlation_id` when only `participant_id` is present; duplicate events stop at one persisted row and one logical mutation; late/conflicting events are recorded but ignored against already-advanced logical state; and the public/admin supported-event surface now includes `refund_issued`; Wave 4a truth coverage is codified in `tests/webhook_truth_handling_validation.ts`
+- What was checked:
+  `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; focused Wave 4a validation via `node .tmp_test_dist/tests/webhook_truth_handling_validation.js`; direct DB evidence queries after the run proved that `Wave4A Charge dup-success` persisted exactly one `webhook_events` row with `status='processed'`, `classification_reason='capture_success'`, `webhook_row_count='1'`, `capture_audit_count='2'`, and `payment_attempts.result_class='success'`; `wave4a-unknown-*` stayed `status='failed'` with `reason='missing_correlation_target'` and no state change until `wave4a-reconcile-success-*` later landed as `status='processed'` with the preserved correlation id; and conflicting charge/recovery sequences stored the earlier truth event as `processed` while the later contradictory webhook was persisted as `ignored` with `reason='not_waiting_for_charge_capture'`
+- What is open:
+  no production-path Wave 4a defect remains open after this pass; one verification-only finding was explicitly classified to Wave 4b and not fixed here: long-lived local Node runtimes on the shared database can interfere with broad outbox regressions and create false negatives outside the focused webhook-truth path, but that is operational harness noise rather than a webhook-semantics hole
+- Progress percentage:
+  `100%` of Wave 4a
+- Next step:
+  freeze webhook truth handling as the new baseline and hand off only the operational noise / worker-resilience follow-up to Wave 4b, without reopening webhook semantics, state-model work, or broader payment-path changes in the same pass

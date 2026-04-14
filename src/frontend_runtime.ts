@@ -409,6 +409,10 @@ export function registerFrontendExperience(
       external_delivery: boolean;
     };
     debugSurfacesEnabled?: boolean;
+    /** Returns current workerRunning flag so the outbox-status endpoint can surface it. */
+    getWorkerRunning?: () => boolean;
+    /** WORKER_STUCK_TIMEOUT_MS used by reclaimStuckProcessing — exposed so the status endpoint can show stuck_candidates correctly. */
+    workerStuckTimeoutMs?: number;
     applyPaymentWebhookClassification?: (args: {
       event: {
         provider: string;
@@ -1412,16 +1416,23 @@ export function registerFrontendExperience(
         : null;
 
     // Ingest (idempotent — duplicate provider+event_id returns existing status)
-    const ingested = await webhookIngestion.ingestEvent({
+    const ingested = await webhookIngestion.claimEvent({
       provider,
       event_id: eventId,
       event_type: eventType,
-      payload,
+      payload: {
+        event_type: eventType,
+        correlation_id: correlationId,
+        provider_reference: providerReference,
+        deal_id: dealId,
+        participant_id: participantId,
+        payload
+      },
       deal_id: dealId,
       participant_id: participantId
     });
 
-    if (ingested.duplicate) {
+    if (ingested.duplicate && !ingested.should_process) {
       return reply.code(200).send({
         ok: true,
         duplicate: true,
@@ -1430,46 +1441,50 @@ export function registerFrontendExperience(
       });
     }
 
-    // Classify the event using reconciliation logic
-    const target = await paymentReconciliation.resolveTarget({
-      event_id: eventId,
-      event_type: eventType,
-      correlation_id: correlationId,
-      participant_id: participantId,
-      deal_id: dealId,
-      provider_reference: providerReference,
-      payload
-    });
-
-    const classification = paymentReconciliation.classifyEvent(eventType, target);
-
-    if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
-      await deps.applyPaymentWebhookClassification({
-        event: {
-          provider,
-          event_id: eventId,
-          event_type: eventType,
-          correlation_id: correlationId,
-          participant_id: participantId,
-          deal_id: dealId,
-          provider_reference: providerReference,
-          payload
-        },
-        target,
-        classification
+    try {
+      const target = await paymentReconciliation.resolveTarget({
+        event_id: eventId,
+        event_type: eventType,
+        correlation_id: correlationId,
+        participant_id: participantId,
+        deal_id: dealId,
+        provider_reference: providerReference,
+        payload
       });
+
+      const classification = paymentReconciliation.classifyEvent(eventType, target);
+
+      if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
+        await deps.applyPaymentWebhookClassification({
+          event: {
+            provider,
+            event_id: eventId,
+            event_type: eventType,
+            correlation_id: correlationId,
+            participant_id: participantId,
+            deal_id: dealId,
+            provider_reference: providerReference,
+            payload
+          },
+          target,
+          classification
+        });
+      }
+
+      await webhookIngestion.markEvent(provider, eventId, classification.status, classification.reason);
+
+      return reply.code(200).send({
+        ok: true,
+        duplicate: Boolean(ingested.duplicate),
+        event_id: eventId,
+        status: classification.status,
+        reason: classification.reason
+      });
+    } catch (error) {
+      const failureReason = String((error as Error)?.message || error || "webhook_processing_failed").slice(0, 240);
+      await webhookIngestion.markEvent(provider, eventId, "failed", failureReason);
+      throw error;
     }
-
-    // Mark event with the classification result
-    await webhookIngestion.markEvent(provider, eventId, classification.status);
-
-    return reply.code(200).send({
-      ok: true,
-      duplicate: false,
-      event_id: eventId,
-      status: classification.status,
-      reason: classification.reason
-    });
   }
 
   app.post("/webhooks/payments", handleWebhookPayments);
@@ -1649,7 +1664,8 @@ export function registerFrontendExperience(
                 "charge_captured",
                 "charge_failed",
                 "recovery_captured",
-                "recovery_failed"
+                "recovery_failed",
+                "refund_issued"
               ]
             }
           },
@@ -1662,6 +1678,57 @@ export function registerFrontendExperience(
             operationalReadiness().payment_provider.what_is_mock,
             "Notifications remain intentionally log-only until external activation starts."
           ]
+        }
+      };
+    });
+  });
+
+  // ── Outbox operational status ─────────────────────────────────────────────
+  // Returns per-bucket counts, oldest event ages, stuck candidate count, and
+  // workerRunning flag. Safe for dashboards and post-restart health checks.
+  app.get("/api/admin/outbox-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const stuckTimeoutMs = deps.workerStuckTimeoutMs ?? 60_000;
+    return deps.withTx(async (c) => {
+      const [outbox, dlq] = await Promise.all([
+        c.query(
+          `SELECT
+             COUNT(*)                                              FILTER (WHERE status='pending')    AS pending_count,
+             COUNT(*)                                              FILTER (WHERE status='processing') AS processing_count,
+             COUNT(*)                                              FILTER (WHERE status='sent')       AS sent_count,
+             COUNT(*)                                              FILTER (WHERE status='failed')     AS failed_count,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at)       FILTER (WHERE status='pending')))    AS oldest_pending_age_s,
+             EXTRACT(EPOCH FROM (now() - MIN(processing_started_at)
+                                                                  FILTER (WHERE status='processing'))) AS oldest_processing_age_s,
+             COUNT(*)
+               FILTER (WHERE status='processing'
+                         AND (processing_started_at IS NULL
+                              OR processing_started_at < now() - ($1::text || ' milliseconds')::interval))
+                                                                                                     AS stuck_candidates
+           FROM siton.outbox_events`,
+          [String(stuckTimeoutMs)]
+        ),
+        c.query(`SELECT COUNT(*) AS dlq_count FROM siton.outbox_dlq`)
+      ]);
+      const o = outbox.rows[0];
+      return {
+        ok: true,
+        outbox: {
+          pending:           Number(o.pending_count   ?? 0),
+          processing:        Number(o.processing_count ?? 0),
+          sent:              Number(o.sent_count       ?? 0),
+          failed:            Number(o.failed_count     ?? 0),
+          dlq:               Number(dlq.rows[0].dlq_count ?? 0),
+          oldest_pending_age_s:    o.oldest_pending_age_s    != null ? Number(Number(o.oldest_pending_age_s).toFixed(1))    : null,
+          oldest_processing_age_s: o.oldest_processing_age_s != null ? Number(Number(o.oldest_processing_age_s).toFixed(1)) : null,
+          stuck_candidates:  Number(o.stuck_candidates ?? 0),
+          stuck_timeout_ms:  stuckTimeoutMs
+        },
+        worker: {
+          running: typeof deps.getWorkerRunning === "function" ? deps.getWorkerRunning() : null,
+          note: typeof deps.getWorkerRunning !== "function"
+            ? "workerRunning status not wired — set getWorkerRunning dep"
+            : undefined
         }
       };
     });
