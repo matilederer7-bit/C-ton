@@ -16,11 +16,11 @@ SET search_path TO public;
 
 DO $$
 BEGIN
-  PERFORM set_config('app.action_name','', true);
-  PERFORM set_config('app.audit_written','0', true);
-  PERFORM set_config('app.outbox_written','0', true);
-  PERFORM set_config('app.in_atomic','false', true);
-  PERFORM set_config('app.is_worker','false', true);
+  PERFORM set_config('siton.action_name','', true);
+  PERFORM set_config('siton.audit_written','0', true);
+  PERFORM set_config('siton.outbox_written','0', true);
+  PERFORM set_config('siton.in_atomic','false', true);
+  PERFORM set_config('siton.is_worker','false', true);
 EXCEPTION WHEN OTHERS THEN
   NULL;
 END $$;
@@ -193,6 +193,13 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 CREATE TABLE IF NOT EXISTS seller_accounts (
   seller_id TEXT PRIMARY KEY,
   display_name TEXT NOT NULL,
+  login_email TEXT NULL,
+  auth_secret_hash TEXT NULL,
+  auth_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+  auth_secret_updated_at TIMESTAMPTZ NULL,
+  last_login_at TIMESTAMPTZ NULL,
+  last_login_ip TEXT NOT NULL DEFAULT '',
+  last_login_user_agent TEXT NOT NULL DEFAULT '',
   verification_status TEXT NOT NULL DEFAULT 'approved'
     CHECK (verification_status IN ('pending','approved','rejected')),
   settlement_status TEXT NOT NULL DEFAULT 'active'
@@ -203,6 +210,26 @@ CREATE TABLE IF NOT EXISTS seller_accounts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_seller_accounts_login_email
+  ON seller_accounts (lower(login_email))
+  WHERE login_email IS NOT NULL AND btrim(login_email) <> '';
+
+CREATE TABLE IF NOT EXISTS seller_sessions (
+  session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  seller_id TEXT NOT NULL REFERENCES seller_accounts(seller_id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  issued_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  expires_at TIMESTAMPTZ NOT NULL,
+  revoked_at TIMESTAMPTZ NULL,
+  revoked_reason TEXT NOT NULL DEFAULT '',
+  last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_ip TEXT NOT NULL DEFAULT '',
+  created_user_agent TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX IF NOT EXISTS idx_seller_sessions_active
+  ON seller_sessions (seller_id, expires_at DESC);
 
 CREATE TABLE IF NOT EXISTS affiliate_accounts (
   affiliate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -378,7 +405,7 @@ FOR EACH ROW EXECUTE FUNCTION enforce_worker_mode();
 CREATE OR REPLACE FUNCTION enforce_audit_flag()
 RETURNS trigger AS $$
 BEGIN
-  IF current_setting('app.audit_written', true) IS DISTINCT FROM '1' THEN
+  IF current_setting('siton.audit_written', true) IS DISTINCT FROM '1' THEN
     RAISE EXCEPTION 'P0 violation: state change without audit in same tx';
   END IF;
   RETURN NEW;
@@ -403,20 +430,21 @@ FOR EACH ROW EXECUTE FUNCTION enforce_audit_flag();
 CREATE OR REPLACE FUNCTION enforce_outbox_for_critical_actions()
 RETURNS trigger AS $$
 DECLARE
-  action text := current_setting('app.action_name', true);
+  action text := current_setting('siton.action_name', true);
 BEGIN
   IF action = '' THEN
     RETURN NEW;
   END IF;
 
-  IF action = 'charging.start'
-     OR action LIKE 'charging.recovery%'
-     OR action LIKE 'charging.finalize%'
-     OR action LIKE 'refund.%'
-     OR action = 'deal.deadline_check'
-     OR action = 'deal.cancel'
+  IF action IN (
+       'deal.publish',
+       'charging.start',
+       'charging.to_completion_window',
+       'charging.finalize_failed',
+       'deal.cancel'
+     )
   THEN
-    IF current_setting('app.outbox_written', true) IS DISTINCT FROM '1' THEN
+    IF current_setting('siton.outbox_written', true) IS DISTINCT FROM '1' THEN
       RAISE EXCEPTION 'P0 violation: critical action % without outbox insert in same tx', action;
     END IF;
   END IF;
@@ -460,7 +488,7 @@ FOR EACH ROW EXECUTE FUNCTION deals_before_update_enforce();
 CREATE OR REPLACE FUNCTION enforce_completion_window_rules()
 RETURNS trigger AS $$
 DECLARE
-  action text := current_setting('app.action_name', true);
+  action text := current_setting('siton.action_name', true);
 BEGIN
   IF OLD.state = 'CompletionWindow' AND NEW.state NOT IN ('Completed','Failed') THEN
     RAISE EXCEPTION 'P0 violation: from CompletionWindow only to Completed or Failed';
@@ -503,5 +531,36 @@ DROP TRIGGER IF EXISTS trg_enforce_retry_storm ON payment_attempts;
 CREATE TRIGGER trg_enforce_retry_storm
 BEFORE INSERT ON payment_attempts
 FOR EACH ROW EXECUTE FUNCTION enforce_retry_storm();
+
+-- ─── Notifications ──────────────────────────────────────────────────────────
+-- Delivery tracking table. event_key is the idempotency key:
+--   "{notification_event_type}:{participant_id_or_deal_id}:{channel}"
+CREATE TABLE IF NOT EXISTS notifications (
+  notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_key TEXT NOT NULL,
+  notification_event_type TEXT NOT NULL CHECK (notification_event_type IN (
+    'join_authorized','charge_succeeded','charge_failed_recovery',
+    'deal_completed','deal_failed','refund_issued','deal_cancelled'
+  )),
+  channel TEXT NOT NULL CHECK (channel IN ('sms','email','log')),
+  recipient TEXT NOT NULL,
+  template_id TEXT NOT NULL,
+  template_params JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'sent', 'failed', 'skipped')),
+  attempt_count INT NOT NULL DEFAULT 0,
+  max_attempts INT NOT NULL DEFAULT 3,
+  provider_code TEXT NOT NULL DEFAULT 'log-only',
+  provider_message_id TEXT NULL,
+  last_error TEXT NULL,
+  sent_at TIMESTAMPTZ NULL,
+  available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT ux_notifications_event_key UNIQUE (event_key)
+);
+
+CREATE INDEX IF NOT EXISTS idx_notifications_pending
+  ON notifications (status, available_at)
+  WHERE status = 'pending';
 
 COMMIT;

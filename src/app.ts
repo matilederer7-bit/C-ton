@@ -6,15 +6,16 @@ import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
+import { enqueueNotification, flushPendingNotifications, type SmsProvider } from "./notification_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
   SELLER_SESSION_COOKIE,
+  hashSellerSessionToken,
   normalizeSellerDisplayName,
   normalizeSellerId,
-  parseCookies,
-  readSellerSessionToken
+  parseCookies
 } from "./seller_auth.js";
 dotenv.config();
 
@@ -50,10 +51,29 @@ function debugSurfaceAuthorized(req: any) {
   return Boolean(presented) && presented === debugSurfaceAccessKey();
 }
 
-function sellerSessionContext(req: any) {
+async function sellerSessionContext(req: any, c: any) {
   if (IS_DEMO_PREVIEW || !SELLER_SESSION_SECRET) return null;
   const cookies = parseCookies(req.headers?.cookie);
-  return readSellerSessionToken(cookies[SELLER_SESSION_COOKIE], SELLER_SESSION_SECRET);
+  const rawToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
+  const tokenHash = hashSellerSessionToken(rawToken, SELLER_SESSION_SECRET);
+  if (!tokenHash) return null;
+  const result = await c.query(
+    `SELECT s.session_id,
+            s.expires_at,
+            a.seller_id,
+            a.display_name,
+            a.auth_enabled
+     FROM siton.seller_sessions s
+     JOIN siton.seller_accounts a ON a.seller_id = s.seller_id
+     WHERE s.token_hash = $1
+       AND s.revoked_at IS NULL
+       AND s.expires_at > now()
+       AND a.auth_enabled = true
+     LIMIT 1`,
+    [tokenHash]
+  );
+  if (!result.rowCount) return null;
+  return result.rows[0];
 }
 
 function sellerAuthorityFromDemoRequest(req: any) {
@@ -65,7 +85,7 @@ function sellerAuthorityFromDemoRequest(req: any) {
   };
 }
 
-function requireSellerAuthority(req: any) {
+async function requireSellerAuthority(req: any, c: any) {
   if (IS_DEMO_PREVIEW) {
     return sellerAuthorityFromDemoRequest(req);
   }
@@ -75,7 +95,7 @@ function requireSellerAuthority(req: any) {
     err.code = "seller_auth_unavailable";
     throw err;
   }
-  const session = sellerSessionContext(req);
+  const session = await sellerSessionContext(req, c);
   if (!session) {
     const err: any = new Error("seller session is required for this non-demo runtime");
     err.statusCode = 401;
@@ -571,6 +591,8 @@ async function applyPaymentWebhookClassification(args: {
       outbox: null
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
+    // Notify buyer: charge succeeded
+    await enqueueNotificationForParticipant("charge_succeeded", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     return;
   }
 
@@ -606,6 +628,8 @@ async function applyPaymentWebhookClassification(args: {
       outbox: null
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
+    // Notify buyer: charge failed, recovery upcoming
+    await enqueueNotificationForParticipant("charge_failed_recovery", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     return;
   }
 
@@ -696,6 +720,8 @@ async function applyPaymentWebhookClassification(args: {
       payload: eventPayload
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
+    // Notify buyer: refund issued
+    await enqueueNotificationForParticipant("refund_issued", args.target.participant_id, args.target.deal_id).catch(() => undefined);
   }
 }
 
@@ -1313,6 +1339,58 @@ async function handleRecoveryDealEvent(
   return;
 }
 
+/**
+ * Fetch buyer_id + deal title for a participant and enqueue a notification.
+ * Non-fatal — intended for use inside webhook/worker handlers.
+ */
+async function enqueueNotificationForParticipant(
+  notificationEventType: "join_authorized" | "charge_succeeded" | "charge_failed_recovery" | "deal_completed" | "deal_failed" | "refund_issued" | "deal_cancelled",
+  participantId: string,
+  dealId: string
+): Promise<void> {
+  const row = await pool.query(
+    `SELECT p.buyer_id, d.title
+     FROM siton.participants p
+     JOIN siton.deals d ON d.deal_id = p.deal_id
+     WHERE p.participant_id=$1`,
+    [participantId]
+  );
+  if (!row.rowCount) return; // participant not found — skip silently
+  const { buyer_id, title } = row.rows[0] as { buyer_id: string; title: string };
+  await enqueueNotification({
+    eventKey: `${notificationEventType}:${participantId}:sms`,
+    notificationEventType,
+    channel: "sms",
+    recipient: buyer_id,
+    templateParams: { deal_id: dealId, deal_title: String(title || ""), participant_id: participantId },
+    providerCode: notificationService.providerCode
+  }, pool);
+}
+
+/** Enqueue notifications for a list of participants on a deal. Non-fatal — logs errors. */
+async function enqueueParticipantNotifications(
+  notificationEventType: "join_authorized" | "charge_succeeded" | "charge_failed_recovery" | "deal_completed" | "deal_failed" | "refund_issued" | "deal_cancelled",
+  participants: Array<{ participant_id: string; buyer_id: string }>,
+  dealId: string,
+  dealTitle: string,
+  logger: Pick<typeof console, "error">
+): Promise<void> {
+  for (const p of participants) {
+    try {
+      await enqueueNotification({
+        eventKey: `${notificationEventType}:${p.participant_id}:sms`,
+        notificationEventType,
+        channel: "sms",
+        recipient: p.buyer_id,
+        templateParams: { deal_id: dealId, deal_title: dealTitle, participant_id: p.participant_id },
+        providerCode: notificationService.providerCode
+      }, pool);
+    } catch (e) {
+      logger.error(`[notifications] enqueue failed`, { notificationEventType, participant_id: p.participant_id, err: String(e) });
+    }
+  }
+}
+
 async function handleFinalizeDealEvent(
   event: {
     event_uuid: string;
@@ -1404,6 +1482,21 @@ async function handleFinalizeDealEvent(
     }
 
     await cleanupObsoleteDealOutboxEvents(dealId);
+
+    // Notify participants: deal_completed for DealCompleted, deal_failed for DealFailed
+    const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const dealTitle = String(dealTitleRow.rows[0]?.title || "");
+    const allParticipants = await withTx(async (c) => {
+      const r = await c.query(
+        `SELECT participant_id, buyer_id, buyer_state FROM siton.participants WHERE deal_id=$1`,
+        [dealId]
+      );
+      return r.rows as Array<{ participant_id: string; buyer_id: string; buyer_state: string }>;
+    });
+    const completedParticipants = allParticipants.filter(p => p.buyer_state === "DealCompleted");
+    const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
+    await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
+    await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
     return;
   }
 
@@ -1422,6 +1515,15 @@ async function handleFinalizeDealEvent(
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
+
+  // Notify all participants: deal failed — refund will be issued
+  const dealTitleRowFail = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
+  const dealTitleFail = String(dealTitleRowFail.rows[0]?.title || "");
+  const failedParts = await withTx(async (c) => {
+    const r = await c.query(`SELECT participant_id, buyer_id FROM siton.participants WHERE deal_id=$1`, [dealId]);
+    return r.rows as Array<{ participant_id: string; buyer_id: string }>;
+  });
+  await enqueueParticipantNotifications("deal_failed", failedParts, dealId, dealTitleFail, console);
   return;
 }
 
@@ -1471,6 +1573,15 @@ async function workerProcessEvent(event: {
 
     await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
     await cleanupObsoleteDealOutboxEvents(dealId);
+
+    // Notify all participants: deadline passed, deal failed
+    const deadlineTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const deadlineTitle = String(deadlineTitleRow.rows[0]?.title || "");
+    const deadlineParts = await withTx(async (c) => {
+      const r = await c.query(`SELECT participant_id, buyer_id FROM siton.participants WHERE deal_id=$1`, [dealId]);
+      return r.rows as Array<{ participant_id: string; buyer_id: string }>;
+    });
+    await enqueueParticipantNotifications("deal_failed", deadlineParts, dealId, deadlineTitle, console);
     return;
   }
 
@@ -1573,7 +1684,7 @@ const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
 const RECLAIM_EVERY_N_POLLS = 10;
 
-async function workerLoop(app: ReturnType<typeof Fastify>) {
+async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvider) {
   let pollCount = 0;
   while (true) {
     try {
@@ -1591,6 +1702,10 @@ async function workerLoop(app: ReturnType<typeof Fastify>) {
 
       const batch = await claimOutboxBatch(10);
       if (batch.length === 0) {
+        // No outbox events — flush pending notifications then sleep
+        await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
+          app.log.error({ err: e }, "workerLoop: notification flush failed");
+        });
         await new Promise((r) => setTimeout(r, OUTBOX_POLL_MS));
         continue;
       }
@@ -1616,6 +1731,11 @@ async function workerLoop(app: ReturnType<typeof Fastify>) {
           });
         }
       }
+
+      // After processing the outbox batch, flush any pending notifications
+      await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
+        app.log.error({ err: e }, "workerLoop: notification flush failed (post-batch)");
+      });
     } catch (e) {
       app.log.error({ err: e }, "workerLoop: batch-level error, retrying in 5s");
       await new Promise((r) => setTimeout(r, 5_000));
@@ -1719,7 +1839,6 @@ app.get("/health", async () => ({ ok: true }));
 
 app.post("/deals", async (req: any) => {
   const body = req.body || {};
-  const sellerAuthority = requireSellerAuthority(req);
   const title = String(body.title || "").trim();
   if (!title) {
     const err: any = new Error("title is required");
@@ -1744,6 +1863,7 @@ app.post("/deals", async (req: any) => {
   const draftThreshold = Math.ceil(0.9 * minUnits);
 
   const r = await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
     const ins = await c.query(
       `INSERT INTO siton.deals
        (title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id)
@@ -1768,11 +1888,11 @@ app.post("/deals", async (req: any) => {
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
-  const sellerAuthority = requireSellerAuthority(req);
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
 
   await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -2000,6 +2120,24 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     await tryTargetReached(dealId, requestId);
   }
 
+  // Enqueue join_authorized notification (non-blocking — failure must not break join)
+  await (async () => {
+    try {
+      const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
+      const dealTitle = String(dealTitleRow.rows[0]?.title || "");
+      await enqueueNotification({
+        eventKey: `join_authorized:${participant.participant_id}:sms`,
+        notificationEventType: "join_authorized",
+        channel: "sms",
+        recipient: buyer_id,
+        templateParams: { deal_id: dealId, deal_title: dealTitle, participant_id: participant.participant_id },
+        providerCode: notificationService.providerCode
+      }, pool);
+    } catch (e) {
+      app.log.error({ err: e, participant_id: participant.participant_id }, "join: notification enqueue failed (non-fatal)");
+    }
+  })();
+
   return { ok: true, participant_id: participant.participant_id };
 });
 
@@ -2200,7 +2338,7 @@ let workerRunning = false;
 (async () => {
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;
-    workerLoop(app).catch((e) => app.log.error(e));
+    workerLoop(app, notificationService).catch((e) => app.log.error(e));
   }
 
   await app.listen({ port: PORT, host: HOST });

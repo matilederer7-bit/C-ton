@@ -1,5 +1,4 @@
 import dotenv from "dotenv";
-import { parseSellerAuthCredentials } from "./seller_auth.js";
 
 dotenv.config();
 
@@ -43,14 +42,18 @@ export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY |
 export const PAYMENT_WEBHOOK_PROVIDER = process.env.PAYMENT_WEBHOOK_PROVIDER || PAYMENT_PROVIDER;
 export const PAYMENT_AUTH_DECLINE_SUFFIX = process.env.PAYMENT_AUTH_DECLINE_SUFFIX || "0000";
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
+// Twilio SMS — all three must be set to activate real SMS delivery
+export const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";
+export const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || "";
+export const TWILIO_FROM = process.env.TWILIO_FROM || ""; // E.164 format, e.g. +972501234567
+export const NOTIFICATION_MAX_ATTEMPTS = readNumberEnv("NOTIFICATION_MAX_ATTEMPTS", 3);
 export const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 export const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
 export const SELLER_AUTH_MODE = IS_DEMO_PREVIEW ? "demo-context" : "server-session";
 export const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
-export const SELLER_AUTH_CREDENTIALS = parseSellerAuthCredentials(process.env.SELLER_AUTH_CREDENTIALS);
 export const SELLER_AUTH_CONFIGURED = IS_DEMO_PREVIEW
   ? true
-  : Boolean(SELLER_SESSION_SECRET) && SELLER_AUTH_CREDENTIALS.length > 0;
+  : Boolean(SELLER_SESSION_SECRET);
 export const DEMO_PAYMENT_WEBHOOK_SECRET = "mock-webhook-secret";
 const RAW_PAYMENT_WEBHOOK_SECRET = process.env.PAYMENT_WEBHOOK_SECRET || "";
 export const PAYMENT_WEBHOOK_SECRET =

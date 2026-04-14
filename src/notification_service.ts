@@ -1,46 +1,35 @@
-import { NOTIFICATION_PROVIDER } from "./runtime_config.js";
+/**
+ * Notification Service
+ *
+ * Facade re-exported for backward compatibility with operational_readiness.ts
+ * and other callers that imported the old NotificationService interface.
+ *
+ * The real implementation is in notification_dispatch.ts.
+ * This file provides the summary helper used by the admin/readiness surfaces.
+ */
 
-export type NotificationEvent =
-  | "payment_authorized"
-  | "payment_capture_succeeded"
-  | "payment_capture_failed"
-  | "payment_recovery_succeeded"
-  | "payment_recovery_failed"
-  | "deal_completed"
-  | "deal_failed";
+import {
+  buildSmsProvider,
+  getSmsProviderSummary,
+  type SmsProvider
+} from "./notification_dispatch.js";
 
-export type NotificationPayload = {
-  participant_id?: string;
-  deal_id: string;
-  buyer_id?: string;
-  detail?: Record<string, unknown>;
-};
+// Re-export for consumers that import from here
+export { buildSmsProvider, getSmsProviderSummary };
+export type { SmsProvider };
 
-export interface NotificationService {
-  readonly providerCode: string;
-  readonly mode: "log-only";
-  notify(event: NotificationEvent, payload: NotificationPayload): Promise<void>;
+/**
+ * Build the SMS provider and return a summary-capable wrapper.
+ * Called once at startup; the provider instance is passed into the worker loop
+ * and into registerFrontendExperience for the admin status surface.
+ */
+export function buildNotificationService(
+  env: NodeJS.ProcessEnv = process.env,
+  logger: Pick<Console, "info" | "error"> = console
+): SmsProvider {
+  return buildSmsProvider(env, logger);
 }
 
-export function buildNotificationService(logger: Pick<Console, "info" | "error"> = console): NotificationService {
-  return {
-    providerCode: NOTIFICATION_PROVIDER,
-    mode: "log-only",
-    async notify(event: NotificationEvent, payload: NotificationPayload) {
-      logger.info("[notification.dispatch]", {
-        provider: NOTIFICATION_PROVIDER,
-        mode: "log-only",
-        event,
-        payload
-      });
-    }
-  };
-}
-
-export function getNotificationServiceSummary(service: NotificationService) {
-  return {
-    provider: service.providerCode,
-    mode: service.mode,
-    external_delivery: false
-  };
+export function getNotificationServiceSummary(service: SmsProvider) {
+  return getSmsProviderSummary(service);
 }
