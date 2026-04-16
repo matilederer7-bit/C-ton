@@ -41,3 +41,11 @@ archive_temp/
 .demo_dist/
 archive/
 backups/
+
+.sixth/
+
+# explicit local runtime artifacts
+.tmp_browser*.html
+.tmp_*.png
+.tmp_*server*.log
+
