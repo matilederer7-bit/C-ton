@@ -851,7 +851,7 @@ async function loginSellerFromForm(form) {
     const payload = await api("/api/seller/session/login", {
       method: "POST",
       body: json({
-        seller_id: sellerId,
+        identifier: sellerId,
         access_code: accessCode
       })
     });
@@ -3134,6 +3134,17 @@ function defaultSellerContext() {
   };
 }
 
+function lockedSellerContext() {
+  return {
+    seller_id: "",
+    display_name: "נדרשת התחברות מוכר",
+    verification_status: "pending",
+    settlement_status: "review",
+    is_default_context: false,
+    context_source: "session_required"
+  };
+}
+
 function sellerAuthMode() {
   return (
     state.sellerAuth?.mode ||
@@ -3163,7 +3174,7 @@ function currentSellerAuth() {
 
 function readSellerContext() {
   if (!usesDemoSellerContext()) {
-    return state.sellerAuth?.seller_context || state.homePayload?.site?.seller_context || defaultSellerContext();
+    return state.sellerAuth?.seller_context || state.homePayload?.site?.seller_context || lockedSellerContext();
   }
   try {
     const parsed = JSON.parse(localStorage.getItem(SELLER_CONTEXT_KEY) || "null");

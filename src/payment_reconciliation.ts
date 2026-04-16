@@ -57,17 +57,28 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
       if (!participant.rowCount) return null;
 
       const row = participant.rows[0];
+      const inferredAttemptType =
+        String(row.money_state) === "ChargedSuccess" || String(row.money_state) === "RecoveredCharge" || String(row.money_state) === "Refunded"
+          ? "refund"
+          :
+        String(row.buyer_state) === "ChargeFailedCompletion" || String(row.money_state) === "ChargeFailedRecovery"
+          ? "recovery"
+          : "charge_start";
+      const latestAttempt = await c.query(
+        `SELECT correlation_id
+         FROM siton.payment_attempts
+         WHERE participant_id=$1
+           AND deal_id=$2
+           AND attempt_type=$3
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [row.participant_id, row.deal_id, inferredAttemptType]
+      );
       return {
         participant_id: row.participant_id,
         deal_id: row.deal_id,
-        attempt_type:
-          String(row.money_state) === "ChargedSuccess" || String(row.money_state) === "RecoveredCharge" || String(row.money_state) === "Refunded"
-            ? "refund"
-            :
-          String(row.buyer_state) === "ChargeFailedCompletion" || String(row.money_state) === "ChargeFailedRecovery"
-            ? "recovery"
-            : "charge_start",
-        correlation_id: event.correlation_id ?? null,
+        attempt_type: inferredAttemptType,
+        correlation_id: event.correlation_id ?? latestAttempt.rows[0]?.correlation_id ?? null,
         buyer_state: row.buyer_state,
         money_state: row.money_state
       } satisfies ReconciliationTarget;

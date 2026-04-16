@@ -7,6 +7,10 @@ import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import { enqueueNotification, flushPendingNotifications, type SmsProvider } from "./notification_dispatch.js";
+import {
+  enqueueInvoiceDocument, flushPendingDocuments, buildInvoiceProvider, getInvoiceProviderSummary,
+  isEligibleForChargeReceipt, isEligibleForRefundReceipt, reclaimStuckInvoiceDocuments, type InvoiceProvider
+} from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
@@ -722,6 +726,8 @@ async function applyPaymentWebhookClassification(args: {
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: refund issued
     await enqueueNotificationForParticipant("refund_issued", args.target.participant_id, args.target.deal_id).catch(() => undefined);
+    // Issue refund receipt document
+    await enqueueRefundReceiptForParticipant(args.target.participant_id, args.target.deal_id).catch(() => undefined);
   }
 }
 
@@ -1391,6 +1397,90 @@ async function enqueueParticipantNotifications(
   }
 }
 
+/**
+ * Enqueue a charge_receipt document for a participant who has reached DealCompleted.
+ * Eligibility: buyer_state must be DealCompleted (enforced by calling context).
+ * Non-fatal — errors are caught at call site.
+ */
+async function enqueueChargeReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
+  const row = await pool.query(
+    `SELECT p.qty, p.money_state,
+            d.title, d.price_per_unit, d.commission_rate,
+            COALESCE(aa.commission_amount, 0) AS affiliate_amount
+     FROM siton.participants p
+     JOIN siton.deals d ON d.deal_id = p.deal_id
+     LEFT JOIN siton.affiliate_attributions aa ON aa.participant_id = p.participant_id
+     WHERE p.participant_id = $1`,
+    [participantId]
+  );
+  if (!row.rowCount) return;
+  const r = row.rows[0] as {
+    qty: string; money_state: string; title: string;
+    price_per_unit: string; commission_rate: string; affiliate_amount: string;
+  };
+  const grossAmount = Number(r.qty) * Number(r.price_per_unit);
+  const commissionRate = Number(r.commission_rate);
+  const affiliateFeeAmount = Number(r.affiliate_amount);
+  const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
+  const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
+  await enqueueInvoiceDocument({
+    documentKey: `charge_receipt:${participantId}`,
+    documentType: "charge_receipt",
+    dealId,
+    participantId,
+    dealTitle: String(r.title || ""),
+    qty: Number(r.qty),
+    moneyStateAtIssue: String(r.money_state),
+    grossAmount,
+    sitonFeeAmount,
+    sellerNetAmount,
+    affiliateFeeAmount,
+    providerCode: invoiceProvider.providerCode
+  }, pool);
+}
+
+/**
+ * Enqueue a refund_receipt document for a participant whose money_state has become Refunded.
+ * Eligibility: money_state must be Refunded (enforced by calling context).
+ * Non-fatal — errors are caught at call site.
+ */
+async function enqueueRefundReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
+  const row = await pool.query(
+    `SELECT p.qty,
+            d.title, d.price_per_unit, d.commission_rate,
+            COALESCE(aa.commission_amount, 0) AS affiliate_amount
+     FROM siton.participants p
+     JOIN siton.deals d ON d.deal_id = p.deal_id
+     LEFT JOIN siton.affiliate_attributions aa ON aa.participant_id = p.participant_id
+     WHERE p.participant_id = $1`,
+    [participantId]
+  );
+  if (!row.rowCount) return;
+  const r = row.rows[0] as {
+    qty: string; title: string;
+    price_per_unit: string; commission_rate: string; affiliate_amount: string;
+  };
+  const grossAmount = Number(r.qty) * Number(r.price_per_unit);
+  const commissionRate = Number(r.commission_rate);
+  const affiliateFeeAmount = Number(r.affiliate_amount);
+  const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
+  const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
+  await enqueueInvoiceDocument({
+    documentKey: `refund_receipt:${participantId}`,
+    documentType: "refund_receipt",
+    dealId,
+    participantId,
+    dealTitle: String(r.title || ""),
+    qty: Number(r.qty),
+    moneyStateAtIssue: "Refunded",
+    grossAmount,
+    sitonFeeAmount,
+    sellerNetAmount,
+    affiliateFeeAmount,
+    providerCode: invoiceProvider.providerCode
+  }, pool);
+}
+
 async function handleFinalizeDealEvent(
   event: {
     event_uuid: string;
@@ -1497,6 +1587,10 @@ async function handleFinalizeDealEvent(
     const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
     await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
     await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
+    // Issue charge receipts for every DealCompleted participant (money settled, deal succeeded)
+    for (const p of completedParticipants) {
+      await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
+    }
     return;
   }
 
@@ -1684,11 +1778,11 @@ const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
 const RECLAIM_EVERY_N_POLLS = 10;
 
-async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvider) {
+async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvider, invoiceDocProvider: InvoiceProvider) {
   let pollCount = 0;
   while (true) {
     try {
-      // Periodically reclaim events that got stuck in 'processing' (e.g. after a crash).
+      // Periodically reclaim events/documents that got stuck in 'processing' (e.g. after a crash).
       if (pollCount % RECLAIM_EVERY_N_POLLS === 0) {
         const reclaimed = await reclaimStuckProcessing(WORKER_STUCK_TIMEOUT_MS).catch((e: unknown) => {
           app.log.error({ err: e }, "workerLoop: reclaimStuckProcessing failed");
@@ -1697,6 +1791,9 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
         if (reclaimed > 0) {
           app.log.warn({ reclaimed }, "workerLoop: reclaimed stuck processing events");
         }
+        await reclaimStuckInvoiceDocuments(pool, WORKER_STUCK_TIMEOUT_MS, app.log).catch((e: unknown) => {
+          app.log.error({ err: e }, "workerLoop: reclaimStuckInvoiceDocuments failed");
+        });
       }
       pollCount++;
 
@@ -1705,6 +1802,9 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
         // No outbox events — flush pending notifications then sleep
         await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
           app.log.error({ err: e }, "workerLoop: notification flush failed");
+        });
+        await flushPendingDocuments(pool, invoiceDocProvider, app.log).catch((e: unknown) => {
+          app.log.error({ err: e }, "workerLoop: invoice document flush failed");
         });
         await new Promise((r) => setTimeout(r, OUTBOX_POLL_MS));
         continue;
@@ -1732,9 +1832,12 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
         }
       }
 
-      // After processing the outbox batch, flush any pending notifications
+      // After processing the outbox batch, flush pending notifications and invoice documents
       await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
         app.log.error({ err: e }, "workerLoop: notification flush failed (post-batch)");
+      });
+      await flushPendingDocuments(pool, invoiceDocProvider, app.log).catch((e: unknown) => {
+        app.log.error({ err: e }, "workerLoop: invoice document flush failed (post-batch)");
       });
     } catch (e) {
       app.log.error({ err: e }, "workerLoop: batch-level error, retrying in 5s");
@@ -2321,12 +2424,14 @@ app.get("/debug/deals/:id", async (req: any) => {
 // This must happen before listen() so tests that import `app` see all routes.
 const paymentProvider = buildPaymentProvider();
 const notificationService = buildNotificationService();
+const invoiceProvider = buildInvoiceProvider();
 registerFrontendExperience(app, {
   withTx,
   paymentProvider,
   deploymentMode: APP_DEPLOYMENT_MODE,
   isDemoPreview: IS_DEMO_PREVIEW,
   notificationSummary: getNotificationServiceSummary(notificationService),
+  invoiceSummary: getInvoiceProviderSummary(invoiceProvider),
   debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1",
   getWorkerRunning: () => workerRunning,
   workerStuckTimeoutMs: WORKER_STUCK_TIMEOUT_MS,
@@ -2338,7 +2443,7 @@ let workerRunning = false;
 (async () => {
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;
-    workerLoop(app, notificationService).catch((e) => app.log.error(e));
+    workerLoop(app, notificationService, invoiceProvider).catch((e) => app.log.error(e));
   }
 
   await app.listen({ port: PORT, host: HOST });

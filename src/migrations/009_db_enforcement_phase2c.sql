@@ -12,7 +12,13 @@ BEGIN
   IF NEW.state IS DISTINCT FROM OLD.state THEN
     v_action := siton.require_action_name();
 
-    IF v_action IN ('deal.publish', 'charging.to_completion_window', 'charging.finalize_failed') THEN
+    IF v_action IN (
+      'deal.publish',
+      'charging.start',
+      'charging.to_completion_window',
+      'charging.finalize_failed',
+      'deal.cancel'
+    ) THEN
       IF NOT siton.flag_is_set('siton.outbox_written') THEN
         RAISE EXCEPTION 'deal state change requires outbox in same transaction. action=%', v_action;
       END IF;

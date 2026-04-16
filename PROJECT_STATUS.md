@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-14 (Wave 4b operational layer — reclaim precision + status endpoint)
+Last updated: 2026-04-16 (Invoice Queue Hardening Mini-Pack — reclaim, provider mode visibility, 5/5 tests)
 
 ## Canonical Status
 
@@ -344,8 +344,279 @@ and integration into all core business events.
 - Email delivery: template system supports email, but no email provider is wired (no email column in participants table yet)
 - `deal_cancelled` event: template exists, but the cancel flow triggers `refund_issue` (outbox) not a direct notification — covered by `refund_issued` instead
 - SMS delivery requires activating Twilio credentials (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`)
-- `oldest_notification_age_s` not yet surfaced in `/api/admin/outbox-status` (optional follow-up)
 - Cross-track note: `frontend_runtime.ts:227` has a compile error (`deps` out of scope in `readSellerSessionContext`) introduced by the parallel seller-auth agent — not in notification scope
+
+---
+
+## What Was Completed In Notification Ops Mini-Pack (2026-04-14)
+
+### Scope
+
+Thin operational layer on top of Track 2: admin visibility endpoint, targeted proof tests,
+and operations runbook.
+
+### What Was Delivered
+
+**`/api/admin/notifications-status` endpoint** (`src/frontend_runtime.ts`)
+- Returns aggregate counts by status (pending / processing / sent / failed / skipped / retryable)
+- Returns `unique_event_keys`, `oldest_pending_age_s`, `oldest_failed_age_s`
+- Returns per-channel breakdown (`by_channel` array)
+- Protected by `requireAdminKey`
+
+**Bug fix** (`src/notification_dispatch.ts`)
+- `flushPendingNotifications` was using a hardcoded `NOTIFICATION_MAX_ATTEMPTS = 3` constant instead
+  of the per-row `max_attempts` column when deciding if a failure is permanent
+- Fixed: added `max_attempts` to RETURNING clause; permanent-fail check now uses `row.max_attempts`
+
+**Proof tests** (`tests/notification_ops_proof.ts`, 4/4 PASS)
+
+| Test | Description | Result |
+|------|-------------|--------|
+| O1 | Exhausting `max_attempts` marks status=`failed`, never `sent` | PASS |
+| O2 | 10 concurrent enqueues for same `event_key` = exactly 1 DB row | PASS |
+| O3 | `/api/admin/notifications-status` returns correct bucket counts after known inserts | PASS |
+| O4 | Retry-then-succeed produces exactly 1 `sent` row, no duplicate | PASS |
+
+**Operations doc** (`docs/NOTIFICATIONS_OPERATIONS.md`)
+- Status field meanings
+- What a healthy system looks like
+- Admin endpoint reference with field-by-field guidance
+- SQL queries: find failed, find stuck-processing, reset stuck, find overdue pending
+- Retry backoff schedule
+- Provider mode reference
+- Event key format
+
+### Files Changed
+
+- `src/notification_dispatch.ts` — bug fix: per-row `max_attempts` respected in flush loop
+- `src/frontend_runtime.ts` — added `/api/admin/notifications-status` endpoint
+- `tests/notification_ops_proof.ts` — new: 4 targeted operational proof tests
+- `docs/NOTIFICATIONS_OPERATIONS.md` — new: operations runbook
+
+---
+
+## What Was Completed In Invoice / Accounting Groundwork (2026-04-16)
+
+### Scope
+
+Replace the placeholder invoice/receipt layer with a complete, production-grade
+document issuance groundwork: data model, idempotent enqueue, flush loop,
+eligibility rules, provider abstraction, event coverage, and proof tests.
+
+### What Was Delivered
+
+**`siton.invoice_documents` table** (`src/migrations/018_invoice_documents.sql`)
+- Per-document row with UNIQUE constraint on `document_key` — idempotency key format: `{document_type}:{participant_id}`
+- Status machine: `pending → processing → issued` or `→ failed`
+- Immutable business snapshot columns: `deal_title`, `qty`, `money_state_at_issue`, `gross_amount`, `siton_fee_amount`, `seller_net_amount`, `affiliate_fee_amount`
+- `provider_document_id` on success, `last_error` on failure
+- Per-row `max_attempts` — no hardcoded constant in flush logic
+- Exponential backoff: 30s / 90s / 270s
+
+**Provider abstraction** (`src/invoice_dispatch.ts`)
+- `InvoiceProvider` interface: `{providerCode, mode, issueDocument(input)}`
+- `LogOnlyInvoiceProvider` — default; logs to console, returns fake document ID, `mode='log-only'`
+- `buildInvoiceProvider()` factory — extend here to wire a real provider
+- `flushPendingDocuments(pool, provider)` — SKIP LOCKED claim, per-row max_attempts, permanent vs transient failure
+- `enqueueInvoiceDocument(params, db)` — ON CONFLICT DO NOTHING, returns `"queued" | "duplicate"`
+
+**Eligibility rules** (`src/invoice_dispatch.ts`)
+- `isEligibleForChargeReceipt(buyerState)` — true only for `DealCompleted`
+- `isEligibleForRefundReceipt(moneyState)` — true only for `Refunded`
+- Exported constants: `CHARGE_RECEIPT_ELIGIBLE_BUYER_STATES`, `REFUND_RECEIPT_ELIGIBLE_MONEY_STATES`
+
+**Event coverage** (`src/app.ts`)
+- `charge_receipt`: enqueued in `handleFinalizeDealEvent` Completed path for each `DealCompleted` participant
+- `refund_receipt`: enqueued in `applyPaymentWebhookClassification` for `refund_issued` webhook
+- Both are non-blocking (`.catch(() => undefined)`) — document failures cannot break business logic
+- `workerLoop` flushes pending documents after each outbox batch and on empty-batch sleep
+
+**Proof tests** (`tests/invoice_dispatch_proof.ts`, 8/8 PASS)
+
+| Test | Description | Result |
+|------|-------------|--------|
+| D1 | `enqueueInvoiceDocument` → DB row status=pending, returns "queued" | PASS |
+| D2 | Duplicate document_key → returns "duplicate", exactly 1 DB row | PASS |
+| D3 | Flush with log-only provider → status=issued, issued_at set, document_id set | PASS |
+| D4 | Flush with always-fail provider → transient failure, status=pending, last_error set | PASS |
+| D5 | Exhausting max_attempts (max=2) → status=failed, last_error=max_attempts_exceeded | PASS |
+| D6 | Retry-then-succeed → status=issued, exactly 1 row, no duplicate | PASS |
+| D7 | charge_receipt and refund_receipt for same participant → 2 distinct rows | PASS |
+| D8 | Eligibility helpers: correct states accepted and rejected | PASS |
+
+**Operations doc** (`docs/INVOICE_ACCOUNTING_GROUNDWORK.md`)
+
+### Eligibility Matrix
+
+| Participant State | charge_receipt | refund_receipt |
+|-------------------|---------------|----------------|
+| DealCompleted | YES | no |
+| Refunded | no | YES |
+| DealFailed | no | no |
+| Dropped | no | no |
+| ChargedSuccess (pre-completion) | no | no |
+| RecoveredCharge (pre-completion) | no | no |
+
+### Idempotency — No Duplicate Issuance
+
+- `INSERT ON CONFLICT DO NOTHING` on `document_key`
+- SKIP LOCKED in flush prevents concurrent double-processing
+- Per-row `max_attempts` prevents permanent-failure bypass
+- Business state machine ensures eligibility events fire exactly once per participant
+
+### Files Changed
+
+- `src/migrations/018_invoice_documents.sql` — new: invoice_documents table with status constraint + indexes
+- `src/invoice_dispatch.ts` — new: provider interface, LogOnly, enqueue, flush, eligibility helpers
+- `src/app.ts` — added import, two enqueue helpers, integration at charge_receipt + refund_receipt events, invoice flush in workerLoop, invoiceProvider startup
+- `scripts/init_db.sql` — added invoice_documents table
+- `tests/invoice_dispatch_proof.ts` — new: 8 proof tests
+- `docs/INVOICE_ACCOUNTING_GROUNDWORK.md` — new: groundwork reference doc
+
+### What Was Before
+
+- No `invoice_documents` table
+- Receipt IDs generated on-the-fly (`RCT-XXXX-XXXX`), not persisted, not tracked
+- `invoice_is_real: false` flag in frontend_runtime.ts
+- `receipts_invoices.state: "internal-surface-only"` in operational_readiness.ts
+- No duplicate prevention for document issuance
+- No provider abstraction for document generation
+- No retry or failure tracking
+
+### What Is Still Open (Invoice Track)
+
+- Real document provider (PDF generation, invoice SaaS, tax API) — `buildInvoiceProvider` is the extension point
+- Email delivery of issued document to buyer — no email column on participants yet
+- Admin visibility endpoint (`/api/admin/invoice-status`) — not built
+- Seller surface (`frontend_runtime.ts`) receipt rows still computed at runtime, not backed by this table
+- `invoice_is_real` flag in frontend_runtime.ts not yet updated to reflect partial reality
+- Tax / VAT fields — out of scope for groundwork
+
+---
+
+---
+
+## What Was Completed In Admin / Support Observability Mini-Pack (2026-04-16)
+
+### Scope
+
+Three targeted read-only admin endpoints adding observability over the three queue layers
+(outbox, notifications, invoice_documents). No auth redesign, no UI, no mutations.
+
+### What Was Delivered
+
+**`GET /api/admin/invoice-status`** (`src/frontend_runtime.ts`)
+- Returns per-status counts: pending / processing / issued / failed / skipped / retryable
+- Returns `unique_document_keys`, `oldest_pending_age_s`, `oldest_failed_age_s`
+- Returns per-type breakdown (`by_type` array: charge_receipt, refund_receipt)
+- Protected by `requireAdminKey`
+
+**`GET /api/admin/system-ops-status`** (`src/frontend_runtime.ts`)
+- Unified snapshot aggregating outbox + notifications + invoice_documents in one call
+- Per queue: pending count, failed count, oldest_pending_age_s
+- Outbox also: dlq count, stuck_candidates count
+- `worker_running` flag from `getWorkerRunning()` dep
+- One DB round-trip (4 queries in parallel via `Promise.all`)
+
+**`GET /api/admin/participants/:id/ops`** (`src/frontend_runtime.ts`)
+- Cross-system read surface for a single participant_id
+- Returns: participant state (buyer_state, money_state, deal reference)
+- Returns: notifications sent or pending (filtered by template_params->>participant_id)
+- Returns: invoice documents issued or pending (filtered by participant_id)
+- Returns: recent outbox events for participant's deal
+- Returns 404 for unknown participant_id
+- Read-only — no mutations
+
+**Proof tests** (`tests/admin_observability_proof.ts`, 6/6 PASS)
+
+| Test | Description | Result |
+|------|-------------|--------|
+| S1 | `/api/admin/invoice-status` returns correct counts after known inserts | PASS |
+| S2 | Failed invoice is NOT counted as issued (bucket isolation) | PASS |
+| S3 | `/api/admin/system-ops-status` returns all three queue buckets | PASS |
+| S4 | `/api/admin/participants/:id/ops` returns participant state + cross-system data | PASS |
+| S5 | `/api/admin/participants/:id/ops` returns 404 for unknown participant_id | PASS |
+| S6 | All endpoints return 200 on empty state (no crash) | PASS |
+
+**Operations doc** (`docs/ADMIN_SUPPORT_OBSERVABILITY.md`)
+- Full endpoint index with what each returns
+- Diagnostic flows: notification missing, document missing, deal stuck, queues growing
+- "Clean system" reference table
+
+### Admin Endpoint Inventory (Full, as of this pass)
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/admin/outbox-status` | GET | Outbox queue health |
+| `/api/admin/notifications-status` | GET | Notifications queue health |
+| `/api/admin/invoice-status` | GET | Invoice documents queue health ← NEW |
+| `/api/admin/system-ops-status` | GET | Unified three-queue snapshot ← NEW |
+| `/api/admin/participants/:id/ops` | GET | Cross-system participant read ← NEW |
+| `/api/admin/deals/:id/profile` | GET | Full deal support profile |
+| `/api/admin/users/:buyerId/profile` | GET | Buyer join history |
+| `/api/admin/system-status` | GET | System health and integrations |
+| `/api/admin/overview` | GET | Admin dashboard |
+
+### Files Changed
+
+- `src/frontend_runtime.ts` — added `/api/admin/invoice-status`, `/api/admin/system-ops-status`, `/api/admin/participants/:id/ops`
+- `tests/admin_observability_proof.ts` — new: 6 targeted proof tests
+- `docs/ADMIN_SUPPORT_OBSERVABILITY.md` — new: observability reference doc
+
+### What Is Still Open (Observability Track)
+
+- Per-deal cross-system summary endpoint — not built; use `deals/:id/profile` + manual queries
+
+---
+
+## What Was Completed In Invoice Queue Hardening Mini-Pack (2026-04-16)
+
+### Scope
+
+Three targeted hardening items closing the remaining gaps from the Observability Mini-Pack:
+stuck-processing reclaim, provider mode visibility, and proof of no-duplicate-after-reclaim.
+
+### What Was Delivered
+
+**`reclaimStuckInvoiceDocuments(pool, timeoutMs, logger)`** (`src/invoice_dispatch.ts`)
+- Resets rows stuck in `processing` (where `updated_at < now() - timeoutMs`) back to `pending`
+- Sets `last_error = COALESCE(last_error, 'worker_reclaim_after_restart')` — preserves existing error context
+- Wired into `workerLoop` in `src/app.ts` every `RECLAIM_EVERY_N_POLLS` cycles, alongside `reclaimStuckProcessing`
+- Atomic UPDATE — safe to call concurrently; SKIP LOCKED in flush prevents double-issuance after reclaim
+
+**Provider mode in `/api/admin/invoice-status`** (`src/frontend_runtime.ts`)
+- `invoice_documents.provider.{code, mode, external_issuance}` — surfaced from `deps.invoiceSummary`
+- `invoiceSummary` added to deps type; passed at startup via `getInvoiceProviderSummary(invoiceProvider)`
+
+**Provider mode in `/api/admin/notifications-status`** (`src/frontend_runtime.ts`)
+- `notifications.provider.{code, mode, external_delivery}` — surfaced from existing `deps.notificationSummary`
+
+**Proof tests** (`tests/invoice_queue_hardening_proof.ts`, 5/5 PASS)
+
+| Test | Description | Result |
+|------|-------------|--------|
+| H1 | Old processing document (2 min) is reclaimed to pending | PASS |
+| H2 | Recent processing document (5 sec) is NOT reclaimed | PASS |
+| H3 | Reclaimed document issues exactly once, no duplicate issuance | PASS |
+| H4 | `/api/admin/invoice-status` returns provider mode correctly | PASS |
+| H5 | `/api/admin/notifications-status` returns provider mode correctly | PASS |
+
+### Files Changed
+
+- `src/invoice_dispatch.ts` — added `reclaimStuckInvoiceDocuments`
+- `src/app.ts` — imported reclaim, wired into workerLoop, passed `invoiceSummary` to deps
+- `src/frontend_runtime.ts` — added `invoiceSummary` to deps type; provider mode in both status endpoints
+- `tests/invoice_queue_hardening_proof.ts` — new: 5 targeted proof tests
+- `docs/INVOICE_ACCOUNTING_GROUNDWORK.md` — updated: reclaim behaviour section, open items
+- `docs/ADMIN_SUPPORT_OBSERVABILITY.md` — updated: provider mode and reclaim gaps closed
+
+### What Is Still Open (Invoice/Observability Track)
+
+- Real document provider — `buildInvoiceProvider` is the extension point
+- Seller surface still uses runtime-computed receipts, not table-backed
+- Per-deal cross-system summary endpoint
+
+---
 
 ## What Is Still Open
 

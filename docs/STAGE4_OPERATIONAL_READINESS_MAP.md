@@ -18,13 +18,13 @@
 - Current mode options:
   `mock-backed`, `provider-ready`.
 - Real now:
-  provider selection, live authorization / capture / recovery transport in `provider-ready`, authorization contract boundary, payment attempt persistence, outbox scheduling, reconciliation flow.
+  provider selection, live authorization / capture / recovery / refund transport in `provider-ready`, authorization contract boundary, payment attempt persistence, outbox scheduling, and reconciliation flow.
 - Mock now:
   in `mock-backed`, authorization / capture / recovery / refund outcomes are simulated in-app.
 - Partial only:
-  in `provider-ready`, authorization / capture / recovery now run through real outbound HTTP transport when env exists, but refund is still placeholder and not truly live.
+  in `provider-ready`, the core money rail is live, but invoice/accounting and the broader external-finance envelope are still separate.
 - Env dependencies:
-  `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_AUTH_PATH`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_PROVIDER_TIMEOUT_MS`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
+  `PAYMENT_PROVIDER`, `PAYMENT_PROVIDER_MODE`, `PAYMENT_PROVIDER_BASE_URL`, `PAYMENT_PROVIDER_AUTH_PATH`, `PAYMENT_PROVIDER_CAPTURE_PATH`, `PAYMENT_PROVIDER_RECOVERY_PATH`, `PAYMENT_PROVIDER_REFUND_PATH`, `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYMENT_PROVIDER_TIMEOUT_MS`, `PAYMENT_WEBHOOK_PROVIDER`, `PAYMENT_WEBHOOK_SECRET`, `PAYMENT_AUTH_DECLINE_SUFFIX`.
 - Webhook secret policy:
   `demo-preview` may explicitly use the demo secret, but any non-demo runtime is now unsafe if `PAYMENT_WEBHOOK_SECRET` is missing or still equals `mock-webhook-secret`.
 - Readiness:
@@ -144,6 +144,7 @@
 - Added canonical webhook route alias: `/webhooks/payments`.
 - Added real provider-backed capture execution and webhook-truth state application for `provider-ready` non-demo runtime.
 - Added real provider-backed recovery execution and webhook-truth state application for `provider-ready` non-demo runtime.
+- Added real provider-backed refund execution and webhook-truth state application for `provider-ready` non-demo runtime.
 - Added structured `operational_readiness` summary to:
   `/health/integrations`
   `/api/preview/meta`

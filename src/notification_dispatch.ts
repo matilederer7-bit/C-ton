@@ -205,6 +205,7 @@ export async function flushPendingNotifications(
     recipient: string;
     template_params: Record<string, string>;
     attempt_count: number;
+    max_attempts: number;
     provider_code: string;
   }>(
     `UPDATE siton.notifications
@@ -217,7 +218,7 @@ export async function flushPendingNotifications(
        FOR UPDATE SKIP LOCKED
      )
      RETURNING notification_id, notification_event_type, channel, recipient,
-               template_params, attempt_count, provider_code`,
+               template_params, attempt_count, max_attempts, provider_code`,
     [NOTIFICATION_BATCH_SIZE]
   );
 
@@ -271,7 +272,7 @@ export async function flushPendingNotifications(
       const msg = err instanceof Error ? err.message : String(err);
       const attemptCount = row.attempt_count;
 
-      if (attemptCount >= NOTIFICATION_MAX_ATTEMPTS) {
+      if (attemptCount >= row.max_attempts) {
         // Exhausted retries — mark permanently failed
         await pool.query(
           `UPDATE siton.notifications

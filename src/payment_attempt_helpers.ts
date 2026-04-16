@@ -1,6 +1,6 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
-export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
+export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail" | "unknown";
 
 export type AttemptType =
   | "charge_start"

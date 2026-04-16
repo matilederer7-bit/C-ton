@@ -12,7 +12,6 @@ import {
   PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
   PAYMENT_WEBHOOK_SECRET_IS_SAFE,
   SELLER_AUTH_CONFIGURED,
-  SELLER_AUTH_CREDENTIALS,
   SELLER_AUTH_MODE,
   SELLER_SESSION_SECRET
 } from "./runtime_config.js";
@@ -28,14 +27,17 @@ import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
   SELLER_SESSION_COOKIE,
+  createSellerSessionToken,
+  hashSellerAccessSecret,
+  hashSellerSessionToken,
   SELLER_SESSION_TTL_SECONDS,
-  buildSellerSessionToken,
   normalizeSellerDisplayName,
   normalizeSellerId,
+  normalizeSellerLoginEmail,
   parseCookies,
-  readSellerSessionToken,
   serializeExpiredSellerSessionCookie,
-  serializeSellerSessionCookie
+  serializeSellerSessionCookie,
+  verifySellerAccessSecret
 } from "./seller_auth.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
@@ -139,10 +141,157 @@ async function ensureSellerAccount(c: any, sellerId: string, displayName?: strin
            ELSE siton.seller_accounts.display_name
          END,
          updated_at = now()
-     RETURNING seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at`,
+     RETURNING seller_id, display_name, login_email, auth_enabled, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at, last_login_at`,
     [normalizedSellerId, normalizedDisplayName, Boolean(displayName && String(displayName).trim())]
   );
   return result.rows[0] as any;
+}
+
+function requestClientIp(req: any) {
+  return String(req.ip || req.headers?.["x-forwarded-for"] || req.headers?.["x-real-ip"] || "").trim().slice(0, 120);
+}
+
+function requestUserAgent(req: any) {
+  return String(req.headers?.["user-agent"] || "").trim().slice(0, 240);
+}
+
+function mapSellerProfile(profile: any, contextSource: string) {
+  return {
+    seller_id: String(profile.seller_id),
+    display_name: String(profile.display_name || profile.seller_id),
+    login_email: profile.login_email ? String(profile.login_email) : null,
+    auth_enabled: Boolean(profile.auth_enabled),
+    verification_status: String(profile.verification_status || "approved"),
+    settlement_status: String(profile.settlement_status || "active"),
+    payout_method: String(profile.payout_method || "bank_transfer"),
+    payout_details_masked: String(profile.payout_details_masked || ""),
+    admin_note: String(profile.admin_note || ""),
+    created_at: String(profile.created_at || ""),
+    updated_at: String(profile.updated_at || ""),
+    last_login_at: profile.last_login_at ? String(profile.last_login_at) : null,
+    is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
+    context_source: contextSource
+  };
+}
+
+async function findSellerLoginAccount(c: any, identifier: string) {
+  const normalizedIdentifier = String(identifier || "").trim();
+  if (!normalizedIdentifier) return null;
+  const sellerId = normalizeSellerId(normalizedIdentifier);
+  const loginEmail = normalizeSellerLoginEmail(normalizedIdentifier);
+  const result = await c.query(
+    `SELECT seller_id, display_name, login_email, auth_secret_hash, auth_enabled,
+            verification_status, settlement_status, payout_method, payout_details_masked,
+            admin_note, created_at, updated_at, last_login_at
+     FROM siton.seller_accounts
+     WHERE seller_id = $1
+        OR ($2 <> '' AND lower(login_email) = $2)
+     LIMIT 1`,
+    [sellerId, loginEmail]
+  );
+  return result.rowCount ? (result.rows[0] as any) : null;
+}
+
+async function issueSellerSession(c: any, req: any, sellerProfile: any) {
+  const token = createSellerSessionToken();
+  const tokenHash = hashSellerSessionToken(token, SELLER_SESSION_SECRET);
+  const expiresAt = new Date(Date.now() + SELLER_SESSION_TTL_SECONDS * 1000).toISOString();
+  const ip = requestClientIp(req);
+  const userAgent = requestUserAgent(req);
+  const session = await c.query(
+    `INSERT INTO siton.seller_sessions (
+       seller_id, token_hash, expires_at, last_seen_at, created_ip, created_user_agent
+     )
+     VALUES ($1, $2, $3, now(), $4, $5)
+     RETURNING session_id, expires_at, last_seen_at`,
+    [String(sellerProfile.seller_id), tokenHash, expiresAt, ip, userAgent]
+  );
+  await c.query(
+    `UPDATE siton.seller_accounts
+     SET last_login_at = now(),
+         last_login_ip = $2,
+         last_login_user_agent = $3,
+         updated_at = now()
+     WHERE seller_id = $1`,
+    [String(sellerProfile.seller_id), ip, userAgent]
+  );
+  return {
+    token,
+    session_id: String(session.rows[0].session_id),
+    expires_at: String(session.rows[0].expires_at),
+    last_seen_at: String(session.rows[0].last_seen_at)
+  };
+}
+
+async function readSellerSessionContext(req: any, c: any) {
+  if (deps.isDemoPreview) return null;
+  if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) return null;
+  const cookies = parseCookies(req.headers?.cookie);
+  const rawToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
+  const tokenHash = hashSellerSessionToken(rawToken, SELLER_SESSION_SECRET);
+  if (!tokenHash) return null;
+
+  const result = await c.query(
+    `SELECT s.session_id,
+            s.expires_at,
+            s.last_seen_at,
+            a.seller_id,
+            a.display_name,
+            a.login_email,
+            a.auth_enabled,
+            a.verification_status,
+            a.settlement_status,
+            a.payout_method,
+            a.payout_details_masked,
+            a.admin_note,
+            a.created_at,
+            a.updated_at,
+            a.last_login_at
+     FROM siton.seller_sessions s
+     JOIN siton.seller_accounts a ON a.seller_id = s.seller_id
+     WHERE s.token_hash = $1
+       AND s.revoked_at IS NULL
+       AND s.expires_at > now()
+       AND a.auth_enabled = true
+     LIMIT 1`,
+    [tokenHash]
+  );
+  if (!result.rowCount) return null;
+
+  const row = result.rows[0] as any;
+  const lastSeenAt = row.last_seen_at ? new Date(String(row.last_seen_at)).getTime() : 0;
+  if (!Number.isFinite(lastSeenAt) || Date.now() - lastSeenAt > 60_000) {
+    await c.query(
+      `UPDATE siton.seller_sessions
+       SET last_seen_at = now()
+       WHERE session_id = $1`,
+      [String(row.session_id)]
+    );
+    row.last_seen_at = new Date().toISOString();
+  }
+
+  return {
+    ...mapSellerProfile(row, "server_session"),
+    session_id: String(row.session_id),
+    expires_at: String(row.expires_at),
+    last_seen_at: String(row.last_seen_at)
+  };
+}
+
+async function revokeSellerSession(c: any, req: any, reason: string) {
+  if (!SELLER_SESSION_SECRET) return;
+  const cookies = parseCookies(req.headers?.cookie);
+  const rawToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
+  const tokenHash = hashSellerSessionToken(rawToken, SELLER_SESSION_SECRET);
+  if (!tokenHash) return;
+  await c.query(
+    `UPDATE siton.seller_sessions
+     SET revoked_at = now(),
+         revoked_reason = $2
+     WHERE token_hash = $1
+       AND revoked_at IS NULL`,
+    [tokenHash, String(reason || "logout").slice(0, 120)]
+  );
 }
 
 async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
@@ -408,6 +557,11 @@ export function registerFrontendExperience(
       mode: string;
       external_delivery: boolean;
     };
+    invoiceSummary?: {
+      provider: string;
+      mode: string;
+      external_issuance: boolean;
+    };
     debugSurfacesEnabled?: boolean;
     /** Returns current workerRunning flag so the outbox-status endpoint can surface it. */
     getWorkerRunning?: () => boolean;
@@ -523,10 +677,14 @@ export function registerFrontendExperience(
         ? {
             seller_id: sellerContext.seller_id,
             display_name: sellerContext.display_name,
+            login_email: sellerContext.login_email ?? null,
             verification_status: sellerContext.verification_status,
             settlement_status: sellerContext.settlement_status,
             is_default_context: sellerContext.is_default_context,
-            context_source: sellerContext.context_source
+            context_source: sellerContext.context_source,
+            session_id: sellerContext.session_id ?? null,
+            expires_at: sellerContext.expires_at ?? null,
+            last_seen_at: sellerContext.last_seen_at ?? null
           }
         : null
     };
@@ -551,41 +709,6 @@ export function registerFrontendExperience(
       error: "seller_context_switch_disabled",
       message: "manual seller context switching is disabled outside demo-preview"
     });
-  }
-
-  async function readSellerSessionContext(req: any, c: any) {
-    if (deps.isDemoPreview) return null;
-    if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) return null;
-    const cookies = parseCookies(req.headers?.cookie);
-    const session = readSellerSessionToken(cookies[SELLER_SESSION_COOKIE], SELLER_SESSION_SECRET);
-    if (!session) return null;
-
-    const existing = await c.query(
-      `SELECT seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at
-       FROM siton.seller_accounts
-       WHERE seller_id = $1
-       LIMIT 1`,
-      [session.seller_id]
-    );
-
-    const profile =
-      existing.rowCount
-        ? existing.rows[0]
-        : await ensureSellerAccount(c, session.seller_id, session.display_name);
-
-    return {
-      seller_id: String(profile.seller_id),
-      display_name: String(profile.display_name || profile.seller_id),
-      verification_status: String(profile.verification_status || "approved"),
-      settlement_status: String(profile.settlement_status || "active"),
-      payout_method: String(profile.payout_method || "bank_transfer"),
-      payout_details_masked: String(profile.payout_details_masked || ""),
-      admin_note: String(profile.admin_note || ""),
-      created_at: String(profile.created_at || ""),
-      updated_at: String(profile.updated_at || ""),
-      is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
-      context_source: "server_session"
-    };
   }
 
   async function resolveOptionalSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
@@ -667,42 +790,47 @@ export function registerFrontendExperience(
       return rejectSellerAuthUnavailable(reply);
     }
 
-    const sellerId = normalizeSellerId(req.body?.seller_id);
-    const accessCode = String(req.body?.access_code || "").trim();
-    const credential = SELLER_AUTH_CREDENTIALS.find((row) => row.seller_id === sellerId);
-    if (!credential || !accessCode || accessCode !== credential.access_code) {
-      return reply.code(401).send({
-        ok: false,
-        error: "seller_auth_invalid_credentials",
-        message: "seller id or access code is invalid"
-      });
-    }
-
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
-      const profile = await ensureSellerAccount(c, credential.seller_id, credential.display_name);
-      const sessionPayload = {
-        seller_id: String(profile.seller_id),
-        display_name: String(profile.display_name || profile.seller_id),
-        iat: Date.now(),
-        exp: Date.now() + SELLER_SESSION_TTL_SECONDS * 1000
+      const identifier = String(req.body?.identifier || req.body?.seller_id || req.body?.login_email || "").trim();
+      const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
+      const sellerAccount = await findSellerLoginAccount(c, identifier);
+      if (!sellerAccount || !sellerAccount.auth_enabled || !verifySellerAccessSecret(accessCode, sellerAccount.auth_secret_hash)) {
+        return reply.code(401).send({
+          ok: false,
+          error: "seller_auth_invalid_credentials",
+          message: "seller identifier or password is invalid"
+        });
+      }
+      if (String(sellerAccount.verification_status || "") === "rejected" || String(sellerAccount.settlement_status || "") === "hold") {
+        return reply.code(403).send({
+          ok: false,
+          error: "seller_auth_blocked",
+          message: "seller account is blocked from login"
+        });
+      }
+      const session = await issueSellerSession(c, req, sellerAccount);
+      reply.header("set-cookie", serializeSellerSessionCookie(session.token, SELLER_SESSION_TTL_SECONDS));
+      const sellerContext = {
+        ...mapSellerProfile(sellerAccount, "server_session"),
+        session_id: session.session_id,
+        expires_at: session.expires_at,
+        last_seen_at: session.last_seen_at
       };
-      const token = buildSellerSessionToken(sessionPayload, SELLER_SESSION_SECRET);
-      reply.header("set-cookie", serializeSellerSessionCookie(token, SELLER_SESSION_TTL_SECONDS));
       return {
         ok: true,
-        seller_auth: sellerAuthSummary({
-          ...sessionPayload,
-          verification_status: String(profile.verification_status || "approved"),
-          settlement_status: String(profile.settlement_status || "active"),
-          is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
-          context_source: "server_session"
-        })
+        seller_auth: sellerAuthSummary(sellerContext)
       };
     });
   });
 
-  app.post("/api/seller/session/logout", async (_req: any, reply: any) => {
+  app.post("/api/seller/session/logout", async (req: any, reply: any) => {
+    if (!deps.isDemoPreview && SELLER_AUTH_CONFIGURED) {
+      await deps.withTx(async (c) => {
+        await ensureProductSurfaces();
+        await revokeSellerSession(c, req, "logout");
+      });
+    }
     reply.header("set-cookie", serializeExpiredSellerSessionCookie());
     return {
       ok: true,
@@ -1628,6 +1756,59 @@ export function registerFrontendExperience(
     });
   });
 
+  app.post("/api/admin/seller-auth/:sellerId/provision", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    const sellerId = normalizeSellerId(req.params?.sellerId);
+    const displayName = normalizeSellerDisplayName(req.body?.display_name, sellerId);
+    const loginEmail = String(req.body?.login_email || "").trim();
+    const normalizedLoginEmail = loginEmail ? normalizeSellerLoginEmail(loginEmail) : "";
+    if (loginEmail && !normalizedLoginEmail) {
+      const err: any = new Error("login_email is invalid");
+      err.statusCode = 400;
+      throw err;
+    }
+    const enableAuth = req.body?.auth_enabled === undefined ? true : Boolean(req.body?.auth_enabled);
+    const accessCode = String(req.body?.access_code || "").trim();
+    if (enableAuth && !accessCode) {
+      const err: any = new Error("access_code is required when enabling seller auth");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      const profile = await ensureSellerAccount(c, sellerId, displayName);
+      const nextSecretHash = enableAuth ? hashSellerAccessSecret(accessCode) : null;
+      const updated = await c.query(
+        `UPDATE siton.seller_accounts
+         SET login_email = NULLIF($2, ''),
+             auth_secret_hash = $3,
+             auth_enabled = $4,
+             auth_secret_updated_at = CASE WHEN $3 IS NULL THEN auth_secret_updated_at ELSE now() END,
+             updated_at = now()
+         WHERE seller_id = $1
+         RETURNING seller_id, display_name, login_email, auth_enabled, verification_status, settlement_status,
+                   payout_method, payout_details_masked, admin_note, created_at, updated_at, last_login_at`,
+        [String(profile.seller_id), normalizedLoginEmail, nextSecretHash, enableAuth]
+      );
+      await c.query(
+        `UPDATE siton.seller_sessions
+         SET revoked_at = now(),
+             revoked_reason = $2
+         WHERE seller_id = $1
+           AND revoked_at IS NULL`,
+        [String(profile.seller_id), enableAuth ? "credentials_rotated" : "auth_disabled"]
+      );
+      return {
+        ok: true,
+        seller_auth_subject: {
+          ...mapSellerProfile(updated.rows[0], "admin_provisioned"),
+          sessions_revoked: true
+        }
+      };
+    });
+  });
+
   app.get("/api/admin/system-status", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
@@ -1734,6 +1915,261 @@ export function registerFrontendExperience(
     });
   });
 
+  // ── Notifications operational status ──────────────────────────────────────
+  // Returns per-status counts, oldest ages, unique event_key count, channel breakdown.
+  // Safe for dashboards and post-restart health checks.
+  app.get("/api/admin/notifications-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    return deps.withTx(async (c) => {
+      const [totals, channels] = await Promise.all([
+        c.query(
+          `SELECT
+             COUNT(*)                                                  FILTER (WHERE status='pending')    AS pending_count,
+             COUNT(*)                                                  FILTER (WHERE status='processing') AS processing_count,
+             COUNT(*)                                                  FILTER (WHERE status='sent')       AS sent_count,
+             COUNT(*)                                                  FILTER (WHERE status='failed')     AS failed_count,
+             COUNT(*)                                                  FILTER (WHERE status='skipped')    AS skipped_count,
+             COUNT(*)                                                  FILTER (WHERE status='pending' AND attempt_count > 0) AS retryable_count,
+             COUNT(DISTINCT event_key)                                                                   AS unique_event_keys,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at)            FILTER (WHERE status='pending')))  AS oldest_pending_age_s,
+             EXTRACT(EPOCH FROM (now() - MIN(updated_at)              FILTER (WHERE status='failed')))   AS oldest_failed_age_s
+           FROM siton.notifications`
+        ),
+        c.query(
+          `SELECT channel,
+                  COUNT(*)                          FILTER (WHERE status='pending') AS pending,
+                  COUNT(*)                          FILTER (WHERE status='sent')    AS sent,
+                  COUNT(*)                          FILTER (WHERE status='failed')  AS failed
+           FROM siton.notifications
+           GROUP BY channel
+           ORDER BY channel`
+        )
+      ]);
+      const t = totals.rows[0];
+      return {
+        ok: true,
+        notifications: {
+          pending:           Number(t.pending_count    ?? 0),
+          processing:        Number(t.processing_count ?? 0),
+          sent:              Number(t.sent_count        ?? 0),
+          failed:            Number(t.failed_count      ?? 0),
+          skipped:           Number(t.skipped_count     ?? 0),
+          retryable:         Number(t.retryable_count   ?? 0),
+          unique_event_keys: Number(t.unique_event_keys ?? 0),
+          oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
+          oldest_failed_age_s:  t.oldest_failed_age_s  != null ? Number(Number(t.oldest_failed_age_s).toFixed(1))  : null,
+          provider: { code: deps.notificationSummary.provider, mode: deps.notificationSummary.mode, external_delivery: deps.notificationSummary.external_delivery }
+        },
+        by_channel: channels.rows.map((r: any) => ({
+          channel: String(r.channel),
+          pending: Number(r.pending ?? 0),
+          sent:    Number(r.sent    ?? 0),
+          failed:  Number(r.failed  ?? 0)
+        }))
+      };
+    });
+  });
+
+  // ── Invoice documents operational status ─────────────────────────────────
+  // Returns per-status counts, oldest ages, unique document_key count, type breakdown.
+  // Mirrors notifications-status structure. Safe for dashboards and post-restart checks.
+  app.get("/api/admin/invoice-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    return deps.withTx(async (c) => {
+      const [totals, byType] = await Promise.all([
+        c.query(
+          `SELECT
+             COUNT(*)                                                   FILTER (WHERE status='pending')    AS pending_count,
+             COUNT(*)                                                   FILTER (WHERE status='processing') AS processing_count,
+             COUNT(*)                                                   FILTER (WHERE status='issued')     AS issued_count,
+             COUNT(*)                                                   FILTER (WHERE status='failed')     AS failed_count,
+             COUNT(*)                                                   FILTER (WHERE status='skipped')    AS skipped_count,
+             COUNT(*)                                                   FILTER (WHERE status='pending' AND attempt_count > 0) AS retryable_count,
+             COUNT(DISTINCT document_key)                                                                  AS unique_document_keys,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at)             FILTER (WHERE status='pending')))  AS oldest_pending_age_s,
+             EXTRACT(EPOCH FROM (now() - MIN(updated_at)               FILTER (WHERE status='failed')))   AS oldest_failed_age_s
+           FROM siton.invoice_documents`
+        ),
+        c.query(
+          `SELECT document_type,
+                  COUNT(*)          FILTER (WHERE status='pending')  AS pending,
+                  COUNT(*)          FILTER (WHERE status='issued')   AS issued,
+                  COUNT(*)          FILTER (WHERE status='failed')   AS failed
+           FROM siton.invoice_documents
+           GROUP BY document_type
+           ORDER BY document_type`
+        )
+      ]);
+      const t = totals.rows[0];
+      return {
+        ok: true,
+        invoice_documents: {
+          pending:              Number(t.pending_count    ?? 0),
+          processing:           Number(t.processing_count ?? 0),
+          issued:               Number(t.issued_count     ?? 0),
+          failed:               Number(t.failed_count     ?? 0),
+          skipped:              Number(t.skipped_count    ?? 0),
+          retryable:            Number(t.retryable_count  ?? 0),
+          unique_document_keys: Number(t.unique_document_keys ?? 0),
+          oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
+          oldest_failed_age_s:  t.oldest_failed_age_s  != null ? Number(Number(t.oldest_failed_age_s).toFixed(1))  : null,
+          provider: deps.invoiceSummary
+            ? { code: deps.invoiceSummary.provider, mode: deps.invoiceSummary.mode, external_issuance: deps.invoiceSummary.external_issuance }
+            : null
+        },
+        by_type: byType.rows.map((r: any) => ({
+          document_type: String(r.document_type),
+          pending: Number(r.pending ?? 0),
+          issued:  Number(r.issued  ?? 0),
+          failed:  Number(r.failed  ?? 0)
+        }))
+      };
+    });
+  });
+
+  // ── Unified system ops status ─────────────────────────────────────────────
+  // Single endpoint aggregating outbox + notifications + invoice pending/failed
+  // counts and oldest ages. One read-only call gives full operational picture.
+  app.get("/api/admin/system-ops-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    return deps.withTx(async (c) => {
+      const [outboxRow, dlqRow, notifRow, invoiceRow] = await Promise.all([
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE status='pending')    AS pending,
+             COUNT(*) FILTER (WHERE status='processing') AS processing,
+             COUNT(*) FILTER (WHERE status='failed')     AS failed,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s,
+             COUNT(*) FILTER (WHERE status='processing'
+                              AND (processing_started_at IS NULL
+                                   OR processing_started_at < now() - '60 seconds'::interval)) AS stuck_candidates
+           FROM siton.outbox_events`
+        ),
+        c.query(`SELECT COUNT(*) AS dlq FROM siton.outbox_dlq`),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE status='pending') AS pending,
+             COUNT(*) FILTER (WHERE status='failed')  AS failed,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.notifications`
+        ),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE status='pending') AS pending,
+             COUNT(*) FILTER (WHERE status='failed')  AS failed,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.invoice_documents`
+        )
+      ]);
+      const o = outboxRow.rows[0];
+      const n = notifRow.rows[0];
+      const inv = invoiceRow.rows[0];
+      const workerRunning = typeof deps.getWorkerRunning === "function" ? deps.getWorkerRunning() : null;
+      return {
+        ok: true,
+        worker_running: workerRunning,
+        outbox: {
+          pending:    Number(o.pending    ?? 0),
+          processing: Number(o.processing ?? 0),
+          failed:     Number(o.failed     ?? 0),
+          dlq:        Number(dlqRow.rows[0].dlq ?? 0),
+          oldest_pending_age_s: o.oldest_pending_age_s != null ? Number(Number(o.oldest_pending_age_s).toFixed(1)) : null,
+          stuck_candidates: Number(o.stuck_candidates ?? 0)
+        },
+        notifications: {
+          pending: Number(n.pending ?? 0),
+          failed:  Number(n.failed  ?? 0),
+          oldest_pending_age_s: n.oldest_pending_age_s != null ? Number(Number(n.oldest_pending_age_s).toFixed(1)) : null
+        },
+        invoice_documents: {
+          pending: Number(inv.pending ?? 0),
+          failed:  Number(inv.failed  ?? 0),
+          oldest_pending_age_s: inv.oldest_pending_age_s != null ? Number(Number(inv.oldest_pending_age_s).toFixed(1)) : null
+        }
+      };
+    });
+  });
+
+  // ── Participant ops read surface ──────────────────────────────────────────
+  // Cross-system read-only view for a single participant:
+  //   - participant state (buyer_state, money_state) and deal reference
+  //   - notifications sent or pending for this participant
+  //   - invoice documents issued or pending for this participant
+  //   - recent outbox events for this participant's deal
+  // Use this to diagnose why a participant did not receive a document or notification.
+  app.get("/api/admin/participants/:id/ops", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const participantId = String(req.params.id || "").trim();
+    requireUuid(participantId, "participant_id");
+    return deps.withTx(async (c) => {
+      const [participantRow, notifications, invoiceDocs, outboxEvents] = await Promise.all([
+        c.query(
+          `SELECT p.participant_id, p.deal_id, p.buyer_id, p.qty,
+                  p.buyer_state, p.money_state, p.created_at,
+                  d.title AS deal_title, d.state AS deal_state
+           FROM siton.participants p
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           WHERE p.participant_id = $1`,
+          [participantId]
+        ),
+        c.query(
+          `SELECT event_key, notification_event_type, channel, status,
+                  attempt_count, last_error, sent_at, provider_message_id, created_at
+           FROM siton.notifications
+           WHERE template_params->>'participant_id' = $1
+           ORDER BY created_at DESC
+           LIMIT 20`,
+          [participantId]
+        ),
+        c.query(
+          `SELECT document_key, document_type, status, attempt_count,
+                  provider_document_id, last_error, issued_at,
+                  gross_amount, money_state_at_issue, created_at
+           FROM siton.invoice_documents
+           WHERE participant_id = $1
+           ORDER BY created_at DESC
+           LIMIT 10`,
+          [participantId]
+        ),
+        c.query(
+          `SELECT oe.event_type, oe.aggregate_type, oe.aggregate_id,
+                  oe.status, oe.attempt_count, oe.last_error, oe.created_at
+           FROM siton.outbox_events oe
+           JOIN siton.participants p ON p.deal_id = oe.aggregate_id
+           WHERE p.participant_id = $1
+           ORDER BY oe.created_at DESC
+           LIMIT 20`,
+          [participantId]
+        )
+      ]);
+
+      if (!participantRow.rowCount) {
+        const err: any = new Error("participant not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const p = participantRow.rows[0];
+      return {
+        ok: true,
+        participant: {
+          participant_id: p.participant_id,
+          deal_id: p.deal_id,
+          buyer_id: p.buyer_id,
+          qty: p.qty,
+          buyer_state: p.buyer_state,
+          money_state: p.money_state,
+          deal_title: p.deal_title,
+          deal_state: p.deal_state,
+          created_at: p.created_at
+        },
+        notifications: notifications.rows,
+        invoice_documents: invoiceDocs.rows,
+        outbox_events_for_deal: outboxEvents.rows
+      };
+    });
+  });
+
   app.get("/api/admin/deals/:id/profile", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const dealId = String(req.params.id);
@@ -1820,6 +2256,153 @@ export function registerFrontendExperience(
           delivery: deliveries.rows,
           affiliate_attributions: attributions.rows,
           support_tickets: tickets.rows
+        }
+      };
+    });
+  });
+
+  // ── Per-deal cross-system ops summary ────────────────────────────────────
+  // Read-only. Aggregates participant states, notifications, invoice_documents,
+  // and outbox events for a single deal. Use this to get a full operational
+  // picture of one deal without running multiple queries manually.
+  app.get("/api/admin/deals/:id/ops-summary", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const dealId = String(req.params.id || "").trim();
+    requireUuid(dealId, "deal_id");
+    return deps.withTx(async (c) => {
+      const dealRow = await c.query(
+        `SELECT deal_id, state, title FROM siton.deals WHERE deal_id=$1`,
+        [dealId]
+      );
+      if (!dealRow.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const [participantsResult, notifResult, invoiceResult, outboxResult] = await Promise.all([
+        c.query(
+          `SELECT buyer_state, COUNT(*) AS cnt
+           FROM siton.participants
+           WHERE deal_id=$1
+           GROUP BY buyer_state`,
+          [dealId]
+        ),
+        c.query(
+          `SELECT channel,
+                  COUNT(*) FILTER (WHERE status='pending')    AS pending,
+                  COUNT(*) FILTER (WHERE status='processing') AS processing,
+                  COUNT(*) FILTER (WHERE status='sent')       AS sent,
+                  COUNT(*) FILTER (WHERE status='failed')     AS failed,
+                  EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.notifications
+           WHERE template_params->>'deal_id' = $1
+           GROUP BY channel
+           ORDER BY channel`,
+          [dealId]
+        ),
+        c.query(
+          `SELECT document_type,
+                  COUNT(*) FILTER (WHERE status='pending')    AS pending,
+                  COUNT(*) FILTER (WHERE status='processing') AS processing,
+                  COUNT(*) FILTER (WHERE status='issued')     AS issued,
+                  COUNT(*) FILTER (WHERE status='failed')     AS failed,
+                  EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.invoice_documents
+           WHERE deal_id=$1
+           GROUP BY document_type
+           ORDER BY document_type`,
+          [dealId]
+        ),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE status='pending')    AS pending,
+                  COUNT(*) FILTER (WHERE status='processing') AS processing,
+                  COUNT(*) FILTER (WHERE status='sent')       AS sent,
+                  COUNT(*) FILTER (WHERE status='failed')     AS failed,
+                  EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.outbox_events
+           WHERE aggregate_id = $1
+              OR aggregate_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1)`,
+          [dealId]
+        )
+      ]);
+
+      const deal = dealRow.rows[0];
+
+      // Participants by buyer_state
+      const byState: Record<string, number> = {};
+      let totalParticipants = 0;
+      for (const r of participantsResult.rows) {
+        byState[String(r.buyer_state)] = Number(r.cnt);
+        totalParticipants += Number(r.cnt);
+      }
+
+      // Notifications totals + by_channel
+      let nPending = 0, nSent = 0, nFailed = 0, nProcessing = 0;
+      for (const r of notifResult.rows) {
+        nPending     += Number(r.pending     ?? 0);
+        nSent        += Number(r.sent        ?? 0);
+        nFailed      += Number(r.failed      ?? 0);
+        nProcessing  += Number(r.processing  ?? 0);
+      }
+
+      // Invoice documents totals + by_type
+      let iPending = 0, iIssued = 0, iFailed = 0, iProcessing = 0;
+      for (const r of invoiceResult.rows) {
+        iPending    += Number(r.pending    ?? 0);
+        iIssued     += Number(r.issued     ?? 0);
+        iFailed     += Number(r.failed     ?? 0);
+        iProcessing += Number(r.processing ?? 0);
+      }
+
+      const ob = outboxResult.rows[0];
+
+      return {
+        ok: true,
+        deal: {
+          deal_id: String(deal.deal_id),
+          state:   String(deal.state),
+          title:   String(deal.title || "")
+        },
+        participants: {
+          total:    totalParticipants,
+          by_state: byState
+        },
+        notifications: {
+          pending:    nPending,
+          processing: nProcessing,
+          sent:       nSent,
+          failed:     nFailed,
+          by_channel: notifResult.rows.map((r: any) => ({
+            channel:  String(r.channel),
+            pending:  Number(r.pending    ?? 0),
+            sent:     Number(r.sent       ?? 0),
+            failed:   Number(r.failed     ?? 0),
+            oldest_pending_age_s: r.oldest_pending_age_s != null
+              ? Number(Number(r.oldest_pending_age_s).toFixed(1)) : null
+          }))
+        },
+        invoice_documents: {
+          pending:    iPending,
+          processing: iProcessing,
+          issued:     iIssued,
+          failed:     iFailed,
+          by_type: invoiceResult.rows.map((r: any) => ({
+            document_type: String(r.document_type),
+            pending:  Number(r.pending ?? 0),
+            issued:   Number(r.issued  ?? 0),
+            failed:   Number(r.failed  ?? 0),
+            oldest_pending_age_s: r.oldest_pending_age_s != null
+              ? Number(Number(r.oldest_pending_age_s).toFixed(1)) : null
+          }))
+        },
+        outbox: {
+          pending:    Number(ob.pending    ?? 0),
+          processing: Number(ob.processing ?? 0),
+          sent:       Number(ob.sent       ?? 0),
+          failed:     Number(ob.failed     ?? 0),
+          oldest_pending_age_s: ob.oldest_pending_age_s != null
+            ? Number(Number(ob.oldest_pending_age_s).toFixed(1)) : null
         }
       };
     });

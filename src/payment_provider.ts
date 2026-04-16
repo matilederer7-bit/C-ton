@@ -703,7 +703,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
             provider_reference:
               String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
             correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
-            reconciliation_event_type: retryable ? null : reconciliationEventType ?? "recovery_failed"
+            reconciliation_event_type: retryable ? null : reconciliationEventType
           };
         }
 
@@ -715,7 +715,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           provider_reference:
             String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
           correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
-          reconciliation_event_type: reconciliationEventType ?? "recovery_captured"
+          reconciliation_event_type: reconciliationEventType
         };
       } catch {
         return {
