@@ -1,6 +1,6 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-16 (Invoice Queue Hardening Mini-Pack — reclaim, provider mode visibility, 5/5 tests)
+Last updated: 2026-04-16 (Per-deal Cross-System Ops Summary Mini-Pack — /api/admin/deals/:id/ops-summary, 6/6 tests)
 
 ## Canonical Status
 
@@ -552,6 +552,7 @@ Three targeted read-only admin endpoints adding observability over the three que
 | `/api/admin/invoice-status` | GET | Invoice documents queue health ← NEW |
 | `/api/admin/system-ops-status` | GET | Unified three-queue snapshot ← NEW |
 | `/api/admin/participants/:id/ops` | GET | Cross-system participant read ← NEW |
+| `/api/admin/deals/:id/ops-summary` | GET | Per-deal cross-system ops counts ← NEW (Ops Summary Pack) |
 | `/api/admin/deals/:id/profile` | GET | Full deal support profile |
 | `/api/admin/users/:buyerId/profile` | GET | Buyer join history |
 | `/api/admin/system-status` | GET | System health and integrations |
@@ -614,7 +615,59 @@ stuck-processing reclaim, provider mode visibility, and proof of no-duplicate-af
 
 - Real document provider — `buildInvoiceProvider` is the extension point
 - Seller surface still uses runtime-computed receipts, not table-backed
-- Per-deal cross-system summary endpoint
+- Per-deal cross-system summary endpoint — **closed in Per-deal Ops Summary Mini-Pack below**
+
+---
+
+## What Was Completed In Per-deal Cross-System Ops Summary Mini-Pack (2026-04-16)
+
+### Scope
+
+Single endpoint giving a complete operational picture for one deal across all four
+queue layers: participants, notifications, invoice_documents, and outbox.
+
+### What Was Delivered
+
+**`GET /api/admin/deals/:id/ops-summary`** (`src/frontend_runtime.ts`)
+- Returns deal identity: `deal_id`, `state`, `title`
+- Returns participant counts: `total` and `by_state` map (all buyer_state values present in the deal)
+- Returns notification counts: `pending / processing / sent / failed` + `by_channel` array
+  - `by_channel`: per-channel counts with `oldest_pending_age_s`
+  - Filtered via `template_params->>'deal_id'` (JSONB — notifications table has no direct deal_id column)
+- Returns invoice document counts: `pending / processing / issued / failed` + `by_type` array
+  - `by_type`: per-document-type counts with `oldest_pending_age_s`
+  - Filtered by `deal_id` column on `invoice_documents`
+- Returns outbox counts: `pending / processing / sent / failed / oldest_pending_age_s`
+  - Covers both deal-level events (`aggregate_id = dealId`) and participant-level events
+    (`aggregate_id IN (SELECT participant_id FROM participants WHERE deal_id = $1)`)
+- Returns 404 if `deal_id` is not found
+- Protected by `requireAdminKey`
+- All four sub-queries run in parallel via `Promise.all`
+
+**Proof tests** (`tests/deal_ops_summary_proof.ts`, 6/6 PASS)
+
+| Test | Description | Result |
+|------|-------------|--------|
+| X1 | 404 on unknown deal_id | PASS |
+| X2 | Correct bucket counts: 3 participants, 2 sent / 1 pending notifications, 1 issued / 1 pending invoice | PASS |
+| X3 | Failed notification is NOT counted as sent (bucket isolation) | PASS |
+| X4 | Failed invoice is NOT counted as issued (bucket isolation) | PASS |
+| X5 | Empty deal (no participants/notifications/invoices) returns 200 with all-zero counts | PASS |
+| X6 | `by_channel` and `by_type` splits are correct (sms sent=1/failed=1, charge_receipt issued=1, refund_receipt failed=1) | PASS |
+
+**Docs updated**
+- `docs/ADMIN_SUPPORT_OBSERVABILITY.md` — added endpoint to index, added full response shape, marked per-deal gap as closed
+
+### Files Changed
+
+- `src/frontend_runtime.ts` — added `/api/admin/deals/:id/ops-summary` endpoint
+- `tests/deal_ops_summary_proof.ts` — new: 6 targeted proof tests
+- `docs/ADMIN_SUPPORT_OBSERVABILITY.md` — updated: new endpoint documented, gap closed
+
+### What Is Still Open
+
+- Real document provider — `buildInvoiceProvider` is the extension point
+- Seller surface still uses runtime-computed receipts, not table-backed
 
 ---
 
@@ -1393,3 +1446,33 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `95%` of the current backend hardening/readiness package
 - Next step:
   treat the backend as ready for continued UX/frontend work and controlled backend integration, then close the remaining external-activation tracks separately: operational Wave 4b cleanup, invoice/accounting, real notifications, and the full open-production seller-auth track; do not reopen the already-verified Wave 1–4 semantic fixes unless a merge conflict or real blocker appears
+
+## Open-Production Seller Auth Closed
+
+- What was completed:
+  completed the migration from the earlier controlled-launch seller session model to one DB-backed seller-auth model for non-demo runtime; non-demo seller login now authenticates against `siton.seller_accounts` with `auth_secret_hash`, issues a revocable record in `siton.seller_sessions`, and resolves seller authority only from the server-side session row; added admin provisioning for seller auth bootstrap via `/api/admin/seller-auth/:sellerId/provision`; hardened `src/app.ts` so seller-sensitive legacy routes now enforce ownership from the DB-backed server session for `create deal`, `publish`, `close_joining`, `prepare_charging`, `charging.start`, and `cancel`; kept `demo-preview` on its isolated manual seller-context path without allowing that path to leak into non-demo authority; and updated seller-auth validation coverage so login, session reuse, logout/revoke, expiry, header-forgery rejection, cross-seller isolation, and server-authoritative route protection are now all asserted explicitly
+- What was checked:
+  `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/seller_auth_session_validation.js`; `node .tmp_test_dist/tests/seller_auth_authority_validation.js`; targeted static scans for legacy authority inputs via `rg -n "readSellerSessionToken|buildSellerSessionToken|SELLER_AUTH_CREDENTIALS|x-seller-id|localStorage" src frontend tests`; runtime proof showed forged `x-seller-id` without a session is `401`, seller A cannot read seller B workspace/deal detail (`404` on cross-seller detail), logout revokes the DB session and blocks reuse, expired sessions are blocked, parallel seller cookies stay isolated across separate requests, and seller-only legacy routes refuse cross-seller publish/close/prepare/start/cancel attempts
+- What was fixed:
+  removed the remaining half-migrated dependency on the old signed seller-session payload model in the live non-demo authority path; fixed admin seller-auth provisioning SQL so `auth_secret_hash` updates are typed correctly; aligned the seller-auth tests to the DB-backed session model instead of constructing legacy seller cookies directly; and closed the missing seller-ownership checks on `close_joining`, `prepare_charging`, `charging.start`, and `cancel`
+- What is open:
+  no open-production seller-auth defect remains open inside this track; what remains open in the product is outside this track: invoice/accounting, real notifications, and the separate operational hardening work already mapped elsewhere
+- Progress percentage:
+  `100%` of the open-production seller-auth track
+- Next step:
+  freeze seller auth as closed, treat non-demo seller authority as DB-backed and server-authoritative, and move only to the remaining external tracks without reopening seller-context fallback or any signed-payload legacy session logic
+
+## Foundation Pack Reset: New Canonical Source Of Truth Adopted
+
+- What was completed:
+  ingested the newly attached foundation documents into a new canonical repository pack under `docs/foundation-canonical-2026-04-18/`; added a binding source-of-truth decision in `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`; added an initial deprecation and archival map in `docs/LEGACY_FOUNDATION_DOC_STATUS_2026-04-18.md`; and explicitly established that the new product spec, UX, system spec, and constitution/checklist supersede older repository foundation documents anywhere there is contradiction, ambiguity, duplication, or drift
+- What was checked:
+  direct text extraction and comparison of the new attached `.docx` files against the older repository `.docx` foundation files; targeted keyword diff on distributor/affiliate, commission, repeat-purchase, and publish-acknowledgment semantics; and repository scan for older docs and derived markdown files that still looked like foundation truth candidates
+- What was fixed:
+  removed ambiguity about the active foundation pack by placing the new canonical documents in a dedicated `docs/foundation-canonical-2026-04-18/` directory and documenting their authority explicitly; marked the older product spec and older constitution as fully deprecated as foundation truth; marked `DB.docx`, `חוקה לדאטה בייס.docx`, and `מנגנון אכיפה.docx` as historical or partial-reference documents only; and locked in the new product-direction interpretation that distributors are now a measured distribution channel rather than an in-system commission and payout engine
+- What is open:
+  this step did not yet realign all code, schema, and secondary docs to the new canonical foundation pack; the next stage must map and then close the newly exposed drifts, especially repeated purchases by the same buyer in the same deal versus any remaining uniqueness assumptions, and the lingering `commission_rate` references that survived in older technical material and in parts of the updated foundation pack itself
+- Progress percentage:
+  `100%` of the source-of-truth reset step; implementation alignment against the new foundation pack remains a separate follow-up track
+- Next step:
+  start a focused drift-and-implementation alignment pass from the new canonical foundation pack outward: product, UX, schema, runtime, and secondary docs, without reopening this adoption step itself
