@@ -1476,3 +1476,18 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `100%` of the source-of-truth reset step; implementation alignment against the new foundation pack remains a separate follow-up track
 - Next step:
   start a focused drift-and-implementation alignment pass from the new canonical foundation pack outward: product, UX, schema, runtime, and secondary docs, without reopening this adoption step itself
+
+## Canonical Drift Audit: Foundation Pack Vs Live Repository
+
+- What was completed:
+  completed a deep drift audit between the newly adopted canonical foundation pack and the repository as it currently exists; produced a structured report in `docs/CANONICAL_DRIFT_AUDIT_2026-04-18.md`; and classified the most material live contradictions across distributor logic, fee modeling, repeat-purchase assumptions, schema, APIs, UX surfaces, terminology, and tests
+- What was checked:
+  repository-wide static scan across `docs`, `src`, `frontend`, `scripts`, and `tests`; direct review of runtime schema builders in `src/product_surface_support.ts` and `scripts/init_db.sql`; direct review of seller/admin/affiliate and dashboard routes in `src/frontend_runtime.ts`; direct review of deal creation and join flow in `src/app.ts`; direct review of fee and invoice logic in `src/invoice_dispatch.ts`; and comparison back to the newly adopted canonical product, UX, system, and constitution documents
+- What was fixed:
+  no broad runtime refactor was opened in this step by design; the only repository change here is documentary hardening of the new drift truth so the next implementation stage starts from one explicit map instead of scattered assumptions
+- What is open:
+  the audit found major live drift that now needs implementation work: the repository still models distributors as an internal economic subsystem with payout/profile/admin payout semantics; `commission_rate` is still a live deal field and seller-facing input; fee calculations and invoice documents still include `affiliate_fee_amount`; and repeat-purchase support is still under-modeled outside the narrow no-unique-index guardrail, especially in join/idempotency semantics, internal surfaces, and tests
+- Progress percentage:
+  `100%` of the audit step; `0%` of the subsequent implementation-alignment step
+- Next step:
+  start the next pass by removing the internal affiliate payout model from docs/tests/runtime surfaces, then replace `commission_rate` with the canonical fee model, and only then open the dedicated repeat-purchase implementation pass across join flow, schema, counters, and regression coverage
