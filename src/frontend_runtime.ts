@@ -18,6 +18,7 @@ import {
 import {
   AFFILIATE_FEE_SHARE_OF_PLATFORM,
   DEFAULT_AFFILIATE_CODE,
+  DEFAULT_AFFILIATE_NAME,
   DEFAULT_SELLER_ID,
   ensureRemainingProductSurfaceTables,
   isChargedMoneyState,
@@ -537,6 +538,83 @@ function receiptEligible(dealState: DealState, moneyState: string) {
 
 function deliveryEligible(dealState: DealState, moneyState: string) {
   return dealState === "Completed" && isChargedMoneyState(moneyState);
+}
+
+function deriveBuyerDocumentVisibility(args: {
+  dealState: DealState;
+  buyerState: BuyerState;
+  moneyState: MoneyState;
+  invoiceDocument?: {
+    document_id?: string | null;
+    status?: string | null;
+    provider_document_id?: string | null;
+    issued_at?: string | null;
+  } | null;
+}) {
+  const { dealState, buyerState, moneyState, invoiceDocument } = args;
+  const normalizedStatus = String(invoiceDocument?.status || "").trim().toLowerCase();
+  if (normalizedStatus === "issued" && invoiceDocument?.document_id) {
+    return {
+      state: "issued",
+      eligible: true,
+      document_id: invoiceDocument.document_id,
+      provider_document_id: invoiceDocument.provider_document_id ?? null,
+      issued_at: invoiceDocument.issued_at ?? null
+    };
+  }
+
+  if (normalizedStatus === "pending" || normalizedStatus === "processing") {
+    return {
+      state: "pending_issue",
+      eligible: true,
+      document_id: null,
+      provider_document_id: invoiceDocument?.provider_document_id ?? null,
+      issued_at: null
+    };
+  }
+
+  if (normalizedStatus === "failed") {
+    return {
+      state: "issue_failed",
+      eligible: true,
+      document_id: null,
+      provider_document_id: invoiceDocument?.provider_document_id ?? null,
+      issued_at: null
+    };
+  }
+
+  if (receiptEligible(dealState, moneyState)) {
+    return {
+      state: "pending_issue",
+      eligible: true,
+      document_id: null,
+      provider_document_id: null,
+      issued_at: null
+    };
+  }
+
+  if (
+    dealState === "Failed" ||
+    dealState === "Cancelled" ||
+    moneyState === "AuthReleased" ||
+    buyerState === "Dropped"
+  ) {
+    return {
+      state: "not_expected",
+      eligible: false,
+      document_id: null,
+      provider_document_id: null,
+      issued_at: null
+    };
+  }
+
+  return {
+    state: "not_available_yet",
+    eligible: false,
+    document_id: null,
+    provider_document_id: null,
+    issued_at: null
+  };
 }
 
 async function sendFrontendFile(reply: FastifyReply, filename: string, contentType: string) {
@@ -1188,6 +1266,15 @@ export function registerFrontendExperience(
         [dealId]
       );
 
+      const invoiceDocuments = await c.query(
+        `SELECT document_id, participant_id, status, document_type, provider_document_id,
+                issued_at, created_at, gross_amount, money_state_at_issue
+         FROM siton.invoice_documents
+         WHERE deal_id = $1
+         ORDER BY created_at DESC`,
+        [dealId]
+      );
+
       const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
       const attributionByParticipant = new Map(
         attributions.rows.map((row: any) => [String(row.participant_id), row])
@@ -1195,11 +1282,18 @@ export function registerFrontendExperience(
       const deliveryByParticipant = new Map(
         deliveries.rows.map((row: any) => [String(row.participant_id), row])
       );
+      const invoiceByParticipant = new Map<string, any>();
+      for (const row of invoiceDocuments.rows) {
+        const key = String(row.participant_id || "");
+        if (!key || invoiceByParticipant.has(key)) continue;
+        invoiceByParticipant.set(key, row);
+      }
 
       const fulfilledParticipants = participants.rows
         .filter((row: any) => receiptEligible(deal.state, String(row.money_state)))
         .map((row: any) => {
           const attribution = attributionByParticipant.get(String(row.participant_id)) as any;
+          const invoiceDocument = invoiceByParticipant.get(String(row.participant_id)) as any;
           const grossAmount = Number(row.qty) * Number(deal.price_per_unit);
           return {
             participant_id: row.participant_id,
@@ -1208,11 +1302,12 @@ export function registerFrontendExperience(
             money_state: row.money_state,
             buyer_state: row.buyer_state,
             gross_amount: grossAmount,
-            receipt_id: `RCT-${String(deal.deal_id).slice(0, 8)}-${String(row.participant_id).slice(0, 6)}`,
+            document_id: invoiceDocument?.document_id ?? null,
+            document_status: invoiceDocument?.status ?? "not_issued",
+            issued_at: invoiceDocument?.issued_at ?? null,
+            provider_document_id: invoiceDocument?.provider_document_id ?? null,
             share_code: attribution?.share_code ?? null,
-            affiliate_name: attribution?.affiliate_name ?? null,
-            affiliate_fee_amount: Number(attribution?.commission_amount || 0),
-            payout_status: attribution?.payout_status ?? "not_attributed"
+            affiliate_name: attribution?.display_name ?? null
           };
         });
 
@@ -1222,10 +1317,7 @@ export function registerFrontendExperience(
           0
         ),
         commissionRate: Number(deal.commission_rate || 0),
-        affiliateAmount: fulfilledParticipants.reduce(
-          (sum: number, row: any) => sum + Number(row.affiliate_fee_amount || 0),
-          0
-        )
+        affiliateAmount: 0
       });
 
       const deliveryRows = participants.rows
@@ -1269,16 +1361,16 @@ export function registerFrontendExperience(
                 ? "not_issued"
                 : "waiting_for_completion",
           eligible_money_states: ["ChargedSuccess", "RecoveredCharge"],
-          note:
-            deal.state === "Completed"
-              ? "Receipts are generated only for successfully charged or recovered participants in completed deals. In demo or preview this remains an internal-ready receipt surface, not an external invoice rail."
+            note:
+              deal.state === "Completed"
+              ? "Receipt visibility relies on actual invoice_documents rows. If no document row exists yet, the surface must say that no document was issued yet."
               : "Receipts stay blocked until the deal reaches Completed. Failed or cancelled deals do not issue seller receipts.",
-          summary: {
-            ...financialSummary,
-            receipt_document_count: fulfilledParticipants.length
+            summary: {
+              ...financialSummary,
+              receipt_document_count: invoiceDocuments.rows.filter((row: any) => String(row.status) === "issued").length
+            },
+            documents: fulfilledParticipants
           },
-          documents: fulfilledParticipants
-        },
         delivery_surface: {
           status: deal.state === "Completed" ? "ready" : "blocked_until_completed",
           note:
@@ -1378,8 +1470,7 @@ export function registerFrontendExperience(
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const affiliate = await c.query(
-        `SELECT affiliate_id, affiliate_code, display_name, verification_status, payout_status,
-                payout_method, payout_details_masked, admin_note
+        `SELECT affiliate_id, affiliate_code, display_name, verification_status, admin_note
          FROM siton.affiliate_accounts
          WHERE affiliate_code = $1
          LIMIT 1`,
@@ -1391,18 +1482,15 @@ export function registerFrontendExperience(
         `SELECT d.deal_id,
                 d.title,
                 d.state,
-                d.commission_rate,
                 d.created_at,
                 d.published_at,
                 COUNT(a.participant_id)::int AS attributed_buyers,
-                COALESCE(SUM(a.commission_amount),0) AS attributed_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='pending' THEN a.commission_amount ELSE 0 END),0) AS pending_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='approved' THEN a.commission_amount ELSE 0 END),0) AS approved_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='paid' THEN a.commission_amount ELSE 0 END),0) AS paid_commission
+                COALESCE(SUM(p.qty),0) AS attributed_units
          FROM siton.deals d
          LEFT JOIN siton.affiliate_attributions a
            ON a.deal_id = d.deal_id
           AND a.affiliate_id = $1
+         LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
          GROUP BY d.deal_id
          ORDER BY d.created_at DESC
          LIMIT 50`,
@@ -1412,12 +1500,10 @@ export function registerFrontendExperience(
       const attributionTotals = await c.query(
         `SELECT
            COUNT(*)::int AS total_attributions,
-           COALESCE(SUM(commission_amount),0) AS total_commission,
-           COALESCE(SUM(CASE WHEN payout_status='pending' THEN commission_amount ELSE 0 END),0) AS pending_commission,
-           COALESCE(SUM(CASE WHEN payout_status='approved' THEN commission_amount ELSE 0 END),0) AS approved_commission,
-           COALESCE(SUM(CASE WHEN payout_status='paid' THEN commission_amount ELSE 0 END),0) AS paid_commission
-         FROM siton.affiliate_attributions
-         WHERE affiliate_id = $1`,
+           COALESCE(SUM(p.qty),0) AS total_units
+         FROM siton.affiliate_attributions a
+         LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
+         WHERE a.affiliate_id = $1`,
         [profile.affiliate_id]
       );
       const totals = attributionTotals.rows[0] as any;
@@ -1426,35 +1512,26 @@ export function registerFrontendExperience(
         ok: true,
         affiliate_surface: {
           attribution_status: totals.total_attributions > 0 ? "active" : "ready_for_attribution",
-          payout_status: profile.payout_status,
+          display_name: String(profile.display_name || DEFAULT_AFFILIATE_NAME),
           verification_status: profile.verification_status,
-          payout_method: profile.payout_method,
-          payout_details_masked: profile.payout_details_masked || "missing",
-          note: "Affiliate attribution is persisted internally. Demo mode shows payout readiness and payout-state semantics, but no live payout rail is active yet.",
+          note: "Distributor surfaces are attribution-only. Payment, payout, settlement, and internal compensation flows are not part of the live product model.",
           totals: {
             total_attributions: Number(totals.total_attributions || 0),
-            total_commission: Number(totals.total_commission || 0),
-            pending_commission: Number(totals.pending_commission || 0),
-            approved_commission: Number(totals.approved_commission || 0),
-            paid_commission: Number(totals.paid_commission || 0)
+            total_units: Number(totals.total_units || 0),
+            active_campaigns: campaigns.rows.filter((row: any) => Number(row.attributed_buyers || 0) > 0).length
           },
           verification_surface: {
             status: profile.verification_status,
-            admin_note: profile.admin_note || "",
-            can_submit_payout_profile: true
+            admin_note: profile.admin_note || ""
           },
           campaigns: campaigns.rows.map((row: any) => ({
             deal_id: row.deal_id,
             title: row.title,
             state: row.state,
-            commission_rate: Number(row.commission_rate || 0),
             created_at: row.created_at,
             published_at: row.published_at,
             attributed_buyers: Number(row.attributed_buyers || 0),
-            attributed_commission: Number(row.attributed_commission || 0),
-            pending_commission: Number(row.pending_commission || 0),
-            approved_commission: Number(row.approved_commission || 0),
-            paid_commission: Number(row.paid_commission || 0),
+            attributed_units: Number(row.attributed_units || 0),
             share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(profile.affiliate_code)}`
           }))
         }
@@ -1462,42 +1539,11 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/affiliate/payout-profile", async (req: any) => {
-    await ensureProductSurfaces();
-    const payoutMethod = String(req.body?.payout_method || "").trim();
-    const payoutDetails = String(req.body?.payout_details || "").trim();
-    if (!payoutMethod || !payoutDetails) {
-      const err: any = new Error("payout_method and payout_details are required");
-      err.statusCode = 400;
-      throw err;
-    }
-
-    return deps.withTx(async (c) => {
-      const masked = payoutDetails.length <= 4 ? payoutDetails : `***${payoutDetails.slice(-4)}`;
-      const updated = await c.query(
-        `UPDATE siton.affiliate_accounts
-         SET payout_method = $2,
-             payout_details_masked = $3,
-             payout_status = CASE
-               WHEN verification_status='verified' THEN 'pending_review'
-               ELSE 'pending_profile'
-             END,
-             updated_at = now()
-         WHERE affiliate_code = $1
-         RETURNING affiliate_code, payout_method, payout_details_masked, payout_status`,
-        [DEFAULT_AFFILIATE_CODE, payoutMethod, masked]
-      );
-
-      if (!updated.rowCount) {
-        const err: any = new Error("affiliate profile not found");
-        err.statusCode = 404;
-        throw err;
-      }
-
-      return {
-        ok: true,
-        affiliate_profile: updated.rows[0]
-      };
+  app.post("/api/affiliate/payout-profile", async (_req: any, reply: any) => {
+    return reply.code(410).send({
+      ok: false,
+      error: "affiliate_payout_model_removed",
+      message: "Distributor payout profiles are no longer part of the live product model."
     });
   });
 
@@ -1673,14 +1719,6 @@ export function registerFrontendExperience(
                 settlement_status AS detail,
                 updated_at
          FROM siton.seller_accounts
-         UNION ALL
-         SELECT 'affiliate' AS subject_type,
-                affiliate_id::text AS subject_id,
-                display_name,
-                verification_status AS status,
-                payout_status AS detail,
-                updated_at
-         FROM siton.affiliate_accounts
          ORDER BY updated_at DESC`
       );
 
@@ -1689,21 +1727,6 @@ export function registerFrontendExperience(
          FROM siton.support_tickets
          ORDER BY updated_at DESC
          LIMIT 30`
-      );
-
-      const affiliateSettlements = await c.query(
-        `SELECT af.affiliate_id::text AS affiliate_id,
-                af.display_name,
-                af.verification_status,
-                af.payout_status,
-                COALESCE(SUM(a.commission_amount),0) AS total_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='pending' THEN a.commission_amount ELSE 0 END),0) AS pending_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='approved' THEN a.commission_amount ELSE 0 END),0) AS approved_commission,
-                COALESCE(SUM(CASE WHEN a.payout_status='paid' THEN a.commission_amount ELSE 0 END),0) AS paid_commission
-         FROM siton.affiliate_accounts af
-         LEFT JOIN siton.affiliate_attributions a ON a.affiliate_id = af.affiliate_id
-         GROUP BY af.affiliate_id
-         ORDER BY af.display_name`
       );
 
       const forensics = await c.query(
@@ -1745,8 +1768,7 @@ export function registerFrontendExperience(
                   0
                 ).toFixed(2)
               )
-            },
-            affiliates: affiliateSettlements.rows
+            }
           },
           support_tickets: support.rows,
           forensics: forensics.rows[0]
@@ -2228,7 +2250,7 @@ export function registerFrontendExperience(
         [dealId]
       );
       const attributions = await c.query(
-        `SELECT aa.participant_id, aa.share_code, aa.commission_amount, aa.payout_status, af.display_name
+        `SELECT aa.participant_id, aa.share_code, af.display_name
          FROM siton.affiliate_attributions aa
          JOIN siton.affiliate_accounts af ON af.affiliate_id = aa.affiliate_id
          WHERE aa.deal_id = $1
@@ -2477,28 +2499,11 @@ export function registerFrontendExperience(
         return { ok: true, subject_type: subjectType, result: updated.rows[0] };
       }
 
-      requireUuid(subjectId, "subject_id");
-
-      const updated = await c.query(
-        `UPDATE siton.affiliate_accounts
-         SET verification_status = $2,
-             payout_status = CASE
-               WHEN $2='verified' AND payout_details_masked <> '' THEN 'pending_review'
-               WHEN $2='rejected' THEN 'hold'
-               ELSE payout_status
-             END,
-             admin_note = $3,
-             updated_at = now()
-         WHERE affiliate_id = $1::uuid
-         RETURNING affiliate_id::text AS subject_id, verification_status AS status, admin_note, payout_status`,
-        [subjectId, decision === "approve" ? "verified" : "rejected", adminNote]
-      );
-      if (!updated.rowCount) {
-        const err: any = new Error("affiliate profile not found");
-        err.statusCode = 404;
-        throw err;
-      }
-      return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+      return reply.code(410).send({
+        ok: false,
+        error: "affiliate_payout_model_removed",
+        message: "Distributor payout verification is no longer part of the live product model."
+      });
     });
   });
 
@@ -2571,78 +2576,10 @@ export function registerFrontendExperience(
 
   app.post("/api/admin/affiliate-payouts/:affiliateId", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
-    await ensureProductSurfaces();
-    const affiliateId = String(req.params.affiliateId || "");
-    requireUuid(affiliateId, "affiliate_id");
-    const payoutStatus = String(req.body?.payout_status || "").trim();
-    if (!["pending_review", "approved", "paid", "hold"].includes(payoutStatus)) {
-      const err: any = new Error("affiliate payout_status is invalid");
-      err.statusCode = 400;
-      throw err;
-    }
-
-    return deps.withTx(async (c) => {
-      const current = await c.query(
-        `SELECT affiliate_id, verification_status, payout_status, payout_details_masked
-         FROM siton.affiliate_accounts
-         WHERE affiliate_id = $1`,
-        [affiliateId]
-      );
-
-      if (!current.rowCount) {
-        const err: any = new Error("affiliate profile not found");
-        err.statusCode = 404;
-        throw err;
-      }
-
-      const commissionSummary = await c.query(
-        `SELECT COALESCE(SUM(commission_amount),0) AS total_commission
-         FROM siton.affiliate_attributions
-         WHERE affiliate_id = $1
-           AND payout_status IN ('pending','approved')`,
-        [affiliateId]
-      );
-
-      const currentRow = current.rows[0] as any;
-      const verificationStatus = String(currentRow.verification_status || "");
-      const hasPayoutProfile = Boolean(String(currentRow.payout_details_masked || "").trim());
-      const totalCommission = Number(commissionSummary.rows[0]?.total_commission || 0);
-
-      if ((payoutStatus === "approved" || payoutStatus === "paid") && verificationStatus !== "verified") {
-        const err: any = new Error("affiliate payout approval requires verified affiliate");
-        err.statusCode = 409;
-        throw err;
-      }
-      if ((payoutStatus === "approved" || payoutStatus === "paid") && !hasPayoutProfile) {
-        const err: any = new Error("affiliate payout approval requires payout profile");
-        err.statusCode = 409;
-        throw err;
-      }
-      if ((payoutStatus === "approved" || payoutStatus === "paid") && totalCommission <= 0) {
-        const err: any = new Error("affiliate payout approval requires pending commission");
-        err.statusCode = 409;
-        throw err;
-      }
-
-      const updated = await c.query(
-        `UPDATE siton.affiliate_accounts
-         SET payout_status = $2, updated_at = now()
-         WHERE affiliate_id = $1
-         RETURNING affiliate_id`,
-        [affiliateId, payoutStatus]
-      );
-
-      if (payoutStatus === "approved" || payoutStatus === "paid") {
-        await c.query(
-          `UPDATE siton.affiliate_attributions
-           SET payout_status = $2, updated_at = now()
-           WHERE affiliate_id = $1
-             AND payout_status IN ('pending','approved')`,
-          [affiliateId, payoutStatus === "paid" ? "paid" : "approved"]
-        );
-      }
-
-      return { ok: true, affiliate_id: affiliateId, payout_status: payoutStatus };
+    return reply.code(410).send({
+      ok: false,
+      error: "affiliate_payout_model_removed",
+      message: "Distributor payout administration is no longer part of the live product model."
     });
   });
 
@@ -2698,7 +2635,29 @@ export function registerFrontendExperience(
         completion_window_until: string | null;
       };
 
+      const invoiceDocumentResult = await c.query(
+        `SELECT document_id, status, provider_document_id, issued_at, created_at
+         FROM siton.invoice_documents
+         WHERE participant_id = $1
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [participantId]
+      );
+
+      const invoiceDocument = (invoiceDocumentResult.rows[0] ?? null) as {
+        document_id?: string | null;
+        status?: string | null;
+        provider_document_id?: string | null;
+        issued_at?: string | null;
+      } | null;
+
       const copy = deriveTrackingCopy(row.deal_state, row.buyer_state, row.money_state);
+      const documentVisibility = deriveBuyerDocumentVisibility({
+        dealState: row.deal_state,
+        buyerState: row.buyer_state,
+        moneyState: row.money_state,
+        invoiceDocument
+      });
 
       return {
         ok: true,
@@ -2721,7 +2680,8 @@ export function registerFrontendExperience(
           created_at: row.created_at,
           headline: copy.headline,
           subline: copy.subline,
-          tone: copy.tone
+          tone: copy.tone,
+          document_visibility: documentVisibility
         }
       };
     });

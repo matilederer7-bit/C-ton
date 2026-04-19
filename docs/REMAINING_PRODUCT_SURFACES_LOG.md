@@ -1,5 +1,11 @@
 # REMAINING PRODUCT SURFACES LOG
 
+## Deprecation Note - 2026-04-18
+
+The affiliate payout, settlement, and internal compensation semantics described below are no longer part of the live product model.
+Distributors now remain attribution-only surfaces: attribution, measurement, and share links.
+Historical notes in this log stay for traceability only and must not be read as current source of truth.
+
 ## Before This Pass
 
 - Backend was already professionally closed.

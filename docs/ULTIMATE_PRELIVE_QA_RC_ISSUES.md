@@ -2,6 +2,11 @@
 
 Last updated: 2026-03-31
 
+## Deprecation Note - 2026-04-18
+
+Routes and semantics for affiliate payout profile, affiliate payout administration, and affiliate internal settlement are deprecated and removed from the live product model.
+Any references below remain historical only and are not a valid product path.
+
 ## Fixed In This Pass
 
 1. Missing-target admin mutations returned ambiguous success.

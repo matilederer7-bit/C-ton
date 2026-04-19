@@ -98,6 +98,21 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Next step:
   extend the same foundation into deeper seller/admin table interactions and, when practical, add browser-level responsive accessibility smoke coverage
 
+## Frontend Track: Buyer Document Visibility
+
+- Completed:
+  buyer tracking now reads canonical document visibility from `invoice_documents`, shows a real document id only for actual issued rows, and distinguishes clearly between issued, pending issuance, issue failure, not expected, and not yet available states
+- Checked:
+  buyer tracking runtime payload, buyer completed/failed/cancelled messaging, and the buyer-facing tracking surface where document status is rendered
+- Fixed:
+  missing buyer-side document truth, lack of explicit "document not issued yet" wording, and the risk of implying a receipt/document exists before an actual issued row is present
+- Open:
+  external invoice rail activation, live document download/provider delivery, and any outbound buyer notification proof for document dispatch
+- Progress:
+  `94%` of the isolated buyer-document visibility track
+- Next step:
+  if external issuance is activated later, extend the same truth-aligned panel with a real download or view action backed by the provider-safe document route
+
 ## What Is Completed
 
 ### Backend
@@ -1576,3 +1591,33 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `91%` of the current frontend surfaces refinement track
 - Next step:
   continue only if we want a dedicated follow-up on buyer tracking depth or richer seller table interactions; otherwise treat the public deal page, seller workspace, seller dashboard, and seller deal page as the aligned baseline for ongoing frontend product work
+
+## Frontend Track: Buyer Tracking Refinement
+
+- What was completed:
+  refined the post-join confirmation and buyer tracking journey so the buyer now sees a clearer separation between successful join, authorization hold, real charge, completion-window handling, and terminal outcomes; added focused next-step cards, a concise timeline, and stronger source-of-truth framing inside the buyer tracking screen; and tightened the terminal and action-required narratives without opening backend money or state-machine work
+- What was checked:
+  direct review of `renderConfirmationPage`, `renderTrackingPage`, `buildJourney`, and `nextTrackingStep` in `frontend/app.js`; `node --check frontend/app.js`; `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json --noEmit`; and `npm run test:buyer-tracking-refinement`
+- What was fixed:
+  weak post-join explanation after authorization, thin buyer-facing “what happens now” messaging, missing compact timeline context inside tracking, and insufficiently explicit action-required versus no-action-needed framing
+- What is open:
+  this pass intentionally did not deepen backend payment handling, did not redesign delivery follow-up as a full standalone buyer surface, and did not add browser-level route QA; any richer post-completion delivery/document storytelling remains a separate frontend follow-up only
+- Progress percentage:
+  `93%` of the isolated buyer tracking refinement track
+- Next step:
+  keep this buyer-tracking narrative as the current baseline and only open a follow-up if we explicitly want deeper delivery/document post-completion UX or browser-level route rendering proof
+
+## Frontend Track: Read Surfaces Truth Alignment
+
+- What was completed:
+  aligned seller receipt visibility to actual `invoice_documents` rows instead of pseudo receipt ids; tightened the seller completed-deal read surface so missing documents stay explicitly missing; connected the admin read surface to canonical notifications and invoice status endpoints; and normalized support/document status wording so read surfaces stop overstating truth they do not actually have
+- What was checked:
+  targeted review of seller receipt shaping in `src/frontend_runtime.ts`; targeted review of seller/admin read surfaces in `frontend/app.js`; `node --check frontend/app.js`; `npx tsc --noEmit`; and `npm run test:read-surfaces-truth-alignment`
+- What was fixed:
+  generated receipt identifiers in seller read surfaces, receipt counts that could imply document truth too early, admin status visibility that stopped at provider mode instead of operational counts, and support read surfaces that still leaked raw internal scope/status codes
+- What is open:
+  this pass intentionally did not open new buyer document UI, did not activate external invoice or notification rails, and did not add deep admin operations drill-downs beyond the existing read surface truth alignment
+- Progress percentage:
+  `94%` of the isolated read-surfaces truth-alignment track
+- Next step:
+  keep these read surfaces as the truthful baseline and only open a follow-up if we explicitly want buyer-facing document visibility or a deeper admin operations panel
