@@ -16,7 +16,8 @@ export const DATABASE_URL = process.env.DATABASE_URL || DEFAULT_DATABASE_URL;
 
 export const PORT = readNumberEnv("PORT", 3000);
 export const HOST = process.env.HOST || "0.0.0.0";
-export const COMPLETION_WINDOW_MINUTES = readNumberEnv("COMPLETION_WINDOW_MINUTES", 15);
+// Per spec (C6): completion window is 24 hours after Charging → CompletionWindow.
+export const COMPLETION_WINDOW_MINUTES = readNumberEnv("COMPLETION_WINDOW_MINUTES", 1440);
 export const OUTBOX_POLL_MS = readNumberEnv("OUTBOX_POLL_MS", 1000);
 export const OUTBOX_MAX_ATTEMPTS = readNumberEnv("OUTBOX_MAX_ATTEMPTS", 4);
 

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { app } from "../src/app.js";
-import { pool } from "../src/db.js";
+import { createHmac } from "node:crypto";
+
+process.env.DISABLE_OUTBOX_WORKER = "1";
+
+const { app } = await import("../src/app.js");
+const { pool } = await import("../src/db.js");
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -24,6 +28,16 @@ async function post(url: string, requestId: string, payload: Record<string, unkn
   });
 }
 
+function paymentWebhookHeaders(rawBody: string) {
+  const secret = String(process.env.PAYMENT_WEBHOOK_SECRET || "mock-webhook-secret");
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return {
+    "x-webhook-signature": `sha256=${digest}`,
+    "x-webhook-timestamp": timestamp
+  };
+}
+
 async function createDeal(title: string, suffix: string, overrides: Record<string, unknown> = {}) {
   const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const response = await app.inject({
@@ -38,7 +52,7 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
       price_per_unit: 50,
       min_units: 5,
       max_units: 5,
-      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
       commission_rate: 0.1,
       ...overrides
     }
@@ -64,25 +78,24 @@ async function buildChargedParticipant(suffix: string, buyerId: string) {
   await post(`/deals/${created.deal_id}/prepare_charging`, `remaining-prepare-${suffix}`);
   await post(`/deals/${created.deal_id}/charging/start`, `remaining-start-${suffix}`);
 
+  const webhookPayload = {
+    event_id: `remaining-charge-${suffix}-${Date.now()}`,
+    event_type: "charge_captured",
+    deal_id: created.deal_id,
+    participant_id: participant.participant_id,
+    payload: {
+      deal_id: created.deal_id,
+      participant_id: participant.participant_id,
+      provider_reference: `remaining-cap-${suffix}`
+    }
+  };
   const webhook = await app.inject({
     method: "POST",
     url: "/webhooks/payments/mock",
-    headers: {
-      "x-webhook-secret": "mock-webhook-secret"
-    },
-    payload: {
-      event_id: `remaining-charge-${suffix}-${Date.now()}`,
-      event_type: "charge_captured",
-      deal_id: created.deal_id,
-      participant_id: participant.participant_id,
-      payload: {
-        deal_id: created.deal_id,
-        participant_id: participant.participant_id,
-        provider_reference: `remaining-cap-${suffix}`
-      }
-    }
+    headers: paymentWebhookHeaders(JSON.stringify(webhookPayload)),
+    payload: webhookPayload
   });
-  assert.equal(webhook.statusCode, 202);
+  assert.equal(webhook.statusCode, 200);
 
   return {
     deal_id: created.deal_id,
@@ -97,8 +110,26 @@ async function forceCompleteDeal(dealId: string, participantId: string) {
     await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
     await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
     await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-    await client.query(`SELECT set_config('siton.action_name', 'test.force_complete', true)`);
-    await client.query(`UPDATE siton.deals SET state='Completed', completion_window_until=COALESCE(completion_window_until, now()) WHERE deal_id=$1`, [dealId]);
+    const dealState = await client.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const currentState = String(dealState.rows[0]?.state || "");
+    if (currentState === "Charging") {
+      await client.query(`SELECT set_config('siton.action_name', 'charging.to_completion_window', true)`);
+      await client.query(
+        `UPDATE siton.deals
+         SET state='CompletionWindow',
+             completion_window_until=COALESCE(completion_window_until, now())
+         WHERE deal_id=$1`,
+        [dealId]
+      );
+    }
+    await client.query(`SELECT set_config('siton.action_name', 'charging.finalize_completed', true)`);
+    await client.query(
+      `UPDATE siton.deals
+       SET state='Completed',
+           completion_window_until=COALESCE(completion_window_until, now())
+       WHERE deal_id=$1`,
+      [dealId]
+    );
     await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participantId]);
     await client.query("COMMIT");
   } catch (error) {
@@ -125,7 +156,7 @@ async function main() {
     assert.equal(payload.receipts_surface.summary.receipt_document_count, 1);
     assert.equal(payload.delivery_surface.status, "ready");
     assert.equal(payload.delivery_surface.rows.length, 1);
-    assert.ok(Number(payload.receipts_surface.summary.affiliate_fee_amount) > 0);
+    assert.equal(Number(payload.receipts_surface.summary.affiliate_fee_amount || 0), 0);
 
     const deliveryUpdate = await app.inject({
       method: "POST",
@@ -139,7 +170,7 @@ async function main() {
     assert.equal(deliveryUpdate.statusCode, 200);
   });
 
-  await runTest("affiliate payout profile and admin settlement actions are surfaced coherently", async () => {
+  await runTest("affiliate payout and settlement actions are fail-closed while attribution stays live", async () => {
     const payoutProfile = await app.inject({
       method: "POST",
       url: "/api/affiliate/payout-profile",
@@ -148,7 +179,7 @@ async function main() {
         payout_details: "IL88000123456789"
       }
     });
-    assert.equal(payoutProfile.statusCode, 200);
+    assert.equal(payoutProfile.statusCode, 410);
 
     const affiliateOverview = await app.inject({
       method: "GET",
@@ -156,7 +187,8 @@ async function main() {
     });
     assert.equal(affiliateOverview.statusCode, 200);
     const affiliatePayload = affiliateOverview.json() as any;
-    assert.notEqual(affiliatePayload.affiliate_surface.payout_details_masked, "missing");
+    assert.ok(affiliatePayload.affiliate_surface.totals.total_attributions >= 0);
+    assert.ok(affiliatePayload.affiliate_surface.totals.total_units >= 0);
 
     const adminOverview = await app.inject({
       method: "GET",
@@ -164,27 +196,33 @@ async function main() {
     });
     assert.equal(adminOverview.statusCode, 200);
     const adminPayload = adminOverview.json() as any;
-    const affiliateRow = adminPayload.admin_surface.settlements.affiliates.find((row: any) => row.display_name === "Affiliate Demo");
-    assert.ok(affiliateRow);
+    assert.equal(adminPayload.admin_surface.settlements.affiliates?.length || 0, 0);
+    const affiliateResult = await pool.query(
+      `SELECT affiliate_id::text AS affiliate_id
+       FROM siton.affiliate_accounts
+       WHERE affiliate_code = 'affiliate-demo'
+       LIMIT 1`
+    );
+    const affiliateId = String(affiliateResult.rows[0].affiliate_id);
 
     const approve = await app.inject({
       method: "POST",
-      url: `/api/admin/kyc/affiliate/${affiliateRow.affiliate_id}/decision`,
+      url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
       payload: {
         decision: "approve",
         admin_note: "Approved for internal closure validation"
       }
     });
-    assert.equal(approve.statusCode, 200);
+    assert.equal(approve.statusCode, 410);
 
     const markPayout = await app.inject({
       method: "POST",
-      url: `/api/admin/affiliate-payouts/${affiliateRow.affiliate_id}`,
+      url: `/api/admin/affiliate-payouts/${affiliateId}`,
       payload: {
         payout_status: "approved"
       }
     });
-    assert.equal(markPayout.statusCode, 200);
+    assert.equal(markPayout.statusCode, 410);
   });
 
   await runTest("admin support and forensics surfaces include remaining product closure entities", async () => {

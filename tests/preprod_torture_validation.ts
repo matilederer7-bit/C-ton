@@ -43,7 +43,7 @@ async function createDeal(
       price_per_unit: 42,
       min_units: 8,
       max_units: 10,
-      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
       ...overrides
     }
   });

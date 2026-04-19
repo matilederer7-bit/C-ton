@@ -28,9 +28,20 @@ const HOST = String(process.env.HOST || "0.0.0.0");
 const DATABASE_URL =
   process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 
-const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES || 15);
+// Per spec (C6): completion window is 24 hours (1440 minutes) — the time buyers have
+// to update a failed payment method after Charging → CompletionWindow.
+const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES || 1440);
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
+
+// Per spec: deal deadline must be at least 2 hours and at most 7 days in the future.
+const DEADLINE_MIN_MS = 2 * 60 * 60 * 1000;
+const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+// Default deadline when caller does not provide one (sits comfortably inside the 2h–7d window).
+const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
+
+// Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
+const SITON_PLATFORM_COMMISSION_RATE = 0.08;
 const DISABLE_OUTBOX_WORKER = process.env.DISABLE_OUTBOX_WORKER === "1";
 
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
@@ -148,13 +159,16 @@ type MoneyState =
   | "AuthReleased"
   | "Refunded";
 
+// Must stay in lockstep with siton.is_valid_deal_transition in migrations 008/014.
+// Cancellation is only permitted from Draft; past publish the deal moves through the
+// forward-only lifecycle and can only terminate via Failed or Completed.
 export const DEAL_TRANSITIONS: Record<string, string[]> = {
   Draft: ["PendingTarget", "Cancelled"],
-  PendingTarget: ["TargetReached", "Failed", "Cancelled"],
-  TargetReached: ["ClosedForJoining", "Cancelled"],
-  ClosedForJoining: ["ReadyForCharging", "Cancelled"],
-  ReadyForCharging: ["Charging", "Cancelled"],
-  Charging: ["CompletionWindow", "Failed", "Cancelled"],
+  PendingTarget: ["TargetReached", "Failed"],
+  TargetReached: ["ClosedForJoining"],
+  ClosedForJoining: ["ReadyForCharging"],
+  ReadyForCharging: ["Charging"],
+  Charging: ["CompletionWindow"],
   CompletionWindow: ["Completed", "Failed"],
   Completed: [],
   Failed: [],
@@ -1405,22 +1419,20 @@ async function enqueueParticipantNotifications(
 async function enqueueChargeReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
     `SELECT p.qty, p.money_state,
-            d.title, d.price_per_unit, d.commission_rate,
-            COALESCE(aa.commission_amount, 0) AS affiliate_amount
+            d.title, d.price_per_unit, d.commission_rate
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
-     LEFT JOIN siton.affiliate_attributions aa ON aa.participant_id = p.participant_id
      WHERE p.participant_id = $1`,
     [participantId]
   );
   if (!row.rowCount) return;
   const r = row.rows[0] as {
     qty: string; money_state: string; title: string;
-    price_per_unit: string; commission_rate: string; affiliate_amount: string;
+    price_per_unit: string; commission_rate: string;
   };
   const grossAmount = Number(r.qty) * Number(r.price_per_unit);
   const commissionRate = Number(r.commission_rate);
-  const affiliateFeeAmount = Number(r.affiliate_amount);
+  const affiliateFeeAmount = 0;
   const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
   const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
   await enqueueInvoiceDocument({
@@ -1447,22 +1459,20 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
 async function enqueueRefundReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
     `SELECT p.qty,
-            d.title, d.price_per_unit, d.commission_rate,
-            COALESCE(aa.commission_amount, 0) AS affiliate_amount
+            d.title, d.price_per_unit, d.commission_rate
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
-     LEFT JOIN siton.affiliate_attributions aa ON aa.participant_id = p.participant_id
      WHERE p.participant_id = $1`,
     [participantId]
   );
   if (!row.rowCount) return;
   const r = row.rows[0] as {
     qty: string; title: string;
-    price_per_unit: string; commission_rate: string; affiliate_amount: string;
+    price_per_unit: string; commission_rate: string;
   };
   const grossAmount = Number(r.qty) * Number(r.price_per_unit);
   const commissionRate = Number(r.commission_rate);
-  const affiliateFeeAmount = Number(r.affiliate_amount);
+  const affiliateFeeAmount = 0;
   const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
   const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
   await enqueueInvoiceDocument({
@@ -1965,6 +1975,33 @@ app.post("/deals", async (req: any) => {
   const maxUnits = Math.max(minUnits, Number(requestedMaxUnitsRaw || 20));
   const draftThreshold = Math.ceil(0.9 * minUnits);
 
+  const now = Date.now();
+  let deadlineMs: number;
+  if (body.deadline === undefined || body.deadline === null || body.deadline === "") {
+    deadlineMs = now + DEADLINE_DEFAULT_MS;
+  } else {
+    deadlineMs = new Date(body.deadline).getTime();
+    if (!Number.isFinite(deadlineMs)) {
+      const err: any = new Error("deadline must be a valid ISO date");
+      err.statusCode = 400;
+      throw err;
+    }
+  }
+  const deadlineDiffMs = deadlineMs - now;
+  if (deadlineDiffMs < DEADLINE_MIN_MS) {
+    const err: any = new Error("deadline must be at least 2 hours in the future");
+    err.statusCode = 400;
+    err.code = "deadline_below_minimum";
+    throw err;
+  }
+  if (deadlineDiffMs > DEADLINE_MAX_MS) {
+    const err: any = new Error("deadline must be within 7 days from now");
+    err.statusCode = 400;
+    err.code = "deadline_above_maximum";
+    throw err;
+  }
+  const deadlineIso = new Date(deadlineMs).toISOString();
+
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     const ins = await c.query(
@@ -1978,8 +2015,8 @@ app.post("/deals", async (req: any) => {
         minUnits,
         maxUnits,
         draftThreshold,
-        body.deadline ? new Date(body.deadline).toISOString() : nowPlusMinutes(60).toISOString(),
-        Number(body.commission_rate || 0),
+        deadlineIso,
+        SITON_PLATFORM_COMMISSION_RATE,
         sellerAuthority.seller_id
       ]
     );

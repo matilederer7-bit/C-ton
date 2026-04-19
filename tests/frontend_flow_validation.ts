@@ -39,7 +39,7 @@ async function createDeal(title: string, suffix: string) {
       price_per_unit: 42,
       min_units: 10,
       max_units: 20,
-      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
       delivery_options: [
         { option_type: "pickup", label: "Self pickup", cost: 0, sort_order: 0 },
         { option_type: "delivery", label: "Courier", cost: 15, sort_order: 1 }
@@ -89,7 +89,7 @@ async function main() {
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
     assert.match(response.body, /<title>סיטון<\/title>/);
-    assert.match(response.body, /סיטון - דף עסקה ציבורי, הצטרפות קונה, אימות OTP, אישור מסגרת ומעקב עסקה/);
+    assert.match(response.body, /סיטון - דף עסקה ציבורי, הצטרפות קונה, אימות טלפון, אישור מסגרת ומעקב עסקה/);
   });
 
   await runTest("styles support RTL layout and LTR fields inside Hebrew surfaces", async () => {
@@ -139,28 +139,28 @@ async function main() {
     assert.match(response.body, /אישור מסגרת בלבד/);
   });
 
-  await runTest("internal surfaces are framed as internal in the unified copy layer", async () => {
+  await runTest("operational surfaces are framed as controlled operational views in the unified copy layer", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/app/assets/app.js"
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /מסך פנימי/);
-    assert.match(response.body, /המסך הזה הוא פנימי בלבד/);
-    assert.match(response.body, /המסך הזה נשאר פנימי/);
+    assert.match(response.body, /גישה תפעולית/);
+    assert.match(response.body, /מרכז התפעול של סיטון/);
+    assert.match(response.body, /מרכז הפצה למדידה, ייחוס ושיתוף לינקים/);
     assert.doesNotMatch(response.body, /Internal surface/);
   });
 
-  await runTest("internal admin and affiliate copy drops the older raw labels", async () => {
+  await runTest("admin and affiliate copy keeps the newer operational framing", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/app/assets/app.js"
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /סיכום שותפים/);
-    assert.match(response.body, /מסך פנימי לפעולות תפעול, בקרה ותמיכה/);
+    assert.match(response.body, /מרכז הפצה/);
+    assert.match(response.body, /מרכז התפעול של סיטון/);
     assert.doesNotMatch(response.body, /Affiliate totals/);
     assert.doesNotMatch(response.body, /Campaigns surfaced/);
     assert.doesNotMatch(response.body, /App health/);

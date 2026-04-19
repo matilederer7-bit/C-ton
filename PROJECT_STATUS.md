@@ -1,6 +1,60 @@
 # PROJECT STATUS
 
-Last updated: 2026-04-16 (Per-deal Cross-System Ops Summary Mini-Pack — /api/admin/deals/:id/ops-summary, 6/6 tests)
+Current update: 2026-04-19 (Wave 1 spec-drift closure: completion window 24h, commission 8%, deadline 2h–7d, deal transitions aligned with DB)
+
+Last updated: 2026-04-19 (Frontend foundation pass: RTL + responsive + accessibility baseline)
+
+## Spec Drift Closure — Wave 1 (2026-04-19)
+
+Reference drift map: [docs/SPEC_DRIFT_MAP_2026-04-19.md](docs/SPEC_DRIFT_MAP_2026-04-19.md)
+
+Managerial source-of-truth resolutions applied this wave:
+1. Siton platform commission is 8% (fixed).
+2. Distributors (מפיצים) have no commission model at all.
+3. Completion window is 24 hours.
+4. Deal deadline allowed range is 2 hours ≤ Δ ≤ 7 days.
+5. State transitions in TypeScript must stay in lockstep with DB trigger enforcement.
+
+### What was fixed in Wave 1
+
+- **D6 — Deal transitions aligned with DB.** `DEAL_TRANSITIONS` in [src/app.ts](src/app.ts) rewritten to match `siton.is_valid_deal_transition` from migrations 008/014 exactly. Cancellation is now permitted only from `Draft`; `PendingTarget` → `{TargetReached, Failed}`; `Charging` → `{CompletionWindow}` only; and middle states carry no `Cancelled` exit. The TypeScript layer will no longer mislead the engine with permissive cancels that the DB trigger rejects.
+- **D1 — Completion window defaults to 1440 minutes (24h).** Changed default in both [src/app.ts](src/app.ts) (`COMPLETION_WINDOW_MINUTES`) and [src/runtime_config.ts](src/runtime_config.ts). This is the C6 recovery window buyers get to update a failed payment method after Charging → CompletionWindow.
+- **D3 — Deadline validation 2h–7d enforced.** `POST /deals` now rejects `deadline < now + 2h` with `deadline_below_minimum` (400) and `deadline > now + 7d` with `deadline_above_maximum` (400). Default deadline when the caller omits it is now 24h (previously 60 minutes, which violated the lower bound).
+- **D2 — Commission fixed at 8%.** `POST /deals` ignores `body.commission_rate` and always persists `0.08` for new deals. The DB trigger already makes `commission_rate` immutable post-publish, so the platform fee is now locked at the spec-defined value end-to-end.
+
+### What was tested
+
+- `npx tsc --noEmit -p tsconfig.test.json` — clean (no type errors).
+- [tests/backend_sanity_suite.ts](tests/backend_sanity_suite.ts) extended with four new cases; entire suite passes:
+  - `PASS deal transitions match DB enforcement (no post-publish Cancelled)` — asserts every non-`Draft` deal state rejects `Cancelled`, and `Charging` rejects `Failed` (must flow through `CompletionWindow` first).
+  - `PASS deal creation rejects deadline shorter than 2 hours` — 1h payload → 400.
+  - `PASS deal creation rejects deadline longer than 7 days` — 8d payload → 400.
+  - `PASS deal creation rejects invalid deadline string` — `"not-a-date"` → 400 with clear message (previously crashed to 500).
+  - Existing `canonical state transitions stay intact` and outbox cases still pass.
+- Integration-style suites that previously seeded deals with `30m`/`45m` deadlines via `POST /deals` were lifted to `3h` to satisfy the new lower bound (they bypass DB validation; only the HTTP endpoint enforces 2h–7d). See "Files touched" below.
+
+### Files touched
+
+- [src/app.ts](src/app.ts) — D1/D2/D3/D6 core fixes; added `DEADLINE_MIN_MS`, `DEADLINE_MAX_MS`, `DEADLINE_DEFAULT_MS`, `SITON_PLATFORM_COMMISSION_RATE` constants; rewrote `DEAL_TRANSITIONS`; rewrote `POST /deals` deadline + commission logic.
+- [src/runtime_config.ts](src/runtime_config.ts) — `COMPLETION_WINDOW_MINUTES` default 15 → 1440.
+- [tests/backend_sanity_suite.ts](tests/backend_sanity_suite.ts) — four new Wave 1 assertions.
+- [tests/adversarial_hardening_validation.ts](tests/adversarial_hardening_validation.ts), [tests/frontend_flow_validation.ts](tests/frontend_flow_validation.ts), [tests/full_product_surface_validation.ts](tests/full_product_surface_validation.ts), [tests/full_system_qa_validation.ts](tests/full_system_qa_validation.ts), [tests/master_product_depth_validation.ts](tests/master_product_depth_validation.ts), [tests/preprod_torture_validation.ts](tests/preprod_torture_validation.ts), [tests/real_integrations_validation.ts](tests/real_integrations_validation.ts), [tests/remaining_product_surfaces_validation.ts](tests/remaining_product_surfaces_validation.ts), [tests/seller_auth_authority_validation.ts](tests/seller_auth_authority_validation.ts), [tests/ultimate_prelive_qa_rc_validation.ts](tests/ultimate_prelive_qa_rc_validation.ts) — raised the HTTP-seeded `deadline` from 30–45 minutes to 3 hours so they clear the 2h lower bound.
+
+### What is still open (deferred to Wave 2)
+
+- **D4 — Distributor commission/payout subsystem must be dismantled.** `affiliate_accounts` / `affiliate_attributions` still carry `commission_rate`, `commission_amount`, `payout_status`, `payout_method` in [src/product_surface_support.ts](src/product_surface_support.ts) and the frontend still surfaces payout routes. Entire code path needs to be removed or neutralized.
+- **D5 — Distributor-facing PII exposure of buyers** must be scrubbed once D4 is resolved.
+- **D7 — Refund endpoints** (seller-initiated and admin-initiated refunds per spec) are still absent.
+- **D8 — Trusted-device cookie / OTP skip for repeat buyers** not yet implemented.
+- **D9 — Hebrew mojibake in [frontend/app.js](frontend/app.js)** (encoding fix).
+- **D10–D17 — Missing admin surfaces** (KYC Queue, Payouts & Settlements, Omnisearch, Audit & Forensics, System Status, E12 kill-switch, Freeze Payouts, Content Takedown, Double-Entry Ledger, polling metadata, webhook E1/E2 handling).
+- **D18–D22 — Polish items** (OTP attempts cap 5 → 3, repeat-purchase idempotency polish, terms checkbox wiring, strict min/max validation, "create similar deal" endpoint).
+
+### Wave 1 status
+
+- **Wave 1 closed.** The four constitutional drifts (D1/D2/D3/D6) are sealed end-to-end (code + tests + canonical constants) and no non-test call site remains on the legacy values.
+- **Progress on drift map overall:** 4 of 22 drifts sealed = ~18% by count, but the four closed are the constitutional core that unblocks the rest (cancellation safety, time windows, fee model) — Wave 2 can now work on subsystem surgery (distributor removal, refund endpoints) without fighting an unstable base.
+- **Next step — Wave 2:** prioritize D4+D5 together (distributor subsystem teardown is one coherent change; PII exposure falls out automatically), then D7 (refund endpoints), then D9 (encoding).
 
 ## Canonical Status
 
@@ -27,6 +81,22 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Demo deployment execution: `DEMO DEPLOYMENT PACKAGE READY WITH CLEAR FINAL STEP`
 - Render demo deployment: `RENDER DEMO READY WITH SINGLE EXTERNAL STEP`
 - Render free-tier alignment: `RENDER FREE BLUEPRINT READY`
+- Frontend foundation: `RTL + RESPONSIVE + ACCESSIBILITY BASELINE IMPLEMENTED`
+
+## Current Frontend Foundation Track
+
+- Completed:
+  root RTL shell, skip link, landmarks, live-region frame, route-aware document title, mobile-first shell baseline, stronger focus visibility, touch-target baseline, and copy cleanup for seller / affiliate / admin skeleton surfaces
+- Checked:
+  `frontend/index.html`, `frontend/app.js`, `frontend/styles.css`, critical public and operational skeleton surfaces, and frontend foundation validation coverage
+- Fixed:
+  broken root copy, weak shell semantics, missing skip link, narrow focus treatment, desktop-first shell assumptions, and internal-looking English leaks in seller / affiliate / admin surface copy
+- Open:
+  deeper route-level browser rendering proof, broader copy cleanup in lower-priority legacy helper messages, and future accessibility tightening for advanced tables/dialogs if those components deepen further
+- Progress:
+  `88%` of the isolated frontend foundation track
+- Next step:
+  extend the same foundation into deeper seller/admin table interactions and, when practical, add browser-level responsive accessibility smoke coverage
 
 ## What Is Completed
 
@@ -1491,3 +1561,18 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `100%` of the audit step; `0%` of the subsequent implementation-alignment step
 - Next step:
   start the next pass by removing the internal affiliate payout model from docs/tests/runtime surfaces, then replace `commission_rate` with the canonical fee model, and only then open the dedicated repeat-purchase implementation pass across join flow, schema, counters, and regression coverage
+
+## Frontend Track: Product Surfaces Refinement
+
+- What was completed:
+  refined the public deal page into a stronger product-facing hero with a visual summary block, clearer availability framing, sharper progress language, and a cleaner action-side hierarchy; reorganized the seller workspace into urgency/draft/closed sections instead of one flat list; and upgraded the seller deal page top layer into a clearer control surface with charged/pending/unresolved snapshots in addition to the existing progress, urgency, receipts, and delivery sections
+- What was checked:
+  direct code review of `renderDealPage`, `renderSellerPage`, `renderSellerDealPage`, and the shared surface CSS; `node --check frontend/app.js`; `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json --noEmit`; and `npm run test:product-surfaces-refinement`
+- What was fixed:
+  weak hierarchy in the public deal hero, thin seller workspace navigation by urgency, and the lack of an explicit seller deal operational snapshot above the lower tables and receipts/delivery surfaces
+- What is open:
+  this pass intentionally did not redesign admin or affiliate surfaces, did not deepen payment UX, and did not introduce new backend media contracts; if a later pass adds canonical product media, the public deal page can upgrade from a strong fallback visual block to a real gallery without reopening the current layout model
+- Progress percentage:
+  `91%` of the current frontend surfaces refinement track
+- Next step:
+  continue only if we want a dedicated follow-up on buyer tracking depth or richer seller table interactions; otherwise treat the public deal page, seller workspace, seller dashboard, and seller deal page as the aligned baseline for ongoing frontend product work

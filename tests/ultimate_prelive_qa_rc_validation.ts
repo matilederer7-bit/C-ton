@@ -1,8 +1,12 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { app } from "../src/app.js";
-import { pool } from "../src/db.js";
-import { ensureRemainingProductSurfaceTables } from "../src/product_surface_support.js";
+
+process.env.DISABLE_OUTBOX_WORKER = "1";
+
+const { app } = await import("../src/app.js");
+const { pool } = await import("../src/db.js");
+const { ensureRemainingProductSurfaceTables } = await import("../src/product_surface_support.js");
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -26,6 +30,16 @@ async function post(url: string, requestId: string, payload: Record<string, unkn
   });
 }
 
+function paymentWebhookHeaders(rawBody: string) {
+  const secret = String(process.env.PAYMENT_WEBHOOK_SECRET || "mock-webhook-secret");
+  const timestamp = String(Math.floor(Date.now() / 1000));
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return {
+    "x-webhook-signature": `sha256=${digest}`,
+    "x-webhook-timestamp": timestamp
+  };
+}
+
 async function createDeal(title: string, suffix: string, overrides: Record<string, unknown> = {}) {
   const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const response = await app.inject({
@@ -40,7 +54,7 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
       price_per_unit: 42,
       min_units: 2,
       max_units: 6,
-      deadline: new Date(Date.now() + 30 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
       commission_rate: 0.1,
       ...overrides
     }
@@ -115,7 +129,7 @@ async function main() {
         admin_note: "bad target"
       }
     });
-    assert.equal(badAffiliateKyc.statusCode, 400);
+    assert.equal(badAffiliateKyc.statusCode, 410);
 
     const missingSellerKyc = await app.inject({
       method: "POST",
@@ -134,7 +148,7 @@ async function main() {
         payout_status: "approved"
       }
     });
-    assert.equal(missingAffiliatePayout.statusCode, 404);
+    assert.equal(missingAffiliatePayout.statusCode, 410);
 
     const missingSupport = await app.inject({
       method: "POST",
@@ -165,25 +179,24 @@ async function main() {
     await post(`/deals/${created.deal_id}/prepare_charging`, `ultimate-prepare-${Date.now()}`);
     await post(`/deals/${created.deal_id}/charging/start`, `ultimate-start-${Date.now()}`);
 
+    const webhookPayload = {
+      event_id: `ultimate-charge-${Date.now()}`,
+      event_type: "charge_captured",
+      deal_id: created.deal_id,
+      participant_id: participant.participant_id,
+      payload: {
+        deal_id: created.deal_id,
+        participant_id: participant.participant_id,
+        provider_reference: "ultimate-cap"
+      }
+    };
     const captured = await app.inject({
       method: "POST",
       url: "/webhooks/payments/mock",
-      headers: {
-        "x-webhook-secret": "mock-webhook-secret"
-      },
-      payload: {
-        event_id: `ultimate-charge-${Date.now()}`,
-        event_type: "charge_captured",
-        deal_id: created.deal_id,
-        participant_id: participant.participant_id,
-        payload: {
-          deal_id: created.deal_id,
-          participant_id: participant.participant_id,
-          provider_reference: "ultimate-cap"
-        }
-      }
+      headers: paymentWebhookHeaders(JSON.stringify(webhookPayload)),
+      payload: webhookPayload
     });
-    assert.equal(captured.statusCode, 202);
+    assert.equal(captured.statusCode, 200);
 
     const client = await pool.connect();
     try {
@@ -191,7 +204,19 @@ async function main() {
       await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
       await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
       await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
-      await client.query(`SELECT set_config('siton.action_name', 'test.ultimate_complete', true)`);
+      const dealState = await client.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [created.deal_id]);
+      const currentState = String(dealState.rows[0]?.state || "");
+      if (currentState === "Charging") {
+        await client.query(`SELECT set_config('siton.action_name', 'charging.to_completion_window', true)`);
+        await client.query(
+          `UPDATE siton.deals
+           SET state='CompletionWindow',
+               completion_window_until=COALESCE(completion_window_until, now())
+           WHERE deal_id=$1`,
+          [created.deal_id]
+        );
+      }
+      await client.query(`SELECT set_config('siton.action_name', 'charging.finalize_completed', true)`);
       await client.query(`UPDATE siton.deals SET state='Completed', completion_window_until=COALESCE(completion_window_until, now()) WHERE deal_id=$1`, [created.deal_id]);
       await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participant.participant_id]);
       await client.query("COMMIT");

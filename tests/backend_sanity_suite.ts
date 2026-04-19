@@ -45,6 +45,85 @@ async function main() {
     );
   });
 
+  await runTest("deal transitions match DB enforcement (no post-publish Cancelled)", async () => {
+    // Cancellation is only permitted from Draft — DB trigger mirrors this.
+    assert.deepEqual(DEAL_TRANSITIONS.Draft, ["PendingTarget", "Cancelled"]);
+    assert.deepEqual(DEAL_TRANSITIONS.PendingTarget, ["TargetReached", "Failed"]);
+    assert.deepEqual(DEAL_TRANSITIONS.TargetReached, ["ClosedForJoining"]);
+    assert.deepEqual(DEAL_TRANSITIONS.ClosedForJoining, ["ReadyForCharging"]);
+    assert.deepEqual(DEAL_TRANSITIONS.ReadyForCharging, ["Charging"]);
+    assert.deepEqual(DEAL_TRANSITIONS.Charging, ["CompletionWindow"]);
+    assert.deepEqual(DEAL_TRANSITIONS.CompletionWindow, ["Completed", "Failed"]);
+    for (const from of [
+      "PendingTarget",
+      "TargetReached",
+      "ClosedForJoining",
+      "ReadyForCharging",
+      "Charging",
+      "CompletionWindow"
+    ]) {
+      assert.throws(
+        () => assertValidTransition("deal_state", from, "Cancelled"),
+        new RegExp(`Illegal deal_state transition ${from} to Cancelled`)
+      );
+    }
+    assert.throws(
+      () => assertValidTransition("deal_state", "Charging", "Failed"),
+      /Illegal deal_state transition Charging to Failed/
+    );
+  });
+
+  await runTest("deal creation rejects deadline shorter than 2 hours", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        title: "Too-soon deadline",
+        price_per_unit: 10,
+        min_units: 5,
+        max_units: 10,
+        deadline: new Date(Date.now() + 60 * 60_000).toISOString() // 1h
+      }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as any;
+    assert.match(String(body.error || ""), /at least 2 hours/i);
+  });
+
+  await runTest("deal creation rejects deadline longer than 7 days", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        title: "Too-far deadline",
+        price_per_unit: 10,
+        min_units: 5,
+        max_units: 10,
+        deadline: new Date(Date.now() + 8 * 24 * 60 * 60_000).toISOString() // 8d
+      }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as any;
+    assert.match(String(body.error || ""), /within 7 days/i);
+  });
+
+  await runTest("deal creation rejects invalid deadline string", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        title: "Bad deadline",
+        price_per_unit: 10,
+        min_units: 5,
+        max_units: 10,
+        deadline: "not-a-date"
+      }
+    });
+    assert.equal(res.statusCode, 400);
+    const body = res.json() as any;
+    assert.match(String(body.error || ""), /deadline must be a valid ISO date/i);
+  });
+
   await runTest("outbox retry helper increments attempts on temporary failures", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const helpers = buildOutboxWorkerHelpers({

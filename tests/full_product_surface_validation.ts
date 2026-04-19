@@ -31,7 +31,7 @@ async function createDeal(title: string, suffix: string, seller?: { seller_id?: 
       price_per_unit: 55,
       min_units: 10,
       max_units: 25,
-      deadline: new Date(Date.now() + 45 * 60_000).toISOString(),
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
       commission_rate: 0.08,
       delivery_options: [
         { option_type: "pickup", label: "Self pickup", cost: 0, sort_order: 0 },

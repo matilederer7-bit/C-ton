@@ -72,7 +72,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 20,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 45 * 60_000).toISOString(),
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
         commission_rate: 0.08
       }
     });
@@ -92,7 +92,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 25,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 45 * 60_000).toISOString(),
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
         commission_rate: 0.08
       }
     });
@@ -183,7 +183,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 30,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 45 * 60_000).toISOString(),
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
         commission_rate: 0.08
       }
     });
