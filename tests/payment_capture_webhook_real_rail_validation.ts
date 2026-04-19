@@ -10,9 +10,6 @@ const PAYMENT_WEBHOOK_SECRET = "live-webhook-secret";
 process.env.PORT = PORT;
 process.env.APP_DEPLOYMENT_MODE = "internal-runtime";
 process.env.SELLER_SESSION_SECRET = SELLER_SESSION_SECRET;
-process.env.SELLER_AUTH_CREDENTIALS = JSON.stringify([
-  { seller_id: "seller-alpha", display_name: "Seller Alpha", access_code: "alpha-code" }
-]);
 process.env.PAYMENT_PROVIDER = "payrail-http";
 process.env.PAYMENT_PROVIDER_MODE = "provider-ready";
 process.env.PAYMENT_PROVIDER_API_KEY = "live-provider-key";
@@ -123,26 +120,36 @@ assert.equal(paymentProviderSummary.mode, "provider-ready");
 assert.equal(paymentProviderSummary.authorization_transport_live, true);
 assert.equal(paymentProviderSummary.capture_path, "/capture");
 
-const { buildSellerSessionToken, serializeSellerSessionCookie } = await import(
-  `../src/seller_auth.js?capture-worker-${Date.now()}`
-);
 const { app, processOutboxEventById } = await import(`../src/app.js?capture-worker-${Date.now()}`);
 const { Pool } = pg;
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton"
 });
 
-const sellerCookie = serializeSellerSessionCookie(
-  buildSellerSessionToken(
-    {
-      seller_id: "seller-alpha",
-      display_name: "Seller Alpha",
-      iat: Date.now(),
-      exp: Date.now() + 60 * 60 * 1000
-    },
-    SELLER_SESSION_SECRET
-  )
-);
+const provisionSeller = await app.inject({
+  method: "POST",
+  url: "/api/admin/seller-auth/seller-alpha/provision",
+  payload: {
+    display_name: "Seller Alpha",
+    login_email: "alpha@example.com",
+    access_code: "alpha-pass-123",
+    auth_enabled: true
+  }
+});
+assert.equal(provisionSeller.statusCode, 200);
+
+const sellerLogin = await app.inject({
+  method: "POST",
+  url: "/api/seller/session/login",
+  payload: {
+    identifier: "alpha@example.com",
+    access_code: "alpha-pass-123"
+  }
+});
+assert.equal(sellerLogin.statusCode, 200);
+const sellerCookie = Array.isArray(sellerLogin.headers["set-cookie"])
+  ? String(sellerLogin.headers["set-cookie"][0] || "")
+  : String(sellerLogin.headers["set-cookie"] || "");
 
 async function createChargingParticipant(suffix: string, authorizationId: string) {
   const dealId = randomUUID();

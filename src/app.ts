@@ -2250,6 +2250,21 @@ app.post("/deals/:id/close_joining", async (req: any) => {
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}`;
 
+  await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  });
+
   return atomicTransition({
     entityType: "deal",
     entityId: dealId,
@@ -2270,6 +2285,21 @@ app.post("/deals/:id/prepare_charging", async (req: any) => {
   requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `prepare:${dealId}`;
+
+  await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  });
 
   return atomicMultiTransition({
     actionName: "deal.prepare_charging",
@@ -2314,6 +2344,21 @@ app.post("/deals/:id/charging/start", async (req: any) => {
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `start:${dealId}`;
 
+  await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  });
+
   return atomicMultiTransition({
     actionName: "charging.start",
     requestId,
@@ -2356,8 +2401,24 @@ app.post("/deals/:id/charging/start", async (req: any) => {
 
 app.post("/deals/:id/cancel", async (req: any) => {
   const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `cancel:${dealId}`;
+
+  await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (!r.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+  });
 
   return atomicTransition({
     entityType: "deal",

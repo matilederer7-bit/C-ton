@@ -224,7 +224,6 @@ async function issueSellerSession(c: any, req: any, sellerProfile: any) {
 }
 
 async function readSellerSessionContext(req: any, c: any) {
-  if (deps.isDemoPreview) return null;
   if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) return null;
   const cookies = parseCookies(req.headers?.cookie);
   const rawToken = String(cookies[SELLER_SESSION_COOKIE] || "").trim();
@@ -1782,9 +1781,9 @@ export function registerFrontendExperience(
       const updated = await c.query(
         `UPDATE siton.seller_accounts
          SET login_email = NULLIF($2, ''),
-             auth_secret_hash = $3,
+             auth_secret_hash = $3::text,
              auth_enabled = $4,
-             auth_secret_updated_at = CASE WHEN $3 IS NULL THEN auth_secret_updated_at ELSE now() END,
+             auth_secret_updated_at = CASE WHEN $3::text IS NULL THEN auth_secret_updated_at ELSE now() END,
              updated_at = now()
          WHERE seller_id = $1
          RETURNING seller_id, display_name, login_email, auth_enabled, verification_status, settlement_status,

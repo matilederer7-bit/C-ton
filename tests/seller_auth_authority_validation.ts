@@ -1,5 +1,6 @@
 import { strict as assert } from "node:assert";
 import pg from "pg";
+import { hashSellerSessionToken } from "../src/seller_auth.js";
 
 async function run(name: string, fn: () => Promise<void>) {
   try {
@@ -11,40 +12,58 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-await run("non-demo create and publish derive seller authority from the server session", async () => {
+function asCookie(value: string | string[] | undefined) {
+  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
+}
+
+function cookieToken(cookieHeader: string) {
+  const match = /siton_seller_session=([^;]+)/.exec(cookieHeader || "");
+  return match ? decodeURIComponent(String(match[1] || "")) : "";
+}
+
+await run("non-demo create publish close prepare charge and cancel derive authority from DB-backed seller sessions", async () => {
   process.env.APP_DEPLOYMENT_MODE = "internal-runtime";
   process.env.SELLER_SESSION_SECRET = "seller-session-secret-authority";
   process.env.PORT = "3048";
+  const secret = process.env.SELLER_SESSION_SECRET || "";
 
-  const { buildSellerSessionToken, serializeSellerSessionCookie } = await import(`../src/seller_auth.js?seller-auth-app-${Date.now()}`);
   const { app } = await import(`../src/app.js?seller-auth-app-${Date.now()}`);
   const { Pool } = pg;
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton"
   });
 
-  const alphaToken = buildSellerSessionToken(
-    {
-      seller_id: "seller-alpha",
-      display_name: "Seller Alpha",
-      iat: Date.now(),
-      exp: Date.now() + 60 * 60 * 1000
-    },
-    process.env.SELLER_SESSION_SECRET
-  );
-  const betaToken = buildSellerSessionToken(
-    {
-      seller_id: "seller-beta",
-      display_name: "Seller Beta",
-      iat: Date.now(),
-      exp: Date.now() + 60 * 60 * 1000
-    },
-    process.env.SELLER_SESSION_SECRET
-  );
-  const alphaCookie = serializeSellerSessionCookie(alphaToken, 60 * 60);
-  const betaCookie = serializeSellerSessionCookie(betaToken, 60 * 60);
-
   try {
+    const provisionAlpha = await app.inject({
+      method: "POST",
+      url: "/api/admin/seller-auth/seller-alpha/provision",
+      payload: { display_name: "Seller Alpha", login_email: "alpha@example.com", access_code: "alpha-pass-123", auth_enabled: true }
+    });
+    assert.equal(provisionAlpha.statusCode, 200);
+
+    const provisionBeta = await app.inject({
+      method: "POST",
+      url: "/api/admin/seller-auth/seller-beta/provision",
+      payload: { display_name: "Seller Beta", login_email: "beta@example.com", access_code: "beta-pass-123", auth_enabled: true }
+    });
+    assert.equal(provisionBeta.statusCode, 200);
+
+    const alphaLogin = await app.inject({
+      method: "POST",
+      url: "/api/seller/session/login",
+      payload: { identifier: "alpha@example.com", access_code: "alpha-pass-123" }
+    });
+    const betaLogin = await app.inject({
+      method: "POST",
+      url: "/api/seller/session/login",
+      payload: { identifier: "beta@example.com", access_code: "beta-pass-123" }
+    });
+    assert.equal(alphaLogin.statusCode, 200);
+    assert.equal(betaLogin.statusCode, 200);
+
+    const alphaCookie = asCookie(alphaLogin.headers["set-cookie"]);
+    const betaCookie = asCookie(betaLogin.headers["set-cookie"]);
+
     const denied = await app.inject({
       method: "POST",
       url: "/deals",
@@ -79,6 +98,7 @@ await run("non-demo create and publish derive seller authority from the server s
     });
     assert.equal(create.statusCode, 200);
     const created = create.json() as any;
+
     const ownership = await pool.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [created.deal_id]);
     assert.equal(String(ownership.rows[0].seller_id), "seller-alpha");
 
@@ -107,6 +127,88 @@ await run("non-demo create and publish derive seller authority from the server s
       payload: {}
     });
     assert.equal(rightPublish.statusCode, 200);
+
+    const reachTarget = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/join`,
+      headers: {
+        "x-request-id": `seller-auth-reach-target-${Date.now()}`,
+        "idempotency-key": `seller-auth-reach-target-${created.deal_id}`
+      },
+      payload: {
+        buyer_id: `buyer-${Date.now()}`,
+        qty: 9
+      }
+    });
+    assert.equal(reachTarget.statusCode, 200);
+
+    const wrongClose = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/close_joining`,
+      headers: { cookie: betaCookie, "idempotency-key": `wrong-close-${created.deal_id}` }
+    });
+    assert.equal(wrongClose.statusCode, 404);
+
+    const rightClose = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/close_joining`,
+      headers: { cookie: alphaCookie, "idempotency-key": `right-close-${created.deal_id}` }
+    });
+    assert.equal(rightClose.statusCode, 200);
+
+    const rightPrepare = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/prepare_charging`,
+      headers: { cookie: alphaCookie, "idempotency-key": `right-prepare-${created.deal_id}` }
+    });
+    assert.equal(rightPrepare.statusCode, 200);
+
+    const wrongStart = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/charging/start`,
+      headers: { cookie: betaCookie, "idempotency-key": `wrong-start-${created.deal_id}` }
+    });
+    assert.equal(wrongStart.statusCode, 404);
+
+    const cancelOtherSellerDraft = await app.inject({
+      method: "POST",
+      url: "/deals",
+      headers: {
+        cookie: betaCookie,
+        "idempotency-key": `seller-beta-create-${Date.now()}`,
+        "x-request-id": `seller-beta-create-${Date.now()}`
+      },
+      payload: {
+        title: `Seller Beta Draft ${Date.now()}`,
+        price_per_unit: 30,
+        min_units: 10,
+        max_units: 20,
+        deadline: new Date(Date.now() + 45 * 60_000).toISOString(),
+        commission_rate: 0.08
+      }
+    });
+    assert.equal(cancelOtherSellerDraft.statusCode, 200);
+    const betaDraftDealId = (cancelOtherSellerDraft.json() as any).deal_id;
+
+    const alphaCancelBeta = await app.inject({
+      method: "POST",
+      url: `/deals/${betaDraftDealId}/cancel`,
+      headers: { cookie: alphaCookie, "idempotency-key": `alpha-cancel-beta-${betaDraftDealId}` }
+    });
+    assert.equal(alphaCancelBeta.statusCode, 404);
+
+    const betaCancelOwn = await app.inject({
+      method: "POST",
+      url: `/deals/${betaDraftDealId}/cancel`,
+      headers: { cookie: betaCookie, "idempotency-key": `beta-cancel-own-${betaDraftDealId}` }
+    });
+    assert.equal(betaCancelOwn.statusCode, 200);
+
+    const alphaSessionRows = await pool.query(
+      `SELECT seller_id FROM siton.seller_sessions WHERE token_hash = $1`,
+      [hashSellerSessionToken(cookieToken(alphaCookie), secret) || ""]
+    );
+    assert.equal(String(alphaSessionRows.rows[0].seller_id), "seller-alpha");
   } finally {
     await pool.end();
     await app.close().catch(() => {});

@@ -15,6 +15,7 @@ and how to confirm each queue is clean.
 | `/api/admin/invoice-status` | GET | Invoice document queue health: counts by status and document type |
 | `/api/admin/system-ops-status` | GET | Unified snapshot: all three queues in one call |
 | `/api/admin/participants/:id/ops` | GET | Cross-system read surface for one participant |
+| `/api/admin/deals/:id/ops-summary` | GET | Per-deal cross-system ops counts: participants, notifications, invoices, outbox |
 | `/api/admin/deals/:id/profile` | GET | Full deal support profile: participants, outbox, payments, audit, delivery |
 | `/api/admin/users/:buyerId/profile` | GET | Buyer join history across all deals |
 | `/api/admin/system-status` | GET | Broader system health: integrations, readiness, deployment mode |
@@ -155,6 +156,55 @@ Returns 404 if participant_id not found.
 
 ---
 
+### `GET /api/admin/deals/:id/ops-summary`
+
+Per-deal cross-system snapshot. Use this to get a full operational picture for one deal
+without manually querying four tables.
+
+```json
+{
+  "ok": true,
+  "deal": { "deal_id": "...", "state": "Completed", "title": "Test Deal" },
+  "participants": {
+    "total": 3,
+    "by_state": { "DealCompleted": 2, "DealFailed": 1 }
+  },
+  "notifications": {
+    "pending": 1,
+    "processing": 0,
+    "sent": 2,
+    "failed": 0,
+    "by_channel": [
+      { "channel": "sms", "pending": 1, "sent": 2, "failed": 0, "oldest_pending_age_s": 12.4 }
+    ]
+  },
+  "invoice_documents": {
+    "pending": 1,
+    "processing": 0,
+    "issued": 1,
+    "failed": 0,
+    "by_type": [
+      { "document_type": "charge_receipt", "pending": 0, "issued": 1, "failed": 0, "oldest_pending_age_s": null },
+      { "document_type": "refund_receipt", "pending": 1, "issued": 0, "failed": 0, "oldest_pending_age_s": 8.1 }
+    ]
+  },
+  "outbox": {
+    "pending": 0,
+    "processing": 0,
+    "sent": 4,
+    "failed": 0,
+    "oldest_pending_age_s": null
+  }
+}
+```
+
+Returns 404 if `deal_id` is not found.
+
+Notifications are filtered via `template_params->>'deal_id'` (JSONB).
+Outbox events cover both deal-level aggregate_ids and participant-level aggregate_ids for the deal.
+
+---
+
 ### `GET /api/admin/outbox-status`
 
 Full outbox queue metrics with worker status.
@@ -221,5 +271,5 @@ See `docs/NOTIFICATIONS_OPERATIONS.md` for field meanings.
 | Invoice document provider mode | **Done** — `invoice-status` returns `provider.{code,mode,external_issuance}` |
 | Notification provider mode | **Done** — `notifications-status` returns `provider.{code,mode,external_delivery}` |
 | Stuck invoice_documents reclaim | **Done** — `reclaimStuckInvoiceDocuments` wired into `workerLoop` |
-| Per-deal cross-system summary (deal_id → notifications + invoices) | Not built; use `deals/:id/profile` + manual queries |
+| Per-deal cross-system summary (deal_id → notifications + invoices) | **Done** — `deals/:id/ops-summary` returns all four systems in one call |
 | Support ticket creation via API | Exists at `POST /api/admin/support` |
