@@ -15,7 +15,7 @@ ENV PORT=3000
 RUN npm run build:demo
 
 # Run as non-root user
-RUN useradd -m -u 1000 appuser
+RUN useradd -m appuser
 USER appuser
 
 EXPOSE 3000
