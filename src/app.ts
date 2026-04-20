@@ -15,6 +15,12 @@ import { registerFrontendExperience } from "./frontend_runtime.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
+  buildMarketplaceMoney,
+  calculateMarketplaceMoney,
+  ensureMarketplaceMoneyTables,
+  SITON_PLATFORM_FEE_RATE
+} from "./marketplace_money.js";
+import {
   SELLER_SESSION_COOKIE,
   hashSellerSessionToken,
   normalizeSellerDisplayName,
@@ -41,7 +47,6 @@ const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
 
 // Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
-const SITON_PLATFORM_COMMISSION_RATE = 0.08;
 const DISABLE_OUTBOX_WORKER = process.env.DISABLE_OUTBOX_WORKER === "1";
 
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
@@ -608,6 +613,16 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await marketplaceMoney.recordProviderFinancialEvent({
+      participant_id: args.target.participant_id,
+      deal_id: args.target.deal_id,
+      event_type: "charge_captured",
+      provider_code: args.event.provider,
+      provider_event_id: args.event.event_id,
+      provider_reference: args.event.provider_reference ?? null,
+      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
+      source_money_state: "ChargedSuccess"
+    });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: charge succeeded
     await enqueueNotificationForParticipant("charge_succeeded", args.target.participant_id, args.target.deal_id).catch(() => undefined);
@@ -682,6 +697,16 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
+    await marketplaceMoney.recordProviderFinancialEvent({
+      participant_id: args.target.participant_id,
+      deal_id: args.target.deal_id,
+      event_type: "recovery_captured",
+      provider_code: args.event.provider,
+      provider_event_id: args.event.event_id,
+      provider_reference: args.event.provider_reference ?? null,
+      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
+      source_money_state: "RecoveredCharge"
+    });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
@@ -736,6 +761,16 @@ async function applyPaymentWebhookClassification(args: {
       idempotencyKey: `refund-issued:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`,
       outbox: null,
       payload: eventPayload
+    });
+    await marketplaceMoney.recordProviderFinancialEvent({
+      participant_id: args.target.participant_id,
+      deal_id: args.target.deal_id,
+      event_type: "refund_issued",
+      provider_code: args.event.provider,
+      provider_event_id: args.event.event_id,
+      provider_reference: args.event.provider_reference ?? null,
+      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
+      source_money_state: args.target.money_state
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: refund issued
@@ -1419,7 +1454,7 @@ async function enqueueParticipantNotifications(
 async function enqueueChargeReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
     `SELECT p.qty, p.money_state, p.delivery_cost,
-            d.title, d.price_per_unit, d.commission_rate
+            d.title, d.price_per_unit
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
      WHERE p.participant_id = $1`,
@@ -1428,13 +1463,11 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
   if (!row.rowCount) return;
   const r = row.rows[0] as {
     qty: string; money_state: string; delivery_cost: string;
-    title: string; price_per_unit: string; commission_rate: string;
+    title: string; price_per_unit: string;
   };
   // Siton fee base = actual collected amount (price × qty + delivery). No VAT.
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const commissionRate = Number(r.commission_rate);
-  const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
-  const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
+  const money = calculateMarketplaceMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
     documentKey: `charge_receipt:${participantId}`,
     documentType: "charge_receipt",
@@ -1443,9 +1476,9 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
     dealTitle: String(r.title || ""),
     qty: Number(r.qty),
     moneyStateAtIssue: String(r.money_state),
-    grossAmount,
-    sitonFeeAmount,
-    sellerNetAmount,
+    grossAmount: money.gross_amount,
+    sitonFeeAmount: money.platform_fee_amount,
+    sellerNetAmount: money.seller_net_amount,
     providerCode: invoiceProvider.providerCode
   }, pool);
 }
@@ -1458,7 +1491,7 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
 async function enqueueRefundReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
     `SELECT p.qty, p.delivery_cost,
-            d.title, d.price_per_unit, d.commission_rate
+            d.title, d.price_per_unit
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
      WHERE p.participant_id = $1`,
@@ -1467,13 +1500,11 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
   if (!row.rowCount) return;
   const r = row.rows[0] as {
     qty: string; delivery_cost: string; title: string;
-    price_per_unit: string; commission_rate: string;
+    price_per_unit: string;
   };
   // Refund receipt mirrors charge receipt: fee base = price × qty + delivery.
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const commissionRate = Number(r.commission_rate);
-  const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
-  const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
+  const money = calculateMarketplaceMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
     documentKey: `refund_receipt:${participantId}`,
     documentType: "refund_receipt",
@@ -1482,9 +1513,9 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
     dealTitle: String(r.title || ""),
     qty: Number(r.qty),
     moneyStateAtIssue: "Refunded",
-    grossAmount,
-    sitonFeeAmount,
-    sellerNetAmount,
+    grossAmount: money.gross_amount,
+    sitonFeeAmount: money.platform_fee_amount,
+    sellerNetAmount: money.seller_net_amount,
     providerCode: invoiceProvider.providerCode
   }, pool);
 }
@@ -2014,7 +2045,7 @@ app.post("/deals", async (req: any) => {
         maxUnits,
         draftThreshold,
         deadlineIso,
-        SITON_PLATFORM_COMMISSION_RATE,
+        SITON_PLATFORM_FEE_RATE,
         sellerAuthority.seller_id
       ]
     );
@@ -2521,6 +2552,7 @@ app.get("/debug/deals/:id", async (req: any) => {
 const paymentProvider = buildPaymentProvider();
 const notificationService = buildNotificationService();
 const invoiceProvider = buildInvoiceProvider();
+const marketplaceMoney = buildMarketplaceMoney({ withTx });
 registerFrontendExperience(app, {
   withTx,
   paymentProvider,
@@ -2537,6 +2569,8 @@ registerFrontendExperience(app, {
 let workerRunning = false;
 
 (async () => {
+  await ensureMarketplaceMoneyTables(withTx);
+
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;
     workerLoop(app, notificationService, invoiceProvider).catch((e) => app.log.error(e));

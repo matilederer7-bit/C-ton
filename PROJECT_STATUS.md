@@ -1,6 +1,14 @@
 # PROJECT STATUS
 
-Current update: 2026-04-20 (Wave 2 spec-drift closure: distributor commission model stripped; 8% Siton fee base now includes delivery)
+Marketplace payments 8% track:
+- Completed: canonical provider-ready settlement truth now exists in `siton.marketplace_money_events`; charge, recovery, and refund events write signed money truth with fixed 8% platform fee math and seller-net derivation
+- Checked: `npx tsc --noEmit`, `npm run test:marketplace-payments`, and `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`
+- Fixed: dynamic `commission_rate` reliance in live receipt math, missing settlement/receivable truth per participant, absent refund reversal truth, and missing duplicate guards for fee and refund recording
+- Open: external activation only: live marketplace split/application-fee provider wiring, live invoice rail, live payout rail, and live VAT sourcing beyond the explicit current `vat_amount = 0` internal baseline
+- Progress: `93%` of the isolated marketplace-payments track
+- Next step: when external activation begins, map the same canonical settlement row shape onto a real marketplace payment provider and payout rail without changing the internal fee model again
+
+Current update: 2026-04-20 (Marketplace payments pass: canonical 8% settlement truth, refund reversal truth, and duplicate-safe provider-ready money events)
 
 Last updated: 2026-04-19 (Wave 1 spec-drift closure: completion window 24h, commission 8%, deadline 2h–7d, deal transitions aligned with DB)
 

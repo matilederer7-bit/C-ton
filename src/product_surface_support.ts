@@ -1,5 +1,7 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
+import { SITON_PLATFORM_FEE_RATE } from "./marketplace_money.js";
+
 export const DEFAULT_SELLER_ID = "seller-default";
 export const DEFAULT_AFFILIATE_CODE = "affiliate-demo";
 export const DEFAULT_AFFILIATE_NAME = "Affiliate Demo";
@@ -14,14 +16,18 @@ export function isChargedMoneyState(moneyState: string | null | undefined) {
 // (price × qty + delivery). Excludes VAT. Distributors do NOT receive a fee.
 export function summarizeMoney(args: {
   grossAmount: number;
-  commissionRate: number;
+  commissionRate?: number;
+  vatAmount?: number;
 }) {
   const grossAmount = Number(args.grossAmount || 0);
-  const commissionRate = Number(args.commissionRate || 0);
-  const sitonFeeAmount = roundMoney(grossAmount * commissionRate);
+  const vatAmount = Math.max(0, Number(args.vatAmount || 0));
+  const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
+  const sitonFeeAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
   return {
     gross_amount: grossAmount,
-    siton_fee_rate: commissionRate,
+    vat_amount: roundMoney(vatAmount),
+    fee_base_amount: feeBaseAmount,
+    siton_fee_rate: SITON_PLATFORM_FEE_RATE,
     siton_fee_amount: sitonFeeAmount,
     seller_net_amount: roundMoney(grossAmount - sitonFeeAmount)
   };
@@ -111,12 +117,7 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
       `);
 
       // Distributors are attribution-only per spec: link tracking, click/join
-       // counts, attributed units. They receive no commission, no payout, no
-       // settlement. The payout_* / commission_* columns below are LEGACY DEAD:
-       // retained for schema compatibility with older deployments, written only
-       // with hardcoded neutral defaults, never read by the live product layer,
-       // never exposed in any API response. Scheduled for a later migration to
-       // drop. Do not reintroduce writes or reads.
+      // counts, attributed units. No commission, no payout, no settlement.
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.affiliate_accounts (
           affiliate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -124,14 +125,16 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
           display_name TEXT NOT NULL,
           verification_status TEXT NOT NULL DEFAULT 'pending'
             CHECK (verification_status IN ('pending','verified','rejected')),
-          payout_status TEXT NOT NULL DEFAULT 'pending_profile'
-            CHECK (payout_status IN ('pending_profile','pending_review','approved','paid','hold')),
-          payout_method TEXT NOT NULL DEFAULT 'bank_transfer',
-          payout_details_masked TEXT NOT NULL DEFAULT '',
           admin_note TEXT NOT NULL DEFAULT '',
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`);
+
+      // Clean up pre-purge deployments where the attribution-only tables still
+      // carry the distributor commission/payout columns.
+      await c.query(`ALTER TABLE siton.affiliate_accounts DROP COLUMN IF EXISTS payout_status`);
+      await c.query(`ALTER TABLE siton.affiliate_accounts DROP COLUMN IF EXISTS payout_method`);
+      await c.query(`ALTER TABLE siton.affiliate_accounts DROP COLUMN IF EXISTS payout_details_masked`);
 
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.affiliate_attributions (
@@ -140,13 +143,15 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
           deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
           participant_id UUID NOT NULL UNIQUE REFERENCES siton.participants(participant_id) ON DELETE CASCADE,
           share_code TEXT NOT NULL,
-          commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0,
-          commission_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-          payout_status TEXT NOT NULL DEFAULT 'pending'
-            CHECK (payout_status IN ('pending','approved','paid','void')),
           created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
           updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
         )`);
+
+      await c.query(`DROP INDEX IF EXISTS siton.idx_affiliate_attributions_deal`);
+      await c.query(`DROP INDEX IF EXISTS siton.idx_affiliate_attributions_affiliate`);
+      await c.query(`ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS commission_rate`);
+      await c.query(`ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS commission_amount`);
+      await c.query(`ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS payout_status`);
 
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.delivery_records (

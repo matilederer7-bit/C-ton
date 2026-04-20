@@ -177,6 +177,34 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS marketplace_money_events (
+  money_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  participant_id UUID NOT NULL REFERENCES participants(participant_id) ON DELETE CASCADE,
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  seller_id TEXT NOT NULL,
+  event_type TEXT NOT NULL
+    CHECK (event_type IN ('charge_captured','recovery_captured','refund_issued')),
+  logical_entry_type TEXT NOT NULL
+    CHECK (logical_entry_type IN ('charge','refund_adjustment')),
+  provider_code TEXT NOT NULL,
+  provider_event_id TEXT NULL,
+  provider_reference TEXT NULL,
+  correlation_id TEXT NULL,
+  source_money_state TEXT NOT NULL,
+  settlement_status TEXT NOT NULL DEFAULT 'recorded'
+    CHECK (settlement_status IN ('recorded','backfilled_from_refund')),
+  payout_readiness_status TEXT NOT NULL
+    CHECK (payout_readiness_status IN ('ready_for_settlement','reversed_after_refund')),
+  gross_amount NUMERIC(12,2) NOT NULL,
+  vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  fee_base_amount NUMERIC(12,2) NOT NULL,
+  platform_fee_rate NUMERIC(6,4) NOT NULL DEFAULT 0.08,
+  platform_fee_amount NUMERIC(12,2) NOT NULL,
+  seller_net_amount NUMERIC(12,2) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS webhook_events (
   provider TEXT NOT NULL,
   event_id TEXT NOT NULL,
@@ -291,6 +319,7 @@ CREATE INDEX IF NOT EXISTS idx_deals_seller_created ON deals(seller_id, created_
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON payment_attempts(correlation_id);
+CREATE INDEX IF NOT EXISTS idx_marketplace_money_deal_created ON marketplace_money_events(deal_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_status_received ON webhook_events(status, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_provider_received ON webhook_events(provider, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_deal_received ON webhook_events(deal_id, received_at);
@@ -310,6 +339,51 @@ BEGIN
       CREATE UNIQUE INDEX ux_outbox_one_pending_per_aggregate_event
       ON outbox_events (event_type, aggregate_id)
       WHERE status IN (''pending'',''processing'')
+    ';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_indexes
+    WHERE schemaname='public' AND indexname='ux_marketplace_money_charge_once'
+  ) THEN
+    EXECUTE '
+      CREATE UNIQUE INDEX ux_marketplace_money_charge_once
+      ON marketplace_money_events (participant_id)
+      WHERE logical_entry_type = ''charge''
+    ';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_indexes
+    WHERE schemaname='public' AND indexname='ux_marketplace_money_refund_once'
+  ) THEN
+    EXECUTE '
+      CREATE UNIQUE INDEX ux_marketplace_money_refund_once
+      ON marketplace_money_events (participant_id)
+      WHERE logical_entry_type = ''refund_adjustment''
+    ';
+  END IF;
+END $$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_indexes
+    WHERE schemaname='public' AND indexname='ux_marketplace_money_provider_event'
+  ) THEN
+    EXECUTE '
+      CREATE UNIQUE INDEX ux_marketplace_money_provider_event
+      ON marketplace_money_events (provider_code, provider_event_id)
+      WHERE provider_event_id IS NOT NULL
     ';
   END IF;
 END $$;

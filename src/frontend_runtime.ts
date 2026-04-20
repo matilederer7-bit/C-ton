@@ -1766,17 +1766,10 @@ export function registerFrontendExperience(
             seller_workspace: {
               completed_deals: completedDeals.length,
               gross_amount: sellerSettlementGross,
-              platform_fee_amount: Number(
-                completedDeals.reduce(
-                  (sum, row) =>
-                    sum
-                    + (
-                      Number(row.price_per_unit || 0) * Number(row.joined_units || 0)
-                      + Number((row as any).joined_delivery_cost || 0)
-                    ) * Number(row.commission_rate || 0),
-                  0
-                ).toFixed(2)
-              )
+              platform_fee_amount: summarizeMoney({
+                grossAmount: sellerSettlementGross,
+                vatAmount: 0
+              }).siton_fee_amount
             }
           },
           support_tickets: support.rows,

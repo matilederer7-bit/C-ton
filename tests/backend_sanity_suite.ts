@@ -190,12 +190,16 @@ async function main() {
     assert.equal(summary.seller_net_amount, 46);
   });
 
-  await runTest("summarizeMoney has no affiliate field and no VAT field", () => {
+  await runTest("summarizeMoney has no affiliate field and exposes explicit VAT / fee-base truth", () => {
     const summary = summarizeMoney({ grossAmount: 220, commissionRate: 0.08 });
     const keys = Object.keys(summary);
-    for (const forbidden of ["affiliate_fee_amount", "affiliate_fee_rate", "vat", "vat_amount", "tax_amount"]) {
+    for (const forbidden of ["affiliate_fee_amount", "affiliate_fee_rate", "vat", "tax_amount"]) {
       assert.ok(!keys.includes(forbidden), `forbidden key "${forbidden}" present in summarizeMoney output`);
     }
+    assert.ok(keys.includes("vat_amount"), "vat_amount must be present in summarizeMoney output");
+    assert.ok(keys.includes("fee_base_amount"), "fee_base_amount must be present in summarizeMoney output");
+    assert.equal(summary.vat_amount, 0);
+    assert.equal(summary.fee_base_amount, 220);
   });
 
   await runTest("affiliate overview is attribution-only (no commission/payout/PII fields)", async () => {
