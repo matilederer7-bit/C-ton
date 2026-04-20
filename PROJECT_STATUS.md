@@ -113,6 +113,21 @@ The old `docs/PROJECT_STATUS.md` copy is no longer canonical and is removed in t
 - Next step:
   if external issuance is activated later, extend the same truth-aligned panel with a real download or view action backed by the provider-safe document route
 
+## Frontend Track: Admin + Support Product Surfaces
+
+- Completed:
+  admin dashboard now exposes explicit urgency buckets, deal-level ops summary is surfaced through canonical buckets, and a dedicated participant-ops read surface is available for support-grade investigation
+- Checked:
+  admin dashboard, support hub wording, deal profile ops presentation, participant ops read surface, responsive sanity, and operator-facing truth for notifications and invoice documents
+- Fixed:
+  English support banners, weak urgency hierarchy, raw-table-heavy admin deal presentation, missing participant-ops frontend surface, and operator wording that leaned too far into internal dump semantics
+- Open:
+  deeper admin action flows, broader admin workflow orchestration, and any external-rail-backed operator actions remain outside this track
+- Progress:
+  `91%` of the isolated admin/support surfaces track
+- Next step:
+  if this area deepens further, add browser-level smoke coverage for the admin participant and deal investigation paths
+
 ## What Is Completed
 
 ### Backend

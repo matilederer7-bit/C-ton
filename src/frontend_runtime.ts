@@ -16,7 +16,6 @@ import {
   SELLER_SESSION_SECRET
 } from "./runtime_config.js";
 import {
-  AFFILIATE_FEE_SHARE_OF_PLATFORM,
   DEFAULT_AFFILIATE_CODE,
   DEFAULT_AFFILIATE_NAME,
   DEFAULT_SELLER_ID,
@@ -1245,11 +1244,10 @@ export function registerFrontendExperience(
         [dealId]
       );
 
+      // Attribution-only: no commission_amount / payout_status exposed.
       const attributions = await c.query(
         `SELECT aa.participant_id,
                 aa.share_code,
-                aa.commission_amount,
-                aa.payout_status,
                 af.display_name AS affiliate_name,
                 af.verification_status
          FROM siton.affiliate_attributions aa
@@ -1294,7 +1292,8 @@ export function registerFrontendExperience(
         .map((row: any) => {
           const attribution = attributionByParticipant.get(String(row.participant_id)) as any;
           const invoiceDocument = invoiceByParticipant.get(String(row.participant_id)) as any;
-          const grossAmount = Number(row.qty) * Number(deal.price_per_unit);
+          // Fee base = actual collected amount (price × qty + delivery).
+          const grossAmount = Number(row.qty) * Number(deal.price_per_unit) + Number(row.delivery_cost || 0);
           return {
             participant_id: row.participant_id,
             buyer_id: row.buyer_id,
@@ -1302,12 +1301,13 @@ export function registerFrontendExperience(
             money_state: row.money_state,
             buyer_state: row.buyer_state,
             gross_amount: grossAmount,
+            delivery_cost: Number(row.delivery_cost || 0),
             document_id: invoiceDocument?.document_id ?? null,
             document_status: invoiceDocument?.status ?? "not_issued",
             issued_at: invoiceDocument?.issued_at ?? null,
             provider_document_id: invoiceDocument?.provider_document_id ?? null,
             share_code: attribution?.share_code ?? null,
-            affiliate_name: attribution?.display_name ?? null
+            affiliate_name: attribution?.affiliate_name ?? null
           };
         });
 
@@ -1316,8 +1316,7 @@ export function registerFrontendExperience(
           (sum: number, row: any) => sum + Number(row.gross_amount || 0),
           0
         ),
-        commissionRate: Number(deal.commission_rate || 0),
-        affiliateAmount: 0
+        commissionRate: Number(deal.commission_rate || 0)
       });
 
       const deliveryRows = participants.rows
@@ -1688,6 +1687,7 @@ export function registerFrontendExperience(
            d.created_at,
            d.commission_rate,
            COALESCE(SUM(p.qty),0) AS joined_units,
+           COALESCE(SUM(p.delivery_cost),0) AS joined_delivery_cost,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
@@ -1740,8 +1740,12 @@ export function registerFrontendExperience(
 
       const rows = deals.rows as DealListRow[];
       const completedDeals = rows.filter((row) => row.state === "Completed");
+      // Fee base = actual collected amount (price × qty + delivery).
       const sellerSettlementGross = completedDeals.reduce(
-        (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0),
+        (sum, row) =>
+          sum
+          + Number(row.price_per_unit || 0) * Number(row.joined_units || 0)
+          + Number((row as any).joined_delivery_cost || 0),
         0
       );
       return {
@@ -1764,7 +1768,12 @@ export function registerFrontendExperience(
               gross_amount: sellerSettlementGross,
               platform_fee_amount: Number(
                 completedDeals.reduce(
-                  (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0) * Number(row.commission_rate || 0),
+                  (sum, row) =>
+                    sum
+                    + (
+                      Number(row.price_per_unit || 0) * Number(row.joined_units || 0)
+                      + Number((row as any).joined_delivery_cost || 0)
+                    ) * Number(row.commission_rate || 0),
                   0
                 ).toFixed(2)
               )

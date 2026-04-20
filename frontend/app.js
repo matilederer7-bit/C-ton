@@ -26,6 +26,8 @@ const state = {
   adminNotificationsStatusPayload: null,
   adminInvoiceStatusPayload: null,
   adminDealPayload: null,
+  adminDealOpsPayload: null,
+  adminParticipantOpsPayload: null,
   adminUserPayload: null,
   error: null,
   banner: null,
@@ -104,6 +106,7 @@ const ROUTE_LABELS = {
   affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
   "admin-deal": "פרופיל עסקה לתפעול",
+  "admin-participant": "פרופיל משתתף לתפעול",
   "admin-user": "פרופיל משתמש לתפעול",
   home: "׳”׳׳×׳¨ ׳”׳¨׳׳©׳™",
   deal: "׳“׳£ ׳¢׳¡׳§׳”",
@@ -263,6 +266,7 @@ function parseRoute(path) {
     ["affiliate", /^\/app\/affiliate$/],
     ["admin", /^\/app\/admin$/],
     ["admin-deal", /^\/app\/admin\/deals\/([^/]+)$/],
+    ["admin-participant", /^\/app\/admin\/participants\/([^/]+)$/],
     ["admin-user", /^\/app\/admin\/users\/([^/]+)$/]
   ];
 
@@ -274,6 +278,8 @@ function parseRoute(path) {
     }
     return name === "tracking"
       ? { name, participantId: decodeURIComponent(match[1]) }
+      : name === "admin-participant"
+        ? { name, participantId: decodeURIComponent(match[1]) }
       : name === "admin-user"
         ? { name, buyerId: decodeURIComponent(match[1]) }
         : { name, dealId: decodeURIComponent(match[1]) };
@@ -309,6 +315,7 @@ async function runRoute() {
   if (route.name === "affiliate") return loadAffiliate();
   if (route.name === "admin") return loadAdmin(state.form.adminQuery);
   if (route.name === "admin-deal") return loadAdminDeal(route.dealId);
+  if (route.name === "admin-participant") return loadAdminParticipant(route.participantId);
   if (route.name === "admin-user") return loadAdminUser(route.buyerId);
 
   if (["otp", "payment", "confirmation"].includes(route.name)) {
@@ -426,8 +433,19 @@ async function loadAdmin(query = "") {
 
 async function loadAdminDeal(dealId) {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™...", async () => {
-    state.adminDealPayload = await api(`/api/admin/deals/${encodeURIComponent(dealId)}/profile`);
+    const [profile, opsSummary] = await Promise.all([
+      api(`/api/admin/deals/${encodeURIComponent(dealId)}/profile`),
+      api(`/api/admin/deals/${encodeURIComponent(dealId)}/ops-summary`)
+    ]);
+    state.adminDealPayload = profile;
+    state.adminDealOpsPayload = opsSummary;
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™.");
+}
+
+async function loadAdminParticipant(participantId) {
+  await busy("טוען את פרופיל המשתתף לתפעול...", async () => {
+    state.adminParticipantOpsPayload = await api(`/api/admin/participants/${encodeURIComponent(participantId)}/ops`);
+  }, "לא הצלחנו לטעון את פרופיל המשתתף לתפעול.");
 }
 
 async function loadAdminUser(buyerId) {
@@ -969,7 +987,7 @@ async function decideKyc(form) {
 
 async function createSupportTicket(form) {
   const formData = new FormData(form);
-  await busy("Creating support ticket...", async () => {
+  await busy("פותח פנייה תפעולית...", async () => {
     await api("/api/admin/support", {
       method: "POST",
       body: json({
@@ -982,18 +1000,18 @@ async function createSupportTicket(form) {
     });
     state.banner = {
       tone: "success",
-      title: "Support ticket created",
-      message: "The ticket now appears in the admin support hub."
+      title: "פניית התמיכה נפתחה",
+      message: "הפנייה נוספה עכשיו למרכז התמיכה הפנימי."
     };
     await loadAdmin(state.form.adminQuery);
-  }, "Could not create the support ticket.");
+  }, "לא הצלחנו לפתוח את פנית התמיכה.");
 }
 
 async function updateSupportTicket(form) {
   const ticketId = form.dataset.ticketId;
   if (!ticketId) return;
   const formData = new FormData(form);
-  await busy("Updating support ticket...", async () => {
+  await busy("מעדכן את פנית התמיכה...", async () => {
     await api(`/api/admin/support/${encodeURIComponent(ticketId)}`, {
       method: "POST",
       body: json({
@@ -1003,11 +1021,11 @@ async function updateSupportTicket(form) {
     });
     state.banner = {
       tone: "success",
-      title: "Support ticket updated",
-      message: "The support hub was refreshed with the latest ticket status."
+      title: "פניית התמיכה עודכנה",
+      message: "מרכז התמיכה רוענן עם הסטטוס האחרון."
     };
     await loadAdmin(state.form.adminQuery);
-  }, "Could not update the support ticket.");
+  }, "לא הצלחנו לעדכן את פנית התמיכה.");
 }
 
 function restartFlow() {
@@ -1120,6 +1138,7 @@ function getRouteSummary() {
     affiliate: "מרכז הפצה וייחוס עם מצב אימות, ביצועי קמפיינים והיערכות לתשלום עתידי.",
     admin: "מרכז תפעול, חיפוש, חריגות, תורי אימות ותמונת מערכת.",
     "admin-deal": "פרופיל עסקה לתפעול, בקרה ותמיכה.",
+    "admin-participant": "פרופיל משתתף לתפעול, תמיכה ואבחון חוצה מערכות.",
     "admin-user": "פרופיל משתמש לתפעול, תמיכה וחקירה.",
     terms: "תנאי השימוש של סיטון.",
     privacy: "מדיניות הפרטיות של סיטון.",
@@ -1158,6 +1177,7 @@ function renderCurrentRoute() {
   if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
   if (route.name === "admin-deal") return renderAdminDealPage();
+  if (route.name === "admin-participant") return renderAdminParticipantPage();
   if (route.name === "admin-user") return renderAdminUserPage();
   return renderEmptyState("׳”׳¢׳׳•׳“ ׳׳ ׳ ׳׳¦׳", "׳”׳§׳™׳©׳•׳¨ ׳”׳–׳” ׳׳ ׳§׳™׳™׳ ׳׳• ׳©׳›׳‘׳¨ ׳׳™׳ ׳• ׳–׳׳™׳.");
 }
@@ -2351,6 +2371,133 @@ function renderAffiliatePage() {
     </section>
   `;
 }
+function buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus) {
+  const criticalCount =
+    Number(systemStatus?.operational_counts?.failed_webhooks || 0) +
+    Number(payload?.forensics?.dlq_count || 0);
+  const attentionCount =
+    Number(payload?.totals?.exceptional || 0) +
+    Number(notificationStatus?.failed || 0) +
+    Number(invoiceStatus?.failed || 0);
+  const steadyCount =
+    Number(payload?.totals?.live || 0) +
+    Number(systemStatus?.operational_counts?.active_outbox || 0);
+  return [
+    {
+      tone: criticalCount > 0 ? "danger" : "success",
+      label: "חריגים קריטיים",
+      value: num(criticalCount),
+      detail: criticalCount > 0 ? "יש כשלים פעילים שדורשים צלילה מיידית." : "לא זוהו כשלים קריטיים פתוחים כרגע."
+    },
+    {
+      tone: attentionCount > 0 ? "warning" : "success",
+      label: "דורש תשומת לב",
+      value: num(attentionCount),
+      detail: attentionCount > 0 ? "יש עסקאות, מסמכים או התראות שעדיין דורשים בקרה." : "אין עומס חריג שממתין כרגע לבדיקה."
+    },
+    {
+      tone: "info",
+      label: "פעילות שוטפת",
+      value: num(steadyCount),
+      detail: "משקף עסקאות חיות ותורים פעילים שנמצאים במעקב שוטף."
+    }
+  ];
+}
+
+function renderAdminUrgencyCards(cards) {
+  return `
+    <div class="admin-urgency-grid">
+      ${cards.map((card) => `
+        <article class="kpi-card ${card.tone}">
+          <span class="muted">${esc(card.label)}</span>
+          <strong>${esc(card.value)}</strong>
+          <p class="small muted">${esc(card.detail)}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAdminSearchResults(results) {
+  if (!results.length) {
+    return `<div class="empty-surface"><p class="muted">עדיין אין תוצאות. אפשר לחפש עסקאות, משתתפים או מזהי קונה.</p></div>`;
+  }
+  return `
+    <div class="card-list admin-search-grid">
+      ${results.map((item) => {
+        const entityType = String(item.entity_type || "");
+        const href =
+          entityType === "deal"
+            ? `/app/admin/deals/${encodeURIComponent(item.entity_id)}`
+            : entityType === "participant"
+              ? `/app/admin/participants/${encodeURIComponent(item.entity_id)}`
+              : `/app/admin/users/${encodeURIComponent(item.headline)}`;
+        const cta =
+          entityType === "deal"
+            ? "פתיחת פרופיל העסקה"
+            : entityType === "participant"
+              ? "פתיחת פרופיל המשתתף"
+              : "פתיחת פרופיל משתמש";
+        return `
+          <article class="summary-item stack">
+            <div class="actions spread">
+              <div>
+                <span class="muted">${esc(formatSupportScopeType(entityType === "participant" ? "participant" : entityType === "deal" ? "deal" : "system"))}</span>
+                <h3>${esc(item.headline || item.entity_id)}</h3>
+              </div>
+              <strong>${esc(formatOperatorState(item.state, entityType === "deal" ? "deal_state" : "status"))}</strong>
+            </div>
+            <p class="small muted">מזהה: <span class="mono">${esc(item.entity_id)}</span></p>
+            <p class="small muted">${esc(item.detail || "ללא פירוט נוסף כרגע.")}</p>
+            <div class="actions">
+              <a class="button secondary" href="${href}" data-nav="${href}">${cta}</a>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function renderSupportTicketCards(tickets) {
+  if (!tickets.length) {
+    return `<div class="empty-surface"><p class="muted">עדיין אין פניות פתוחות.</p></div>`;
+  }
+  return `
+    <div class="card-list">
+      ${tickets.map((ticket) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(formatSupportScopeType(ticket.scope_type))} · ${esc(ticket.scope_key)}</span>
+              <h3>${esc(ticket.title)}</h3>
+            </div>
+            <strong>${esc(formatSupportTicketStatus(ticket.status))}</strong>
+          </div>
+          <div class="pill-row">
+            <span class="stat-pill"><span>עדיפות</span><strong>${esc(formatSupportPriority(ticket.priority))}</strong></span>
+            <span class="stat-pill"><span>עודכן</span><strong>${dt(ticket.updated_at || ticket.created_at)}</strong></span>
+          </div>
+          <p class="small muted">${esc(ticket.summary || "ללא סיכום")}</p>
+          <form data-action="admin-support-update" data-ticket-id="${esc(ticket.ticket_id)}" class="inline-fields">
+            <div class="field">
+              <label>סטטוס</label>
+              <select name="supportTicketStatus">
+                ${["open","investigating","resolved"].map((option) => `<option value="${option}" ${ticket.status === option ? "selected" : ""}>${formatSupportTicketStatus(option)}</option>`).join("")}
+              </select>
+            </div>
+            <div class="field">
+              <label>סיכום למפעיל</label>
+              <input name="supportTicketSummary" type="text" value="${esc(ticket.summary || "")}" />
+            </div>
+            <button class="secondary" type="submit">שמירת עדכון</button>
+          </form>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
 function renderAdminPage() {
   const payload = state.adminPayload?.admin_surface;
   const systemStatus = state.adminSystemStatusPayload?.system_status;
@@ -2358,39 +2505,48 @@ function renderAdminPage() {
   const invoiceStatus = state.adminInvoiceStatusPayload?.invoice_documents;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("מרכז התפעול לא זמין", "לא הצלחנו לטעון עכשיו את מרכז התפעול.");
+  const urgencyCards = buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus);
   return `
     <section class="hero">
       <article class="card hero-main stack">
         <span class="badge warning">גישה תפעולית</span>
         <span class="eyebrow">ניהול, תמיכה ובקרה</span>
         <h1>מרכז התפעול של סיטון</h1>
-        <p class="muted">כאן מנהלים חיפוש, חריגות, אימות, תמיכה ותמונת מערכת. זהו משטח תפעולי ייעודי שמחובר לאמת של המערכת, בלי להציג יכולות חיצוניות שלא הופעלו עדיין.</p>
+        <p class="muted">כאן רואים תוך שניות מה תקין, מה דורש טיפול, ואיפה צריך לצלול לפרופיל עסקה, משתתף או משתמש. כל המשטח נשען על truth קנוני, בלי להבטיח פעולות חיצוניות שלא הופעלו.</p>
         <form class="stack" data-action="admin-search">
           <div class="field">
             <label for="adminQuery">חיפוש תפעולי</label>
-            <input id="adminQuery" name="adminQuery" type="search" data-dir="ltr" value="${esc(state.form.adminQuery)}" placeholder="מזהה עסקה, כותרת, מזהה משתתף או מזהה קונה" />
+            <input id="adminQuery" name="adminQuery" type="search" data-dir="ltr" value="${esc(state.form.adminQuery)}" placeholder="מזהה עסקה, מזהה משתתף, מזהה קונה או כותרת עסקה" />
           </div>
           <button class="primary" type="submit">חיפוש</button>
         </form>
-        <div class="metric-grid">
-          <div class="metric"><span class="muted">עסקאות</span><strong>${num(payload.totals.deals)}</strong></div>
-          <div class="metric"><span class="muted">עסקאות חיות</span><strong>${num(payload.totals.live)}</strong></div>
-          <div class="metric"><span class="muted">עסקאות חריגות</span><strong>${num(payload.totals.exceptional)}</strong></div>
-        </div>
+        ${renderAdminUrgencyCards(urgencyCards)}
       </article>
       <aside class="card hero-side stack">
-        <div class="summary-item"><span class="muted">טיוטות</span><strong>${num(payload.totals.draft)}</strong></div>
-        <div class="summary-item"><span class="muted">מצב מערכת</span><strong>${systemStatus?.app_health?.ok ? "תקין" : "דורש תשומת לב"}</strong></div>
+        <div class="summary-item summary-spotlight"><span class="muted">מצב מערכת</span><strong>${systemStatus?.app_health?.ok ? "תקין" : "דורש טיפול"}</strong><p class="small muted">${systemStatus?.app_health?.ok ? "בריאות השירות תקינה כרגע." : "יש סימן תפעולי שמצריך בדיקה."}</p></div>
         <div class="summary-item"><span class="muted">מצב סביבה</span><strong>${esc(formatEnvironmentLabel(systemStatus?.deployment?.mode || state.previewMeta?.preview?.deployment_mode || "preview"))}</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות חיות</span><strong>${num(payload.totals.live)}</strong></div>
+        <div class="summary-item"><span class="muted">טיוטות פתוחות</span><strong>${num(payload.totals.draft)}</strong></div>
+        <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus?.operational_counts?.open_support_tickets || payload.support_tickets.filter((ticket) => ticket.status !== "resolved").length)}</strong></div>
       </aside>
     </section>
     <section class="card section stack">
+      <h2>מה בוער עכשיו</h2>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">עסקאות חריגות</span><strong>${num(payload.totals.exceptional)}</strong><p class="small muted">כולל עסקאות שנכשלו, בוטלו או תקועות בחלון טעון יותר.</p></div>
+        <div class="summary-item"><span class="muted">התראות שנכשלו</span><strong>${num(notificationStatus?.failed || 0)}</strong><p class="small muted">מבט על ערוצי הודעות שלא הושלמו בהצלחה.</p></div>
+        <div class="summary-item"><span class="muted">מסמכים שנכשלו</span><strong>${num(invoiceStatus?.failed || 0)}</strong><p class="small muted">רשומות מסמך שלא הגיעו ל־issued אמיתי.</p></div>
+        <div class="summary-item"><span class="muted">רשומות DLQ</span><strong>${num(payload.forensics.dlq_count)}</strong><p class="small muted">אירועים שיצאו מתור העבודה התקין ודורשים בקרה.</p></div>
+      </div>
+    </section>
+    <section class="card section stack">
       <h2>עסקאות חריגות</h2>
-      ${payload.exceptional_deals.length ? `<div class="card-list">${payload.exceptional_deals.map(renderAdminDealCard).join("")}</div>` : `<p class="muted">לא חזרו עסקאות חריגות כרגע.</p>`}
+      ${payload.exceptional_deals.length ? `<div class="card-list">${payload.exceptional_deals.map(renderAdminDealCard).join("")}</div>` : `<div class="empty-surface"><p class="muted">לא חזרו עסקאות חריגות כרגע.</p></div>`}
     </section>
     <section class="card section stack">
       <h2>תוצאות חיפוש תפעולי</h2>
-      ${payload.search_results.length ? renderRowsTable(payload.search_results, ["entity_type", "entity_id", "headline", "state", "detail"]) : `<p class="muted">עדיין אין תוצאות. אפשר לחפש עסקאות, משתתפים או מזהי קונה.</p>`}
+      <p class="small muted">החיפוש מפנה ישירות לפרופיל העסקה, המשתתף או המשתמש. אין כאן dump טכני של מזהים בלי מסלול המשך.</p>
+      ${renderAdminSearchResults(payload.search_results)}
     </section>
     <section class="card section stack">
       <h2>תור אימות ובקרה</h2>
@@ -2401,21 +2557,52 @@ function renderAdminPage() {
               <span class="muted">${esc(item.subject_type)}</span>
               <h3>${esc(item.display_name)}</h3>
             </div>
-            <strong>${esc(item.status)}</strong>
+            <strong>${esc(formatVerificationStatus(item.status))}</strong>
           </div>
-          <p class="small muted">פירוט: ${esc(item.detail || "לא זמין")} · עודכן ב-${dt(item.updated_at)}</p>
+          <p class="small muted">תחום התחשבנות: ${esc(item.detail || "לא זמין")} · עודכן ב-${dt(item.updated_at)}</p>
           <div class="actions">
             <form data-action="admin-kyc-decision" data-subject-type="${esc(item.subject_type)}" data-subject-id="${esc(item.subject_id)}" data-decision="approve" class="stack">
-              <input type="hidden" name="adminNote" value="Approved during distributor model removal pass" />
+              <input type="hidden" name="adminNote" value="Approved during admin support refinement pass" />
               <button class="secondary" type="submit">אישור</button>
             </form>
             <form data-action="admin-kyc-decision" data-subject-type="${esc(item.subject_type)}" data-subject-id="${esc(item.subject_id)}" data-decision="reject" class="stack">
-              <input type="hidden" name="adminNote" value="Rejected during distributor model removal pass" />
+              <input type="hidden" name="adminNote" value="Rejected during admin support refinement pass" />
               <button class="secondary" type="submit">דחייה</button>
             </form>
           </div>
         </article>
-      `).join("")}</div>` : `<p class="muted">אין כרגע פריטי אימות שממתינים לטיפול.</p>`}
+      `).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין כרגע פריטי אימות שממתינים לטיפול.</p></div>`}
+    </section>
+    <section class="card section stack">
+      <h2>מרכז תמיכה פנימי</h2>
+      <p class="small muted">הפניות נשענות על רשומות אמיתיות בלבד. אם אין פנייה פתוחה, לא ניצור תחושה שיש טיפול שכבר קיים.</p>
+      <form class="stack" data-action="admin-support-create">
+        <div class="inline-fields">
+          <div class="field">
+            <label>תחום פנייה</label>
+            <select name="supportScopeType">
+              ${["deal","participant","affiliate","seller","system"].map((option) => `<option value="${option}">${formatSupportScopeType(option)}</option>`).join("")}
+            </select>
+          </div>
+          <div class="field">
+            <label>מזהה תחום</label>
+            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מפיץ, מוכר או system" />
+          </div>
+        </div>
+        <div class="field"><label>כותרת פנייה</label><input name="supportTitle" type="text" placeholder="סיכום קצר לפנייה" /></div>
+        <div class="inline-fields">
+          <div class="field">
+            <label>עדיפות</label>
+            <select name="supportPriority">
+              <option value="normal">רגילה</option>
+              <option value="high">גבוהה</option>
+            </select>
+          </div>
+          <div class="field"><label>מה נדרש לבדיקה</label><input name="supportSummary" type="text" placeholder="מה דורש בדיקה או בירור?" /></div>
+        </div>
+        <button class="primary" type="submit">פתיחת פנייה</button>
+      </form>
+      ${renderSupportTicketCards(payload.support_tickets)}
     </section>
     <section class="card section stack">
       <h2>התחשבנות ותשלומים</h2>
@@ -2424,87 +2611,20 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">ברוטו למוכר</span><strong>${currency(payload.settlements.seller_workspace.gross_amount)}</strong></div>
         <div class="summary-item"><span class="muted">עמלת פלטפורמה</span><strong>${currency(payload.settlements.seller_workspace.platform_fee_amount)}</strong></div>
       </div>
-      <p class="small muted">המשטח הזה מתייחס רק למסלול הכספי של מוכרים ושל הפלטפורמה. מפיצים אינם ישות settlement פנימית במודל החדש.</p>
+      <p class="small muted">המשטח הזה נשאר read-only ומתייחס רק למסלול הכספי של מוכרים ושל הפלטפורמה. הוא לא מציג payout rails חיצוניים כאילו הופעלו.</p>
     </section>
     <section class="card section stack">
-      <h2>מרכז תמיכה פנימי</h2>
-      <p class="small muted">פניות התמיכה נשענות על רשומות אמיתיות בלבד. אם אין פנייה פתוחה, לא מוצג placeholder כאילו קיים טיפול.</p>
-      <form class="stack" data-action="admin-support-create">
-        <div class="inline-fields">
-          <div class="field">
-            <label>סוג ישות</label>
-            <select name="supportScopeType">
-              ${["deal","participant","affiliate","seller","system"].map((option) => `<option value="${option}">${formatSupportScopeType(option)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="field">
-            <label>מזהה ישות</label>
-            <input name="supportScopeKey" type="text" placeholder="מזהה עסקה, משתתף, מפיץ, מוכר או system" />
-          </div>
-        </div>
-        <div class="field"><label>כותרת</label><input name="supportTitle" type="text" placeholder="סיכום קצר לפנייה" /></div>
-        <div class="inline-fields">
-          <div class="field">
-            <label>עדיפות</label>
-            <select name="supportPriority">
-              <option value="normal">רגיל</option>
-              <option value="high">גבוה</option>
-            </select>
-          </div>
-          <div class="field"><label>סיכום</label><input name="supportSummary" type="text" placeholder="מה דורש בדיקה?" /></div>
-        </div>
-        <button class="primary" type="submit">פתיחת פנייה</button>
-      </form>
-      ${payload.support_tickets.length ? `<div class="card-list">${payload.support_tickets.map((ticket) => `
-        <article class="summary-item stack">
-          <div class="actions spread">
-            <div>
-              <span class="muted">${esc(formatSupportScopeType(ticket.scope_type))}:${esc(ticket.scope_key)}</span>
-              <h3>${esc(ticket.title)}</h3>
-            </div>
-            <strong>${esc(formatSupportTicketStatus(ticket.status))}</strong>
-          </div>
-          <p class="small muted">${esc(ticket.summary || "ללא סיכום")} · ${esc(ticket.priority)}</p>
-          <form data-action="admin-support-update" data-ticket-id="${esc(ticket.ticket_id)}" class="inline-fields">
-            <div class="field">
-              <label>סטטוס</label>
-              <select name="supportTicketStatus">
-                ${["open","investigating","resolved"].map((option) => `<option value="${option}" ${ticket.status === option ? "selected" : ""}>${formatSupportTicketStatus(option)}</option>`).join("")}
-              </select>
-            </div>
-            <div class="field">
-              <label>סיכום</label>
-              <input name="supportTicketSummary" type="text" value="${esc(ticket.summary || "")}" />
-            </div>
-            <button class="secondary" type="submit">שמירת פנייה</button>
-          </form>
-        </article>
-      `).join("")}</div>` : `<p class="muted">עדיין אין פניות פתוחות.</p>`}
-    </section>
-    <section class="card section stack">
-      <h2>עומק מערכת ובקרה</h2>
-      <div class="summary-grid">
-        <div class="summary-item"><span class="muted">כמות DLQ</span><strong>${num(payload.forensics.dlq_count)}</strong></div>
-        <div class="summary-item"><span class="muted">Webhookים שנכשלו</span><strong>${num(payload.forensics.failed_webhooks)}</strong></div>
-        <div class="summary-item"><span class="muted">Webhookים שנדחו</span><strong>${num(payload.forensics.ignored_webhooks)}</strong></div>
-        <div class="summary-item"><span class="muted">Webhookים בהמתנה</span><strong>${num(payload.forensics.pending_webhooks)}</strong></div>
-        <div class="summary-item"><span class="muted">אירועי audit אחרונים</span><strong>${num(payload.forensics.recent_audit_events)}</strong></div>
-      </div>
-    </section>
-    <section class="card section stack">
-      <h2>מצב המערכת</h2>
+      <h2>מצב מערכת ותורים</h2>
       ${systemStatus ? `
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">בריאות אפליקטיבית</span><strong>${systemStatus.app_health.ok ? "תקין" : "ירוד"}</strong></div>
-          <div class="summary-item"><span class="muted">מצב תשלומים</span><strong>${esc(systemStatus.integrations.payment.mode)}</strong></div>
-          <div class="summary-item"><span class="muted">מצב התראות</span><strong>${esc(systemStatus.integrations.notifications.mode)}</strong></div>
+          <div class="summary-item"><span class="muted">בריאות אפליקטיבית</span><strong>${systemStatus.app_health.ok ? "תקין" : "דורש טיפול"}</strong></div>
+          <div class="summary-item"><span class="muted">מצב תשלומים</span><strong>${esc(formatRuntimeModeLabel(systemStatus.integrations.payment.mode))}</strong></div>
+          <div class="summary-item"><span class="muted">מצב התראות</span><strong>${esc(formatRuntimeModeLabel(systemStatus.integrations.notifications.mode))}</strong></div>
           <div class="summary-item"><span class="muted">התראות בהמתנה</span><strong>${num(notificationStatus?.pending || 0)}</strong></div>
           <div class="summary-item"><span class="muted">התראות שנכשלו</span><strong>${num(notificationStatus?.failed || 0)}</strong></div>
           <div class="summary-item"><span class="muted">מסמכים שהונפקו</span><strong>${num(invoiceStatus?.issued || 0)}</strong></div>
           <div class="summary-item"><span class="muted">מסמכים שנכשלו</span><strong>${num(invoiceStatus?.failed || 0)}</strong></div>
           <div class="summary-item"><span class="muted">תור שליחה פעיל</span><strong>${num(systemStatus.operational_counts.active_outbox)}</strong></div>
-          <div class="summary-item"><span class="muted">כמות DLQ</span><strong>${num(systemStatus.operational_counts.dlq_count)}</strong></div>
-          <div class="summary-item"><span class="muted">Webhookים בהמתנה</span><strong>${num(systemStatus.operational_counts.pending_webhooks)}</strong></div>
           <div class="summary-item"><span class="muted">Webhookים שנכשלו</span><strong>${num(systemStatus.operational_counts.failed_webhooks)}</strong></div>
           <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus.operational_counts.open_support_tickets)}</strong></div>
         </div>
@@ -2512,19 +2632,35 @@ function renderAdminPage() {
           <strong>גבול ההפעלה החיצונית</strong>
           <p>${esc(systemStatus.notes.join(" "))}</p>
         </div>
-      ` : `<p class="muted">לא הצלחנו לטעון כרגע את מצב המערכת.</p>`}
+      ` : `<div class="empty-surface"><p class="muted">לא הצלחנו לטעון כרגע את מצב המערכת.</p></div>`}
     </section>
   `;
 }
+
 function renderAdminDealCard(item) {
+  const dealCopy = getDealCopy(item.state);
+  const tone = item.state === "Charging" || item.state === "CompletionWindow" || item.state === "Failed" || item.state === "Cancelled" ? "warning" : "info";
   return `
-    <article class="summary-item">
-      <span class="muted">${esc(getDealCopy(item.state).label)}</span>
-      <h3>${esc(item.title)}</h3>
-      <p class="small muted">׳ ׳¨׳©׳׳• ${num(item.metrics.joined_units)} ׳׳×׳•׳ ${num(item.max_units)} ׳™׳—׳™׳“׳•׳×</p>
+    <article class="summary-item stack">
+      <div class="actions spread">
+        <div>
+          <span class="muted">${esc(dealCopy.label)}</span>
+          <h3>${esc(item.title)}</h3>
+        </div>
+        <strong>${num(item.metrics.joined_units)} / ${num(item.max_units)}</strong>
+      </div>
+      <div class="pill-row">
+        <span class="stat-pill"><span>סטטוס</span><strong>${esc(dealCopy.label)}</strong></span>
+        <span class="stat-pill"><span>משתתפים</span><strong>${num(item.metrics.participants_count)}</strong></span>
+        <span class="stat-pill"><span>קיבולת נותרת</span><strong>${num(item.metrics.remaining_units)}</strong></span>
+      </div>
+      <div class="info-strip tone-${tone}">
+        <strong>${item.state === "Charging" || item.state === "CompletionWindow" ? "נדרש מעקב הדוק" : item.state === "Failed" || item.state === "Cancelled" ? "עסקה חריגה לסקירה" : "עסקה שחזרה לבקרה"}</strong>
+        <p class="small">${esc(dealCopy.description)}</p>
+      </div>
       <div class="actions">
-        <a class="button primary" href="/app/admin/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(item.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳₪׳¨׳•׳₪׳™׳ ׳”׳₪׳ ׳™׳׳™</a>
-        <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">׳׳¡׳ ׳”׳׳•׳›׳¨</a>
+        <a class="button primary" href="/app/admin/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(item.deal_id)}">פתיחת פרופיל העסקה</a>
+        <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">מעבר למסך המוכר</a>
       </div>
     </article>
   `;
@@ -2532,56 +2668,247 @@ function renderAdminDealCard(item) {
 
 function renderAdminDealPage() {
   const payload = state.adminDealPayload?.profile;
+  const ops = state.adminDealOpsPayload;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™ ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™.");
+  if (!payload) return renderEmptyState("פרופיל העסקה לתפעול לא זמין", "לא הצלחנו לטעון עכשיו את פרופיל העסקה לתפעול.");
+  const participantsByState = summarizeParticipantStateBuckets(ops?.participants?.by_state || {});
   return `
     <section class="hero">
       <article class="card hero-main stack">
-        <span class="eyebrow">׳₪׳¨׳•׳₪׳™׳ ׳¢׳¡׳§׳” ׳₪׳ ׳™׳׳™</span>
+        <span class="eyebrow">פרופיל עסקה לתפעול</span>
         <h1>${esc(payload.deal.title || payload.deal.deal_id)}</h1>
-        <p class="muted">׳×׳׳•׳ ׳× ׳׳׳× ׳₪׳ ׳™׳׳™׳× ׳©׳ ׳׳¦׳‘ ׳”׳¢׳¡׳§׳”, ׳”׳׳©׳×׳×׳₪׳™׳, ׳”׳׳™׳¨׳•׳¢׳™׳ ׳”׳×׳₪׳¢׳•׳׳™׳™׳, ׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳”׳—׳™׳•׳‘ ׳•׳”-audit.</p>
-        ${renderRowsTable([payload.deal], ["deal_id", "state", "price_per_unit", "min_units", "max_units", "threshold_units", "deadline", "commission_rate"])}
+        <p class="muted">משטח בקרה לקריאת מצב העסקה, המשתתפים, המסמכים, ההתראות ותור העבודה, בלי לרמוז על פעולה שלא קיימת בפועל.</p>
+        <div class="summary-grid">
+          <div class="summary-item summary-spotlight"><span class="muted">סטטוס עסקה</span><strong>${esc(getDealCopy(payload.deal.state).label)}</strong><p class="small muted">${esc(getDealCopy(payload.deal.state).description)}</p></div>
+          <div class="summary-item"><span class="muted">מזהה עסקה</span><strong class="mono">${esc(payload.deal.deal_id)}</strong></div>
+          <div class="summary-item"><span class="muted">יעד בסיס</span><strong>${num(payload.deal.threshold_units)}</strong></div>
+          <div class="summary-item"><span class="muted">מועד סיום</span><strong>${dt(payload.deal.deadline)}</strong></div>
+        </div>
+        ${ops ? renderAdminDealOpsHero(ops) : ""}
       </article>
       <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">משתתפים כוללים</span><strong>${num(ops?.participants?.total || payload.participants.length)}</strong></div>
+        <div class="summary-item"><span class="muted">התראות פעילות</span><strong>${num((ops?.notifications?.pending || 0) + (ops?.notifications?.processing || 0))}</strong></div>
+        <div class="summary-item"><span class="muted">מסמכים שהונפקו</span><strong>${num(ops?.invoice_documents?.issued || 0)}</strong></div>
+        <div class="summary-item"><span class="muted">תור עבודה פעיל</span><strong>${num((ops?.outbox?.pending || 0) + (ops?.outbox?.processing || 0))}</strong></div>
         <div class="actions">
-          <a class="button secondary" href="/app/admin" data-nav="/app/admin">׳—׳–׳¨׳” ׳׳׳¡׳ ׳”׳ ׳™׳”׳•׳</a>
-          <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}">׳₪׳×׳™׳—׳× ׳׳¡׳ ׳”׳׳•׳›׳¨</a>
+          <a class="button secondary" href="/app/admin" data-nav="/app/admin">חזרה למרכז התפעול</a>
+          <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(payload.deal.deal_id)}">מעבר למסך המוכר</a>
         </div>
       </aside>
     </section>
-    <section class="card section stack"><h2>׳׳©׳×׳×׳₪׳™׳</h2>${payload.participants.length ? renderRowsTable(payload.participants, ["participant_id", "buyer_id", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳׳©׳×׳×׳₪׳™׳.</p>`}</section>
-    <section class="card section stack"><h2>׳×׳•׳¨ ׳©׳׳™׳—׳”</h2>${payload.outbox.length ? renderRowsTable(payload.outbox, ["event_type", "status", "available_at", "created_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳¨׳©׳•׳׳•׳× ׳×׳•׳¨ ׳©׳׳™׳—׳”.</p>`}</section>
-    <section class="card section stack"><h2>׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳—׳™׳•׳‘</h2>${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳—׳™׳•׳‘.</p>`}</section>
-    <section class="card section stack"><h2>׳™׳™׳—׳•׳¡׳™ ׳©׳•׳×׳₪׳™׳</h2>${payload.affiliate_attributions.length ? renderRowsTable(payload.affiliate_attributions, ["participant_id", "share_code", "display_name"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳™׳™׳—׳•׳¡׳™׳ ׳׳©׳•׳×׳₪׳™׳.</p>`}</section>
-    <section class="card section stack"><h2>׳¨׳©׳•׳׳•׳× ׳׳¡׳™׳¨׳”</h2>${payload.delivery.length ? renderRowsTable(payload.delivery, ["participant_id", "status", "tracking_number", "issue_note", "updated_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳¨׳©׳•׳׳•׳× ׳׳¡׳™׳¨׳”.</p>`}</section>
-    <section class="card section stack"><h2>׳₪׳ ׳™׳•׳× ׳×׳׳™׳›׳”</h2>${payload.support_tickets.length ? renderRowsTable(payload.support_tickets, ["ticket_id", "scope_type", "scope_key", "title", "priority", "status", "updated_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳₪׳ ׳™׳•׳× ׳×׳׳™׳›׳” ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p>`}</section>
-    <section class="card section stack"><h2>׳™׳•׳׳ ׳‘׳§׳¨׳”</h2>${payload.audit.length ? renderRowsTable(payload.audit, ["entity_type", "state_type", "from_state", "to_state", "action_name", "created_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳׳™׳¨׳•׳¢׳™ ׳™׳•׳׳ ׳‘׳§׳¨׳”.</p>`}</section>
+    <section class="card section stack">
+      <h2>תמונת משתתפים</h2>
+      ${participantsByState.length ? `<div class="summary-grid">${participantsByState.map((item) => `<div class="summary-item"><span class="muted">${esc(item.label)}</span><strong>${num(item.count)}</strong></div>`).join("")}</div>` : `<div class="empty-surface"><p class="muted">עדיין אין נתוני משתתפים מסוכמים לעסקה הזו.</p></div>`}
+      ${payload.participants.length ? renderAdminParticipantCards(payload.participants) : `<div class="empty-surface"><p class="muted">לא נמצאו משתתפים לעסקה הזו.</p></div>`}
+    </section>
+    <section class="card section stack"><h2>תור עבודה והתראות</h2>${ops ? renderAdminDealOpsBuckets(ops) : `<div class="empty-surface"><p class="muted">סיכום התורים לא זמין כרגע.</p></div>`}</section>
+    <section class="card section stack"><h2>ניסיונות חיוב מתועדים</h2>${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו ניסיונות חיוב לעסקה הזו.</p></div>`}</section>
+    <section class="card section stack"><h2>ייחוס, מסירה ותמיכה</h2>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">רשומות מסירה</span><strong>${num(payload.delivery.length)}</strong></div>
+        <div class="summary-item"><span class="muted">ייחוסי שיתוף</span><strong>${num(payload.affiliate_attributions.length)}</strong></div>
+        <div class="summary-item"><span class="muted">פניות תמיכה</span><strong>${num(payload.support_tickets.length)}</strong></div>
+      </div>
+      ${payload.delivery.length ? renderTablePanel("רשומות מסירה", "הטבלה מציגה רק truth תפעולי קיים למסירה.", payload.delivery.map((row) => ({ ...row, delivery_status: row.status })), ["participant_id", "delivery_status", "tracking_number", "issue_note", "updated_at"]) : ""}
+      ${payload.affiliate_attributions.length ? renderTablePanel("ייחוסי שיתוף", "מופיעים רק שיוכים שנרשמו בפועל במערכת.", payload.affiliate_attributions, ["participant_id", "share_code", "display_name"]) : ""}
+      ${payload.support_tickets.length ? renderTablePanel("פניות תמיכה לעסקה", "הפניות מחוברות לרשומות support_tickets אמיתיות.", payload.support_tickets.map((row) => ({ ...row, support_status: row.status })), ["ticket_id", "scope_type", "scope_key", "title", "priority", "support_status", "updated_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו פניות תמיכה פתוחות לעסקה הזו.</p></div>`}
+    </section>
+    <section class="card section stack"><h2>יומן בקרה</h2>${payload.audit.length ? renderTablePanel("Audit אחרון", "יומן הפעולות האחרון שמסביר איך העסקה התקדמה בין מצבים.", payload.audit, ["entity_type", "state_type", "from_state", "to_state", "action_name", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו אירועי audit לעסקה הזו.</p></div>`}</section>
+  `;
+}
+
+function renderAdminParticipantPage() {
+  const payload = state.adminParticipantOpsPayload;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("פרופיל המשתתף לתפעול לא זמין", "לא הצלחנו לטעון עכשיו את פרופיל המשתתף.");
+  const participant = payload.participant;
+  const opsSummary = summarizeParticipantOps(payload);
+  return `
+    <section class="hero">
+      <article class="card hero-main stack">
+        <span class="eyebrow">פרופיל משתתף לתפעול</span>
+        <h1>${esc(participant.deal_title)}</h1>
+        <p class="muted">מסך תפעולי לקריאת מצב ההשתתפות, ההתראות, המסמכים ותור העבודה של המשתתף, בלי להציג truth שלא נרשם בפועל.</p>
+        <div class="summary-grid">
+          <div class="summary-item summary-spotlight"><span class="muted">מצב השתתפות</span><strong>${esc(formatVisibleBuyerState(participant.buyer_state))}</strong><p class="small muted">${esc(formatVisibleMoneyState(participant.money_state))}</p></div>
+          <div class="summary-item"><span class="muted">מזהה משתתף</span><strong class="mono">${esc(participant.participant_id)}</strong></div>
+          <div class="summary-item"><span class="muted">מזהה קונה</span><strong>${esc(participant.buyer_id)}</strong></div>
+          <div class="summary-item"><span class="muted">כמות</span><strong>${num(participant.qty)}</strong></div>
+        </div>
+        <div class="summary-grid">
+          ${opsSummary.map((item) => `<div class="summary-item"><span class="muted">${esc(item.label)}</span><strong>${esc(item.value)}</strong><p class="small muted">${esc(item.detail)}</p></div>`).join("")}
+        </div>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item"><span class="muted">סטטוס עסקה</span><strong>${esc(getDealCopy(participant.deal_state).label)}</strong></div>
+        <div class="summary-item"><span class="muted">התראות מתועדות</span><strong>${num(payload.notifications.length)}</strong></div>
+        <div class="summary-item"><span class="muted">מסמכים מתועדים</span><strong>${num(payload.invoice_documents.length)}</strong></div>
+        <div class="summary-item"><span class="muted">אירועי תור לעסקה</span><strong>${num(payload.outbox_events_for_deal.length)}</strong></div>
+        <div class="actions">
+          <a class="button secondary" href="/app/admin/deals/${encodeURIComponent(participant.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(participant.deal_id)}">פתיחת העסקה</a>
+          <a class="button secondary" href="/app/admin" data-nav="/app/admin">חזרה למרכז התפעול</a>
+        </div>
+      </aside>
+    </section>
+    <section class="card section stack"><h2>התראות</h2>${payload.notifications.length ? renderTablePanel("התראות למשתתף", "הטבלה מציגה רק התראות שנרשמו בפועל עבור המשתתף הזה.", payload.notifications.map((row) => ({ ...row, notification_status: row.status })), ["notification_event_type", "channel", "notification_status", "attempt_count", "provider_message_id", "sent_at", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו התראות מתועדות למשתתף הזה.</p></div>`}</section>
+    <section class="card section stack"><h2>מסמכים</h2>${payload.invoice_documents.length ? renderTablePanel("מסמכים למשתתף", "רק מסמכים שנשענים על invoice_documents אמיתיים מוצגים כאן.", payload.invoice_documents.map((row) => ({ ...row, document_status: row.status })), ["document_type", "document_status", "provider_document_id", "issued_at", "gross_amount", "money_state_at_issue", "created_at"]) : `<div class="empty-surface"><p class="muted">עדיין אין מסמך אמיתי שרשום למשתתף הזה.</p></div>`}</section>
+    <section class="card section stack"><h2>תור עבודה רלוונטי לעסקה</h2>${payload.outbox_events_for_deal.length ? renderTablePanel("Outbox רלוונטי", "הטבלה מתארת את אירועי התור האחרונים שקשורים לעסקה של המשתתף.", payload.outbox_events_for_deal.map((row) => ({ ...row, outbox_status: row.status })), ["event_type", "aggregate_type", "aggregate_id", "outbox_status", "attempt_count", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו אירועי תור רלוונטיים כרגע.</p></div>`}</section>
   `;
 }
 
 function renderAdminUserPage() {
   const payload = state.adminUserPayload?.profile;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("׳₪׳¨׳•׳₪׳™׳ ׳”׳׳©׳×׳׳© ׳”׳₪׳ ׳™׳׳™ ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳׳©׳×׳׳© ׳”׳₪׳ ׳™׳׳™.");
+  if (!payload) return renderEmptyState("פרופיל המשתמש לתפעול לא זמין", "לא הצלחנו לטעון עכשיו את פרופיל המשתמש.");
   return `
     <section class="hero">
       <article class="card hero-main stack">
-        <span class="eyebrow">׳₪׳¨׳•׳₪׳™׳ ׳׳©׳×׳׳© ׳₪׳ ׳™׳׳™</span>
+        <span class="eyebrow">פרופיל משתמש לתפעול</span>
         <h1>${esc(payload.buyer_id)}</h1>
-        <p class="muted">׳”׳׳¡׳ ׳”׳–׳” ׳׳¨׳›׳– ׳׳× ׳›׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳©׳ ׳©׳׳¨׳• ׳¢׳‘׳•׳¨ ׳׳–׳”׳” ׳”׳§׳•׳ ׳” ׳©׳ ׳•׳¦׳¨ ׳׳—׳¨׳™ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳.</p>
+        <p class="muted">כל ההצטרפויות של אותו קונה מרוכזות כאן כדי לאפשר תמיכת המשך בלי לנדוד בין מזהים וטבלאות.</p>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳¡׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳×</span><strong>${num(payload.totals.total_joins)}</strong></div>
-          <div class="summary-item"><span class="muted">׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳₪׳¢׳™׳׳•׳×</span><strong>${num(payload.totals.active_joins)}</strong></div>
+          <div class="summary-item"><span class="muted">סך ההצטרפויות</span><strong>${num(payload.totals.total_joins)}</strong></div>
+          <div class="summary-item"><span class="muted">הצטרפויות פעילות</span><strong>${num(payload.totals.active_joins)}</strong></div>
         </div>
       </article>
       <aside class="card hero-side stack">
-        <div class="actions"><a class="button secondary" href="/app/admin" data-nav="/app/admin">׳—׳–׳¨׳” ׳׳׳¡׳ ׳”׳ ׳™׳”׳•׳</a></div>
+        <div class="actions"><a class="button secondary" href="/app/admin" data-nav="/app/admin">חזרה למרכז התפעול</a></div>
       </aside>
     </section>
     <section class="card section stack">
-      <h2>׳”׳™׳¡׳˜׳•׳¨׳™׳™׳× ׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳×</h2>
-      ${payload.joins.length ? renderRowsTable(payload.joins, ["participant_id", "deal_id", "title", "deal_state", "qty", "buyer_state", "money_state", "created_at"]) : `<p class="muted">׳׳ ׳ ׳׳¦׳׳• ׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳¢׳‘׳•׳¨ ׳׳–׳”׳” ׳”׳§׳•׳ ׳” ׳”׳–׳”.</p>`}
+      <h2>היסטוריית הצטרפויות</h2>
+      ${payload.joins.length ? renderAdminUserJoinCards(payload.joins) : `<div class="empty-surface"><p class="muted">לא נמצאו הצטרפויות עבור המשתמש הזה.</p></div>`}
     </section>
+  `;
+}
+
+function summarizeParticipantStateBuckets(byState) {
+  const entries = Object.entries(byState || {});
+  return entries
+    .map(([stateName, count]) => ({ label: formatVisibleBuyerState(stateName), count: Number(count || 0) }))
+    .filter((item) => item.count > 0)
+    .sort((a, b) => b.count - a.count);
+}
+
+function renderAdminParticipantCards(rows) {
+  return `
+    <div class="card-list admin-ops-grid">
+      ${rows.map((row) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(formatVisibleBuyerState(row.buyer_state))}</span>
+              <h3>${esc(row.buyer_id)}</h3>
+            </div>
+            <strong>${esc(formatVisibleMoneyState(row.money_state))}</strong>
+          </div>
+          <div class="pill-row">
+            <span class="stat-pill"><span>מזהה משתתף</span><strong class="mono">${esc(row.participant_id)}</strong></span>
+            <span class="stat-pill"><span>כמות</span><strong>${num(row.qty)}</strong></span>
+            <span class="stat-pill"><span>נוצר</span><strong>${dt(row.created_at)}</strong></span>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/app/admin/participants/${encodeURIComponent(row.participant_id)}" data-nav="/app/admin/participants/${encodeURIComponent(row.participant_id)}">פתיחת פרופיל המשתתף</a>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function renderAdminDealOpsHero(ops) {
+  return `
+    <div class="admin-ops-hero-grid">
+      <div class="summary-item">
+        <span class="muted">התראות</span>
+        <strong>${num(ops.notifications.pending + ops.notifications.processing)} פעילות</strong>
+        <p class="small muted">${num(ops.notifications.sent)} נשלחו · ${num(ops.notifications.failed)} נכשלו</p>
+      </div>
+      <div class="summary-item">
+        <span class="muted">מסמכים</span>
+        <strong>${num(ops.invoice_documents.issued)} issued</strong>
+        <p class="small muted">${num(ops.invoice_documents.pending + ops.invoice_documents.processing)} ממתינים · ${num(ops.invoice_documents.failed)} נכשלו</p>
+      </div>
+      <div class="summary-item">
+        <span class="muted">תור עבודה</span>
+        <strong>${num(ops.outbox.pending + ops.outbox.processing)} פעיל</strong>
+        <p class="small muted">${num(ops.outbox.sent)} נשלחו · ${num(ops.outbox.failed)} נכשלו</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderAdminDealOpsBuckets(ops) {
+  return `
+    <div class="summary-grid">
+      <div class="summary-item"><span class="muted">משתתפים רשומים</span><strong>${num(ops.participants.total)}</strong></div>
+      <div class="summary-item"><span class="muted">התראות שנשלחו</span><strong>${num(ops.notifications.sent)}</strong></div>
+      <div class="summary-item"><span class="muted">מסמכים שהונפקו</span><strong>${num(ops.invoice_documents.issued)}</strong></div>
+      <div class="summary-item"><span class="muted">Outbox שנשלח</span><strong>${num(ops.outbox.sent)}</strong></div>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-item"><span class="muted">התראות בהמתנה</span><strong>${num(ops.notifications.pending + ops.notifications.processing)}</strong></div>
+      <div class="summary-item"><span class="muted">מסמכים בהמתנה</span><strong>${num(ops.invoice_documents.pending + ops.invoice_documents.processing)}</strong></div>
+      <div class="summary-item"><span class="muted">Outbox בהמתנה</span><strong>${num(ops.outbox.pending + ops.outbox.processing)}</strong></div>
+      <div class="summary-item"><span class="muted">Outbox שנכשל</span><strong>${num(ops.outbox.failed)}</strong></div>
+    </div>
+    ${(ops.notifications.by_channel?.length || ops.invoice_documents.by_type?.length) ? `
+      <div class="summary-grid">
+        ${ops.notifications.by_channel?.map((row) => `<div class="summary-item"><span class="muted">ערוץ ${esc(formatNotificationChannel(row.channel))}</span><strong>${num(row.sent)} נשלחו</strong><p class="small muted">${num(row.pending)} ממתינות · ${num(row.failed)} נכשלו</p></div>`).join("") || ""}
+        ${ops.invoice_documents.by_type?.map((row) => `<div class="summary-item"><span class="muted">${esc(formatDocumentTypeLabel(row.document_type))}</span><strong>${num(row.issued)} issued</strong><p class="small muted">${num(row.pending + row.processing)} ממתינים · ${num(row.failed)} נכשלו</p></div>`).join("") || ""}
+      </div>
+    ` : ""}
+  `;
+}
+
+function summarizeParticipantOps(payload) {
+  const docs = Array.isArray(payload?.invoice_documents) ? payload.invoice_documents : [];
+  const notifications = Array.isArray(payload?.notifications) ? payload.notifications : [];
+  const outbox = Array.isArray(payload?.outbox_events_for_deal) ? payload.outbox_events_for_deal : [];
+  return [
+    {
+      label: "מסמכים שהונפקו",
+      value: String(docs.filter((row) => String(row.status) === "issued").length),
+      detail: docs.length ? "מופיעים רק מסמכים שנרשמו ב־invoice_documents." : "עדיין אין מסמך אמיתי שרשום למשתתף הזה."
+    },
+    {
+      label: "התראות שנשלחו",
+      value: String(notifications.filter((row) => String(row.status) === "sent").length),
+      detail: notifications.length ? "מציג רק התראות עם truth תפעולי אמיתי." : "לא נרשמו התראות רלוונטיות למשתתף הזה."
+    },
+    {
+      label: "אירועי תור לעסקה",
+      value: String(outbox.length),
+      detail: outbox.length ? "זהו ה־outbox האחרון שקשור לעסקה של המשתתף." : "לא נמצאו כרגע אירועי תור רלוונטיים."
+    }
+  ];
+}
+
+function renderAdminUserJoinCards(rows) {
+  return `
+    <div class="card-list admin-ops-grid">
+      ${rows.map((row) => `
+        <article class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <span class="muted">${esc(getDealCopy(row.deal_state).label)}</span>
+              <h3>${esc(row.title)}</h3>
+            </div>
+            <strong>${esc(formatVisibleBuyerState(row.buyer_state))}</strong>
+          </div>
+          <div class="pill-row">
+            <span class="stat-pill"><span>מזהה משתתף</span><strong class="mono">${esc(row.participant_id)}</strong></span>
+            <span class="stat-pill"><span>כמות</span><strong>${num(row.qty)}</strong></span>
+            <span class="stat-pill"><span>מצב כספי</span><strong>${esc(formatVisibleMoneyState(row.money_state))}</strong></span>
+          </div>
+          <div class="actions">
+            <a class="button secondary" href="/app/admin/deals/${encodeURIComponent(row.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(row.deal_id)}">פתיחת העסקה</a>
+            <a class="button secondary" href="/app/admin/participants/${encodeURIComponent(row.participant_id)}" data-nav="/app/admin/participants/${encodeURIComponent(row.participant_id)}">פתיחת המשתתף</a>
+          </div>
+        </article>
+      `).join("")}
+    </div>
   `;
 }
 
@@ -2615,6 +2942,10 @@ const INTERNAL_TABLE_HEADER_LABELS = {
   receipt_id: "׳׳–׳”׳” ׳§׳‘׳׳”",
   document_id: "׳׳–׳”׳” ׳׳¡׳׳",
   document_status: "׳׳¦׳‘ ׳׳¡׳׳",
+  notification_status: "סטטוס התראה",
+  outbox_status: "סטטוס תור",
+  support_status: "סטטוס פנייה",
+  delivery_status: "סטטוס מסירה",
   provider_document_id: "׳׳–׳”׳” ׳¡׳₪׳§",
   share_code: "׳§׳•׳“ ׳©׳™׳×׳•׳£",
   display_name: "׳©׳ ׳×׳¦׳•׳’׳”",
@@ -2669,6 +3000,83 @@ function formatDeliveryStatusLabel(value) {
   if (normalized === "Delivered") return "׳ ׳׳¡׳¨";
   if (normalized === "Issue") return "׳“׳•׳¨׳© ׳˜׳™׳₪׳•׳";
   return normalized;
+}
+
+function formatRuntimeModeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized) return "לא הוגדר";
+  if (normalized === "log-only") return "לוג בלבד";
+  if (normalized === "mock" || normalized === "mock-backed") return "סימולציה פנימית";
+  if (normalized === "demo-preview" || normalized === "preview") return "מצב הדגמה";
+  return String(value);
+}
+
+function formatSupportPriority(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "high") return "גבוהה";
+  if (normalized === "normal") return "רגילה";
+  return String(value || "לא הוגדר");
+}
+
+function formatVerificationStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "approved") return "מאושר";
+  if (normalized === "pending") return "ממתין לאישור";
+  if (normalized === "rejected") return "נדחה";
+  return String(value || "לא הוגדר");
+}
+
+function formatNotificationChannel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "sms") return "SMS";
+  if (normalized === "email") return "Email";
+  if (normalized === "push") return "Push";
+  return String(value || "ערוץ לא ידוע");
+}
+
+function formatNotificationStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "pending") return "ממתינה";
+  if (normalized === "processing") return "בעיבוד";
+  if (normalized === "sent") return "נשלחה";
+  if (normalized === "failed") return "נכשלה";
+  return String(value || "לא הוגדר");
+}
+
+function formatDocumentTypeLabel(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "charge_receipt") return "מסמך חיוב";
+  if (normalized === "refund_receipt") return "מסמך זיכוי";
+  return String(value || "מסמך");
+}
+
+function formatOutboxStatus(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "pending") return "ממתין";
+  if (normalized === "processing") return "בעיבוד";
+  if (normalized === "sent") return "נשלח";
+  if (normalized === "failed") return "נכשל";
+  return String(value || "לא הוגדר");
+}
+
+function formatAttemptResultClass(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (normalized === "success") return "הושלם";
+  if (normalized === "retryable_failure") return "נכשל וניתן לנסות שוב";
+  if (normalized === "terminal_failure") return "נכשל סופית";
+  return String(value || "לא הוגדר");
+}
+
+function formatOperatorState(value, column = "") {
+  if (column === "deal_state") return getDealCopy(String(value || "")).label;
+  if (column === "buyer_state") return formatVisibleBuyerState(value);
+  if (column === "money_state") return formatVisibleMoneyState(value);
+  if (column === "document_status") return formatDocumentStatus(String(value));
+  if (column === "notification_status") return formatNotificationStatus(value);
+  if (column === "outbox_status") return formatOutboxStatus(value);
+  if (column === "support_status") return formatSupportTicketStatus(value);
+  if (column === "priority") return formatSupportPriority(value);
+  return String(value || "לא הוגדר");
 }
 
 function sellerDealProgressPct(metrics, maxUnits) {
@@ -2777,13 +3185,31 @@ function formatCell(value, column = "") {
   if (column === "buyer_state") return formatVisibleBuyerState(value);
   if (column === "money_state") return formatVisibleMoneyState(value);
   if (column === "document_status") return formatDocumentStatus(String(value));
+  if (column === "notification_status") return formatNotificationStatus(value);
+  if (column === "outbox_status") return formatOutboxStatus(value);
+  if (column === "support_status") return formatSupportTicketStatus(value);
+  if (column === "delivery_status") return formatDeliveryStatusLabel(String(value));
   if (column === "delivery_method_type") return formatDeliveryTypeLabel(String(value));
-  if (column === "status") return formatDeliveryStatusLabel(String(value));
+  if (column === "status") return formatOperatorState(value, inferStatusColumn(column, value));
+  if (column === "priority") return formatSupportPriority(value);
+  if (column === "notification_event_type") return formatNotificationEventType(value);
+  if (column === "channel") return formatNotificationChannel(value);
+  if (column === "document_type") return formatDocumentTypeLabel(value);
+  if (column === "result_class") return formatAttemptResultClass(value);
   if (["price_per_unit", "delivery_cost", "gross_amount"].includes(column)) return currency(value);
   if (["qty", "min_units", "max_units", "threshold_units"].includes(column)) return num(value);
   if (column.endsWith("_at") || column === "deadline" || column === "available_at") return dt(value);
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
+}
+
+function inferStatusColumn(column, value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["pending", "processing", "sent", "failed"].includes(normalized)) return "outbox_status";
+  if (["issued", "pending", "processing", "failed"].includes(normalized)) return "document_status";
+  if (["ready_to_fulfill", "shipped", "delivered", "issue"].includes(normalized)) return "delivery_status";
+  if (["open", "investigating", "resolved"].includes(normalized)) return "support_status";
+  return column;
 }
 
 function formatDocumentStatus(status) {
@@ -2795,6 +3221,18 @@ function formatDocumentStatus(status) {
     skipped: "׳ ׳“׳׳’"
   };
   return map[status] || status;
+}
+
+function formatNotificationEventType(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  const map = {
+    charge_succeeded: "אישור חיוב",
+    charge_failed: "כשל חיוב",
+    payment_authorized: "אישור מסגרת",
+    payment_failed: "כשל באישור",
+    deal_completed: "עסקה הושלמה"
+  };
+  return map[normalized] || String(value || "אירוע הודעה");
 }
 
 function formatSupportScopeType(scopeType) {
