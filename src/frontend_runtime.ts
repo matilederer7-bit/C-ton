@@ -2834,5 +2834,7 @@ export function registerFrontendExperience(
   app.get("/app/affiliate", sendShell);
   app.get("/app/admin", sendShell);
   app.get("/app/admin/deals/:dealId", sendShell);
+  app.get("/app/admin/participants/:participantId", sendShell);
   app.get("/app/admin/users/:buyerId", sendShell);
+  app.get("/app/*", sendShell);
 }

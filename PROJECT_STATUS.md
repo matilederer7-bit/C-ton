@@ -1636,3 +1636,18 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `94%` of the isolated read-surfaces truth-alignment track
 - Next step:
   keep these read surfaces as the truthful baseline and only open a follow-up if we explicitly want buyer-facing document visibility or a deeper admin operations panel
+
+## Frontend Track: Browser-Level Smoke
+
+- What was completed:
+  added a focused browser-level smoke suite that opens the public deal page, seller workspace, seller deal page, buyer tracking, admin dashboard, admin deal page, and participant ops inside a real headless browser after seeding one published deal and one joined participant
+- What was checked:
+  desktop and narrow-mobile route opening, hydrated DOM hierarchy, screen-specific CTA and status copy, and fallback sanity for not-found, missing tracking, and missing participant-ops routes
+- What was fixed:
+  browser route exposure for `/app/admin/participants/:participantId`, plus a frontend shell catch-all for unknown `/app/*` routes so browser not-found states stop leaking raw Fastify JSON
+- What is open:
+  this pass does not provide screenshot diffing, pixel-level clipping assertions, or a full browser interaction lab; if we later need deeper browser confidence, the next step is a small interaction or screenshot suite for seller/admin drill-downs
+- Progress percentage:
+  `100%` of the isolated frontend browser-smoke track
+- Next step:
+  keep this browser smoke as the route-level safety net and only deepen it if we explicitly want interaction coverage beyond route open, hierarchy, CTA presence, and fallback states

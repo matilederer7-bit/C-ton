@@ -20,6 +20,7 @@
     "test:buyer-tracking-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/buyer_tracking_refinement_validation.js",
     "test:buyer-document-visibility": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/buyer_document_visibility_validation.js",
     "test:admin-support-surfaces": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_support_product_surfaces_validation.js",
+    "test:frontend-browser-smoke": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_browser_smoke_validation.js",
     "test:read-surfaces-truth-alignment": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/read_surfaces_truth_alignment_validation.js",
     "test:integrations": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/real_integrations_validation.js",
     "test:full-system": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/full_system_qa_validation.js",
