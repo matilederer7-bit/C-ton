@@ -1,8 +1,67 @@
 # PROJECT STATUS
 
-Current update: 2026-04-19 (Wave 1 spec-drift closure: completion window 24h, commission 8%, deadline 2h–7d, deal transitions aligned with DB)
+Current update: 2026-04-20 (Wave 2 spec-drift closure: distributor commission model stripped; 8% Siton fee base now includes delivery)
 
-Last updated: 2026-04-19 (Frontend foundation pass: RTL + responsive + accessibility baseline)
+Last updated: 2026-04-19 (Wave 1 spec-drift closure: completion window 24h, commission 8%, deadline 2h–7d, deal transitions aligned with DB)
+
+## Spec Drift Closure — Wave 2 (2026-04-20)
+
+Managerial source-of-truth resolutions applied this wave:
+1. Distributors (מפיצים) have no commission / payout / balance model at all — affiliate surface is attribution-only (link, clicks, entries, joins, attributed units, attributed gross as a measurement number, not money owed).
+2. The 8% Siton fee base is `qty × price_per_unit + delivery_cost`, excluding VAT — consistent across seller summaries, receipts, refunds, and admin settlements.
+
+### Stage A — Distributor commission model stripped from live layer
+
+Removed / neutralized everywhere in runtime:
+- `AFFILIATE_FEE_SHARE_OF_PLATFORM` constant — **removed** from [src/product_surface_support.ts](src/product_surface_support.ts) and all imports.
+- `affiliate_fee_amount` — **removed** from `summarizeMoney` input and output shape in [src/product_surface_support.ts](src/product_surface_support.ts); **removed** from `InvoiceDocumentInput`, `EnqueueInvoiceParams`, INSERT columns, RETURNING clause, and the flush row type in [src/invoice_dispatch.ts](src/invoice_dispatch.ts); **removed** from all `enqueueInvoiceDocument` call sites in [src/app.ts](src/app.ts) (charge and refund receipts); **removed** from receipts surface assertion in [tests/remaining_product_surfaces_validation.ts](tests/remaining_product_surfaces_validation.ts); **removed** from [tests/invoice_dispatch_proof.ts](tests/invoice_dispatch_proof.ts) baseline params.
+- Attributions query in [src/frontend_runtime.ts](src/frontend_runtime.ts) — **removed** `aa.commission_amount`, `aa.payout_status` from SELECT; only attribution fields exposed.
+- Affiliate page copy in [frontend/app.js](frontend/app.js) — hero/info strip rewritten to: "ערוץ מדידה והפצה בלבד — אין כאן עמלה, יתרה, התחשבנות או תשלום."
+
+LEGACY DEAD (retained in DB schema for back-compat; no live read/write):
+- `affiliate_accounts.commission_rate`, `affiliate_accounts.payout_method`, `affiliate_accounts.payout_details_masked`, `affiliate_accounts.payout_status`
+- `affiliate_attributions.commission_amount`, `affiliate_attributions.payout_status`, `affiliate_attributions.payout_method`, `affiliate_attributions.payout_details_masked`
+- `invoice_documents.affiliate_fee_amount` (column remains, NOT NULL DEFAULT 0 — no code writes or reads it)
+
+Documented inline in [src/product_surface_support.ts](src/product_surface_support.ts) and [src/invoice_dispatch.ts](src/invoice_dispatch.ts) with LEGACY DEAD comment blocks. The distributor payout-profile endpoint stays fail-closed with HTTP 410 `affiliate_payout_model_removed`.
+
+### Stage B — 8% Siton fee base now includes delivery
+
+Fixed at every gross / fee calculation site:
+- `enqueueChargeReceiptForParticipant` in [src/app.ts](src/app.ts:1434) — now `Number(qty) * Number(price_per_unit) + Number(delivery_cost || 0)`.
+- `enqueueRefundReceiptForParticipant` in [src/app.ts](src/app.ts:1473) — same base used for the refund receipt, keeping charge/refund symmetric.
+- Seller deal-detail surface in [src/frontend_runtime.ts](src/frontend_runtime.ts:1296) — `grossAmount` now includes `delivery_cost`; `delivery_cost` also mapped onto the per-participant row.
+- Admin deals list in [src/frontend_runtime.ts](src/frontend_runtime.ts:1690) — query adds `COALESCE(SUM(p.delivery_cost),0) AS joined_delivery_cost`, settlement math at [src/frontend_runtime.ts:1748](src/frontend_runtime.ts#L1748) and [:1775](src/frontend_runtime.ts#L1775) folds it into gross and platform_fee_amount.
+- `summarizeMoney` itself does not assume anything about the composition of `grossAmount` — callers are now required to pre-compute `qty × price + delivery`.
+
+### What was tested
+
+- `npx tsc --noEmit -p tsconfig.test.json` — clean.
+- [tests/backend_sanity_suite.ts](tests/backend_sanity_suite.ts) — 5 new Wave 2 cases added (all PASS):
+  - `PASS siton fee base includes delivery: price=100 qty=2 delivery=20 → base=220 fee=17.6` — exact spec example.
+  - `PASS siton fee base with no delivery: price=50 qty=1 delivery=0 → base=50 fee=4` — zero-delivery edge.
+  - `PASS summarizeMoney has no affiliate field and no VAT field` — scans output keys for `affiliate_fee_amount`, `affiliate_fee_rate`, `vat`, `vat_amount`, `tax_amount` — none present.
+  - `PASS affiliate overview is attribution-only (no commission/payout/PII fields)` — `JSON.stringify(surface)` scanned for `commission_amount`, `commission_rate`, `payout_status`, `payout_method`, `payout_details`, `affiliate_fee_amount`, `balance`, `amount_owed`, plus PII (`buyer_id`, `buyer_phone`, `buyer_email`, `phone`, `email`) — none leak.
+  - `PASS distributor payout endpoints stay fail-closed (410 affiliate_payout_model_removed)`.
+- [tests/invoice_dispatch_proof.ts](tests/invoice_dispatch_proof.ts) — all 8 existing cases still pass after removing `affiliateFeeAmount` from baseline params.
+- [tests/remaining_product_surfaces_validation.ts](tests/remaining_product_surfaces_validation.ts) — assertion switched from `affiliate_fee_amount === 0` to "key must not exist on receipts_surface.summary".
+
+### Files touched (Wave 2)
+
+- [src/product_surface_support.ts](src/product_surface_support.ts) — removed `AFFILIATE_FEE_SHARE_OF_PLATFORM`, stripped `affiliate_fee_amount` from `summarizeMoney`, documented LEGACY DEAD columns on affiliate DDL, simplified seed INSERTs.
+- [src/frontend_runtime.ts](src/frontend_runtime.ts) — removed commission/payout fields from attributions query, added delivery to seller gross and admin settlements, fixed pre-existing `display_name` bug on attribution mapping.
+- [src/invoice_dispatch.ts](src/invoice_dispatch.ts) — removed `affiliateFeeAmount` from input/enqueue/INSERT/RETURNING/row types; added LEGACY DEAD comment.
+- [src/app.ts](src/app.ts) — charge/refund receipt enqueue now pulls `delivery_cost` and includes it in gross; no more `affiliateFeeAmount` passed through.
+- [frontend/app.js](frontend/app.js) — affiliate hero + info strip + tooltip rewritten to attribution-only messaging.
+- [tests/backend_sanity_suite.ts](tests/backend_sanity_suite.ts) — 5 new Wave 2 tests.
+- [tests/invoice_dispatch_proof.ts](tests/invoice_dispatch_proof.ts) — removed `affiliateFeeAmount: 0.00` baseline.
+- [tests/remaining_product_surfaces_validation.ts](tests/remaining_product_surfaces_validation.ts) — asserts `affiliate_fee_amount` absent from receipts surface summary.
+
+### Wave 2 status
+
+- **Wave 2 closed for D4 and D5** (distributor commission/payout subsystem dismantled at the live layer; distributor-facing responses contain no commission/payout/balance fields and no buyer PII).
+- **Fee-base drift closed** — every charge/refund/summary site uses `qty × price + delivery` as the 8% base, excluding VAT. Confirmed via the three spec examples in tests (17.6 / 4 / absence-of-affiliate).
+- **Still open (deferred to Wave 3):** D7 (refund endpoints), D8 (trusted-device / OTP skip), D9 (Hebrew mojibake), D10–D17 (missing admin surfaces), D18–D22 (polish).
 
 ## Spec Drift Closure — Wave 1 (2026-04-19)
 

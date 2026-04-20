@@ -1418,7 +1418,7 @@ async function enqueueParticipantNotifications(
  */
 async function enqueueChargeReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
-    `SELECT p.qty, p.money_state,
+    `SELECT p.qty, p.money_state, p.delivery_cost,
             d.title, d.price_per_unit, d.commission_rate
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
@@ -1427,12 +1427,12 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
   );
   if (!row.rowCount) return;
   const r = row.rows[0] as {
-    qty: string; money_state: string; title: string;
-    price_per_unit: string; commission_rate: string;
+    qty: string; money_state: string; delivery_cost: string;
+    title: string; price_per_unit: string; commission_rate: string;
   };
-  const grossAmount = Number(r.qty) * Number(r.price_per_unit);
+  // Siton fee base = actual collected amount (price × qty + delivery). No VAT.
+  const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
   const commissionRate = Number(r.commission_rate);
-  const affiliateFeeAmount = 0;
   const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
   const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
   await enqueueInvoiceDocument({
@@ -1446,7 +1446,6 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
     grossAmount,
     sitonFeeAmount,
     sellerNetAmount,
-    affiliateFeeAmount,
     providerCode: invoiceProvider.providerCode
   }, pool);
 }
@@ -1458,7 +1457,7 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
  */
 async function enqueueRefundReceiptForParticipant(participantId: string, dealId: string): Promise<void> {
   const row = await pool.query(
-    `SELECT p.qty,
+    `SELECT p.qty, p.delivery_cost,
             d.title, d.price_per_unit, d.commission_rate
      FROM siton.participants p
      JOIN siton.deals d ON d.deal_id = p.deal_id
@@ -1467,12 +1466,12 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
   );
   if (!row.rowCount) return;
   const r = row.rows[0] as {
-    qty: string; title: string;
+    qty: string; delivery_cost: string; title: string;
     price_per_unit: string; commission_rate: string;
   };
-  const grossAmount = Number(r.qty) * Number(r.price_per_unit);
+  // Refund receipt mirrors charge receipt: fee base = price × qty + delivery.
+  const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
   const commissionRate = Number(r.commission_rate);
-  const affiliateFeeAmount = 0;
   const sitonFeeAmount = Math.round(grossAmount * commissionRate * 100) / 100;
   const sellerNetAmount = Math.round((grossAmount - sitonFeeAmount) * 100) / 100;
   await enqueueInvoiceDocument({
@@ -1486,7 +1485,6 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
     grossAmount,
     sitonFeeAmount,
     sellerNetAmount,
-    affiliateFeeAmount,
     providerCode: invoiceProvider.providerCode
   }, pool);
 }

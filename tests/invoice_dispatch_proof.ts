@@ -63,7 +63,6 @@ function baseParams(documentKey: string, documentType: "charge_receipt" | "refun
     grossAmount: 200.00,
     sitonFeeAmount: 20.00,
     sellerNetAmount: 180.00,
-    affiliateFeeAmount: 0.00,
     moneyStateAtIssue: documentType === "charge_receipt" ? "ChargedSuccess" : "Refunded",
     providerCode: "log-only"
   };

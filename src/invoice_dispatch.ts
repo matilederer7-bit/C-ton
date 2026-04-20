@@ -47,10 +47,10 @@ export interface InvoiceDocumentInput {
   participantId: string;
   dealTitle: string;
   qty: number;
+  // grossAmount = actual collected amount (price × qty + delivery). No VAT.
   grossAmount: number;
   sitonFeeAmount: number;
   sellerNetAmount: number;
-  affiliateFeeAmount: number;
   moneyStateAtIssue: string;
 }
 
@@ -140,10 +140,10 @@ export type EnqueueInvoiceParams = {
   participantId: string;
   dealTitle: string;
   qty: number;
+  // grossAmount = actual collected amount (price × qty + delivery). No VAT.
   grossAmount: number;
   sitonFeeAmount: number;
   sellerNetAmount: number;
-  affiliateFeeAmount: number;
   moneyStateAtIssue: string;
   providerCode?: string;
 };
@@ -157,17 +157,20 @@ export async function enqueueInvoiceDocument(
   params: EnqueueInvoiceParams,
   db: pg.Pool | pg.PoolClient
 ): Promise<"queued" | "duplicate"> {
+  // affiliate_fee_amount is LEGACY DEAD (spec: distributors receive no fee).
+  // The column is kept on siton.invoice_documents with NOT NULL DEFAULT 0;
+  // we rely on the default and never set it here.
   const result = await db.query(
     `INSERT INTO siton.invoice_documents
        (document_key, document_type, deal_id, participant_id,
         deal_title, qty, money_state_at_issue,
-        gross_amount, siton_fee_amount, seller_net_amount, affiliate_fee_amount,
+        gross_amount, siton_fee_amount, seller_net_amount,
         status, attempt_count, max_attempts, provider_code,
         available_at, created_at, updated_at)
      VALUES ($1, $2, $3, $4,
              $5, $6, $7,
-             $8, $9, $10, $11,
-             'pending', 0, 3, $12,
+             $8, $9, $10,
+             'pending', 0, 3, $11,
              now(), now(), now())
      ON CONFLICT (document_key) DO NOTHING`,
     [
@@ -181,7 +184,6 @@ export async function enqueueInvoiceDocument(
       params.grossAmount,
       params.sitonFeeAmount,
       params.sellerNetAmount,
-      params.affiliateFeeAmount,
       params.providerCode || "log-only"
     ]
   );
@@ -220,7 +222,6 @@ export async function flushPendingDocuments(
     gross_amount: string;
     siton_fee_amount: string;
     seller_net_amount: string;
-    affiliate_fee_amount: string;
     attempt_count: number;
     max_attempts: number;
     provider_code: string;
@@ -236,7 +237,7 @@ export async function flushPendingDocuments(
      )
      RETURNING document_id, document_key, document_type, deal_id, participant_id,
                deal_title, qty, money_state_at_issue,
-               gross_amount, siton_fee_amount, seller_net_amount, affiliate_fee_amount,
+               gross_amount, siton_fee_amount, seller_net_amount,
                attempt_count, max_attempts, provider_code`,
     [INVOICE_BATCH_SIZE]
   );
@@ -256,7 +257,6 @@ export async function flushPendingDocuments(
         grossAmount: Number(row.gross_amount),
         sitonFeeAmount: Number(row.siton_fee_amount),
         sellerNetAmount: Number(row.seller_net_amount),
-        affiliateFeeAmount: Number(row.affiliate_fee_amount),
         moneyStateAtIssue: row.money_state_at_issue
       };
 

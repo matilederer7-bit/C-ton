@@ -156,7 +156,11 @@ async function main() {
     assert.equal(payload.receipts_surface.summary.receipt_document_count, 1);
     assert.equal(payload.delivery_surface.status, "ready");
     assert.equal(payload.delivery_surface.rows.length, 1);
-    assert.equal(Number(payload.receipts_surface.summary.affiliate_fee_amount || 0), 0);
+    // Distributor-as-money surfaces must be gone from the live API.
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(payload.receipts_surface.summary, "affiliate_fee_amount"),
+      "affiliate_fee_amount must not appear on receipts_surface.summary"
+    );
 
     const deliveryUpdate = await app.inject({
       method: "POST",

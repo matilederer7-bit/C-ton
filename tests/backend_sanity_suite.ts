@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { app, assertValidTransition, BUYER_TRANSITIONS, DEAL_TRANSITIONS, MONEY_TRANSITIONS } from "../src/app.js";
 import { buildOutboxWorkerHelpers } from "../src/outbox_worker_helpers.js";
+import { summarizeMoney } from "../src/product_surface_support.js";
 
 class PermanentFailError extends Error {}
 class DeferredEventError extends Error {
@@ -166,6 +167,82 @@ async function main() {
 
     assert.ok(calls.some((sql) => sql.includes("INSERT INTO siton.outbox_dlq")));
     assert.ok(calls.some((sql) => sql.includes("DELETE FROM siton.outbox_events")));
+  });
+
+  // ── Wave 2: Siton fee base includes delivery, excludes VAT, no affiliate fee
+  await runTest("siton fee base includes delivery: price=100 qty=2 delivery=20 → base=220 fee=17.6", () => {
+    const base = 100 * 2 + 20;
+    const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
+    assert.equal(summary.gross_amount, 220);
+    assert.equal(summary.siton_fee_amount, 17.6);
+    assert.equal(summary.seller_net_amount, 202.4);
+    assert.ok(
+      !Object.prototype.hasOwnProperty.call(summary, "affiliate_fee_amount"),
+      "affiliate_fee_amount must not appear in summarizeMoney output"
+    );
+  });
+
+  await runTest("siton fee base with no delivery: price=50 qty=1 delivery=0 → base=50 fee=4", () => {
+    const base = 50 * 1 + 0;
+    const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
+    assert.equal(summary.gross_amount, 50);
+    assert.equal(summary.siton_fee_amount, 4);
+    assert.equal(summary.seller_net_amount, 46);
+  });
+
+  await runTest("summarizeMoney has no affiliate field and no VAT field", () => {
+    const summary = summarizeMoney({ grossAmount: 220, commissionRate: 0.08 });
+    const keys = Object.keys(summary);
+    for (const forbidden of ["affiliate_fee_amount", "affiliate_fee_rate", "vat", "vat_amount", "tax_amount"]) {
+      assert.ok(!keys.includes(forbidden), `forbidden key "${forbidden}" present in summarizeMoney output`);
+    }
+  });
+
+  await runTest("affiliate overview is attribution-only (no commission/payout/PII fields)", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/affiliate/overview" });
+    assert.equal(res.statusCode, 200);
+    const body = res.json() as any;
+    assert.ok(body.affiliate_surface, "affiliate_surface must be present");
+    const surface = body.affiliate_surface;
+    const surfaceJson = JSON.stringify(surface);
+    // Money-model keys must not leak.
+    for (const forbidden of [
+      "commission_amount",
+      "commission_rate",
+      "payout_status",
+      "payout_method",
+      "payout_details",
+      "affiliate_fee_amount",
+      "balance",
+      "amount_owed"
+    ]) {
+      assert.ok(
+        !surfaceJson.includes(`"${forbidden}"`),
+        `affiliate overview leaked money field "${forbidden}"`
+      );
+    }
+    // PII keys must not leak.
+    for (const forbidden of ["buyer_id", "buyer_phone", "buyer_email", "phone", "email"]) {
+      assert.ok(
+        !surfaceJson.includes(`"${forbidden}"`),
+        `affiliate overview leaked PII field "${forbidden}"`
+      );
+    }
+    // Allowed aggregate counters must be present.
+    assert.ok(typeof surface.totals?.total_attributions === "number");
+    assert.ok(typeof surface.totals?.total_units === "number");
+    assert.ok(typeof surface.totals?.active_campaigns === "number");
+  });
+
+  await runTest("distributor payout endpoints stay fail-closed (410 affiliate_payout_model_removed)", async () => {
+    const payoutProfile = await app.inject({
+      method: "POST",
+      url: "/api/affiliate/payout-profile",
+      payload: { payout_method: "bank_transfer", payout_details: "IL00TEST" }
+    });
+    assert.equal(payoutProfile.statusCode, 410);
+    const payoutBody = payoutProfile.json() as any;
+    assert.equal(payoutBody.error, "affiliate_payout_model_removed");
   });
 }
 

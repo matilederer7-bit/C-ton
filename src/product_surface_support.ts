@@ -3,7 +3,6 @@ type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 export const DEFAULT_SELLER_ID = "seller-default";
 export const DEFAULT_AFFILIATE_CODE = "affiliate-demo";
 export const DEFAULT_AFFILIATE_NAME = "Affiliate Demo";
-export const AFFILIATE_FEE_SHARE_OF_PLATFORM = 1;
 
 let ensurePromise: Promise<void> | null = null;
 
@@ -11,20 +10,19 @@ export function isChargedMoneyState(moneyState: string | null | undefined) {
   return moneyState === "ChargedSuccess" || moneyState === "RecoveredCharge";
 }
 
+// Siton platform fee base = everything actually collected from the buyer
+// (price × qty + delivery). Excludes VAT. Distributors do NOT receive a fee.
 export function summarizeMoney(args: {
   grossAmount: number;
   commissionRate: number;
-  affiliateAmount: number;
 }) {
   const grossAmount = Number(args.grossAmount || 0);
   const commissionRate = Number(args.commissionRate || 0);
-  const affiliateAmount = Number(args.affiliateAmount || 0);
   const sitonFeeAmount = roundMoney(grossAmount * commissionRate);
   return {
     gross_amount: grossAmount,
     siton_fee_rate: commissionRate,
     siton_fee_amount: sitonFeeAmount,
-    affiliate_fee_amount: affiliateAmount,
     seller_net_amount: roundMoney(grossAmount - sitonFeeAmount)
   };
 }
@@ -112,6 +110,13 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         ON siton.seller_sessions (seller_id, expires_at DESC)
       `);
 
+      // Distributors are attribution-only per spec: link tracking, click/join
+       // counts, attributed units. They receive no commission, no payout, no
+       // settlement. The payout_* / commission_* columns below are LEGACY DEAD:
+       // retained for schema compatibility with older deployments, written only
+       // with hardcoded neutral defaults, never read by the live product layer,
+       // never exposed in any API response. Scheduled for a later migration to
+       // drop. Do not reintroduce writes or reads.
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.affiliate_accounts (
           affiliate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -246,11 +251,14 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         ON siton.deals (seller_id, created_at DESC)
       `);
 
+      // Distributor seed: only attribution-surface fields are set explicitly.
+      // payout_* / commission_* columns keep their LEGACY DEAD defaults and
+      // must not be written with any meaningful value.
       await c.query(
         `INSERT INTO siton.affiliate_accounts (
-           affiliate_code, display_name, verification_status, payout_status, payout_method, payout_details_masked, admin_note
+           affiliate_code, display_name, verification_status, admin_note
          )
-         VALUES ($1, $2, 'pending', 'pending_profile', 'bank_transfer', '', 'Demo affiliate profile used for current-spec closure surfaces')
+         VALUES ($1, $2, 'pending', 'Demo affiliate profile used for attribution-only surfaces')
          ON CONFLICT (affiliate_code) DO NOTHING`,
         [DEFAULT_AFFILIATE_CODE, DEFAULT_AFFILIATE_NAME]
       );

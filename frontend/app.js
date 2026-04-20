@@ -1135,7 +1135,7 @@ function getRouteSummary() {
     seller: "ניהול העסקאות הפעילות, הטיוטות והפעולות של המוכר במקום אחד.",
     "seller-new": "פתיחת עסקה חדשה במסלול מונחה, בעברית מלאה ובמובייל תחילה.",
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
-    affiliate: "מרכז הפצה וייחוס עם מצב אימות, ביצועי קמפיינים והיערכות לתשלום עתידי.",
+    affiliate: "מרכז הפצה וייחוס עם מצב אימות וביצועי קמפיינים. המפיץ הוא ערוץ מדידה והפצה בלבד — ללא עמלה או תשלום.",
     admin: "מרכז תפעול, חיפוש, חריגות, תורי אימות ותמונת מערכת.",
     "admin-deal": "פרופיל עסקה לתפעול, בקרה ותמיכה.",
     "admin-participant": "פרופיל משתתף לתפעול, תמיכה ואבחון חוצה מערכות.",
@@ -2321,7 +2321,7 @@ function renderAffiliatePage() {
         <span class="badge warning">גישה תפעולית</span>
         <span class="eyebrow">הפצה וייחוס</span>
         <h1>מרכז הפצה למדידה, ייחוס ושיתוף לינקים</h1>
-        <p class="muted">המשטח הזה מרכז את מצב הייחוס, הקמפיינים והאימות של המפיץ. הוא מציג היערכות לתשלום עתידי, אבל לא מדמה סליקה אמיתית או התחשבנות חיצונית פעילה.</p>
+        <p class="muted">המשטח הזה מרכז את מצב הייחוס, הקמפיינים והאימות של המפיץ. המפיץ הוא ערוץ מדידה והפצה בלבד — אין כאן עמלה, יתרה, התחשבנות או תשלום, לא כעת ולא בעתיד.</p>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">שם תצוגה</span><strong>${esc(payload.display_name || "לא זמין")}</strong></div>
           <div class="summary-item"><span class="muted">מצב ייחוס</span><strong>${esc(payload.attribution_status)}</strong></div>
@@ -2332,9 +2332,9 @@ function renderAffiliatePage() {
           <strong>גבול המודל החי</strong>
           <p>${esc(payload.note)}</p>
         </div>
-        <div class="info-strip tone-warning">
-          <strong>מה עדיין לא הופעל כאן</strong>
-          <p>פרטי תשלום, סטטוסי העברה והתחשבנות מול גורמים חיצוניים נשארים מסומנים כהיערכות בלבד עד להפעלה חיצונית.</p>
+        <div class="info-strip tone-info">
+          <strong>גבולות השטח של המפיץ</strong>
+          <p>אין חשיפה של פרטי קונים, אין תזרים כספי ואין פרופיל תשלום. התצוגה מצטברת בלבד — קליקים, ייחוסים, יחידות וקמפיינים.</p>
         </div>
       </article>
       <aside class="card hero-side stack">
