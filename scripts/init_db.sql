@@ -177,7 +177,7 @@ CREATE TABLE IF NOT EXISTS payment_attempts (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE TABLE IF NOT EXISTS marketplace_money_events (
+CREATE TABLE IF NOT EXISTS platform_fee_money_events (
   money_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id UUID NOT NULL REFERENCES participants(participant_id) ON DELETE CASCADE,
   deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
@@ -259,16 +259,13 @@ CREATE TABLE IF NOT EXISTS seller_sessions (
 CREATE INDEX IF NOT EXISTS idx_seller_sessions_active
   ON seller_sessions (seller_id, expires_at DESC);
 
+-- Distributors are attribution-only: no commission, no payout, no settlement.
 CREATE TABLE IF NOT EXISTS affiliate_accounts (
   affiliate_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   affiliate_code TEXT NOT NULL UNIQUE,
   display_name TEXT NOT NULL,
   verification_status TEXT NOT NULL DEFAULT 'pending'
     CHECK (verification_status IN ('pending','verified','rejected')),
-  payout_status TEXT NOT NULL DEFAULT 'pending_profile'
-    CHECK (payout_status IN ('pending_profile','pending_review','approved','paid','hold')),
-  payout_method TEXT NOT NULL DEFAULT 'bank_transfer',
-  payout_details_masked TEXT NOT NULL DEFAULT '',
   admin_note TEXT NOT NULL DEFAULT '',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -280,10 +277,6 @@ CREATE TABLE IF NOT EXISTS affiliate_attributions (
   deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
   participant_id UUID NOT NULL UNIQUE REFERENCES participants(participant_id) ON DELETE CASCADE,
   share_code TEXT NOT NULL,
-  commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0,
-  commission_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-  payout_status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (payout_status IN ('pending','approved','paid','void')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -319,12 +312,12 @@ CREATE INDEX IF NOT EXISTS idx_deals_seller_created ON deals(seller_id, created_
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_correlation ON payment_attempts(correlation_id);
-CREATE INDEX IF NOT EXISTS idx_marketplace_money_deal_created ON marketplace_money_events(deal_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_platform_fee_money_deal_created ON platform_fee_money_events(deal_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_webhook_status_received ON webhook_events(status, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_provider_received ON webhook_events(provider, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_deal_received ON webhook_events(deal_id, received_at);
-CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_deal ON affiliate_attributions(deal_id, payout_status, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate ON affiliate_attributions(affiliate_id, payout_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_deal ON affiliate_attributions(deal_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate ON affiliate_attributions(affiliate_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_delivery_records_deal ON delivery_records(deal_id, status, updated_at DESC);
 CREATE INDEX IF NOT EXISTS idx_support_tickets_status ON support_tickets(status, created_at DESC);
 
@@ -348,11 +341,11 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname='public' AND indexname='ux_marketplace_money_charge_once'
+    WHERE schemaname='public' AND indexname='ux_platform_fee_money_charge_once'
   ) THEN
     EXECUTE '
-      CREATE UNIQUE INDEX ux_marketplace_money_charge_once
-      ON marketplace_money_events (participant_id)
+      CREATE UNIQUE INDEX ux_platform_fee_money_charge_once
+      ON platform_fee_money_events (participant_id)
       WHERE logical_entry_type = ''charge''
     ';
   END IF;
@@ -363,11 +356,11 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname='public' AND indexname='ux_marketplace_money_refund_once'
+    WHERE schemaname='public' AND indexname='ux_platform_fee_money_refund_once'
   ) THEN
     EXECUTE '
-      CREATE UNIQUE INDEX ux_marketplace_money_refund_once
-      ON marketplace_money_events (participant_id)
+      CREATE UNIQUE INDEX ux_platform_fee_money_refund_once
+      ON platform_fee_money_events (participant_id)
       WHERE logical_entry_type = ''refund_adjustment''
     ';
   END IF;
@@ -378,11 +371,11 @@ BEGIN
   IF NOT EXISTS (
     SELECT 1
     FROM pg_indexes
-    WHERE schemaname='public' AND indexname='ux_marketplace_money_provider_event'
+    WHERE schemaname='public' AND indexname='ux_platform_fee_money_provider_event'
   ) THEN
     EXECUTE '
-      CREATE UNIQUE INDEX ux_marketplace_money_provider_event
-      ON marketplace_money_events (provider_code, provider_event_id)
+      CREATE UNIQUE INDEX ux_platform_fee_money_provider_event
+      ON platform_fee_money_events (provider_code, provider_event_id)
       WHERE provider_event_id IS NOT NULL
     ';
   END IF;
@@ -652,7 +645,6 @@ CREATE TABLE IF NOT EXISTS invoice_documents (
   gross_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   siton_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-  affiliate_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending'
     CHECK (status IN ('pending', 'processing', 'issued', 'failed', 'skipped')),
   attempt_count INT NOT NULL DEFAULT 0,

@@ -45,10 +45,10 @@ async function insertProcessingDoc(documentKey: string, updatedAtOffset: string)
     `INSERT INTO siton.invoice_documents
        (document_key, document_type, deal_id, participant_id, deal_title, qty,
         money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-        affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+        status, attempt_count, max_attempts, provider_code,
         available_at, created_at, updated_at)
      VALUES ($1, 'charge_receipt', $2, $3, 'Test', 1, 'ChargedSuccess',
-             100.00, 10.00, 90.00, 0.00, 'processing', 1, 3, 'log-only',
+             100.00, 10.00, 90.00, 'processing', 1, 3, 'log-only',
              now(), now(), now() - $4::interval)
      ON CONFLICT (document_key) DO NOTHING`,
     [documentKey, randomUUID(), randomUUID(), updatedAtOffset]

@@ -157,9 +157,6 @@ export async function enqueueInvoiceDocument(
   params: EnqueueInvoiceParams,
   db: pg.Pool | pg.PoolClient
 ): Promise<"queued" | "duplicate"> {
-  // affiliate_fee_amount is LEGACY DEAD (spec: distributors receive no fee).
-  // The column is kept on siton.invoice_documents with NOT NULL DEFAULT 0;
-  // we rely on the default and never set it here.
   const result = await db.query(
     `INSERT INTO siton.invoice_documents
        (document_key, document_type, deal_id, participant_id,

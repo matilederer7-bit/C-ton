@@ -43,9 +43,9 @@ async function insertInvoiceDoc(documentKey: string, status: string, documentTyp
     `INSERT INTO siton.invoice_documents
        (document_key, document_type, deal_id, participant_id, deal_title, qty,
         money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-        affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+        status, attempt_count, max_attempts, provider_code,
         available_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,'Test Deal',1,'ChargedSuccess',100.00,10.00,90.00,0.00,
+     VALUES ($1,$2,$3,$4,'Test Deal',1,'ChargedSuccess',100.00,10.00,90.00,
              $5,1,3,'log-only',now(),now(),now())
      ON CONFLICT (document_key) DO NOTHING`,
     [documentKey, documentType, randomUUID(), randomUUID(), status]
@@ -206,10 +206,10 @@ await run("S4 — /api/admin/participants/:id/ops returns participant state + cr
       `INSERT INTO siton.invoice_documents
          (document_key, document_type, deal_id, participant_id, deal_title, qty,
           money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-          affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+          status, attempt_count, max_attempts, provider_code,
           available_at, created_at, updated_at)
        VALUES ($1, 'charge_receipt', $2, $3, 'Ops Test Deal', 1, 'ChargedSuccess',
-               100.00, 10.00, 90.00, 0.00, 'issued', 1, 3, 'log-only', now(), now(), now())
+               100.00, 10.00, 90.00, 'issued', 1, 3, 'log-only', now(), now(), now())
        ON CONFLICT (document_key) DO NOTHING`,
       [invoiceKey, dealId, participantId]
     );

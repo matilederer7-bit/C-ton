@@ -69,9 +69,9 @@ async function insertInvoiceDoc(dealId: string, participantId: string, status: s
     `INSERT INTO siton.invoice_documents
        (document_key, document_type, deal_id, participant_id, deal_title, qty,
         money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-        affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+        status, attempt_count, max_attempts, provider_code,
         available_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,'Test Deal',1,'ChargedSuccess',100.00,10.00,90.00,0.00,
+     VALUES ($1,$2,$3,$4,'Test Deal',1,'ChargedSuccess',100.00,10.00,90.00,
              $5,1,3,'log-only',now(),now(),now())
      ON CONFLICT (document_key) DO NOTHING`,
     [key, documentType, dealId, participantId, status]

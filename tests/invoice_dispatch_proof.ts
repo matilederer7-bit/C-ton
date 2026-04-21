@@ -180,10 +180,10 @@ await run("D4 — flush with always-fail provider → status=pending (retry), la
       `INSERT INTO siton.invoice_documents
          (document_key, document_type, deal_id, participant_id, deal_title, qty,
           money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-          affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+          status, attempt_count, max_attempts, provider_code,
           available_at, created_at, updated_at)
        VALUES ($1,'charge_receipt',$2,$3,'Test Deal',1,'ChargedSuccess',
-               100.00,10.00,90.00,0.00,'pending',0,3,'log-only',now(),now(),now())`,
+               100.00,10.00,90.00,'pending',0,3,'log-only',now(),now(),now())`,
       [key, randomUUID(), randomUUID()]
     );
 
@@ -208,10 +208,10 @@ await run("D5 — exhausting max_attempts → status=failed, last_error=max_atte
       `INSERT INTO siton.invoice_documents
          (document_key, document_type, deal_id, participant_id, deal_title, qty,
           money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
-          affiliate_fee_amount, status, attempt_count, max_attempts, provider_code,
+          status, attempt_count, max_attempts, provider_code,
           available_at, created_at, updated_at)
        VALUES ($1,'charge_receipt',$2,$3,'Test Deal',1,'ChargedSuccess',
-               100.00,10.00,90.00,0.00,'pending',0,2,'log-only',now(),now(),now())`,
+               100.00,10.00,90.00,'pending',0,2,'log-only',now(),now(),now())`,
       [key, randomUUID(), randomUUID()]
     );
 

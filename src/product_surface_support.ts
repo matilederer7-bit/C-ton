@@ -1,6 +1,6 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
-import { SITON_PLATFORM_FEE_RATE } from "./marketplace_money.js";
+import { SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
 
 export const DEFAULT_SELLER_ID = "seller-default";
 export const DEFAULT_AFFILIATE_CODE = "affiliate-demo";
@@ -181,10 +181,10 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
 
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_deal
-        ON siton.affiliate_attributions (deal_id, payout_status, created_at DESC)`);
+        ON siton.affiliate_attributions (deal_id, created_at DESC)`);
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate
-        ON siton.affiliate_attributions (affiliate_id, payout_status, created_at DESC)`);
+        ON siton.affiliate_attributions (affiliate_id, created_at DESC)`);
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_delivery_records_deal
         ON siton.delivery_records (deal_id, status, updated_at DESC)`);
@@ -256,9 +256,6 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         ON siton.deals (seller_id, created_at DESC)
       `);
 
-      // Distributor seed: only attribution-surface fields are set explicitly.
-      // payout_* / commission_* columns keep their LEGACY DEAD defaults and
-      // must not be written with any meaningful value.
       await c.query(
         `INSERT INTO siton.affiliate_accounts (
            affiliate_code, display_name, verification_status, admin_note

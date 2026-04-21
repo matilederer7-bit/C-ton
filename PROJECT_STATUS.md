@@ -8,9 +8,67 @@ Marketplace payments 8% track:
 - Progress: `93%` of the isolated marketplace-payments track
 - Next step: when external activation begins, map the same canonical settlement row shape onto a real marketplace payment provider and payout rail without changing the internal fee model again
 
-Current update: 2026-04-20 (Marketplace payments pass: canonical 8% settlement truth, refund reversal truth, and duplicate-safe provider-ready money events)
+Current update: 2026-04-21 (Wave 2.5 legacy purge: distributor commission / payout columns dropped end-to-end — DB, DDL, DTOs, docs, tests)
 
-Last updated: 2026-04-19 (Wave 1 spec-drift closure: completion window 24h, commission 8%, deadline 2h–7d, deal transitions aligned with DB)
+Last updated: 2026-04-20 (Marketplace payments pass: canonical 8% settlement truth, refund reversal truth, and duplicate-safe provider-ready money events)
+
+## Spec Drift Closure — Wave 2.5 legacy purge (2026-04-21)
+
+Goal of this wave: stop leaving LEGACY DEAD markers in place. Actually remove the columns, fields, and comments from the codebase and from the database.
+
+### Columns actually dropped (DB)
+
+- `siton.invoice_documents.affiliate_fee_amount`
+- `siton.affiliate_accounts.payout_status`, `payout_method`, `payout_details_masked`
+- `siton.affiliate_attributions.commission_rate`, `commission_amount`, `payout_status`
+- Index `siton.idx_affiliate_attributions_deal` rebuilt on `(deal_id, created_at DESC)` (was keyed on `payout_status`).
+- Index `siton.idx_affiliate_attributions_affiliate` rebuilt on `(affiliate_id, created_at DESC)` (was keyed on `payout_status`).
+
+Delivered via two mechanisms, both idempotent:
+
+1. [src/migrations/020_drop_affiliate_legacy_columns.sql](src/migrations/020_drop_affiliate_legacy_columns.sql) — explicit migration for any pipeline that runs `src/migrations/*`.
+2. `ensureRemainingProductSurfaceTables` in [src/product_surface_support.ts](src/product_surface_support.ts) — the runtime bootstrap now issues `ALTER TABLE ... DROP COLUMN IF EXISTS` on every boot, so demo and pre-production environments self-heal without a separate migration runner.
+
+Migration 018 ([src/migrations/018_invoice_documents.sql](src/migrations/018_invoice_documents.sql)) was also edited to remove `affiliate_fee_amount` from the fresh-install schema, so fresh DBs never carry the column.
+
+### Code cleanups (TypeScript + DDL strings)
+
+- [src/product_surface_support.ts](src/product_surface_support.ts) — distributor DDL no longer creates the dead columns; the LEGACY DEAD block comment removed; the seed `INSERT INTO siton.affiliate_accounts` no longer names payout fields or carries legacy annotations.
+- [src/invoice_dispatch.ts](src/invoice_dispatch.ts) — LEGACY DEAD comment removed from `enqueueInvoiceDocument` (the field was already gone).
+- [src/frontend_runtime.ts](src/frontend_runtime.ts) — stale inline comment "`no commission_amount / payout_status exposed`" removed from the attributions query; nothing to expose, nothing to advertise.
+- [scripts/init_db.sql](scripts/init_db.sql) — the legacy bootstrap now matches the canonical schema: `affiliate_accounts` and `affiliate_attributions` hold only attribution fields; `invoice_documents.affiliate_fee_amount` removed; the two affiliate indexes no longer reference `payout_status`.
+- [docs/INVOICE_ACCOUNTING_GROUNDWORK.md](docs/INVOICE_ACCOUNTING_GROUNDWORK.md) — column table updated: gross is now documented as `qty × price_per_unit + delivery_cost` (excl. VAT); the `affiliate_fee_amount` row replaced with an explicit removal note that points at migration 020.
+
+### Test INSERTs cleaned
+
+Four test suites had direct `INSERT INTO siton.invoice_documents (..., affiliate_fee_amount, ...)` SQL literals that would fail once the column is dropped. All updated:
+
+- [tests/admin_observability_proof.ts](tests/admin_observability_proof.ts) (two INSERTs).
+- [tests/deal_ops_summary_proof.ts](tests/deal_ops_summary_proof.ts).
+- [tests/invoice_dispatch_proof.ts](tests/invoice_dispatch_proof.ts) (two INSERTs).
+- [tests/invoice_queue_hardening_proof.ts](tests/invoice_queue_hardening_proof.ts).
+
+### Verification
+
+- `npx tsc --noEmit -p tsconfig.test.json` — clean.
+- `grep -rn "affiliateFeeAmount\|AFFILIATE_FEE_SHARE_OF_PLATFORM\|LEGACY DEAD" src/` — zero hits (migration 020 is the only intentional `affiliate_fee_amount` reference, and it's the `DROP COLUMN IF EXISTS`).
+- [tests/backend_sanity_suite.ts](tests/backend_sanity_suite.ts) — 13/13 PASS, including the five Wave 2 / 2.5 assertions (fee base with and without delivery, `summarizeMoney` has no affiliate field, `/api/affiliate/overview` is attribution-only with no money/PII leaks, distributor payout endpoint returns 410).
+- [tests/invoice_dispatch_proof.ts](tests/invoice_dispatch_proof.ts) — 8/8 PASS after column drop.
+- [tests/invoice_queue_hardening_proof.ts](tests/invoice_queue_hardening_proof.ts) — 5/5 PASS.
+- [tests/admin_observability_proof.ts](tests/admin_observability_proof.ts) — 6/6 PASS.
+- [tests/deal_ops_summary_proof.ts](tests/deal_ops_summary_proof.ts) — 6/6 PASS.
+
+### Blockers to a fuller purge — none
+
+Every legacy column that had to be removed was removable. There are no external consumers of the dropped columns (this is pre-production, single-tenant, and the only writer/reader of the dead columns was our own code, which now no longer references them). No downstream system depends on `affiliate_fee_amount`, `commission_amount`, or distributor `payout_*`.
+
+`deals.commission_rate` is retained — it is the Siton 8% platform commission rate per spec (migration 008/014 immutability trigger still in force), not a distributor commission. `seller_accounts.payout_method` / `payout_details_masked` are retained — sellers do receive payouts, this is the legitimate seller side.
+
+### Wave 2.5 status
+
+- **Legacy purge complete, not just minimized.** The distributor money model is removed from code, schema, and documentation. No inline LEGACY DEAD markers remain. The DB columns are gone (or will be on first boot of any existing demo environment, via the `ALTER TABLE ... DROP COLUMN IF EXISTS` sequence in `ensureRemainingProductSurfaceTables`).
+- **Progress on drift map:** D1/D2/D3/D6 closed in Wave 1, D4/D5 closed in Wave 2, legacy residue swept in Wave 2.5. 6 of 22 drifts sealed + legacy trimmed = ready to open Wave 3 (D7 refund endpoints, D8 trusted-device OTP skip, D9 Hebrew encoding, D10–D17 admin surfaces, D18–D22 polish).
+- **Green light to proceed to Wave 3** — no distributor-money tail remains that would block the refund / admin surfaces work.
 
 ## Spec Drift Closure — Wave 2 (2026-04-20)
 

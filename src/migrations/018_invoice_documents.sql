@@ -26,7 +26,6 @@ CREATE TABLE IF NOT EXISTS siton.invoice_documents (
   gross_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   siton_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-  affiliate_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
 
   -- Delivery state machine: pending → processing → issued | failed | skipped
   status TEXT NOT NULL DEFAULT 'pending'

@@ -102,10 +102,11 @@ Each row captures a point-in-time financial snapshot at issuance:
 | `deal_title` | Deal title at time of issuance |
 | `qty` | Units purchased |
 | `money_state_at_issue` | `ChargedSuccess`, `RecoveredCharge`, or `Refunded` |
-| `gross_amount` | `qty × price_per_unit` |
-| `siton_fee_amount` | `gross × commission_rate` |
+| `gross_amount` | `qty × price_per_unit + delivery_cost` (excl. VAT) |
+| `siton_fee_amount` | `gross × commission_rate` (Siton 8% platform fee) |
 | `seller_net_amount` | `gross - siton_fee` |
-| `affiliate_fee_amount` | Affiliate commission (0 if no attribution) |
+
+> Distributor commissions / payouts are **not** part of this contract. The `affiliate_fee_amount` column that this groundwork doc originally described was removed in migration 020 (Wave 2.5) — distributors are attribution-only per spec.
 
 These fields are written once and never updated after the row is created.
 

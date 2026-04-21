@@ -98,7 +98,7 @@ type DealListRow = {
   published_at: string | null;
   completion_window_until: string | null;
   created_at: string;
-  commission_rate: number;
+  platform_fee_rate: number;
   joined_units: number;
   participants_count: number;
 };
@@ -519,7 +519,7 @@ function mapDealListRow(row: DealListRow) {
     published_at: row.published_at,
     completion_window_until: row.completion_window_until,
     created_at: row.created_at,
-    commission_rate: Number(row.commission_rate || 0),
+    platform_fee_rate: Number(row.platform_fee_rate || 0.08),
     metrics: {
       joined_units: joinedUnits,
       remaining_units: remainingUnits,
@@ -936,7 +936,7 @@ export function registerFrontendExperience(
           positioning:
             "Commercial main site for opening a deal, publishing a personal deal page, and sharing a direct buyer link.",
           buyer_entry_note:
-            "Buyers should enter through a direct deal link. There is no public catalog or searchable marketplace in the active product direction.",
+            "Buyers should enter through a direct deal link that the seller shares directly with them.",
           seller_entry: {
             create_deal_url: "/app/seller/new",
             manage_deals_url: "/app/seller"
@@ -952,19 +952,13 @@ export function registerFrontendExperience(
               }
             : null,
           seller_auth: sellerAuthSummary(sellerContext),
-          v1_scope: [
-            "Main brand site",
-            "Seller-first deal creation",
-            "Personal public deal page",
-            "Direct distribution link",
-            "Buyer OTP + authorization-only join flow",
-            "Buyer tracking screen",
-            "Basic seller management"
-          ],
-          out_of_scope: [
-            "Public marketplace catalog",
-            "Public deal search",
-            "Mall-style browsing experience"
+          core_surfaces: [
+            "אתר מותג ודף פתיחה למוכרים",
+            "יצירת עסקה וניהול עסקה למוכר",
+            "דף עסקה ציבורי מבוסס לינק",
+            "מסלול הצטרפות קונה עם אימות והרשאה",
+            "מסך מעקב לקונה",
+            "ניהול בסיסי לעסקאות מוכר"
           ],
           proof_points: {
             total_deals: Number(row.total_deals || 0),
@@ -1026,15 +1020,6 @@ export function registerFrontendExperience(
           context_source: "explicit"
         })
       };
-    });
-  });
-
-  app.get("/api/marketplace/deals", async (_req: any, reply: any) => {
-    return reply.code(410).send({
-      ok: false,
-      code: "PUBLIC_MARKETPLACE_REMOVED",
-      message:
-        "Public searchable marketplace discovery is not part of the current Siton product direction. Use the main site for seller entry and direct deal links for buyers."
     });
   });
 
@@ -1148,7 +1133,7 @@ export function registerFrontendExperience(
            d.published_at,
            d.completion_window_until,
            d.created_at,
-           d.commission_rate,
+           0.08::numeric AS platform_fee_rate,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
@@ -1201,7 +1186,7 @@ export function registerFrontendExperience(
            d.published_at,
            d.completion_window_until,
            d.created_at,
-           d.commission_rate,
+           0.08::numeric AS platform_fee_rate,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
@@ -1244,7 +1229,6 @@ export function registerFrontendExperience(
         [dealId]
       );
 
-      // Attribution-only: no commission_amount / payout_status exposed.
       const attributions = await c.query(
         `SELECT aa.participant_id,
                 aa.share_code,
@@ -1316,7 +1300,7 @@ export function registerFrontendExperience(
           (sum: number, row: any) => sum + Number(row.gross_amount || 0),
           0
         ),
-        commissionRate: Number(deal.commission_rate || 0)
+        commissionRate: 0.08
       });
 
       const deliveryRows = participants.rows
@@ -1538,14 +1522,6 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/affiliate/payout-profile", async (_req: any, reply: any) => {
-    return reply.code(410).send({
-      ok: false,
-      error: "affiliate_payout_model_removed",
-      message: "Distributor payout profiles are no longer part of the live product model."
-    });
-  });
-
   // ---------------------------------------------------------------------------
   // Webhook ingestion endpoint
   // Receives payment provider callbacks, verifies HMAC, deduplicates, classifies.
@@ -1685,7 +1661,7 @@ export function registerFrontendExperience(
            d.published_at,
            d.completion_window_until,
            d.created_at,
-           d.commission_rate,
+           0.08::numeric AS platform_fee_rate,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COALESCE(SUM(p.delivery_cost),0) AS joined_delivery_cost,
            COUNT(p.participant_id)::int AS participants_count
@@ -2501,11 +2477,19 @@ export function registerFrontendExperience(
         return { ok: true, subject_type: subjectType, result: updated.rows[0] };
       }
 
-      return reply.code(410).send({
-        ok: false,
-        error: "affiliate_payout_model_removed",
-        message: "Distributor payout verification is no longer part of the live product model."
-      });
+      const updated = await c.query(
+        `UPDATE siton.affiliate_accounts
+         SET verification_status = $2, admin_note = $3, updated_at = now()
+         WHERE affiliate_id = $1
+         RETURNING affiliate_id AS subject_id, verification_status AS status, admin_note`,
+        [subjectId, nextStatus, adminNote]
+      );
+      if (!updated.rowCount) {
+        const err: any = new Error("affiliate profile not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      return { ok: true, subject_type: subjectType, result: updated.rows[0] };
     });
   });
 
@@ -2573,15 +2557,6 @@ export function registerFrontendExperience(
         throw err;
       }
       return { ok: true, ticket: updated.rows[0] };
-    });
-  });
-
-  app.post("/api/admin/affiliate-payouts/:affiliateId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
-    return reply.code(410).send({
-      ok: false,
-      error: "affiliate_payout_model_removed",
-      message: "Distributor payout administration is no longer part of the live product model."
     });
   });
 
@@ -2809,9 +2784,6 @@ export function registerFrontendExperience(
 
   app.get("/app", sendShell);
   app.get("/app/", sendShell);
-  app.get("/app/marketplace", async (_req: any, reply: FastifyReply) => {
-    return reply.redirect("/app");
-  });
   app.get("/app/terms", sendShell);
   app.get("/app/privacy", sendShell);
   app.get("/app/refunds", sendShell);
