@@ -1,5 +1,13 @@
 # PROJECT STATUS
 
+Current update: 2026-04-21 (repository doc cleanup: outdated DB document removed)
+
+- Completed: removed `docs/DB.docx` from the repository to prevent documentation drift against the updated product spec and live code.
+- Checked: scanned active documentation and status files for textual references to `DB.docx` and updated the broken references that were still live.
+- Open: the removed file may still exist in old git history, but it is no longer present in the working repository; broader cleanup tracks remain separate.
+- Progress: `94%` of the current repository clarity / canonical-status track
+- Next step: continue the active cleanup work separately, while treating the canonical foundation pack and `PROJECT_STATUS.md` as the live documentation baseline.
+
 Marketplace payments 8% track:
 - Completed: canonical provider-ready settlement truth now exists in `siton.marketplace_money_events`; charge, recovery, and refund events write signed money truth with fixed 8% platform fee math and seller-net derivation
 - Checked: `npx tsc --noEmit`, `npm run test:marketplace-payments`, and `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`
@@ -1694,7 +1702,7 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
 - What was checked:
   direct text extraction and comparison of the new attached `.docx` files against the older repository `.docx` foundation files; targeted keyword diff on distributor/affiliate, commission, repeat-purchase, and publish-acknowledgment semantics; and repository scan for older docs and derived markdown files that still looked like foundation truth candidates
 - What was fixed:
-  removed ambiguity about the active foundation pack by placing the new canonical documents in a dedicated `docs/foundation-canonical-2026-04-18/` directory and documenting their authority explicitly; marked the older product spec and older constitution as fully deprecated as foundation truth; marked `DB.docx`, `חוקה לדאטה בייס.docx`, and `מנגנון אכיפה.docx` as historical or partial-reference documents only; and locked in the new product-direction interpretation that distributors are now a measured distribution channel rather than an in-system commission and payout engine
+  removed ambiguity about the active foundation pack by placing the new canonical documents in a dedicated `docs/foundation-canonical-2026-04-18/` directory and documenting their authority explicitly; marked the older product spec and older constitution as fully deprecated as foundation truth; marked `חוקה לדאטה בייס.docx` and `מנגנון אכיפה.docx` as historical or partial-reference documents only; later removed `DB.docx` from the repository entirely as an outdated DB reference; and locked in the new product-direction interpretation that distributors are now a measured distribution channel rather than an in-system commission and payout engine
 - What is open:
   this step did not yet realign all code, schema, and secondary docs to the new canonical foundation pack; the next stage must map and then close the newly exposed drifts, especially repeated purchases by the same buyer in the same deal versus any remaining uniqueness assumptions, and the lingering `commission_rate` references that survived in older technical material and in parts of the updated foundation pack itself
 - Progress percentage:

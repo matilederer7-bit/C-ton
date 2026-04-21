@@ -55,7 +55,6 @@
 - `docs/db-drift-resolution.md`
 - `docs/runtime-contract-resolution.md`
 - `docs/STAGE_9D_DRIFT_REPORT.md`
-- `docs/DB.docx`
 - כל קובצי `.docx` ב-`docs/`
 - רוב `stage*.cjs` ב-`scripts/` ו-`src/`
 - רוב `inspect_*`, `patch_*`, `fix_*`, `replace_*`, `force_*`, `dump_*`, `locate_*`, `show_*`

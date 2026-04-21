@@ -20,8 +20,8 @@ This file is the initial deprecation map for the older repository foundation doc
 - [מנגנון אכיפה.docx](/c:/Users/Lenovo/Documents/C-ton/docs/מנגנון אכיפה.docx)
   Historical enforcement reference only. Valid only where it does not contradict the new canonical pack.
 
-- [DB.docx](/c:/Users/Lenovo/Documents/C-ton/docs/DB.docx)
-  Historical schema reference only. Requires future alignment against the new product and system truth.
+- `DB.docx`
+  Removed from the repository on `2026-04-21` because it was an outdated DB reference and no longer a safe source of truth.
 
 ## Secondary Markdown Documents No Longer Count As Foundation Truth
 
