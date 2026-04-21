@@ -42,6 +42,7 @@ export const PAYMENT_PROVIDER_TIMEOUT_MS = readNumberEnv("PAYMENT_PROVIDER_TIMEO
 export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY || "ILS";
 export const PAYMENT_WEBHOOK_PROVIDER = process.env.PAYMENT_WEBHOOK_PROVIDER || PAYMENT_PROVIDER;
 export const PAYMENT_AUTH_DECLINE_SUFFIX = process.env.PAYMENT_AUTH_DECLINE_SUFFIX || "0000";
+export const SITON_PLATFORM_FEE_VAT_RATE = readNumberEnv("SITON_PLATFORM_FEE_VAT_RATE", 0.18);
 export const NOTIFICATION_PROVIDER = process.env.NOTIFICATION_PROVIDER || "log-only";
 // Twilio SMS — all three must be set to activate real SMS delivery
 export const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || "";

@@ -15,11 +15,11 @@ import { registerFrontendExperience } from "./frontend_runtime.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
-  buildMarketplaceMoney,
-  calculateMarketplaceMoney,
-  ensureMarketplaceMoneyTables,
+  buildPlatformFeeMoney,
+  calculatePlatformFeeMoney,
+  ensurePlatformFeeMoneyTables,
   SITON_PLATFORM_FEE_RATE
-} from "./marketplace_money.js";
+} from "./platform_fee_money.js";
 import {
   SELLER_SESSION_COOKIE,
   hashSellerSessionToken,
@@ -613,7 +613,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
-    await marketplaceMoney.recordProviderFinancialEvent({
+    await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: args.target.participant_id,
       deal_id: args.target.deal_id,
       event_type: "charge_captured",
@@ -697,7 +697,7 @@ async function applyPaymentWebhookClassification(args: {
       ],
       outbox: null
     });
-    await marketplaceMoney.recordProviderFinancialEvent({
+    await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: args.target.participant_id,
       deal_id: args.target.deal_id,
       event_type: "recovery_captured",
@@ -762,7 +762,7 @@ async function applyPaymentWebhookClassification(args: {
       outbox: null,
       payload: eventPayload
     });
-    await marketplaceMoney.recordProviderFinancialEvent({
+    await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: args.target.participant_id,
       deal_id: args.target.deal_id,
       event_type: "refund_issued",
@@ -1467,7 +1467,7 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
   };
   // Siton fee base = actual collected amount (price × qty + delivery). No VAT.
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const money = calculateMarketplaceMoney({ grossAmount, vatAmount: 0 });
+  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
     documentKey: `charge_receipt:${participantId}`,
     documentType: "charge_receipt",
@@ -1504,7 +1504,7 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
   };
   // Refund receipt mirrors charge receipt: fee base = price × qty + delivery.
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const money = calculateMarketplaceMoney({ grossAmount, vatAmount: 0 });
+  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
     documentKey: `refund_receipt:${participantId}`,
     documentType: "refund_receipt",
@@ -2552,7 +2552,7 @@ app.get("/debug/deals/:id", async (req: any) => {
 const paymentProvider = buildPaymentProvider();
 const notificationService = buildNotificationService();
 const invoiceProvider = buildInvoiceProvider();
-const marketplaceMoney = buildMarketplaceMoney({ withTx });
+const platformFeeMoney = buildPlatformFeeMoney({ withTx });
 registerFrontendExperience(app, {
   withTx,
   paymentProvider,
@@ -2569,7 +2569,7 @@ registerFrontendExperience(app, {
 let workerRunning = false;
 
 (async () => {
-  await ensureMarketplaceMoneyTables(withTx);
+  await ensurePlatformFeeMoneyTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

@@ -1,5 +1,13 @@
 # PROJECT STATUS
 
+Current update: 2026-04-21 (provider-ready payments abstraction closed: 8% fee before VAT, VAT added on Siton fee)
+
+- Completed: expanded the canonical provider-ready settlement truth so `siton.platform_fee_money_events` now stores `platform_fee_base_amount`, `platform_fee_vat_amount`, `platform_fee_total_amount`, and keeps `platform_fee_amount` as the compatibility alias for the total Siton fee actually owed by the seller; aligned runtime summarization, migration/bootstrap DDL, and provider abstraction summary to the same rule.
+- Checked: `npx tsc --noEmit -p tsconfig.test.json`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node ./.tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js`; focused backend sanity rerun on an alternate port after clearing the local port conflict.
+- Open: external activation only - live payment-provider adapter, live tax sourcing for buyer-side VAT inputs, live invoice rail, and live payout rail. No internal fee-model blocker remains in this track.
+- Progress: `100%` of the provider-ready payments abstraction track.
+- Next step: when external activation starts, connect a real provider adapter onto the stable authorize/capture/recover/refund abstraction without changing the internal settlement model again.
+
 Current update: 2026-04-21 (repository doc cleanup: outdated DB document removed)
 
 - Completed: removed `docs/DB.docx` from the repository to prevent documentation drift against the updated product spec and live code.
@@ -8,17 +16,17 @@ Current update: 2026-04-21 (repository doc cleanup: outdated DB document removed
 - Progress: `94%` of the current repository clarity / canonical-status track
 - Next step: continue the active cleanup work separately, while treating the canonical foundation pack and `PROJECT_STATUS.md` as the live documentation baseline.
 
-Marketplace payments 8% track:
-- Completed: canonical provider-ready settlement truth now exists in `siton.marketplace_money_events`; charge, recovery, and refund events write signed money truth with fixed 8% platform fee math and seller-net derivation
-- Checked: `npx tsc --noEmit`, `npm run test:marketplace-payments`, and `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`
+Platform fee 8% track:
+- Completed: canonical provider-ready settlement truth now exists in `siton.platform_fee_money_events`; charge, recovery, and refund events write signed money truth with fixed 8% platform fee math and seller-net derivation
+- Checked: `npx tsc --noEmit`, `npm run test:platform-fee-payments`, and `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`
 - Fixed: dynamic `commission_rate` reliance in live receipt math, missing settlement/receivable truth per participant, absent refund reversal truth, and missing duplicate guards for fee and refund recording
-- Open: external activation only: live marketplace split/application-fee provider wiring, live invoice rail, live payout rail, and live VAT sourcing beyond the explicit current `vat_amount = 0` internal baseline
-- Progress: `93%` of the isolated marketplace-payments track
-- Next step: when external activation begins, map the same canonical settlement row shape onto a real marketplace payment provider and payout rail without changing the internal fee model again
+- Open: external activation only: live platform-fee split/application-fee provider wiring, live invoice rail, live payout rail, and live VAT sourcing beyond the explicit current `vat_amount = 0` internal baseline
+- Progress: `93%` of the isolated platform-fee payments track
+- Next step: when external activation begins, map the same canonical settlement row shape onto a real payment provider and payout rail without changing the internal fee model again
 
 Current update: 2026-04-21 (Wave 2.5 legacy purge: distributor commission / payout columns dropped end-to-end — DB, DDL, DTOs, docs, tests)
 
-Last updated: 2026-04-20 (Marketplace payments pass: canonical 8% settlement truth, refund reversal truth, and duplicate-safe provider-ready money events)
+Last updated: 2026-04-20 (Platform-fee payments pass: canonical 8% settlement truth, refund reversal truth, and duplicate-safe provider-ready money events)
 
 ## Spec Drift Closure — Wave 2.5 legacy purge (2026-04-21)
 

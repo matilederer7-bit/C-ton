@@ -820,6 +820,17 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     refund_transport_live: provider.mode === "provider-ready" && provider.configured,
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
     supported_modes: ["mock-backed", "provider-ready"],
+    adapter_contract: {
+      authorize: "authorization intent only, no capture side-effects",
+      capture: "charge capture result with reconciliation event mapping",
+      recover: "completion-window recovery capture result with reconciliation event mapping",
+      refund: "refund result with duplicate-safe reconciliation handoff"
+    },
+    idempotency_contract: {
+      outbound_headers: ["idempotency-key", "x-request-id"],
+      correlation_field: "correlation_id",
+      provider_event_identity: "provider_code + provider_event_id"
+    },
     replacement_path: "Implement live provider HTTP client inside payment_provider.ts and keep webhook reconciliation in app/webhook path."
   };
 }

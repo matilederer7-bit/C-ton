@@ -1,17 +1,23 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
+import { SITON_PLATFORM_FEE_VAT_RATE } from "./runtime_config.js";
+
 export const SITON_PLATFORM_FEE_RATE = 0.08;
 
-export type MarketplaceFinancialEventType =
+export type PlatformFeeFinancialEventType =
   | "charge_captured"
   | "recovery_captured"
   | "refund_issued";
 
-export type MarketplaceMoneySnapshot = {
+export type PlatformFeeMoneySnapshot = {
   gross_amount: number;
   vat_amount: number;
   fee_base_amount: number;
   platform_fee_rate: number;
+  platform_fee_vat_rate: number;
+  platform_fee_base_amount: number;
+  platform_fee_vat_amount: number;
+  platform_fee_total_amount: number;
   platform_fee_amount: number;
   seller_net_amount: number;
 };
@@ -20,16 +26,18 @@ export function roundMoney(value: number) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
-export function calculateMarketplaceMoney(args: {
+export function calculatePlatformFeeMoney(args: {
   grossAmount: number;
   vatAmount?: number;
   sign?: 1 | -1;
-}): MarketplaceMoneySnapshot {
+}): PlatformFeeMoneySnapshot {
   const grossAmount = roundMoney(Number(args.grossAmount || 0));
   const vatAmount = roundMoney(Math.max(0, Number(args.vatAmount || 0)));
   const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
-  const platformFeeAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
-  const sellerNetAmount = roundMoney(grossAmount - platformFeeAmount);
+  const platformFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
+  const platformFeeVatAmount = roundMoney(platformFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
+  const platformFeeTotalAmount = roundMoney(platformFeeBaseAmount + platformFeeVatAmount);
+  const sellerNetAmount = roundMoney(grossAmount - platformFeeTotalAmount);
   const sign = args.sign === -1 ? -1 : 1;
 
   return {
@@ -37,7 +45,11 @@ export function calculateMarketplaceMoney(args: {
     vat_amount: roundMoney(vatAmount * sign),
     fee_base_amount: roundMoney(feeBaseAmount * sign),
     platform_fee_rate: SITON_PLATFORM_FEE_RATE,
-    platform_fee_amount: roundMoney(platformFeeAmount * sign),
+    platform_fee_vat_rate: SITON_PLATFORM_FEE_VAT_RATE,
+    platform_fee_base_amount: roundMoney(platformFeeBaseAmount * sign),
+    platform_fee_vat_amount: roundMoney(platformFeeVatAmount * sign),
+    platform_fee_total_amount: roundMoney(platformFeeTotalAmount * sign),
+    platform_fee_amount: roundMoney(platformFeeTotalAmount * sign),
     seller_net_amount: roundMoney(sellerNetAmount * sign)
   };
 }
@@ -45,7 +57,7 @@ export function calculateMarketplaceMoney(args: {
 type ProviderMoneyEventInput = {
   participant_id: string;
   deal_id: string;
-  event_type: MarketplaceFinancialEventType;
+  event_type: PlatformFeeFinancialEventType;
   provider_code: string;
   provider_event_id: string | null;
   provider_reference: string | null;
@@ -53,7 +65,7 @@ type ProviderMoneyEventInput = {
   source_money_state: string;
 };
 
-type MarketplaceSettlementSummary = MarketplaceMoneySnapshot & {
+type PlatformFeeSettlementSummary = PlatformFeeMoneySnapshot & {
   participant_id: string;
   deal_id: string;
   entries_count: number;
@@ -65,10 +77,10 @@ type MarketplaceSettlementSummary = MarketplaceMoneySnapshot & {
     | "refunded_not_payable";
 };
 
-export async function ensureMarketplaceMoneyTables(withTx: WithTx) {
+export async function ensurePlatformFeeMoneyTables(withTx: WithTx) {
   await withTx(async (c) => {
     await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.marketplace_money_events (
+      CREATE TABLE IF NOT EXISTS siton.platform_fee_money_events (
         money_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         participant_id UUID NOT NULL REFERENCES siton.participants(participant_id) ON DELETE CASCADE,
         deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
@@ -90,6 +102,10 @@ export async function ensureMarketplaceMoneyTables(withTx: WithTx) {
         vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         fee_base_amount NUMERIC(12,2) NOT NULL,
         platform_fee_rate NUMERIC(6,4) NOT NULL DEFAULT 0.08,
+        platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT 0.18,
+        platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         platform_fee_amount NUMERIC(12,2) NOT NULL,
         seller_net_amount NUMERIC(12,2) NOT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -98,26 +114,43 @@ export async function ensureMarketplaceMoneyTables(withTx: WithTx) {
     `);
 
     await c.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_marketplace_money_charge_once
-      ON siton.marketplace_money_events (participant_id)
+      ALTER TABLE siton.platform_fee_money_events
+      ADD COLUMN IF NOT EXISTS platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT 0.18
+    `);
+    await c.query(`
+      ALTER TABLE siton.platform_fee_money_events
+      ADD COLUMN IF NOT EXISTS platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0
+    `);
+    await c.query(`
+      ALTER TABLE siton.platform_fee_money_events
+      ADD COLUMN IF NOT EXISTS platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0
+    `);
+    await c.query(`
+      ALTER TABLE siton.platform_fee_money_events
+      ADD COLUMN IF NOT EXISTS platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0
+    `);
+
+    await c.query(`
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_platform_fee_money_charge_once
+      ON siton.platform_fee_money_events (participant_id)
       WHERE logical_entry_type = 'charge'
     `);
 
     await c.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_marketplace_money_refund_once
-      ON siton.marketplace_money_events (participant_id)
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_platform_fee_money_refund_once
+      ON siton.platform_fee_money_events (participant_id)
       WHERE logical_entry_type = 'refund_adjustment'
     `);
 
     await c.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS ux_marketplace_money_provider_event
-      ON siton.marketplace_money_events (provider_code, provider_event_id)
+      CREATE UNIQUE INDEX IF NOT EXISTS ux_platform_fee_money_provider_event
+      ON siton.platform_fee_money_events (provider_code, provider_event_id)
       WHERE provider_event_id IS NOT NULL
     `);
 
     await c.query(`
-      CREATE INDEX IF NOT EXISTS idx_marketplace_money_deal_created
-      ON siton.marketplace_money_events (deal_id, created_at DESC)
+      CREATE INDEX IF NOT EXISTS idx_platform_fee_money_deal_created
+      ON siton.platform_fee_money_events (deal_id, created_at DESC)
     `);
   });
 }
@@ -139,7 +172,7 @@ async function loadParticipantChargeContext(c: any, participantId: string, dealI
   );
 
   if (!result.rowCount) {
-    throw new Error(`marketplace_money_target_not_found participant=${participantId} deal=${dealId}`);
+    throw new Error(`platform_fee_money_target_not_found participant=${participantId} deal=${dealId}`);
   }
 
   const row = result.rows[0];
@@ -157,7 +190,7 @@ async function loadParticipantChargeContext(c: any, participantId: string, dealI
 async function logicalEntryExists(c: any, participantId: string, entryType: "charge" | "refund_adjustment") {
   const result = await c.query(
     `SELECT 1
-     FROM siton.marketplace_money_events
+     FROM siton.platform_fee_money_events
      WHERE participant_id=$1
        AND logical_entry_type=$2
      LIMIT 1`,
@@ -166,11 +199,11 @@ async function logicalEntryExists(c: any, participantId: string, entryType: "cha
   return result.rowCount > 0;
 }
 
-async function insertMarketplaceMoneyEntry(c: any, args: {
+async function insertPlatformFeeMoneyEntry(c: any, args: {
   participant_id: string;
   deal_id: string;
   seller_id: string;
-  event_type: MarketplaceFinancialEventType;
+  event_type: PlatformFeeFinancialEventType;
   logical_entry_type: "charge" | "refund_adjustment";
   provider_code: string;
   provider_event_id: string | null;
@@ -183,14 +216,14 @@ async function insertMarketplaceMoneyEntry(c: any, args: {
   gross_amount: number;
   vat_amount: number;
 }) {
-  const amounts = calculateMarketplaceMoney({
+  const amounts = calculatePlatformFeeMoney({
     grossAmount: args.gross_amount,
     vatAmount: args.vat_amount,
     sign: args.sign
   });
 
   const result = await c.query(
-    `INSERT INTO siton.marketplace_money_events (
+    `INSERT INTO siton.platform_fee_money_events (
        participant_id,
        deal_id,
        seller_id,
@@ -207,12 +240,16 @@ async function insertMarketplaceMoneyEntry(c: any, args: {
        vat_amount,
        fee_base_amount,
        platform_fee_rate,
+       platform_fee_vat_rate,
+       platform_fee_base_amount,
+       platform_fee_vat_amount,
+       platform_fee_total_amount,
        platform_fee_amount,
        seller_net_amount
      )
      VALUES (
        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-       $13,$14,$15,$16,$17,$18
+       $13,$14,$15,$16,$17,$18,$19,$20,$21,$22
      )
      ON CONFLICT DO NOTHING`,
     [
@@ -232,6 +269,10 @@ async function insertMarketplaceMoneyEntry(c: any, args: {
       amounts.vat_amount,
       amounts.fee_base_amount,
       amounts.platform_fee_rate,
+      amounts.platform_fee_vat_rate,
+      amounts.platform_fee_base_amount,
+      amounts.platform_fee_vat_amount,
+      amounts.platform_fee_total_amount,
       amounts.platform_fee_amount,
       amounts.seller_net_amount
     ]
@@ -240,8 +281,8 @@ async function insertMarketplaceMoneyEntry(c: any, args: {
   return { inserted: (result.rowCount || 0) > 0, amounts };
 }
 
-export function buildMarketplaceMoney(deps: { withTx: WithTx }) {
-  async function summarizeParticipantSettlementInTx(c: any, participantId: string): Promise<MarketplaceSettlementSummary | null> {
+export function buildPlatformFeeMoney(deps: { withTx: WithTx }) {
+  async function summarizeParticipantSettlementInTx(c: any, participantId: string): Promise<PlatformFeeSettlementSummary | null> {
     const result = await c.query(
       `SELECT participant_id,
               deal_id,
@@ -251,9 +292,12 @@ export function buildMarketplaceMoney(deps: { withTx: WithTx }) {
               COALESCE(SUM(gross_amount), 0) AS gross_amount,
               COALESCE(SUM(vat_amount), 0) AS vat_amount,
               COALESCE(SUM(fee_base_amount), 0) AS fee_base_amount,
+              COALESCE(SUM(platform_fee_base_amount), 0) AS platform_fee_base_amount,
+              COALESCE(SUM(platform_fee_vat_amount), 0) AS platform_fee_vat_amount,
+              COALESCE(SUM(platform_fee_total_amount), 0) AS platform_fee_total_amount,
               COALESCE(SUM(platform_fee_amount), 0) AS platform_fee_amount,
               COALESCE(SUM(seller_net_amount), 0) AS seller_net_amount
-       FROM siton.marketplace_money_events
+       FROM siton.platform_fee_money_events
        WHERE participant_id=$1
        GROUP BY participant_id, deal_id`,
       [participantId]
@@ -279,24 +323,28 @@ export function buildMarketplaceMoney(deps: { withTx: WithTx }) {
       vat_amount: roundMoney(Number(row.vat_amount || 0)),
       fee_base_amount: roundMoney(Number(row.fee_base_amount || 0)),
       platform_fee_rate: SITON_PLATFORM_FEE_RATE,
+      platform_fee_vat_rate: SITON_PLATFORM_FEE_VAT_RATE,
+      platform_fee_base_amount: roundMoney(Number(row.platform_fee_base_amount || 0)),
+      platform_fee_vat_amount: roundMoney(Number(row.platform_fee_vat_amount || 0)),
+      platform_fee_total_amount: roundMoney(Number(row.platform_fee_total_amount || 0)),
       platform_fee_amount: roundMoney(Number(row.platform_fee_amount || 0)),
       seller_net_amount: roundMoney(Number(row.seller_net_amount || 0)),
       payout_readiness_status
     };
   }
 
-  async function summarizeParticipantSettlement(participantId: string): Promise<MarketplaceSettlementSummary | null> {
+  async function summarizeParticipantSettlement(participantId: string): Promise<PlatformFeeSettlementSummary | null> {
     return deps.withTx(async (c) => summarizeParticipantSettlementInTx(c, participantId));
   }
 
   async function recordProviderFinancialEvent(args: ProviderMoneyEventInput) {
-    await ensureMarketplaceMoneyTables(deps.withTx);
+    await ensurePlatformFeeMoneyTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const context = await loadParticipantChargeContext(c, args.participant_id, args.deal_id);
 
       if (args.event_type === "refund_issued" && !(await logicalEntryExists(c, args.participant_id, "charge"))) {
-        await insertMarketplaceMoneyEntry(c, {
+        await insertPlatformFeeMoneyEntry(c, {
           participant_id: context.participant_id,
           deal_id: context.deal_id,
           seller_id: context.seller_id,
@@ -317,7 +365,7 @@ export function buildMarketplaceMoney(deps: { withTx: WithTx }) {
       }
 
       const logicalEntryType = args.event_type === "refund_issued" ? "refund_adjustment" : "charge";
-      const entry = await insertMarketplaceMoneyEntry(c, {
+      const entry = await insertPlatformFeeMoneyEntry(c, {
         participant_id: context.participant_id,
         deal_id: context.deal_id,
         seller_id: context.seller_id,

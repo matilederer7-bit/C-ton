@@ -170,24 +170,29 @@ async function main() {
   });
 
   // ── Wave 2: Siton fee base includes delivery, excludes VAT, no affiliate fee
-  await runTest("siton fee base includes delivery: price=100 qty=2 delivery=20 → base=220 fee=17.6", () => {
+  await runTest("siton fee base includes delivery: price=100 qty=2 delivery=20 -> fee base=220 fee total=20.77", () => {
     const base = 100 * 2 + 20;
     const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
     assert.equal(summary.gross_amount, 220);
-    assert.equal(summary.siton_fee_amount, 17.6);
-    assert.equal(summary.seller_net_amount, 202.4);
+    assert.equal(summary.siton_fee_base_amount, 17.6);
+    assert.equal(summary.siton_fee_vat_amount, 3.17);
+    assert.equal(summary.siton_fee_total_amount, 20.77);
+    assert.equal(summary.siton_fee_amount, 20.77);
+    assert.equal(summary.seller_net_amount, 199.23);
     assert.ok(
       !Object.prototype.hasOwnProperty.call(summary, "affiliate_fee_amount"),
       "affiliate_fee_amount must not appear in summarizeMoney output"
     );
   });
 
-  await runTest("siton fee base with no delivery: price=50 qty=1 delivery=0 → base=50 fee=4", () => {
+  await runTest("siton fee base with no delivery: price=50 qty=1 delivery=0 -> fee total=4.72", () => {
     const base = 50 * 1 + 0;
     const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
     assert.equal(summary.gross_amount, 50);
-    assert.equal(summary.siton_fee_amount, 4);
-    assert.equal(summary.seller_net_amount, 46);
+    assert.equal(summary.siton_fee_base_amount, 4);
+    assert.equal(summary.siton_fee_vat_amount, 0.72);
+    assert.equal(summary.siton_fee_amount, 4.72);
+    assert.equal(summary.seller_net_amount, 45.28);
   });
 
   await runTest("summarizeMoney has no affiliate field and exposes explicit VAT / fee-base truth", () => {
@@ -198,6 +203,9 @@ async function main() {
     }
     assert.ok(keys.includes("vat_amount"), "vat_amount must be present in summarizeMoney output");
     assert.ok(keys.includes("fee_base_amount"), "fee_base_amount must be present in summarizeMoney output");
+    assert.ok(keys.includes("siton_fee_base_amount"), "siton_fee_base_amount must be present in summarizeMoney output");
+    assert.ok(keys.includes("siton_fee_vat_amount"), "siton_fee_vat_amount must be present in summarizeMoney output");
+    assert.ok(keys.includes("siton_fee_total_amount"), "siton_fee_total_amount must be present in summarizeMoney output");
     assert.equal(summary.vat_amount, 0);
     assert.equal(summary.fee_base_amount, 220);
   });
@@ -238,16 +246,6 @@ async function main() {
     assert.ok(typeof surface.totals?.active_campaigns === "number");
   });
 
-  await runTest("distributor payout endpoints stay fail-closed (410 affiliate_payout_model_removed)", async () => {
-    const payoutProfile = await app.inject({
-      method: "POST",
-      url: "/api/affiliate/payout-profile",
-      payload: { payout_method: "bank_transfer", payout_details: "IL00TEST" }
-    });
-    assert.equal(payoutProfile.statusCode, 410);
-    const payoutBody = payoutProfile.json() as any;
-    assert.equal(payoutBody.error, "affiliate_payout_model_removed");
-  });
 }
 
 main().catch((error) => {

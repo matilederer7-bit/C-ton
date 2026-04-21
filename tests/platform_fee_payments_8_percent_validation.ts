@@ -4,10 +4,11 @@ import pg from "pg";
 import "dotenv/config";
 import {
   SITON_PLATFORM_FEE_RATE,
-  buildMarketplaceMoney,
-  calculateMarketplaceMoney,
-  ensureMarketplaceMoneyTables
-} from "../src/marketplace_money.js";
+  buildPlatformFeeMoney,
+  calculatePlatformFeeMoney,
+  ensurePlatformFeeMoneyTables
+} from "../src/platform_fee_money.js";
+import { SITON_PLATFORM_FEE_VAT_RATE } from "../src/runtime_config.js";
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -29,7 +30,7 @@ const withTx = async <T>(fn: (c: any) => Promise<T>) => {
   }
 };
 
-const marketplaceMoney = buildMarketplaceMoney({ withTx });
+const platformFeeMoney = buildPlatformFeeMoney({ withTx });
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   await fn();
@@ -77,12 +78,12 @@ async function seedParticipant(args: {
 }
 
 async function cleanupParticipant(args: { dealId: string; participantId: string }) {
-  await pool.query(`DELETE FROM siton.marketplace_money_events WHERE participant_id=$1`, [args.participantId]);
+  await pool.query(`DELETE FROM siton.platform_fee_money_events WHERE participant_id=$1`, [args.participantId]);
   await pool.query(`DELETE FROM siton.participants WHERE participant_id=$1`, [args.participantId]);
   await pool.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [args.dealId]);
 }
 
-await ensureMarketplaceMoneyTables(withTx);
+await ensurePlatformFeeMoneyTables(withTx);
 
 await runTest("charge success computes fixed 8% platform fee and ignores per-deal commission_rate", async () => {
   const seeded = await seedParticipant({
@@ -94,7 +95,7 @@ await runTest("charge success computes fixed 8% platform fee and ignores per-dea
   });
 
   try {
-    const first = await marketplaceMoney.recordProviderFinancialEvent({
+    const first = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "charge_captured",
@@ -110,8 +111,12 @@ await runTest("charge success computes fixed 8% platform fee and ignores per-dea
     assert.equal(first.snapshot?.gross_amount, 220);
     assert.equal(first.snapshot?.fee_base_amount, 220);
     assert.equal(first.snapshot?.platform_fee_rate, SITON_PLATFORM_FEE_RATE);
-    assert.equal(first.snapshot?.platform_fee_amount, 17.6);
-    assert.equal(first.snapshot?.seller_net_amount, 202.4);
+    assert.equal(first.snapshot?.platform_fee_vat_rate, SITON_PLATFORM_FEE_VAT_RATE);
+    assert.equal(first.snapshot?.platform_fee_base_amount, 17.6);
+    assert.equal(first.snapshot?.platform_fee_vat_amount, 3.17);
+    assert.equal(first.snapshot?.platform_fee_total_amount, 20.77);
+    assert.equal(first.snapshot?.platform_fee_amount, 20.77);
+    assert.equal(first.snapshot?.seller_net_amount, 199.23);
     assert.equal(first.snapshot?.payout_readiness_status, "ready_for_settlement");
   } finally {
     await cleanupParticipant(seeded);
@@ -128,7 +133,7 @@ await runTest("recovered charge computes the same fixed 8% fee model", async () 
   });
 
   try {
-    const recorded = await marketplaceMoney.recordProviderFinancialEvent({
+    const recorded = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "recovery_captured",
@@ -141,32 +146,38 @@ await runTest("recovered charge computes the same fixed 8% fee model", async () 
 
     assert.equal(recorded.status, "recorded");
     assert.equal(recorded.snapshot?.gross_amount, 180);
-    assert.equal(recorded.snapshot?.platform_fee_amount, 14.4);
-    assert.equal(recorded.snapshot?.seller_net_amount, 165.6);
+    assert.equal(recorded.snapshot?.platform_fee_base_amount, 14.4);
+    assert.equal(recorded.snapshot?.platform_fee_vat_amount, 2.59);
+    assert.equal(recorded.snapshot?.platform_fee_total_amount, 16.99);
+    assert.equal(recorded.snapshot?.platform_fee_amount, 16.99);
+    assert.equal(recorded.snapshot?.seller_net_amount, 163.01);
   } finally {
     await cleanupParticipant(seeded);
   }
 });
 
-await runTest("VAT is excluded from the 8% fee base", () => {
-  const money = calculateMarketplaceMoney({
+await runTest("VAT is excluded from the 8% fee base and added only on Siton fee", () => {
+  const money = calculatePlatformFeeMoney({
     grossAmount: 118,
     vatAmount: 18
   });
   assert.equal(money.gross_amount, 118);
   assert.equal(money.vat_amount, 18);
   assert.equal(money.fee_base_amount, 100);
-  assert.equal(money.platform_fee_amount, 8);
-  assert.equal(money.seller_net_amount, 110);
+  assert.equal(money.platform_fee_base_amount, 8);
+  assert.equal(money.platform_fee_vat_amount, 1.44);
+  assert.equal(money.platform_fee_total_amount, 9.44);
+  assert.equal(money.platform_fee_amount, 9.44);
+  assert.equal(money.seller_net_amount, 108.56);
   assert.ok(!Object.prototype.hasOwnProperty.call(money, "affiliate_fee_amount"));
 });
 
-await runTest("canonical marketplace settlement table carries no affiliate fee columns", async () => {
+  await runTest("canonical platform-fee settlement table carries no affiliate fee columns", async () => {
   const columns = await pool.query(
     `SELECT column_name
      FROM information_schema.columns
      WHERE table_schema='siton'
-       AND table_name='marketplace_money_events'
+       AND table_name='platform_fee_money_events'
      ORDER BY ordinal_position`
   );
   const names = columns.rows.map((row) => String(row.column_name));
@@ -174,6 +185,9 @@ await runTest("canonical marketplace settlement table carries no affiliate fee c
   assert.ok(!names.includes("affiliate_fee_rate"));
   assert.ok(!names.includes("commission_amount"));
   assert.ok(!names.includes("commission_rate"));
+  assert.ok(names.includes("platform_fee_base_amount"));
+  assert.ok(names.includes("platform_fee_vat_amount"));
+  assert.ok(names.includes("platform_fee_total_amount"));
 });
 
 await runTest("duplicate charge event does not create duplicate fee truth", async () => {
@@ -185,7 +199,7 @@ await runTest("duplicate charge event does not create duplicate fee truth", asyn
   });
 
   try {
-    const first = await marketplaceMoney.recordProviderFinancialEvent({
+    const first = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "charge_captured",
@@ -195,7 +209,7 @@ await runTest("duplicate charge event does not create duplicate fee truth", asyn
       correlation_id: "corr-dup-charge",
       source_money_state: "ChargedSuccess"
     });
-    const duplicate = await marketplaceMoney.recordProviderFinancialEvent({
+    const duplicate = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "charge_captured",
@@ -211,7 +225,9 @@ await runTest("duplicate charge event does not create duplicate fee truth", asyn
     assert.equal(duplicate.snapshot?.entries_count, 1);
     assert.equal(duplicate.snapshot?.charge_entries, 1);
     assert.equal(duplicate.snapshot?.gross_amount, 100);
-    assert.equal(duplicate.snapshot?.platform_fee_amount, 8);
+    assert.equal(duplicate.snapshot?.platform_fee_base_amount, 8);
+    assert.equal(duplicate.snapshot?.platform_fee_vat_amount, 1.44);
+    assert.equal(duplicate.snapshot?.platform_fee_amount, 9.44);
   } finally {
     await cleanupParticipant(seeded);
   }
@@ -226,7 +242,7 @@ await runTest("refund creates a single signed reversal and keeps seller receivab
   });
 
   try {
-    await marketplaceMoney.recordProviderFinancialEvent({
+    await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "charge_captured",
@@ -237,7 +253,7 @@ await runTest("refund creates a single signed reversal and keeps seller receivab
       source_money_state: "ChargedSuccess"
     });
 
-    const refunded = await marketplaceMoney.recordProviderFinancialEvent({
+    const refunded = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "refund_issued",
@@ -248,7 +264,7 @@ await runTest("refund creates a single signed reversal and keeps seller receivab
       source_money_state: "ChargedSuccess"
     });
 
-    const duplicateRefund = await marketplaceMoney.recordProviderFinancialEvent({
+    const duplicateRefund = await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: seeded.participantId,
       deal_id: seeded.dealId,
       event_type: "refund_issued",
@@ -265,6 +281,9 @@ await runTest("refund creates a single signed reversal and keeps seller receivab
     assert.equal(duplicateRefund.snapshot?.charge_entries, 1);
     assert.equal(duplicateRefund.snapshot?.refund_entries, 1);
     assert.equal(duplicateRefund.snapshot?.gross_amount, 0);
+    assert.equal(duplicateRefund.snapshot?.platform_fee_base_amount, 0);
+    assert.equal(duplicateRefund.snapshot?.platform_fee_vat_amount, 0);
+    assert.equal(duplicateRefund.snapshot?.platform_fee_total_amount, 0);
     assert.equal(duplicateRefund.snapshot?.platform_fee_amount, 0);
     assert.equal(duplicateRefund.snapshot?.seller_net_amount, 0);
     assert.equal(duplicateRefund.snapshot?.payout_readiness_status, "refunded_not_payable");
@@ -302,7 +321,7 @@ await runTest("failed deal without charge truth does not report payout readiness
   );
 
   try {
-    const summary = await marketplaceMoney.summarizeParticipantSettlement(participantId);
+    const summary = await platformFeeMoney.summarizeParticipantSettlement(participantId);
     assert.equal(summary, null);
   } finally {
     await cleanupParticipant({ participantId, dealId });

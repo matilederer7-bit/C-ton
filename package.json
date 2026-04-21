@@ -13,7 +13,7 @@
     "bootstrap:demo-db": "node scripts/bootstrap_demo_db.cjs",
     "build:demo": "node scripts/build_demo_bundle.cjs",
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",
-    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js && node .tmp_test_dist/tests/real_integrations_validation.js && node .tmp_test_dist/tests/full_system_qa_validation.js && node .tmp_test_dist/tests/adversarial_hardening_validation.js && node .tmp_test_dist/tests/preprod_torture_validation.js && node .tmp_test_dist/tests/full_product_surface_validation.js && node .tmp_test_dist/tests/remaining_product_surfaces_validation.js && node .tmp_test_dist/tests/ultimate_prelive_qa_rc_validation.js && node .tmp_test_dist/tests/master_product_depth_validation.js && node .tmp_test_dist/tests/demo_preview_deployment_validation.js && node .tmp_test_dist/tests/marketplace_payments_8_percent_validation.js",
+    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js && node .tmp_test_dist/tests/real_integrations_validation.js && node .tmp_test_dist/tests/full_system_qa_validation.js && node .tmp_test_dist/tests/adversarial_hardening_validation.js && node .tmp_test_dist/tests/preprod_torture_validation.js && node .tmp_test_dist/tests/full_product_surface_validation.js && node .tmp_test_dist/tests/remaining_product_surfaces_validation.js && node .tmp_test_dist/tests/ultimate_prelive_qa_rc_validation.js && node .tmp_test_dist/tests/master_product_depth_validation.js && node .tmp_test_dist/tests/demo_preview_deployment_validation.js && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js",
     "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:frontend-foundation": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:product-surfaces-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/product_surfaces_refinement_validation.js",
@@ -31,7 +31,7 @@
     "test:ultimate-prelive": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/ultimate_prelive_qa_rc_validation.js",
     "test:master-depth": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/master_product_depth_validation.js",
     "test:demo-preview": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/demo_preview_deployment_validation.js",
-    "test:marketplace-payments": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/marketplace_payments_8_percent_validation.js",
+    "test:platform-fee-payments": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js",
     "test:demo-package": "npm run build:demo"
   },
   "engines": {

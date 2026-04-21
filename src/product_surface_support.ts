@@ -1,6 +1,7 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
 import { SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
+import { SITON_PLATFORM_FEE_VAT_RATE } from "./runtime_config.js";
 
 export const DEFAULT_SELLER_ID = "seller-default";
 export const DEFAULT_AFFILIATE_CODE = "affiliate-demo";
@@ -22,14 +23,20 @@ export function summarizeMoney(args: {
   const grossAmount = Number(args.grossAmount || 0);
   const vatAmount = Math.max(0, Number(args.vatAmount || 0));
   const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
-  const sitonFeeAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
+  const sitonFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
+  const sitonFeeVatAmount = roundMoney(sitonFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
+  const sitonFeeTotalAmount = roundMoney(sitonFeeBaseAmount + sitonFeeVatAmount);
   return {
     gross_amount: grossAmount,
     vat_amount: roundMoney(vatAmount),
     fee_base_amount: feeBaseAmount,
     siton_fee_rate: SITON_PLATFORM_FEE_RATE,
-    siton_fee_amount: sitonFeeAmount,
-    seller_net_amount: roundMoney(grossAmount - sitonFeeAmount)
+    siton_fee_vat_rate: SITON_PLATFORM_FEE_VAT_RATE,
+    siton_fee_base_amount: sitonFeeBaseAmount,
+    siton_fee_vat_amount: sitonFeeVatAmount,
+    siton_fee_total_amount: sitonFeeTotalAmount,
+    siton_fee_amount: sitonFeeTotalAmount,
+    seller_net_amount: roundMoney(grossAmount - sitonFeeTotalAmount)
   };
 }
 
