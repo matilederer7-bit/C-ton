@@ -32,6 +32,8 @@
     "test:master-depth": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/master_product_depth_validation.js",
     "test:demo-preview": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/demo_preview_deployment_validation.js",
     "test:platform-fee-payments": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js",
+    "test:seller-payout-rail": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/seller_payout_rail_validation.js",
+    "test:spec-drift-wave3": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js",
     "test:demo-package": "npm run build:demo"
   },
   "engines": {

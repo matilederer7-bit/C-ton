@@ -1,5 +1,13 @@
 # PROJECT STATUS
 
+Current update: 2026-04-22 (seller payout rail internal truth: provider-agnostic batches, retry/reconcile flow, no external transfer yet)
+
+- Completed: added a canonical seller payout rail on top of the locked `platform_fee_money_events` truth without reopening the `platform_fee_base_amount` / `platform_fee_vat_amount` / `platform_fee_total_amount` decision; introduced `seller_payout_batches`, `seller_payout_batch_items`, `seller_payout_attempts`, and `seller_payout_reconciliation`; added a provider-agnostic `payout_provider` abstraction in explicit `internal-truth-only` mode; wired new outbox events `seller_payout_prepare`, `seller_payout_dispatch`, and `seller_payout_reconcile` through the worker; and exposed admin payout observability via payout status, batch profile, seller readiness, and per-deal payout summaries.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; attempted `node .tmp_test_dist/tests/seller_payout_rail_validation.js`, but the run was blocked by local Postgres authentication (`DATABASE_URL=postgres://postgres:861434Ml@localhost:5432/postgres` returned `password authentication failed for user "postgres"`), so dynamic DB-backed payout validation remains pending on environment access rather than on a TypeScript/runtime compile error.
+- Open: external payout execution is still intentionally inactive; the new rail closes internal truth only and does not claim bank transfer or provider disbursement; adapter-specific HTTP execution, provider webhook/reconciliation mapping, and a live environment with working DB credentials are still required before this track can be declared externally activated.
+- Progress: `88%` of the seller payout rail track.
+- Next step: restore working Postgres access, run the focused seller payout validation end to end, then harden any remaining DB/runtime mismatches before wiring a real payout adapter onto the new batch/dispatch/reconcile boundary.
+
 Current update: 2026-04-21 (provider-ready payments abstraction closed: 8% fee before VAT, VAT added on Siton fee)
 
 - Completed: expanded the canonical provider-ready settlement truth so `siton.platform_fee_money_events` now stores `platform_fee_base_amount`, `platform_fee_vat_amount`, `platform_fee_total_amount`, and keeps `platform_fee_amount` as the compatibility alias for the total Siton fee actually owed by the seller; aligned runtime summarization, migration/bootstrap DDL, and provider abstraction summary to the same rule.

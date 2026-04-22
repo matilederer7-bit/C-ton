@@ -25,10 +25,26 @@ type NotificationSummary = {
   external_delivery: boolean;
 };
 
+type PayoutSummary = {
+  provider: string;
+  mode: "internal-truth-only" | "adapter-ready";
+  configured: boolean;
+  api_base_url_configured: boolean;
+  api_key_configured: boolean;
+  dispatch_path: string;
+  reconcile_path: string;
+  dispatch_transport_live: boolean;
+  reconcile_transport_live: boolean;
+  external_transfer_executed: boolean;
+  timeout_ms: number;
+  supported_modes: string[];
+};
+
 export function buildOperationalReadinessSummary(args: {
   deploymentMode: string;
   isDemoPreview: boolean;
   payment: PaymentSummary;
+  payout: PayoutSummary;
   notifications: NotificationSummary;
   debugSurfacesEnabled: boolean;
   webhookSecretSafe: boolean;
@@ -37,6 +53,7 @@ export function buildOperationalReadinessSummary(args: {
   sellerAuthConfigured: boolean;
 }) {
   const payment = args.payment;
+  const payout = args.payout;
   const notifications = args.notifications;
   const paymentStatus =
     payment.mode === "mock-backed"
@@ -98,6 +115,33 @@ export function buildOperationalReadinessSummary(args: {
         "PAYMENT_PROVIDER_TIMEOUT_MS"
       ],
       can_activate_now: payment.mode === "provider-ready" && payment.configured ? "partially" : "no"
+    },
+    payout_rail: {
+      state: payout.mode === "internal-truth-only"
+        ? "internal-truth-only"
+        : payout.configured
+          ? "adapter-ready-unwired"
+          : "adapter-mode-missing-env",
+      activation: payout.mode === "internal-truth-only"
+        ? "internal-ledger-active"
+        : payout.configured
+          ? "future-adapter-contract-ready"
+          : "blocked-by-missing-payout-provider-env",
+      what_is_real: "seller payout eligibility, payout batches, payout items, payout attempts, reconciliation rows, outbox orchestration, retry semantics, and auditability",
+      what_is_mock: payout.mode === "internal-truth-only"
+        ? "no external seller transfer is executed yet; dispatch and reconcile close only the internal payout truth rail"
+        : "external payout adapter is still not connected in this repository",
+      what_is_partial: "future payout-provider execution remains adapter-only work; current batch reconciliation explicitly does not claim bank transfer execution",
+      depends_on_env: [
+        "PAYOUT_PROVIDER",
+        "PAYOUT_PROVIDER_MODE",
+        "PAYOUT_PROVIDER_BASE_URL",
+        "PAYOUT_PROVIDER_DISPATCH_PATH",
+        "PAYOUT_PROVIDER_RECONCILE_PATH",
+        "PAYOUT_PROVIDER_API_KEY",
+        "PAYOUT_PROVIDER_TIMEOUT_MS"
+      ],
+      can_activate_now: payout.mode === "internal-truth-only" ? "internally-yes-externally-no" : payout.configured ? "future-adapter-only" : "no"
     },
     authorization_charge_recovery: {
       state: payment.mode === "mock-backed" ? "partially-simulated" : payment.configured ? "authorization-capture-recovery-refund-partial" : "not-ready",
@@ -211,6 +255,7 @@ export function buildOperationalReadinessSummary(args: {
         "real email",
         "real invoice/accounting rail",
         "invoice/accounting linkage on top of the live payment rail",
+        "real payout-provider adapter / bank-transfer execution",
         "real seller authentication"
       ]
     }

@@ -20,6 +20,9 @@ import {
   ensurePlatformFeeMoneyTables,
   SITON_PLATFORM_FEE_RATE
 } from "./platform_fee_money.js";
+import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
+import { buildPayoutProvider } from "./payout_provider.js";
+import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
 import {
   SELLER_SESSION_COOKIE,
   hashSellerSessionToken,
@@ -266,8 +269,17 @@ type AtomicStateType = "deal_state" | "buyer_state" | "money_state";
 type OutboxInsert =
   | null
   | {
-      event_type: "charge_deal" | "recovery_deal" | "finalize_deal" | "refund_issue" | "deadline_check" | "cancel_refund";
-      aggregate_type: "deal" | "participant";
+      event_type:
+        | "charge_deal"
+        | "recovery_deal"
+        | "finalize_deal"
+        | "refund_issue"
+        | "deadline_check"
+        | "cancel_refund"
+        | "seller_payout_prepare"
+        | "seller_payout_dispatch"
+        | "seller_payout_reconcile";
+      aggregate_type: "deal" | "participant" | "seller_payout_batch";
       aggregate_id: string;
       payload: any;
       available_at?: Date;
@@ -312,6 +324,13 @@ const {
 
 const webhookIngestion = buildWebhookIngestion({ withTx });
 const paymentReconciliation = buildPaymentReconciliation({ withTx });
+const paymentProvider = buildPaymentProvider();
+const payoutProvider = buildPayoutProvider();
+const payoutRail = buildPayoutRail({
+  withTx,
+  payoutProvider,
+  PermanentFailErrorCtor: PermanentFailError
+});
 
 async function atomicMultiTransition(args: {
   actionName: string;
@@ -1630,6 +1649,7 @@ async function handleFinalizeDealEvent(
     for (const p of completedParticipants) {
       await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
     }
+    await payoutRail.enqueuePrepareForDeal(dealId).catch(() => undefined);
     return;
   }
 
@@ -1735,6 +1755,31 @@ async function workerProcessEvent(event: {
 
   if (event.event_type === "refund_issue" || event.event_type === "cancel_refund") {
     await handleRefundEvent(event, eventId);
+    return;
+  }
+
+  if (event.event_type === "seller_payout_prepare") {
+    await payoutRail.prepareBatchForDeal({
+      deal_id: event.aggregate_id,
+      request_id: `worker:${eventId}`,
+      correlation_id: `seller-payout-prepare:${event.aggregate_id}:${eventId}`
+    });
+    return;
+  }
+
+  if (event.event_type === "seller_payout_dispatch") {
+    await payoutRail.dispatchBatch({
+      payout_batch_id: event.aggregate_id,
+      event_id: eventId
+    });
+    return;
+  }
+
+  if (event.event_type === "seller_payout_reconcile") {
+    await payoutRail.reconcileBatch({
+      payout_batch_id: event.aggregate_id,
+      event_id: eventId
+    });
     return;
   }
 }
@@ -2549,13 +2594,14 @@ app.get("/debug/deals/:id", async (req: any) => {
 
 // Wire frontend experience routes onto the same app instance.
 // This must happen before listen() so tests that import `app` see all routes.
-const paymentProvider = buildPaymentProvider();
 const notificationService = buildNotificationService();
 const invoiceProvider = buildInvoiceProvider();
 const platformFeeMoney = buildPlatformFeeMoney({ withTx });
 registerFrontendExperience(app, {
   withTx,
   paymentProvider,
+  payoutProvider,
+  payoutRail,
   deploymentMode: APP_DEPLOYMENT_MODE,
   isDemoPreview: IS_DEMO_PREVIEW,
   notificationSummary: getNotificationServiceSummary(notificationService),
@@ -2570,6 +2616,8 @@ let workerRunning = false;
 
 (async () => {
   await ensurePlatformFeeMoneyTables(withTx);
+  await ensureRemainingProductSurfaceTables(withTx);
+  await ensurePayoutRailTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

@@ -6,6 +6,7 @@ import { fileURLToPath } from "url";
 import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
+import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
 import {
   ADMIN_API_KEY,
   PAYMENT_WEBHOOK_SECRET,
@@ -25,6 +26,7 @@ import {
 } from "./product_surface_support.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
+import { ensurePayoutRailTables } from "./payout_rail.js";
 import {
   SELLER_SESSION_COOKIE,
   createSellerSessionToken,
@@ -626,6 +628,13 @@ export function registerFrontendExperience(
   deps: {
     withTx: WithTx;
     paymentProvider: PaymentProvider;
+    payoutProvider?: PayoutProvider;
+    payoutRail?: {
+      payoutStatusSummary: () => Promise<any>;
+      getBatchProfile: (payoutBatchId: string) => Promise<any>;
+      summarizeSellerReadiness: (sellerId: string) => Promise<any>;
+      getDealPayoutSummary: (dealId: string) => Promise<any>;
+    };
     deploymentMode: string;
     isDemoPreview: boolean;
     notificationSummary: {
@@ -663,11 +672,14 @@ export function registerFrontendExperience(
   }
 ) {
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
+  const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
+  const payoutProvider = deps.payoutProvider ?? buildPayoutProvider();
   const operationalReadiness = () =>
     buildOperationalReadinessSummary({
       deploymentMode: deps.deploymentMode,
       isDemoPreview: deps.isDemoPreview,
       payment: getPaymentProviderSummary(deps.paymentProvider),
+      payout: getPayoutProviderSummary(payoutProvider),
       notifications: deps.notificationSummary,
       debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled),
       webhookSecretSafe: PAYMENT_WEBHOOK_SECRET_IS_SAFE,
@@ -1811,6 +1823,7 @@ export function registerFrontendExperience(
   app.get("/api/admin/system-status", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
+    await ensurePayoutTables();
     return deps.withTx(async (c) => {
       const counts = await c.query(
         `SELECT
@@ -1818,7 +1831,9 @@ export function registerFrontendExperience(
            (SELECT COUNT(*)::int FROM siton.outbox_dlq) AS dlq_count,
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='pending') AS pending_webhooks,
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='failed') AS failed_webhooks,
-           (SELECT COUNT(*)::int FROM siton.support_tickets WHERE status <> 'resolved') AS open_support_tickets`
+           (SELECT COUNT(*)::int FROM siton.support_tickets WHERE status <> 'resolved') AS open_support_tickets,
+           (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status IN ('ready','dispatching','submitted_for_execution','manual_review')) AS active_payout_batches,
+           (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status='failed') AS failed_payout_batches`
       );
 
       return {
@@ -1833,6 +1848,7 @@ export function registerFrontendExperience(
           },
           integrations: {
             payment: getPaymentProviderSummary(deps.paymentProvider),
+            payout: getPayoutProviderSummary(payoutProvider),
             notifications: deps.notificationSummary,
             webhook_ingestion: {
               duplicate_policy: "provider+event_id idempotent accept",
@@ -1856,6 +1872,7 @@ export function registerFrontendExperience(
               ? "This runtime is configured for demo / preview deployment and should not be presented as a live commercial environment."
               : "This runtime is not marked as commercial-live.",
             operationalReadiness().payment_provider.what_is_mock,
+            operationalReadiness().payout_rail.what_is_mock,
             "Notifications remain intentionally log-only until external activation starts."
           ]
         }
@@ -2029,10 +2046,78 @@ export function registerFrontendExperience(
   // ── Unified system ops status ─────────────────────────────────────────────
   // Single endpoint aggregating outbox + notifications + invoice pending/failed
   // counts and oldest ages. One read-only call gives full operational picture.
+  app.get("/api/admin/payout-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensurePayoutTables();
+    if (!deps.payoutRail) {
+      return {
+        ok: true,
+        payout_batches: null,
+        provider: getPayoutProviderSummary(payoutProvider),
+        note: "payout rail dependency not wired"
+      };
+    }
+
+    return {
+      ok: true,
+      payout_batches: await deps.payoutRail.payoutStatusSummary(),
+      provider: getPayoutProviderSummary(payoutProvider)
+    };
+  });
+
+  app.get("/api/admin/payouts/batches/:id", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensurePayoutTables();
+    const payoutBatchId = String(req.params.id || "").trim();
+    requireUuid(payoutBatchId, "payout_batch_id");
+    if (!deps.payoutRail) {
+      const err: any = new Error("payout rail dependency not wired");
+      err.statusCode = 503;
+      throw err;
+    }
+    const profile = await deps.payoutRail.getBatchProfile(payoutBatchId);
+    if (!profile) {
+      const err: any = new Error("payout batch not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      payout_batch: profile
+    };
+  });
+
+  app.get("/api/admin/sellers/:id/payout-readiness", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensurePayoutTables();
+    const sellerId = String(req.params.id || "").trim();
+    if (!sellerId) {
+      const err: any = new Error("seller_id is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!deps.payoutRail) {
+      const err: any = new Error("payout rail dependency not wired");
+      err.statusCode = 503;
+      throw err;
+    }
+    const readiness = await deps.payoutRail.summarizeSellerReadiness(sellerId);
+    if (!readiness) {
+      const err: any = new Error("seller not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      payout_readiness: readiness
+    };
+  });
+
   app.get("/api/admin/system-ops-status", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensurePayoutTables();
     return deps.withTx(async (c) => {
-      const [outboxRow, dlqRow, notifRow, invoiceRow] = await Promise.all([
+      const [outboxRow, dlqRow, notifRow, invoiceRow, payoutRow] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*) FILTER (WHERE status='pending')    AS pending,
@@ -2058,11 +2143,21 @@ export function registerFrontendExperience(
              COUNT(*) FILTER (WHERE status='failed')  AS failed,
              EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
            FROM siton.invoice_documents`
+        ),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE payout_status='ready') AS ready,
+             COUNT(*) FILTER (WHERE payout_status='dispatching') AS dispatching,
+             COUNT(*) FILTER (WHERE payout_status='submitted_for_execution') AS submitted_for_execution,
+             COUNT(*) FILTER (WHERE payout_status='manual_review') AS manual_review,
+             COUNT(*) FILTER (WHERE payout_status='failed') AS failed
+           FROM siton.seller_payout_batches`
         )
       ]);
       const o = outboxRow.rows[0];
       const n = notifRow.rows[0];
       const inv = invoiceRow.rows[0];
+      const payout = payoutRow.rows[0];
       const workerRunning = typeof deps.getWorkerRunning === "function" ? deps.getWorkerRunning() : null;
       return {
         ok: true,
@@ -2084,6 +2179,13 @@ export function registerFrontendExperience(
           pending: Number(inv.pending ?? 0),
           failed:  Number(inv.failed  ?? 0),
           oldest_pending_age_s: inv.oldest_pending_age_s != null ? Number(Number(inv.oldest_pending_age_s).toFixed(1)) : null
+        },
+        payout_batches: {
+          ready: Number(payout.ready ?? 0),
+          dispatching: Number(payout.dispatching ?? 0),
+          submitted_for_execution: Number(payout.submitted_for_execution ?? 0),
+          manual_review: Number(payout.manual_review ?? 0),
+          failed: Number(payout.failed ?? 0)
         }
       };
     });
@@ -2174,6 +2276,7 @@ export function registerFrontendExperience(
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
+    await ensurePayoutTables();
 
     return deps.withTx(async (c) => {
       const deal = await c.query(
@@ -2243,6 +2346,9 @@ export function registerFrontendExperience(
          LIMIT 20`,
         [dealId]
       );
+      const payoutSummary = deps.payoutRail
+        ? await deps.payoutRail.getDealPayoutSummary(dealId)
+        : { batches: [], items: [] };
 
       return {
         ok: true,
@@ -2253,6 +2359,8 @@ export function registerFrontendExperience(
           payment_attempts: attempts.rows,
           audit: audit.rows,
           delivery: deliveries.rows,
+          payout_batches: payoutSummary.batches,
+          payout_items: payoutSummary.items,
           affiliate_attributions: attributions.rows,
           support_tickets: tickets.rows
         }
@@ -2268,6 +2376,7 @@ export function registerFrontendExperience(
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const dealId = String(req.params.id || "").trim();
     requireUuid(dealId, "deal_id");
+    await ensurePayoutTables();
     return deps.withTx(async (c) => {
       const dealRow = await c.query(
         `SELECT deal_id, state, title FROM siton.deals WHERE deal_id=$1`,
@@ -2279,7 +2388,7 @@ export function registerFrontendExperience(
         throw err;
       }
 
-      const [participantsResult, notifResult, invoiceResult, outboxResult] = await Promise.all([
+      const [participantsResult, notifResult, invoiceResult, outboxResult, payoutResult] = await Promise.all([
         c.query(
           `SELECT buyer_state, COUNT(*) AS cnt
            FROM siton.participants
@@ -2323,6 +2432,19 @@ export function registerFrontendExperience(
            WHERE aggregate_id = $1
               OR aggregate_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1)`,
           [dealId]
+        ),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE payout_status='blocked') AS blocked,
+                  COUNT(*) FILTER (WHERE payout_status='ready') AS ready,
+                  COUNT(*) FILTER (WHERE payout_status='dispatching') AS dispatching,
+                  COUNT(*) FILTER (WHERE payout_status='submitted_for_execution') AS submitted_for_execution,
+                  COUNT(*) FILTER (WHERE payout_status='reconciled_internal') AS reconciled_internal,
+                  COUNT(*) FILTER (WHERE payout_status='manual_review') AS manual_review,
+                  COUNT(*) FILTER (WHERE payout_status='failed') AS failed,
+                  COALESCE(SUM(seller_net_amount), 0) AS seller_net_amount
+           FROM siton.seller_payout_batches
+           WHERE trigger_deal_id=$1`,
+          [dealId]
         )
       ]);
 
@@ -2355,6 +2477,7 @@ export function registerFrontendExperience(
       }
 
       const ob = outboxResult.rows[0];
+      const payout = payoutResult.rows[0];
 
       return {
         ok: true,
@@ -2402,6 +2525,16 @@ export function registerFrontendExperience(
           failed:     Number(ob.failed     ?? 0),
           oldest_pending_age_s: ob.oldest_pending_age_s != null
             ? Number(Number(ob.oldest_pending_age_s).toFixed(1)) : null
+        },
+        payout_batches: {
+          blocked: Number(payout.blocked ?? 0),
+          ready: Number(payout.ready ?? 0),
+          dispatching: Number(payout.dispatching ?? 0),
+          submitted_for_execution: Number(payout.submitted_for_execution ?? 0),
+          reconciled_internal: Number(payout.reconciled_internal ?? 0),
+          manual_review: Number(payout.manual_review ?? 0),
+          failed: Number(payout.failed ?? 0),
+          seller_net_amount: Number(payout.seller_net_amount ?? 0)
         }
       };
     });
