@@ -32,13 +32,7 @@ node scripts/run_pg_query.cjs "select event_uuid, event_type, aggregate_id, atte
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/debug/deals/87c3613b-dfb2-4a8b-aac7-284a35baf10e | Select-Object -ExpandProperty StatusCode
 ```
 
-6. Confirm backup artifact path is known:
-
-```powershell
-Get-Item docs/qa_suspicious_deals_backup.json | Select-Object FullName, Length, LastWriteTime
-```
-
-7. Confirm execution assumptions:
+6. Confirm execution assumptions:
 - no new migration is part of this RC package
 - no feature-flag dependency is part of this RC package
 - no dedicated kill switch exists; operational stop of app/worker is the fallback

@@ -180,7 +180,7 @@ The three dominant drift clusters are:
 - Why this is a real gap:
   Secondary documents still encode the previous contract.
 - Where it sits:
-  [docs/STAGE_9D_DRIFT_REPORT.md](/c:/Users/Lenovo/Documents/C-ton/docs/STAGE_9D_DRIFT_REPORT.md), [docs/STAGE_9F_SUSPICIOUS_DEALS_CLASSIFIED.json](/c:/Users/Lenovo/Documents/C-ton/docs/STAGE_9F_SUSPICIOUS_DEALS_CLASSIFIED.json), [docs/ADMIN_SUPPORT_OBSERVABILITY.md](/c:/Users/Lenovo/Documents/C-ton/docs/ADMIN_SUPPORT_OBSERVABILITY.md)
+  [docs/STAGE_9D_DRIFT_REPORT.md](/c:/Users/Lenovo/Documents/C-ton/docs/STAGE_9D_DRIFT_REPORT.md), [docs/ADMIN_SUPPORT_OBSERVABILITY.md](/c:/Users/Lenovo/Documents/C-ton/docs/ADMIN_SUPPORT_OBSERVABILITY.md) (historical QA JSON `STAGE_9F_SUSPICIOUS_DEALS_CLASSIFIED.json` / `qa_suspicious_deals_backup.json` deleted in Wave 3 cleanup — retrievable from git history if needed)
 - Severity:
   `medium`
 - Treatment type:
