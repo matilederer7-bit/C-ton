@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+Current update: 2026-04-23 (Stripe buyer payment production hardening: raw-body webhooks, PCI boundary, ops surfaces)
+
+- Completed: hardened the Stripe buyer-payment adapter with production fail-fast config checks, raw-body webhook verification, `stripe-signature` support, signature-failure persistence, and a narrow PCI decision: production must use Stripe.js/Elements `payment_method_id`; server-side raw card tokenization is blocked except an explicit non-production test flag.
+- Completed: added safe buyer payment method lifecycle storage in `buyer_payment_methods` with provider references only, plus `payment_webhook_security_events` for webhook security observability. Capture/recovery/refund remain worker/outbox-driven; the request-thread exception is documented as token reference intake plus authorization only.
+- Completed: added `/api/admin/payment-ops-status` for payment attempts by class, webhook reconciliation counts, duplicate/ignored rate, signature failures, buyer payment method lifecycle counts, and provider readiness.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/payment_stripe_adapter_validation.js`; `node .tmp_test_dist/tests/payment_production_hardening_validation.js`; `node .tmp_test_dist/tests/payment_authorization_real_rail_validation.js`; `node .tmp_test_dist/tests/payment_capture_webhook_real_rail_validation.js`; `node .tmp_test_dist/tests/payment_recovery_real_rail_validation.js`; `node .tmp_test_dist/tests/payment_refund_real_rail_validation.js`.
+- Open: live Stripe keys, deployed webhook endpoint verification, Stripe.js/Elements frontend integration, and production risk controls remain activation work.
+- Progress: `94%` of the Stripe buyer-payment production-hardening track.
+- Next step: commit and push the Stripe buyer-payment production-hardening milestone; then connect Stripe.js/Elements in the frontend activation track.
+
 Current update: 2026-04-23 (first real buyer payment adapter: Stripe tokenization, manual authorization, capture, refund, webhook normalization)
 
 - Completed: added the first real payment provider adapter for the buyer money rail: `PAYMENT_PROVIDER=stripe` / `PAYMENT_PROVIDER_MODE=stripe`. The adapter uses Stripe PaymentMethod tokenization, manual-capture PaymentIntents for authorization, PaymentIntent capture for charge/recovery, Refunds for refund, Stripe webhook signature verification, and webhook event normalization into Siton reconciliation events.

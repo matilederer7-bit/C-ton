@@ -13,7 +13,11 @@ import {
   PAYMENT_PROVIDER_PUBLIC_KEY,
   PAYMENT_PROVIDER,
   PAYMENT_PROVIDER_TIMEOUT_MS,
-  PAYMENT_WEBHOOK_PROVIDER
+  PAYMENT_WEBHOOK_PROVIDER,
+  PAYMENT_WEBHOOK_SECRET,
+  PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
+  STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION,
+  APP_DEPLOYMENT_MODE
 } from "./runtime_config.js";
 
 export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
@@ -210,6 +214,14 @@ function normalizeProviderPath(raw: string) {
 
 function normalizeStripeBaseUrl(raw: string) {
   return normalizeProviderBaseUrl(raw || PAYMENT_PROVIDER_BASE_URL || "https://api.stripe.com");
+}
+
+function isProductionRuntime() {
+  return ["production", "prod", "commercial-live"].includes(String(APP_DEPLOYMENT_MODE || "").trim().toLowerCase());
+}
+
+function stripeServerSideRawCardAllowed() {
+  return !isProductionRuntime() && STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION;
 }
 
 function stripeFormEncode(values: Record<string, string | number | boolean | null | undefined>) {
@@ -871,6 +883,7 @@ function buildStripePaymentProvider(): PaymentProvider {
   const configured = PAYMENT_PROVIDER === "stripe" && Boolean(PAYMENT_PROVIDER_API_KEY);
   const providerCode = "stripe";
   const webhookProvider = PAYMENT_WEBHOOK_PROVIDER || "stripe";
+  const rawServerSideCardAllowed = stripeServerSideRawCardAllowed();
 
   async function tokenize(input: TokenizePaymentInput): Promise<PaymentTokenizationResult> {
     const holderName = String(input.holder_name || "").trim();
@@ -878,6 +891,18 @@ function buildStripePaymentProvider(): PaymentProvider {
     const expiryParts = parseExpiry(String(input.expiry || "").trim());
     const cvv = String(input.cvv || "").trim();
     const correlationId = String(input.correlation_id || "").trim() || `stripe_tok_${randomUUID().replace(/-/g, "")}`;
+
+    if (!rawServerSideCardAllowed) {
+      return {
+        ok: false,
+        provider: providerCode,
+        error: "server_side_card_tokenization_disabled",
+        message: "Use Stripe.js/Elements to create payment_method_id; raw card tokenization is disabled on this server.",
+        statusCode: 403,
+        retryable: false,
+        mock: false
+      };
+    }
 
     if (!holderName || !cardNumber || !expiryParts || !/^\d{3,4}$/.test(cvv)) {
       return {
@@ -1072,6 +1097,14 @@ function buildStripePaymentProvider(): PaymentProvider {
 
       let paymentMethodId = String(input.payment_method_id || "").trim();
       if (!paymentMethodId) {
+        if (!rawServerSideCardAllowed) {
+          return authorizationValidationFailure(
+            "payment_method_id is required; raw card authorization is disabled on this server",
+            "payment_method_required",
+            403,
+            false
+          );
+        }
         const tokenized = await tokenize({ ...input, correlation_id: `tokenize:${correlationId}` });
         if (!tokenized.ok) return tokenized;
         paymentMethodId = tokenized.payment_method_id;
@@ -1255,6 +1288,20 @@ function buildStripePaymentProvider(): PaymentProvider {
 
 export function buildPaymentProvider(): PaymentProvider {
   if (PAYMENT_PROVIDER === "stripe" || PAYMENT_PROVIDER_MODE === "stripe") {
+    if (isProductionRuntime()) {
+      if (!PAYMENT_PROVIDER_API_KEY) {
+        throw new Error("PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_API_KEY in production");
+      }
+      if (!PAYMENT_PROVIDER_PUBLIC_KEY) {
+        throw new Error("PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_PUBLIC_KEY in production");
+      }
+      if (!PAYMENT_WEBHOOK_SECRET || PAYMENT_WEBHOOK_SECRET_IS_DEFAULT) {
+        throw new Error("PAYMENT_PROVIDER=stripe requires a non-default PAYMENT_WEBHOOK_SECRET in production");
+      }
+      if (STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION) {
+        throw new Error("STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION must be disabled in production");
+      }
+    }
     return buildStripePaymentProvider();
   }
   if (PAYMENT_PROVIDER_MODE === "provider-ready") {
@@ -1285,6 +1332,12 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     refund_transport_live: provider.mode !== "mock-backed" && provider.configured,
     webhook_verification_live: provider.mode === "stripe" && provider.configured,
     payment_reconcile_live: provider.mode !== "mock-backed",
+    server_side_raw_card_tokenization_allowed:
+      provider.mode === "stripe" ? stripeServerSideRawCardAllowed() : provider.mode !== "mock-backed",
+    pci_tokenization_policy:
+      provider.mode === "stripe"
+        ? "production requires Stripe.js/Elements payment_method_id; server-side raw card tokenization is blocked unless explicit non-production test flag is set"
+        : "provider-specific",
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
     supported_modes: ["mock-backed", "provider-ready", "stripe"],
     adapter_contract: {

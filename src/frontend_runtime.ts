@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { dirname, join } from "path";
+import { PassThrough } from "stream";
 import { fileURLToPath } from "url";
 import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
@@ -675,8 +676,107 @@ export function registerFrontendExperience(
     }) => Promise<void>;
   }
 ) {
+  app.addHook("preParsing", (request: any, _reply, payload, done) => {
+    const contentType = String(request.headers?.["content-type"] || "").toLowerCase();
+    if (!contentType.includes("application/json")) {
+      done(null, payload);
+      return;
+    }
+    const pass = new PassThrough();
+    const chunks: Buffer[] = [];
+    payload.on("data", (chunk: Buffer | string) => {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    });
+    payload.on("end", () => {
+      request.rawBody = Buffer.concat(chunks).toString("utf8");
+    });
+    payload.on("error", (error: Error) => pass.destroy(error));
+    payload.pipe(pass);
+    done(null, pass);
+  });
+
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
   const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
+  const ensurePaymentOpsTables = async () => {
+    await deps.withTx(async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.payment_webhook_security_events (
+          security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider TEXT NOT NULL,
+          event_id TEXT NULL,
+          failure_reason TEXT NOT NULL,
+          remote_hint TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `);
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.buyer_payment_methods (
+          buyer_payment_method_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          buyer_id TEXT NOT NULL,
+          provider_code TEXT NOT NULL,
+          provider_payment_method_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'active'
+            CHECK (status IN ('active','invalid','expired','revoked')),
+          last_authorized_at TIMESTAMPTZ NULL,
+          last_failed_at TIMESTAMPTZ NULL,
+          correlation_id TEXT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          UNIQUE (provider_code, provider_payment_method_id)
+        )
+      `);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_payment_webhook_security_events_created ON siton.payment_webhook_security_events (created_at DESC)`);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_buyer_payment_methods_buyer_created ON siton.buyer_payment_methods (buyer_id, created_at DESC)`);
+    });
+  };
+  const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    await ensurePaymentOpsTables();
+    await deps.withTx(async (c) => {
+      await c.query(
+        `INSERT INTO siton.payment_webhook_security_events(provider, event_id, failure_reason, remote_hint)
+         VALUES ($1,$2,$3,$4)`,
+        [args.provider, args.event_id ?? null, args.failure_reason, args.remote_hint ?? ""]
+      );
+    });
+  };
+  const upsertBuyerPaymentMethod = async (args: {
+    buyer_id: string;
+    provider_code: string;
+    provider_payment_method_id: string;
+    correlation_id?: string | null;
+    mark_authorized?: boolean;
+    mark_failed?: boolean;
+  }) => {
+    await ensurePaymentOpsTables();
+    await deps.withTx(async (c) => {
+      await c.query(
+        `INSERT INTO siton.buyer_payment_methods (
+           buyer_id, provider_code, provider_payment_method_id, status,
+           last_authorized_at, last_failed_at, correlation_id, created_at, updated_at
+         ) VALUES (
+           $1,$2,$3,'active',
+           CASE WHEN $5 THEN now() ELSE NULL END,
+           CASE WHEN $6 THEN now() ELSE NULL END,
+           $4,now(),now()
+         )
+         ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
+         SET buyer_id=EXCLUDED.buyer_id,
+             status=CASE WHEN $6 THEN 'invalid' ELSE 'active' END,
+             last_authorized_at=CASE WHEN $5 THEN now() ELSE buyer_payment_methods.last_authorized_at END,
+             last_failed_at=CASE WHEN $6 THEN now() ELSE buyer_payment_methods.last_failed_at END,
+             correlation_id=EXCLUDED.correlation_id,
+             updated_at=now()`,
+        [
+          args.buyer_id,
+          args.provider_code,
+          args.provider_payment_method_id,
+          args.correlation_id ?? null,
+          Boolean(args.mark_authorized),
+          Boolean(args.mark_failed)
+        ]
+      );
+    });
+  };
   const payoutProvider = deps.payoutProvider ?? buildPayoutProvider();
   const operationalReadiness = () =>
     buildOperationalReadinessSummary({
@@ -1553,12 +1653,19 @@ export function registerFrontendExperience(
   // exists so the system is wired correctly when a live provider is connected.
   // ---------------------------------------------------------------------------
   async function handleWebhookPayments(req: FastifyRequest, reply: FastifyReply) {
-    const rawBody = JSON.stringify(req.body); // Fastify has already parsed JSON
+    const rawBody = String((req as any).rawBody || JSON.stringify(req.body));
     const headers = req.headers as Record<string, string | undefined>;
     const signatureHeader = String(headers["x-webhook-signature"] || headers["stripe-signature"] || "");
     const timestampHeader = String(headers["x-webhook-timestamp"] || "");
 
     if (!verifyWebhookSignature(rawBody, signatureHeader || undefined, timestampHeader || undefined)) {
+      const body = (req.body || {}) as Record<string, unknown>;
+      await recordWebhookSecurityFailure({
+        provider: String(body["provider"] || deps.paymentProvider.webhookProvider || "unknown"),
+        event_id: body["event_id"] ? String(body["event_id"]) : body["id"] ? String(body["id"]) : null,
+        failure_reason: "invalid_webhook_signature",
+        remote_hint: String(req.ip || "")
+      }).catch(() => undefined);
       return reply.code(401).send({
         error: "invalid_webhook_signature",
         message: "HMAC signature verification failed"
@@ -1667,6 +1774,77 @@ export function registerFrontendExperience(
   // ---------------------------------------------------------------------------
   // Admin routes — protected by requireAdminKey when ADMIN_API_KEY is set
   // ---------------------------------------------------------------------------
+
+  app.get("/api/admin/payment-ops-status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensurePaymentOpsTables();
+    return deps.withTx(async (c) => {
+      const [attempts, webhooks, security, methods] = await Promise.all([
+        c.query(
+          `SELECT attempt_type,
+                  COUNT(*) FILTER (WHERE result_class='success') AS success,
+                  COUNT(*) FILTER (WHERE result_class='temporary_fail') AS temporary_fail,
+                  COUNT(*) FILTER (WHERE result_class='permanent_fail') AS permanent_fail,
+                  COUNT(*) FILTER (WHERE result_class='unknown') AS unknown
+           FROM siton.payment_attempts
+           GROUP BY attempt_type
+           ORDER BY attempt_type`
+        ),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE status='processed') AS processed,
+                  COUNT(*) FILTER (WHERE status='ignored') AS ignored,
+                  COUNT(*) FILTER (WHERE status='failed') AS failed,
+                  COUNT(*) FILTER (WHERE status='processing') AS processing,
+                  COUNT(*) FILTER (WHERE status='pending') AS pending,
+                  COUNT(*) AS total
+           FROM siton.webhook_events`
+        ),
+        c.query(`SELECT COUNT(*) AS signature_failures, MAX(created_at) AS latest_signature_failure_at FROM siton.payment_webhook_security_events`),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE status='active') AS active,
+                  COUNT(*) FILTER (WHERE status='invalid') AS invalid,
+                  COUNT(*) FILTER (WHERE status='expired') AS expired,
+                  COUNT(*) FILTER (WHERE status='revoked') AS revoked
+           FROM siton.buyer_payment_methods`
+        )
+      ]);
+      const webhook = webhooks.rows[0] || {};
+      const securityRow = security.rows[0] || {};
+      const method = methods.rows[0] || {};
+      return {
+        ok: true,
+        provider: getPaymentProviderSummary(deps.paymentProvider),
+        attempts_by_type: attempts.rows.map((row: any) => ({
+          attempt_type: String(row.attempt_type),
+          success: Number(row.success ?? 0),
+          temporary_fail: Number(row.temporary_fail ?? 0),
+          permanent_fail: Number(row.permanent_fail ?? 0),
+          unknown: Number(row.unknown ?? 0)
+        })),
+        webhook_reconciliation: {
+          processed: Number(webhook.processed ?? 0),
+          ignored: Number(webhook.ignored ?? 0),
+          failed: Number(webhook.failed ?? 0),
+          processing: Number(webhook.processing ?? 0),
+          pending: Number(webhook.pending ?? 0),
+          duplicate_rate: Number(webhook.total ?? 0) > 0
+            ? Number((Number(webhook.ignored ?? 0) / Number(webhook.total)).toFixed(4))
+            : 0
+        },
+        webhook_security: {
+          signature_failures: Number(securityRow.signature_failures ?? 0),
+          latest_signature_failure_at: securityRow.latest_signature_failure_at ?? null
+        },
+        buyer_payment_methods: {
+          active: Number(method.active ?? 0),
+          invalid: Number(method.invalid ?? 0),
+          expired: Number(method.expired ?? 0),
+          revoked: Number(method.revoked ?? 0),
+          raw_card_storage: false
+        }
+      };
+    });
+  });
 
   app.get("/api/admin/overview", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
@@ -2926,6 +3104,16 @@ export function registerFrontendExperience(
     if (req.body?.correlation_id) authorizeInput.correlation_id = String(req.body.correlation_id);
     if (req.body?.payment_method_id) authorizeInput.payment_method_id = String(req.body.payment_method_id);
     const result = await deps.paymentProvider.authorize(authorizeInput);
+    if (req.body?.buyer_id && req.body?.payment_method_id) {
+      await upsertBuyerPaymentMethod({
+        buyer_id: String(req.body.buyer_id),
+        provider_code: deps.paymentProvider.providerCode,
+        provider_payment_method_id: String(req.body.payment_method_id),
+        correlation_id: result.ok ? result.correlation_id : authorizeInput.correlation_id ?? null,
+        mark_authorized: result.ok,
+        mark_failed: !result.ok && !result.retryable
+      }).catch(() => undefined);
+    }
 
     if (!result.ok) {
       return reply.code(result.statusCode).send(result);
@@ -2955,6 +3143,14 @@ export function registerFrontendExperience(
     if (req.body?.deal_id) tokenizeInput.deal_id = String(req.body.deal_id);
     if (req.body?.correlation_id) tokenizeInput.correlation_id = String(req.body.correlation_id);
     const result = await deps.paymentProvider.tokenize(tokenizeInput);
+    if (result.ok && tokenizeInput.buyer_id) {
+      await upsertBuyerPaymentMethod({
+        buyer_id: tokenizeInput.buyer_id,
+        provider_code: result.provider,
+        provider_payment_method_id: result.payment_method_id,
+        correlation_id: result.correlation_id
+      }).catch(() => undefined);
+    }
     if (!result.ok) return reply.code(result.statusCode).send(result);
     return reply.code(200).send(result);
   });

@@ -82,6 +82,7 @@ await runTest("Stripe adapter tokenizes, authorizes manual capture, captures, re
       PAYMENT_PROVIDER_API_KEY: "sk_test_adapter",
       PAYMENT_WEBHOOK_PROVIDER: "stripe",
       PAYMENT_WEBHOOK_SECRET: "whsec_adapter",
+      STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION: "1",
       PAYMENT_PROVIDER_TIMEOUT_MS: "2500"
     });
 

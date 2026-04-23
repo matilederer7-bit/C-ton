@@ -455,6 +455,36 @@ CREATE INDEX IF NOT EXISTS idx_seller_payout_reconciliation_cases_open ON seller
 CREATE INDEX IF NOT EXISTS idx_webhook_status_received ON webhook_events(status, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_provider_received ON webhook_events(provider, received_at);
 CREATE INDEX IF NOT EXISTS idx_webhook_deal_received ON webhook_events(deal_id, received_at);
+
+CREATE TABLE IF NOT EXISTS payment_webhook_security_events (
+  security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  event_id TEXT NULL,
+  failure_reason TEXT NOT NULL,
+  remote_hint TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_payment_webhook_security_events_created
+  ON payment_webhook_security_events(created_at DESC);
+
+CREATE TABLE IF NOT EXISTS buyer_payment_methods (
+  buyer_payment_method_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  buyer_id TEXT NOT NULL,
+  provider_code TEXT NOT NULL,
+  provider_payment_method_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'active'
+    CHECK (status IN ('active','invalid','expired','revoked')),
+  last_authorized_at TIMESTAMPTZ NULL,
+  last_failed_at TIMESTAMPTZ NULL,
+  correlation_id TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (provider_code, provider_payment_method_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_buyer_payment_methods_buyer_created
+  ON buyer_payment_methods(buyer_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_deal ON affiliate_attributions(deal_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate ON affiliate_attributions(affiliate_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_delivery_records_deal ON delivery_records(deal_id, status, updated_at DESC);
