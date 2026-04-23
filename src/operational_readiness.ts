@@ -187,10 +187,10 @@ export function buildOperationalReadinessSummary(args: {
       can_activate_now: "no"
     },
     receipts_invoices: {
-      state: "internal-surface-only",
-      what_is_real: "receipt eligibility logic, seller-facing receipt summary, and internal computed receipt rows",
-      what_is_mock: "receipt ids and receipt rows are generated internally and are not tied to a real invoice/accounting transport",
-      what_is_missing: "external invoice issuance, tax/accounting compliance transport, delivery to buyers/sellers, and numbering authority",
+      state: "internal-truth-ready",
+      what_is_real: "invoice document eligibility, canonical invoice_documents rows, invoice attempts, reconciliation cases, outbox-driven issue/reconcile flow, idempotency, correlation IDs, and provider DTO boundaries",
+      what_is_mock: "the active invoice provider is internal-truth-only and does not issue an external tax/accounting document",
+      what_is_missing: "external invoice provider/accounting adapter, provider webhook authenticity, official numbering authority, PDF/document delivery, and production tax compliance transport",
       can_activate_now: "partially"
     },
     feature_flags: {

@@ -645,7 +645,11 @@ export function registerFrontendExperience(
     invoiceSummary?: {
       provider: string;
       mode: string;
+      provider_mode?: string;
+      configured?: boolean;
       external_issuance: boolean;
+      external_document_issued?: boolean;
+      supported_methods?: string[];
     };
     debugSurfacesEnabled?: boolean;
     /** Returns current workerRunning flag so the outbox-status endpoint can surface it. */
@@ -1849,6 +1853,7 @@ export function registerFrontendExperience(
           integrations: {
             payment: getPaymentProviderSummary(deps.paymentProvider),
             payout: getPayoutProviderSummary(payoutProvider),
+            invoice: deps.invoiceSummary,
             notifications: deps.notificationSummary,
             webhook_ingestion: {
               duplicate_policy: "provider+event_id idempotent accept",
@@ -2030,7 +2035,15 @@ export function registerFrontendExperience(
           oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
           oldest_failed_age_s:  t.oldest_failed_age_s  != null ? Number(Number(t.oldest_failed_age_s).toFixed(1))  : null,
           provider: deps.invoiceSummary
-            ? { code: deps.invoiceSummary.provider, mode: deps.invoiceSummary.mode, external_issuance: deps.invoiceSummary.external_issuance }
+            ? {
+                code: deps.invoiceSummary.provider,
+                mode: deps.invoiceSummary.mode,
+                provider_mode: deps.invoiceSummary.provider_mode,
+                configured: deps.invoiceSummary.configured,
+                external_issuance: deps.invoiceSummary.external_issuance,
+                external_document_issued: deps.invoiceSummary.external_document_issued,
+                supported_methods: deps.invoiceSummary.supported_methods
+              }
             : null
         },
         by_type: byType.rows.map((r: any) => ({

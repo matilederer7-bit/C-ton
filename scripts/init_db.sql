@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS deals (
   max_units INT NOT NULL CHECK (max_units >= min_units),
   threshold_units INT NOT NULL CHECK (threshold_units > 0),
   deadline TIMESTAMPTZ NOT NULL,
-  commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0,
+  -- Siton platform fee is the system constant SITON_PLATFORM_FEE_RATE = 0.08 (see src/platform_fee_money.ts).
+  -- It is not stored per-deal. Any legacy `commission_rate` column is dropped by migration 022.
 
   published_at TIMESTAMPTZ NULL,
   completion_window_until TIMESTAMPTZ NULL,
@@ -150,7 +151,7 @@ CREATE TABLE IF NOT EXISTS idempotency_log (
 CREATE TABLE IF NOT EXISTS outbox_events (
   event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_type TEXT NOT NULL,
-  aggregate_type TEXT NOT NULL CHECK (aggregate_type IN ('deal','participant','seller_payout_batch')),
+  aggregate_type TEXT NOT NULL CHECK (aggregate_type IN ('deal','participant','seller_payout_batch','invoice_document')),
   aggregate_id UUID NOT NULL,
   payload_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb,
 
@@ -671,7 +672,6 @@ BEGIN
        NEW.min_units IS DISTINCT FROM OLD.min_units OR
        NEW.max_units IS DISTINCT FROM OLD.max_units OR
        NEW.deadline IS DISTINCT FROM OLD.deadline OR
-       NEW.commission_rate IS DISTINCT FROM OLD.commission_rate OR
        NEW.threshold_units IS DISTINCT FROM OLD.threshold_units THEN
       RAISE EXCEPTION 'P0 violation: critical fields immutable after publish';
     END IF;
@@ -774,31 +774,81 @@ CREATE INDEX IF NOT EXISTS idx_notifications_pending
 CREATE TABLE IF NOT EXISTS invoice_documents (
   document_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   document_key TEXT NOT NULL,
-  document_type TEXT NOT NULL CHECK (document_type IN ('charge_receipt', 'refund_receipt')),
+  idempotency_key TEXT NULL,
+  document_type TEXT NOT NULL CHECK (document_type IN ('charge_receipt','refund_receipt','seller_settlement_invoice','platform_fee_invoice','credit_note')),
+  document_status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (document_status IN ('pending','ready','queued','processing','issued','failed','voided','reconciled','skipped')),
   deal_id UUID NOT NULL,
-  participant_id UUID NOT NULL,
+  participant_id UUID NULL,
+  seller_id TEXT NULL,
+  seller_settlement_id UUID NULL,
+  payout_batch_id UUID NULL,
+  platform_fee_money_event_id UUID NULL,
   deal_title TEXT NOT NULL DEFAULT '',
   qty INT NOT NULL DEFAULT 1,
   money_state_at_issue TEXT NOT NULL DEFAULT '',
   gross_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   siton_fee_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  taxable_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  document_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
   status TEXT NOT NULL DEFAULT 'pending'
-    CHECK (status IN ('pending', 'processing', 'issued', 'failed', 'skipped')),
+    CHECK (status IN ('pending','ready','queued','processing','issued','failed','voided','reconciled','skipped')),
   attempt_count INT NOT NULL DEFAULT 0,
   max_attempts INT NOT NULL DEFAULT 3,
-  provider_code TEXT NOT NULL DEFAULT 'log-only',
+  provider_code TEXT NOT NULL DEFAULT 'internal-invoice-ledger',
   provider_document_id TEXT NULL,
+  correlation_id TEXT NULL,
+  result_class TEXT NULL,
+  external_document_issued BOOLEAN NOT NULL DEFAULT FALSE,
   last_error TEXT NULL,
   issued_at TIMESTAMPTZ NULL,
+  reconciled_at TIMESTAMPTZ NULL,
   available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata JSONB NOT NULL DEFAULT '{}',
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   CONSTRAINT ux_invoice_documents_key UNIQUE (document_key)
 );
 
+CREATE TABLE IF NOT EXISTS invoice_document_attempts (
+  invoice_attempt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID NOT NULL REFERENCES invoice_documents(document_id) ON DELETE CASCADE,
+  attempt_type TEXT NOT NULL CHECK (attempt_type IN ('prepare','create_document','get_document_status','cancel_document','reconcile_document')),
+  result_class TEXT NOT NULL CHECK (result_class IN ('success','permanent_fail','temporary_fail','unknown')),
+  document_status TEXT NULL CHECK (document_status IS NULL OR document_status IN ('pending','ready','queued','processing','issued','failed','voided','reconciled','skipped')),
+  correlation_id TEXT NOT NULL,
+  provider_document_id TEXT NULL,
+  payload JSONB NOT NULL DEFAULT '{}',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (document_id, attempt_type, correlation_id)
+);
+
+CREATE TABLE IF NOT EXISTS invoice_reconciliation_cases (
+  invoice_reconciliation_case_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  document_id UUID NOT NULL REFERENCES invoice_documents(document_id) ON DELETE CASCADE,
+  case_status TEXT NOT NULL DEFAULT 'open' CHECK (case_status IN ('open','resolved')),
+  case_type TEXT NOT NULL,
+  correlation_id TEXT NOT NULL,
+  blocking_invoice BOOLEAN NOT NULL DEFAULT TRUE,
+  expected_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  observed_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+  expected_status TEXT NOT NULL DEFAULT '',
+  observed_status TEXT NOT NULL DEFAULT '',
+  details JSONB NOT NULL DEFAULT '{}',
+  resolved_at TIMESTAMPTZ NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_invoice_documents_pending
   ON invoice_documents (status, available_at)
   WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_invoice_documents_deal_created ON invoice_documents(deal_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invoice_documents_participant_created ON invoice_documents(participant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invoice_document_attempts_document_created ON invoice_document_attempts(document_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_invoice_reconciliation_cases_open ON invoice_reconciliation_cases(document_id, created_at DESC);
 
 COMMIT;

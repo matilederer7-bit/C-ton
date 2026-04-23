@@ -8,8 +8,17 @@ import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provi
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import { enqueueNotification, flushPendingNotifications, type SmsProvider } from "./notification_dispatch.js";
 import {
-  enqueueInvoiceDocument, flushPendingDocuments, buildInvoiceProvider, getInvoiceProviderSummary,
-  isEligibleForChargeReceipt, isEligibleForRefundReceipt, reclaimStuckInvoiceDocuments, type InvoiceProvider
+  enqueueInvoiceDocument,
+  enqueuePendingInvoiceDocumentOutboxEvents,
+  ensureInvoiceRailTables,
+  processInvoiceDocumentById,
+  reconcileInvoiceDocumentById,
+  buildInvoiceProvider,
+  getInvoiceProviderSummary,
+  isEligibleForChargeReceipt,
+  isEligibleForRefundReceipt,
+  reclaimStuckInvoiceDocuments,
+  type InvoiceProvider
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
@@ -278,8 +287,10 @@ type OutboxInsert =
         | "cancel_refund"
         | "seller_payout_prepare"
         | "seller_payout_dispatch"
-        | "seller_payout_reconcile";
-      aggregate_type: "deal" | "participant" | "seller_payout_batch";
+        | "seller_payout_reconcile"
+        | "invoice_document_issue"
+        | "invoice_document_reconcile";
+      aggregate_type: "deal" | "participant" | "seller_payout_batch" | "invoice_document";
       aggregate_id: string;
       payload: any;
       available_at?: Date;
@@ -1782,6 +1793,26 @@ async function workerProcessEvent(event: {
     });
     return;
   }
+
+  if (event.event_type === "invoice_document_issue") {
+    await processInvoiceDocumentById({
+      pool,
+      invoiceProvider,
+      documentId: event.aggregate_id,
+      eventId
+    });
+    return;
+  }
+
+  if (event.event_type === "invoice_document_reconcile") {
+    await reconcileInvoiceDocumentById({
+      pool,
+      invoiceProvider,
+      documentId: event.aggregate_id,
+      eventId
+    });
+    return;
+  }
 }
 
 export async function processNextPendingOutboxEvent(limit = 1) {
@@ -1887,8 +1918,8 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
         await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
           app.log.error({ err: e }, "workerLoop: notification flush failed");
         });
-        await flushPendingDocuments(pool, invoiceDocProvider, app.log).catch((e: unknown) => {
-          app.log.error({ err: e }, "workerLoop: invoice document flush failed");
+        await enqueuePendingInvoiceDocumentOutboxEvents(pool).catch((e: unknown) => {
+          app.log.error({ err: e }, "workerLoop: invoice document outbox scheduling failed");
         });
         await new Promise((r) => setTimeout(r, OUTBOX_POLL_MS));
         continue;
@@ -1920,8 +1951,8 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
       await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
         app.log.error({ err: e }, "workerLoop: notification flush failed (post-batch)");
       });
-      await flushPendingDocuments(pool, invoiceDocProvider, app.log).catch((e: unknown) => {
-        app.log.error({ err: e }, "workerLoop: invoice document flush failed (post-batch)");
+      await enqueuePendingInvoiceDocumentOutboxEvents(pool).catch((e: unknown) => {
+        app.log.error({ err: e }, "workerLoop: invoice document outbox scheduling failed (post-batch)");
       });
     } catch (e) {
       app.log.error({ err: e }, "workerLoop: batch-level error, retrying in 5s");
@@ -2618,6 +2649,7 @@ let workerRunning = false;
   await ensurePlatformFeeMoneyTables(withTx);
   await ensureRemainingProductSurfaceTables(withTx);
   await ensurePayoutRailTables(withTx);
+  await ensureInvoiceRailTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

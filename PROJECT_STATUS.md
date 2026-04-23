@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+Current update: 2026-04-23 (invoice rail internal truth: provider-agnostic documents, attempts, reconcile, no external issuance)
+
+- Completed: built a canonical internal invoice rail without reopening the locked 8% fee-before-VAT money model or the seller payout rail. `invoice_documents` now carries idempotency, correlation, document status, canonical fee columns (`platform_fee_base_amount`, `platform_fee_vat_amount`, `platform_fee_total_amount`), document amount, provider references, external issuance flag, and links for participant/deal plus future settlement/payout references.
+- Completed: added `invoice_document_attempts` and `invoice_reconciliation_cases`, closed result taxonomy (`success`, `permanent_fail`, `temporary_fail`, `unknown`), provider DTO boundaries for `createDocument`, `getDocumentStatus`, `cancelDocument`, `reconcileDocument`, and `parseInvoiceWebhookEvent`, and an `internal-truth-only` provider that never issues an external document.
+- Completed: invoice enqueue remains duplicate-safe on `document_key`, now writes prepare attempt metadata and schedules `invoice_document_issue` through outbox. The worker handles `invoice_document_issue` and `invoice_document_reconcile`; the app loop only schedules missing outbox work and no longer directly invokes provider issuance.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/invoice_rail_validation.js` PASS for enqueue -> issue -> reconcile with attempts and `external_document_issued=false`.
+- Open: real provider/accounting adapter, provider webhook signature verification, official numbering authority, PDF/document delivery, and production tax compliance transport remain external-activation work.
+- Progress: `92%` of the internal invoice rail track.
+- Next step: commit and push the invoice rail milestone; external adapter activation stays separate.
+
 Current update: 2026-04-23 (seller payout rail canonical settlement model: eligibility, calculation, provider DTOs)
 
 - Completed: tightened the seller payout rail into the requested canonical domain model: `seller_settlements`, `seller_payout_batches`, `seller_payout_batch_items`, `seller_payout_attempts`, and `seller_payout_reconciliation_cases`. The lifecycle is now closed around `pending`, `ready`, `batched`, `processing`, `paid`, `failed`, `returned`, and `reconciled`; payout math separates `gross_collected`, `platform_fee_total`, `refunds_total`, `reserve_amount`, `seller_net_payable`, and `payout_amount`; and the locked 8% fee-before-VAT model remains untouched.
