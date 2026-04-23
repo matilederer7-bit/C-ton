@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+Current update: 2026-04-23 (first real invoice provider adapter: Morning / Green Invoice)
+
+- Completed: connected the first real invoice provider adapter, `INVOICE_PROVIDER=morning`, behind the existing invoice rail. The adapter supports document creation, status lookup, cancel, reconcile, normalized result classes, provider status mapping, idempotency keys, correlation IDs, and external issuance marking without changing the canonical money model.
+- Completed: added verified raw-body invoice webhook intake at `/webhooks/invoices`, webhook dedupe through `invoice_webhook_events`, invalid-signature audit through `invoice_webhook_security_events`, and outbox-only `invoice_document_reconcile` enqueue. Webhooks do not mutate visible invoice state directly.
+- Completed: added migration/bootstrap schema for invoice webhook audit/security tables, env activation documentation, and `docs/INVOICE_PROVIDER_MORNING_ADAPTER.md`. Internal-truth-only invoice rail remains available and unchanged when the real adapter is not configured.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/invoice_morning_adapter_validation.js`; `node .tmp_test_dist/tests/invoice_rail_validation.js`.
+- Open: live Morning/Green Invoice credentials, deployed webhook endpoint validation, final tax/legal template approval, official numbering/template policy, and production document delivery policy remain activation work.
+- Progress: `93%` of the first real invoice provider adapter track.
+- Next step: commit and push the Morning invoice adapter milestone; then activation can proceed by configuring the provider env vars in a non-demo environment.
+
 Current update: 2026-04-23 (Stripe buyer payment production hardening: raw-body webhooks, PCI boundary, ops surfaces)
 
 - Completed: hardened the Stripe buyer-payment adapter with production fail-fast config checks, raw-body webhook verification, `stripe-signature` support, signature-failure persistence, and a narrow PCI decision: production must use Stripe.js/Elements `payment_method_id`; server-side raw card tokenization is blocked except an explicit non-production test flag.

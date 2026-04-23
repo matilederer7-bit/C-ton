@@ -195,11 +195,11 @@ export function buildOperationalReadinessSummary(args: {
       can_activate_now: "no"
     },
     receipts_invoices: {
-      state: "internal-truth-ready",
-      what_is_real: "invoice document eligibility, canonical invoice_documents rows, invoice attempts, reconciliation cases, outbox-driven issue/reconcile flow, idempotency, correlation IDs, and provider DTO boundaries",
-      what_is_mock: "the active invoice provider is internal-truth-only and does not issue an external tax/accounting document",
-      what_is_missing: "external invoice provider/accounting adapter, provider webhook authenticity, official numbering authority, PDF/document delivery, and production tax compliance transport",
-      can_activate_now: "partially"
+      state: "first-real-adapter-ready",
+      what_is_real: "invoice document eligibility, canonical invoice_documents rows, invoice attempts, reconciliation cases, outbox-driven issue/reconcile flow, idempotency, correlation IDs, Morning/Green Invoice HTTP adapter, webhook verification, webhook dedupe, and reconcile outbox enqueue",
+      what_is_mock: "internal-truth-only remains available when INVOICE_PROVIDER is not set to the real adapter",
+      what_is_missing: "live provider credentials, deployed webhook validation, final tax/legal template approval, and production PDF/delivery policy",
+      can_activate_now: "yes-with-provider-env"
     },
     feature_flags: {
       state: "env-switches-only",

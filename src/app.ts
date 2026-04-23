@@ -2637,6 +2637,7 @@ registerFrontendExperience(app, {
   isDemoPreview: IS_DEMO_PREVIEW,
   notificationSummary: getNotificationServiceSummary(notificationService),
   invoiceSummary: getInvoiceProviderSummary(invoiceProvider),
+  invoiceProvider,
   debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1",
   getWorkerRunning: () => workerRunning,
   workerStuckTimeoutMs: WORKER_STUCK_TIMEOUT_MS,

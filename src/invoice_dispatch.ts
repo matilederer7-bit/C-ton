@@ -1,4 +1,5 @@
 import pg from "pg";
+import { createHmac, timingSafeEqual } from "crypto";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -102,6 +103,7 @@ export interface InvoiceProvider {
   readonly providerCode: string;
   readonly mode: InvoiceProviderMode;
   readonly configured?: boolean;
+  verifyWebhook?(rawBody: string, headers: Record<string, string | string[] | undefined>): boolean;
   createDocument?(input: CreateInvoiceDocumentInput): Promise<NormalizedInvoiceResult>;
   getDocumentStatus?(input: GetInvoiceDocumentStatusInput): Promise<NormalizedInvoiceResult>;
   cancelDocument?(input: CancelInvoiceDocumentInput): Promise<NormalizedInvoiceResult>;
@@ -123,7 +125,8 @@ function roundMoney(value: number) {
 function normalizeProviderMode(raw: string | undefined): InvoiceProviderMode {
   const value = String(raw || "").trim();
   if (value === "disabled") return "disabled";
-  if (value === "adapter-ready" || value === "real") return "adapter-ready";
+  if (value === "real") return "real";
+  if (value === "adapter-ready") return "adapter-ready";
   return "internal-truth-only";
 }
 
@@ -139,6 +142,80 @@ function classifyInternalModeFailure(anchor: string): InvoiceResultClass {
   if (value.includes("tempfail")) return "temporary_fail";
   if (value.includes("unknown")) return "unknown";
   return "success";
+}
+
+function normalizeProviderBaseUrl(raw: string) {
+  return String(raw || "").trim().replace(/\/+$/, "");
+}
+
+function normalizeProviderPath(raw: string, fallback: string) {
+  const value = String(raw || fallback).trim();
+  if (!value) return fallback;
+  return value.startsWith("/") ? value : `/${value}`;
+}
+
+async function parseJsonSafely(response: Response) {
+  const rawText = await response.text();
+  if (!rawText.trim()) return {};
+  try {
+    return JSON.parse(rawText);
+  } catch {
+    return { raw_body: rawText };
+  }
+}
+
+function firstStringHeader(value: string | string[] | undefined) {
+  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
+}
+
+function safeHmacCompare(expected: string, received: string) {
+  const a = Buffer.from(expected);
+  const b = Buffer.from(received);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+function invoiceResultClassFromHttp(statusCode: number, payload: any): InvoiceResultClass {
+  const raw = String(payload?.result_class || payload?.error_class || payload?.classification || "").toLowerCase();
+  if (["success", "permanent_fail", "temporary_fail", "unknown"].includes(raw)) return raw as InvoiceResultClass;
+  if (statusCode >= 500 || statusCode === 429) return "temporary_fail";
+  if (statusCode === 408 || statusCode === 409 || statusCode === 425) return "temporary_fail";
+  return "permanent_fail";
+}
+
+function normalizeInvoiceStatus(raw: unknown): InvoiceDocumentStatus | null {
+  const value = String(raw || "").trim().toLowerCase();
+  const aliases: Record<string, InvoiceDocumentStatus> = {
+    draft: "processing",
+    created: "issued",
+    sent: "issued",
+    paid: "issued",
+    open: "issued",
+    active: "issued",
+    canceled: "voided",
+    cancelled: "voided",
+    void: "voided",
+    error: "failed"
+  };
+  return normalizeStatus(aliases[value] || value);
+}
+
+function invoiceDocumentAmount(input: CreateInvoiceDocumentInput) {
+  if (input.documentType === "platform_fee_invoice" || input.documentType === "seller_settlement_invoice") {
+    return roundMoney(input.platformFeeTotalAmount ?? input.sitonFeeAmount);
+  }
+  return roundMoney(input.grossAmount);
+}
+
+function invoiceProviderDocumentType(type: InvoiceDocumentType) {
+  const map: Record<InvoiceDocumentType, string> = {
+    charge_receipt: "receipt",
+    refund_receipt: "refund_receipt",
+    seller_settlement_invoice: "invoice",
+    platform_fee_invoice: "invoice",
+    credit_note: "credit_note"
+  };
+  return map[type];
 }
 
 async function replaceCheckConstraint(c: any, args: {
@@ -540,12 +617,270 @@ class InternalInvoiceProvider implements InvoiceProvider {
   }
 }
 
+class MorningInvoiceProvider implements InvoiceProvider {
+  readonly providerCode = "morning";
+  readonly mode: InvoiceProviderMode;
+  readonly configured: boolean;
+  private readonly baseUrl: string;
+  private readonly apiKey: string;
+  private readonly bearerToken: string;
+  private readonly webhookSecret: string;
+  private readonly timeoutMs: number;
+  private readonly createPath: string;
+  private readonly statusPath: string;
+  private readonly cancelPath: string;
+
+  constructor(private env: NodeJS.ProcessEnv = process.env) {
+    this.mode = normalizeProviderMode(env.INVOICE_PROVIDER_MODE || env.INVOICE_PROVIDER_TRANSPORT_MODE || "real");
+    this.baseUrl = normalizeProviderBaseUrl(env.INVOICE_PROVIDER_BASE_URL || "https://api.greeninvoice.co.il/api/v1");
+    this.apiKey = String(env.INVOICE_PROVIDER_API_KEY || "").trim();
+    this.bearerToken = String(env.INVOICE_PROVIDER_BEARER_TOKEN || env.INVOICE_PROVIDER_ACCESS_TOKEN || "").trim();
+    this.webhookSecret = String(env.INVOICE_WEBHOOK_SECRET || "").trim();
+    this.timeoutMs = Number(env.INVOICE_PROVIDER_TIMEOUT_MS || 8000);
+    this.createPath = normalizeProviderPath(env.INVOICE_PROVIDER_CREATE_PATH || "", "/documents");
+    this.statusPath = normalizeProviderPath(env.INVOICE_PROVIDER_STATUS_PATH || "", "/documents/{provider_document_id}");
+    this.cancelPath = normalizeProviderPath(env.INVOICE_PROVIDER_CANCEL_PATH || "", "/documents/{provider_document_id}/cancel");
+    this.configured = Boolean(this.baseUrl && (this.apiKey || this.bearerToken));
+    if (this.mode === "real" && !this.configured) {
+      throw new Error("INVOICE_PROVIDER=morning requires INVOICE_PROVIDER_BASE_URL and INVOICE_PROVIDER_API_KEY or INVOICE_PROVIDER_BEARER_TOKEN in real mode");
+    }
+  }
+
+  private headers(idempotencyKey: string, correlationId: string) {
+    const authorizationToken = this.bearerToken || this.apiKey;
+    return {
+      authorization: `Bearer ${authorizationToken}`,
+      "content-type": "application/json",
+      "idempotency-key": idempotencyKey,
+      "x-correlation-id": correlationId
+    };
+  }
+
+  private async post(path: string, body: Record<string, unknown>, idempotencyKey: string, correlationId: string) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "POST",
+      headers: this.headers(idempotencyKey, correlationId),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(this.timeoutMs)
+    });
+    const payload = await parseJsonSafely(response);
+    return { response, payload };
+  }
+
+  private async get(path: string, idempotencyKey: string, correlationId: string) {
+    const response = await fetch(`${this.baseUrl}${path}`, {
+      method: "GET",
+      headers: this.headers(idempotencyKey, correlationId),
+      signal: AbortSignal.timeout(this.timeoutMs)
+    });
+    const payload = await parseJsonSafely(response);
+    return { response, payload };
+  }
+
+  private normalizeProviderDocumentId(payload: any) {
+    return String(payload?.provider_document_id || payload?.document_id || payload?.id || payload?.data?.id || "").trim() || null;
+  }
+
+  private normalizeResult(payload: any, statusCode: number, fallbackStatus: InvoiceDocumentStatus | null, correlationId: string): NormalizedInvoiceResult {
+    const resultClass = statusCode >= 200 && statusCode < 300
+      ? invoiceResultClassFromHttp(statusCode, { result_class: payload?.result_class || "success" })
+      : invoiceResultClassFromHttp(statusCode, payload);
+    const documentStatus = normalizeInvoiceStatus(payload?.document_status || payload?.status || payload?.data?.status) || fallbackStatus;
+    return {
+      provider: this.providerCode,
+      result_class: resultClass,
+      retryable: resultClass === "temporary_fail" || resultClass === "unknown",
+      document_status: resultClass === "success" ? (documentStatus || "issued") : resultClass === "permanent_fail" ? "failed" : "processing",
+      provider_document_id: this.normalizeProviderDocumentId(payload),
+      correlation_id: String(payload?.correlation_id || correlationId),
+      external_document_issued: resultClass === "success",
+      raw: {
+        provider: this.providerCode,
+        status_code: statusCode,
+        payload
+      }
+    };
+  }
+
+  async createDocument(input: CreateInvoiceDocumentInput): Promise<NormalizedInvoiceResult> {
+    const amount = invoiceDocumentAmount(input);
+    const payload = {
+      provider: this.providerCode,
+      document_type: invoiceProviderDocumentType(input.documentType),
+      siton_document_type: input.documentType,
+      document_key: input.documentKey,
+      document_id: input.documentId,
+      correlation_id: input.correlationId,
+      currency: this.env.INVOICE_PROVIDER_CURRENCY || "ILS",
+      amount,
+      gross_amount: roundMoney(input.grossAmount),
+      taxable_amount: amount,
+      platform_fee_base_amount: roundMoney(input.platformFeeBaseAmount ?? 0),
+      platform_fee_vat_amount: roundMoney(input.platformFeeVatAmount ?? 0),
+      platform_fee_total_amount: roundMoney(input.platformFeeTotalAmount ?? input.sitonFeeAmount),
+      seller_net_amount: roundMoney(input.sellerNetAmount),
+      deal_id: input.dealId,
+      participant_id: input.participantId,
+      description: input.dealTitle,
+      quantity: input.qty
+    };
+    try {
+      const { response, payload: responsePayload } = await this.post(
+        this.createPath,
+        payload,
+        input.idempotencyKey,
+        input.correlationId || input.idempotencyKey
+      );
+      return this.normalizeResult(responsePayload, response.status, "issued", input.correlationId || input.idempotencyKey);
+    } catch (error: any) {
+      return {
+        provider: this.providerCode,
+        result_class: "temporary_fail",
+        retryable: true,
+        document_status: "processing",
+        provider_document_id: null,
+        correlation_id: input.correlationId ?? null,
+        external_document_issued: false,
+        raw: { error: String(error?.message || error) }
+      };
+    }
+  }
+
+  async getDocumentStatus(input: GetInvoiceDocumentStatusInput): Promise<NormalizedInvoiceResult> {
+    const providerDocumentId = String(input.providerDocumentId || "").trim();
+    if (!providerDocumentId) {
+      return {
+        provider: this.providerCode,
+        result_class: "permanent_fail",
+        retryable: false,
+        document_status: "failed",
+        provider_document_id: null,
+        correlation_id: input.correlationId,
+        external_document_issued: false,
+        raw: { error: "provider_document_id_required" }
+      };
+    }
+    try {
+      const path = this.statusPath.replace("{provider_document_id}", encodeURIComponent(providerDocumentId));
+      const { response, payload } = await this.get(path, `status:${input.documentKey}`, input.correlationId);
+      return {
+        ...this.normalizeResult(payload, response.status, "issued", input.correlationId),
+        provider_document_id: this.normalizeProviderDocumentId(payload) || providerDocumentId
+      };
+    } catch (error: any) {
+      return {
+        provider: this.providerCode,
+        result_class: "temporary_fail",
+        retryable: true,
+        document_status: "processing",
+        provider_document_id: providerDocumentId,
+        correlation_id: input.correlationId,
+        external_document_issued: false,
+        raw: { error: String(error?.message || error) }
+      };
+    }
+  }
+
+  async cancelDocument(input: CancelInvoiceDocumentInput): Promise<NormalizedInvoiceResult> {
+    const providerDocumentId = String(input.providerDocumentId || "").trim();
+    if (!providerDocumentId) {
+      return {
+        provider: this.providerCode,
+        result_class: "permanent_fail",
+        retryable: false,
+        document_status: "failed",
+        provider_document_id: null,
+        correlation_id: input.correlationId,
+        external_document_issued: false,
+        raw: { error: "provider_document_id_required" }
+      };
+    }
+    try {
+      const path = this.cancelPath.replace("{provider_document_id}", encodeURIComponent(providerDocumentId));
+      const { response, payload } = await this.post(path, { reason: input.reason }, `cancel:${input.documentKey}`, input.correlationId);
+      return {
+        ...this.normalizeResult(payload, response.status, "voided", input.correlationId),
+        provider_document_id: this.normalizeProviderDocumentId(payload) || providerDocumentId
+      };
+    } catch (error: any) {
+      return {
+        provider: this.providerCode,
+        result_class: "temporary_fail",
+        retryable: true,
+        document_status: "processing",
+        provider_document_id: providerDocumentId,
+        correlation_id: input.correlationId,
+        external_document_issued: false,
+        raw: { error: String(error?.message || error) }
+      };
+    }
+  }
+
+  async reconcileDocument(input: ReconcileInvoiceDocumentInput): Promise<InvoiceReconciliationResult> {
+    const status = await this.getDocumentStatus(input);
+    const observedStatus = status.document_status || "failed";
+    const rawAmount = (status.raw as any)?.payload?.amount ?? (status.raw as any)?.payload?.document_amount ?? input.observedAmount;
+    const observedAmount = roundMoney(Number(rawAmount || 0));
+    const matched = status.result_class === "success"
+      && roundMoney(input.expectedAmount) === observedAmount
+      && input.expectedStatus === observedStatus;
+    return {
+      ...status,
+      document_status: matched ? "reconciled" : "failed",
+      reconciliation_outcome: matched ? "matched" : "mismatched",
+      observed_amount: observedAmount,
+      observed_status: observedStatus
+    };
+  }
+
+  verifyWebhook(rawBody: string, headers: Record<string, string | string[] | undefined>): boolean {
+    if (!this.webhookSecret) return false;
+    const signature = firstStringHeader(headers["x-invoice-signature"])
+      || firstStringHeader(headers["x-morning-signature"])
+      || firstStringHeader(headers["x-greeninvoice-signature"]);
+    if (!signature) return false;
+    const expected = createHmac("sha256", this.webhookSecret).update(rawBody).digest("hex");
+    const normalized = signature.startsWith("sha256=") ? signature.slice("sha256=".length) : signature;
+    return safeHmacCompare(expected, normalized);
+  }
+
+  parseInvoiceWebhookEvent(payload: Record<string, unknown>): ParsedInvoiceWebhookEvent {
+    const data = (payload.data && typeof payload.data === "object" ? payload.data : {}) as Record<string, unknown>;
+    return {
+      provider: this.providerCode,
+      event_id: String(payload.event_id || payload.id || data.event_id || data.id || "").trim() || `morning:${Date.now()}`,
+      provider_document_id: String(payload.provider_document_id || payload.document_id || data.provider_document_id || data.document_id || data.id || "").trim() || null,
+      document_status: normalizeInvoiceStatus(payload.document_status || payload.status || data.document_status || data.status),
+      correlation_id: String(payload.correlation_id || data.correlation_id || "").trim() || null,
+      document_id: String(payload.siton_document_id || payload.document_uuid || data.siton_document_id || data.document_uuid || "").trim() || null,
+      document_key: String(payload.document_key || data.document_key || "").trim() || null,
+      payload
+    };
+  }
+
+  async issueDocument(input: InvoiceDocumentInput): Promise<{ documentId: string }> {
+    const result = await this.createDocument({
+      ...input,
+      documentId: input.correlationId || input.documentKey,
+      idempotencyKey: input.documentKey,
+      providerCode: this.providerCode
+    });
+    if (result.result_class !== "success" || !result.provider_document_id) {
+      throw new Error(`invoice_provider_${result.result_class}`);
+    }
+    return { documentId: result.provider_document_id };
+  }
+}
+
 export function buildInvoiceProvider(
   env: NodeJS.ProcessEnv = process.env,
   logger: Pick<Console, "info" | "error"> = console
 ): InvoiceProvider {
   const providerCode = env.INVOICE_PROVIDER || "internal-invoice-ledger";
   const mode = normalizeProviderMode(env.INVOICE_PROVIDER_MODE || env.INVOICE_PROVIDER_TRANSPORT_MODE);
+  if (["morning", "greeninvoice", "green-invoice"].includes(String(providerCode).trim().toLowerCase())) {
+    return new MorningInvoiceProvider(env);
+  }
   return new InternalInvoiceProvider(providerCode, mode, logger);
 }
 
@@ -1060,23 +1395,26 @@ export async function reclaimStuckInvoiceDocuments(
 }
 
 export function getInvoiceProviderSummary(provider: InvoiceProvider) {
+  const isExternal = provider.providerCode !== "internal-invoice-ledger" && provider.mode !== "internal-truth-only" && provider.mode !== "disabled";
   return {
     provider: provider.providerCode,
     mode: provider.mode === "internal-truth-only" ? "log-only" : provider.mode,
     provider_mode: provider.mode,
     configured: provider.configured ?? provider.mode !== "disabled",
-    create_document_transport_live: false,
-    get_document_status_transport_live: false,
-    cancel_document_transport_live: false,
-    reconcile_document_transport_live: false,
-    external_issuance: false,
-    external_document_issued: false,
-    supported_modes: ["internal-truth-only", "adapter-ready", "disabled"],
+    create_document_transport_live: isExternal && Boolean(provider.createDocument) && Boolean(provider.configured),
+    get_document_status_transport_live: isExternal && Boolean(provider.getDocumentStatus) && Boolean(provider.configured),
+    cancel_document_transport_live: isExternal && Boolean(provider.cancelDocument) && Boolean(provider.configured),
+    reconcile_document_transport_live: isExternal && Boolean(provider.reconcileDocument) && Boolean(provider.configured),
+    webhook_verification_live: isExternal && Boolean(provider.verifyWebhook) && Boolean(provider.configured),
+    external_issuance: isExternal && Boolean(provider.configured),
+    external_document_issued: isExternal && Boolean(provider.configured),
+    supported_modes: ["internal-truth-only", "adapter-ready", "real", "disabled"],
     supported_methods: [
       "createDocument",
       "getDocumentStatus",
       "cancelDocument",
       "reconcileDocument",
+      "verifyWebhook",
       "parseInvoiceWebhookEvent"
     ]
   };

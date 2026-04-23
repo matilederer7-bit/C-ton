@@ -8,6 +8,7 @@ import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
+import type { InvoiceProvider } from "./invoice_dispatch.js";
 import {
   ADMIN_API_KEY,
   PAYMENT_WEBHOOK_SECRET,
@@ -652,6 +653,7 @@ export function registerFrontendExperience(
       external_document_issued?: boolean;
       supported_methods?: string[];
     };
+    invoiceProvider?: InvoiceProvider;
     debugSurfacesEnabled?: boolean;
     /** Returns current workerRunning flag so the outbox-status endpoint can surface it. */
     getWorkerRunning?: () => boolean;
@@ -697,6 +699,49 @@ export function registerFrontendExperience(
 
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
   const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
+  const ensureInvoiceWebhookTables = async () => {
+    await deps.withTx(async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.invoice_webhook_events (
+          invoice_webhook_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider TEXT NOT NULL,
+          event_id TEXT NOT NULL,
+          provider_document_id TEXT NULL,
+          document_id UUID NULL,
+          document_key TEXT NULL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK (status IN ('pending','queued','ignored','failed')),
+          correlation_id TEXT NULL,
+          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+          received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          processed_at TIMESTAMPTZ NULL,
+          UNIQUE (provider, event_id)
+        )
+      `);
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.invoice_webhook_security_events (
+          security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          provider TEXT NOT NULL,
+          event_id TEXT NULL,
+          failure_reason TEXT NOT NULL,
+          remote_hint TEXT NOT NULL DEFAULT '',
+          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+      `);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_events_document ON siton.invoice_webhook_events (document_id, received_at DESC)`);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_security_events_created ON siton.invoice_webhook_security_events (created_at DESC)`);
+    });
+  };
+  const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
+    await ensureInvoiceWebhookTables();
+    await deps.withTx(async (c) => {
+      await c.query(
+        `INSERT INTO siton.invoice_webhook_security_events(provider, event_id, failure_reason, remote_hint)
+         VALUES ($1,$2,$3,$4)`,
+        [args.provider, args.event_id ?? null, args.failure_reason, args.remote_hint ?? ""]
+      );
+    });
+  };
   const ensurePaymentOpsTables = async () => {
     await deps.withTx(async (c) => {
       await c.query(`
@@ -1770,6 +1815,120 @@ export function registerFrontendExperience(
   app.post("/webhooks/payments", handleWebhookPayments);
   // Legacy alias kept for backward compatibility with mock provider config
   app.post("/webhooks/payments/mock", handleWebhookPayments);
+
+  async function handleWebhookInvoices(req: FastifyRequest, reply: FastifyReply) {
+    const invoiceProvider = deps.invoiceProvider;
+    if (!invoiceProvider?.parseInvoiceWebhookEvent || !invoiceProvider?.verifyWebhook) {
+      return reply.code(501).send({
+        error: "invoice_webhook_provider_not_configured",
+        message: "Invoice webhook verification requires a real invoice provider adapter."
+      });
+    }
+    const rawBody = String((req as any).rawBody || JSON.stringify(req.body));
+    const headers = req.headers as Record<string, string | string[] | undefined>;
+    const body = (req.body || {}) as Record<string, unknown>;
+    if (!invoiceProvider.verifyWebhook(rawBody, headers)) {
+      await recordInvoiceWebhookSecurityFailure({
+        provider: invoiceProvider.providerCode,
+        event_id: body["event_id"] ? String(body["event_id"]) : body["id"] ? String(body["id"]) : null,
+        failure_reason: "invalid_invoice_webhook_signature",
+        remote_hint: String(req.ip || "")
+      }).catch(() => undefined);
+      return reply.code(401).send({ error: "invalid_invoice_webhook_signature" });
+    }
+
+    await ensureInvoiceWebhookTables();
+    const parsed = invoiceProvider.parseInvoiceWebhookEvent(body);
+    return deps.withTx(async (c) => {
+      const inserted = await c.query(
+        `INSERT INTO siton.invoice_webhook_events
+           (provider, event_id, provider_document_id, document_id, document_key, status, correlation_id, payload)
+         VALUES ($1,$2,$3,$4,$5,'pending',$6,$7)
+         ON CONFLICT (provider, event_id) DO NOTHING
+         RETURNING invoice_webhook_event_id`,
+        [
+          parsed.provider,
+          parsed.event_id,
+          parsed.provider_document_id,
+          parsed.document_id,
+          parsed.document_key,
+          parsed.correlation_id,
+          JSON.stringify(parsed.payload)
+        ]
+      );
+      if ((inserted.rowCount ?? 0) === 0) {
+        return reply.code(200).send({ ok: true, duplicate: true, provider: parsed.provider, event_id: parsed.event_id });
+      }
+
+      const doc = await c.query(
+        `SELECT document_id, document_key, status
+         FROM siton.invoice_documents
+         WHERE ($1::uuid IS NOT NULL AND document_id=$1::uuid)
+            OR ($2::text IS NOT NULL AND document_key=$2)
+            OR ($3::text IS NOT NULL AND provider_document_id=$3)
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [
+          parsed.document_id && /^[0-9a-f-]{36}$/i.test(parsed.document_id) ? parsed.document_id : null,
+          parsed.document_key,
+          parsed.provider_document_id
+        ]
+      );
+      const row = doc.rows[0];
+      if (!row) {
+        await c.query(
+          `UPDATE siton.invoice_webhook_events
+           SET status='ignored', processed_at=now()
+           WHERE provider=$1 AND event_id=$2`,
+          [parsed.provider, parsed.event_id]
+        );
+        return reply.code(202).send({ ok: true, status: "ignored", reason: "invoice_document_not_found" });
+      }
+      if (["reconciled", "voided", "skipped"].includes(String(row.status))) {
+        await c.query(
+          `UPDATE siton.invoice_webhook_events
+           SET status='ignored', document_id=$3, document_key=$4, processed_at=now()
+           WHERE provider=$1 AND event_id=$2`,
+          [parsed.provider, parsed.event_id, row.document_id, row.document_key]
+        );
+        return reply.code(200).send({ ok: true, status: "ignored", reason: "late_invoice_webhook_terminal_document" });
+      }
+      await c.query(
+        `INSERT INTO siton.outbox_events
+           (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+         SELECT 'invoice_document_reconcile','invoice_document',$1,$2,'pending',0,now()
+         WHERE NOT EXISTS (
+           SELECT 1
+           FROM siton.outbox_events
+           WHERE event_type='invoice_document_reconcile'
+             AND aggregate_type='invoice_document'
+             AND aggregate_id=$1
+             AND status IN ('pending','processing','sent')
+         )`,
+        [
+          row.document_id,
+          JSON.stringify({
+            document_id: row.document_id,
+            document_key: row.document_key,
+            provider: parsed.provider,
+            event_id: parsed.event_id,
+            provider_document_id: parsed.provider_document_id,
+            correlation_id: parsed.correlation_id,
+            source: "invoice_webhook"
+          })
+        ]
+      );
+      await c.query(
+        `UPDATE siton.invoice_webhook_events
+         SET status='queued', document_id=$3, document_key=$4, processed_at=now()
+         WHERE provider=$1 AND event_id=$2`,
+        [parsed.provider, parsed.event_id, row.document_id, row.document_key]
+      );
+      return reply.code(200).send({ ok: true, status: "queued", provider: parsed.provider, event_id: parsed.event_id });
+    });
+  }
+
+  app.post("/webhooks/invoices", handleWebhookInvoices);
 
   // ---------------------------------------------------------------------------
   // Admin routes — protected by requireAdminKey when ADMIN_API_KEY is set

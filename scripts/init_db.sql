@@ -468,6 +468,37 @@ CREATE TABLE IF NOT EXISTS payment_webhook_security_events (
 CREATE INDEX IF NOT EXISTS idx_payment_webhook_security_events_created
   ON payment_webhook_security_events(created_at DESC);
 
+CREATE TABLE IF NOT EXISTS invoice_webhook_events (
+  invoice_webhook_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  event_id TEXT NOT NULL,
+  provider_document_id TEXT NULL,
+  document_id UUID NULL,
+  document_key TEXT NULL,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','queued','ignored','failed')),
+  correlation_id TEXT NULL,
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  processed_at TIMESTAMPTZ NULL,
+  UNIQUE (provider, event_id)
+);
+
+CREATE TABLE IF NOT EXISTS invoice_webhook_security_events (
+  security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  provider TEXT NOT NULL,
+  event_id TEXT NULL,
+  failure_reason TEXT NOT NULL,
+  remote_hint TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_webhook_events_document
+  ON invoice_webhook_events(document_id, received_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_invoice_webhook_security_events_created
+  ON invoice_webhook_security_events(created_at DESC);
+
 CREATE TABLE IF NOT EXISTS buyer_payment_methods (
   buyer_payment_method_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   buyer_id TEXT NOT NULL,
