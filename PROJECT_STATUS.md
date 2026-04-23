@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+Current update: 2026-04-23 (first real buyer payment adapter: Stripe tokenization, manual authorization, capture, refund, webhook normalization)
+
+- Completed: added the first real payment provider adapter for the buyer money rail: `PAYMENT_PROVIDER=stripe` / `PAYMENT_PROVIDER_MODE=stripe`. The adapter uses Stripe PaymentMethod tokenization, manual-capture PaymentIntents for authorization, PaymentIntent capture for charge/recovery, Refunds for refund, Stripe webhook signature verification, and webhook event normalization into Siton reconciliation events.
+- Completed: preserved the existing state machine, outbox, idempotency, payment attempts, webhook ingestion, platform fee money events, payout rail, and invoice rail. Capture/recovery/refund remain worker/outbox-driven; tokenization and authorization are exposed only through the already-permitted buyer payment boundary.
+- Completed: added `/api/payments/tokenize` for providers that expose tokenization, kept `/api/payments/authorize` compatible with either raw card input or a provider `payment_method_id`, and kept mock/provider-ready generic HTTP behavior intact.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/payment_stripe_adapter_validation.js`; `node .tmp_test_dist/tests/payment_authorization_real_rail_validation.js`.
+- Open: live Stripe account keys, live webhook raw-body deployment validation, PCI posture review for server-side card tokenization vs Stripe.js, and production allowlist/risk controls remain external activation work.
+- Progress: `90%` of the first real buyer payment adapter track.
+- Next step: commit and push the Stripe adapter milestone; then activation can proceed by configuring Stripe env vars in a non-demo environment.
+
 Current update: 2026-04-23 (invoice rail internal truth: provider-agnostic documents, attempts, reconcile, no external issuance)
 
 - Completed: built a canonical internal invoice rail without reopening the locked 8% fee-before-VAT money model or the seller payout rail. `invoice_documents` now carries idempotency, correlation, document status, canonical fee columns (`platform_fee_base_amount`, `platform_fee_vat_amount`, `platform_fee_total_amount`), document amount, provider references, external issuance flag, and links for participant/deal plus future settlement/payout references.

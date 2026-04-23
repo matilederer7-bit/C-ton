@@ -1,6 +1,6 @@
 type PaymentSummary = {
   provider: string;
-  mode: "mock-backed" | "provider-ready";
+  mode: "mock-backed" | "provider-ready" | "stripe";
   configured: boolean;
   webhook_provider: string;
   mock_backed: boolean;
@@ -12,9 +12,12 @@ type PaymentSummary = {
   recovery_path?: string;
   refund_path?: string;
   authorization_transport_live: boolean;
+  tokenization_transport_live?: boolean;
   capture_transport_live?: boolean;
   recovery_transport_live?: boolean;
   refund_transport_live?: boolean;
+  webhook_verification_live?: boolean;
+  payment_reconcile_live?: boolean;
   timeout_ms: number;
   supported_modes: string[];
 };
@@ -61,13 +64,17 @@ export function buildOperationalReadinessSummary(args: {
   const paymentStatus =
     payment.mode === "mock-backed"
       ? "mock"
-      : payment.configured
+      : payment.mode === "stripe" && payment.configured
+        ? "stripe-live-adapter-ready"
+        : payment.configured
         ? "partial"
         : "configured-mode-missing-env";
 
   const paymentActivation =
     payment.mode === "mock-backed"
       ? "cannot-activate-truly-yet"
+      : payment.mode === "stripe" && payment.configured
+        ? "first-real-adapter-ready"
       : payment.configured
         ? "core-money-rail-ready"
         : "blocked-by-missing-provider-env";
@@ -93,13 +100,13 @@ export function buildOperationalReadinessSummary(args: {
     payment_provider: {
       state: paymentStatus,
       activation: paymentActivation,
-      what_is_real: payment.mode === "provider-ready" && payment.configured
-        ? "live authorization transport, live capture transport, live recovery transport, live refund transport, provider env wiring, and canonical authorization/capture/recovery/refund path selection"
+      what_is_real: payment.mode !== "mock-backed" && payment.configured
+        ? "live tokenization, authorization transport, capture transport, recovery transport, refund transport, provider env wiring, webhook verification, and canonical authorization/capture/recovery/refund path selection"
         : "none of the external provider transport",
       what_is_mock: payment.mode === "mock-backed"
         ? "authorization, capture, recovery, and refund behavior are simulated inside the app"
         : "none in the core money rail once provider-ready is configured",
-      what_is_partial: payment.mode === "provider-ready"
+      what_is_partial: payment.mode !== "mock-backed"
         ? "webhook truth, duplicate-safe ingestion, late-webhook safety, and capture/recovery/refund reconciliation are live app rails, while invoice/accounting and non-payment external rails remain separate"
         : "none",
       depends_on_env: [
@@ -114,10 +121,11 @@ export function buildOperationalReadinessSummary(args: {
         "PAYMENT_PROVIDER_PUBLIC_KEY",
         "PAYMENT_WEBHOOK_PROVIDER",
         "PAYMENT_WEBHOOK_SECRET",
+        "STRIPE_WEBHOOK_SECRET",
         "PAYMENT_AUTH_DECLINE_SUFFIX",
         "PAYMENT_PROVIDER_TIMEOUT_MS"
       ],
-      can_activate_now: payment.mode === "provider-ready" && payment.configured ? "partially" : "no"
+      can_activate_now: payment.mode !== "mock-backed" && payment.configured ? "partially" : "no"
     },
     payout_rail: {
       state: payout.mode === "internal-truth-only"

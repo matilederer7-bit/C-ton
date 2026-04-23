@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "crypto";
+import { createHash, randomUUID, createHmac, timingSafeEqual } from "crypto";
 import {
   MOCK_SEED,
   PAYMENT_AUTH_DECLINE_SUFFIX,
@@ -17,6 +17,25 @@ import {
 } from "./runtime_config.js";
 
 export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
+
+export type PaymentTokenizationResult =
+  | {
+      ok: true;
+      provider: string;
+      payment_method_id: string;
+      provider_reference: string;
+      correlation_id: string;
+      mock: boolean;
+    }
+  | {
+      ok: false;
+      provider: string;
+      error: string;
+      message: string;
+      statusCode: number;
+      retryable: boolean;
+      mock: boolean;
+    };
 
 export type PaymentAuthorizationResult =
   | {
@@ -60,6 +79,7 @@ export type AuthorizePaymentInput = {
   card_number: string;
   expiry: string;
   cvv: string;
+  payment_method_id?: string;
   amount_minor?: number;
   currency?: string;
   buyer_id?: string;
@@ -67,6 +87,8 @@ export type AuthorizePaymentInput = {
   correlation_id?: string;
   request_id?: string;
 };
+
+export type TokenizePaymentInput = Omit<AuthorizePaymentInput, "amount_minor" | "currency">;
 
 export type CapturePaymentInput = {
   authorization_id?: string;
@@ -105,13 +127,25 @@ export type RefundPaymentInput = {
 
 export interface PaymentProvider {
   readonly providerCode: string;
-  readonly mode: "mock-backed" | "provider-ready";
+  readonly mode: "mock-backed" | "provider-ready" | "stripe";
   readonly webhookProvider: string;
   readonly configured: boolean;
+  tokenize?(input: TokenizePaymentInput): Promise<PaymentTokenizationResult>;
   authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult>;
   capture(input: CapturePaymentInput): Promise<PaymentExecutionResult>;
   recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult>;
   refund(input: RefundPaymentInput): Promise<PaymentExecutionResult>;
+  verifyWebhook?(args: { rawBody: string; signatureHeader?: string; timestampHeader?: string; secret?: string }): boolean;
+  parseWebhookEvent?(body: Record<string, unknown>): {
+    provider: string;
+    event_id: string;
+    event_type: string;
+    correlation_id: string | null;
+    participant_id: string | null;
+    deal_id: string | null;
+    provider_reference: string | null;
+    payload: Record<string, unknown>;
+  } | null;
 }
 
 function hashToUint32(value: string): number {
@@ -172,6 +206,47 @@ function normalizeProviderPath(raw: string) {
   const trimmed = String(raw || "").trim();
   if (!trimmed) return "/authorize";
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+}
+
+function normalizeStripeBaseUrl(raw: string) {
+  return normalizeProviderBaseUrl(raw || PAYMENT_PROVIDER_BASE_URL || "https://api.stripe.com");
+}
+
+function stripeFormEncode(values: Record<string, string | number | boolean | null | undefined>) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) {
+    if (value === undefined || value === null || value === "") continue;
+    params.append(key, String(value));
+  }
+  return params;
+}
+
+async function stripePost(path: string, body: Record<string, string | number | boolean | null | undefined>, idempotencyKey: string) {
+  const response = await fetch(`${normalizeStripeBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${path}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`,
+      "content-type": "application/x-www-form-urlencoded",
+      "idempotency-key": idempotencyKey
+    },
+    body: stripeFormEncode(body),
+    signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
+  });
+  const payload = await parseJsonSafely(response);
+  return { response, payload };
+}
+
+function stripeResultClass(statusCode: number, payload: any): PaymentResultClass {
+  const errorType = String(payload?.error?.type || payload?.type || "").toLowerCase();
+  if (statusCode >= 500 || statusCode === 429) return "temporary_fail";
+  if (errorType === "api_connection_error" || errorType === "api_error" || errorType === "rate_limit_error") {
+    return "temporary_fail";
+  }
+  return "permanent_fail";
+}
+
+function stripeErrorMessage(payload: any, fallback: string) {
+  return String(payload?.error?.message || payload?.message || fallback);
 }
 
 function classifyCaptureEventType(payload: any): "charge_captured" | "charge_failed" | null {
@@ -792,7 +867,396 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
   };
 }
 
+function buildStripePaymentProvider(): PaymentProvider {
+  const configured = PAYMENT_PROVIDER === "stripe" && Boolean(PAYMENT_PROVIDER_API_KEY);
+  const providerCode = "stripe";
+  const webhookProvider = PAYMENT_WEBHOOK_PROVIDER || "stripe";
+
+  async function tokenize(input: TokenizePaymentInput): Promise<PaymentTokenizationResult> {
+    const holderName = String(input.holder_name || "").trim();
+    const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
+    const expiryParts = parseExpiry(String(input.expiry || "").trim());
+    const cvv = String(input.cvv || "").trim();
+    const correlationId = String(input.correlation_id || "").trim() || `stripe_tok_${randomUUID().replace(/-/g, "")}`;
+
+    if (!holderName || !cardNumber || !expiryParts || !/^\d{3,4}$/.test(cvv)) {
+      return {
+        ok: false,
+        provider: providerCode,
+        error: "invalid_payment_method_input",
+        message: "holder_name, valid card number, expiry and cvv are required",
+        statusCode: 400,
+        retryable: false,
+        mock: false
+      };
+    }
+
+    if (!configured) {
+      return {
+        ok: false,
+        provider: providerCode,
+        error: "stripe_not_configured",
+        message: "PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_API_KEY",
+        statusCode: 503,
+        retryable: true,
+        mock: false
+      };
+    }
+
+    try {
+      const { response, payload } = await stripePost("/v1/payment_methods", {
+        type: "card",
+        "card[number]": cardNumber,
+        "card[exp_month]": expiryParts.expiry_month,
+        "card[exp_year]": expiryParts.expiry_year,
+        "card[cvc]": cvv,
+        "billing_details[name]": holderName,
+        "metadata[buyer_id]": input.buyer_id ? String(input.buyer_id) : undefined,
+        "metadata[deal_id]": input.deal_id ? String(input.deal_id) : undefined,
+        "metadata[correlation_id]": correlationId
+      }, correlationId);
+
+      if (!response.ok || payload?.error) {
+        const resultClass = stripeResultClass(response.status, payload);
+        return {
+          ok: false,
+          provider: providerCode,
+          error: String(payload?.error?.code || payload?.error?.type || "stripe_tokenization_failed"),
+          message: stripeErrorMessage(payload, "Stripe rejected payment method tokenization"),
+          statusCode: response.status,
+          retryable: resultClass === "temporary_fail",
+          mock: false
+        };
+      }
+
+      const paymentMethodId = String(payload?.id || "").trim();
+      if (!paymentMethodId) {
+        return {
+          ok: false,
+          provider: providerCode,
+          error: "stripe_tokenization_missing_payment_method",
+          message: "Stripe response did not include payment method id",
+          statusCode: 502,
+          retryable: true,
+          mock: false
+        };
+      }
+
+      return {
+        ok: true,
+        provider: providerCode,
+        payment_method_id: paymentMethodId,
+        provider_reference: paymentMethodId,
+        correlation_id: correlationId,
+        mock: false
+      };
+    } catch (error: any) {
+      const timeout =
+        error?.name === "TimeoutError" ||
+        error?.name === "AbortError" ||
+        String(error?.message || "").toLowerCase().includes("timed out");
+      return {
+        ok: false,
+        provider: providerCode,
+        error: timeout ? "stripe_tokenization_timeout" : "stripe_tokenization_unreachable",
+        message: timeout ? "Stripe tokenization timed out" : "Stripe tokenization could not be reached",
+        statusCode: timeout ? 504 : 503,
+        retryable: true,
+        mock: false
+      };
+    }
+  }
+
+  function executionFromStripeFailure(args: {
+    statusCode: number;
+    payload: any;
+    providerReference?: string | null;
+    correlationId: string;
+    failureEvent?: "charge_failed" | "recovery_failed" | null;
+  }): PaymentExecutionResult {
+    const resultClass = stripeResultClass(args.statusCode, args.payload);
+    return {
+      provider: providerCode,
+      result_class: resultClass,
+      retryable: resultClass === "temporary_fail",
+      mock: false,
+      provider_reference: args.providerReference ?? null,
+      correlation_id: args.correlationId,
+      reconciliation_event_type: resultClass === "permanent_fail" ? args.failureEvent ?? null : null
+    };
+  }
+
+  function verifyWebhook(args: { rawBody: string; signatureHeader?: string; timestampHeader?: string; secret?: string }) {
+    const secret = String(args.secret || process.env.STRIPE_WEBHOOK_SECRET || process.env.PAYMENT_WEBHOOK_SECRET || "").trim();
+    const header = String(args.signatureHeader || "").trim();
+    if (!secret || !header) return false;
+    const parts = Object.fromEntries(
+      header.split(",").map((part) => {
+        const [key, ...rest] = part.split("=");
+        return [String(key || "").trim(), rest.join("=").trim()];
+      })
+    );
+    const timestamp = String(parts.t || args.timestampHeader || "").trim();
+    const signature = String(parts.v1 || "").trim();
+    if (!timestamp || !signature) return false;
+    const ts = Number(timestamp);
+    if (!Number.isFinite(ts) || Math.abs(Date.now() - ts * 1000) > 5 * 60 * 1000) return false;
+    try {
+      const expected = createHmac("sha256", secret).update(`${timestamp}.${args.rawBody}`).digest("hex");
+      const expectedBuf = Buffer.from(expected, "hex");
+      const providedBuf = Buffer.from(signature, "hex");
+      if (expectedBuf.length !== providedBuf.length) return false;
+      return timingSafeEqual(expectedBuf, providedBuf);
+    } catch {
+      return false;
+    }
+  }
+
+  function parseWebhookEvent(body: Record<string, unknown>) {
+    const eventId = String(body.id || "").trim();
+    const stripeType = String(body.type || "").trim();
+    const data = (body.data as any)?.object || {};
+    if (!eventId || !stripeType) return null;
+    const metadata = data?.metadata || {};
+    const providerReference = String(data.id || data.payment_intent || data.charge || "").trim() || null;
+    const eventMap: Record<string, string> = {
+      "payment_intent.amount_capturable_updated": "payment_authorized",
+      "payment_intent.succeeded": "charge_captured",
+      "payment_intent.payment_failed": "charge_failed",
+      "charge.refunded": "refund_issued",
+      "refund.succeeded": "refund_issued",
+      "refund.failed": "charge_failed"
+    };
+    const eventType = eventMap[stripeType] || "";
+    if (!eventType) return null;
+    return {
+      provider: providerCode,
+      event_id: eventId,
+      event_type: eventType,
+      correlation_id: String(metadata.correlation_id || data.client_reference_id || "").trim() || null,
+      participant_id: String(metadata.participant_id || "").trim() || null,
+      deal_id: String(metadata.deal_id || "").trim() || null,
+      provider_reference: providerReference,
+      payload: {
+        stripe_type: stripeType,
+        provider_reference: providerReference,
+        status: data.status || null,
+        metadata
+      }
+    };
+  }
+
+  return {
+    providerCode,
+    mode: "stripe",
+    webhookProvider,
+    configured,
+    tokenize,
+    verifyWebhook,
+    parseWebhookEvent,
+    async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
+      const amountMinor = Number(input.amount_minor);
+      const currency = String(input.currency || PAYMENT_PROVIDER_CURRENCY || "ILS").trim().toLowerCase();
+      const correlationId = String(input.correlation_id || "").trim() || buildAuthorizationCorrelationId();
+      const requestId = String(input.request_id || "").trim() || correlationId;
+
+      if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
+        return authorizationValidationFailure("amount_minor must be a positive integer", "invalid_amount_minor", 400, false);
+      }
+      if (!/^[a-z]{3}$/i.test(currency)) {
+        return authorizationValidationFailure("currency must be a 3-letter ISO code", "invalid_currency", 400, false);
+      }
+      if (!configured) {
+        return authorizationValidationFailure("Stripe adapter is missing PAYMENT_PROVIDER_API_KEY", "stripe_not_configured", 503, false);
+      }
+
+      let paymentMethodId = String(input.payment_method_id || "").trim();
+      if (!paymentMethodId) {
+        const tokenized = await tokenize({ ...input, correlation_id: `tokenize:${correlationId}` });
+        if (!tokenized.ok) return tokenized;
+        paymentMethodId = tokenized.payment_method_id;
+      }
+
+      try {
+        const { response, payload } = await stripePost("/v1/payment_intents", {
+          amount: amountMinor,
+          currency,
+          payment_method: paymentMethodId,
+          confirm: "true",
+          capture_method: "manual",
+          "metadata[buyer_id]": input.buyer_id ? String(input.buyer_id) : undefined,
+          "metadata[deal_id]": input.deal_id ? String(input.deal_id) : undefined,
+          "metadata[correlation_id]": correlationId,
+          "metadata[request_id]": requestId
+        }, correlationId);
+
+        if (!response.ok || payload?.error) {
+          return mapProviderError({
+            statusCode: response.status,
+            payload: payload?.error ? { error: payload.error.code || payload.error.type, message: payload.error.message } : payload,
+            fallbackError: "stripe_authorization_failed",
+            fallbackMessage: "Stripe rejected the authorization request"
+          });
+        }
+
+        const paymentIntentId = String(payload?.id || "").trim();
+        const status = String(payload?.status || "").trim();
+        if (!paymentIntentId || !["requires_capture", "processing", "succeeded"].includes(status)) {
+          return mapProviderError({
+            statusCode: 502,
+            payload,
+            fallbackError: "stripe_authorization_unconfirmed",
+            fallbackMessage: "Stripe did not return a capturable PaymentIntent"
+          });
+        }
+
+        return {
+          ok: true,
+          provider: providerCode,
+          authorization_id: paymentIntentId,
+          provider_reference: paymentIntentId,
+          correlation_id: String(payload?.metadata?.correlation_id || correlationId),
+          authorization: "authorized",
+          hold_message: "Stripe authorized the buyer payment. Capture remains worker/outbox-driven.",
+          mock: false
+        };
+      } catch (error: any) {
+        const timeout =
+          error?.name === "TimeoutError" ||
+          error?.name === "AbortError" ||
+          String(error?.message || "").toLowerCase().includes("timed out");
+        return mapProviderError({
+          statusCode: timeout ? 504 : 503,
+          payload: null,
+          fallbackError: timeout ? "stripe_authorization_timeout" : "stripe_authorization_unreachable",
+          fallbackMessage: timeout ? "Stripe authorization timed out" : "Stripe authorization could not be reached"
+        });
+      }
+    },
+    async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
+      const paymentIntentId = String(input.authorization_id || "").trim();
+      const amountMinor = Number(input.amount_minor);
+      const correlationId = String(input.correlation_id || "").trim() || buildCaptureCorrelationId();
+      if (!configured || !paymentIntentId) {
+        return {
+          provider: providerCode,
+          result_class: "temporary_fail",
+          retryable: true,
+          mock: false,
+          provider_reference: paymentIntentId || null,
+          correlation_id: correlationId,
+          reconciliation_event_type: null
+        };
+      }
+      try {
+        const { response, payload } = await stripePost(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}/capture`, {
+          amount_to_capture: Number.isInteger(amountMinor) && amountMinor > 0 ? amountMinor : undefined,
+          "metadata[correlation_id]": correlationId,
+          "metadata[participant_id]": input.participant_id ? String(input.participant_id) : undefined,
+          "metadata[deal_id]": input.deal_id ? String(input.deal_id) : undefined,
+          "metadata[buyer_id]": input.buyer_id ? String(input.buyer_id) : undefined
+        }, correlationId);
+        if (!response.ok || payload?.error) {
+          return executionFromStripeFailure({
+            statusCode: response.status,
+            payload,
+            providerReference: paymentIntentId,
+            correlationId,
+            failureEvent: "charge_failed"
+          });
+        }
+        return {
+          provider: providerCode,
+          result_class: "success",
+          retryable: false,
+          mock: false,
+          provider_reference: String(payload?.id || paymentIntentId),
+          correlation_id: String(payload?.metadata?.correlation_id || correlationId),
+          reconciliation_event_type: "charge_captured"
+        };
+      } catch {
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+      }
+    },
+    async recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult> {
+      if (!withinWindow) {
+        return {
+          provider: providerCode,
+          result_class: "permanent_fail",
+          retryable: false,
+          mock: false,
+          provider_reference: input.authorization_id || null,
+          correlation_id: input.correlation_id || buildRecoveryCorrelationId(),
+          reconciliation_event_type: "recovery_failed"
+        };
+      }
+      const captureInput: CapturePaymentInput = {
+        correlation_id: input.correlation_id || buildRecoveryCorrelationId()
+      };
+      if (input.authorization_id) captureInput.authorization_id = input.authorization_id;
+      if (input.amount_minor !== undefined) captureInput.amount_minor = input.amount_minor;
+      if (input.currency) captureInput.currency = input.currency;
+      if (input.participant_id) captureInput.participant_id = input.participant_id;
+      if (input.deal_id) captureInput.deal_id = input.deal_id;
+      if (input.buyer_id) captureInput.buyer_id = input.buyer_id;
+      if (input.request_id) captureInput.request_id = input.request_id;
+      const result = await this.capture(captureInput);
+      const recoveryEvent =
+        result.reconciliation_event_type === "charge_captured"
+          ? "recovery_captured"
+          : result.reconciliation_event_type === "charge_failed"
+            ? "recovery_failed"
+            : result.reconciliation_event_type ?? null;
+      return {
+        ...result,
+        reconciliation_event_type: recoveryEvent
+      };
+    },
+    async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
+      const paymentIntentId = String(input.capture_reference || input.authorization_id || "").trim();
+      const amountMinor = Number(input.amount_minor);
+      const correlationId = String(input.correlation_id || "").trim() || `stripe_refund_${randomUUID().replace(/-/g, "")}`;
+      if (!configured || !paymentIntentId) {
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId || null, correlation_id: correlationId };
+      }
+      try {
+        const { response, payload } = await stripePost("/v1/refunds", {
+          payment_intent: paymentIntentId,
+          amount: Number.isInteger(amountMinor) && amountMinor > 0 ? amountMinor : undefined,
+          "metadata[correlation_id]": correlationId,
+          "metadata[participant_id]": input.participant_id ? String(input.participant_id) : undefined,
+          "metadata[deal_id]": input.deal_id ? String(input.deal_id) : undefined,
+          "metadata[buyer_id]": input.buyer_id ? String(input.buyer_id) : undefined
+        }, correlationId);
+        if (!response.ok || payload?.error) {
+          return executionFromStripeFailure({
+            statusCode: response.status,
+            payload,
+            providerReference: paymentIntentId,
+            correlationId,
+            failureEvent: null
+          });
+        }
+        return {
+          provider: providerCode,
+          result_class: "success",
+          retryable: false,
+          mock: false,
+          provider_reference: String(payload?.id || paymentIntentId),
+          correlation_id: String(payload?.metadata?.correlation_id || correlationId),
+          reconciliation_event_type: "refund_issued"
+        };
+      } catch {
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+      }
+    }
+  };
+}
+
 export function buildPaymentProvider(): PaymentProvider {
+  if (PAYMENT_PROVIDER === "stripe" || PAYMENT_PROVIDER_MODE === "stripe") {
+    return buildStripePaymentProvider();
+  }
   if (PAYMENT_PROVIDER_MODE === "provider-ready") {
     return buildProviderReadyPaymentProvider();
   }
@@ -814,13 +1278,17 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     capture_path: PAYMENT_PROVIDER_CAPTURE_PATH,
     recovery_path: PAYMENT_PROVIDER_RECOVERY_PATH,
     refund_path: PAYMENT_PROVIDER_REFUND_PATH,
-    authorization_transport_live: provider.mode === "provider-ready" && provider.configured,
-    capture_transport_live: provider.mode === "provider-ready" && provider.configured,
-    recovery_transport_live: provider.mode === "provider-ready" && provider.configured,
-    refund_transport_live: provider.mode === "provider-ready" && provider.configured,
+    tokenization_transport_live: provider.mode === "stripe" && provider.configured,
+    authorization_transport_live: provider.mode !== "mock-backed" && provider.configured,
+    capture_transport_live: provider.mode !== "mock-backed" && provider.configured,
+    recovery_transport_live: provider.mode !== "mock-backed" && provider.configured,
+    refund_transport_live: provider.mode !== "mock-backed" && provider.configured,
+    webhook_verification_live: provider.mode === "stripe" && provider.configured,
+    payment_reconcile_live: provider.mode !== "mock-backed",
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
-    supported_modes: ["mock-backed", "provider-ready"],
+    supported_modes: ["mock-backed", "provider-ready", "stripe"],
     adapter_contract: {
+      tokenize: "Stripe PaymentMethod creation when PAYMENT_PROVIDER=stripe",
       authorize: "authorization intent only, no capture side-effects",
       capture: "charge capture result with reconciliation event mapping",
       recover: "completion-window recovery capture result with reconciliation event mapping",

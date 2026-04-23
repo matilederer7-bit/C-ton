@@ -727,6 +727,14 @@ export function registerFrontendExperience(
     try {
       // Include timestamp in the signed payload when present (prevents replay without timestamp)
       const signingInput = timestampHeader ? `${timestampHeader}.${rawBody}` : rawBody;
+      if (deps.paymentProvider.verifyWebhook) {
+        return deps.paymentProvider.verifyWebhook({
+          rawBody,
+          signatureHeader,
+          ...(timestampHeader ? { timestampHeader } : {}),
+          secret: PAYMENT_WEBHOOK_SECRET
+        });
+      }
       const expected = createHmac("sha256", PAYMENT_WEBHOOK_SECRET).update(signingInput).digest("hex");
       const expectedBuf = Buffer.from(expected, "hex");
       const providedBuf = Buffer.from(signatureHeader.replace(/^sha256=/, ""), "hex");
@@ -1547,7 +1555,7 @@ export function registerFrontendExperience(
   async function handleWebhookPayments(req: FastifyRequest, reply: FastifyReply) {
     const rawBody = JSON.stringify(req.body); // Fastify has already parsed JSON
     const headers = req.headers as Record<string, string | undefined>;
-    const signatureHeader = String(headers["x-webhook-signature"] || "");
+    const signatureHeader = String(headers["x-webhook-signature"] || headers["stripe-signature"] || "");
     const timestampHeader = String(headers["x-webhook-timestamp"] || "");
 
     if (!verifyWebhookSignature(rawBody, signatureHeader || undefined, timestampHeader || undefined)) {
@@ -1558,9 +1566,10 @@ export function registerFrontendExperience(
     }
 
     const body = req.body as Record<string, unknown>;
-    const provider = String(body["provider"] || "unknown");
-    const eventId = String(body["event_id"] || "");
-    const eventType = String(body["event_type"] || "");
+    const normalizedProviderEvent = deps.paymentProvider.parseWebhookEvent?.(body) ?? null;
+    const provider = String(normalizedProviderEvent?.provider || body["provider"] || "unknown");
+    const eventId = String(normalizedProviderEvent?.event_id || body["event_id"] || "");
+    const eventType = String(normalizedProviderEvent?.event_type || body["event_type"] || "");
 
     if (!eventId) {
       return reply.code(400).send({ error: "missing_event_id", message: "event_id is required" });
@@ -1569,15 +1578,15 @@ export function registerFrontendExperience(
       return reply.code(400).send({ error: "missing_event_type", message: "event_type is required" });
     }
 
-    const payload = (body["payload"] as Record<string, unknown> | undefined) ?? {};
-    const correlationId = body["correlation_id"] ? String(body["correlation_id"]) : null;
-    const participantId = body["participant_id"] ? String(body["participant_id"]) : null;
-    const dealId = body["deal_id"] ? String(body["deal_id"]) : null;
-    const providerReference = body["provider_reference"]
+    const payload = normalizedProviderEvent?.payload ?? ((body["payload"] as Record<string, unknown> | undefined) ?? {});
+    const correlationId = normalizedProviderEvent?.correlation_id ?? (body["correlation_id"] ? String(body["correlation_id"]) : null);
+    const participantId = normalizedProviderEvent?.participant_id ?? (body["participant_id"] ? String(body["participant_id"]) : null);
+    const dealId = normalizedProviderEvent?.deal_id ?? (body["deal_id"] ? String(body["deal_id"]) : null);
+    const providerReference = normalizedProviderEvent?.provider_reference ?? (body["provider_reference"]
       ? String(body["provider_reference"])
       : payload["provider_reference"]
         ? String(payload["provider_reference"])
-        : null;
+        : null);
 
     // Ingest (idempotent — duplicate provider+event_id returns existing status)
     const ingested = await webhookIngestion.claimEvent({
@@ -2915,6 +2924,7 @@ export function registerFrontendExperience(
     if (req.body?.buyer_id) authorizeInput.buyer_id = String(req.body.buyer_id);
     if (req.body?.deal_id) authorizeInput.deal_id = String(req.body.deal_id);
     if (req.body?.correlation_id) authorizeInput.correlation_id = String(req.body.correlation_id);
+    if (req.body?.payment_method_id) authorizeInput.payment_method_id = String(req.body.payment_method_id);
     const result = await deps.paymentProvider.authorize(authorizeInput);
 
     if (!result.ok) {
@@ -2925,6 +2935,29 @@ export function registerFrontendExperience(
   };
   app.post("/api/payments/authorize", handleAuthorizePayment);
   app.post("/api/payments/authorize-mock", handleAuthorizePayment);
+
+  app.post("/api/payments/tokenize", async (req: any, reply: any) => {
+    if (!deps.paymentProvider.tokenize) {
+      return reply.code(501).send({
+        ok: false,
+        error: "tokenization_not_supported",
+        message: "The active payment provider does not expose tokenization"
+      });
+    }
+    const tokenizeInput: Parameters<NonNullable<typeof deps.paymentProvider.tokenize>>[0] = {
+      holder_name: String(req.body?.holder_name || ""),
+      card_number: String(req.body?.card_number || ""),
+      expiry: String(req.body?.expiry || ""),
+      cvv: String(req.body?.cvv || ""),
+      request_id: String(req.headers?.["x-request-id"] || req.id || "")
+    };
+    if (req.body?.buyer_id) tokenizeInput.buyer_id = String(req.body.buyer_id);
+    if (req.body?.deal_id) tokenizeInput.deal_id = String(req.body.deal_id);
+    if (req.body?.correlation_id) tokenizeInput.correlation_id = String(req.body.correlation_id);
+    const result = await deps.paymentProvider.tokenize(tokenizeInput);
+    if (!result.ok) return reply.code(result.statusCode).send(result);
+    return reply.code(200).send(result);
+  });
 
   app.get("/app/assets/styles.css", async (_req, reply) =>
     sendFrontendFile(reply, "styles.css", "text/css; charset=utf-8")
