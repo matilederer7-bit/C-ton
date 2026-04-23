@@ -1,5 +1,16 @@
 # PROJECT STATUS
 
+Current update: 2026-04-23 (seller payout rail canonical settlement model: eligibility, calculation, provider DTOs)
+
+- Completed: tightened the seller payout rail into the requested canonical domain model: `seller_settlements`, `seller_payout_batches`, `seller_payout_batch_items`, `seller_payout_attempts`, and `seller_payout_reconciliation_cases`. The lifecycle is now closed around `pending`, `ready`, `batched`, `processing`, `paid`, `failed`, `returned`, and `reconciled`; payout math separates `gross_collected`, `platform_fee_total`, `refunds_total`, `reserve_amount`, `seller_net_payable`, and `payout_amount`; and the locked 8% fee-before-VAT model remains untouched.
+- Completed: payout eligibility now depends on final deal truth (`Completed` only), active seller settlement status, no duplicate paid/batched settlement, no negative or mismatched seller-net truth, and no open blocking reconciliation case. Failed/Cancelled deals produce no real payout batch.
+- Completed: added deterministic settlement/batch calculation, batch itemization, prepare/dispatch/reconcile attempts, idempotency keys, correlation IDs, audit-friendly payloads, outbox-only side effects, retry-safe dispatch behavior, and blocking reconciliation cases for mismatches.
+- Completed: expanded the provider abstraction for future payout adapters with normalized `createPayout`, `getPayoutStatus`, `cancelPayout`, `reconcilePayout`, and `parsePayoutWebhookEvent` contracts plus the closed result taxonomy `success`, `permanent_fail`, `temporary_fail`, and `unknown`. The active provider remains `internal-truth-only`; no external transfer is executed.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/seller_payout_rail_validation.js` PASS across prepare/dispatch/reconcile, seller hold blocking, and refund-after-dispatch mismatch cases.
+- Open: real provider HTTP execution, provider webhook authenticity, real bank/transfer adapter mapping, and production reconcile feeds remain future external-activation work.
+- Progress: `96%` of the internal seller payout rail track.
+- Next step: commit and push the canonicalized payout rail milestone; external adapter activation stays separate.
+
 Current update: 2026-04-22 (Wave 3 spec-drift sweep: 5-domain audit + regression rail)
 
 - Completed: closed the five Wave 3 invariants. (D1) buyer-facing search/marketplace/catalog routes — none re-introduced; admin omnisearch is the only legitimate search surface. (D2) platform fee is fixed at `SITON_PLATFORM_FEE_RATE = 0.08` everywhere; no `0.05`/`5%` literal survives in live settlement code. (D3) fee base = `qty × price_per_unit + delivery_cost` excl. VAT — confirmed in [src/platform_fee_money.ts](src/platform_fee_money.ts) and `summarizeMoney`. (D4) buyer can repeat-purchase same deal — no `UNIQUE (deal_id, buyer_id)` exists in [scripts/init_db.sql](scripts/init_db.sql) or any migration; positive coverage in [tests/concurrency_proof.ts](tests/concurrency_proof.ts) M1/M2/M3. (D5) distributor copy is attribution-only on every active surface — no `affiliate_earnings`/`balance`/`withdraw` strings.
@@ -11,13 +22,13 @@ Current update: 2026-04-22 (Wave 3 spec-drift sweep: 5-domain audit + regression
 - Open: historical audit/process docs (e.g. `SPEC_DRIFT_MAP_2026-04-19.md`, `CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`) intentionally preserve `commission_rate` references because they document the drift that was fixed; they are not perpetuating the model.
 - Next step: continue any other parallel tracks; the Wave 3 invariants now have an automated regression rail.
 
-Current update: 2026-04-22 (seller payout rail internal truth: provider-agnostic batches, retry/reconcile flow, no external transfer yet)
+Current update: 2026-04-22 (seller payout rail internal truth: provider-agnostic batches, retry/reconcile flow, no external transfer yet; superseded by 2026-04-23 canonical settlement model)
 
-- Completed: added a canonical seller payout rail on top of the locked `platform_fee_money_events` truth without reopening the `platform_fee_base_amount` / `platform_fee_vat_amount` / `platform_fee_total_amount` decision; introduced `seller_payout_batches`, `seller_payout_batch_items`, `seller_payout_attempts`, and `seller_payout_reconciliation`; added a provider-agnostic `payout_provider` abstraction in explicit `internal-truth-only` mode; wired new outbox events `seller_payout_prepare`, `seller_payout_dispatch`, and `seller_payout_reconcile` through the worker; and exposed admin payout observability via payout status, batch profile, seller readiness, and per-deal payout summaries.
-- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; attempted `node .tmp_test_dist/tests/seller_payout_rail_validation.js`, but the run was blocked by local Postgres authentication (`DATABASE_URL=postgres://postgres:861434Ml@localhost:5432/postgres` returned `password authentication failed for user "postgres"`), so dynamic DB-backed payout validation remains pending on environment access rather than on a TypeScript/runtime compile error.
-- Open: external payout execution is still intentionally inactive; the new rail closes internal truth only and does not claim bank transfer or provider disbursement; adapter-specific HTTP execution, provider webhook/reconciliation mapping, and a live environment with working DB credentials are still required before this track can be declared externally activated.
-- Progress: `88%` of the seller payout rail track.
-- Next step: restore working Postgres access, run the focused seller payout validation end to end, then harden any remaining DB/runtime mismatches before wiring a real payout adapter onto the new batch/dispatch/reconcile boundary.
+- Completed: first internal payout rail slice landed on top of the locked `platform_fee_money_events` truth without reopening the `platform_fee_base_amount` / `platform_fee_vat_amount` / `platform_fee_total_amount` decision; this was later tightened into the 2026-04-23 canonical `seller_settlements` + payout batch/item/attempt/reconciliation-case model.
+- Checked: initial TypeScript compile passed; the focused DB-backed payout validation was completed in the 2026-04-23 follow-up after local DB access was restored and legacy payout columns were self-healed.
+- Open: external payout execution remains intentionally inactive; adapter-specific HTTP execution, provider webhook authenticity, and production reconciliation feeds are still future activation work.
+- Progress: superseded by the 2026-04-23 seller payout rail update.
+- Next step: follow the current 2026-04-23 payout rail milestone.
 
 Current update: 2026-04-21 (provider-ready payments abstraction closed: 8% fee before VAT, VAT added on Siton fee)
 

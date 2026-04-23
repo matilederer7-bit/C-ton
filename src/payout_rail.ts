@@ -1,101 +1,275 @@
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
 import type {
-  PayoutDispatchResult,
+  PayoutLifecycleStatus,
   PayoutProvider,
-  PayoutReconciliationResult
+  PayoutReconciliationResult,
+  PayoutResultClass
 } from "./payout_provider.js";
 
-export type PayoutBatchStatus =
-  | "blocked"
-  | "ready"
-  | "dispatching"
-  | "submitted_for_execution"
-  | "reconciled_internal"
-  | "manual_review"
-  | "failed";
+export type SellerSettlementStatus = PayoutLifecycleStatus;
+export type PayoutBatchStatus = PayoutLifecycleStatus;
+export type PayoutItemStatus = PayoutLifecycleStatus;
+export type PayoutAttemptType =
+  | "prepare"
+  | "create_payout"
+  | "get_payout_status"
+  | "cancel_payout"
+  | "reconcile_payout";
+export type PayoutReconciliationCaseStatus = "open" | "resolved";
 
-export type PayoutItemStatus =
-  | "eligible"
-  | "blocked"
-  | "dispatching"
-  | "submitted_for_execution"
-  | "reconciled_internal"
-  | "reversed"
-  | "failed";
+let ensurePayoutRailPromise: Promise<void> | null = null;
 
-type EligibleItem = {
-  participant_id: string;
-  deal_id: string;
+type SettlementCalculation = {
   seller_id: string;
-  seller_settlement_status: string;
-  buyer_state: string;
-  money_state: string;
-  gross_amount: number;
-  vat_amount: number;
-  fee_base_amount: number;
-  platform_fee_base_amount: number;
-  platform_fee_vat_amount: number;
-  platform_fee_total_amount: number;
-  seller_net_amount: number;
+  deal_id: string;
+  deal_state: string;
+  gross_collected: number;
+  platform_fee_total: number;
+  refunds_total: number;
+  reserve_amount: number;
+  seller_net_payable: number;
+  payout_amount: number;
+  paid_amount: number;
+  failed_amount: number;
+  returned_amount: number;
+  blocked_amount: number;
+  delayed_amount: number;
   source_money_event_count: number;
+  blocking_reasons: string[];
+  has_open_blocking_reconciliation_case: boolean;
+  has_open_mismatch: boolean;
+  existing_payout_statuses: string[];
+  eligible: boolean;
+  payout_status: SellerSettlementStatus;
 };
 
-export async function ensurePayoutRailTables(withTx: WithTx) {
-  await withTx(async (c) => {
-    await c.query(`
-      DO $$
-      DECLARE
-        v_def text;
-      BEGIN
-        SELECT pg_get_constraintdef(oid)
-        INTO v_def
-        FROM pg_constraint
-        WHERE conrelid = 'siton.outbox_events'::regclass
-          AND conname = 'outbox_events_aggregate_type_check';
+type BatchCalculation = {
+  seller_id: string;
+  settlement_count: number;
+  gross_collected: number;
+  platform_fee_total: number;
+  refunds_total: number;
+  reserve_amount: number;
+  seller_net_payable: number;
+  payout_amount: number;
+  paid_amount: number;
+  failed_amount: number;
+  returned_amount: number;
+  blocked_amount: number;
+  delayed_amount: number;
+  payout_status: PayoutBatchStatus;
+};
 
-        IF v_def IS NOT NULL AND position('seller_payout_batch' in v_def) = 0 THEN
-          ALTER TABLE siton.outbox_events DROP CONSTRAINT IF EXISTS outbox_events_aggregate_type_check;
-          ALTER TABLE siton.outbox_events
-            ADD CONSTRAINT outbox_events_aggregate_type_check
-            CHECK (aggregate_type IN ('deal','participant','seller_payout_batch')) NOT VALID;
-          ALTER TABLE siton.outbox_events VALIDATE CONSTRAINT outbox_events_aggregate_type_check;
-        END IF;
-      END $$`
-    );
+function roundMoney(value: number) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function uniqueStrings(values: string[]) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function firstBlockingStatus(statuses: string[]) {
+  const normalized = statuses.map((value) => String(value || "").trim().toLowerCase());
+  if (normalized.includes("paid")) return "paid";
+  if (normalized.includes("reconciled")) return "reconciled";
+  if (normalized.includes("processing")) return "processing";
+  if (normalized.includes("batched")) return "batched";
+  if (normalized.includes("returned")) return "returned";
+  if (normalized.includes("failed")) return "failed";
+  return null;
+}
+
+function deriveSettlementStatus(args: {
+  deal_state: string;
+  eligible: boolean;
+  payout_amount: number;
+  blocking_reasons: string[];
+  existing_payout_statuses: string[];
+}) {
+  const existingStatus = firstBlockingStatus(args.existing_payout_statuses);
+  if (existingStatus) return existingStatus as SellerSettlementStatus;
+  if (String(args.deal_state) !== "Completed") return "pending" as const;
+  if (!args.eligible) return "pending" as const;
+  if (args.blocking_reasons.length > 0) return "pending" as const;
+  if (args.payout_amount <= 0) return "returned" as const;
+  return "ready" as const;
+}
+
+function summarizeBatchFromSettlements(settlements: SettlementCalculation[]): BatchCalculation {
+  const totals = settlements.reduce(
+    (acc, settlement) => ({
+      gross_collected: roundMoney(acc.gross_collected + settlement.gross_collected),
+      platform_fee_total: roundMoney(acc.platform_fee_total + settlement.platform_fee_total),
+      refunds_total: roundMoney(acc.refunds_total + settlement.refunds_total),
+      reserve_amount: roundMoney(acc.reserve_amount + settlement.reserve_amount),
+      seller_net_payable: roundMoney(acc.seller_net_payable + settlement.seller_net_payable),
+      payout_amount: roundMoney(acc.payout_amount + settlement.payout_amount),
+      paid_amount: roundMoney(acc.paid_amount + settlement.paid_amount),
+      failed_amount: roundMoney(acc.failed_amount + settlement.failed_amount),
+      returned_amount: roundMoney(acc.returned_amount + settlement.returned_amount),
+      blocked_amount: roundMoney(acc.blocked_amount + settlement.blocked_amount),
+      delayed_amount: roundMoney(acc.delayed_amount + settlement.delayed_amount)
+    }),
+    {
+      gross_collected: 0,
+      platform_fee_total: 0,
+      refunds_total: 0,
+      reserve_amount: 0,
+      seller_net_payable: 0,
+      payout_amount: 0,
+      paid_amount: 0,
+      failed_amount: 0,
+      returned_amount: 0,
+      blocked_amount: 0,
+      delayed_amount: 0
+    }
+  );
+
+  let payout_status: PayoutBatchStatus = "pending";
+  if (settlements.length > 0 && settlements.every((settlement) => settlement.payout_status === "ready")) {
+    payout_status = "ready";
+  }
+
+  return {
+    seller_id: settlements[0]?.seller_id || "",
+    settlement_count: settlements.length,
+    ...totals,
+    payout_status
+  };
+}
+
+async function replaceCheckConstraint(c: any, args: {
+  tableName: string;
+  constraintName: string;
+  expectedSnippet: string;
+  definitionSql: string;
+}) {
+  const tableName = args.tableName.replace(/'/g, "''");
+  const constraintName = args.constraintName.replace(/'/g, "''");
+  const expectedSnippet = args.expectedSnippet.replace(/'/g, "''");
+  const definitionSql = args.definitionSql.replace(/'/g, "''");
+
+  await c.query(`
+    DO $$
+    DECLARE
+      v_def text;
+    BEGIN
+      SELECT pg_get_constraintdef(oid)
+      INTO v_def
+      FROM pg_constraint
+      WHERE conrelid = '${tableName}'::regclass
+        AND conname = '${constraintName}';
+
+      IF v_def IS NULL OR position('${expectedSnippet}' in v_def) = 0 THEN
+        EXECUTE 'ALTER TABLE ${tableName} DROP CONSTRAINT IF EXISTS ${constraintName}';
+        EXECUTE 'ALTER TABLE ${tableName} ADD CONSTRAINT ${constraintName} ${definitionSql} NOT VALID';
+        EXECUTE 'ALTER TABLE ${tableName} VALIDATE CONSTRAINT ${constraintName}';
+      END IF;
+    END $$`
+  );
+}
+
+export async function ensurePayoutRailTables(withTx: WithTx) {
+  if (!ensurePayoutRailPromise) {
+    ensurePayoutRailPromise = withTx(async (c) => {
+    await replaceCheckConstraint(c, {
+      tableName: "siton.outbox_events",
+      constraintName: "outbox_events_aggregate_type_check",
+      expectedSnippet: "seller_payout_batch",
+      definitionSql: "CHECK (aggregate_type IN ('deal','participant','seller_payout_batch'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.outbox_events",
+      constraintName: "outbox_events_event_type_check",
+      expectedSnippet: "seller_payout_reconcile",
+      definitionSql: "CHECK (event_type IN ('charge_deal','recovery_deal','finalize_deal','refund_issue','deadline_check','cancel_refund','seller_payout_prepare','seller_payout_dispatch','seller_payout_reconcile'))"
+    });
+
+    await c.query(`
+      CREATE TABLE IF NOT EXISTS siton.seller_settlements (
+        seller_settlement_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        seller_id TEXT NOT NULL REFERENCES siton.seller_accounts(seller_id) ON DELETE CASCADE,
+        deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
+        payout_batch_id UUID NULL,
+        payout_status TEXT NOT NULL DEFAULT 'pending',
+        calculation_version TEXT NOT NULL DEFAULT 'v1',
+        gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0,
+        payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        failed_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        returned_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        blocked_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        delayed_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        mismatch_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        source_money_event_count INT NOT NULL DEFAULT 0,
+        has_open_mismatch BOOLEAN NOT NULL DEFAULT FALSE,
+        has_open_blocking_reconciliation_case BOOLEAN NOT NULL DEFAULT FALSE,
+        final_truth_basis TEXT NOT NULL DEFAULT '',
+        blocker_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+        correlation_id TEXT NULL,
+        idempotency_key TEXT NOT NULL,
+        last_calculated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (deal_id),
+        UNIQUE (idempotency_key)
+      )
+    `);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS payout_batch_id UUID NULL`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS payout_status TEXT NOT NULL DEFAULT 'pending'`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS failed_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS returned_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS blocked_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS delayed_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS mismatch_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS source_money_event_count INT NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS has_open_mismatch BOOLEAN NOT NULL DEFAULT FALSE`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS has_open_blocking_reconciliation_case BOOLEAN NOT NULL DEFAULT FALSE`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS final_truth_basis TEXT NOT NULL DEFAULT ''`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS idempotency_key TEXT NOT NULL DEFAULT 'legacy-seller-settlement'`);
+    await c.query(`ALTER TABLE siton.seller_settlements ADD COLUMN IF NOT EXISTS last_calculated_at TIMESTAMPTZ NOT NULL DEFAULT now()`);
 
     await c.query(`
       CREATE TABLE IF NOT EXISTS siton.seller_payout_batches (
         payout_batch_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         seller_id TEXT NOT NULL REFERENCES siton.seller_accounts(seller_id) ON DELETE CASCADE,
         trigger_deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
-        payout_status TEXT NOT NULL
-          CHECK (payout_status IN (
-            'blocked',
-            'ready',
-            'dispatching',
-            'submitted_for_execution',
-            'reconciled_internal',
-            'manual_review',
-            'failed'
-          )),
+        payout_status TEXT NOT NULL DEFAULT 'pending',
         provider_code TEXT NOT NULL,
         provider_batch_reference TEXT NULL,
         correlation_id TEXT NULL,
         idempotency_key TEXT NOT NULL,
         currency TEXT NOT NULL DEFAULT 'ILS',
-        seller_settlement_status TEXT NOT NULL,
+        settlement_count INT NOT NULL DEFAULT 0,
         item_count INT NOT NULL DEFAULT 0,
-        gross_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        eligibility_reason TEXT NOT NULL DEFAULT '',
+        gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0,
+        payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        failed_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        returned_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        blocked_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        delayed_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        blocker_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
         external_transfer_executed BOOLEAN NOT NULL DEFAULT FALSE,
-        dispatched_at TIMESTAMPTZ NULL,
+        created_payout_at TIMESTAMPTZ NULL,
+        paid_at TIMESTAMPTZ NULL,
         reconciled_at TIMESTAMPTZ NULL,
         last_error TEXT NULL,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -103,36 +277,57 @@ export async function ensurePayoutRailTables(withTx: WithTx) {
         UNIQUE (idempotency_key)
       )
     `);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS payout_status TEXT NOT NULL DEFAULT 'pending'`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS settlement_count INT NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS item_count INT NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS failed_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS returned_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS blocked_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS delayed_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS blocker_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[]`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS created_payout_at TIMESTAMPTZ NULL`);
+    await c.query(`ALTER TABLE siton.seller_payout_batches ADD COLUMN IF NOT EXISTS paid_at TIMESTAMPTZ NULL`);
+    await c.query(`
+      ALTER TABLE siton.seller_payout_batches
+        DROP COLUMN IF EXISTS seller_settlement_status,
+        DROP COLUMN IF EXISTS gross_amount,
+        DROP COLUMN IF EXISTS vat_amount,
+        DROP COLUMN IF EXISTS fee_base_amount,
+        DROP COLUMN IF EXISTS platform_fee_base_amount,
+        DROP COLUMN IF EXISTS platform_fee_vat_amount,
+        DROP COLUMN IF EXISTS platform_fee_total_amount,
+        DROP COLUMN IF EXISTS seller_net_amount,
+        DROP COLUMN IF EXISTS eligibility_reason,
+        DROP COLUMN IF EXISTS dispatched_at
+    `);
 
     await c.query(`
       CREATE TABLE IF NOT EXISTS siton.seller_payout_batch_items (
         payout_item_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         payout_batch_id UUID NOT NULL REFERENCES siton.seller_payout_batches(payout_batch_id) ON DELETE CASCADE,
+        seller_settlement_id UUID NULL REFERENCES siton.seller_settlements(seller_settlement_id) ON DELETE SET NULL,
         participant_id UUID NOT NULL REFERENCES siton.participants(participant_id) ON DELETE CASCADE,
         deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
         seller_id TEXT NOT NULL REFERENCES siton.seller_accounts(seller_id) ON DELETE CASCADE,
-        payout_status TEXT NOT NULL
-          CHECK (payout_status IN (
-            'eligible',
-            'blocked',
-            'dispatching',
-            'submitted_for_execution',
-            'reconciled_internal',
-            'reversed',
-            'failed'
-          )),
+        payout_status TEXT NOT NULL DEFAULT 'pending',
         correlation_id TEXT NULL,
         idempotency_key TEXT NOT NULL,
+        gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0,
+        platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0,
+        reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0,
+        payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         source_money_event_count INT NOT NULL DEFAULT 0,
         buyer_state_at_batch TEXT NOT NULL,
         money_state_at_batch TEXT NOT NULL,
-        gross_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         provider_item_reference TEXT NULL,
         external_transfer_executed BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -141,16 +336,33 @@ export async function ensurePayoutRailTables(withTx: WithTx) {
         UNIQUE (idempotency_key)
       )
     `);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS seller_settlement_id UUID NULL`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS payout_status TEXT NOT NULL DEFAULT 'pending'`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS gross_collected NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS platform_fee_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS refunds_total NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS reserve_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS seller_net_payable NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`ALTER TABLE siton.seller_payout_batch_items ADD COLUMN IF NOT EXISTS payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0`);
+    await c.query(`
+      ALTER TABLE siton.seller_payout_batch_items
+        DROP COLUMN IF EXISTS gross_amount,
+        DROP COLUMN IF EXISTS vat_amount,
+        DROP COLUMN IF EXISTS fee_base_amount,
+        DROP COLUMN IF EXISTS platform_fee_base_amount,
+        DROP COLUMN IF EXISTS platform_fee_vat_amount,
+        DROP COLUMN IF EXISTS platform_fee_total_amount,
+        DROP COLUMN IF EXISTS seller_net_amount
+    `);
 
     await c.query(`
       CREATE TABLE IF NOT EXISTS siton.seller_payout_attempts (
         payout_attempt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         payout_batch_id UUID NOT NULL REFERENCES siton.seller_payout_batches(payout_batch_id) ON DELETE CASCADE,
         payout_item_id UUID NULL REFERENCES siton.seller_payout_batch_items(payout_item_id) ON DELETE CASCADE,
-        attempt_type TEXT NOT NULL
-          CHECK (attempt_type IN ('prepare','dispatch','reconcile')),
-        result_class TEXT NOT NULL
-          CHECK (result_class IN ('success','permanent_fail','temporary_fail','unknown')),
+        attempt_type TEXT NOT NULL,
+        result_class TEXT NOT NULL,
+        payout_status TEXT NULL,
         correlation_id TEXT NOT NULL,
         provider_reference TEXT NULL,
         payload JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -158,27 +370,98 @@ export async function ensurePayoutRailTables(withTx: WithTx) {
         UNIQUE (payout_batch_id, payout_item_id, attempt_type, correlation_id)
       )
     `);
+    await c.query(`ALTER TABLE siton.seller_payout_attempts ADD COLUMN IF NOT EXISTS payout_status TEXT NULL`);
 
     await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.seller_payout_reconciliation (
-        payout_reconciliation_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        payout_batch_id UUID NOT NULL REFERENCES siton.seller_payout_batches(payout_batch_id) ON DELETE CASCADE,
-        provider_code TEXT NOT NULL,
-        reconciliation_status TEXT NOT NULL
-          CHECK (reconciliation_status IN ('matched','manual_review')),
+      CREATE TABLE IF NOT EXISTS siton.seller_payout_reconciliation_cases (
+        payout_reconciliation_case_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        seller_settlement_id UUID NULL REFERENCES siton.seller_settlements(seller_settlement_id) ON DELETE CASCADE,
+        payout_batch_id UUID NULL REFERENCES siton.seller_payout_batches(payout_batch_id) ON DELETE CASCADE,
+        seller_id TEXT NOT NULL REFERENCES siton.seller_accounts(seller_id) ON DELETE CASCADE,
+        deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
+        case_status TEXT NOT NULL DEFAULT 'open',
+        case_type TEXT NOT NULL,
         correlation_id TEXT NOT NULL,
-        provider_batch_reference TEXT NULL,
+        blocking_payout BOOLEAN NOT NULL DEFAULT TRUE,
+        expected_payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
+        observed_payout_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         expected_item_count INT NOT NULL DEFAULT 0,
         observed_item_count INT NOT NULL DEFAULT 0,
-        expected_seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        observed_seller_net_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
-        external_transfer_executed BOOLEAN NOT NULL DEFAULT FALSE,
         details JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        UNIQUE (payout_batch_id, correlation_id)
+        resolved_at TIMESTAMPTZ NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
       )
     `);
 
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_settlements",
+      constraintName: "seller_settlements_payout_status_check",
+      expectedSnippet: "'reconciled'",
+      definitionSql: "CHECK (payout_status IN ('pending','ready','batched','processing','paid','failed','returned','reconciled'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_payout_batches",
+      constraintName: "seller_payout_batches_payout_status_check",
+      expectedSnippet: "'reconciled'",
+      definitionSql: "CHECK (payout_status IN ('pending','ready','batched','processing','paid','failed','returned','reconciled'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_payout_batch_items",
+      constraintName: "seller_payout_batch_items_payout_status_check",
+      expectedSnippet: "'reconciled'",
+      definitionSql: "CHECK (payout_status IN ('pending','ready','batched','processing','paid','failed','returned','reconciled'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_payout_attempts",
+      constraintName: "seller_payout_attempts_attempt_type_check",
+      expectedSnippet: "'reconcile_payout'",
+      definitionSql: "CHECK (attempt_type IN ('prepare','create_payout','get_payout_status','cancel_payout','reconcile_payout'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_payout_attempts",
+      constraintName: "seller_payout_attempts_result_class_check",
+      expectedSnippet: "'unknown'",
+      definitionSql: "CHECK (result_class IN ('success','permanent_fail','temporary_fail','unknown'))"
+    });
+    await replaceCheckConstraint(c, {
+      tableName: "siton.seller_payout_reconciliation_cases",
+      constraintName: "seller_payout_reconciliation_cases_case_status_check",
+      expectedSnippet: "'resolved'",
+      definitionSql: "CHECK (case_status IN ('open','resolved'))"
+    });
+
+    await c.query(`
+      ALTER TABLE siton.seller_payout_batches
+      ADD COLUMN IF NOT EXISTS settlement_count INT NOT NULL DEFAULT 0
+    `);
+    await c.query(`
+      ALTER TABLE siton.seller_payout_batch_items
+      ADD COLUMN IF NOT EXISTS seller_settlement_id UUID NULL
+    `);
+    await c.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (
+          SELECT 1
+          FROM information_schema.columns
+          WHERE table_schema='siton'
+            AND table_name='seller_settlements'
+            AND column_name='blocker_reasons'
+        ) THEN
+          ALTER TABLE siton.seller_settlements
+          ADD COLUMN blocker_reasons TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[];
+        END IF;
+      END $$`
+    );
+
+    await c.query(`
+      CREATE INDEX IF NOT EXISTS idx_seller_settlements_seller_created
+      ON siton.seller_settlements (seller_id, created_at DESC)
+    `);
+    await c.query(`
+      CREATE INDEX IF NOT EXISTS idx_seller_settlements_status_created
+      ON siton.seller_settlements (payout_status, created_at DESC)
+    `);
     await c.query(`
       CREATE INDEX IF NOT EXISTS idx_seller_payout_batches_seller_created
       ON siton.seller_payout_batches (seller_id, created_at DESC)
@@ -195,11 +478,14 @@ export async function ensurePayoutRailTables(withTx: WithTx) {
       CREATE INDEX IF NOT EXISTS idx_seller_payout_attempts_batch_created
       ON siton.seller_payout_attempts (payout_batch_id, created_at DESC)
     `);
-  });
-}
+    await c.query(`
+      CREATE INDEX IF NOT EXISTS idx_seller_payout_reconciliation_cases_open
+      ON siton.seller_payout_reconciliation_cases (seller_id, deal_id, created_at DESC)
+    `);
+    });
+  }
 
-function roundMoney(value: number) {
-  return Math.round((Number(value) || 0) * 100) / 100;
+  await ensurePayoutRailPromise;
 }
 
 async function insertOutboxEventIfMissing(c: any, args: {
@@ -229,64 +515,249 @@ async function insertOutboxEventIfMissing(c: any, args: {
   return true;
 }
 
-async function loadEligibleItemsForDeal(c: any, dealId: string): Promise<EligibleItem[]> {
-  const result = await c.query(
+async function calculateSellerSettlementForDealInTx(c: any, dealId: string, options?: {
+  exclude_payout_batch_id?: string | null;
+}): Promise<SettlementCalculation | null> {
+  const dealResult = await c.query(
+    `SELECT d.deal_id, d.seller_id, d.state, sa.settlement_status
+     FROM siton.deals d
+     JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+     WHERE d.deal_id=$1
+     LIMIT 1`,
+    [dealId]
+  );
+  if (!dealResult.rowCount) return null;
+
+  const deal = dealResult.rows[0];
+  const settlementStatus = String(deal.settlement_status || "active");
+
+  const moneyResult = await c.query(
     `SELECT
-       p.participant_id,
-       p.deal_id,
-       d.seller_id,
-       sa.settlement_status AS seller_settlement_status,
-       p.buyer_state,
-       p.money_state,
-       COUNT(m.money_event_id)::int AS source_money_event_count,
-       COALESCE(SUM(m.gross_amount), 0) AS gross_amount,
-       COALESCE(SUM(m.vat_amount), 0) AS vat_amount,
-       COALESCE(SUM(m.fee_base_amount), 0) AS fee_base_amount,
-       COALESCE(SUM(m.platform_fee_base_amount), 0) AS platform_fee_base_amount,
-       COALESCE(SUM(m.platform_fee_vat_amount), 0) AS platform_fee_vat_amount,
-       COALESCE(SUM(m.platform_fee_total_amount), 0) AS platform_fee_total_amount,
-       COALESCE(SUM(m.seller_net_amount), 0) AS seller_net_amount
-     FROM siton.participants p
-     JOIN siton.deals d
-       ON d.deal_id = p.deal_id
-     JOIN siton.seller_accounts sa
-       ON sa.seller_id = d.seller_id
-     JOIN siton.platform_fee_money_events m
-       ON m.participant_id = p.participant_id
-     LEFT JOIN siton.seller_payout_batch_items spi
-       ON spi.participant_id = p.participant_id
-     WHERE p.deal_id = $1
-       AND p.buyer_state = 'DealCompleted'
-       AND p.money_state IN ('ChargedSuccess', 'RecoveredCharge')
-       AND spi.participant_id IS NULL
-     GROUP BY
-       p.participant_id,
-       p.deal_id,
-       d.seller_id,
-       sa.settlement_status,
-       p.buyer_state,
-       p.money_state
-     HAVING COALESCE(SUM(m.seller_net_amount), 0) > 0
-     ORDER BY p.participant_id`,
+       COUNT(*)::int AS source_money_event_count,
+       COALESCE(SUM(CASE WHEN gross_amount > 0 THEN gross_amount ELSE 0 END), 0) AS gross_collected,
+       COALESCE(SUM(platform_fee_total_amount), 0) AS platform_fee_total,
+       COALESCE(SUM(CASE WHEN gross_amount < 0 THEN ABS(gross_amount) ELSE 0 END), 0) AS refunds_total,
+       COALESCE(SUM(seller_net_amount), 0) AS seller_net_payable
+     FROM siton.platform_fee_money_events
+     WHERE deal_id=$1`,
     [dealId]
   );
 
-  return result.rows.map((row: any) => ({
-    participant_id: String(row.participant_id),
-    deal_id: String(row.deal_id),
-    seller_id: String(row.seller_id),
-    seller_settlement_status: String(row.seller_settlement_status || "active"),
-    buyer_state: String(row.buyer_state),
-    money_state: String(row.money_state),
-    source_money_event_count: Number(row.source_money_event_count || 0),
-    gross_amount: roundMoney(Number(row.gross_amount || 0)),
-    vat_amount: roundMoney(Number(row.vat_amount || 0)),
-    fee_base_amount: roundMoney(Number(row.fee_base_amount || 0)),
-    platform_fee_base_amount: roundMoney(Number(row.platform_fee_base_amount || 0)),
-    platform_fee_vat_amount: roundMoney(Number(row.platform_fee_vat_amount || 0)),
-    platform_fee_total_amount: roundMoney(Number(row.platform_fee_total_amount || 0)),
-    seller_net_amount: roundMoney(Number(row.seller_net_amount || 0))
-  }));
+  const payoutItemsResult = await c.query(
+    `SELECT payout_status, COUNT(*)::int AS cnt
+     FROM siton.seller_payout_batch_items
+     WHERE deal_id=$1
+       AND ($2::uuid IS NULL OR payout_batch_id <> $2::uuid)
+     GROUP BY payout_status`,
+    [dealId, options?.exclude_payout_batch_id ?? null]
+  );
+
+  const openCasesResult = await c.query(
+    `SELECT COUNT(*)::int AS open_count
+     FROM siton.seller_payout_reconciliation_cases
+     WHERE deal_id=$1
+       AND case_status='open'
+       AND blocking_payout=true`,
+    [dealId]
+  );
+
+  const money = moneyResult.rows[0];
+  const grossCollected = roundMoney(Number(money?.gross_collected || 0));
+  const platformFeeTotal = roundMoney(Number(money?.platform_fee_total || 0));
+  const refundsTotal = roundMoney(Number(money?.refunds_total || 0));
+  const reserveAmount = 0;
+  const sellerNetPayable = roundMoney(Number(money?.seller_net_payable || 0) - reserveAmount);
+  const existingPayoutStatuses = payoutItemsResult.rows.map((row: any) => String(row.payout_status || ""));
+  const hasBlockingPayoutStatus = existingPayoutStatuses.some((status: string) =>
+    ["batched", "processing", "paid", "reconciled"].includes(status)
+  );
+  const hasOpenBlockingReconciliationCase = Number(openCasesResult.rows[0]?.open_count || 0) > 0;
+  const hasOpenMismatch = sellerNetPayable < 0;
+  const blockingReasons = uniqueStrings([
+    String(deal.state) !== "Completed" ? `deal_state_${String(deal.state).toLowerCase()}` : "",
+    settlementStatus !== "active" ? `seller_settlement_status_${settlementStatus}` : "",
+    grossCollected <= 0 ? "no_gross_collected" : "",
+    sellerNetPayable <= 0 ? "seller_net_non_positive" : "",
+    hasBlockingPayoutStatus ? "deal_already_payouted_or_inflight" : "",
+    hasOpenBlockingReconciliationCase ? "open_blocking_reconciliation_case" : "",
+    hasOpenMismatch ? "open_money_mismatch" : ""
+  ]);
+  const eligible = blockingReasons.length === 0;
+  const payoutAmount = eligible ? sellerNetPayable : 0;
+  const paidAmount = existingPayoutStatuses.includes("paid") || existingPayoutStatuses.includes("reconciled")
+    ? sellerNetPayable
+    : 0;
+  const failedAmount = existingPayoutStatuses.includes("failed") ? sellerNetPayable : 0;
+  const returnedAmount = existingPayoutStatuses.includes("returned") ? sellerNetPayable : 0;
+  const blockedAmount = !eligible && sellerNetPayable > 0 ? sellerNetPayable : 0;
+  const delayedAmount =
+    !eligible && blockingReasons.some((reason) => reason.includes("reconciliation") || reason.includes("mismatch"))
+      ? Math.max(0, sellerNetPayable)
+      : 0;
+
+  return {
+    seller_id: String(deal.seller_id),
+    deal_id: String(deal.deal_id),
+    deal_state: String(deal.state),
+    gross_collected: grossCollected,
+    platform_fee_total: roundMoney(platformFeeTotal),
+    refunds_total: refundsTotal,
+    reserve_amount: reserveAmount,
+    seller_net_payable: sellerNetPayable,
+    payout_amount: roundMoney(payoutAmount),
+    paid_amount: roundMoney(paidAmount),
+    failed_amount: roundMoney(failedAmount),
+    returned_amount: roundMoney(returnedAmount),
+    blocked_amount: roundMoney(blockedAmount),
+    delayed_amount: roundMoney(delayedAmount),
+    source_money_event_count: Number(money?.source_money_event_count || 0),
+    blocking_reasons: blockingReasons,
+    has_open_blocking_reconciliation_case: hasOpenBlockingReconciliationCase,
+    has_open_mismatch: hasOpenMismatch,
+    existing_payout_statuses: existingPayoutStatuses,
+    eligible,
+    payout_status: deriveSettlementStatus({
+      deal_state: String(deal.state),
+      eligible,
+      payout_amount: payoutAmount,
+      blocking_reasons: blockingReasons,
+      existing_payout_statuses: existingPayoutStatuses
+    })
+  };
+}
+
+async function upsertSellerSettlement(c: any, settlement: SettlementCalculation, correlationId: string) {
+  const idempotencyKey = `seller-settlement:${settlement.deal_id}`;
+  await c.query(
+    `INSERT INTO siton.seller_settlements (
+       seller_id,
+       deal_id,
+       payout_status,
+       gross_collected,
+       platform_fee_total,
+       refunds_total,
+       reserve_amount,
+       seller_net_payable,
+       payout_amount,
+       paid_amount,
+       failed_amount,
+       returned_amount,
+       blocked_amount,
+       delayed_amount,
+       mismatch_amount,
+       source_money_event_count,
+       has_open_mismatch,
+       has_open_blocking_reconciliation_case,
+       final_truth_basis,
+       blocker_reasons,
+       correlation_id,
+       idempotency_key,
+       last_calculated_at,
+       updated_at
+     ) VALUES (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,now(),now()
+     )
+     ON CONFLICT (deal_id) DO UPDATE
+     SET payout_status=EXCLUDED.payout_status,
+         gross_collected=EXCLUDED.gross_collected,
+         platform_fee_total=EXCLUDED.platform_fee_total,
+         refunds_total=EXCLUDED.refunds_total,
+         reserve_amount=EXCLUDED.reserve_amount,
+         seller_net_payable=EXCLUDED.seller_net_payable,
+         payout_amount=EXCLUDED.payout_amount,
+         paid_amount=EXCLUDED.paid_amount,
+         failed_amount=EXCLUDED.failed_amount,
+         returned_amount=EXCLUDED.returned_amount,
+         blocked_amount=EXCLUDED.blocked_amount,
+         delayed_amount=EXCLUDED.delayed_amount,
+         mismatch_amount=EXCLUDED.mismatch_amount,
+         source_money_event_count=EXCLUDED.source_money_event_count,
+         has_open_mismatch=EXCLUDED.has_open_mismatch,
+         has_open_blocking_reconciliation_case=EXCLUDED.has_open_blocking_reconciliation_case,
+         final_truth_basis=EXCLUDED.final_truth_basis,
+         blocker_reasons=EXCLUDED.blocker_reasons,
+         correlation_id=EXCLUDED.correlation_id,
+         last_calculated_at=now(),
+         updated_at=now()`,
+    [
+      settlement.seller_id,
+      settlement.deal_id,
+      settlement.payout_status,
+      settlement.gross_collected,
+      settlement.platform_fee_total,
+      settlement.refunds_total,
+      settlement.reserve_amount,
+      settlement.seller_net_payable,
+      settlement.payout_amount,
+      settlement.paid_amount,
+      settlement.failed_amount,
+      settlement.returned_amount,
+      settlement.blocked_amount,
+      settlement.delayed_amount,
+      settlement.has_open_mismatch ? settlement.seller_net_payable : 0,
+      settlement.source_money_event_count,
+      settlement.has_open_mismatch,
+      settlement.has_open_blocking_reconciliation_case,
+      "deal_completed_money_truth",
+      settlement.blocking_reasons,
+      correlationId,
+      idempotencyKey
+    ]
+  );
+
+  const result = await c.query(
+    `SELECT *
+     FROM siton.seller_settlements
+     WHERE deal_id=$1
+     LIMIT 1`,
+    [settlement.deal_id]
+  );
+  return result.rows[0];
+}
+
+async function createBlockingReconciliationCase(c: any, args: {
+  seller_settlement_id: string | null;
+  payout_batch_id: string | null;
+  seller_id: string;
+  deal_id: string;
+  case_type: string;
+  correlation_id: string;
+  expected_payout_amount: number;
+  observed_payout_amount: number;
+  expected_item_count: number;
+  observed_item_count: number;
+  details: Record<string, unknown>;
+}) {
+  await c.query(
+    `INSERT INTO siton.seller_payout_reconciliation_cases (
+       seller_settlement_id,
+       payout_batch_id,
+       seller_id,
+       deal_id,
+       case_status,
+       case_type,
+       correlation_id,
+       blocking_payout,
+       expected_payout_amount,
+       observed_payout_amount,
+       expected_item_count,
+       observed_item_count,
+       details
+     ) VALUES ($1,$2,$3,$4,'open',$5,$6,true,$7,$8,$9,$10,$11)`,
+    [
+      args.seller_settlement_id,
+      args.payout_batch_id,
+      args.seller_id,
+      args.deal_id,
+      args.case_type,
+      args.correlation_id,
+      args.expected_payout_amount,
+      args.observed_payout_amount,
+      args.expected_item_count,
+      args.observed_item_count,
+      JSON.stringify(args.details)
+    ]
+  );
 }
 
 async function loadBatchSnapshot(c: any, payoutBatchId: string) {
@@ -299,6 +770,13 @@ async function loadBatchSnapshot(c: any, payoutBatchId: string) {
   );
   if (!batch.rowCount) return null;
 
+  const settlements = await c.query(
+    `SELECT *
+     FROM siton.seller_settlements
+     WHERE payout_batch_id=$1
+     ORDER BY created_at ASC`,
+    [payoutBatchId]
+  );
   const items = await c.query(
     `SELECT *
      FROM siton.seller_payout_batch_items
@@ -306,20 +784,18 @@ async function loadBatchSnapshot(c: any, payoutBatchId: string) {
      ORDER BY created_at ASC`,
     [payoutBatchId]
   );
-
   const attempts = await c.query(
-    `SELECT attempt_type, result_class, correlation_id, provider_reference, payload, created_at
+    `SELECT attempt_type, result_class, payout_status, correlation_id, provider_reference, payload, created_at
      FROM siton.seller_payout_attempts
      WHERE payout_batch_id=$1
      ORDER BY created_at DESC`,
     [payoutBatchId]
   );
-
-  const reconciliation = await c.query(
-    `SELECT provider_code, reconciliation_status, correlation_id, provider_batch_reference,
-            expected_item_count, observed_item_count, expected_seller_net_amount,
-            observed_seller_net_amount, external_transfer_executed, details, created_at
-     FROM siton.seller_payout_reconciliation
+  const reconciliationCases = await c.query(
+    `SELECT case_status, case_type, correlation_id, blocking_payout,
+            expected_payout_amount, observed_payout_amount,
+            expected_item_count, observed_item_count, details, resolved_at, created_at
+     FROM siton.seller_payout_reconciliation_cases
      WHERE payout_batch_id=$1
      ORDER BY created_at DESC`,
     [payoutBatchId]
@@ -327,10 +803,22 @@ async function loadBatchSnapshot(c: any, payoutBatchId: string) {
 
   return {
     batch: batch.rows[0],
+    settlements: settlements.rows,
     items: items.rows,
     attempts: attempts.rows,
-    reconciliation: reconciliation.rows
+    reconciliation_cases: reconciliationCases.rows
   };
+}
+
+async function replaceSettlementBatchLink(c: any, sellerSettlementId: string, payoutBatchId: string) {
+  await c.query(
+    `UPDATE siton.seller_settlements
+     SET payout_batch_id=$2,
+         payout_status='batched',
+         updated_at=now()
+     WHERE seller_settlement_id=$1`,
+    [sellerSettlementId, payoutBatchId]
+  );
 }
 
 export function buildPayoutRail(deps: {
@@ -338,6 +826,35 @@ export function buildPayoutRail(deps: {
   payoutProvider: PayoutProvider;
   PermanentFailErrorCtor: new (...args: any[]) => Error;
 }) {
+  async function calculateSellerSettlementForDeal(dealId: string, options?: {
+    exclude_payout_batch_id?: string | null;
+  }) {
+    await ensurePayoutRailTables(deps.withTx);
+    return deps.withTx(async (c) => calculateSellerSettlementForDealInTx(c, dealId, options));
+  }
+
+  async function calculateSellerPayoutBatchBySettlementIds(args: {
+    seller_id: string;
+    seller_settlement_ids: string[];
+  }) {
+    await ensurePayoutRailTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT seller_id, deal_id
+         FROM siton.seller_settlements
+         WHERE seller_settlement_id = ANY($1::uuid[])
+         ORDER BY deal_id`,
+        [args.seller_settlement_ids]
+      );
+      const settlements: SettlementCalculation[] = [];
+      for (const row of result.rows) {
+        const calculated = await calculateSellerSettlementForDealInTx(c, String(row.deal_id));
+        if (calculated) settlements.push(calculated);
+      }
+      return summarizeBatchFromSettlements(settlements);
+    });
+  }
+
   async function summarizeSellerReadiness(sellerId: string) {
     await ensurePayoutRailTables(deps.withTx);
     return deps.withTx(async (c) => {
@@ -350,45 +867,61 @@ export function buildPayoutRail(deps: {
       );
       if (!seller.rowCount) return null;
 
-      const eligible = await c.query(
-        `SELECT
-           COUNT(*)::int AS eligible_items,
-           COALESCE(SUM(summary.seller_net_amount), 0) AS eligible_seller_net_amount
-         FROM (
-           SELECT p.participant_id, COALESCE(SUM(m.seller_net_amount), 0) AS seller_net_amount
-           FROM siton.participants p
-           JOIN siton.deals d ON d.deal_id = p.deal_id
-           JOIN siton.platform_fee_money_events m ON m.participant_id = p.participant_id
-           LEFT JOIN siton.seller_payout_batch_items spi ON spi.participant_id = p.participant_id
-           WHERE d.seller_id=$1
-             AND p.buyer_state='DealCompleted'
-             AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
-             AND spi.participant_id IS NULL
-           GROUP BY p.participant_id
-           HAVING COALESCE(SUM(m.seller_net_amount), 0) > 0
-         ) summary`,
+      const deals = await c.query(
+        `SELECT deal_id
+         FROM siton.deals
+         WHERE seller_id=$1
+         ORDER BY created_at DESC`,
         [sellerId]
       );
 
-      const batches = await c.query(
-        `SELECT payout_batch_id, trigger_deal_id, payout_status, item_count, seller_net_amount,
-                external_transfer_executed, created_at, reconciled_at
-         FROM siton.seller_payout_batches
+      const settlements: SettlementCalculation[] = [];
+      for (const row of deals.rows) {
+        const calculated = await calculateSellerSettlementForDealInTx(c, String(row.deal_id));
+        if (calculated) settlements.push(calculated);
+      }
+
+      const readySettlements = settlements.filter((settlement) => settlement.payout_status === "ready");
+      const openCases = await c.query(
+        `SELECT COUNT(*)::int AS open_cases
+         FROM siton.seller_payout_reconciliation_cases
          WHERE seller_id=$1
-         ORDER BY created_at DESC
-         LIMIT 20`,
+           AND case_status='open'
+           AND blocking_payout=true`,
         [sellerId]
       );
 
       return {
         seller: seller.rows[0],
         eligibility: {
-          eligible_items: Number(eligible.rows[0]?.eligible_items || 0),
-          eligible_seller_net_amount: roundMoney(Number(eligible.rows[0]?.eligible_seller_net_amount || 0)),
+          ready_settlement_count: readySettlements.length,
+          payout_amount_ready: roundMoney(
+            readySettlements.reduce((sum, settlement) => sum + settlement.payout_amount, 0)
+          ),
+          blocked_amount: roundMoney(
+            settlements.reduce((sum, settlement) => sum + settlement.blocked_amount, 0)
+          ),
+          delayed_amount: roundMoney(
+            settlements.reduce((sum, settlement) => sum + settlement.delayed_amount, 0)
+          ),
+          open_blocking_reconciliation_cases: Number(openCases.rows[0]?.open_cases || 0),
           seller_settlement_status: String(seller.rows[0].settlement_status || "active"),
-          eligible_for_dispatch: String(seller.rows[0].settlement_status || "active") === "active"
+          eligible_for_dispatch:
+            String(seller.rows[0].settlement_status || "active") === "active"
+            && readySettlements.length > 0
+            && Number(openCases.rows[0]?.open_cases || 0) === 0
         },
-        recent_batches: batches.rows
+        settlements: settlements.map((settlement) => ({
+          deal_id: settlement.deal_id,
+          payout_status: settlement.payout_status,
+          gross_collected: settlement.gross_collected,
+          platform_fee_total: settlement.platform_fee_total,
+          refunds_total: settlement.refunds_total,
+          reserve_amount: settlement.reserve_amount,
+          seller_net_payable: settlement.seller_net_payable,
+          payout_amount: settlement.payout_amount,
+          blocking_reasons: settlement.blocking_reasons
+        }))
       };
     });
   }
@@ -399,62 +932,44 @@ export function buildPayoutRail(deps: {
     correlation_id?: string | null;
   }) {
     await ensurePayoutRailTables(deps.withTx);
-    const idempotencyKey = `seller-payout-prepare:${args.deal_id}`;
+    const correlationId = args.correlation_id ?? `seller-payout-prepare:${args.deal_id}`;
+    const settlementIdempotencyKey = `seller-settlement:${args.deal_id}`;
+    const batchIdempotencyKey = `seller-payout-batch:${args.deal_id}`;
 
     return deps.withTx(async (c) => {
-      const existing = await c.query(
+      const settlementCalculation = await calculateSellerSettlementForDealInTx(c, args.deal_id);
+      if (!settlementCalculation) {
+        return { status: "deal_not_found" as const, replay: false, batch_profile: null };
+      }
+
+      const sellerSettlement = await upsertSellerSettlement(c, settlementCalculation, correlationId);
+
+      if (settlementCalculation.payout_status !== "ready") {
+        return {
+          status: settlementCalculation.payout_status,
+          replay: false,
+          batch_profile: null,
+          seller_settlement: sellerSettlement
+        };
+      }
+
+      const existingBatch = await c.query(
         `SELECT payout_batch_id
          FROM siton.seller_payout_batches
          WHERE idempotency_key=$1
          LIMIT 1`,
-        [idempotencyKey]
+        [batchIdempotencyKey]
       );
-      if (existing.rowCount) {
+      if (existingBatch.rowCount) {
         return {
           status: "duplicate_ignored" as const,
           replay: true,
-          batch_profile: await loadBatchSnapshot(c, String(existing.rows[0].payout_batch_id))
+          batch_profile: await loadBatchSnapshot(c, String(existingBatch.rows[0].payout_batch_id)),
+          seller_settlement: sellerSettlement
         };
       }
 
-      const eligibleItems = await loadEligibleItemsForDeal(c, args.deal_id);
-      if (eligibleItems.length === 0) {
-        return {
-          status: "no_eligible_items" as const,
-          replay: false,
-          batch_profile: null
-        };
-      }
-
-      const sellerId = eligibleItems[0]?.seller_id || "";
-      const sellerSettlementStatus = eligibleItems[0]?.seller_settlement_status || "active";
-      const totals = eligibleItems.reduce(
-        (acc, item) => ({
-          gross_amount: roundMoney(acc.gross_amount + item.gross_amount),
-          vat_amount: roundMoney(acc.vat_amount + item.vat_amount),
-          fee_base_amount: roundMoney(acc.fee_base_amount + item.fee_base_amount),
-          platform_fee_base_amount: roundMoney(acc.platform_fee_base_amount + item.platform_fee_base_amount),
-          platform_fee_vat_amount: roundMoney(acc.platform_fee_vat_amount + item.platform_fee_vat_amount),
-          platform_fee_total_amount: roundMoney(acc.platform_fee_total_amount + item.platform_fee_total_amount),
-          seller_net_amount: roundMoney(acc.seller_net_amount + item.seller_net_amount)
-        }),
-        {
-          gross_amount: 0,
-          vat_amount: 0,
-          fee_base_amount: 0,
-          platform_fee_base_amount: 0,
-          platform_fee_vat_amount: 0,
-          platform_fee_total_amount: 0,
-          seller_net_amount: 0
-        }
-      );
-      const batchStatus: PayoutBatchStatus =
-        sellerSettlementStatus === "active" ? "ready" : "blocked";
-      const eligibilityReason =
-        batchStatus === "ready"
-          ? "seller_active_and_settlement_positive"
-          : `seller_settlement_status_${sellerSettlementStatus}`;
-
+      const batchCalculation = summarizeBatchFromSettlements([settlementCalculation]);
       const batchInsert = await c.query(
         `INSERT INTO siton.seller_payout_batches (
            seller_id,
@@ -463,280 +978,292 @@ export function buildPayoutRail(deps: {
            provider_code,
            correlation_id,
            idempotency_key,
-           seller_settlement_status,
+           settlement_count,
            item_count,
-           gross_amount,
-           vat_amount,
-           fee_base_amount,
-           platform_fee_base_amount,
-           platform_fee_vat_amount,
-           platform_fee_total_amount,
-           seller_net_amount,
-           eligibility_reason
+           gross_collected,
+           platform_fee_total,
+           refunds_total,
+           reserve_amount,
+           seller_net_payable,
+           payout_amount,
+           paid_amount,
+           failed_amount,
+           returned_amount,
+           blocked_amount,
+           delayed_amount,
+           blocker_reasons
          ) VALUES (
-           $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+           $1,$2,'batched',$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19
          )
          RETURNING payout_batch_id`,
         [
-          sellerId,
-          args.deal_id,
-          batchStatus,
+          settlementCalculation.seller_id,
+          settlementCalculation.deal_id,
           deps.payoutProvider.providerCode,
-          args.correlation_id ?? `payout-prepare:${args.deal_id}`,
-          idempotencyKey,
-          sellerSettlementStatus,
-          eligibleItems.length,
-          totals.gross_amount,
-          totals.vat_amount,
-          totals.fee_base_amount,
-          totals.platform_fee_base_amount,
-          totals.platform_fee_vat_amount,
-          totals.platform_fee_total_amount,
-          totals.seller_net_amount,
-          eligibilityReason
+          correlationId,
+          batchIdempotencyKey,
+          batchCalculation.settlement_count,
+          0,
+          batchCalculation.gross_collected,
+          batchCalculation.platform_fee_total,
+          batchCalculation.refunds_total,
+          batchCalculation.reserve_amount,
+          batchCalculation.seller_net_payable,
+          batchCalculation.payout_amount,
+          batchCalculation.paid_amount,
+          batchCalculation.failed_amount,
+          batchCalculation.returned_amount,
+          batchCalculation.blocked_amount,
+          batchCalculation.delayed_amount,
+          settlementCalculation.blocking_reasons
         ]
       );
       const payoutBatchId = String(batchInsert.rows[0].payout_batch_id);
 
-      for (const item of eligibleItems) {
+      await replaceSettlementBatchLink(c, String(sellerSettlement.seller_settlement_id), payoutBatchId);
+      await recordAttempt(c, {
+        payout_batch_id: payoutBatchId,
+        attempt_type: "prepare",
+        result_class: "success",
+        payout_status: "batched",
+        correlation_id: correlationId,
+        payload: {
+          request_id: args.request_id,
+          idempotency_key: settlementIdempotencyKey,
+          blocking_reasons: settlementCalculation.blocking_reasons
+        }
+      });
+
+      const participants = await c.query(
+        `SELECT p.participant_id, p.buyer_state, p.money_state,
+                COALESCE(SUM(CASE WHEN m.gross_amount > 0 THEN m.gross_amount ELSE 0 END), 0) AS gross_collected,
+                COALESCE(SUM(m.platform_fee_total_amount), 0) AS platform_fee_total,
+                COALESCE(SUM(CASE WHEN m.gross_amount < 0 THEN ABS(m.gross_amount) ELSE 0 END), 0) AS refunds_total,
+                COALESCE(SUM(m.seller_net_amount), 0) AS seller_net_payable,
+                COUNT(m.money_event_id)::int AS source_money_event_count
+         FROM siton.participants p
+         JOIN siton.platform_fee_money_events m ON m.participant_id = p.participant_id
+         WHERE p.deal_id=$1
+         GROUP BY p.participant_id, p.buyer_state, p.money_state
+         HAVING COALESCE(SUM(m.seller_net_amount), 0) > 0`,
+        [args.deal_id]
+      );
+
+      for (const participant of participants.rows) {
         await c.query(
           `INSERT INTO siton.seller_payout_batch_items (
              payout_batch_id,
+             seller_settlement_id,
              participant_id,
              deal_id,
              seller_id,
              payout_status,
              correlation_id,
              idempotency_key,
+             gross_collected,
+             platform_fee_total,
+             refunds_total,
+             reserve_amount,
+             seller_net_payable,
+             payout_amount,
              source_money_event_count,
              buyer_state_at_batch,
-             money_state_at_batch,
-             gross_amount,
-             vat_amount,
-             fee_base_amount,
-             platform_fee_base_amount,
-             platform_fee_vat_amount,
-             platform_fee_total_amount,
-             seller_net_amount
+             money_state_at_batch
            ) VALUES (
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17
+             $1,$2,$3,$4,$5,'batched',$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
            )`,
           [
             payoutBatchId,
-            item.participant_id,
-            item.deal_id,
-            item.seller_id,
-            batchStatus === "ready" ? "eligible" : "blocked",
-            args.correlation_id ?? `payout-prepare:${args.deal_id}:${item.participant_id}`,
-            `seller-payout-item:${item.participant_id}`,
-            item.source_money_event_count,
-            item.buyer_state,
-            item.money_state,
-            item.gross_amount,
-            item.vat_amount,
-            item.fee_base_amount,
-            item.platform_fee_base_amount,
-            item.platform_fee_vat_amount,
-            item.platform_fee_total_amount,
-            item.seller_net_amount
+            String(sellerSettlement.seller_settlement_id),
+            String(participant.participant_id),
+            args.deal_id,
+            settlementCalculation.seller_id,
+            correlationId,
+            `seller-payout-item:${String(participant.participant_id)}`,
+            roundMoney(Number(participant.gross_collected || 0)),
+            roundMoney(Number(participant.platform_fee_total || 0)),
+            roundMoney(Number(participant.refunds_total || 0)),
+            0,
+            roundMoney(Number(participant.seller_net_payable || 0)),
+            roundMoney(Number(participant.seller_net_payable || 0)),
+            Number(participant.source_money_event_count || 0),
+            String(participant.buyer_state),
+            String(participant.money_state)
           ]
         );
       }
 
       await c.query(
-        `INSERT INTO siton.seller_payout_attempts (
-           payout_batch_id, payout_item_id, attempt_type, result_class, correlation_id, payload
-         ) VALUES ($1, NULL, 'prepare', 'success', $2, $3)`,
-        [
-          payoutBatchId,
-          args.correlation_id ?? `payout-prepare:${args.deal_id}`,
-          JSON.stringify({
-            request_id: args.request_id,
-            eligible_item_count: eligibleItems.length,
-            seller_settlement_status: sellerSettlementStatus,
-            eligibility_reason: eligibilityReason
-          })
-        ]
+        `UPDATE siton.seller_payout_batches
+         SET item_count=$2,
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [payoutBatchId, participants.rowCount ?? 0]
       );
 
-      if (batchStatus === "ready") {
-        await insertOutboxEventIfMissing(c, {
-          event_type: "seller_payout_dispatch",
-          aggregate_type: "seller_payout_batch",
-          aggregate_id: payoutBatchId,
-          payload: {
-            payout_batch_id: payoutBatchId,
-            trigger_deal_id: args.deal_id,
-            seller_id: sellerId
-          }
-        });
-      }
+      await insertOutboxEventIfMissing(c, {
+        event_type: "seller_payout_dispatch",
+        aggregate_type: "seller_payout_batch",
+        aggregate_id: payoutBatchId,
+        payload: {
+          payout_batch_id: payoutBatchId,
+          seller_settlement_id: String(sellerSettlement.seller_settlement_id),
+          deal_id: args.deal_id,
+          seller_id: settlementCalculation.seller_id
+        }
+      });
 
       return {
-        status: batchStatus === "ready" ? "ready" as const : "blocked" as const,
+        status: "batched" as const,
         replay: false,
-        batch_profile: await loadBatchSnapshot(c, payoutBatchId)
+        batch_profile: await loadBatchSnapshot(c, payoutBatchId),
+        seller_settlement: sellerSettlement
       };
     });
   }
 
-  async function markBatchForDispatch(c: any, payoutBatchId: string, correlationId: string) {
+  async function recordAttempt(c: any, args: {
+    payout_batch_id: string;
+    attempt_type: PayoutAttemptType;
+    result_class: PayoutResultClass;
+    payout_status: string | null;
+    correlation_id: string;
+    provider_reference?: string | null;
+    payload?: Record<string, unknown>;
+  }) {
     await c.query(
-      `UPDATE siton.seller_payout_batches
-       SET payout_status='dispatching',
-           correlation_id=$2,
-           updated_at=now()
-       WHERE payout_batch_id=$1
-         AND payout_status='ready'`,
-      [payoutBatchId, correlationId]
-    );
-    await c.query(
-      `UPDATE siton.seller_payout_batch_items
-       SET payout_status='dispatching',
-           correlation_id=$2,
-           updated_at=now()
-       WHERE payout_batch_id=$1
-         AND payout_status='eligible'`,
-      [payoutBatchId, correlationId]
-    );
-  }
-
-  async function revertBatchToReady(c: any, payoutBatchId: string, errorMessage: string) {
-    await c.query(
-      `UPDATE siton.seller_payout_batches
-       SET payout_status='ready',
-           last_error=$2,
-           updated_at=now()
-       WHERE payout_batch_id=$1`,
-      [payoutBatchId, errorMessage.slice(0, 500)]
-    );
-    await c.query(
-      `UPDATE siton.seller_payout_batch_items
-       SET payout_status='eligible',
-           updated_at=now()
-       WHERE payout_batch_id=$1
-         AND payout_status='dispatching'`,
-      [payoutBatchId]
-    );
-  }
-
-  async function failBatch(c: any, payoutBatchId: string, errorMessage: string) {
-    await c.query(
-      `UPDATE siton.seller_payout_batches
-       SET payout_status='failed',
-           last_error=$2,
-           updated_at=now()
-       WHERE payout_batch_id=$1`,
-      [payoutBatchId, errorMessage.slice(0, 500)]
-    );
-    await c.query(
-      `UPDATE siton.seller_payout_batch_items
-       SET payout_status='failed',
-           updated_at=now()
-       WHERE payout_batch_id=$1
-         AND payout_status IN ('eligible','dispatching','submitted_for_execution')`,
-      [payoutBatchId]
+      `INSERT INTO siton.seller_payout_attempts (
+         payout_batch_id, payout_item_id, attempt_type, result_class, payout_status, correlation_id, provider_reference, payload
+       ) VALUES ($1, NULL, $2, $3, $4, $5, $6, $7)
+       ON CONFLICT (payout_batch_id, payout_item_id, attempt_type, correlation_id) DO UPDATE
+       SET result_class=EXCLUDED.result_class,
+           payout_status=EXCLUDED.payout_status,
+           provider_reference=EXCLUDED.provider_reference,
+           payload=EXCLUDED.payload`,
+      [
+        args.payout_batch_id,
+        args.attempt_type,
+        args.result_class,
+        args.payout_status,
+        args.correlation_id,
+        args.provider_reference ?? null,
+        JSON.stringify(args.payload ?? {})
+      ]
     );
   }
 
   async function dispatchBatch(args: { payout_batch_id: string; event_id: string }) {
     await ensurePayoutRailTables(deps.withTx);
-    const correlationId = `seller-payout-dispatch:${args.payout_batch_id}:${args.event_id}`;
+    const correlationId = `seller-payout-create:${args.payout_batch_id}:${args.event_id}`;
 
-    const context = await deps.withTx(async (c) => {
+    const batchSnapshot = await deps.withTx(async (c) => {
       const snapshot = await loadBatchSnapshot(c, args.payout_batch_id);
       if (!snapshot) throw new Error("payout_batch_not_found");
-      const batch = snapshot.batch as any;
-      if (batch.payout_status === "reconciled_internal" || batch.payout_status === "manual_review") {
-        return { snapshot, skip: true };
+      const status = String(snapshot.batch.payout_status || "");
+      if (!["batched", "processing", "ready"].includes(status)) {
+        if (["paid", "reconciled"].includes(status)) {
+          return { snapshot, skip: true };
+        }
+        throw new Error(`payout_batch_not_dispatchable:${status}`);
       }
-      if (batch.payout_status === "blocked") {
-        throw new Error("payout_batch_blocked");
-      }
-      await markBatchForDispatch(c, args.payout_batch_id, correlationId);
       await c.query(
-        `INSERT INTO siton.seller_payout_attempts (
-           payout_batch_id, payout_item_id, attempt_type, result_class, correlation_id, payload
-         ) VALUES ($1, NULL, 'dispatch', 'unknown', $2, $3)
-         ON CONFLICT (payout_batch_id, payout_item_id, attempt_type, correlation_id) DO NOTHING`,
-        [
-          args.payout_batch_id,
-          correlationId,
-          JSON.stringify({ event_id: args.event_id })
-        ]
+        `UPDATE siton.seller_payout_batches
+         SET payout_status='processing',
+             correlation_id=$2,
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id, correlationId]
       );
+      await c.query(
+        `UPDATE siton.seller_payout_batch_items
+         SET payout_status='processing',
+             correlation_id=$2,
+             updated_at=now()
+         WHERE payout_batch_id=$1
+           AND payout_status IN ('batched','ready')`,
+        [args.payout_batch_id, correlationId]
+      );
+      await c.query(
+        `UPDATE siton.seller_settlements
+         SET payout_status='processing',
+             correlation_id=$2,
+             updated_at=now()
+         WHERE payout_batch_id=$1
+           AND payout_status IN ('batched','ready')`,
+        [args.payout_batch_id, correlationId]
+      );
+      await recordAttempt(c, {
+        payout_batch_id: args.payout_batch_id,
+        attempt_type: "create_payout",
+        result_class: "unknown",
+        payout_status: "processing",
+        correlation_id: correlationId,
+        payload: { event_id: args.event_id }
+      });
       return { snapshot: await loadBatchSnapshot(c, args.payout_batch_id), skip: false };
     });
 
-    if (context.skip) {
-      return { status: "already_closed" as const };
-    }
+    if (batchSnapshot.skip) return { status: "already_closed" as const };
 
-    const batch = context.snapshot?.batch as any;
-    const result: PayoutDispatchResult = await deps.payoutProvider.dispatchBatch({
+    const batch = batchSnapshot.snapshot?.batch as any;
+    const result = await deps.payoutProvider.createPayout({
       payout_batch_id: args.payout_batch_id,
       seller_id: String(batch.seller_id),
+      payout_amount: roundMoney(Number(batch.payout_amount || 0)),
       item_count: Number(batch.item_count || 0),
-      seller_net_amount: roundMoney(Number(batch.seller_net_amount || 0)),
       currency: String(batch.currency || "ILS"),
       correlation_id: correlationId,
       request_id: `worker:${args.event_id}`
     });
 
-    const resultMessage = `${result.result_class} payout dispatch batch ${args.payout_batch_id}`;
     await deps.withTx(async (c) => {
-      await c.query(
-        `UPDATE siton.seller_payout_attempts
-         SET result_class=$1,
-             provider_reference=$2,
-             payload = payload || $3::jsonb
-         WHERE payout_batch_id=$4
-           AND payout_item_id IS NULL
-           AND attempt_type='dispatch'
-           AND correlation_id=$5`,
-        [
-          result.result_class,
-          result.provider_batch_reference ?? null,
-          JSON.stringify({
-            provider: result.provider,
-            external_transfer_executed: result.external_transfer_executed
-          }),
-          args.payout_batch_id,
-          correlationId
-        ]
-      );
+      await recordAttempt(c, {
+        payout_batch_id: args.payout_batch_id,
+        attempt_type: "create_payout",
+        result_class: result.result_class,
+        payout_status: result.payout_status,
+        correlation_id: correlationId,
+        provider_reference: result.payout_reference ?? null,
+        payload: result.raw ?? {}
+      });
 
       if (result.result_class === "success") {
         await c.query(
           `UPDATE siton.seller_payout_batches
-           SET payout_status='submitted_for_execution',
-               provider_batch_reference=$2,
-               correlation_id=$3,
+           SET payout_status=$2,
+               provider_batch_reference=$3,
                external_transfer_executed=$4,
-               dispatched_at=now(),
+               created_payout_at=now(),
                last_error=NULL,
                updated_at=now()
            WHERE payout_batch_id=$1`,
           [
             args.payout_batch_id,
-            result.provider_batch_reference ?? null,
-            result.correlation_id ?? correlationId,
+            result.payout_status ?? "processing",
+            result.payout_reference ?? null,
             result.external_transfer_executed
           ]
         );
         await c.query(
           `UPDATE siton.seller_payout_batch_items
-           SET payout_status='submitted_for_execution',
-               correlation_id=$2,
-               external_transfer_executed=$3,
+           SET payout_status=$2,
+               provider_item_reference=$3,
+               external_transfer_executed=$4,
                updated_at=now()
-           WHERE payout_batch_id=$1
-             AND payout_status IN ('eligible','dispatching')`,
+           WHERE payout_batch_id=$1`,
           [
             args.payout_batch_id,
-            result.correlation_id ?? correlationId,
+            result.payout_status ?? "processing",
+            result.payout_reference ?? null,
             result.external_transfer_executed
           ]
+        );
+        await c.query(
+          `UPDATE siton.seller_settlements
+           SET payout_status=$2,
+               updated_at=now()
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id, result.payout_status ?? "processing"]
         );
         await insertOutboxEventIfMissing(c, {
           event_type: "seller_payout_reconcile",
@@ -744,183 +1271,199 @@ export function buildPayoutRail(deps: {
           aggregate_id: args.payout_batch_id,
           payload: {
             payout_batch_id: args.payout_batch_id,
-            provider_batch_reference: result.provider_batch_reference ?? null
+            payout_reference: result.payout_reference ?? null
           }
         });
         return;
       }
 
-      if (result.result_class === "temporary_fail") {
-        await revertBatchToReady(c, args.payout_batch_id, resultMessage);
-        return;
-      }
-
-      await failBatch(c, args.payout_batch_id, resultMessage);
-    });
-
-    if (result.result_class === "temporary_fail") {
-      throw new Error(resultMessage);
-    }
-    if (result.result_class === "permanent_fail") {
-      throw new deps.PermanentFailErrorCtor(resultMessage);
-    }
-
-    return { status: "submitted_for_execution" as const };
-  }
-
-  async function reconcileBatch(args: { payout_batch_id: string; event_id: string }) {
-    await ensurePayoutRailTables(deps.withTx);
-    const correlationId = `seller-payout-reconcile:${args.payout_batch_id}:${args.event_id}`;
-
-    const context = await deps.withTx(async (c) => {
-      const snapshot = await loadBatchSnapshot(c, args.payout_batch_id);
-      if (!snapshot) throw new Error("payout_batch_not_found");
-      const batch = snapshot.batch as any;
-      if (!["submitted_for_execution", "manual_review", "reconciled_internal"].includes(String(batch.payout_status))) {
-        throw new Error(`payout_batch_not_reconcilable:${batch.payout_status}`);
-      }
-
-      await c.query(
-        `INSERT INTO siton.seller_payout_attempts (
-           payout_batch_id, payout_item_id, attempt_type, result_class, correlation_id, payload
-         ) VALUES ($1, NULL, 'reconcile', 'unknown', $2, $3)
-         ON CONFLICT (payout_batch_id, payout_item_id, attempt_type, correlation_id) DO NOTHING`,
-        [
-          args.payout_batch_id,
-          correlationId,
-          JSON.stringify({ event_id: args.event_id })
-        ]
-      );
-
-      const observed = await c.query(
-        `SELECT
-           COUNT(*)::int AS observed_item_count,
-           COALESCE(SUM(current_summary.seller_net_amount), 0) AS observed_seller_net_amount
-         FROM (
-           SELECT spi.participant_id, COALESCE(SUM(m.seller_net_amount), 0) AS seller_net_amount
-           FROM siton.seller_payout_batch_items spi
-           LEFT JOIN siton.platform_fee_money_events m
-             ON m.participant_id = spi.participant_id
-           WHERE spi.payout_batch_id=$1
-           GROUP BY spi.participant_id
-         ) current_summary`,
-        [args.payout_batch_id]
-      );
-
-      return {
-        snapshot,
-        observed_item_count: Number(observed.rows[0]?.observed_item_count || 0),
-        observed_seller_net_amount: roundMoney(Number(observed.rows[0]?.observed_seller_net_amount || 0))
-      };
-    });
-
-    const batch = context.snapshot.batch as any;
-    const result: PayoutReconciliationResult = await deps.payoutProvider.reconcileBatch({
-      payout_batch_id: args.payout_batch_id,
-      seller_id: String(batch.seller_id),
-      expected_item_count: Number(batch.item_count || 0),
-      expected_seller_net_amount: roundMoney(Number(batch.seller_net_amount || 0)),
-      observed_item_count: context.observed_item_count,
-      observed_seller_net_amount: context.observed_seller_net_amount,
-      correlation_id: correlationId,
-      provider_batch_reference: batch.provider_batch_reference ?? null
-    });
-
-    await deps.withTx(async (c) => {
-      await c.query(
-        `UPDATE siton.seller_payout_attempts
-         SET result_class=$1,
-             provider_reference=$2,
-             payload = payload || $3::jsonb
-         WHERE payout_batch_id=$4
-           AND payout_item_id IS NULL
-           AND attempt_type='reconcile'
-           AND correlation_id=$5`,
-        [
-          result.result_class,
-          result.provider_batch_reference ?? null,
-          JSON.stringify({
-            provider: result.provider,
-            reconciliation_status: result.reconciliation_status,
-            observed_item_count: result.observed_item_count,
-            observed_seller_net_amount: result.observed_seller_net_amount,
-            external_transfer_executed: result.external_transfer_executed
-          }),
-          args.payout_batch_id,
-          correlationId
-        ]
-      );
-
-      await c.query(
-        `INSERT INTO siton.seller_payout_reconciliation (
-           payout_batch_id,
-           provider_code,
-           reconciliation_status,
-           correlation_id,
-           provider_batch_reference,
-           expected_item_count,
-           observed_item_count,
-           expected_seller_net_amount,
-           observed_seller_net_amount,
-           external_transfer_executed,
-           details
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-         ON CONFLICT (payout_batch_id, correlation_id) DO NOTHING`,
-        [
-          args.payout_batch_id,
-          result.provider,
-          result.reconciliation_status,
-          correlationId,
-          result.provider_batch_reference ?? null,
-          Number(batch.item_count || 0),
-          result.observed_item_count,
-          roundMoney(Number(batch.seller_net_amount || 0)),
-          roundMoney(result.observed_seller_net_amount),
-          result.external_transfer_executed,
-          JSON.stringify({
-            expected_item_count: Number(batch.item_count || 0),
-            expected_seller_net_amount: roundMoney(Number(batch.seller_net_amount || 0))
-          })
-        ]
-      );
-
-      if (result.reconciliation_status === "matched") {
+      if (result.result_class === "permanent_fail") {
         await c.query(
           `UPDATE siton.seller_payout_batches
-           SET payout_status='reconciled_internal',
-               reconciled_at=now(),
-               external_transfer_executed=$2,
-               last_error=NULL,
+           SET payout_status='failed',
+               last_error=$2,
                updated_at=now()
            WHERE payout_batch_id=$1`,
-          [args.payout_batch_id, result.external_transfer_executed]
+          [args.payout_batch_id, "create_payout_permanent_fail"]
         );
         await c.query(
           `UPDATE siton.seller_payout_batch_items
-           SET payout_status='reconciled_internal',
-               external_transfer_executed=$2,
+           SET payout_status='failed',
                updated_at=now()
-           WHERE payout_batch_id=$1
-             AND payout_status='submitted_for_execution'`,
-          [args.payout_batch_id, result.external_transfer_executed]
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id]
+        );
+        await c.query(
+          `UPDATE siton.seller_settlements
+           SET payout_status='failed',
+               failed_amount=payout_amount,
+               updated_at=now()
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id]
         );
         return;
       }
 
       await c.query(
         `UPDATE siton.seller_payout_batches
-         SET payout_status='manual_review',
-             reconciled_at=now(),
-             last_error='payout_reconciliation_manual_review',
+         SET payout_status='batched',
+             last_error=$2,
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id, `create_payout_${result.result_class}`]
+      );
+      await c.query(
+        `UPDATE siton.seller_payout_batch_items
+         SET payout_status='batched',
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id]
+      );
+      await c.query(
+        `UPDATE siton.seller_settlements
+         SET payout_status='batched',
              updated_at=now()
          WHERE payout_batch_id=$1`,
         [args.payout_batch_id]
       );
     });
 
-    return {
-      status: result.reconciliation_status
-    };
+    if (result.result_class === "temporary_fail" || result.result_class === "unknown") {
+      throw new Error(`create_payout_${result.result_class} batch ${args.payout_batch_id}`);
+    }
+
+    return { status: result.payout_status };
+  }
+
+  async function reconcileBatch(args: { payout_batch_id: string; event_id: string }) {
+    await ensurePayoutRailTables(deps.withTx);
+    const correlationId = `seller-payout-reconcile:${args.payout_batch_id}:${args.event_id}`;
+
+    const snapshot = await deps.withTx(async (c) => {
+      const current = await loadBatchSnapshot(c, args.payout_batch_id);
+      if (!current) throw new Error("payout_batch_not_found");
+      return current;
+    });
+    const batch = snapshot.batch as any;
+    const settlement = snapshot.settlements[0] as any;
+
+    const latestSettlement = await calculateSellerSettlementForDeal(String(batch.trigger_deal_id), {
+      exclude_payout_batch_id: args.payout_batch_id
+    });
+    if (!latestSettlement) {
+      throw new Error("seller_settlement_missing_for_reconcile");
+    }
+
+    const result: PayoutReconciliationResult = await deps.payoutProvider.reconcilePayout({
+      payout_batch_id: args.payout_batch_id,
+      seller_id: String(batch.seller_id),
+      expected_item_count: Number(batch.item_count || 0),
+      expected_payout_amount: roundMoney(Number(batch.payout_amount || 0)),
+      observed_item_count: Number(batch.item_count || 0),
+      observed_payout_amount: roundMoney(Number(latestSettlement.payout_amount || 0)),
+      payout_reference: batch.provider_batch_reference ?? null,
+      correlation_id: correlationId
+    });
+
+    await deps.withTx(async (c) => {
+      const refreshedSettlement = await upsertSellerSettlement(c, latestSettlement, correlationId);
+      await recordAttempt(c, {
+        payout_batch_id: args.payout_batch_id,
+        attempt_type: "reconcile_payout",
+        result_class: result.result_class,
+        payout_status: result.payout_status,
+        correlation_id: correlationId,
+        provider_reference: result.payout_reference ?? null,
+        payload: result.raw ?? {}
+      });
+
+      if (result.reconciliation_outcome === "matched") {
+        await c.query(
+          `UPDATE siton.seller_payout_batches
+           SET payout_status='reconciled',
+               reconciled_at=now(),
+               last_error=NULL,
+               external_transfer_executed=$2,
+               updated_at=now()
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id, result.external_transfer_executed]
+        );
+        await c.query(
+          `UPDATE siton.seller_payout_batch_items
+           SET payout_status='reconciled',
+               updated_at=now()
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id]
+        );
+        await c.query(
+          `UPDATE siton.seller_settlements
+           SET payout_status='reconciled',
+               paid_amount=payout_amount,
+               updated_at=now()
+           WHERE payout_batch_id=$1`,
+          [args.payout_batch_id]
+        );
+        await c.query(
+          `UPDATE siton.seller_payout_reconciliation_cases
+           SET case_status='resolved',
+               resolved_at=now()
+           WHERE payout_batch_id=$1
+             AND case_status='open'`,
+          [args.payout_batch_id]
+        );
+        return;
+      }
+
+      await c.query(
+        `UPDATE siton.seller_payout_batches
+         SET payout_status='failed',
+             last_error='payout_reconciliation_mismatch',
+             reconciled_at=now(),
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id]
+      );
+      await c.query(
+        `UPDATE siton.seller_payout_batch_items
+         SET payout_status='failed',
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id]
+      );
+      await c.query(
+        `UPDATE siton.seller_settlements
+         SET payout_status='pending',
+             has_open_mismatch=true,
+             has_open_blocking_reconciliation_case=true,
+             blocker_reasons = ARRAY['open_blocking_reconciliation_case','open_money_mismatch'],
+             delayed_amount=seller_net_payable,
+             updated_at=now()
+         WHERE payout_batch_id=$1`,
+        [args.payout_batch_id]
+      );
+      await createBlockingReconciliationCase(c, {
+        seller_settlement_id: refreshedSettlement?.seller_settlement_id
+          ? String(refreshedSettlement.seller_settlement_id)
+          : settlement?.seller_settlement_id
+            ? String(settlement.seller_settlement_id)
+            : null,
+        payout_batch_id: args.payout_batch_id,
+        seller_id: String(batch.seller_id),
+        deal_id: String(batch.trigger_deal_id),
+        case_type: "amount_mismatch",
+        correlation_id: correlationId,
+        expected_payout_amount: roundMoney(Number(batch.payout_amount || 0)),
+        observed_payout_amount: roundMoney(Number(latestSettlement.payout_amount || 0)),
+        expected_item_count: Number(batch.item_count || 0),
+        observed_item_count: Number(result.observed_item_count || 0),
+        details: {
+          expected_payout_amount: Number(batch.payout_amount || 0),
+          observed_payout_amount: Number(latestSettlement.payout_amount || 0)
+        }
+      });
+    });
+
+    return { status: result.payout_status };
   }
 
   async function getBatchProfile(payoutBatchId: string) {
@@ -939,14 +1482,14 @@ export function buildPayoutRail(deps: {
         [dealId]
       );
       if (!deal.rowCount) return false;
-      if (String(deal.rows[0].state) !== "Completed") return false;
       return insertOutboxEventIfMissing(c, {
         event_type: "seller_payout_prepare",
         aggregate_type: "deal",
         aggregate_id: dealId,
         payload: {
           deal_id: dealId,
-          seller_id: String(deal.rows[0].seller_id || "")
+          seller_id: String(deal.rows[0].seller_id || ""),
+          deal_state: String(deal.rows[0].state || "")
         }
       });
     });
@@ -955,25 +1498,41 @@ export function buildPayoutRail(deps: {
   async function getDealPayoutSummary(dealId: string) {
     await ensurePayoutRailTables(deps.withTx);
     return deps.withTx(async (c) => {
+      const settlement = await c.query(
+        `SELECT *
+         FROM siton.seller_settlements
+         WHERE deal_id=$1
+         LIMIT 1`,
+        [dealId]
+      );
       const batches = await c.query(
-        `SELECT payout_batch_id, seller_id, payout_status, item_count, seller_net_amount,
-                external_transfer_executed, created_at, reconciled_at
+        `SELECT payout_batch_id, seller_id, payout_status, settlement_count, item_count,
+                payout_amount, external_transfer_executed, created_at, reconciled_at
          FROM siton.seller_payout_batches
          WHERE trigger_deal_id=$1
          ORDER BY created_at DESC`,
         [dealId]
       );
       const items = await c.query(
-        `SELECT payout_item_id, payout_batch_id, participant_id, payout_status, seller_net_amount,
+        `SELECT payout_item_id, payout_batch_id, participant_id, payout_status, payout_amount,
                 external_transfer_executed, created_at
          FROM siton.seller_payout_batch_items
          WHERE deal_id=$1
          ORDER BY created_at DESC`,
         [dealId]
       );
+      const cases = await c.query(
+        `SELECT case_status, case_type, blocking_payout, expected_payout_amount, observed_payout_amount, created_at
+         FROM siton.seller_payout_reconciliation_cases
+         WHERE deal_id=$1
+         ORDER BY created_at DESC`,
+        [dealId]
+      );
       return {
+        settlement: settlement.rows[0] || null,
         batches: batches.rows,
-        items: items.rows
+        items: items.rows,
+        reconciliation_cases: cases.rows
       };
     });
   }
@@ -981,36 +1540,76 @@ export function buildPayoutRail(deps: {
   async function payoutStatusSummary() {
     await ensurePayoutRailTables(deps.withTx);
     return deps.withTx(async (c) => {
+      const settlements = await c.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE payout_status='pending')::int AS pending,
+           COUNT(*) FILTER (WHERE payout_status='ready')::int AS ready,
+           COUNT(*) FILTER (WHERE payout_status='batched')::int AS batched,
+           COUNT(*) FILTER (WHERE payout_status='processing')::int AS processing,
+           COUNT(*) FILTER (WHERE payout_status='paid')::int AS paid,
+           COUNT(*) FILTER (WHERE payout_status='failed')::int AS failed,
+           COUNT(*) FILTER (WHERE payout_status='returned')::int AS returned,
+           COUNT(*) FILTER (WHERE payout_status='reconciled')::int AS reconciled,
+           COALESCE(SUM(payout_amount) FILTER (WHERE payout_status='ready'), 0) AS payout_amount_ready,
+           COALESCE(SUM(blocked_amount), 0) AS blocked_amount,
+           COALESCE(SUM(delayed_amount), 0) AS delayed_amount
+         FROM siton.seller_settlements`
+      );
       const batches = await c.query(
         `SELECT
-           COUNT(*) FILTER (WHERE payout_status='blocked')::int AS blocked,
+           COUNT(*) FILTER (WHERE payout_status='pending')::int AS pending,
            COUNT(*) FILTER (WHERE payout_status='ready')::int AS ready,
-           COUNT(*) FILTER (WHERE payout_status='dispatching')::int AS dispatching,
-           COUNT(*) FILTER (WHERE payout_status='submitted_for_execution')::int AS submitted_for_execution,
-           COUNT(*) FILTER (WHERE payout_status='reconciled_internal')::int AS reconciled_internal,
-           COUNT(*) FILTER (WHERE payout_status='manual_review')::int AS manual_review,
+           COUNT(*) FILTER (WHERE payout_status='batched')::int AS batched,
+           COUNT(*) FILTER (WHERE payout_status='processing')::int AS processing,
+           COUNT(*) FILTER (WHERE payout_status='paid')::int AS paid,
            COUNT(*) FILTER (WHERE payout_status='failed')::int AS failed,
-           COALESCE(SUM(seller_net_amount) FILTER (
-             WHERE payout_status IN ('ready','dispatching','submitted_for_execution','reconciled_internal','manual_review')
-           ), 0) AS seller_net_amount_in_flight
+           COUNT(*) FILTER (WHERE payout_status='returned')::int AS returned,
+           COUNT(*) FILTER (WHERE payout_status='reconciled')::int AS reconciled,
+           COALESCE(SUM(payout_amount) FILTER (
+             WHERE payout_status IN ('batched','processing','paid','reconciled')
+           ), 0) AS payout_amount_in_batches
          FROM siton.seller_payout_batches`
       );
+      const cases = await c.query(
+        `SELECT COUNT(*) FILTER (WHERE case_status='open')::int AS open_cases
+         FROM siton.seller_payout_reconciliation_cases
+         WHERE blocking_payout=true`
+      );
       return {
+        settlements: {
+          pending: Number(settlements.rows[0]?.pending || 0),
+          ready: Number(settlements.rows[0]?.ready || 0),
+          batched: Number(settlements.rows[0]?.batched || 0),
+          processing: Number(settlements.rows[0]?.processing || 0),
+          paid: Number(settlements.rows[0]?.paid || 0),
+          failed: Number(settlements.rows[0]?.failed || 0),
+          returned: Number(settlements.rows[0]?.returned || 0),
+          reconciled: Number(settlements.rows[0]?.reconciled || 0),
+          payout_amount_ready: roundMoney(Number(settlements.rows[0]?.payout_amount_ready || 0)),
+          blocked_amount: roundMoney(Number(settlements.rows[0]?.blocked_amount || 0)),
+          delayed_amount: roundMoney(Number(settlements.rows[0]?.delayed_amount || 0))
+        },
         batches: {
-          blocked: Number(batches.rows[0]?.blocked || 0),
+          pending: Number(batches.rows[0]?.pending || 0),
           ready: Number(batches.rows[0]?.ready || 0),
-          dispatching: Number(batches.rows[0]?.dispatching || 0),
-          submitted_for_execution: Number(batches.rows[0]?.submitted_for_execution || 0),
-          reconciled_internal: Number(batches.rows[0]?.reconciled_internal || 0),
-          manual_review: Number(batches.rows[0]?.manual_review || 0),
+          batched: Number(batches.rows[0]?.batched || 0),
+          processing: Number(batches.rows[0]?.processing || 0),
+          paid: Number(batches.rows[0]?.paid || 0),
           failed: Number(batches.rows[0]?.failed || 0),
-          seller_net_amount_in_flight: roundMoney(Number(batches.rows[0]?.seller_net_amount_in_flight || 0))
+          returned: Number(batches.rows[0]?.returned || 0),
+          reconciled: Number(batches.rows[0]?.reconciled || 0),
+          payout_amount_in_batches: roundMoney(Number(batches.rows[0]?.payout_amount_in_batches || 0))
+        },
+        reconciliation_cases: {
+          open_blocking_cases: Number(cases.rows[0]?.open_cases || 0)
         }
       };
     });
   }
 
   return {
+    calculateSellerSettlementForDeal,
+    calculateSellerPayoutBatchBySettlementIds,
     summarizeSellerReadiness,
     prepareBatchForDeal,
     dispatchBatch,

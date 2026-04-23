@@ -1832,7 +1832,7 @@ export function registerFrontendExperience(
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='pending') AS pending_webhooks,
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='failed') AS failed_webhooks,
            (SELECT COUNT(*)::int FROM siton.support_tickets WHERE status <> 'resolved') AS open_support_tickets,
-           (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status IN ('ready','dispatching','submitted_for_execution','manual_review')) AS active_payout_batches,
+           (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status IN ('ready','batched','processing')) AS active_payout_batches,
            (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status='failed') AS failed_payout_batches`
       );
 
@@ -2146,11 +2146,14 @@ export function registerFrontendExperience(
         ),
         c.query(
           `SELECT
+             COUNT(*) FILTER (WHERE payout_status='pending') AS pending,
              COUNT(*) FILTER (WHERE payout_status='ready') AS ready,
-             COUNT(*) FILTER (WHERE payout_status='dispatching') AS dispatching,
-             COUNT(*) FILTER (WHERE payout_status='submitted_for_execution') AS submitted_for_execution,
-             COUNT(*) FILTER (WHERE payout_status='manual_review') AS manual_review,
-             COUNT(*) FILTER (WHERE payout_status='failed') AS failed
+             COUNT(*) FILTER (WHERE payout_status='batched') AS batched,
+             COUNT(*) FILTER (WHERE payout_status='processing') AS processing,
+             COUNT(*) FILTER (WHERE payout_status='paid') AS paid,
+             COUNT(*) FILTER (WHERE payout_status='failed') AS failed,
+             COUNT(*) FILTER (WHERE payout_status='returned') AS returned,
+             COUNT(*) FILTER (WHERE payout_status='reconciled') AS reconciled
            FROM siton.seller_payout_batches`
         )
       ]);
@@ -2181,11 +2184,14 @@ export function registerFrontendExperience(
           oldest_pending_age_s: inv.oldest_pending_age_s != null ? Number(Number(inv.oldest_pending_age_s).toFixed(1)) : null
         },
         payout_batches: {
+          pending: Number(payout.pending ?? 0),
           ready: Number(payout.ready ?? 0),
-          dispatching: Number(payout.dispatching ?? 0),
-          submitted_for_execution: Number(payout.submitted_for_execution ?? 0),
-          manual_review: Number(payout.manual_review ?? 0),
-          failed: Number(payout.failed ?? 0)
+          batched: Number(payout.batched ?? 0),
+          processing: Number(payout.processing ?? 0),
+          paid: Number(payout.paid ?? 0),
+          failed: Number(payout.failed ?? 0),
+          returned: Number(payout.returned ?? 0),
+          reconciled: Number(payout.reconciled ?? 0)
         }
       };
     });
@@ -2434,14 +2440,15 @@ export function registerFrontendExperience(
           [dealId]
         ),
         c.query(
-          `SELECT COUNT(*) FILTER (WHERE payout_status='blocked') AS blocked,
+          `SELECT COUNT(*) FILTER (WHERE payout_status='pending') AS pending,
                   COUNT(*) FILTER (WHERE payout_status='ready') AS ready,
-                  COUNT(*) FILTER (WHERE payout_status='dispatching') AS dispatching,
-                  COUNT(*) FILTER (WHERE payout_status='submitted_for_execution') AS submitted_for_execution,
-                  COUNT(*) FILTER (WHERE payout_status='reconciled_internal') AS reconciled_internal,
-                  COUNT(*) FILTER (WHERE payout_status='manual_review') AS manual_review,
+                  COUNT(*) FILTER (WHERE payout_status='batched') AS batched,
+                  COUNT(*) FILTER (WHERE payout_status='processing') AS processing,
+                  COUNT(*) FILTER (WHERE payout_status='paid') AS paid,
                   COUNT(*) FILTER (WHERE payout_status='failed') AS failed,
-                  COALESCE(SUM(seller_net_amount), 0) AS seller_net_amount
+                  COUNT(*) FILTER (WHERE payout_status='returned') AS returned,
+                  COUNT(*) FILTER (WHERE payout_status='reconciled') AS reconciled,
+                  COALESCE(SUM(payout_amount), 0) AS payout_amount
            FROM siton.seller_payout_batches
            WHERE trigger_deal_id=$1`,
           [dealId]
@@ -2527,14 +2534,15 @@ export function registerFrontendExperience(
             ? Number(Number(ob.oldest_pending_age_s).toFixed(1)) : null
         },
         payout_batches: {
-          blocked: Number(payout.blocked ?? 0),
+          pending: Number(payout.pending ?? 0),
           ready: Number(payout.ready ?? 0),
-          dispatching: Number(payout.dispatching ?? 0),
-          submitted_for_execution: Number(payout.submitted_for_execution ?? 0),
-          reconciled_internal: Number(payout.reconciled_internal ?? 0),
-          manual_review: Number(payout.manual_review ?? 0),
+          batched: Number(payout.batched ?? 0),
+          processing: Number(payout.processing ?? 0),
+          paid: Number(payout.paid ?? 0),
           failed: Number(payout.failed ?? 0),
-          seller_net_amount: Number(payout.seller_net_amount ?? 0)
+          returned: Number(payout.returned ?? 0),
+          reconciled: Number(payout.reconciled ?? 0),
+          payout_amount: Number(payout.payout_amount ?? 0)
         }
       };
     });

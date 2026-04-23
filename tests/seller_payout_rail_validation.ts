@@ -7,6 +7,7 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PAYOUT_PROVIDER = "internal-ledger";
 process.env.PAYOUT_PROVIDER_MODE = "internal-truth-only";
+process.env.DATABASE_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
 
 const { Pool } = pg;
 const pool = new Pool({
@@ -117,13 +118,14 @@ async function cleanupDeal(dealId: string, sellerId: string) {
     await pool.query(`DELETE FROM siton.outbox_dlq WHERE aggregate_id=$1`, [row.payout_batch_id]);
     await pool.query(`DELETE FROM siton.outbox_events WHERE aggregate_id=$1`, [row.payout_batch_id]);
   }
-  await pool.query(`DELETE FROM siton.seller_payout_reconciliation WHERE payout_batch_id IN (SELECT payout_batch_id FROM siton.seller_payout_batches WHERE trigger_deal_id=$1)`, [dealId]);
+  await pool.query(`DELETE FROM siton.seller_payout_reconciliation_cases WHERE payout_batch_id IN (SELECT payout_batch_id FROM siton.seller_payout_batches WHERE trigger_deal_id=$1)`, [dealId]);
   await pool.query(`DELETE FROM siton.seller_payout_attempts WHERE payout_batch_id IN (SELECT payout_batch_id FROM siton.seller_payout_batches WHERE trigger_deal_id=$1)`, [dealId]);
   await pool.query(`DELETE FROM siton.seller_payout_batch_items WHERE deal_id=$1`, [dealId]);
+  await pool.query(`DELETE FROM siton.seller_settlements WHERE deal_id=$1`, [dealId]);
   await pool.query(`DELETE FROM siton.seller_payout_batches WHERE trigger_deal_id=$1`, [dealId]);
   await pool.query(`DELETE FROM siton.platform_fee_money_events WHERE deal_id=$1`, [dealId]);
   await pool.query(`DELETE FROM siton.outbox_dlq WHERE aggregate_id=$1`, [dealId]);
-  await pool.query(`DELETE FROM siton.outbox_events WHERE aggregate_id=$1 OR payload->>'deal_id'=$1`, [dealId]);
+  await pool.query(`DELETE FROM siton.outbox_events WHERE aggregate_id=$1 OR payload->>'deal_id'=$2`, [dealId, String(dealId)]);
   await pool.query(`DELETE FROM siton.participants WHERE deal_id=$1`, [dealId]);
   await pool.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
   await pool.query(`DELETE FROM siton.seller_accounts WHERE seller_id=$1`, [sellerId]);
@@ -134,6 +136,18 @@ async function latestBatchForDeal(dealId: string) {
     `SELECT *
      FROM siton.seller_payout_batches
      WHERE trigger_deal_id=$1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [dealId]
+  );
+  return result.rows[0] as any;
+}
+
+async function latestSettlementForDeal(dealId: string) {
+  const result = await pool.query(
+    `SELECT *
+     FROM siton.seller_settlements
+     WHERE deal_id=$1
      ORDER BY created_at DESC
      LIMIT 1`,
     [dealId]
@@ -173,42 +187,43 @@ await runTest("seller payout rail prepares, dispatches, and reconciles internal 
 
   try {
     const prepareResult = await processOutboxEventById(seeded.prepareEventId);
-    assert.equal(prepareResult?.status, "sent");
+    assert.equal(prepareResult?.status, "sent", (prepareResult as any)?.error);
 
     const batch = await latestBatchForDeal(seeded.dealId);
-    assert.equal(batch.payout_status, "ready");
+    assert.equal(batch.payout_status, "batched");
     assert.equal(Number(batch.item_count), 1);
-    assert.equal(Number(batch.seller_net_amount), 199.23);
+    assert.equal(Number(batch.seller_net_payable), 199.23);
+    assert.equal(Number(batch.payout_amount), 199.23);
     assert.equal(batch.external_transfer_executed, false);
 
     const dispatchEventId = await nextOutboxEvent("seller_payout_dispatch", batch.payout_batch_id);
     assert.ok(dispatchEventId);
     const dispatchResult = await processOutboxEventById(String(dispatchEventId));
-    assert.equal(dispatchResult?.status, "sent");
+    assert.equal(dispatchResult?.status, "sent", (dispatchResult as any)?.error);
 
     const afterDispatch = await latestBatchForDeal(seeded.dealId);
-    assert.equal(afterDispatch.payout_status, "submitted_for_execution");
+    assert.equal(afterDispatch.payout_status, "processing");
     assert.equal(afterDispatch.external_transfer_executed, false);
 
     const reconcileEventId = await nextOutboxEvent("seller_payout_reconcile", batch.payout_batch_id);
     assert.ok(reconcileEventId);
     const reconcileResult = await processOutboxEventById(String(reconcileEventId));
-    assert.equal(reconcileResult?.status, "sent");
+    assert.equal(reconcileResult?.status, "sent", (reconcileResult as any)?.error);
 
     const afterReconcile = await latestBatchForDeal(seeded.dealId);
-    assert.equal(afterReconcile.payout_status, "reconciled_internal");
+    assert.equal(afterReconcile.payout_status, "reconciled");
     assert.equal(afterReconcile.external_transfer_executed, false);
 
     const items = await batchItems(batch.payout_batch_id);
     assert.equal(items.length, 1);
-    assert.equal(items[0].payout_status, "reconciled_internal");
+    assert.equal(items[0].payout_status, "reconciled");
 
     const adminStatus = await app.inject({ method: "GET", url: "/api/admin/payout-status" });
     assert.equal(adminStatus.statusCode, 200);
     const adminBatch = await app.inject({ method: "GET", url: `/api/admin/payouts/batches/${batch.payout_batch_id}` });
     assert.equal(adminBatch.statusCode, 200);
     const adminBatchJson = adminBatch.json() as any;
-    assert.equal(adminBatchJson.payout_batch.batch.payout_status, "reconciled_internal");
+    assert.equal(adminBatchJson.payout_batch.batch.payout_status, "reconciled");
   } finally {
     await cleanupDeal(seeded.dealId, seeded.sellerId);
   }
@@ -219,13 +234,13 @@ await runTest("seller settlement hold blocks payout dispatch while preserving in
 
   try {
     const prepareResult = await processOutboxEventById(seeded.prepareEventId);
-    assert.equal(prepareResult?.status, "sent");
+    assert.equal(prepareResult?.status, "sent", (prepareResult as any)?.error);
+
+    const settlement = await latestSettlementForDeal(seeded.dealId);
+    assert.equal(settlement.payout_status, "pending");
 
     const batch = await latestBatchForDeal(seeded.dealId);
-    assert.equal(batch.payout_status, "blocked");
-
-    const dispatchEventId = await nextOutboxEvent("seller_payout_dispatch", batch.payout_batch_id);
-    assert.equal(dispatchEventId, undefined);
+    assert.equal(batch, undefined);
 
     const readiness = await app.inject({ method: "GET", url: `/api/admin/sellers/${seeded.sellerId}/payout-readiness` });
     assert.equal(readiness.statusCode, 200);
@@ -260,12 +275,12 @@ await runTest("refund after payout submission forces payout reconciliation into 
     await processOutboxEventById(String(reconcileEventId));
 
     const afterReconcile = await latestBatchForDeal(seeded.dealId);
-    assert.equal(afterReconcile.payout_status, "manual_review");
+    assert.equal(afterReconcile.payout_status, "failed");
 
     const batchProfile = await app.inject({ method: "GET", url: `/api/admin/payouts/batches/${batch.payout_batch_id}` });
     assert.equal(batchProfile.statusCode, 200);
     const batchProfileJson = batchProfile.json() as any;
-    assert.equal(batchProfileJson.payout_batch.reconciliation[0].reconciliation_status, "manual_review");
+    assert.equal(batchProfileJson.payout_batch.reconciliation_cases[0].case_status, "open");
   } finally {
     await cleanupDeal(seeded.dealId, seeded.sellerId);
   }

@@ -31,13 +31,16 @@ type PayoutSummary = {
   configured: boolean;
   api_base_url_configured: boolean;
   api_key_configured: boolean;
-  dispatch_path: string;
-  reconcile_path: string;
-  dispatch_transport_live: boolean;
-  reconcile_transport_live: boolean;
+  create_payout_path: string;
+  reconcile_payout_path: string;
+  create_payout_transport_live: boolean;
+  get_payout_status_transport_live: boolean;
+  cancel_payout_transport_live: boolean;
+  reconcile_payout_transport_live: boolean;
   external_transfer_executed: boolean;
   timeout_ms: number;
   supported_modes: string[];
+  supported_methods: string[];
 };
 
 export function buildOperationalReadinessSummary(args: {
