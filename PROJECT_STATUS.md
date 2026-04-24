@@ -1,5 +1,14 @@
 # PROJECT STATUS
 
+Current update: 2026-04-24 (Morning deploy activation hardening: fail-fast env, deploy wiring, invoice ops visibility)
+
+- Completed: hardened Morning activation without reopening the invoice rail core. Real-mode Morning now fails fast when critical env is missing, including `INVOICE_WEBHOOK_SECRET`; `render.yaml` now declares the Morning env surface for deploy-time manual activation; and admin/system observability now exposes Morning config readiness, invoice webhook counters, signature-failure counts, reconcile backlog, and provider failure classes.
+- Completed: kept the activation boundary outside the core state machine. Verified invoice webhooks still remain raw-body verified, duplicate-safe, persisted, security-audited, and reconcile-enqueue-only; no direct invoice state mutation was added to request threads.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/invoice_morning_activation_validation.js`; `node .tmp_test_dist/tests/invoice_morning_adapter_validation.js`; `node .tmp_test_dist/tests/invoice_rail_validation.js`.
+- Open: real Morning credentials are not available in this environment, and there is no live deploy-platform session here, so a true public deploy activation and live webhook callback validation could not be completed from inside this session.
+- Progress: `96%` of the Morning deploy-activation track inside the repository; the remaining `4%` is external platform/secrets execution.
+- Next step: set the Morning secrets in the target deploy platform, redeploy the runtime, hit the live `/webhooks/invoices` endpoint, and capture one real issue/status/webhook/reconcile cycle against the public URL.
+
 Current update: 2026-04-23 (first real invoice provider adapter: Morning / Green Invoice)
 
 - Completed: connected the first real invoice provider adapter, `INVOICE_PROVIDER=morning`, behind the existing invoice rail. The adapter supports document creation, status lookup, cancel, reconcile, normalized result classes, provider status mapping, idempotency keys, correlation IDs, and external issuance marking without changing the canonical money model.
@@ -148,7 +157,9 @@ Four test suites had direct `INSERT INTO siton.invoice_documents (..., affiliate
 
 Every legacy column that had to be removed was removable. There are no external consumers of the dropped columns (this is pre-production, single-tenant, and the only writer/reader of the dead columns was our own code, which now no longer references them). No downstream system depends on `affiliate_fee_amount`, `commission_amount`, or distributor `payout_*`.
 
-`deals.commission_rate` is retained — it is the Siton 8% platform commission rate per spec (migration 008/014 immutability trigger still in force), not a distributor commission. `seller_accounts.payout_method` / `payout_details_masked` are retained — sellers do receive payouts, this is the legitimate seller side.
+`seller_accounts.payout_method` / `payout_details_masked` are retained — sellers do receive payouts, this is the legitimate seller side.
+
+**Wave 4 update (2026-04-23):** `deals.commission_rate` has since been dropped end-to-end. The Siton 8% fee is now sourced exclusively from `SITON_PLATFORM_FEE_RATE = 0.08` in [src/platform_fee_money.ts](src/platform_fee_money.ts); there is no per-deal override column, no per-deal input field, and no stored rate on `siton.deals`. See "Wave 4 Final Audit (2026-04-23)" section below.
 
 ### Wave 2.5 status
 

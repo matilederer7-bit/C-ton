@@ -649,6 +649,14 @@ export function registerFrontendExperience(
       mode: string;
       provider_mode?: string;
       configured?: boolean;
+      api_base_url_configured?: boolean;
+      api_key_configured?: boolean;
+      bearer_token_configured?: boolean;
+      webhook_secret_configured?: boolean;
+      create_document_path?: string;
+      get_document_status_path?: string;
+      cancel_document_path?: string;
+      timeout_ms?: number;
       external_issuance: boolean;
       external_document_issued?: boolean;
       supported_methods?: string[];
@@ -829,6 +837,11 @@ export function registerFrontendExperience(
       isDemoPreview: deps.isDemoPreview,
       payment: getPaymentProviderSummary(deps.paymentProvider),
       payout: getPayoutProviderSummary(payoutProvider),
+      invoice: deps.invoiceSummary ?? {
+        provider: "internal-invoice-ledger",
+        mode: "log-only",
+        external_issuance: false
+      },
       notifications: deps.notificationSummary,
       debugSurfacesEnabled: Boolean(deps.debugSurfacesEnabled),
       webhookSecretSafe: PAYMENT_WEBHOOK_SECRET_IS_SAFE,
@@ -1468,8 +1481,7 @@ export function registerFrontendExperience(
         grossAmount: fulfilledParticipants.reduce(
           (sum: number, row: any) => sum + Number(row.gross_amount || 0),
           0
-        ),
-        commissionRate: 0.08
+        )
       });
 
       const deliveryRows = participants.rows
@@ -2174,6 +2186,7 @@ export function registerFrontendExperience(
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureProductSurfaces();
     await ensurePayoutTables();
+    await ensureInvoiceWebhookTables();
     return deps.withTx(async (c) => {
       const counts = await c.query(
         `SELECT
@@ -2181,6 +2194,9 @@ export function registerFrontendExperience(
            (SELECT COUNT(*)::int FROM siton.outbox_dlq) AS dlq_count,
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='pending') AS pending_webhooks,
            (SELECT COUNT(*)::int FROM siton.webhook_events WHERE status='failed') AS failed_webhooks,
+           (SELECT COUNT(*)::int FROM siton.invoice_webhook_events WHERE status='pending') AS pending_invoice_webhooks,
+           (SELECT COUNT(*)::int FROM siton.invoice_webhook_events WHERE status='ignored') AS ignored_invoice_webhooks,
+           (SELECT COUNT(*)::int FROM siton.invoice_webhook_security_events) AS invoice_webhook_security_events,
            (SELECT COUNT(*)::int FROM siton.support_tickets WHERE status <> 'resolved') AS open_support_tickets,
            (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status IN ('ready','batched','processing')) AS active_payout_batches,
            (SELECT COUNT(*)::int FROM siton.seller_payout_batches WHERE payout_status='failed') AS failed_payout_batches`
@@ -2214,6 +2230,16 @@ export function registerFrontendExperience(
                 "recovery_failed",
                 "refund_issued"
               ]
+            },
+            invoice_webhook_ingestion: {
+              duplicate_policy: "provider+event_id idempotent accept",
+              canonical_route: "/webhooks/invoices",
+              enqueue_policy: "reconcile-only",
+              accepted_signature_headers: [
+                "x-invoice-signature",
+                "x-morning-signature",
+                "x-greeninvoice-signature"
+              ]
             }
           },
           readiness: operationalReadiness(),
@@ -2224,6 +2250,7 @@ export function registerFrontendExperience(
               : "This runtime is not marked as commercial-live.",
             operationalReadiness().payment_provider.what_is_mock,
             operationalReadiness().payout_rail.what_is_mock,
+            operationalReadiness().receipts_invoices.what_is_mock,
             "Notifications remain intentionally log-only until external activation starts."
           ]
         }
@@ -2342,8 +2369,9 @@ export function registerFrontendExperience(
   // Mirrors notifications-status structure. Safe for dashboards and post-restart checks.
   app.get("/api/admin/invoice-status", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureInvoiceWebhookTables();
     return deps.withTx(async (c) => {
-      const [totals, byType] = await Promise.all([
+      const [totals, byType, attempts, webhooks, webhookSecurity, reconcileBacklog] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*)                                                   FILTER (WHERE status='pending')    AS pending_count,
@@ -2365,9 +2393,38 @@ export function registerFrontendExperience(
            FROM siton.invoice_documents
            GROUP BY document_type
            ORDER BY document_type`
+        ),
+        c.query(
+          `SELECT result_class,
+                  COUNT(*) AS count
+           FROM siton.invoice_document_attempts
+           GROUP BY result_class
+           ORDER BY result_class`
+        ),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE status='pending') AS pending,
+                  COUNT(*) FILTER (WHERE status='queued') AS queued,
+                  COUNT(*) FILTER (WHERE status='ignored') AS ignored,
+                  COUNT(*) FILTER (WHERE status='failed') AS failed,
+                  COUNT(*) AS total
+           FROM siton.invoice_webhook_events`
+        ),
+        c.query(
+          `SELECT COUNT(*) AS signature_failures,
+                  MAX(created_at) AS latest_signature_failure_at
+           FROM siton.invoice_webhook_security_events`
+        ),
+        c.query(
+          `SELECT COUNT(*) AS pending_reconcile
+           FROM siton.outbox_events
+           WHERE event_type='invoice_document_reconcile'
+             AND aggregate_type='invoice_document'
+             AND status IN ('pending','processing')`
         )
       ]);
       const t = totals.rows[0];
+      const webhook = webhooks.rows[0] || {};
+      const webhookSec = webhookSecurity.rows[0] || {};
       return {
         ok: true,
         invoice_documents: {
@@ -2386,11 +2443,39 @@ export function registerFrontendExperience(
                 mode: deps.invoiceSummary.mode,
                 provider_mode: deps.invoiceSummary.provider_mode,
                 configured: deps.invoiceSummary.configured,
+                api_base_url_configured: deps.invoiceSummary.api_base_url_configured,
+                api_key_configured: deps.invoiceSummary.api_key_configured,
+                bearer_token_configured: deps.invoiceSummary.bearer_token_configured,
+                webhook_secret_configured: deps.invoiceSummary.webhook_secret_configured,
+                create_document_path: deps.invoiceSummary.create_document_path,
+                get_document_status_path: deps.invoiceSummary.get_document_status_path,
+                cancel_document_path: deps.invoiceSummary.cancel_document_path,
+                timeout_ms: deps.invoiceSummary.timeout_ms,
                 external_issuance: deps.invoiceSummary.external_issuance,
                 external_document_issued: deps.invoiceSummary.external_document_issued,
                 supported_methods: deps.invoiceSummary.supported_methods
               }
             : null
+        },
+        provider_failures_by_class: attempts.rows.map((r: any) => ({
+          result_class: String(r.result_class),
+          count: Number(r.count ?? 0)
+        })),
+        webhook_ingestion: {
+          pending: Number(webhook.pending ?? 0),
+          queued: Number(webhook.queued ?? 0),
+          ignored: Number(webhook.ignored ?? 0),
+          failed: Number(webhook.failed ?? 0),
+          duplicate_rate: Number(webhook.total ?? 0) > 0
+            ? Number((Number(webhook.ignored ?? 0) / Number(webhook.total)).toFixed(4))
+            : 0
+        },
+        webhook_security: {
+          signature_failures: Number(webhookSec.signature_failures ?? 0),
+          latest_signature_failure_at: webhookSec.latest_signature_failure_at ?? null
+        },
+        reconcile_backlog: {
+          pending_reconcile: Number(reconcileBacklog.rows[0]?.pending_reconcile ?? 0)
         },
         by_type: byType.rows.map((r: any) => ({
           document_type: String(r.document_type),

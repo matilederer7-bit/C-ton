@@ -218,6 +218,11 @@ function invoiceProviderDocumentType(type: InvoiceDocumentType) {
   return map[type];
 }
 
+function invoiceProductionLikeMode(env: NodeJS.ProcessEnv) {
+  const mode = String(env.APP_DEPLOYMENT_MODE || "").trim().toLowerCase();
+  return ["production", "prod", "commercial-live"].includes(mode);
+}
+
 async function replaceCheckConstraint(c: any, args: {
   tableName: string;
   constraintName: string;
@@ -643,6 +648,12 @@ class MorningInvoiceProvider implements InvoiceProvider {
     this.configured = Boolean(this.baseUrl && (this.apiKey || this.bearerToken));
     if (this.mode === "real" && !this.configured) {
       throw new Error("INVOICE_PROVIDER=morning requires INVOICE_PROVIDER_BASE_URL and INVOICE_PROVIDER_API_KEY or INVOICE_PROVIDER_BEARER_TOKEN in real mode");
+    }
+    if (this.mode === "real" && !this.webhookSecret) {
+      throw new Error("INVOICE_PROVIDER=morning requires INVOICE_WEBHOOK_SECRET in real mode");
+    }
+    if (this.mode === "real" && invoiceProductionLikeMode(env) && !this.webhookSecret) {
+      throw new Error("INVOICE_PROVIDER=morning requires INVOICE_WEBHOOK_SECRET in production");
     }
   }
 
@@ -1396,11 +1407,19 @@ export async function reclaimStuckInvoiceDocuments(
 
 export function getInvoiceProviderSummary(provider: InvoiceProvider) {
   const isExternal = provider.providerCode !== "internal-invoice-ledger" && provider.mode !== "internal-truth-only" && provider.mode !== "disabled";
+  const env = process.env;
   return {
     provider: provider.providerCode,
     mode: provider.mode === "internal-truth-only" ? "log-only" : provider.mode,
     provider_mode: provider.mode,
     configured: provider.configured ?? provider.mode !== "disabled",
+    api_base_url_configured: Boolean(String(env.INVOICE_PROVIDER_BASE_URL || "").trim()),
+    api_key_configured: Boolean(String(env.INVOICE_PROVIDER_API_KEY || "").trim()),
+    bearer_token_configured: Boolean(String(env.INVOICE_PROVIDER_BEARER_TOKEN || env.INVOICE_PROVIDER_ACCESS_TOKEN || "").trim()),
+    webhook_secret_configured: Boolean(String(env.INVOICE_WEBHOOK_SECRET || "").trim()),
+    create_document_path: String(env.INVOICE_PROVIDER_CREATE_PATH || "/documents"),
+    get_document_status_path: String(env.INVOICE_PROVIDER_STATUS_PATH || "/documents/{provider_document_id}"),
+    cancel_document_path: String(env.INVOICE_PROVIDER_CANCEL_PATH || "/documents/{provider_document_id}/cancel"),
     create_document_transport_live: isExternal && Boolean(provider.createDocument) && Boolean(provider.configured),
     get_document_status_transport_live: isExternal && Boolean(provider.getDocumentStatus) && Boolean(provider.configured),
     cancel_document_transport_live: isExternal && Boolean(provider.cancelDocument) && Boolean(provider.configured),
@@ -1408,6 +1427,7 @@ export function getInvoiceProviderSummary(provider: InvoiceProvider) {
     webhook_verification_live: isExternal && Boolean(provider.verifyWebhook) && Boolean(provider.configured),
     external_issuance: isExternal && Boolean(provider.configured),
     external_document_issued: isExternal && Boolean(provider.configured),
+    timeout_ms: Number(env.INVOICE_PROVIDER_TIMEOUT_MS || 8000),
     supported_modes: ["internal-truth-only", "adapter-ready", "real", "disabled"],
     supported_methods: [
       "createDocument",

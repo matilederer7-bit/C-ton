@@ -28,6 +28,23 @@ type NotificationSummary = {
   external_delivery: boolean;
 };
 
+type InvoiceSummary = {
+  provider: string;
+  mode: string;
+  provider_mode?: string;
+  configured?: boolean;
+  api_base_url_configured?: boolean;
+  api_key_configured?: boolean;
+  bearer_token_configured?: boolean;
+  webhook_secret_configured?: boolean;
+  create_document_transport_live?: boolean;
+  get_document_status_transport_live?: boolean;
+  cancel_document_transport_live?: boolean;
+  reconcile_document_transport_live?: boolean;
+  webhook_verification_live?: boolean;
+  external_issuance: boolean;
+};
+
 type PayoutSummary = {
   provider: string;
   mode: "internal-truth-only" | "adapter-ready";
@@ -51,6 +68,7 @@ export function buildOperationalReadinessSummary(args: {
   isDemoPreview: boolean;
   payment: PaymentSummary;
   payout: PayoutSummary;
+  invoice: InvoiceSummary;
   notifications: NotificationSummary;
   debugSurfacesEnabled: boolean;
   webhookSecretSafe: boolean;
@@ -60,6 +78,7 @@ export function buildOperationalReadinessSummary(args: {
 }) {
   const payment = args.payment;
   const payout = args.payout;
+  const invoice = args.invoice;
   const notifications = args.notifications;
   const paymentStatus =
     payment.mode === "mock-backed"
@@ -195,11 +214,27 @@ export function buildOperationalReadinessSummary(args: {
       can_activate_now: "no"
     },
     receipts_invoices: {
-      state: "first-real-adapter-ready",
+      state: invoice.external_issuance && invoice.configured ? "activated-via-env" : "first-real-adapter-ready",
       what_is_real: "invoice document eligibility, canonical invoice_documents rows, invoice attempts, reconciliation cases, outbox-driven issue/reconcile flow, idempotency, correlation IDs, Morning/Green Invoice HTTP adapter, webhook verification, webhook dedupe, and reconcile outbox enqueue",
-      what_is_mock: "internal-truth-only remains available when INVOICE_PROVIDER is not set to the real adapter",
-      what_is_missing: "live provider credentials, deployed webhook validation, final tax/legal template approval, and production PDF/delivery policy",
-      can_activate_now: "yes-with-provider-env"
+      what_is_mock: invoice.external_issuance && invoice.configured
+        ? "none in the connected invoice transport itself"
+        : "internal-truth-only remains available when INVOICE_PROVIDER is not set to the real adapter",
+      what_is_missing: invoice.external_issuance && invoice.configured
+        ? "deployed provider credentials validation, final tax/legal template approval, and production document delivery policy still depend on the target environment"
+        : "live provider credentials, deployed webhook validation, final tax/legal template approval, official numbering/template policy, and production document delivery policy",
+      depends_on_env: [
+        "INVOICE_PROVIDER",
+        "INVOICE_PROVIDER_MODE",
+        "INVOICE_PROVIDER_BASE_URL",
+        "INVOICE_PROVIDER_API_KEY",
+        "INVOICE_PROVIDER_BEARER_TOKEN",
+        "INVOICE_WEBHOOK_SECRET",
+        "INVOICE_PROVIDER_CREATE_PATH",
+        "INVOICE_PROVIDER_STATUS_PATH",
+        "INVOICE_PROVIDER_CANCEL_PATH",
+        "INVOICE_PROVIDER_TIMEOUT_MS"
+      ],
+      can_activate_now: invoice.external_issuance && invoice.configured ? "env-ready-awaiting-platform-access" : "yes-with-provider-env"
     },
     feature_flags: {
       state: "env-switches-only",

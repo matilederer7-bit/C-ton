@@ -27,6 +27,19 @@ services:
         value: mockpay
       - key: PAYMENT_WEBHOOK_SECRET
         generateValue: true
+      # Real Morning invoice activation must be set manually in Render.
+      - key: INVOICE_PROVIDER
+        sync: false
+      - key: INVOICE_PROVIDER_MODE
+        sync: false
+      - key: INVOICE_PROVIDER_BASE_URL
+        sync: false
+      - key: INVOICE_PROVIDER_API_KEY
+        sync: false
+      - key: INVOICE_PROVIDER_BEARER_TOKEN
+        sync: false
+      - key: INVOICE_WEBHOOK_SECRET
+        sync: false
       - key: NOTIFICATION_PROVIDER
         value: log-only
       - key: DATABASE_URL

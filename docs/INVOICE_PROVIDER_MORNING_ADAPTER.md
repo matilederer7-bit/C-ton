@@ -20,6 +20,8 @@ Use:
 - `INVOICE_PROVIDER_API_KEY` or `INVOICE_PROVIDER_BEARER_TOKEN`
 - `INVOICE_WEBHOOK_SECRET`
 
+`render.yaml` now declares these keys for manual deploy-time activation, but keeps them unset in-repo.
+
 Optional path overrides:
 
 - `INVOICE_PROVIDER_CREATE_PATH`
@@ -41,10 +43,55 @@ Invoice document creation, cancel, status lookup, and reconcile stay worker/outb
 
 Webhook dedupe is enforced by `(provider, event_id)` in `invoice_webhook_events`. Invalid signatures are recorded in `invoice_webhook_security_events`.
 
+Late webhooks for terminal invoice documents are ignored. Verified invoice webhooks do not mutate invoice state directly; they only enqueue `invoice_document_reconcile`.
+
 ## Mapping
 
 Provider-specific statuses are normalized inside the adapter only. The domain sees only canonical statuses such as `issued`, `failed`, `voided`, and `reconciled`, plus result classes `success`, `permanent_fail`, `temporary_fail`, and `unknown`.
 
+## Fail-Fast Policy
+
+`INVOICE_PROVIDER=morning` with `INVOICE_PROVIDER_MODE=real` now fails fast if any critical value is missing:
+
+- provider base URL
+- provider API key or bearer token
+- `INVOICE_WEBHOOK_SECRET`
+
+No fallback secret exists for Morning. No secret values are written to logs.
+
+## Observability
+
+`GET /api/admin/invoice-status` now exposes:
+
+- provider activation/config surface
+- provider failures by class
+- invoice webhook counts
+- invoice webhook signature failures
+- reconcile backlog
+
+`GET /api/admin/system-status` also exposes the canonical invoice webhook route and aggregate invoice webhook counters.
+
+## What Passed Here
+
+Validated from this environment:
+
+- compile
+- Morning adapter issue/status/cancel/reconcile transport against a local HTTP provider stub
+- raw-body webhook verification
+- webhook dedupe and security-event persistence
+- reconcile enqueue-only behavior
+- invoice rail compatibility regression
+- fail-fast activation checks
+
 ## Still External
 
-Live credentials, final legal/tax template approval, production webhook endpoint validation, and PDF/delivery policy remain deployment activation work.
+Not completed from this environment:
+
+- setting real Morning secrets in the deploy platform
+- deploying a runtime with those secrets
+- hitting the public deployed `/webhooks/invoices`
+- validating a real Morning callback against the public URL
+- final legal/tax template approval
+- production PDF/delivery policy
+
+These steps remain blocked by external access to the deploy platform and the real Morning account secrets.
