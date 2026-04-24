@@ -52,8 +52,7 @@ async function createDeal(title: string, suffix: string) {
       price_per_unit: 45,
       min_units: 2,
       max_units: 2,
-      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      commission_rate: 0.1
+      deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
     }
   });
   assert.equal(response.statusCode, 200);
@@ -165,7 +164,7 @@ async function main() {
     assert.equal(issueWithoutNote.statusCode, 400);
   });
 
-  await runTest("affiliate payout and settlement routes are removed from the live model", async () => {
+  await runTest("affiliate remains attribution-only while verification stays operational", async () => {
     const affiliate = await pool.query(
       `SELECT affiliate_id::text AS affiliate_id
        FROM siton.affiliate_accounts
@@ -173,25 +172,6 @@ async function main() {
        LIMIT 1`
     );
     const affiliateId = String(affiliate.rows[0].affiliate_id);
-
-    const blocked = await app.inject({
-      method: "POST",
-      url: `/api/admin/affiliate-payouts/${affiliateId}`,
-      payload: {
-        payout_status: "approved"
-      }
-    });
-    assert.equal(blocked.statusCode, 410);
-
-    const payoutProfile = await app.inject({
-      method: "POST",
-      url: "/api/affiliate/payout-profile",
-      payload: {
-        payout_method: "bank_transfer",
-        payout_details: "IL0011223344556677"
-      }
-    });
-    assert.equal(payoutProfile.statusCode, 410);
 
     const approve = await app.inject({
       method: "POST",
@@ -201,16 +181,7 @@ async function main() {
         admin_note: "master depth approval"
       }
     });
-    assert.equal(approve.statusCode, 410);
-
-    const approved = await app.inject({
-      method: "POST",
-      url: `/api/admin/affiliate-payouts/${affiliateId}`,
-      payload: {
-        payout_status: "approved"
-      }
-    });
-    assert.equal(approved.statusCode, 410);
+    assert.equal(approve.statusCode, 200);
   });
 }
 

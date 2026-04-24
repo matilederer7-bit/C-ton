@@ -1,10 +1,19 @@
-# Canonical Drift Audit
+# [CLOSED — HISTORICAL] Canonical Drift Audit
 
-Date: `2026-04-18`
+> **STATUS: CLOSED 2026-04-22.** This audit is a historical snapshot from `2026-04-18` and must NOT be read as current state. Every drift cluster below has since been resolved by Waves 2, 2.5, and 3. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit section) for the canonical current truth.
+>
+> Closure summary:
+> 1. **Distributor economic subsystem** — dismantled in Wave 2.5 via migration `020_drop_affiliate_legacy_columns.sql`. Distributors are attribution-only: no commission, no payout, no settlement, no balance, no withdraw.
+> 2. **`commission_rate` fee model** — replaced by `SITON_PLATFORM_FEE_RATE = 0.08` constant in `src/platform_fee_money.ts`, with fee base including delivery per canonical spec.
+> 3. **Repeat purchases** — spec aligned; a single buyer may hold multiple participations on the same deal via repeat purchases. Runtime enforces multi-participation.
+>
+> All present-tense language below describes the April-18 snapshot, NOT the current repository.
 
-## Scope
+Date (original): `2026-04-18`
 
-This audit compares the newly adopted canonical foundation pack against the repository as it exists now.
+## Scope (historical)
+
+This audit compared the newly adopted canonical foundation pack against the repository as it existed on 2026-04-18.
 
 Canonical source of truth:
 

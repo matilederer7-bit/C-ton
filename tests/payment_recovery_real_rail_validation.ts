@@ -150,8 +150,8 @@ async function createRecoveryParticipant(args: {
 
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, completion_window_until, commission_rate, seller_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9, $10, $11)`,
+       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, completion_window_until, seller_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9, $10)`,
     [
       dealId,
       `Recovery Deal ${args.suffix}`,
@@ -162,7 +162,6 @@ async function createRecoveryParticipant(args: {
       new Date(Date.now() + 60 * 60_000).toISOString(),
       "CompletionWindow",
       completionWindowUntil,
-      0.08,
       "seller-alpha"
     ]
   );

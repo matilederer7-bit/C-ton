@@ -62,9 +62,9 @@ async function seedCompletedDeal(args: {
   await pool.query(
     `INSERT INTO siton.deals (
        deal_id, seller_id, title, price_per_unit, min_units, max_units, threshold_units,
-       deadline, state, published_at, created_at, updated_at, commission_rate
+       deadline, state, published_at, created_at, updated_at
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8,'Completed',now(),now(),now(),$9
+       $1,$2,$3,$4,$5,$6,$7,$8,'Completed',now(),now(),now()
      )`,
     [
       dealId,
@@ -74,8 +74,7 @@ async function seedCompletedDeal(args: {
       1,
       10,
       1,
-      new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
-      0.08
+      new Date(Date.now() + 4 * 60 * 60_000).toISOString()
     ]
   );
 

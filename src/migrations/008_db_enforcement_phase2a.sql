@@ -146,10 +146,6 @@ BEGIN
     IF NEW.deadline IS DISTINCT FROM OLD.deadline THEN
       RAISE EXCEPTION 'deals.deadline is immutable after publish';
     END IF;
-
-    IF NEW.commission_rate IS DISTINCT FROM OLD.commission_rate THEN
-      RAISE EXCEPTION 'deals.commission_rate is immutable after publish';
-    END IF;
   END IF;
 
   IF OLD.completion_window_until IS NOT NULL

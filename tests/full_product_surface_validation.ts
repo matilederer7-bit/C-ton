@@ -32,7 +32,6 @@ async function createDeal(title: string, suffix: string, seller?: { seller_id?: 
       min_units: 10,
       max_units: 25,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      commission_rate: 0.08,
       delivery_options: [
         { option_type: "pickup", label: "Self pickup", cost: 0, sort_order: 0 },
         { option_type: "delivery", label: "Courier", cost: 18, sort_order: 1 }
@@ -114,15 +113,22 @@ async function main() {
     assert.equal(payload.site.seller_entry.create_deal_url, "/app/seller/new");
   });
 
-  await runTest("public marketplace discovery is removed from the current direction", async () => {
+  await runTest("site home exposes only link-based core surfaces", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/api/marketplace/deals?q=Marketplace"
+      url: "/api/site/home"
     });
 
-    assert.equal(response.statusCode, 410);
+    assert.equal(response.statusCode, 200);
     const payload = response.json() as any;
-    assert.equal(payload.code, "PUBLIC_MARKETPLACE_REMOVED");
+    assert.deepEqual(payload.site.core_surfaces, [
+      "אתר מותג ודף פתיחה למוכרים",
+      "יצירת עסקה וניהול עסקה למוכר",
+      "דף עסקה ציבורי מבוסס לינק",
+      "מסלול הצטרפות קונה עם אימות והרשאה",
+      "מסך מעקב לקונה",
+      "ניהול בסיסי לעסקאות מוכר"
+    ]);
   });
 
   await runTest("seller surface exposes draft and publish behavior", async () => {

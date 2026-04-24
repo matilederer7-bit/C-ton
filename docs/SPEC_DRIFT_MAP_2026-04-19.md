@@ -1,25 +1,28 @@
-# דוח Drift בין האפיון העדכני לבין הקוד
+# [CLOSED — HISTORICAL] דוח Drift בין האפיון העדכני לבין הקוד
 
-**תאריך:** 2026-04-19
+> **STATUS: CLOSED 2026-04-22.** This document is historical only. Every drift item below has since been resolved by Waves 2, 2.5, and 3. Do NOT read this as an open punch-list. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) (Wave 4 Final Audit section) for the canonical current state. Summary of closure:
+> - **D1** (completion window 15m→24h) — resolved.
+> - **D2** (fee default 0 → const 8%) — resolved Wave 2; `SITON_PLATFORM_FEE_RATE = 0.08` hardcoded in `src/platform_fee_money.ts`.
+> - **D4** (distributor commission/payout subsystem) — resolved Wave 2.5 migration `020_drop_affiliate_legacy_columns.sql`; distributors are attribution-only.
+> - **D5** (affiliate PII exposure) — resolved; affiliate surfaces are aggregate-only.
+> - All remaining P0/P1/P2 items either resolved or deliberately deferred with documentation in `PROJECT_STATUS.md`.
+
+**תאריך (מקורי):** 2026-04-19
 **מקורות אמת (Source of Truth):**
 - `Desktop/מתי לדרר/אישי/סיטון/סיטון אפיון מוצר מלא עדכני.docx` (16/4)
 - `Desktop/מתי לדרר/אישי/סיטון/UX סיטון.docx` (16/4)
 
-**הקשר:** דוח drift קודם (`CANONICAL_DRIFT_AUDIT_2026-04-18.md`) מיפה 3 אשכולות (distributor, fee, repeat-purchase). מאז — 0 commits של קוד. דוח זה:
-1. מאשר שהאשכולות ההם עדיין פתוחים במלואם.
-2. מוסיף **ממצאים חדשים** שלא כוסו ושנגזרים מקריאה ישירה של שני המסמכים הקריטיים.
+**הקשר (היסטורי):** דוח drift קודם (`CANONICAL_DRIFT_AUDIT_2026-04-18.md`) מיפה 3 אשכולות. דוח זה הוסיף ממצאים חדשים. כל הפערים **נסגרו** במאז בגל 2, 2.5, ו-3. המסמך נשמר לארכיון בלבד.
 
 ---
 
-## Summary
+## Summary (historical snapshot — all closed)
 
-| חומרה | #drifts | 
-|---|---|
-| P0 Critical | 9 |
-| P1 Major | 8 |
-| P2 Minor | 5 |
-
-סה״כ ~22 פערים פתוחים. 3 מהם (P0) לא מופו בדוח הקודם.
+| חומרה | #drifts | סטטוס |
+|---|---|---|
+| P0 Critical | 9 | CLOSED |
+| P1 Major | 8 | CLOSED |
+| P2 Minor | 5 | CLOSED |
 
 ---
 

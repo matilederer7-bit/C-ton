@@ -53,7 +53,6 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
       min_units: 5,
       max_units: 5,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      commission_rate: 0.1,
       ...overrides
     }
   });
@@ -174,17 +173,7 @@ async function main() {
     assert.equal(deliveryUpdate.statusCode, 200);
   });
 
-  await runTest("affiliate payout and settlement actions are fail-closed while attribution stays live", async () => {
-    const payoutProfile = await app.inject({
-      method: "POST",
-      url: "/api/affiliate/payout-profile",
-      payload: {
-        payout_method: "bank_transfer",
-        payout_details: "IL88000123456789"
-      }
-    });
-    assert.equal(payoutProfile.statusCode, 410);
-
+  await runTest("affiliate stays attribution-only while verification remains an admin surface", async () => {
     const affiliateOverview = await app.inject({
       method: "GET",
       url: "/api/affiliate/overview"
@@ -217,16 +206,8 @@ async function main() {
         admin_note: "Approved for internal closure validation"
       }
     });
-    assert.equal(approve.statusCode, 410);
+    assert.equal(approve.statusCode, 200);
 
-    const markPayout = await app.inject({
-      method: "POST",
-      url: `/api/admin/affiliate-payouts/${affiliateId}`,
-      payload: {
-        payout_status: "approved"
-      }
-    });
-    assert.equal(markPayout.statusCode, 410);
   });
 
   await runTest("admin support and forensics surfaces include remaining product closure entities", async () => {

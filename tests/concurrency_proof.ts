@@ -37,8 +37,8 @@ const SELLER = "seller-test-proof";
 async function createDeal(maxUnits: number, label: string): Promise<string> {
   const r = await DB.query(
     `INSERT INTO siton.deals
-       (title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id, state, published_at)
-     VALUES ($1, 10, 1, $2, 1, NOW() + INTERVAL '1 hour', 0, $3, 'PendingTarget', NOW())
+       (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, state, published_at)
+     VALUES ($1, 10, 1, $2, 1, NOW() + INTERVAL '1 hour', $3, 'PendingTarget', NOW())
      RETURNING deal_id`,
     [`[proof] ${label}`, maxUnits, SELLER]
   );

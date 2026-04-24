@@ -159,9 +159,9 @@ async function createChargingParticipant(suffix: string, authorizationId: string
 
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, commission_rate, seller_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9, $10)`,
-    [dealId, `Capture Deal ${suffix}`, 42, 10, 20, 9, deadline, "Charging", 0.08, "seller-alpha"]
+       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, seller_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9)`,
+    [dealId, `Capture Deal ${suffix}`, 42, 10, 20, 9, deadline, "Charging", "seller-alpha"]
   );
 
   await pool.query(

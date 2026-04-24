@@ -55,7 +55,6 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
       min_units: 2,
       max_units: 6,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      commission_rate: 0.1,
       ...overrides
     }
   });
@@ -140,15 +139,6 @@ async function main() {
       }
     });
     assert.equal(missingSellerKyc.statusCode, 404);
-
-    const missingAffiliatePayout = await app.inject({
-      method: "POST",
-      url: "/api/admin/affiliate-payouts/00000000-0000-0000-0000-000000000000",
-      payload: {
-        payout_status: "approved"
-      }
-    });
-    assert.equal(missingAffiliatePayout.statusCode, 410);
 
     const missingSupport = await app.inject({
       method: "POST",

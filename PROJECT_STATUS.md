@@ -264,7 +264,7 @@ Managerial source-of-truth resolutions applied this wave:
 
 ### What is still open (deferred to Wave 2)
 
-- **D4 — Distributor commission/payout subsystem must be dismantled.** `affiliate_accounts` / `affiliate_attributions` still carry `commission_rate`, `commission_amount`, `payout_status`, `payout_method` in [src/product_surface_support.ts](src/product_surface_support.ts) and the frontend still surfaces payout routes. Entire code path needs to be removed or neutralized.
+- **D4 — Distributor commission/payout subsystem must be dismantled.** ~~`affiliate_accounts` / `affiliate_attributions` still carry `commission_rate`, `commission_amount`, `payout_status`, `payout_method`...~~ **CLOSED in Wave 2 / 2.5** — distributor money columns dropped from `affiliate_accounts`, `affiliate_attributions`, `invoice_documents`; `deals.commission_rate` additionally dropped in Wave 4 (2026-04-23). 8% fee is now sourced solely from `SITON_PLATFORM_FEE_RATE` constant. Historical text preserved for audit continuity — do NOT treat as an open gap.
 - **D5 — Distributor-facing PII exposure of buyers** must be scrubbed once D4 is resolved.
 - **D7 — Refund endpoints** (seller-initiated and admin-initiated refunds per spec) are still absent.
 - **D8 — Trusted-device cookie / OTP skip for repeat buyers** not yet implemented.
@@ -1873,3 +1873,45 @@ DB transactions, real concurrent `app.inject()` calls, and direct DB queries for
   `100%` of the isolated frontend browser-smoke track
 - Next step:
   keep this browser smoke as the route-level safety net and only deepen it if we explicitly want interaction coverage beyond route open, hierarchy, CTA presence, and fallback states
+
+## Wave 4 Final Audit (2026-04-23) — Five Canonical Truths Enforced in Repo
+
+Request: explicit verification (not assessment) that the repo contains no live file — code, doc, audit, JSON, snapshot, or comment — that could mislead an agent, developer, or reviewer into believing any of five anti-truths.
+
+The five canonical truths now enforced across the repo:
+
+1. **No live search / marketplace / catalog / browse / discover product surface exists or is planned.** Buyers arrive via a direct deal link shared by the distributor; the public surface is a single deal page only.
+2. **No distributor commission / payout / settlement / balance / withdraw money model.** The distributor surface is attribution-only (link, clicks, entries, joins, attributed units, attributed gross as a measurement number). All money columns on `affiliate_accounts` and `affiliate_attributions` were dropped in Wave 2 / 2.5. The payout-profile endpoint returns HTTP 410 `affiliate_payout_model_removed`.
+3. **Siton fee is exactly 8% — not 5%, not 0.05, not per-deal configurable.** Sourced from `SITON_PLATFORM_FEE_RATE = 0.08` in [src/platform_fee_money.ts](src/platform_fee_money.ts). In Wave 4 the legacy `deals.commission_rate` column (and every write path that referenced it) was dropped end-to-end via [src/migrations/022_drop_deals_commission_rate.sql](src/migrations/022_drop_deals_commission_rate.sql), and the column is no longer created by fresh-install paths ([scripts/init_db.sql](scripts/init_db.sql), [src/migrations/014_demo_preview_bootstrap.sql](src/migrations/014_demo_preview_bootstrap.sql)) or written by any live or test INSERT. Two plpgsql triggers (`siton.deals_before_update_enforce`, `siton.deals_before_update_enforce_hardening`) were `CREATE OR REPLACE`'d inside migration 022 before the `DROP COLUMN` so plpgsql's cached parse plans no longer reference the dead column.
+4. **Siton fee base includes delivery.** Every charge/refund/seller-summary/admin-settlement site computes gross as `qty × price_per_unit + delivery_cost` (pre-VAT). Enforced in Wave 2 at:
+   - `enqueueChargeReceiptForParticipant` + `enqueueRefundReceiptForParticipant` in [src/app.ts](src/app.ts)
+   - seller deal-detail surface and admin settlement math in [src/frontend_runtime.ts](src/frontend_runtime.ts)
+   - backend sanity suite spec example: `price=100 qty=2 delivery=20 → base=220 fee=17.6`
+5. **A buyer can make multiple purchases on the same deal.** Participant idempotency is keyed on `(deal_id, idempotency_key)`, not `(deal_id, buyer_id)`; `tests/adversarial_hardening_validation.ts` covers the repeat-join path for the same buyer on the same deal.
+
+### Scope of the verification sweep
+
+Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs/**`, `frontend/**`, `archive/**`, root `*.md`, migration SQL, seed SQL, DDL strings, comments, TODO markers, and direct SQL INSERTs.
+
+### Confusion-surface remediation actions (2026-04-23)
+
+- **Doc banners** — SUPERSEDED / CLOSED / HISTORICAL / NOT-ACCEPTED banners applied at the top of every legacy planning / audit / drift-report document that could be mistaken for live direction. Covered: [docs/SPEC_DRIFT_MAP_2026-04-19.md](docs/SPEC_DRIFT_MAP_2026-04-19.md), [docs/CANONICAL_DRIFT_AUDIT_2026-04-18.md](docs/CANONICAL_DRIFT_AUDIT_2026-04-18.md), [docs/STAGE_9D_DRIFT_REPORT.md](docs/STAGE_9D_DRIFT_REPORT.md), [docs/LEGACY_FOUNDATION_DOC_STATUS_2026-04-18.md](docs/LEGACY_FOUNDATION_DOC_STATUS_2026-04-18.md), [docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md](docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md), the FULL_PRODUCT_CLOSURE trio + its morning handoff, MASTER/REMAINING PRODUCT deep-map docs + their morning handoffs, and the PASS2 / PASS4 / PASS5 / PASS6 progression docs.
+- **`deals.commission_rate` column drop** — end-to-end cleanup:
+  - [scripts/init_db.sql](scripts/init_db.sql), [src/migrations/014_demo_preview_bootstrap.sql](src/migrations/014_demo_preview_bootstrap.sql), [src/migrations/008_db_enforcement_phase2a.sql](src/migrations/008_db_enforcement_phase2a.sql), [src/stage10c_harden_deals.sql](src/stage10c_harden_deals.sql) — column removed from CREATE TABLE; removed from all trigger-function bodies; fresh installs never carry the column.
+  - [src/migrations/022_drop_deals_commission_rate.sql](src/migrations/022_drop_deals_commission_rate.sql) — NEW migration for any existing DB on Wave 3 schema; redefines both enforcement trigger functions (`CREATE OR REPLACE FUNCTION`) before `ALTER TABLE ... DROP COLUMN IF EXISTS commission_rate` so plpgsql cached plans don't break.
+  - [src/app.ts](src/app.ts) — `INSERT INTO siton.deals` no longer writes `commission_rate`; `SITON_PLATFORM_FEE_RATE` import trimmed (no longer used there).
+  - [src/product_surface_support.ts](src/product_surface_support.ts) — `summarizeMoney` no longer accepts `commissionRate`; comment updated to reference the canonical constant.
+  - [src/frontend_runtime.ts](src/frontend_runtime.ts) — `summarizeMoney` call drops the `commissionRate` argument.
+  - 15 test files — every `INSERT INTO siton.deals (..., commission_rate, ...)` SQL literal and every `commission_rate: 0.08 / 0.1` in-memory fixture removed. Param-index `$N` placeholders renumbered; call-site payloads updated.
+- **Regression assertions retained (deliberate):** `tests/backend_sanity_suite.ts` / `tests/platform_fee_payments_8_percent_validation.ts` / `tests/spec_drift_regression_wave3_validation.ts` still name the string `"commission_rate"` in forbidden-key lists — these assert that the column / field MUST NOT appear anywhere on a response body or in a column introspection. These are anti-drift tripwires, not usage.
+
+### Files touched in Wave 4
+
+- Code + DDL: `scripts/init_db.sql`, `src/migrations/008_db_enforcement_phase2a.sql`, `src/migrations/014_demo_preview_bootstrap.sql`, `src/migrations/022_drop_deals_commission_rate.sql` (NEW), `src/stage10c_harden_deals.sql`, `src/app.ts`, `src/product_surface_support.ts`, `src/frontend_runtime.ts`.
+- Tests: `tests/backend_sanity_suite.ts`, `tests/platform_fee_payments_8_percent_validation.ts`, `tests/concurrency_proof.ts`, `tests/charging_completion_window_validation.ts`, `tests/admin_observability_proof.ts`, `tests/deal_ops_summary_proof.ts`, `tests/payment_refund_real_rail_validation.ts`, `tests/payment_recovery_real_rail_validation.ts`, `tests/payment_capture_webhook_real_rail_validation.ts`, `tests/webhook_truth_handling_validation.ts`, `tests/seller_auth_session_validation.ts`, `tests/state_engine_atomicity_validation.ts`, `tests/seller_payout_rail_validation.ts`, `tests/full_product_surface_validation.ts`, `tests/master_product_depth_validation.ts`, `tests/remaining_product_surfaces_validation.ts`, `tests/ultimate_prelive_qa_rc_validation.ts`, `tests/seller_auth_authority_validation.ts`.
+- Docs: every doc listed under "Doc banners" above, plus this PROJECT_STATUS.md update.
+
+### Audit verdict
+
+- **PASS on the strict bar.** The working tree carries zero live file that could mislead a reader into believing any of the five anti-truths. Every remaining `commission_rate` hit in the repo is one of: (a) a `DROP COLUMN` migration statement, (b) a trigger-function re-definition removing the column, (c) an anti-drift test asserting the column/field must NOT exist, or (d) a historical PROJECT_STATUS.md audit log line explicitly marked as historical.
+- The residue policy going forward: any new file that would re-introduce a `commission_rate` column, a per-deal fee override, a marketplace/catalog surface, a distributor money field, or a single-purchase-per-buyer constraint must be treated as a direct contradiction of the canonical spec and rejected.

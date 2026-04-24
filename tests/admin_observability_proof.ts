@@ -180,8 +180,8 @@ await run("S4 — /api/admin/participants/:id/ops returns participant state + cr
   try {
     // Insert minimal deal + participant
     await pool.query(
-      `INSERT INTO siton.deals (deal_id, title, state, threshold_units, min_units, max_units, price_per_unit, commission_rate, deadline, published_at, created_at, updated_at)
-       VALUES ($1, 'Ops Test Deal', 'Completed', 1, 1, 10, 100.00, 0.10, now() + interval '7 days', now(), now(), now())
+      `INSERT INTO siton.deals (deal_id, title, state, threshold_units, min_units, max_units, price_per_unit, deadline, published_at, created_at, updated_at)
+       VALUES ($1, 'Ops Test Deal', 'Completed', 1, 1, 10, 100.00, now() + interval '7 days', now(), now(), now())
        ON CONFLICT (deal_id) DO NOTHING`,
       [dealId]
     );

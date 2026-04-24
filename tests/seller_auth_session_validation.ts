@@ -127,17 +127,17 @@ await run("non-demo seller sessions are DB-backed, isolated, revocable, and igno
     const seeded = await withTx(async (c) => {
       const alpha = await c.query(
         `INSERT INTO siton.deals (
-           title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
          RETURNING deal_id`,
-        [`Seller Alpha Deal ${Date.now()}`, 50, 10, 20, 9, new Date(Date.now() + 60 * 60_000).toISOString(), 0.08, "seller-alpha"]
+        [`Seller Alpha Deal ${Date.now()}`, 50, 10, 20, 9, new Date(Date.now() + 60 * 60_000).toISOString(), "seller-alpha"]
       );
       const beta = await c.query(
         `INSERT INTO siton.deals (
-           title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id
-         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7)
          RETURNING deal_id`,
-        [`Seller Beta Deal ${Date.now()}`, 60, 10, 20, 9, new Date(Date.now() + 60 * 60_000).toISOString(), 0.08, "seller-beta"]
+        [`Seller Beta Deal ${Date.now()}`, 60, 10, 20, 9, new Date(Date.now() + 60 * 60_000).toISOString(), "seller-beta"]
       );
       return {
         alphaDealId: String(alpha.rows[0].deal_id),

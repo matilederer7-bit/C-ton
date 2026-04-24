@@ -42,27 +42,25 @@ async function seedParticipant(args: {
   pricePerUnit: number;
   qty: number;
   deliveryCost: number;
-  commissionRate?: number;
 }) {
   const dealId = randomUUID();
   const participantId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
        deal_id, title, price_per_unit, min_units, max_units, threshold_units,
-       deadline, state, published_at, created_at, updated_at, commission_rate, seller_id
+       deadline, state, published_at, created_at, updated_at, seller_id
      ) VALUES (
-       $1,$2,$3,$4,$5,$6,$7,$8, now(), now(), now(), $9, $10
+       $1,$2,$3,$4,$5,$6,$7,$8, now(), now(), now(), $9
      )`,
     [
       dealId,
-      `Marketplace Fee Deal ${args.suffix}`,
+      `Platform Fee Deal ${args.suffix}`,
       args.pricePerUnit,
       1,
       Math.max(2, args.qty + 1),
       1,
       new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
       "Completed",
-      args.commissionRate ?? 0.37,
       "seller-default"
     ]
   );
@@ -85,13 +83,12 @@ async function cleanupParticipant(args: { dealId: string; participantId: string 
 
 await ensurePlatformFeeMoneyTables(withTx);
 
-await runTest("charge success computes fixed 8% platform fee and ignores per-deal commission_rate", async () => {
+await runTest("charge success computes fixed 8% platform fee with no per-deal commission override possible", async () => {
   const seeded = await seedParticipant({
     suffix: "charge",
     pricePerUnit: 100,
     qty: 2,
-    deliveryCost: 20,
-    commissionRate: 0.61
+    deliveryCost: 20
   });
 
   try {
@@ -128,8 +125,7 @@ await runTest("recovered charge computes the same fixed 8% fee model", async () 
     suffix: "recovery",
     pricePerUnit: 55,
     qty: 3,
-    deliveryCost: 15,
-    commissionRate: 0.01
+    deliveryCost: 15
   });
 
   try {
@@ -298,8 +294,8 @@ await runTest("failed deal without charge truth does not report payout readiness
   await pool.query(
     `INSERT INTO siton.deals (
        deal_id, title, price_per_unit, min_units, max_units, threshold_units,
-       deadline, state, published_at, created_at, updated_at, commission_rate, seller_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), now(), $9, $10)`,
+       deadline, state, published_at, created_at, updated_at, seller_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), now(), $9)`,
     [
       dealId,
       "Failed deal without captured charge",
@@ -309,7 +305,6 @@ await runTest("failed deal without charge truth does not report payout readiness
       1,
       new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
       "Failed",
-      0.08,
       "seller-default"
     ]
   );

@@ -1,6 +1,8 @@
-# FULL PRODUCT CLOSURE DECISION
+# [SUPERSEDED — NOT CANONICAL] FULL PRODUCT CLOSURE DECISION
 
-## Executive Decision
+> **STATUS: SUPERSEDED 2026-04-22.** This decision log proposed a "marketplace expansion" direction (public catalog/search/Amazon-style discovery) that was **explicitly REJECTED** by the canonical product spec adopted on 2026-04-18. Siton is link-only: no public marketplace, no catalog, no search, no browse, no discover. The canonical current direction is [CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md](/c:/Users/Lenovo/Documents/C-ton/docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md) and [PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md](/c:/Users/Lenovo/Documents/C-ton/docs/PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md). Do NOT use this document to justify product scope or direction.
+
+## Executive Decision (historical, superseded)
 
 `PRODUCT MOSTLY CLOSED WITH CLEAR REMAINING SURFACES`
 

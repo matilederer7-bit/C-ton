@@ -149,8 +149,8 @@ async function createRefundParticipant(args: {
 
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, commission_rate, seller_id
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9, $10)`,
+       deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, state, published_at, created_at, seller_id
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8, now(), now(), $9)`,
     [
       dealId,
       `Refund Deal ${args.suffix}`,
@@ -160,7 +160,6 @@ async function createRefundParticipant(args: {
       9,
       new Date(Date.now() + 60 * 60_000).toISOString(),
       "Failed",
-      0.08,
       "seller-alpha"
     ]
   );

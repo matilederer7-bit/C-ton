@@ -1,6 +1,8 @@
-# Active Product Cleanup Pass
+# [HISTORICAL] Active Product Cleanup Pass
 
-Date: 2026-04-09
+> **Note 2026-04-22:** this pass removed old marketplace framing in Apr 2026 but references `/app/marketplace` as a "redirect compatibility route". The canonical current product has no public marketplace surface at all. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md).
+
+Date: 2026-04-09 (historical)
 
 ## Goal
 

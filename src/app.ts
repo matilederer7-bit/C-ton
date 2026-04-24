@@ -26,8 +26,7 @@ import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
   buildPlatformFeeMoney,
   calculatePlatformFeeMoney,
-  ensurePlatformFeeMoneyTables,
-  SITON_PLATFORM_FEE_RATE
+  ensurePlatformFeeMoneyTables
 } from "./platform_fee_money.js";
 import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
 import { buildPayoutProvider } from "./payout_provider.js";
@@ -2111,8 +2110,8 @@ app.post("/deals", async (req: any) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, seller_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
        RETURNING deal_id, state`,
       [
         title,
@@ -2121,7 +2120,6 @@ app.post("/deals", async (req: any) => {
         maxUnits,
         draftThreshold,
         deadlineIso,
-        SITON_PLATFORM_FEE_RATE,
         sellerAuthority.seller_id
       ]
     );

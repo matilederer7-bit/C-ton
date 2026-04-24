@@ -172,7 +172,7 @@ async function main() {
   // ── Wave 2: Siton fee base includes delivery, excludes VAT, no affiliate fee
   await runTest("siton fee base includes delivery: price=100 qty=2 delivery=20 -> fee base=220 fee total=20.77", () => {
     const base = 100 * 2 + 20;
-    const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
+    const summary = summarizeMoney({ grossAmount: base });
     assert.equal(summary.gross_amount, 220);
     assert.equal(summary.siton_fee_base_amount, 17.6);
     assert.equal(summary.siton_fee_vat_amount, 3.17);
@@ -187,7 +187,7 @@ async function main() {
 
   await runTest("siton fee base with no delivery: price=50 qty=1 delivery=0 -> fee total=4.72", () => {
     const base = 50 * 1 + 0;
-    const summary = summarizeMoney({ grossAmount: base, commissionRate: 0.08 });
+    const summary = summarizeMoney({ grossAmount: base });
     assert.equal(summary.gross_amount, 50);
     assert.equal(summary.siton_fee_base_amount, 4);
     assert.equal(summary.siton_fee_vat_amount, 0.72);
@@ -196,7 +196,7 @@ async function main() {
   });
 
   await runTest("summarizeMoney has no affiliate field and exposes explicit VAT / fee-base truth", () => {
-    const summary = summarizeMoney({ grossAmount: 220, commissionRate: 0.08 });
+    const summary = summarizeMoney({ grossAmount: 220 });
     const keys = Object.keys(summary);
     for (const forbidden of ["affiliate_fee_amount", "affiliate_fee_rate", "vat", "tax_amount"]) {
       assert.ok(!keys.includes(forbidden), `forbidden key "${forbidden}" present in summarizeMoney output`);

@@ -31,8 +31,8 @@ async function insertDeal(dealId: string, title = "Test Deal") {
   await pool.query(
     `INSERT INTO siton.deals
        (deal_id, title, state, threshold_units, min_units, max_units,
-        price_per_unit, commission_rate, deadline, published_at, created_at, updated_at)
-     VALUES ($1,$2,'Completed',1,1,10,100.00,0.10,
+        price_per_unit, deadline, published_at, created_at, updated_at)
+     VALUES ($1,$2,'Completed',1,1,10,100.00,
              now()+interval '7 days', now(), now(), now())
      ON CONFLICT (deal_id) DO NOTHING`,
     [dealId, title]

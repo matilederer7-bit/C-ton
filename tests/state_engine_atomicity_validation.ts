@@ -58,8 +58,8 @@ async function seedDeal(state: string, overrides: Partial<Record<string, unknown
   const dealId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at, completion_window_until
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
     [
       dealId,
       "seller-wave2",
@@ -70,7 +70,6 @@ async function seedDeal(state: string, overrides: Partial<Record<string, unknown
       overrides.max_units ?? 10,
       overrides.threshold_units ?? 5,
       overrides.deadline ?? new Date(Date.now() + 30 * 60_000).toISOString(),
-      overrides.commission_rate ?? 0.1,
       overrides.published_at ?? new Date().toISOString(),
       overrides.completion_window_until ?? null
     ]

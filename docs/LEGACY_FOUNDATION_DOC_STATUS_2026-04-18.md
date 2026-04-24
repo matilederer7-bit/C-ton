@@ -30,11 +30,13 @@ This file is the initial deprecation map for the older repository foundation doc
 
 These can remain as working notes, but they are no longer the final authority over product direction or foundation scope.
 
-## Concrete Drift Already Identified
+## Concrete Drift Already Identified (CLOSED)
 
-- Old product docs modeled affiliate commissions, payout timing, and internal distributor accounting.
-- New product and UX docs move distributors to attribution, link tracking, and aggregate performance only.
-- Older DB-oriented docs still reflect `commission_rate` and one-purchase-per-buyer assumptions that must now be reviewed against the new canonical direction.
+> **Update 2026-04-22 (Wave 4):** all three items below have been resolved in the live codebase.
+
+- Old product docs modeled affiliate commissions, payout timing, and internal distributor accounting. **Resolved** — Wave 2.5 migration `020_drop_affiliate_legacy_columns.sql` removed the affiliate economic subsystem from schema/API/UI.
+- New product and UX docs move distributors to attribution, link tracking, and aggregate performance only. **In force** — this is the current canonical model.
+- Older DB-oriented docs reflected `commission_rate` and one-purchase-per-buyer assumptions. **Resolved** — `deals.commission_rate` is no longer present after Wave 4 migration `022_drop_deals_commission_rate.sql`; Siton fee is a system constant at 8% in `src/platform_fee_money.ts`. Multi-participation per deal per buyer is supported.
 
 ## Required Next-Step Use
 

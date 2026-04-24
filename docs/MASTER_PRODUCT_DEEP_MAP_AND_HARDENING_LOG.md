@@ -1,6 +1,8 @@
-# Master Product Deep Map and Hardening Log
+# [SUPERSEDED — NOT CANONICAL] Master Product Deep Map and Hardening Log
 
-Last updated: 2026-03-31
+> **STATUS: SUPERSEDED 2026-04-22.** The surface map below references `/app/marketplace` and "expansion marketplace/search surface" which are **NOT part of the current product**. Canonical 2026-04-18 direction: link-only Siton, no public marketplace/search. Affiliate "payout readiness" described here was **dismantled** in Wave 2.5 — distributors are attribution-only. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
+
+Last updated: 2026-03-31 (historical)
 
 ## Phase A - Master Role and Surface Map
 

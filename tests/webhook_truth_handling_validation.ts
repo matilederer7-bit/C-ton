@@ -81,9 +81,9 @@ async function seedChargeAwaitingWebhook(suffix: string, correlationId = `corr-c
   const participantId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at
-     ) VALUES ($1,$2,'Charging',$3,$4,$5,$6,$7,$8,$9, now())`,
-    [dealId, "seller-alpha", `Wave4A Charge ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString(), 0.08]
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at
+     ) VALUES ($1,$2,'Charging',$3,$4,$5,$6,$7,$8, now())`,
+    [dealId, "seller-alpha", `Wave4A Charge ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString()]
   );
   await pool.query(
     `INSERT INTO siton.participants (
@@ -105,9 +105,9 @@ async function seedRecoveryAwaitingWebhook(suffix: string, correlationId = `corr
   const participantId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at, completion_window_until
-     ) VALUES ($1,$2,'CompletionWindow',$3,$4,$5,$6,$7,$8,$9, now(), $10)`,
-    [dealId, "seller-alpha", `Wave4A Recovery ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString(), 0.08, new Date(Date.now() + 10 * 60_000).toISOString()]
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until
+     ) VALUES ($1,$2,'CompletionWindow',$3,$4,$5,$6,$7,$8, now(), $9)`,
+    [dealId, "seller-alpha", `Wave4A Recovery ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString(), new Date(Date.now() + 10 * 60_000).toISOString()]
   );
   await pool.query(
     `INSERT INTO siton.participants (
@@ -137,8 +137,8 @@ async function seedClosedParticipant(args: {
   const participantId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at, completion_window_until
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), $11)`,
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), $10)`,
     [
       dealId,
       "seller-alpha",
@@ -149,7 +149,6 @@ async function seedClosedParticipant(args: {
       20,
       9,
       new Date(Date.now() + 30 * 60_000).toISOString(),
-      0.08,
       new Date(Date.now() - 10 * 60_000).toISOString()
     ]
   );

@@ -1,6 +1,8 @@
-# Product Surface Focus Pass
+# [HISTORICAL] Product Surface Focus Pass
 
-Date: 2026-04-09
+> **Note 2026-04-22:** references below to `/app/marketplace` and "legacy marketplace compatibility routes" describe a prior state. The canonical current product has no public marketplace / search / catalog surface at all, including no compatibility route. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md).
+
+Date: 2026-04-09 (historical)
 
 ## Primary Product Surface
 

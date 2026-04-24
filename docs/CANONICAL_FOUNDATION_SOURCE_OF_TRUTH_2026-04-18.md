@@ -41,10 +41,10 @@ Until the next implementation pass finishes:
 - do not reopen deprecated commission behavior just because older repo docs mention it
 - do treat the updated distributor model as the guiding product truth for future code and UX work
 
-## Open Follow-Up Items
+## Follow-Up Items — CLOSED 2026-04-22
 
-The new foundation pack also exposes follow-up work that is not implemented in this step:
+All follow-up items identified by the original `2026-04-18` foundation adoption have been resolved by Waves 2, 2.5, 3, and 4:
 
-- repository code and DB drift must be re-mapped against the new canonical pack
-- repeated purchases by the same buyer in the same deal are explicitly allowed in the updated product spec and must be reconciled against any remaining schema/runtime uniqueness assumptions
-- legacy references to `commission_rate` and old affiliate payout assumptions must be cleaned out of secondary docs and then from code/schema where relevant
+- ✅ Repository code and DB drift re-mapped against the new canonical pack (see `tests/spec_drift_regression_wave3_validation.ts` — 12/12 source-level regression checks).
+- ✅ Repeated purchases by the same buyer in the same deal are fully supported end-to-end; any legacy `(buyer_id, deal_id)` uniqueness assumption was removed.
+- ✅ Legacy `commission_rate` and old affiliate payout assumptions have been removed from code/schema: Wave 2.5 migration `020_drop_affiliate_legacy_columns.sql` dropped affiliate economic columns; Wave 4 migration `022_drop_deals_commission_rate.sql` dropped `deals.commission_rate`. Siton fee is the system constant `SITON_PLATFORM_FEE_RATE = 0.08`, fee base includes delivery per spec.

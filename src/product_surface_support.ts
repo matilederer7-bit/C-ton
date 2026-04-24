@@ -14,10 +14,10 @@ export function isChargedMoneyState(moneyState: string | null | undefined) {
 }
 
 // Siton platform fee base = everything actually collected from the buyer
-// (price × qty + delivery). Excludes VAT. Distributors do NOT receive a fee.
+// (price × qty + delivery). Excludes VAT. The fee itself is the system
+// constant SITON_PLATFORM_FEE_RATE = 0.08. Distributors do NOT receive a fee.
 export function summarizeMoney(args: {
   grossAmount: number;
-  commissionRate?: number;
   vatAmount?: number;
 }) {
   const grossAmount = Number(args.grossAmount || 0);

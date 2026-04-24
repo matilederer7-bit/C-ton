@@ -1,6 +1,8 @@
-# REMAINING PRODUCT SURFACES DECISION
+# [SUPERSEDED — NOT CANONICAL] REMAINING PRODUCT SURFACES DECISION
 
-## Executive Decision
+> **STATUS: SUPERSEDED 2026-04-22.** This decision listed "Affiliate verification and payout readiness" and "Public marketplace search and discovery / Marketplace / mall / Amazon-style catalog experience" as live scope. Both are **NOT part of the current product**. Affiliate economic subsystem was dismantled in Wave 2.5; public marketplace/search was never part of the canonical 2026-04-18 spec. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
+
+## Executive Decision (historical)
 
 `PRODUCT CLOSED WITH ONLY EXTERNAL-ACTIVATION GAPS`
 

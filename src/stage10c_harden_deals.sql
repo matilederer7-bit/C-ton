@@ -7,7 +7,6 @@ ALTER TABLE siton.deals
   ALTER COLUMN price_per_unit SET NOT NULL,
   ALTER COLUMN min_units SET NOT NULL,
   ALTER COLUMN deadline SET NOT NULL,
-  ALTER COLUMN commission_rate SET NOT NULL,
   ALTER COLUMN threshold_units SET NOT NULL,
   ALTER COLUMN created_at SET NOT NULL,
   ALTER COLUMN updated_at SET NOT NULL;
@@ -105,7 +104,6 @@ BEGIN
       OR NEW.min_units IS DISTINCT FROM OLD.min_units
       OR NEW.max_units IS DISTINCT FROM OLD.max_units
       OR NEW.deadline IS DISTINCT FROM OLD.deadline
-      OR NEW.commission_rate IS DISTINCT FROM OLD.commission_rate
     THEN
       RAISE EXCEPTION 'critical fields are immutable after publish';
     END IF;

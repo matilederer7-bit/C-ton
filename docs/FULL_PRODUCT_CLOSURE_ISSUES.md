@@ -1,6 +1,8 @@
-# FULL PRODUCT CLOSURE ISSUES
+# [SUPERSEDED — NOT CANONICAL] FULL PRODUCT CLOSURE ISSUES
 
-## Non-Blocking But Real
+> **STATUS: SUPERSEDED 2026-04-22.** Items 2 and 4 below refer to an "affiliate payout model" and a "public marketplace search/catalog" that are **NOT part of the current product**. Wave 2.5 dismantled the affiliate economic subsystem (migration `020_drop_affiliate_legacy_columns.sql`); the canonical 2026-04-18 spec explicitly excludes any public marketplace / catalog / search surface. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
+
+## Non-Blocking But Real (historical, mostly superseded)
 
 1. Seller receipts and delivery remain open because no canonical backend entities exist for them yet.
 2. Affiliate remains partial because the backend still has no attribution persistence, verification workflow, or payout model.

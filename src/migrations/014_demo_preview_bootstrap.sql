@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS siton.deals (
   max_units INT NOT NULL CHECK (max_units >= min_units),
   threshold_units INT NOT NULL CHECK (threshold_units > 0),
   deadline TIMESTAMPTZ NOT NULL,
-  commission_rate NUMERIC(6,4) NOT NULL DEFAULT 0,
+  -- Siton platform fee is the system constant SITON_PLATFORM_FEE_RATE = 0.08 (see src/platform_fee_money.ts).
+  -- Not stored per-deal. Any legacy `commission_rate` column is dropped by migration 022.
   published_at TIMESTAMPTZ NULL,
   completion_window_until TIMESTAMPTZ NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -373,9 +374,6 @@ BEGIN
     END IF;
     IF NEW.deadline IS DISTINCT FROM OLD.deadline THEN
       RAISE EXCEPTION 'deals.deadline is immutable after publish';
-    END IF;
-    IF NEW.commission_rate IS DISTINCT FROM OLD.commission_rate THEN
-      RAISE EXCEPTION 'deals.commission_rate is immutable after publish';
     END IF;
   END IF;
 

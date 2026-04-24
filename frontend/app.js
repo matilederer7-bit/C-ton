@@ -17,7 +17,6 @@ const state = {
   sellerAuth: null,
   dealPayload: null,
   trackingPayload: null,
-  marketplacePayload: null,
   sellerPayload: null,
   sellerDealPayload: null,
   affiliatePayload: null,
@@ -32,7 +31,6 @@ const state = {
   error: null,
   banner: null,
   form: {
-    marketQuery: "",
     adminQuery: "",
     qty: "1",
     deliveryOptionId: "",
@@ -50,7 +48,6 @@ const state = {
     sellerMinUnits: "10",
     sellerMaxUnits: "20",
     sellerDeadline: "",
-    sellerCommissionRate: "0",
     sellerDeliveryType1: "pickup",
     sellerDeliveryLabel1: "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™",
     sellerDeliveryCost1: "0",
@@ -249,7 +246,7 @@ async function loadSellerSession() {
 
 function parseRoute(path) {
   const normalized = path.replace(/\/+$/, "") || "/";
-  if (normalized === "/" || normalized === "/app" || normalized === "/app/marketplace") return { name: "home" };
+  if (normalized === "/" || normalized === "/app") return { name: "home" };
   const patterns = [
     ["deal", /^\/app\/deal\/([^/]+)$/],
     ["otp", /^\/app\/join\/([^/]+)\/otp$/],
@@ -594,7 +591,6 @@ async function refreshAdminSilently() {
 }
 
 async function submitAction(action, form) {
-  if (action === "marketplace-search") return loadHome();
   if (action === "start-join") return startJoin();
   if (action === "otp-start") return otpStart(form);
   if (action === "otp-verify") return otpVerify(form);
@@ -804,7 +800,6 @@ async function createDeal(form) {
         min_units: Number(formData.get("sellerMinUnits") || 0),
         max_units: Number(formData.get("sellerMaxUnits") || 0),
         deadline: new Date(deadline).toISOString(),
-        commission_rate: Number(formData.get("sellerCommissionRate") || 0),
         seller_id: sellerContext.seller_id,
         seller_display_name: sellerContext.display_name,
         delivery_options: deliveryOptions
@@ -924,7 +919,6 @@ function cloneSellerDeal(dealId) {
   state.form.sellerPrice = String(deal.price_per_unit);
   state.form.sellerMinUnits = String(deal.min_units);
   state.form.sellerMaxUnits = String(deal.max_units);
-  state.form.sellerCommissionRate = String(deal.commission_rate || 0);
   const deliveryOptions = Array.isArray(state.sellerDealPayload?.delivery_options)
     ? state.sellerDealPayload.delivery_options
     : [];
@@ -1033,7 +1027,6 @@ function restartFlow() {
   if (!dealId) return navigate("/app");
   removeFlow(dealId);
   state.form = {
-    marketQuery: state.form.marketQuery,
     adminQuery: state.form.adminQuery,
     qty: String(state.dealPayload?.deal?.min_units || 1),
     deliveryOptionId: "",
@@ -1050,7 +1043,6 @@ function restartFlow() {
     sellerMinUnits: state.form.sellerMinUnits,
     sellerMaxUnits: state.form.sellerMaxUnits,
     sellerDeadline: state.form.sellerDeadline,
-    sellerCommissionRate: state.form.sellerCommissionRate,
     sellerDeliveryType1: state.form.sellerDeliveryType1,
     sellerDeliveryLabel1: state.form.sellerDeliveryLabel1,
     sellerDeliveryCost1: state.form.sellerDeliveryCost1,
@@ -1200,7 +1192,7 @@ function renderHomeLegacy() {
         <div class="summary-item">
           <span class="muted">׳ ׳§׳•׳“׳× ׳”׳›׳ ׳™׳¡׳” ׳©׳ ׳”׳§׳•׳ ׳”</span>
           <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
-          <p class="small muted">${esc(payload?.buyer_entry_note || "׳”׳§׳•׳ ׳” ׳ ׳›׳ ׳¡ ׳™׳©׳™׳¨׳•׳× ׳׳“׳£ ׳”׳¢׳¡׳§׳” ׳“׳¨׳ ׳׳™׳ ׳§ ׳׳™׳©׳™, ׳‘׳׳™ ׳—׳™׳₪׳•׳© ׳•׳‘׳׳™ ׳§׳˜׳׳•׳’.")}</p>
+          <p class="small muted">${esc(payload?.buyer_entry_note || "הקונה נכנס ישירות לדף העסקה דרך לינק אישי שנשלח אליו.")}</p>
         </div>
         <div class="summary-item">
           <span class="muted">׳”׳›׳™׳•׳•׳ ׳”׳׳•׳¦׳¨׳™ ׳”׳₪׳¢׳™׳</span>
@@ -1222,12 +1214,8 @@ function renderHomeLegacy() {
       </aside>
     </section>
     <section class="card section stack">
-      <h2>׳׳” ׳›׳׳•׳ ׳‘-V1</h2>
-      <div class="card-list">${(payload?.v1_scope || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
-    </section>
-    <section class="card section stack">
-      <h2>׳׳” ׳׳ ׳—׳׳§ ׳׳”׳›׳™׳•׳•׳ ׳”׳ ׳•׳›׳—׳™</h2>
-      <div class="card-list">${(payload?.out_of_scope || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
+      <h2>מה קורה בפועל</h2>
+      <div class="card-list">${(payload?.core_surfaces || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
     </section>
   `;
   return `
@@ -1805,7 +1793,7 @@ function renderHome() {
         <div class="summary-item">
           <span class="muted">׳ ׳§׳•׳“׳× ׳”׳›׳ ׳™׳¡׳” ׳©׳ ׳”׳§׳•׳ ׳”</span>
           <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
-          <p class="small muted">${esc(payload?.buyer_entry_note || "׳”׳§׳•׳ ׳” ׳ ׳›׳ ׳¡ ׳™׳©׳™׳¨׳•׳× ׳׳“׳£ ׳”׳¢׳¡׳§׳” ׳“׳¨׳ ׳׳™׳ ׳§ ׳׳™׳©׳™, ׳‘׳׳™ ׳—׳™׳₪׳•׳© ׳•׳‘׳׳™ ׳§׳˜׳׳•׳’.")}</p>
+          <p class="small muted">${esc(payload?.buyer_entry_note || "הקונה נכנס ישירות לדף העסקה דרך לינק אישי שנשלח אליו.")}</p>
         </div>
         <div class="summary-item">
           <span class="muted">׳”׳›׳™׳•׳•׳ ׳”׳׳•׳¦׳¨׳™ ׳”׳₪׳¢׳™׳</span>
@@ -1823,38 +1811,9 @@ function renderHome() {
         </aside>
       </section>
     <section class="card section stack">
-      <h2>׳׳” ׳›׳׳•׳ ׳‘-V1</h2>
-      <div class="card-list">${(payload?.v1_scope || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
+      <h2>מה קורה בפועל</h2>
+      <div class="card-list">${(payload?.core_surfaces || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
     </section>
-    <section class="card section stack">
-      <h2>׳׳” ׳׳ ׳—׳׳§ ׳׳”׳›׳™׳•׳•׳ ׳”׳ ׳•׳›׳—׳™</h2>
-      <div class="card-list">${(payload?.out_of_scope || []).map((item) => `<article class="summary-item"><strong>${esc(item)}</strong></article>`).join("")}</div>
-    </section>
-  `;
-}
-
-function renderMarketplaceCard(item) {
-  return `
-    <article class="summary-item">
-      <div class="actions spread">
-        <div>
-          <span class="muted">${esc(getDealCopy(item.state).label)}</span>
-          <h3>${esc(item.title)}</h3>
-        </div>
-        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(item.availability.badge || item.state)}</span>
-      </div>
-      <p class="small muted">${esc(item.availability.message || "")}</p>
-      <div class="summary-grid">
-        <div class="summary-item"><span class="muted">׳׳—׳™׳¨</span><strong>${currency(item.price_per_unit)}</strong></div>
-        <div class="summary-item"><span class="muted">׳ ׳¨׳©׳׳•</span><strong>${num(item.metrics.joined_units)}</strong></div>
-        <div class="summary-item"><span class="muted">׳™׳×׳¨׳” ׳₪׳ ׳•׳™׳”</span><strong>${num(item.metrics.remaining_units)}</strong></div>
-        <div class="summary-item"><span class="muted">׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”</span><strong>${dt(item.deadline)}</strong></div>
-      </div>
-      <div class="actions">
-        <a class="button primary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳¢׳¡׳§׳”</a>
-        <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">׳׳¡׳ ׳”׳׳•׳›׳¨</a>
-      </div>
-    </article>
   `;
 }
 
@@ -1977,7 +1936,7 @@ function renderSellerDealCard(item) {
       <div class="summary-grid">
         <div class="summary-item"><span class="muted">׳™׳—׳™׳“׳•׳× ׳©׳ ׳¨׳©׳׳•</span><strong>${num(item.metrics.joined_units)}</strong></div>
         <div class="summary-item"><span class="muted">׳™׳×׳¨׳” ׳₪׳ ׳•׳™׳”</span><strong>${num(item.metrics.remaining_units)}</strong></div>
-        <div class="summary-item"><span class="muted">׳¢׳׳׳× ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”</span><strong>${num(Math.round((item.commission_rate || 0) * 100))}%</strong></div>
+        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
         <div class="summary-item"><span class="muted">׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”</span><strong>${dt(item.deadline)}</strong></div>
       </div>
       <div class="urgency-panel ${urgency.tone}">
@@ -2007,7 +1966,6 @@ function renderSellerNewPage() {
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
   const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
-  const commissionPct = Math.max(0, Number(state.form.sellerCommissionRate || 0) * 100);
   const deliveryOptionsCount = [1, 2, 3].filter((slot) => String(state.form[`sellerDeliveryLabel${slot}`] || "").trim()).length;
   return `
     <section class="hero">
@@ -2029,7 +1987,7 @@ function renderSellerNewPage() {
             <div class="field"><label for="sellerTitle">׳›׳•׳×׳¨׳× ׳”׳¢׳¡׳§׳”</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
             <div class="inline-fields">
               <div class="field"><label for="sellerPrice">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
-              <div class="field"><label for="sellerCommissionRate">׳¢׳׳׳× ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”</label><input id="sellerCommissionRate" name="sellerCommissionRate" type="number" step="0.01" value="${esc(state.form.sellerCommissionRate)}" /></div>
+              <div class="summary-item"><span class="muted">עמלת סיטון הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
             </div>
             <div class="form-preview-grid">
               <div class="summary-item"><span class="muted">׳׳—׳–׳•׳¨ ׳׳™׳ ׳™׳׳׳™ ׳׳©׳•׳¢׳¨</span><strong>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} ׳™׳—' ׳׳₪׳™ ׳”׳׳—׳™׳¨ ׳”׳ ׳•׳›׳—׳™.</p></div>
@@ -2151,7 +2109,7 @@ function renderSellerDealPage() {
           <div class="summary-item"><span class="muted">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</span><strong>${currency(deal.price_per_unit)}</strong></div>
           <div class="summary-item"><span class="muted">׳™׳—׳™׳“׳•׳× ׳©׳ ׳¨׳©׳׳•</span><strong>${num(deal.metrics.joined_units)}</strong></div>
           <div class="summary-item"><span class="muted">׳׳©׳×׳×׳₪׳™׳</span><strong>${num(deal.metrics.participants_count)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳׳׳× ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”</span><strong>${num(Math.round((deal.commission_rate || 0) * 100))}%</strong></div>
+        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
         </div>
         <div class="live-summary-grid">
           <div class="summary-item summary-spotlight"><span class="muted">׳ ׳•׳×׳¨ ׳׳׳׳</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} ׳™׳—'</strong><p class="small muted">׳׳×׳•׳ ׳§׳™׳‘׳•׳׳× ׳›׳•׳׳׳× ׳©׳ ${num(deal.max_units)} ׳™׳—'.</p></div>
@@ -2924,7 +2882,7 @@ const INTERNAL_TABLE_HEADER_LABELS = {
   max_units: "׳׳§׳¡׳™׳׳•׳ ׳™׳—׳™׳“׳•׳×",
   threshold_units: "׳™׳¢׳“ ׳‘׳¡׳™׳¡",
   deadline: "׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”",
-  commission_rate: "׳¢׳׳׳”",
+  platform_fee_rate: "עמלת סיטון",
   participant_id: "׳׳–׳”׳” ׳׳©׳×׳×׳£",
   buyer_id: "׳׳–׳”׳” ׳§׳•׳ ׳”",
   qty: "׳›׳׳•׳×",

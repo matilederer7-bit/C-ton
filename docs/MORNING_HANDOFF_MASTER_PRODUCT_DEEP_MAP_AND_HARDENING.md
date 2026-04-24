@@ -1,6 +1,8 @@
-# Morning Handoff - Master Product Deep Map and Hardening
+# [SUPERSEDED — NOT CANONICAL] Morning Handoff - Master Product Deep Map and Hardening
 
-Last updated: 2026-03-31
+> **STATUS: SUPERSEDED 2026-04-22.** The actor map below lists "Public visitor: search/discover" and "Affiliate: payout readiness" — both are **NOT part of the current product**. Canonical 2026-04-18 spec: no public search/discover (link-only Siton), and distributors are attribution-only (no payout, no commission). See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
+
+Last updated: 2026-03-31 (historical)
 
 ## Which Actors Exist And What They Can Do
 

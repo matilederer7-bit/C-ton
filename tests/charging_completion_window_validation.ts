@@ -229,9 +229,9 @@ async function seedReadyForChargingDeal(suffix: string) {
   const participantId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
-    [dealId, "seller-alpha", "ReadyForCharging", `Wave3 Start ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString(), 0.08]
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())`,
+    [dealId, "seller-alpha", "ReadyForCharging", `Wave3 Start ${suffix}`, 42, 10, 20, 9, new Date(Date.now() + 30 * 60_000).toISOString()]
   );
   await pool.query(
     `INSERT INTO siton.participants (
@@ -250,8 +250,8 @@ async function seedChargingDeal(args: {
   const dealId = randomUUID();
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now())`,
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now())`,
     [
       dealId,
       "seller-alpha",
@@ -261,8 +261,7 @@ async function seedChargingDeal(args: {
       10,
       50,
       args.thresholdUnits ?? 9,
-      new Date(Date.now() + 30 * 60_000).toISOString(),
-      0.08
+      new Date(Date.now() + 30 * 60_000).toISOString()
     ]
   );
 
@@ -304,8 +303,8 @@ async function seedRecoveryDeal(args: {
 
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at, completion_window_until
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10, now(), $11)`,
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9, now(), $10)`,
     [
       dealId,
       "seller-alpha",
@@ -316,7 +315,6 @@ async function seedRecoveryDeal(args: {
       20,
       9,
       new Date(Date.now() + 30 * 60_000).toISOString(),
-      0.08,
       completionWindowUntil
     ]
   );
@@ -361,8 +359,8 @@ async function seedFinalizeDeal(args: {
 
   await pool.query(
     `INSERT INTO siton.deals (
-       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, commission_rate, published_at, completion_window_until
-     ) VALUES ($1,$2,'CompletionWindow',$3,$4,$5,$6,$7,$8,$9, now(), $10)`,
+       deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until
+     ) VALUES ($1,$2,'CompletionWindow',$3,$4,$5,$6,$7,$8, now(), $9)`,
     [
       dealId,
       "seller-alpha",
@@ -372,7 +370,6 @@ async function seedFinalizeDeal(args: {
       Math.max(args.minUnits, 200),
       args.thresholdUnits,
       new Date(Date.now() + 60 * 60_000).toISOString(),
-      0.08,
       completionWindowUntil
     ]
   );

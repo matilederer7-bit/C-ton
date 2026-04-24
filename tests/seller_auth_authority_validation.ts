@@ -72,8 +72,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 20,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-        commission_rate: 0.08
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
       }
     });
     assert.equal(denied.statusCode, 401);
@@ -92,8 +91,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 25,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-        commission_rate: 0.08
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
       }
     });
     assert.equal(create.statusCode, 200);
@@ -183,8 +181,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         price_per_unit: 30,
         min_units: 10,
         max_units: 20,
-        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-        commission_rate: 0.08
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
       }
     });
     assert.equal(cancelOtherSellerDraft.statusCode, 200);

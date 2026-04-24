@@ -1,4 +1,6 @@
-# MORNING HANDOFF FULL PRODUCT CLOSURE
+# [SUPERSEDED — NOT CANONICAL] MORNING HANDOFF FULL PRODUCT CLOSURE
+
+> **STATUS: SUPERSEDED 2026-04-22.** The "marketplace expansion" framing in this handoff was reverted by the canonical product direction adopted on 2026-04-18. Siton is link-only, with no public marketplace / catalog / search / discovery surface. Do NOT use this document to guide current scope decisions. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit) for current truth.
 
 ## What Was Checked
 

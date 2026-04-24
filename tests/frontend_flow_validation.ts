@@ -243,14 +243,15 @@ async function main() {
     assert.match(response.body, /\/app\/assets\/app\.js/);
   });
 
-  await runTest("legacy marketplace route redirects to the main site", async () => {
+  await runTest("site shell keeps buyer entry link-based", async () => {
     const response = await app.inject({
       method: "GET",
-      url: "/app/marketplace"
+      url: "/api/site/home"
     });
 
-    assert.equal(response.statusCode, 302);
-    assert.equal(response.headers.location, "/app");
+    assert.equal(response.statusCode, 200);
+    const payload = response.json() as any;
+    assert.equal(payload.site.buyer_entry_note, "Buyers should enter through a direct deal link that the seller shares directly with them.");
   });
 
   await runTest("draft deals stay non-joinable through the public API", async () => {
