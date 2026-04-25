@@ -1630,6 +1630,122 @@ export function registerFrontendExperience(
     });
   });
 
+  app.get("/api/seller/deals/:dealId/shipping-export", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state, price_per_unit
+         FROM siton.deals
+         WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+
+      const deal = dealResult.rows[0] as any;
+
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden: you do not own this deal");
+        err.statusCode = 403;
+        err.code = "forbidden";
+        throw err;
+      }
+
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("deal is not completed");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      const participantsResult = await c.query(
+        `SELECT
+           p.participant_id,
+           p.buyer_id,
+           p.qty,
+           p.buyer_state,
+           p.money_state,
+           p.delivery_method_type,
+           p.delivery_method_label,
+           p.delivery_cost,
+           p.created_at,
+           dr.status AS shipping_status
+         FROM siton.participants p
+         LEFT JOIN siton.delivery_records dr ON dr.participant_id = p.participant_id
+         WHERE p.deal_id = $1
+           AND (p.money_state IN ('ChargedSuccess', 'RecoveredCharge') OR p.buyer_state = 'DealCompleted')
+         ORDER BY p.created_at ASC`,
+        [dealId]
+      );
+
+      function csvCell(value: string | number | null | undefined): string {
+        if (value === null || value === undefined) return "";
+        const str = String(value);
+        if (str.includes(",") || str.includes('"') || str.includes("\n") || str.includes("\r")) {
+          return '"' + str.replace(/"/g, '""') + '"';
+        }
+        return str;
+      }
+
+      const headers = [
+        "deal_id",
+        "deal_title",
+        "participant_id",
+        "buyer_id",
+        "qty",
+        "delivery_method",
+        "shipping_status",
+        "charged_amount",
+        "created_at"
+      ];
+
+      const lines: string[] = [headers.join(",")];
+
+      for (const row of participantsResult.rows as any[]) {
+        const chargedAmount = (
+          Number(deal.price_per_unit || 0) * Number(row.qty || 0) +
+          Number(row.delivery_cost || 0)
+        ).toFixed(2);
+        const deliveryMethod = String(row.delivery_method_label || row.delivery_method_type || "");
+
+        lines.push(
+          [
+            deal.deal_id,
+            deal.title,
+            row.participant_id,
+            row.buyer_id,
+            String(row.qty),
+            deliveryMethod,
+            String(row.shipping_status || "ready_to_fulfill"),
+            chargedAmount,
+            row.created_at ? new Date(row.created_at).toISOString() : ""
+          ]
+            .map(csvCell)
+            .join(",")
+        );
+      }
+
+      // UTF-8 BOM ensures Hebrew characters render correctly in Excel
+      const csvContent = "﻿" + lines.join("\r\n");
+
+      return reply
+        .header("Content-Type", "text/csv; charset=utf-8")
+        .header("Content-Disposition", `attachment; filename="siton-shipping-${dealId}.csv"`)
+        .send(csvContent);
+    });
+  });
+
   app.get("/api/affiliate/overview", async () => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {

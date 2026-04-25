@@ -1,5 +1,17 @@
 # PROJECT STATUS
 
+Current update: 2026-04-24 (Seller Shipping Export)
+
+- Completed: added `GET /api/seller/deals/:dealId/shipping-export` endpoint in `src/frontend_runtime.ts`. Returns a UTF-8 (BOM-prefixed) CSV file with one row per eligible buyer — only those with `money_state IN ('ChargedSuccess', 'RecoveredCharge')` or `buyer_state = 'DealCompleted'`. Ineligible participants (DealFailed, Dropped, Refunded, etc.) are excluded.
+- Completed: CSV fields per row: `deal_id`, `deal_title`, `participant_id`, `buyer_id`, `qty`, `delivery_method` (label then type fallback), `shipping_status` (from `delivery_records`, default `ready_to_fulfill`), `charged_amount` (price_per_unit × qty + delivery_cost), `created_at`. Header row is always emitted even when no eligible buyers.
+- Completed: ownership enforcement — deal looked up without seller filter; if the effective `COALESCE(seller_id, requestedSellerId)` does not match the requesting seller → 403. Non-existent deal → 404. Non-Completed deal → 409 with `deal_not_completed` code.
+- Completed: no state-machine changes, no financial mutations, no capture/refund/payout/invoice operations. Read-only export.
+- Checked: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist` — clean compile, zero errors. `node .tmp_test_dist/tests/seller_shipping_export_validation.js` — all 4 tests pass: eligibility filter, ownership 403, deal-not-completed 409, empty-eligible-buyers headers-only CSV.
+- Open: buyer contact fields (`buyer_name`, `buyer_phone` as display name, `buyer_email`, `delivery_address`, `delivery_city`, `delivery_notes`) do not exist in the current DB schema — only `buyer_id` (the OTP identifier) is available. A future schema migration would be needed to collect and store buyer contact/address details for full fulfilment export capability. Excel (.xlsx) export is not implemented — CSV only for now.
+- Open: frontend download button for completed deals not yet wired. Target: add a download button to the seller closed-deal surface after the responsive UX track is finalized.
+- Progress: `90%` of the seller shipping export track (endpoint + tests complete; contact-fields migration and frontend button are follow-up work).
+- Next step: connect a download button in the seller deal-detail surface pointing to `/api/seller/deals/:dealId/shipping-export` after the UX responsive pass is complete.
+
 Current update: 2026-04-26 (UX Responsive Product Surface Closure)
 
 - Completed: closed the current responsive UX product-surface pass without reopening the core rails. The frontend now has stronger mobile/desktop responsive deal surfaces, share/copy/native-share affordances, the required buyer payment-hold notice, a seller deal-creation wizard with final confirmation checkboxes before publish, local product-image preview with type/size guardrails, and focused seller/public/tracking layout polish.
