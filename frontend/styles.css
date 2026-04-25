@@ -122,15 +122,27 @@ p { margin: 0; line-height: 1.68; }
 .stack { display: grid; gap: 20px; }
 .field { display: grid; gap: 8px; }
 .field label { font-weight: 800; font-size: 0.98rem; }
-.field input, .field select { width: 100%; padding: 15px 16px; border-radius: 18px; border: 1px solid rgba(81, 54, 33, 0.14); background: rgba(255, 255, 255, 0.92); color: var(--text); font: inherit; direction: rtl; text-align: right; box-shadow: inset 0 1px 0 rgba(255,255,255,0.65); transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
+.field input, .field select, .field textarea { width: 100%; padding: 15px 16px; border-radius: 18px; border: 1px solid rgba(81, 54, 33, 0.14); background: rgba(255, 255, 255, 0.92); color: var(--text); font: inherit; direction: rtl; text-align: right; box-shadow: inset 0 1px 0 rgba(255,255,255,0.65); transition: border-color 0.18s ease, box-shadow 0.18s ease, transform 0.18s ease; }
+.field textarea { min-height: 112px; resize: vertical; line-height: 1.55; }
 .field input[data-dir="ltr"], .field select[data-dir="ltr"] { direction: ltr; text-align: left; }
 .field input[data-dir="rtl"], .field select[data-dir="rtl"] { direction: rtl; text-align: right; }
-.field input:focus, .field select:focus { outline: none; border-color: rgba(170, 61, 35, 0.42); box-shadow: 0 0 0 4px rgba(170, 61, 35, 0.12); transform: translateY(-1px); }
+.field input:focus, .field select:focus, .field textarea:focus { outline: none; border-color: rgba(170, 61, 35, 0.42); box-shadow: 0 0 0 4px rgba(170, 61, 35, 0.12); transform: translateY(-1px); }
 .choice-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .choice { padding: 18px; border-radius: 22px; border: 1px solid rgba(81, 54, 33, 0.12); background: linear-gradient(180deg, rgba(255, 255, 255, 0.84), rgba(252, 244, 236, 0.7)); cursor: pointer; transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
 .choice:hover { transform: translateY(-1px); box-shadow: 0 14px 30px rgba(65, 39, 21, 0.08); }
 .choice.active { border-color: rgba(170, 61, 35, 0.38); background: linear-gradient(180deg, rgba(170, 61, 35, 0.12), rgba(212, 104, 47, 0.08)); box-shadow: 0 14px 34px rgba(170, 61, 35, 0.12); }
 .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+.share-panel { display: flex; flex-wrap: wrap; gap: 10px; padding: 14px; border-radius: 22px; background: rgba(255,255,255,0.7); border: 1px solid rgba(81, 54, 33, 0.08); }
+.share-panel .button, .share-panel button { min-height: 44px; padding: 12px 14px; border-radius: 16px; }
+.wizard-steps { display: grid; gap: 8px; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.wizard-steps span { display: flex; align-items: center; justify-content: center; min-height: 44px; padding: 8px 10px; border-radius: 16px; background: rgba(255,255,255,0.78); border: 1px solid rgba(81, 54, 33, 0.08); font-weight: 900; font-size: 0.9rem; text-align: center; }
+.product-image-uploader { display: grid; gap: 14px; grid-template-columns: minmax(180px, 0.85fr) minmax(0, 1.15fr); align-items: stretch; }
+.product-image-preview { min-height: 210px; border-radius: 22px; overflow: hidden; border: 1px solid rgba(81, 54, 33, 0.1); background: linear-gradient(135deg, rgba(170, 61, 35, 0.12), rgba(240, 178, 107, 0.16), rgba(255,255,255,0.92)); display: grid; place-items: center; }
+.product-image-preview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.product-image-placeholder { display: grid; gap: 8px; place-items: center; text-align: center; padding: 20px; color: var(--muted); }
+.product-image-placeholder strong { color: var(--accent); font-size: 1.2rem; }
+.check-row { display: flex; gap: 12px; align-items: flex-start; padding: 14px 16px; border-radius: 18px; background: rgba(255,255,255,0.78); border: 1px solid rgba(81, 54, 33, 0.09); font-weight: 800; line-height: 1.45; }
+.check-row input { width: 20px; height: 20px; margin-top: 2px; flex: 0 0 auto; }
 .actions.spread { justify-content: space-between; align-items: flex-start; }
 .button, button {
   appearance: none;
@@ -306,7 +318,7 @@ a.button { text-decoration: none; display: inline-flex; align-items: center; jus
   }
 }
 @media (max-width: 900px) {
-  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields, .card-list, .trust-band, .ops-band, .kpi-strip, .form-preview-grid, .live-summary-grid, .trust-footer-grid, .deal-hero-layout, .workspace-focus-grid, .seller-deal-control-grid, .tracking-focus-grid, .admin-urgency-grid, .admin-search-grid, .admin-ops-grid, .admin-ops-hero-grid { grid-template-columns: 1fr; }
+  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields, .card-list, .trust-band, .ops-band, .kpi-strip, .form-preview-grid, .live-summary-grid, .trust-footer-grid, .deal-hero-layout, .workspace-focus-grid, .seller-deal-control-grid, .tracking-focus-grid, .admin-urgency-grid, .admin-search-grid, .admin-ops-grid, .admin-ops-hero-grid, .wizard-steps, .product-image-uploader { grid-template-columns: 1fr; }
   .shell { width: min(100vw - 18px, 1120px); padding-top: 14px; }
   .hero-main, .hero-side, .section { padding: 18px; border-radius: 20px; }
   .seller-card-head, .seller-card-footer, .section-header, .table-toolbar { align-items: stretch; }
@@ -318,10 +330,13 @@ a.button { text-decoration: none; display: inline-flex; align-items: center; jus
   }
   .button,
   button,
-  .legal-link-row a {
+  .legal-link-row a,
+  .share-panel .button,
+  .share-panel button {
     width: 100%;
     justify-content: center;
   }
+  .share-panel { position: sticky; bottom: 10px; z-index: 5; box-shadow: 0 16px 36px rgba(65, 39, 21, 0.12); }
   .deal-visual-mark {
     width: 64px;
     height: 64px;

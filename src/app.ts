@@ -2055,6 +2055,7 @@ app.setErrorHandler((error: any, _req, reply) => {
 app.get("/health", async () => ({ ok: true }));
 
 app.post("/deals", async (req: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
   const body = req.body || {};
   const title = String(body.title || "").trim();
   if (!title) {
@@ -2078,6 +2079,19 @@ app.post("/deals", async (req: any) => {
   const requestedMaxUnitsRaw = body.max_units ?? Math.max(minUnits, 20);
   const maxUnits = Math.max(minUnits, Number(requestedMaxUnitsRaw || 20));
   const draftThreshold = Math.ceil(0.9 * minUnits);
+  const deliveryOptions = Array.isArray(body.delivery_options)
+    ? body.delivery_options
+        .map((option: any, index: number) => ({
+          option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || ""))
+            ? String(option.option_type)
+            : "pickup",
+          label: String(option?.label || "").trim().slice(0, 160),
+          cost: Math.max(0, Number(option?.cost || 0)),
+          sort_order: Number.isFinite(Number(option?.sort_order)) ? Number(option.sort_order) : index
+        }))
+        .filter((option: any) => option.label)
+        .slice(0, 5)
+    : [];
 
   const now = Date.now();
   let deadlineMs: number;
@@ -2123,7 +2137,15 @@ app.post("/deals", async (req: any) => {
         sellerAuthority.seller_id
       ]
     );
-    return ins.rows[0];
+    const deal = ins.rows[0];
+    for (const option of deliveryOptions) {
+      await c.query(
+        `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
+         VALUES ($1,$2,$3,$4,$5)`,
+        [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order]
+      );
+    }
+    return deal;
   });
   return r;
 });
@@ -2209,6 +2231,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const authorizationId = String(body.authorization_id || "").trim();
   const authorizationProvider = String(body.authorization_provider || "").trim();
   const authorizationCorrelationId = String(body.authorization_correlation_id || "").trim();
+  const deliveryOptionId = String(body.delivery_option_id || "").trim();
   const qtyRaw = Number(body.qty ?? 1);
 
   if (!buyer_id) {
@@ -2252,7 +2275,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // Pre-INSERT idempotency check: if this exact idempotency key was already committed for
     // a participant on this deal+buyer pair, return that participant directly without re-inserting.
     const idemCheck = await c.query(
-      `SELECT p.participant_id, p.buyer_state, p.money_state
+      `SELECT p.participant_id, p.buyer_state, p.money_state,
+              p.delivery_option_id, p.delivery_method_type, p.delivery_method_label, p.delivery_cost
        FROM siton.idempotency_log il
        JOIN siton.participants p ON p.participant_id = il.entity_id
        WHERE il.entity_type = 'participant'
@@ -2264,8 +2288,32 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       [idem, dealId, buyer_id]
     );
     if (idemCheck.rowCount) {
-      return idemCheck.rows[0] as { participant_id: string; buyer_state: BuyerState; money_state: MoneyState };
+      return idemCheck.rows[0] as {
+        participant_id: string;
+        buyer_state: BuyerState;
+        money_state: MoneyState;
+        delivery_option_id?: string | null;
+        delivery_method_type?: string | null;
+        delivery_method_label?: string | null;
+        delivery_cost?: number | string | null;
+      };
     }
+    const deliveryOption = deliveryOptionId
+      ? await c.query(
+          `SELECT option_id, option_type, label, cost
+           FROM siton.deal_delivery_options
+           WHERE option_id=$1 AND deal_id=$2`,
+          [deliveryOptionId, dealId]
+        )
+      : await c.query(
+          `SELECT option_id, option_type, label, cost
+           FROM siton.deal_delivery_options
+           WHERE deal_id=$1
+           ORDER BY sort_order ASC, created_at ASC
+           LIMIT 1`,
+          [dealId]
+        );
+    const selectedDelivery = deliveryOption.rows[0] || null;
 
     // Count ALL active units on this deal (all buyers) to enforce max_units ceiling
     const reservedRow = await c.query(
@@ -2291,10 +2339,21 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     // requests slip through the idempotency check during the gap between participant INSERT
     // (end of withTx) and idem_log write (end of atomicMultiTransition).
     const ins = await c.query(
-      `INSERT INTO siton.participants(deal_id, buyer_id, qty, buyer_state, money_state)
-       VALUES ($1,$2,$3,'NotJoined','NoFinancial')
+      `INSERT INTO siton.participants(
+         deal_id, buyer_id, qty, buyer_state, money_state,
+         delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost
+       )
+       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7)
        RETURNING participant_id`,
-      [dealId, buyer_id, qty]
+      [
+        dealId,
+        buyer_id,
+        qty,
+        selectedDelivery?.option_id ?? null,
+        selectedDelivery?.option_type ?? null,
+        selectedDelivery?.label ?? null,
+        Number(selectedDelivery?.cost || 0)
+      ]
     );
     const pid = ins.rows[0].participant_id as string;
 
@@ -2347,7 +2406,15 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     );
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
 
-    return { participant_id: pid, buyer_state: "JoinedAuthorized" as BuyerState, money_state: "AuthHeld" as MoneyState };
+    return {
+      participant_id: pid,
+      buyer_state: "JoinedAuthorized" as BuyerState,
+      money_state: "AuthHeld" as MoneyState,
+      delivery_option_id: selectedDelivery?.option_id ?? null,
+      delivery_method_type: selectedDelivery?.option_type ?? null,
+      delivery_method_label: selectedDelivery?.label ?? null,
+      delivery_cost: Number(selectedDelivery?.cost || 0)
+    };
   });
 
   const targetAttempt = await withTx(async (c) => {
@@ -2381,7 +2448,17 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
   })();
 
-  return { ok: true, participant_id: participant.participant_id };
+  const dealPriceRow = await pool.query(`SELECT price_per_unit FROM siton.deals WHERE deal_id=$1`, [dealId]);
+  const deliveryCost = Number(participant.delivery_cost || 0);
+  return {
+    ok: true,
+    participant_id: participant.participant_id,
+    delivery_option_id: participant.delivery_option_id ?? null,
+    delivery_method_type: participant.delivery_method_type ?? null,
+    delivery_method_label: participant.delivery_method_label ?? null,
+    delivery_cost: deliveryCost,
+    hold_total: Number(qty) * Number(dealPriceRow.rows[0]?.price_per_unit || 0) + deliveryCost
+  };
 });
 
 app.post("/deals/:id/close_joining", async (req: any) => {

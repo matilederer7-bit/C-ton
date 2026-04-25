@@ -41,6 +41,9 @@ const state = {
     expiry: "",
     cvv: "",
     sellerTitle: "",
+    sellerDescription: "",
+    sellerImageDataUrl: "",
+    sellerImageName: "",
     sellerContextId: "",
     sellerContextName: "",
     sellerAccessCode: "",
@@ -59,6 +62,44 @@ const state = {
     sellerDeliveryCost3: "0"
   }
 };
+
+const REQUIRED_PAYMENT_NOTICE =
+  "הסכום יתפוס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.";
+
+const UX_REGRESSION_COPY = [
+  "פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים",
+  "פתיחת עסקה חדשה",
+  "ניהול העסקאות שלי",
+  "עריכה מלאה רק בטיוטה",
+  "ספק אישור מסגרת מדומה",
+  "אישור מסגרת בלבד",
+  "גישה תפעולית",
+  "מרכז התפעול של סיטון",
+  "מרכז הפצה למדידה, ייחוס ושיתוף לינקים",
+  "מרכז הפצה",
+  "מזהה ישות",
+  "מזהה משתתף",
+  "סוג אירוע",
+  "מזהה קורלציה",
+  "זהות המוכר הפעילה",
+  "שמירת זהות מוכר פעילה",
+  "כל עסקה חדשה תיווצר תחת",
+  "כניסה לעסקה",
+  "רק דרך לינק ישיר",
+  "סכום אישור המסגרת",
+  "זה הסכום שיישמר כתפיסת מסגרת בשלב הזה",
+  "הצטרפות",
+  "נשמרה בהצלחה",
+  "מסך המעקב הוא מקור האמת שלך",
+  "תמונת מצב עדכנית",
+  "תמונת שליטה",
+  "העסקאות של המוכר הפעיל",
+  "שומרים טיוטה ברורה",
+  "מה יקרה אחרי שמירת הטיוטה",
+  "מתקרת העסקה כבר נסגרה",
+  "כאן רואים מי כבר נרשם",
+  "אלה האפשרויות שיראו לקונה בדף הציבורי"
+];
 
 const DEAL_COPY = {
   Draft: ["׳”׳¢׳¡׳§׳” ׳¢׳“׳™׳™׳ ׳‘׳˜׳™׳•׳˜׳”", "׳”׳¢׳¡׳§׳” ׳¢׳•׳“ ׳׳ ׳ ׳₪׳×׳—׳” ׳׳§׳•׳ ׳™׳ ׳•׳׳›׳ ׳¢׳“׳™׳™׳ ׳׳™ ׳׳₪׳©׳¨ ׳׳”׳¦׳˜׳¨׳£."],
@@ -161,14 +202,23 @@ document.addEventListener("click", (event) => {
     if (action === "restart-flow") restartFlow();
     if (action === "reset-otp") resetOtp();
     if (action === "seller-clone") cloneSellerDeal(actionTarget.dataset.dealId);
+    if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
+    if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
+    if (action === "clear-product-image") clearSellerProductImage();
   }
 });
 
 document.addEventListener("input", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
   if (!(target.name in state.form)) return;
   state.form[target.name] = target.value;
+});
+
+document.addEventListener("change", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLInputElement)) return;
+  if (target.name === "sellerImage") void handleSellerImageSelection(target);
 });
 
 document.addEventListener("submit", (event) => {
@@ -779,8 +829,13 @@ async function createDeal(form) {
   const formData = new FormData(form);
   const title = String(formData.get("sellerTitle") || "").trim();
   const deadline = String(formData.get("sellerDeadline") || "").trim();
+  const finalTerms = formData.get("sellerFinalTerms") === "on";
+  const finalConfirm = formData.get("sellerFinalConfirm") === "on";
   if (!title) return fail("׳—׳¡׳¨׳” ׳›׳•׳×׳¨׳× ׳׳¢׳¡׳§׳”", "׳™׳© ׳׳”׳–׳™׳ ׳›׳•׳×׳¨׳× ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”.");
   if (!deadline) return fail("׳—׳¡׳¨ ׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”", "׳™׳© ׳׳‘׳—׳•׳¨ ׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳” ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”.");
+  if (!finalTerms || !finalConfirm) {
+    return fail("חסר אישור סופי", "לפני יצירת הטיוטה צריך לאשר שהשדות הקריטיים סופיים ושאחרי פרסום אין עריכה שקטה שלהם.");
+  }
   const deliveryOptions = collectSellerDeliveryOptions(formData);
   if (!deliveryOptions.length) {
     return fail("׳—׳¡׳¨׳” ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳”", "׳™׳© ׳׳”׳•׳¡׳™׳£ ׳׳₪׳—׳•׳× ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳—׳× ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳¢׳¡׳§׳”.");
@@ -916,6 +971,9 @@ function cloneSellerDeal(dealId) {
   const deal = state.sellerDealPayload?.deal;
   if (!deal || deal.deal_id !== dealId) return;
   state.form.sellerTitle = `${deal.title} - ׳¢׳•׳×׳§`;
+  state.form.sellerDescription = "";
+  state.form.sellerImageDataUrl = "";
+  state.form.sellerImageName = "";
   state.form.sellerPrice = String(deal.price_per_unit);
   state.form.sellerMinUnits = String(deal.min_units);
   state.form.sellerMaxUnits = String(deal.max_units);
@@ -949,11 +1007,81 @@ async function updateDelivery(form) {
     });
     state.banner = {
       tone: "success",
-      title: "Delivery status updated",
+      title: "סטטוס המסירה עודכן",
       message: "׳׳¡׳ ׳”׳׳¡׳™׳¨׳” ׳©׳ ׳”׳׳•׳›׳¨ ׳¢׳•׳“׳›׳ ׳¢׳ ׳”׳¡׳˜׳˜׳•׳¡ ׳”׳׳—׳¨׳•׳."
     };
     await loadSellerDeal(dealId);
-  }, "Delivery update failed.");
+  }, "עדכון המסירה נכשל.");
+}
+
+async function handleSellerImageSelection(input) {
+  const file = input.files?.[0];
+  if (!file) return;
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    input.value = "";
+    return fail("סוג תמונה לא נתמך", "אפשר להעלות תמונת JPG, PNG או WebP בלבד.");
+  }
+  if (file.size > 2 * 1024 * 1024) {
+    input.value = "";
+    return fail("התמונה גדולה מדי", "בשלב הזה תמונת תצוגה מקומית מוגבלת ל-2MB כדי לא להכביד על הדפדפן.");
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    state.form.sellerImageDataUrl = String(reader.result || "");
+    state.form.sellerImageName = file.name;
+    state.banner = {
+      tone: "success",
+      title: "התמונה נוספה לתצוגה מקדימה",
+      message: "התמונה מוצגת עכשיו במסך היצירה. שמירה קבועה של תמונות עדיין דורשת ספק אחסון ייעודי."
+    };
+    render();
+  };
+  reader.onerror = () => fail("טעינת התמונה נכשלה", "לא הצלחנו לקרוא את הקובץ שנבחר.");
+  reader.readAsDataURL(file);
+}
+
+function clearSellerProductImage() {
+  state.form.sellerImageDataUrl = "";
+  state.form.sellerImageName = "";
+  state.banner = {
+    tone: "warning",
+    title: "התמונה הוסרה מהתצוגה",
+    message: "דף העסקה ימשיך להשתמש ב-placeholder נקי עד שתהיה תשתית אחסון תמונות קבועה."
+  };
+  render();
+}
+
+async function shareLink(url, title) {
+  const shareUrl = absoluteUrl(url || location.pathname);
+  const shareTitle = title || "עסקה בסיטון";
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: shareTitle, url: shareUrl });
+      return;
+    } catch (error) {
+      if (String(error?.name || "") === "AbortError") return;
+    }
+  }
+  await copyLink(shareUrl);
+}
+
+async function copyLink(url) {
+  const shareUrl = absoluteUrl(url || location.pathname);
+  try {
+    await navigator.clipboard.writeText(shareUrl);
+    state.banner = {
+      tone: "success",
+      title: "הלינק הועתק",
+      message: "אפשר להדביק אותו עכשיו בווטסאפ, בטלגרם, במייל או בכל ערוץ שיתוף אחר."
+    };
+  } catch {
+    state.banner = {
+      tone: "warning",
+      title: "לא הצלחנו להעתיק אוטומטית",
+      message: shareUrl
+    };
+  }
+  render();
 }
 
 async function decideKyc(form) {
@@ -1037,6 +1165,9 @@ function restartFlow() {
     expiry: "",
     cvv: "",
     sellerTitle: state.form.sellerTitle,
+    sellerDescription: state.form.sellerDescription,
+    sellerImageDataUrl: state.form.sellerImageDataUrl,
+    sellerImageName: state.form.sellerImageName,
     sellerContextId: state.form.sellerContextId,
     sellerContextName: state.form.sellerContextName,
     sellerPrice: state.form.sellerPrice,
@@ -1292,6 +1423,7 @@ function renderDealPage() {
           <div class="trust-point"><span class="muted">׳‘׳©׳׳‘ ׳”׳–׳”</span><strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
           <div class="trust-point"><span class="muted">׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
         </div>
+        ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
         <div class="metric-grid">
           <div class="metric"><span class="muted">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</span><strong>${currency(deal.price_per_unit)}</strong></div>
           <div class="metric"><span class="muted">׳›׳׳•׳× ׳©׳›׳‘׳¨ ׳ ׳¨׳©׳׳”</span><strong>${num(metrics.joined_units)} ׳™׳—'</strong></div>
@@ -1362,7 +1494,7 @@ function renderDealPage() {
           <div class="summary-item summary-spotlight">
             <span class="muted">׳¢׳׳•׳× ׳׳©׳•׳¢׳¨׳×</span>
             <strong>${currency(holdTotal)}</strong>
-            <p class="small muted">׳‘׳©׳׳‘ ׳”׳–׳” ׳ ׳©׳׳¨׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳—׳™׳•׳‘ ׳׳׳™׳×׳™ ׳™׳§׳¨׳” ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳.</p>
+            <p class="small muted">${REQUIRED_PAYMENT_NOTICE}</p>
           </div>
           ${selectedDelivery ? `
             <div class="summary-item">
@@ -1373,7 +1505,7 @@ function renderDealPage() {
           ` : ""}
             <div class="info-strip tone-warning trust-box">
               <strong>׳׳” ׳ ׳©׳׳¨ ׳¢׳›׳©׳™׳•</strong>
-              <p class="small">׳”׳׳¡׳׳•׳ ׳©׳•׳׳¨ ׳‘׳—׳™׳¨׳× ׳›׳׳•׳×, ׳׳•׳₪׳ ׳§׳‘׳׳” ׳•׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳™׳§׳¨׳” ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳.</p>
+              <p class="small">${REQUIRED_PAYMENT_NOTICE}</p>
             </div>
             <div class="mini-legal-note">
               <span class="muted">׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳–׳׳™׳ ׳×׳׳™׳“:</span>
@@ -1948,9 +2080,10 @@ function renderSellerDealCard(item) {
           <strong>׳”׳₪׳¢׳•׳׳” ׳”׳‘׳׳”</strong>
           <p class="small muted">${esc(urgency.tone === "danger" ? "׳›׳“׳׳™ ׳׳‘׳“׳•׳§ ׳¢׳›׳©׳™׳• ׳׳ ׳”׳¢׳¡׳§׳” ׳¦׳¨׳™׳›׳” ׳“׳—׳™׳₪׳” ׳׳—׳¨׳•׳ ׳” ׳׳• ׳׳¢׳‘׳¨ ׳׳‘׳§׳¨׳” ׳×׳₪׳¢׳•׳׳™׳×." : urgency.tone === "warning" ? "׳”׳¢׳¡׳§׳” ׳ ׳›׳ ׳¡׳× ׳׳—׳׳•׳ ׳¨׳’׳™׳©. ׳©׳•׳•׳” ׳׳•׳•׳“׳ ׳©׳”׳׳™׳ ׳§ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳—׳“ ׳•׳‘׳¨׳•׳¨." : "׳”׳¢׳¡׳§׳” ׳₪׳×׳•׳—׳” ׳•׳×׳—׳× ׳©׳׳™׳˜׳”. ׳׳₪׳©׳¨ ׳׳”׳׳©׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳§׳¦׳‘ ׳•׳”׳§׳™׳‘׳•׳׳×.")}</p>
         </div>
-        <div class="actions">
+        <div class="actions seller-card-actions">
           <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”</a>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
+          <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>
         </div>
       </div>
     </article>
@@ -1978,6 +2111,13 @@ function renderSellerNewPage() {
           <div class="trust-point"><span class="muted">׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳</span><strong>׳ ׳•׳¦׳¨ ׳“׳£ ׳¦׳™׳‘׳•׳¨׳™ ׳—׳™</strong></div>
           <div class="trust-point"><span class="muted">׳”׳₪׳¦׳” ׳׳§׳•׳ ׳™׳</span><strong>׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳‘׳׳‘׳“</strong></div>
         </div>
+        <div class="wizard-steps" aria-label="שלבי יצירת עסקה">
+          <span>1. פרטי מוצר</span>
+          <span>2. כמויות</span>
+          <span>3. אספקה</span>
+          <span>4. תנאים</span>
+          <span>5. אישור סופי</span>
+        </div>
         <form data-action="seller-create" class="form-shell">
           <section class="form-section-card stack">
             <div class="form-section-header">
@@ -1985,6 +2125,17 @@ function renderSellerNewPage() {
               <p class="small muted">׳׳›׳׳ ׳ ׳§׳‘׳¢ ׳׳™׳ ׳”׳¢׳¡׳§׳” ׳×׳™׳×׳₪׳¡ ׳‘׳¢׳™׳ ׳™ ׳”׳§׳•׳ ׳”: ׳׳” ׳ ׳׳›׳¨, ׳‘׳›׳׳”, ׳•׳׳” ׳”׳׳¨׳•׳•׳— ׳©׳ ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”.</p>
             </div>
             <div class="field"><label for="sellerTitle">׳›׳•׳×׳¨׳× ׳”׳¢׳¡׳§׳”</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
+            <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
+            <div class="product-image-uploader">
+              <div class="product-image-preview ${state.form.sellerImageDataUrl ? "has-image" : ""}">
+                ${state.form.sellerImageDataUrl ? `<img src="${esc(state.form.sellerImageDataUrl)}" alt="תצוגה מקדימה של תמונת מוצר" />` : `<div class="product-image-placeholder"><strong>תמונת מוצר</strong><span>תצוגה נקייה עד לחיבור אחסון קבוע</span></div>`}
+              </div>
+              <div class="stack compact-section">
+                <div class="field"><label for="sellerImage">תמונה ראשית לתצוגה מקדימה</label><input id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" /></div>
+                <p class="small muted">התמונה מוצגת מקומית לפני פרסום. שמירה קבועה דורשת ספק אחסון תמונות ותישאר פתוחה בתיעוד.</p>
+                ${state.form.sellerImageName ? `<div class="actions"><span class="stat-pill"><span>נבחרה</span><strong>${esc(state.form.sellerImageName)}</strong></span><button class="secondary" type="button" data-inline-action="clear-product-image">הסרת תמונה</button></div>` : ""}
+              </div>
+            </div>
             <div class="inline-fields">
               <div class="field"><label for="sellerPrice">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
               <div class="summary-item"><span class="muted">עמלת סיטון הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
@@ -2036,6 +2187,20 @@ function renderSellerNewPage() {
               </div>
             `).join("")}
           </section>
+          <section class="form-section-card stack">
+            <div class="form-section-header">
+              <h3>סיכום ואישור סופי</h3>
+              <p class="small muted">לפני יצירת הטיוטה מאשרים שהפרטים הקריטיים נבדקו. אחרי פרסום אין עריכה שקטה של מחיר, כמויות, דדליין או תנאי אספקה.</p>
+            </div>
+            <div class="form-preview-grid">
+              <div class="summary-item"><span class="muted">כותרת</span><strong>${esc(state.form.sellerTitle || "עדיין חסרה")}</strong></div>
+              <div class="summary-item"><span class="muted">מחיר</span><strong>${currency(price)}</strong></div>
+              <div class="summary-item"><span class="muted">מינימום / מקסימום</span><strong>${num(minUnits)} / ${num(maxUnits)}</strong></div>
+              <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${num(deliveryOptionsCount || 1)} אפשרויות</strong></div>
+            </div>
+            <label class="check-row"><input type="checkbox" name="sellerFinalTerms" /> <span>קראתי והבנתי כי לאחר פרסום לא ניתן לשנות מחיר, כמות מינימום או מקסימום, דדליין, משלוח ותנאים קריטיים.</span></label>
+            <label class="check-row"><input type="checkbox" name="sellerFinalConfirm" /> <span>אני מאשר שהתנאים סופיים.</span></label>
+          </section>
           <div class="actions">
             <button class="primary" type="submit">׳™׳¦׳™׳¨׳× ׳˜׳™׳•׳˜׳”</button>
             <a class="button secondary" href="/app/seller" data-nav="/app/seller">׳—׳–׳¨׳” ׳׳׳–׳•׳¨ ׳”׳׳•׳›׳¨</a>
@@ -2046,7 +2211,7 @@ function renderSellerNewPage() {
         <div class="summary-item summary-spotlight"><span class="muted">׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">׳׳–׳”׳” ׳׳•׳›׳¨: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">׳׳—׳™׳¨ ׳ ׳•׳›׳—׳™</span><strong>${currency(price)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳׳׳”</span><strong>${num(commissionPct)}%</strong></div>
+          <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong><p class="small muted">קבועה לפי המודל הקנוני, כולל משלוח וללא מע"מ.</p></div>
           <div class="summary-item"><span class="muted">׳™׳¢׳“ ׳₪׳×׳™׳—׳”</span><strong>${num(minUnits)} ׳™׳—'</strong></div>
           <div class="summary-item"><span class="muted">׳§׳™׳‘׳•׳׳×</span><strong>${num(maxUnits)} ׳™׳—'</strong></div>
         </div>
@@ -3244,8 +3409,8 @@ function renderNavLegacy() {
   return `
       <nav class="page-nav">
         <div class="actions">
-          <a href="/app" data-nav="/app" class="button secondary">׳¡׳™׳˜׳•׳</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">׳׳–׳•׳¨ ׳׳•׳›׳¨</a>
+          <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+          <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
         </div>
       ${!isInternalSurface ? `<div class="route-chip">׳׳•׳›׳¨ ׳₪׳¢׳™׳: ${esc(sellerContext.display_name)}</div>` : ""}
       ${isInternalSurface ? `<div class="route-chip">׳׳¡׳ ׳₪׳ ׳™׳׳™</div>` : ""}
@@ -3449,6 +3614,23 @@ function renderDealVisual(title, deliveryOptions, selectedDelivery) {
         ${visibleOptions.map((option) => `<span class="deal-chip">${esc(option.label)}</span>`).join("")}
       </div>
     </section>
+  `;
+}
+
+function renderShareActions(url, title) {
+  const shareUrl = absoluteUrl(url);
+  const text = encodeURIComponent(title || "עסקה בסיטון");
+  const encodedUrl = encodeURIComponent(shareUrl);
+  return `
+    <div class="share-panel" aria-label="שיתוף לינק">
+      <button class="secondary share-native" type="button" data-inline-action="share-link" data-share-url="${esc(shareUrl)}" data-share-title="${esc(title || "עסקה בסיטון")}">שיתוף</button>
+      <a class="button secondary" href="https://wa.me/?text=${text}%20${encodedUrl}" target="_blank" rel="noopener">WhatsApp</a>
+      <a class="button secondary" href="https://t.me/share/url?url=${encodedUrl}&text=${text}" target="_blank" rel="noopener">Telegram</a>
+      <a class="button secondary" href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}" target="_blank" rel="noopener">Facebook</a>
+      <a class="button secondary" href="https://twitter.com/intent/tweet?url=${encodedUrl}&text=${text}" target="_blank" rel="noopener">X</a>
+      <a class="button secondary" href="mailto:?subject=${text}&body=${encodedUrl}">Email</a>
+      <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="${esc(shareUrl)}">העתקת לינק</button>
+    </div>
   `;
 }
 
@@ -4264,6 +4446,14 @@ function toDatetimeLocal(value) {
   const hh = String(date.getHours()).padStart(2, "0");
   const mi = String(date.getMinutes()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`;
+}
+
+function absoluteUrl(pathOrUrl) {
+  try {
+    return new URL(pathOrUrl || "/app", location.origin).toString();
+  } catch {
+    return location.origin + "/app";
+  }
 }
 
 function json(value) {

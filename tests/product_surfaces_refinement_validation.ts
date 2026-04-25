@@ -45,7 +45,22 @@ await run("mobile-first responsive support exists for the refined product surfac
   assert.match(stylesCss, /\.deal-hero-layout/);
   assert.match(stylesCss, /\.workspace-focus-grid/);
   assert.match(stylesCss, /\.seller-deal-control-grid/);
+  assert.match(stylesCss, /\.share-panel/);
+  assert.match(stylesCss, /\.wizard-steps/);
+  assert.match(stylesCss, /\.product-image-uploader/);
   assert.match(stylesCss, /@media \(max-width: 900px\)/);
+});
+
+await run("deal sharing and seller creation guardrails stay frontend-only and constitution-safe", async () => {
+  assert.match(appJs, /function renderShareActions/);
+  assert.match(appJs, /navigator\.share/);
+  assert.match(appJs, /data-inline-action="copy-link"/);
+  assert.match(appJs, /REQUIRED_PAYMENT_NOTICE/);
+  assert.match(appJs, /sellerFinalTerms/);
+  assert.match(appJs, /sellerFinalConfirm/);
+  assert.match(appJs, /handleSellerImageSelection/);
+  assert.match(appJs, /שמירה קבועה דורשת ספק אחסון תמונות/);
+  assert.doesNotMatch(appJs, /commissionPct/);
 });
 
 await run("core product surfaces keep Hebrew-facing copy and avoid obvious internal english leaks", async () => {
