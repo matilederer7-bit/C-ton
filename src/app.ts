@@ -2045,11 +2045,16 @@ if (RATE_LIMIT_MAX > 0) {
 
 app.setErrorHandler((error: any, _req, reply) => {
   const statusCode = Number(error.statusCode || error.status || 0);
-  const code = statusCode >= 400 && statusCode < 600 ? statusCode : 500;
-  if (code >= 500) {
+  const httpStatus = statusCode >= 400 && statusCode < 600 ? statusCode : 500;
+  if (httpStatus >= 500) {
     app.log.error({ err: error }, "unhandled route error");
   }
-  return reply.code(code).send({ ok: false, error: error.message || "internal_error" });
+  const payload: { ok: false; error: string; code?: string } = {
+    ok: false,
+    error: error.message || "internal_error"
+  };
+  if (error.code) payload.code = String(error.code);
+  return reply.code(httpStatus).send(payload);
 });
 
 app.get("/health", async () => ({ ok: true }));
@@ -2232,6 +2237,11 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const authorizationProvider = String(body.authorization_provider || "").trim();
   const authorizationCorrelationId = String(body.authorization_correlation_id || "").trim();
   const deliveryOptionId = String(body.delivery_option_id || "").trim();
+  const buyerName = String(body.buyer_name || "").trim() || null;
+  const buyerEmail = String(body.buyer_email || "").trim() || null;
+  const deliveryAddress = String(body.delivery_address || "").trim() || null;
+  const deliveryCity = String(body.delivery_city || "").trim() || null;
+  const deliveryNotes = String(body.delivery_notes || "").trim() || null;
   const qtyRaw = Number(body.qty ?? 1);
 
   if (!buyer_id) {
@@ -2315,6 +2325,20 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         );
     const selectedDelivery = deliveryOption.rows[0] || null;
 
+    if (deliveryOptionId && !selectedDelivery) {
+      const err: any = new Error("invalid_delivery_option");
+      err.statusCode = 400;
+      err.code = "invalid_delivery_option";
+      throw err;
+    }
+
+    if (selectedDelivery?.option_type === "delivery" && !deliveryAddress) {
+      const err: any = new Error("delivery_address is required for delivery shipments");
+      err.statusCode = 400;
+      err.code = "delivery_address_required";
+      throw err;
+    }
+
     // Count ALL active units on this deal (all buyers) to enforce max_units ceiling
     const reservedRow = await c.query(
       `SELECT COALESCE(SUM(qty), 0) AS total
@@ -2341,9 +2365,11 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const ins = await c.query(
       `INSERT INTO siton.participants(
          deal_id, buyer_id, qty, buyer_state, money_state,
-         delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost
+         delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
+         buyer_name, buyer_phone, buyer_email,
+         delivery_address, delivery_city, delivery_notes
        )
-       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7)
+       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
        RETURNING participant_id`,
       [
         dealId,
@@ -2352,7 +2378,13 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         selectedDelivery?.option_id ?? null,
         selectedDelivery?.option_type ?? null,
         selectedDelivery?.label ?? null,
-        Number(selectedDelivery?.cost || 0)
+        Number(selectedDelivery?.cost || 0),
+        buyerName,
+        buyer_id,  // buyer_phone = OTP phone, which is buyer_id
+        buyerEmail,
+        deliveryAddress,
+        deliveryCity,
+        deliveryNotes
       ]
     );
     const pid = ins.rows[0].participant_id as string;

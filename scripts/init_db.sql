@@ -107,6 +107,14 @@ CREATE TABLE IF NOT EXISTS participants (
   delivery_method_label TEXT NULL,
   delivery_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
 
+  -- Delivery snapshot: captured at join time for seller shipping export
+  buyer_name TEXT NULL,
+  buyer_phone TEXT NULL,
+  buyer_email TEXT NULL,
+  delivery_address TEXT NULL,
+  delivery_city TEXT NULL,
+  delivery_notes TEXT NULL,
+
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

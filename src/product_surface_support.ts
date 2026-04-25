@@ -229,6 +229,31 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
       `);
 
       await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS buyer_name TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS buyer_phone TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS buyer_email TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_address TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_city TEXT NULL
+      `);
+      await c.query(`
+        ALTER TABLE siton.participants
+        ADD COLUMN IF NOT EXISTS delivery_notes TEXT NULL
+      `);
+
+      await c.query(`
         CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal
         ON siton.deal_delivery_options (deal_id, sort_order, created_at)
       `);

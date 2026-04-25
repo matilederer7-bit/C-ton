@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 const { Pool } = pg;
 
-process.env.PORT = String(process.env.PORT || "3412");
+process.env.PORT = String(process.env.PORT || "3420");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
@@ -137,7 +137,7 @@ await run("shipping export returns 409 with deal_not_completed for non-completed
 
   assert.equal(res.statusCode, 409, `expected 409, got ${res.statusCode}: ${res.body}`);
   const body = res.json();
-  assert.ok(body.error || body.code || body.message, "response should include error info");
+  assert.equal(body.code, "deal_not_completed", `expected deal_not_completed code, got ${JSON.stringify(body)}`);
 });
 
 // Test 4: empty eligible buyers → CSV with headers only, no crash
@@ -162,4 +162,5 @@ await run("shipping export returns headers-only CSV when no eligible buyers exis
 });
 
 await pool.end();
+await app.close();
 console.log("All seller shipping export tests passed.");

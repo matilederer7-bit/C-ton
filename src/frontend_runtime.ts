@@ -1673,12 +1673,18 @@ export function registerFrontendExperience(
         `SELECT
            p.participant_id,
            p.buyer_id,
+           p.buyer_name,
+           p.buyer_phone,
+           p.buyer_email,
            p.qty,
            p.buyer_state,
            p.money_state,
            p.delivery_method_type,
            p.delivery_method_label,
            p.delivery_cost,
+           p.delivery_address,
+           p.delivery_city,
+           p.delivery_notes,
            p.created_at,
            dr.status AS shipping_status
          FROM siton.participants p
@@ -1703,8 +1709,15 @@ export function registerFrontendExperience(
         "deal_title",
         "participant_id",
         "buyer_id",
+        "buyer_name",
+        "buyer_phone",
+        "buyer_email",
         "qty",
         "delivery_method",
+        "delivery_method_label",
+        "delivery_address",
+        "delivery_city",
+        "delivery_notes",
         "shipping_status",
         "charged_amount",
         "created_at"
@@ -1717,7 +1730,6 @@ export function registerFrontendExperience(
           Number(deal.price_per_unit || 0) * Number(row.qty || 0) +
           Number(row.delivery_cost || 0)
         ).toFixed(2);
-        const deliveryMethod = String(row.delivery_method_label || row.delivery_method_type || "");
 
         lines.push(
           [
@@ -1725,8 +1737,15 @@ export function registerFrontendExperience(
             deal.title,
             row.participant_id,
             row.buyer_id,
+            row.buyer_name,
+            row.buyer_phone,
+            row.buyer_email,
             String(row.qty),
-            deliveryMethod,
+            String(row.delivery_method_label || row.delivery_method_type || ""),
+            row.delivery_method_label,
+            row.delivery_address,
+            row.delivery_city,
+            row.delivery_notes,
             String(row.shipping_status || "ready_to_fulfill"),
             chargedAmount,
             row.created_at ? new Date(row.created_at).toISOString() : ""
