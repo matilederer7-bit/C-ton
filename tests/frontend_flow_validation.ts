@@ -326,7 +326,10 @@ async function main() {
       payload: {
         buyer_id: otpVerifyJson.buyer_id,
         qty: 3,
-        delivery_option_id: courierOption.option_id
+        delivery_option_id: courierOption.option_id,
+        delivery_address: "רחוב הבדיקה 10",
+        delivery_city: "תל אביב",
+        delivery_notes: "קומה 2"
       }
     });
     assert.equal(join.statusCode, 200);
