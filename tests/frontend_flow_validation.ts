@@ -2,7 +2,11 @@ import assert from "node:assert/strict";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { app } from "../src/app.js";
+
+// Keep this frontend-flow validation isolated from background deadline/outbox work.
+process.env.DISABLE_OUTBOX_WORKER = "1";
+
+const { app } = await import("../src/app.js");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -389,7 +393,13 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    process.exit(1);
+  });
