@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 
@@ -90,6 +90,13 @@ export async function readDealImage(storageKey: string) {
     throw err;
   }
   return readFile(finalPath);
+}
+
+export async function deleteDealImageFile(storageKey: string) {
+  const root = uploadRoot();
+  const finalPath = resolve(root, storageKey);
+  if (!finalPath.startsWith(root)) return;
+  await rm(finalPath, { force: true });
 }
 
 export function getDealImagePublicUrl(image: { image_id: string }) {

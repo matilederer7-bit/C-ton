@@ -30,6 +30,7 @@ import {
 } from "./platform_fee_money.js";
 import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
 import {
+  deleteDealImageFile,
   getDealImagePublicUrl,
   readDealImage,
   saveDealImage
@@ -2245,21 +2246,27 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       base64Data: parsed.base64Data
     });
 
-    await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
-    const inserted = await c.query(
-      `INSERT INTO siton.deal_images
-         (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, sort_order, is_primary)
-       VALUES ($1,$2,$3,$4,$5,$6,0,true)
-       RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
-      [
-        dealId,
-        saved.storage_provider,
-        saved.storage_key,
-        saved.original_filename,
-        saved.mime_type,
-        saved.size_bytes
-      ]
-    );
+    let inserted;
+    try {
+      await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
+      inserted = await c.query(
+        `INSERT INTO siton.deal_images
+           (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, sort_order, is_primary)
+         VALUES ($1,$2,$3,$4,$5,$6,0,true)
+         RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
+        [
+          dealId,
+          saved.storage_provider,
+          saved.storage_key,
+          saved.original_filename,
+          saved.mime_type,
+          saved.size_bytes
+        ]
+      );
+    } catch (error) {
+      await deleteDealImageFile(saved.storage_key).catch(() => undefined);
+      throw error;
+    }
     const image = inserted.rows[0];
     return reply.code(201).send({
       ok: true,
