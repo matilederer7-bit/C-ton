@@ -115,7 +115,7 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /href="\/app\/seller" data-nav="\/app\/seller" class="button secondary">אזור מוכר</);
+    assert.match(response.body, /href="\/app\/seller" data-nav="\/app\/seller" class="button secondary">אזור מוכר/);
     assert.doesNotMatch(response.body, /href="\/app\/affiliate" data-nav="\/app\/affiliate" class="button secondary">Affiliate</);
     assert.doesNotMatch(response.body, /href="\/app\/admin" data-nav="\/app\/admin" class="button secondary">Admin</);
     assert.doesNotMatch(response.body, /Operations view/);
@@ -139,7 +139,7 @@ async function main() {
     assert.doesNotMatch(response.body, /Draft only/);
     assert.doesNotMatch(response.body, /mock authorization provider/);
     assert.doesNotMatch(response.body, /buyer id/);
-    assert.match(response.body, /ספק אישור מסגרת מדומה/);
+    assert.match(response.body, /אישור תפיסת מסגרת/);
     assert.match(response.body, /אישור מסגרת בלבד/);
   });
 

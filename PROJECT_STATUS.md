@@ -1,5 +1,13 @@
 # PROJECT STATUS
 
+Current update: 2026-04-26 (UX Product Trust Polish)
+
+- Completed: cleaned technical/demo-facing wording from regular buyer and seller surfaces around payment authorization, product image selection, seller access copy, and preview/showcase banners. The payment surface now speaks in terms of `תפיסת מסגרת` and no longer exposes mock/provider/card-test wording to regular users.
+- Completed: product image copy now describes the buyer-facing image preview without mentioning storage providers or future infrastructure. Seller access copy no longer mentions demo boundaries in the regular gate.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/read_surfaces_truth_alignment_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`.
+- Open: technical wording remains in admin/ops surfaces and backend runtime internals where it is intentionally operational, including webhook/outbox/provider/payout terminology.
+- Next step: deploy-preview smoke for buyer join/payment and seller create-deal screens on mobile and desktop.
+
 Current update: 2026-04-26 (Seller Deal Excel Export)
 
 - Completed: connected the seller completed-deal UI button `הורד Excel עסקה` to `/api/seller/deals/:dealId/export.xlsx`. The button is rendered only when the deal state is `Completed`, uses the existing seller context for demo header auth, and downloads the workbook without parsing it as JSON.

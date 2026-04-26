@@ -71,7 +71,6 @@ const UX_REGRESSION_COPY = [
   "פתיחת עסקה חדשה",
   "ניהול העסקאות שלי",
   "עריכה מלאה רק בטיוטה",
-  "ספק אישור מסגרת מדומה",
   "אישור מסגרת בלבד",
   "גישה תפעולית",
   "מרכז התפעול של סיטון",
@@ -160,9 +159,8 @@ const ROUTE_LABELS = {
 };
 
 const PAYMENT_READINESS = {
-  providerLabel: "׳¡׳₪׳§ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳׳“׳•׳׳”",
-  settlementModel: "׳§׳•׳“׳ ׳׳×׳‘׳¦׳¢׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×, ׳•׳¨׳§ ׳׳—׳¨ ׳›׳ ׳™׳›׳•׳ ׳׳”׳×׳‘׳¦׳¢ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳",
-  integrationNote: "׳”׳—׳™׳‘׳•׳¨ ׳׳¡׳₪׳§ ׳×׳©׳׳•׳ ׳׳׳™׳×׳™ ׳ ׳©׳׳¨ ׳›׳©׳›׳‘׳” ׳ ׳₪׳¨׳“׳× ׳•׳׳™׳ ׳• ׳׳©׳ ׳” ׳׳× ׳׳¡׳׳•׳ ׳”׳׳•׳¦׳¨."
+  settlementModel: "קודם מתבצעת תפיסת מסגרת, ורק אחרי סגירת העסקה בהצלחה יכול להתבצע חיוב בפועל",
+  integrationNote: "מסלול ההצטרפות נשאר זהה: אישור מסגרת עכשיו, חיוב רק אם העסקה נסגרת בהצלחה."
 };
 
 const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-deal", "admin-user"]);
@@ -891,7 +889,7 @@ async function publishDeal(dealId) {
 
 async function saveSellerContextFromForm(form) {
   if (!usesDemoSellerContext()) {
-    return fail("׳”׳—׳׳₪׳× ׳–׳”׳•׳× ׳›׳‘׳•׳™׳”", "׳‘׳¡׳‘׳™׳‘׳× non-demo ׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳ ׳§׳‘׳¢׳× ׳“׳¨׳ session ׳©׳¨׳× ׳•׳׳ ׳“׳¨׳ ׳©׳׳™׳¨׳” ׳׳§׳•׳׳™׳×.");
+    return fail("החלפת זהות ידנית אינה זמינה", "בסביבה הזו זהות המוכר נקבעת דרך כניסה מאובטחת, ולא דרך שמירה מקומית בדפדפן.");
   }
   const formData = new FormData(form);
   const sellerId = String(formData.get("sellerContextId") || "").trim();
@@ -1033,7 +1031,7 @@ async function handleSellerImageSelection(input) {
     state.banner = {
       tone: "success",
       title: "התמונה נוספה לתצוגה מקדימה",
-      message: "התמונה מוצגת עכשיו במסך היצירה. שמירה קבועה של תמונות עדיין דורשת ספק אחסון ייעודי."
+      message: "התמונה מוצגת עכשיו במסך היצירה ותופיע בתצוגת העסקה לפני הפרסום."
     };
     render();
   };
@@ -1047,7 +1045,7 @@ function clearSellerProductImage() {
   state.banner = {
     tone: "warning",
     title: "התמונה הוסרה מהתצוגה",
-    message: "דף העסקה ימשיך להשתמש ב-placeholder נקי עד שתהיה תשתית אחסון תמונות קבועה."
+    message: "דף העסקה יחזור לתצוגת ברירת המחדל עד שתבחר תמונת מוצר חדשה."
   };
   render();
 }
@@ -1253,7 +1251,7 @@ function getRouteSummary() {
     home: "שער העבודה הראשי למוכר, לקונה דרך לינק ישיר, ולמשטחי התפעול.",
     deal: "דף עסקה ציבורי עם בחירת כמות, מצב עסקה והצטרפות מסודרת.",
     otp: "אימות טלפון לפני המשך למסלול ההצטרפות.",
-    payment: "שמירת ההצטרפות והמשך למסלול אישור המסגרת בסביבת הדגמה.",
+    payment: "שמירת ההצטרפות והמשך למסלול אישור המסגרת.",
     confirmation: "סיכום ברור של ההצטרפות ומה קורה מיד אחריה.",
     tracking: "מעקב קונה אחרי מצב ההשתתפות, האישור והעסקה.",
     seller: "ניהול העסקאות הפעילות, הטיוטות והפעולות של המוכר במקום אחד.",
@@ -1277,8 +1275,8 @@ function renderPreviewStrip() {
   if (!preview?.is_demo_preview) return "";
   return `
     <section class="info-strip tone-warning">
-      <strong>׳¡׳‘׳™׳‘׳× ׳”׳“׳’׳׳” ׳₪׳¢׳™׳׳”</strong>
-      <p>׳–׳•׳”׳™ ׳¡׳‘׳™׳‘׳× ׳”׳¦׳’׳”. ׳׳¡׳׳•׳׳™ ׳”׳׳•׳¦׳¨ ׳–׳׳™׳ ׳™׳ ׳׳”׳¦׳’׳” ׳•׳׳‘׳“׳™׳§׳”, ׳׳‘׳ ׳—׳™׳•׳‘, ׳©׳™׳׳•׳—, ׳×׳©׳׳•׳׳™׳ ׳—׳™׳¦׳•׳ ׳™׳™׳, ׳׳™׳׳•׳× ׳¡׳₪׳§׳™׳ (KYC) ׳•׳”׳×׳¨׳׳•׳× ׳׳™׳ ׳ ׳₪׳•׳¢׳׳™׳ ׳›׳׳ ׳›׳׳¢׳¨׳›׳•׳× ׳—׳™׳•׳×.</p>
+      <strong>מצב הצגה מבוקר</strong>
+      <p>אפשר לעבור את מסלול המוצר ולראות את חוויית הקונה והמוכר. פעולות כספיות ושירותים חיצוניים אינם מבוצעים בפועל במסך הזה.</p>
     </section>
   `;
 }
@@ -1594,7 +1592,6 @@ function renderOtpPage(dealId) {
           <div class="info-strip ${expired ? "tone-warning" : ""}">
             <strong>${expired ? "׳×׳•׳§׳£ ׳”׳§׳•׳“ ׳₪׳’" : `׳©׳׳—׳ ׳• ׳§׳•׳“ ׳-${esc(flow.otpMaskedDestination || flow.phone || "")}`}</strong>
             <p class="small">${expired ? "׳׳₪׳©׳¨ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳•׳׳”׳׳©׳™׳." : `׳”׳§׳•׳“ ׳‘׳×׳•׳§׳£ ׳¢׳“ ${dt(flow.otpExpiresAt)}.`}</p>
-            ${flow.developmentCode ? `<p class="small">׳§׳•׳“ ׳‘׳“׳™׳§׳” ׳ ׳•׳›׳—׳™: <span class="mono">${esc(flow.developmentCode)}</span></p>` : ""}
           </div>
           <form data-action="otp-verify" class="stack">
             <div class="field">
@@ -1634,15 +1631,6 @@ function renderPaymentPage(dealId) {
   const deliveryLabel = flow.deliveryMethodLabel || "׳׳ ׳ ׳‘׳—׳¨";
   const deliveryCost = Number(flow.deliveryCost || 0);
   const holdTotal = Number(flow.estimatedTotal || ((flow.qty || 0) * (deal?.price_per_unit || 0) + deliveryCost));
-  const previewPaymentGuardrail = preview?.is_demo_preview ? `
-    <div class="info-strip tone-warning">
-      <strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong>
-      <p class="small">׳–׳”׳• ׳©׳׳‘ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳׳™׳ ׳›׳׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳¡׳׳™׳§׳” ׳—׳™׳” ׳׳• ׳”׳©׳׳׳× ׳×׳©׳׳•׳ ׳׳¡׳—׳¨׳™׳×.</p>
-    </div>
-  ` : "";
-  const previewPaymentNote = preview?.is_demo_preview
-    ? `<p class="small muted">׳‘׳¡׳‘׳™׳‘׳× ׳”׳”׳¦׳’׳” ׳”׳–׳• ׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳× ׳ ׳©׳¢׳ ׳× ׳¢׳ ׳¡׳₪׳§ ׳׳“׳•׳׳”, ׳׳‘׳ ׳”׳׳•׳’׳™׳§׳” ׳ ׳©׳׳¨׳× ׳–׳”׳”: ׳§׳•׳“׳ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×, ׳•׳¨׳§ ׳׳—׳¨ ׳›׳ ׳—׳™׳•׳‘ ׳׳₪׳©׳¨׳™.</p>`
-    : "";
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
@@ -1669,8 +1657,8 @@ function renderPaymentPage(dealId) {
           </div>
           ${renderLegalReferenceStrip("payment")}
           <div class="info-strip trust-box">
-            <strong>׳”׳©׳׳‘ ׳”׳–׳” ׳›׳‘׳¨ ׳׳•׳›׳ ׳™׳•׳×׳¨ ׳׳׳™׳ ׳˜׳’׳¨׳¦׳™׳” ׳׳׳™׳×׳™׳×</strong>
-            <p class="small">${PAYMENT_READINESS.settlementModel}. ׳›׳¨׳’׳¢ ׳”׳¡׳₪׳§ ׳”׳₪׳¢׳™׳ ׳”׳•׳ <span>${PAYMENT_READINESS.providerLabel}</span>, ׳׳‘׳ ${PAYMENT_READINESS.integrationNote}</p>
+            <strong>אישור תפיסת מסגרת</strong>
+            <p class="small">${PAYMENT_READINESS.settlementModel}. ${PAYMENT_READINESS.integrationNote}</p>
         </div>
         <div class="summary-item summary-spotlight">
           <span class="muted">׳¡׳›׳•׳ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span>
@@ -1679,7 +1667,10 @@ function renderPaymentPage(dealId) {
         </div>
       </article>
       <aside class="card hero-side stack">
-        ${previewPaymentGuardrail}
+        <div class="info-strip tone-warning">
+          <strong>תפיסת מסגרת בלבד</strong>
+          <p class="small">לא מתבצע חיוב בפועל עכשיו. הסכום יתפוס מסגרת אשראי בלבד, והחיוב יתבצע רק אם העסקה תיסגר בהצלחה.</p>
+        </div>
         <div class="cta-panel">
           <strong>׳©׳§׳˜ ׳•׳‘׳”׳™׳¨ ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨</strong>
           <p class="small muted">׳–׳” ׳”׳׳¡׳ ׳”׳׳—׳¨׳•׳ ׳׳₪׳ ׳™ ׳©׳׳™׳¨׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳×. ׳׳—׳¨׳™ ׳”׳׳™׳©׳•׳¨ ׳×׳¢׳‘׳•׳¨ ׳׳™׳“ ׳׳׳¡׳ ׳”׳¦׳׳—׳” ׳•׳׳¢׳§׳‘.</p>
@@ -1691,9 +1682,7 @@ function renderPaymentPage(dealId) {
             <div class="field"><label for="expiry">׳×׳•׳§׳£</label><input id="expiry" name="expiry" type="text" data-dir="ltr" value="${esc(state.form.expiry)}" autocomplete="cc-exp" placeholder="12/28" /></div>
             <div class="field"><label for="cvv">CVV</label><input id="cvv" name="cvv" type="password" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cvv)}" autocomplete="cc-csc" placeholder="123" /></div>
           </div>
-          <button class="primary" type="submit">׳׳©׳¨ ׳׳¡׳’׳¨׳× ׳•׳”׳©׳׳ ׳”׳¦׳˜׳¨׳₪׳•׳×</button>
-          <p class="small muted">׳׳‘׳“׳™׳§׳× ׳›׳©׳ ׳׳“׳•׳׳” ׳׳₪׳©׳¨ ׳׳”׳©׳×׳׳© ׳‘׳›׳¨׳˜׳™׳¡ ׳©׳׳¡׳×׳™׳™׳ ׳‘-0000.</p>
-          ${previewPaymentNote}
+          <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
       </aside>
     </section>
@@ -2129,11 +2118,11 @@ function renderSellerNewPage() {
             <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
             <div class="product-image-uploader">
               <div class="product-image-preview ${state.form.sellerImageDataUrl ? "has-image" : ""}">
-                ${state.form.sellerImageDataUrl ? `<img src="${esc(state.form.sellerImageDataUrl)}" alt="תצוגה מקדימה של תמונת מוצר" />` : `<div class="product-image-placeholder"><strong>תמונת מוצר</strong><span>תצוגה נקייה עד לחיבור אחסון קבוע</span></div>`}
+                ${state.form.sellerImageDataUrl ? `<img src="${esc(state.form.sellerImageDataUrl)}" alt="תצוגה מקדימה של תמונת מוצר" />` : `<div class="product-image-placeholder"><strong>תמונת מוצר</strong><span>ניתן להוסיף תמונת מוצר לפני הפרסום</span></div>`}
               </div>
               <div class="stack compact-section">
                 <div class="field"><label for="sellerImage">תמונה ראשית לתצוגה מקדימה</label><input id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" /></div>
-                <p class="small muted">התמונה מוצגת מקומית לפני פרסום. שמירה קבועה דורשת ספק אחסון תמונות ותישאר פתוחה בתיעוד.</p>
+                <p class="small muted">בחרו תמונת מוצר שתופיע בתצוגת העסקה לפני הפרסום.</p>
                 ${state.form.sellerImageName ? `<div class="actions"><span class="stat-pill"><span>נבחרה</span><strong>${esc(state.form.sellerImageName)}</strong></span><button class="secondary" type="button" data-inline-action="clear-product-image">הסרת תמונה</button></div>` : ""}
               </div>
             </div>
@@ -3115,8 +3104,8 @@ function formatVisibleMoneyState(value) {
 
 function formatEnvironmentLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
-  if (!normalized) return "׳¡׳‘׳™׳‘׳× ׳”׳“׳’׳׳”";
-  if (normalized === "preview" || normalized === "demo" || normalized === "demo-preview") return "׳¡׳‘׳™׳‘׳× ׳”׳“׳’׳׳”";
+  if (!normalized) return "מצב הצגה";
+  if (normalized === "preview" || normalized === "demo" || normalized === "demo-preview") return "מצב הצגה";
   if (normalized === "internal" || normalized === "internal-runtime") return "׳¡׳‘׳™׳‘׳× ׳¢׳‘׳•׳“׳” ׳₪׳ ׳™׳׳™׳×";
   if (normalized === "production") return "׳¡׳‘׳™׳‘׳× ׳™׳™׳¦׳•׳¨";
   if (normalized === "staging") return "׳¡׳‘׳™׳‘׳× ׳‘׳“׳™׳§׳•׳×";
@@ -3141,8 +3130,8 @@ function formatRuntimeModeLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "לא הוגדר";
   if (normalized === "log-only") return "לוג בלבד";
-  if (normalized === "mock" || normalized === "mock-backed") return "סימולציה פנימית";
-  if (normalized === "demo-preview" || normalized === "preview") return "מצב הדגמה";
+  if (normalized === "mock" || normalized === "mock-backed") return "בדיקה פנימית";
+  if (normalized === "demo-preview" || normalized === "preview") return "מצב הצגה";
   return String(value);
 }
 
@@ -4268,7 +4257,7 @@ function renderSellerAuthGate() {
         <div class="trust-band">
           <div class="trust-point"><span class="muted">מקור הזיהוי</span><strong>כניסת מוכר דרך השרת</strong></div>
           <div class="trust-point"><span class="muted">מה לא פותח גישה</span><strong>שמירה מקומית בדפדפן בלבד</strong></div>
-          <div class="trust-point"><span class="muted">גבול הדמו</span><strong>המשטח נשאר מבוקר ומופרד</strong></div>
+          <div class="trust-point"><span class="muted">שמירת גישה</span><strong>המשטח נשאר מבוקר ומופרד</strong></div>
         </div>
       </article>
       <aside class="card hero-side stack">

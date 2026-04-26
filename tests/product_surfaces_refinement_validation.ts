@@ -42,7 +42,7 @@ await run("seller deal page exposes a clearer operational control summary", asyn
 });
 
 await run("seller completed deal surface exposes Excel export only after completion", async () => {
-  assert.match(appJs, /deal\.state === "Completed" \? `[\s\S]*הורד Excel עסקה/);
+  assert.match(appJs, /deal\.state === "Completed" \? `[\s\S]*data-inline-action="seller-excel-export"/);
   assert.match(appJs, /data-inline-action="seller-excel-export"/);
   assert.match(appJs, /\/api\/seller\/deals\/\$\{encodeURIComponent\(dealId\)\}\/export\.xlsx/);
 });
@@ -65,13 +65,13 @@ await run("deal sharing and seller creation guardrails stay frontend-only and co
   assert.match(appJs, /sellerFinalTerms/);
   assert.match(appJs, /sellerFinalConfirm/);
   assert.match(appJs, /handleSellerImageSelection/);
-  assert.match(appJs, /שמירה קבועה דורשת ספק אחסון תמונות/);
+  assert.match(appJs, /בחרו תמונת מוצר שתופיע בתצוגת העסקה לפני הפרסום/);
   assert.doesNotMatch(appJs, /commissionPct/);
 });
 
 await run("core product surfaces keep Hebrew-facing copy and avoid obvious internal english leaks", async () => {
-  assert.match(appJs, /׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™׳×/);
-  assert.match(appJs, /׳׳–׳•׳¨ ׳”׳׳•׳›׳¨/);
+  assert.match(appJs, /פתיחת עסקה חדשה/);
+  assert.match(appJs, /אזור המוכר/);
   assert.doesNotMatch(appJs, /Open a deal/i);
   assert.doesNotMatch(appJs, /debug page/i);
   assert.doesNotMatch(appJs, /internal tool/i);
