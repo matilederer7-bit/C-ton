@@ -6,7 +6,12 @@ import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
-import { enqueueNotification, flushPendingNotifications, type SmsProvider } from "./notification_dispatch.js";
+import {
+  enqueueNotification,
+  ensureNotificationRailTables,
+  flushPendingNotifications,
+  type SmsProvider
+} from "./notification_dispatch.js";
 import {
   enqueueInvoiceDocument,
   enqueuePendingInvoiceDocumentOutboxEvents,
@@ -1481,6 +1486,41 @@ async function enqueueParticipantNotifications(
   }
 }
 
+async function enqueueSellerNotification(
+  eventType: "seller_deal_published" | "seller_deal_completed" | "seller_deal_failed" | "seller_excel_ready",
+  dealId: string,
+  dealTitle: string,
+  logger: Pick<Console, "error"> = console
+): Promise<void> {
+  try {
+    const sellerRow = await pool.query(
+      `SELECT d.seller_id, d.title, COALESCE(sa.support_email, '') AS support_email
+       FROM siton.deals d
+       LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+       WHERE d.deal_id=$1`,
+      [dealId]
+    );
+    if (!sellerRow.rowCount) return;
+    const seller = sellerRow.rows[0] as { seller_id: string | null; title: string | null; support_email: string | null };
+    const sellerId = normalizeSellerId(seller.seller_id);
+    if (!sellerId) return;
+    const recipientRef = String(seller.support_email || sellerId);
+    const title = dealTitle || String(seller.title || "");
+    await enqueueNotification({
+      event_type: eventType,
+      recipient_type: "seller",
+      recipient_ref: recipientRef,
+      deal_id: dealId,
+      seller_id: sellerId,
+      channel: "internal",
+      payload_jsonb: { deal_id: dealId, deal_title: title },
+      idempotency_key: `${eventType}:seller:${sellerId}:${dealId}:internal`
+    }, pool);
+  } catch (e) {
+    logger.error("[notifications] seller enqueue failed", { eventType, dealId, err: String(e) });
+  }
+}
+
 /**
  * Enqueue a charge_receipt document for a participant who has reached DealCompleted.
  * Eligibility: buyer_state must be DealCompleted (enforced by calling context).
@@ -1661,6 +1701,8 @@ async function handleFinalizeDealEvent(
     const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
     await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
     await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
+    await enqueueSellerNotification("seller_deal_completed", dealId, dealTitle, console);
+    await enqueueSellerNotification("seller_excel_ready", dealId, dealTitle, console);
     // Issue charge receipts for every DealCompleted participant (money settled, deal succeeded)
     for (const p of completedParticipants) {
       await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
@@ -1693,6 +1735,7 @@ async function handleFinalizeDealEvent(
     return r.rows as Array<{ participant_id: string; buyer_id: string }>;
   });
   await enqueueParticipantNotifications("deal_failed", failedParts, dealId, dealTitleFail, console);
+  await enqueueSellerNotification("seller_deal_failed", dealId, dealTitleFail, console);
   return;
 }
 
@@ -1751,6 +1794,7 @@ async function workerProcessEvent(event: {
       return r.rows as Array<{ participant_id: string; buyer_id: string }>;
     });
     await enqueueParticipantNotifications("deal_failed", deadlineParts, dealId, deadlineTitle, console);
+    await enqueueSellerNotification("seller_deal_failed", dealId, deadlineTitle, console);
     return;
   }
 
@@ -2321,7 +2365,7 @@ app.post("/deals/:id/publish", async (req: any) => {
     }
   });
 
-  return atomicTransition({
+  const result = await atomicTransition({
     entityType: "deal",
     entityId: dealId,
     dealId,
@@ -2349,6 +2393,8 @@ app.post("/deals/:id/publish", async (req: any) => {
       ]);
     }
   });
+  await enqueueSellerNotification("seller_deal_published", dealId, "").catch(() => undefined);
+  return result;
 });
 
 async function tryTargetReached(dealId: string, requestId: string) {
@@ -2903,6 +2949,7 @@ let workerRunning = false;
   await ensureRemainingProductSurfaceTables(withTx);
   await ensurePayoutRailTables(withTx);
   await ensureInvoiceRailTables(withTx);
+  await ensureNotificationRailTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

@@ -2979,9 +2979,9 @@ export function registerFrontendExperience(
   });
 
   // ── Notifications operational status ──────────────────────────────────────
-  // Returns per-status counts, oldest ages, unique event_key count, channel breakdown.
+  // Returns per-status counts, oldest ages, unique idempotency-key count, channel breakdown.
   // Safe for dashboards and post-restart health checks.
-  app.get("/api/admin/notifications-status", async (req: any, reply: any) => {
+  const notificationStatusHandler = async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     return deps.withTx(async (c) => {
       const [totals, channels] = await Promise.all([
@@ -2992,18 +2992,18 @@ export function registerFrontendExperience(
              COUNT(*)                                                  FILTER (WHERE status='sent')       AS sent_count,
              COUNT(*)                                                  FILTER (WHERE status='failed')     AS failed_count,
              COUNT(*)                                                  FILTER (WHERE status='skipped')    AS skipped_count,
-             COUNT(*)                                                  FILTER (WHERE status='pending' AND attempt_count > 0) AS retryable_count,
-             COUNT(DISTINCT event_key)                                                                   AS unique_event_keys,
-             EXTRACT(EPOCH FROM (now() - MIN(available_at)            FILTER (WHERE status='pending')))  AS oldest_pending_age_s,
+             COUNT(*)                                                  FILTER (WHERE status='pending' AND last_error IS NOT NULL) AS retryable_count,
+             COUNT(DISTINCT idempotency_key)                                                             AS unique_event_keys,
+             EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_s,
              EXTRACT(EPOCH FROM (now() - MIN(updated_at)              FILTER (WHERE status='failed')))   AS oldest_failed_age_s
-           FROM siton.notifications`
+           FROM siton.notification_events`
         ),
         c.query(
           `SELECT channel,
                   COUNT(*)                          FILTER (WHERE status='pending') AS pending,
                   COUNT(*)                          FILTER (WHERE status='sent')    AS sent,
                   COUNT(*)                          FILTER (WHERE status='failed')  AS failed
-           FROM siton.notifications
+           FROM siton.notification_events
            GROUP BY channel
            ORDER BY channel`
         )
@@ -3031,7 +3031,9 @@ export function registerFrontendExperience(
         }))
       };
     });
-  });
+  };
+  app.get("/api/admin/notifications-status", notificationStatusHandler);
+  app.get("/api/admin/notifications/status", notificationStatusHandler);
 
   // ── Invoice documents operational status ─────────────────────────────────
   // Returns per-status counts, oldest ages, unique document_key count, type breakdown.
@@ -3247,8 +3249,8 @@ export function registerFrontendExperience(
           `SELECT
              COUNT(*) FILTER (WHERE status='pending') AS pending,
              COUNT(*) FILTER (WHERE status='failed')  AS failed,
-             EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
-           FROM siton.notifications`
+             EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.notification_events`
         ),
         c.query(
           `SELECT
@@ -3333,10 +3335,10 @@ export function registerFrontendExperience(
           [participantId]
         ),
         c.query(
-          `SELECT event_key, notification_event_type, channel, status,
-                  attempt_count, last_error, sent_at, provider_message_id, created_at
-           FROM siton.notifications
-           WHERE template_params->>'participant_id' = $1
+          `SELECT idempotency_key AS event_key, event_type AS notification_event_type,
+                  channel, status, last_error, sent_at, created_at
+           FROM siton.notification_events
+           WHERE participant_id = $1
            ORDER BY created_at DESC
            LIMIT 20`,
           [participantId]
@@ -3521,9 +3523,9 @@ export function registerFrontendExperience(
                   COUNT(*) FILTER (WHERE status='processing') AS processing,
                   COUNT(*) FILTER (WHERE status='sent')       AS sent,
                   COUNT(*) FILTER (WHERE status='failed')     AS failed,
-                  EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
-           FROM siton.notifications
-           WHERE template_params->>'deal_id' = $1
+                  EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_s
+           FROM siton.notification_events
+           WHERE deal_id = $1
            GROUP BY channel
            ORDER BY channel`,
           [dealId]

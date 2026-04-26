@@ -13,10 +13,12 @@
 - UX product trust polish — no technical/mock/demo wording in regular buyer or seller surfaces
 - Provider-ready product image layer — `deal_images` table, seller upload endpoint, public safe URLs, upload blocked after publish, failed-upload cleanup
 - **Seller Profile & Publish Readiness** — seller business profile fields (`business_name`, `contact_name`, `support_phone`, `support_email`, `business_description`, `business_identifier`), `GET/PUT /api/seller/profile`, publish gate 409 + `seller_profile_incomplete`, public deal payload exposes safe seller info, seller profile form in seller dashboard, seller info card on deal page, readiness notice in new-deal wizard
+- **Notification Rail Provider-Ready** — `notification_events`, `notification_attempts`, closed Hebrew template registry, log/dev provider, idempotent enqueue, dispatch attempts, and initial buyer/seller event hooks
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
 - Live Stripe / Morning production validation (credentials not available)
+- Real SMS/email/WhatsApp provider activation and live notification validation
 - Deploy-preview smoke test on mobile and desktop
 - Frontend download button for CSV export (Excel button exists; CSV remains API-only)
 - Single primary image only in UI (changing after publish intentionally blocked)
@@ -27,6 +29,21 @@
 - Shipping management / OMS / delivery status tracking
 - Distributor commission model
 - Seller balance / withdrawal
+
+---
+
+Current update: 2026-04-26 (Notification Rail Provider-Ready)
+
+- Completed: added provider-ready notification persistence with `notification_events` and `notification_attempts`; notification rows are idempotent by `idempotency_key`, dispatch attempts are recorded separately, and notification results do not mutate deal, participant, or money state.
+- Completed: replaced external auto-activation with a safe log/dev provider. `NOTIFICATION_PROVIDER=log` and `NOTIFICATION_PROVIDER_MODE=dev` are the safe default; no SMS, email, or WhatsApp provider is connected or called in this stage.
+- Completed: added a closed Hebrew template registry for buyer and seller events: buyer joined/target/completed/failed/recovery/recovered and seller published/target/completed/failed/Excel-ready.
+- Completed: connected initial safe hooks for buyer join, buyer completion/failure/recovery, seller publish, seller completion, seller failure, and seller Excel-ready. Notifications remain side effects only and are not a source of truth.
+- Completed: admin read surfaces now read `notification_events`; `/api/admin/notifications-status` remains available and `/api/admin/notifications/status` is also exposed as the canonical slash form.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/notification_rail_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `$env:PORT='3499'; node .tmp_test_dist/tests/seller_profile_readiness_validation.js` after the default local port was already occupied.
+- Open: real SMS provider, real email provider, WhatsApp Business integration, notification history UI, broader edge-case templates, and live provider validation remain future tracks.
+- Not built: external sending, shipping management, notifications as source of truth, affiliate payout/commission semantics.
+- Progress: `85%` of the Notification Rail Provider-Ready track.
+- Next step: keep the log/dev rail as baseline, then run deploy smoke and only later activate a real provider behind explicit env/config validation.
 
 ---
 

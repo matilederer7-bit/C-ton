@@ -831,24 +831,76 @@ CREATE TRIGGER trg_enforce_retry_storm
 BEFORE INSERT ON payment_attempts
 FOR EACH ROW EXECUTE FUNCTION enforce_retry_storm();
 
--- ─── Notifications ──────────────────────────────────────────────────────────
--- Delivery tracking table. event_key is the idempotency key:
---   "{notification_event_type}:{participant_id_or_deal_id}:{channel}"
+-- ─── Notification Rail ──────────────────────────────────────────────────────
+-- Provider-ready notification events. Messages are side effects only and never
+-- own deal, participant, or money state.
+CREATE TABLE IF NOT EXISTS notification_events (
+  notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  event_type TEXT NOT NULL CHECK (event_type IN (
+    'buyer_joined_authorized','buyer_deal_target_reached','buyer_deal_completed','buyer_deal_failed',
+    'buyer_recovery_required','buyer_payment_recovered','seller_deal_published','seller_target_reached',
+    'seller_deal_completed','seller_deal_failed','seller_excel_ready'
+  )),
+  recipient_type TEXT NOT NULL CHECK (recipient_type IN ('buyer','seller','admin')),
+  recipient_ref TEXT NULL,
+  deal_id UUID NULL,
+  participant_id UUID NULL,
+  seller_id TEXT NULL,
+  channel TEXT NOT NULL CHECK (channel IN ('sms','email','whatsapp_link','internal')),
+  template_key TEXT NOT NULL CHECK (template_key IN (
+    'buyer_joined_authorized_he','buyer_deal_target_reached_he','buyer_deal_completed_he','buyer_deal_failed_he',
+    'buyer_recovery_required_he','buyer_payment_recovered_he','seller_deal_published_he','seller_target_reached_he',
+    'seller_deal_completed_he','seller_deal_failed_he','seller_excel_ready_he'
+  )),
+  locale TEXT NOT NULL DEFAULT 'he-IL',
+  payload_jsonb JSONB NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','sent','failed','cancelled','skipped')),
+  idempotency_key TEXT NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  scheduled_for TIMESTAMPTZ NULL,
+  sent_at TIMESTAMPTZ NULL,
+  last_error TEXT NULL,
+  CONSTRAINT ux_notification_events_idempotency_key UNIQUE (idempotency_key)
+);
+
+CREATE TABLE IF NOT EXISTS notification_attempts (
+  attempt_id BIGSERIAL PRIMARY KEY,
+  notification_id UUID NOT NULL REFERENCES notification_events(notification_id) ON DELETE CASCADE,
+  provider TEXT NOT NULL,
+  provider_mode TEXT NOT NULL,
+  result_status TEXT NOT NULL CHECK (result_status IN ('success','temporary_fail','permanent_fail','skipped')),
+  provider_message_id TEXT NULL,
+  error_code TEXT NULL,
+  error_message TEXT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_notification_events_status_schedule
+  ON notification_events (status, scheduled_for, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_events_deal
+  ON notification_events (deal_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_events_participant
+  ON notification_events (participant_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_events_seller
+  ON notification_events (seller_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notification_attempts_notification
+  ON notification_attempts (notification_id, created_at);
+
+-- Legacy notification table retained for older local databases/tests. Runtime
+-- writes use notification_events / notification_attempts.
 CREATE TABLE IF NOT EXISTS notifications (
   notification_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   event_key TEXT NOT NULL,
-  notification_event_type TEXT NOT NULL CHECK (notification_event_type IN (
-    'join_authorized','charge_succeeded','charge_failed_recovery',
-    'deal_completed','deal_failed','refund_issued','deal_cancelled'
-  )),
-  channel TEXT NOT NULL CHECK (channel IN ('sms','email','log')),
+  notification_event_type TEXT NOT NULL,
+  channel TEXT NOT NULL,
   recipient TEXT NOT NULL,
   template_id TEXT NOT NULL,
   template_params JSONB NOT NULL DEFAULT '{}',
-  status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'processing', 'sent', 'failed', 'skipped')),
+  status TEXT NOT NULL DEFAULT 'pending',
   attempt_count INT NOT NULL DEFAULT 0,
   max_attempts INT NOT NULL DEFAULT 3,
-  provider_code TEXT NOT NULL DEFAULT 'log-only',
+  provider_code TEXT NOT NULL DEFAULT 'log',
   provider_message_id TEXT NULL,
   last_error TEXT NULL,
   sent_at TIMESTAMPTZ NULL,

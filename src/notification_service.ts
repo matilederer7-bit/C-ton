@@ -9,13 +9,12 @@
  */
 
 import {
-  buildSmsProvider,
-  getSmsProviderSummary,
+  buildNotificationProvider,
+  getNotificationProviderSummary,
   type SmsProvider
 } from "./notification_dispatch.js";
 
-// Re-export for consumers that import from here
-export { buildSmsProvider, getSmsProviderSummary };
+export { buildNotificationProvider, getNotificationProviderSummary };
 export type { SmsProvider };
 
 /**
@@ -25,11 +24,11 @@ export type { SmsProvider };
  */
 export function buildNotificationService(
   env: NodeJS.ProcessEnv = process.env,
-  logger: Pick<Console, "info" | "error"> = console
+  logger: Pick<Console, "info"> = console
 ): SmsProvider {
-  return buildSmsProvider(env, logger);
+  return buildNotificationProvider(env, logger) as SmsProvider;
 }
 
 export function getNotificationServiceSummary(service: SmsProvider) {
-  return getSmsProviderSummary(service);
+  return getNotificationProviderSummary(service);
 }
