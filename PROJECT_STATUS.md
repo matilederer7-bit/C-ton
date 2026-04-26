@@ -1,5 +1,34 @@
 # PROJECT STATUS
 
+---
+## Current Product Baseline — 2026-04-26
+
+**Completed in recent sprint:**
+- Seller shipping CSV export (`GET /api/seller/deals/:dealId/shipping-export`) — eligible buyers only, UTF-8 BOM
+- Participant delivery snapshot — `buyer_name`, `buyer_phone`, `buyer_email`, `delivery_address`, `delivery_city`, `delivery_notes` persisted at join, exposed in both CSV and Excel
+- Seller deal Excel export (`GET /api/seller/deals/:dealId/export.xlsx`) — 5–6 sheet workbook: Deal Summary, Eligible Buyers, All Participants, Money Breakdown, Notes, Attribution (if any)
+- Excel download button in seller completed-deal UI surface
+- UX responsive product surfaces — mobile-first layouts, share affordances, payment-hold notice, seller wizard, local image preview
+- `frontend_flow_validation` isolated from background worker interference
+- UX product trust polish — no technical/mock/demo wording in regular buyer or seller surfaces
+- Provider-ready product image layer — `deal_images` table, seller upload endpoint, public safe URLs, upload blocked after publish, failed-upload cleanup
+
+**Open — known gaps:**
+- External object storage / CDN (current: local disk only)
+- Live Stripe / Morning production validation (credentials not available)
+- Deploy-preview smoke test on mobile and desktop
+- Frontend download button for CSV export (Excel button exists; CSV remains API-only)
+- Single primary image only in UI (changing after publish intentionally blocked)
+
+**Intentionally NOT built:**
+- Marketplace / deal catalog / public search
+- Affiliate commissions or payouts
+- Shipping management / OMS / delivery status tracking
+- Distributor commission model
+- Seller balance / withdrawal
+
+---
+
 Current update: 2026-04-26 (Product Images Provider-Ready Layer)
 
 - Completed: added a provider-ready product image layer for deals without connecting an external storage provider. Deal images now have DB metadata in `deal_images`, a local/dev storage adapter, a seller upload endpoint for draft deals, and public deal payloads expose safe image URLs without storage keys or filesystem paths.
