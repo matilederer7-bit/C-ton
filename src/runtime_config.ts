@@ -76,5 +76,18 @@ export const PAYMENT_WEBHOOK_SECRET_IS_SAFE = IS_DEMO_PREVIEW
   : Boolean(RAW_PAYMENT_WEBHOOK_SECRET) && RAW_PAYMENT_WEBHOOK_SECRET !== DEMO_PAYMENT_WEBHOOK_SECRET;
 
 // Admin API key — if set, all /api/admin/* routes require x-admin-key header to match.
-// Leave empty for demo/dev (open access). Set in production deployments.
+// In production-like environments the key is REQUIRED — admin routes fail-closed
+// without it. In local dev/test (no NODE_ENV=production, no RENDER) an empty key
+// keeps the legacy open-access behaviour to avoid breaking existing tests.
 export const ADMIN_API_KEY = process.env.ADMIN_API_KEY || "";
+
+export function isProductionLikeEnv(env: NodeJS.ProcessEnv = process.env): boolean {
+  return (
+    env.NODE_ENV === "production" ||
+    env.APP_ENV === "production" ||
+    env.RENDER === "true" ||
+    Boolean(env.RENDER_EXTERNAL_URL)
+  );
+}
+
+export const IS_PRODUCTION_LIKE = isProductionLikeEnv();

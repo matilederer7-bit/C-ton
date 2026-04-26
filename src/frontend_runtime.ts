@@ -12,6 +12,7 @@ import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } fr
 import type { InvoiceProvider } from "./invoice_dispatch.js";
 import {
   ADMIN_API_KEY,
+  isProductionLikeEnv,
   PAYMENT_WEBHOOK_SECRET,
   PAYMENT_WEBHOOK_SECRET_IS_DEFAULT,
   PAYMENT_WEBHOOK_SECRET_IS_SAFE,
@@ -948,19 +949,33 @@ export function registerFrontendExperience(
   }
 
   /**
-   * Admin API key guard.
-   * If ADMIN_API_KEY env var is set, all /api/admin/* routes require the
-   * x-admin-key header to match. Empty key = open access (demo/dev).
+   * Admin API key guard. Fail-closed in production-like environments.
+   *
+   * - Production-like (NODE_ENV=production, APP_ENV=production, RENDER, or
+   *   RENDER_EXTERNAL_URL set) WITHOUT ADMIN_API_KEY: 503 admin_key_not_configured.
+   * - ADMIN_API_KEY set: x-admin-key header must match (timing-safe). Otherwise
+   *   401 admin_auth_required.
+   * - Local dev/test (not production-like) WITHOUT ADMIN_API_KEY: legacy open
+   *   access preserved so existing demo/test flows keep working.
    */
   function requireAdminKey(req: FastifyRequest, reply: FastifyReply): boolean {
-    if (!ADMIN_API_KEY) return true; // No key configured — open access
+    // Read at request time so deploy-time env updates and tests both work without
+    // requiring a process restart. Falls back to module-load constant if unset.
+    const configuredKey = String(process.env.ADMIN_API_KEY || ADMIN_API_KEY || "").trim();
+    if (!configuredKey) {
+      if (isProductionLikeEnv()) {
+        void reply.code(503).send({ error: "admin_key_not_configured" });
+        return false;
+      }
+      return true;
+    }
     const provided = String((req.headers as Record<string, string | undefined>)["x-admin-key"] || "").trim();
     if (!provided) {
       void reply.code(401).send({ error: "admin_auth_required", message: "x-admin-key header is missing or invalid" });
       return false;
     }
     // Timing-safe comparison to prevent key-length oracle attacks
-    const expectedBuf = Buffer.from(ADMIN_API_KEY, "utf8");
+    const expectedBuf = Buffer.from(configuredKey, "utf8");
     const providedBuf = Buffer.from(provided, "utf8");
     if (expectedBuf.length !== providedBuf.length || !timingSafeEqual(expectedBuf, providedBuf)) {
       void reply.code(401).send({ error: "admin_auth_required", message: "x-admin-key header is missing or invalid" });

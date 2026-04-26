@@ -15,6 +15,7 @@
 - **Seller Profile & Publish Readiness** — seller business profile fields (`business_name`, `contact_name`, `support_phone`, `support_email`, `business_description`, `business_identifier`), `GET/PUT /api/seller/profile`, publish gate 409 + `seller_profile_incomplete`, public deal payload exposes safe seller info, seller profile form in seller dashboard, seller info card on deal page, readiness notice in new-deal wizard
 - **Notification Rail Provider-Ready** — `notification_events`, `notification_attempts`, closed Hebrew template registry, log/dev provider, idempotent enqueue, dispatch attempts, and initial buyer/seller event hooks
 - **Admin Launch Console** — internal read-only admin surface aggregating system status, seller readiness, deal state mix, missing-image / missing-profile / missing-acceptance counts, notification rail summary, legal acceptance counts, recent-deal status, and computed green/yellow/red launch status. Endpoint `GET /api/admin/launch-console` (admin-key gated), no PII exposure.
+- **Admin Security Hardening** — `requireAdminKey` is now fail-closed in production-like environments (NODE_ENV=production, APP_ENV=production, RENDER, RENDER_EXTERNAL_URL). Missing `ADMIN_API_KEY` returns 503 `admin_key_not_configured`. Local dev/test without the key keeps legacy open access for compatibility.
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
@@ -30,6 +31,20 @@
 - Shipping management / OMS / delivery status tracking
 - Distributor commission model
 - Seller balance / withdrawal
+
+---
+
+Current update: 2026-04-26 (Admin Security Hardening)
+
+- Completed: hardened `requireAdminKey` in `src/frontend_runtime.ts` so all `/api/admin/*` routes are fail-closed in production-like environments. The guard now: (1) reads `ADMIN_API_KEY` and the production-like signal at request time (so deploy-time env updates and tests both work without process restart); (2) returns 503 `admin_key_not_configured` when the key is missing AND any of `NODE_ENV=production`, `APP_ENV=production`, `RENDER=true`, or `RENDER_EXTERNAL_URL` is set; (3) returns 401 `admin_auth_required` when the key is set but the `x-admin-key` header is missing or wrong (timing-safe compare retained); (4) preserves the legacy "open access in dev/test when no key" behaviour for non-production-like environments so existing demo/test flows keep working.
+- Completed: added `isProductionLikeEnv(env?)` helper + `IS_PRODUCTION_LIKE` constant in `src/runtime_config.ts`. The helper reads from a passed-in `env` object so tests can mutate `process.env` between scenarios without a fresh module import.
+- Completed: response codes deliberately do not leak the configured admin key value or the env var name in the error body. Tests assert the negation.
+- Tests added: `tests/admin_security_hardening_validation.ts` — 10 scenarios covering dev/test legacy compatibility, all 4 production-like signals (NODE_ENV, APP_ENV, RENDER, RENDER_EXTERNAL_URL) trigger fail-closed, key-required + key-rejected + key-accepted paths, production-like + valid key still requires the header, all 3 canonical readiness routes (`/api/admin/launch-console`, `/api/admin/notifications-status`, `/api/admin/system-status`) share the guard.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/admin_security_hardening_validation.js` (10/10 PASS); `node .tmp_test_dist/tests/admin_auth_validation.js` (6/6 PASS); `node .tmp_test_dist/tests/admin_launch_console_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/notification_rail_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/legal_trust_layer_validation.js` (6/6 PASS); `node .tmp_test_dist/tests/frontend_flow_validation.js` (16/16 PASS); `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js` (7/7 PASS).
+- Open: full RBAC for multiple admin operators, MFA, per-view audit logging, secrets rotation tooling, and integration with deploy-platform secret managers remain future tracks. The current rail is a single shared key.
+- Not built: full login system, role/permission management, admin override of deal/buyer/money state, manual money actions, Twilio/SendGrid/SMTP/WhatsApp Business integration. The hardening pass is auth surface only; everything else stays unchanged.
+- Progress: `100%` of Admin Security Hardening track for the single-key model. RBAC is a separate track if/when needed.
+- Next step: when deploy platform is set up, confirm `ADMIN_API_KEY` is provisioned as a secret (not env var in source), and validate that hosted admin endpoints actually return 503 when secret is unset.
 
 ---
 
