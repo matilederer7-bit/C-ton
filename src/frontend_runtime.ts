@@ -32,6 +32,7 @@ import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
+import { ensureNotificationRailTables } from "./notification_dispatch.js";
 import {
   SELLER_SESSION_COOKIE,
   createSellerSessionToken,
@@ -719,6 +720,7 @@ export function registerFrontendExperience(
 
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
   const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
+  const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
   const ensureInvoiceWebhookTables = async () => {
     await deps.withTx(async (c) => {
       await c.query(`
@@ -750,6 +752,36 @@ export function registerFrontendExperience(
       `);
       await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_events_document ON siton.invoice_webhook_events (document_id, received_at DESC)`);
       await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_security_events_created ON siton.invoice_webhook_security_events (created_at DESC)`);
+    });
+  };
+  const ensureLegalAcceptanceTables = async () => {
+    await deps.withTx(async (c) => {
+      await c.query(`
+        CREATE TABLE IF NOT EXISTS siton.legal_acceptances (
+          acceptance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          actor_type TEXT NOT NULL CHECK (actor_type IN ('buyer','seller')),
+          actor_ref TEXT NOT NULL,
+          deal_id UUID NULL,
+          participant_id UUID NULL,
+          acceptance_type TEXT NOT NULL CHECK (
+            acceptance_type IN ('buyer_join_terms','buyer_payment_disclosure','seller_publish_terms')
+          ),
+          policy_version TEXT NOT NULL,
+          accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+          ip_hash TEXT NULL,
+          user_agent_hash TEXT NULL,
+          metadata_jsonb JSONB NOT NULL DEFAULT '{}',
+          CONSTRAINT ux_legal_acceptances_scope UNIQUE (
+            actor_type,
+            actor_ref,
+            deal_id,
+            participant_id,
+            acceptance_type,
+            policy_version
+          )
+        )`);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_deal ON siton.legal_acceptances (deal_id, accepted_at)`);
+      await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_actor ON siton.legal_acceptances (actor_type, actor_ref, accepted_at)`);
     });
   };
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
@@ -2794,6 +2826,217 @@ export function registerFrontendExperience(
           support_tickets: support.rows,
           forensics: forensics.rows[0]
         }
+      };
+    });
+  });
+
+  app.get("/api/admin/launch-console", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    await ensureNotificationTables();
+    await ensureLegalAcceptanceTables();
+    return deps.withTx(async (c) => {
+      const [sellerCounts, dealCounts, readiness, notifications, legal, recentDeals] = await Promise.all([
+        c.query(
+          `SELECT
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (
+               WHERE NULLIF(btrim(COALESCE(business_name, '')), '') IS NOT NULL
+                 AND (
+                   NULLIF(btrim(COALESCE(support_email, '')), '') IS NOT NULL
+                   OR NULLIF(btrim(COALESCE(support_phone, '')), '') IS NOT NULL
+                 )
+             )::int AS publish_ready,
+             COUNT(*) FILTER (
+               WHERE NULLIF(btrim(COALESCE(business_name, '')), '') IS NULL
+                  OR (
+                    NULLIF(btrim(COALESCE(support_email, '')), '') IS NULL
+                    AND NULLIF(btrim(COALESCE(support_phone, '')), '') IS NULL
+                  )
+             )::int AS incomplete_profile
+           FROM siton.seller_accounts`
+        ),
+        c.query(
+          `SELECT
+             COUNT(*)::int AS total,
+             COUNT(*) FILTER (WHERE state='Draft')::int AS draft,
+             COUNT(*) FILTER (WHERE state='PendingTarget')::int AS pending_target,
+             COUNT(*) FILTER (WHERE state='TargetReached')::int AS target_reached,
+             COUNT(*) FILTER (WHERE state='Completed')::int AS completed,
+             COUNT(*) FILTER (WHERE state='Failed')::int AS failed,
+             COUNT(*) FILTER (WHERE state='Cancelled')::int AS cancelled
+           FROM siton.deals`
+        ),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM siton.deal_images img WHERE img.deal_id=d.deal_id
+               )
+             )::int AS deals_missing_images,
+             COUNT(*) FILTER (
+               WHERE d.state <> 'Draft'
+                 AND (
+                   NULLIF(btrim(COALESCE(sa.business_name, '')), '') IS NULL
+                   OR (
+                     NULLIF(btrim(COALESCE(sa.support_email, '')), '') IS NULL
+                     AND NULLIF(btrim(COALESCE(sa.support_phone, '')), '') IS NULL
+                   )
+                 )
+             )::int AS deals_missing_seller_profile,
+             COUNT(*) FILTER (
+               WHERE d.state <> 'Draft'
+                 AND NOT EXISTS (
+                   SELECT 1
+                   FROM siton.legal_acceptances la
+                   WHERE la.actor_type='seller'
+                     AND la.acceptance_type='seller_publish_terms'
+                     AND la.deal_id=d.deal_id
+                     AND la.actor_ref=COALESCE(d.seller_id, $1)
+                 )
+             )::int AS deals_missing_legal_acceptance,
+             COUNT(*) FILTER (WHERE d.state='Completed')::int AS completed_deals_with_excel_available,
+             0::int AS completed_deals_without_excel
+           FROM siton.deals d
+           LEFT JOIN siton.seller_accounts sa ON sa.seller_id=COALESCE(d.seller_id, $1)`,
+          [DEFAULT_SELLER_ID]
+        ),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE status='pending')::int AS pending,
+             COUNT(*) FILTER (WHERE status='sent')::int AS sent,
+             COUNT(*) FILTER (WHERE status='failed')::int AS failed
+           FROM siton.notification_events`
+        ),
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE acceptance_type='seller_publish_terms')::int AS seller_publish_acceptances,
+             COUNT(*) FILTER (WHERE acceptance_type='buyer_join_terms')::int AS buyer_join_acceptances,
+             COUNT(*) FILTER (WHERE acceptance_type='buyer_payment_disclosure')::int AS buyer_payment_disclosures
+           FROM siton.legal_acceptances`
+        ),
+        c.query(
+          `SELECT
+             d.deal_id::text,
+             d.title,
+             d.state,
+             COALESCE(d.seller_id, $1) AS seller_id,
+             sa.business_name AS seller_business_name,
+             EXISTS (SELECT 1 FROM siton.deal_images img WHERE img.deal_id=d.deal_id) AS has_image,
+             (
+               NULLIF(btrim(COALESCE(sa.business_name, '')), '') IS NOT NULL
+               AND (
+                 NULLIF(btrim(COALESCE(sa.support_email, '')), '') IS NOT NULL
+                 OR NULLIF(btrim(COALESCE(sa.support_phone, '')), '') IS NOT NULL
+               )
+             ) AS has_seller_profile,
+             EXISTS (
+               SELECT 1
+               FROM siton.legal_acceptances la
+               WHERE la.actor_type='seller'
+                 AND la.acceptance_type='seller_publish_terms'
+                 AND la.deal_id=d.deal_id
+                 AND la.actor_ref=COALESCE(d.seller_id, $1)
+             ) AS has_seller_terms_acceptance,
+             (d.state='Completed') AS has_excel_export_available,
+             d.created_at,
+             d.updated_at
+           FROM siton.deals d
+           LEFT JOIN siton.seller_accounts sa ON sa.seller_id=COALESCE(d.seller_id, $1)
+           ORDER BY d.updated_at DESC NULLS LAST, d.created_at DESC
+           LIMIT 10`,
+          [DEFAULT_SELLER_ID]
+        )
+      ]);
+
+      const sellers = sellerCounts.rows[0] || {};
+      const deals = dealCounts.rows[0] || {};
+      const ready = readiness.rows[0] || {};
+      const notificationSummary = notifications.rows[0] || {};
+      const legalSummary = legal.rows[0] || {};
+
+      const warnings: Array<{ severity: "red" | "yellow"; code: string; message: string; count?: number }> = [];
+      const addWarning = (severity: "red" | "yellow", code: string, message: string, count?: number) => {
+        warnings.push({ severity, code, message, ...(count === undefined ? {} : { count }) });
+      };
+
+      const failedNotifications = Number(notificationSummary.failed || 0);
+      const pendingNotifications = Number(notificationSummary.pending || 0);
+      const missingSellerProfiles = Number(ready.deals_missing_seller_profile || 0);
+      const missingLegalAcceptances = Number(ready.deals_missing_legal_acceptance || 0);
+      const missingImages = Number(ready.deals_missing_images || 0);
+      const incompleteProfiles = Number(sellers.incomplete_profile || 0);
+      const completedWithoutExcel = Number(ready.completed_deals_without_excel || 0);
+
+      if (failedNotifications > 0) addWarning("red", "notification_failures", "יש הודעות מערכת שנכשלו ודורשות בדיקה.", failedNotifications);
+      if (completedWithoutExcel > 0) addWarning("red", "completed_excel_unavailable", "יש עסקאות שהושלמו בלי ייצוא Excel זמין.", completedWithoutExcel);
+      if (missingSellerProfiles > 0) addWarning("red", "published_deal_missing_seller_profile", "יש עסקאות שפורסמו ללא פרופיל מוכר תקין.", missingSellerProfiles);
+      if (missingLegalAcceptances > 0) addWarning("red", "published_deal_missing_legal_acceptance", "יש עסקאות שפורסמו ללא הסכמת מוכר שמורה.", missingLegalAcceptances);
+      if (incompleteProfiles > 0) addWarning("yellow", "seller_profiles_incomplete", "יש מוכרים שעדיין חסרים פרטי פרסום.", incompleteProfiles);
+      if (missingImages > 0) addWarning("yellow", "deals_missing_images", "יש עסקאות ללא תמונת מוצר.", missingImages);
+      if (!deps.notificationSummary.external_delivery) addWarning("yellow", "notifications_internal_only", "ספק הודעות במצב פנימי בלבד.", 1);
+      if (pendingNotifications > 0) addWarning("yellow", "pending_notifications", "יש הודעות מערכת שממתינות לשליחה.", pendingNotifications);
+
+      const status = warnings.some((warning) => warning.severity === "red")
+        ? "red"
+        : warnings.some((warning) => warning.severity === "yellow")
+          ? "yellow"
+          : "green";
+
+      return {
+        ok: true,
+        generated_at: new Date().toISOString(),
+        system: {
+          status,
+          warnings
+        },
+        sellers: {
+          total: Number(sellers.total || 0),
+          publish_ready: Number(sellers.publish_ready || 0),
+          incomplete_profile: Number(sellers.incomplete_profile || 0)
+        },
+        deals: {
+          total: Number(deals.total || 0),
+          draft: Number(deals.draft || 0),
+          pending_target: Number(deals.pending_target || 0),
+          target_reached: Number(deals.target_reached || 0),
+          completed: Number(deals.completed || 0),
+          failed: Number(deals.failed || 0),
+          cancelled: Number(deals.cancelled || 0)
+        },
+        launch_readiness: {
+          deals_missing_images: Number(ready.deals_missing_images || 0),
+          deals_missing_seller_profile: Number(ready.deals_missing_seller_profile || 0),
+          deals_missing_legal_acceptance: Number(ready.deals_missing_legal_acceptance || 0),
+          completed_deals_with_excel_available: Number(ready.completed_deals_with_excel_available || 0)
+        },
+        notifications: {
+          pending: Number(notificationSummary.pending || 0),
+          sent: Number(notificationSummary.sent || 0),
+          failed: Number(notificationSummary.failed || 0),
+          provider: deps.notificationSummary.provider,
+          mode: deps.notificationSummary.mode,
+          external_delivery: deps.notificationSummary.external_delivery
+        },
+        legal: {
+          seller_publish_acceptances: Number(legalSummary.seller_publish_acceptances || 0),
+          buyer_join_acceptances: Number(legalSummary.buyer_join_acceptances || 0),
+          buyer_payment_disclosures: Number(legalSummary.buyer_payment_disclosures || 0)
+        },
+        recent_deals: recentDeals.rows.map((row: any) => ({
+          deal_id: String(row.deal_id),
+          title: String(row.title || ""),
+          state: String(row.state || ""),
+          seller_id: String(row.seller_id || DEFAULT_SELLER_ID),
+          seller_business_name: row.seller_business_name ? String(row.seller_business_name) : null,
+          has_image: Boolean(row.has_image),
+          has_seller_profile: Boolean(row.has_seller_profile),
+          has_seller_terms_acceptance: Boolean(row.has_seller_terms_acceptance),
+          has_excel_export_available: Boolean(row.has_excel_export_available),
+          created_at: row.created_at ? String(row.created_at) : null,
+          updated_at: row.updated_at ? String(row.updated_at) : null
+        })),
+        recent_warnings: warnings.slice(0, 10)
       };
     });
   });

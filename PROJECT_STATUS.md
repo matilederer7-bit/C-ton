@@ -14,6 +14,7 @@
 - Provider-ready product image layer — `deal_images` table, seller upload endpoint, public safe URLs, upload blocked after publish, failed-upload cleanup
 - **Seller Profile & Publish Readiness** — seller business profile fields (`business_name`, `contact_name`, `support_phone`, `support_email`, `business_description`, `business_identifier`), `GET/PUT /api/seller/profile`, publish gate 409 + `seller_profile_incomplete`, public deal payload exposes safe seller info, seller profile form in seller dashboard, seller info card on deal page, readiness notice in new-deal wizard
 - **Notification Rail Provider-Ready** — `notification_events`, `notification_attempts`, closed Hebrew template registry, log/dev provider, idempotent enqueue, dispatch attempts, and initial buyer/seller event hooks
+- **Admin Launch Console** — internal read-only admin surface aggregating system status, seller readiness, deal state mix, missing-image / missing-profile / missing-acceptance counts, notification rail summary, legal acceptance counts, recent-deal status, and computed green/yellow/red launch status. Endpoint `GET /api/admin/launch-console` (admin-key gated), no PII exposure.
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
@@ -29,6 +30,20 @@
 - Shipping management / OMS / delivery status tracking
 - Distributor commission model
 - Seller balance / withdrawal
+
+---
+
+Current update: 2026-04-26 (Admin Launch Console)
+
+- Completed: added internal launch console endpoint `GET /api/admin/launch-console` (admin-key gated via `requireAdminKey`). Returns a single aggregate snapshot: system status (green/yellow/red), seller readiness counts, deal state mix, launch readiness gaps (missing images, missing seller profile on non-Draft deals, missing seller `seller_publish_terms` acceptance, completed-deals-with-Excel-availability), notification rail summary (pending/sent/failed + provider mode + `external_delivery` flag), legal acceptance counts (`seller_publish_terms`, `buyer_join_terms`, `buyer_payment_disclosure`), the 10 most-recent deals with per-deal readiness flags, and a `recent_warnings` list with severity codes.
+- Completed: launch status rules — red on `notification_failures`, `completed_excel_unavailable`, `published_deal_missing_seller_profile`, `published_deal_missing_legal_acceptance`; yellow on `seller_profiles_incomplete`, `deals_missing_images`, `notifications_internal_only`, `pending_notifications`. No drift signals invented (no marketplace/commission/payout). Read-only — no admin override of state, money, or transitions.
+- Completed: PII safety — payload never exposes `buyer_phone`, `buyer_email`, `delivery_address`, payment tokens, provider references, or storage keys. `recent_deals` carries only `deal_id`, `title`, `state`, `seller_id`, `seller_business_name`, boolean readiness flags, and timestamps. Test asserts the negation list explicitly.
+- Completed: frontend `renderAdminLaunchConsole(launch)` section added to `renderAdminPage`; `loadAdmin`/`refreshAdminSilently` now also fetch `/api/admin/launch-console` and store it in `state.adminLaunchPayload`. Hebrew copy: "קונסולת השקה", "מוכרים מוכנים", "עסקאות חסרות תמונה", "הסכמות משפטיות", "הודעות מערכת", "ספק הודעות במצב פנימי בלבד". Internal admin surface only.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/admin_launch_console_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/seller_profile_readiness_validation.js` (6/6 PASS); `node .tmp_test_dist/tests/legal_trust_layer_validation.js` (6/6 PASS); `node .tmp_test_dist/tests/notification_rail_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js` (4/4 PASS); `node .tmp_test_dist/tests/frontend_flow_validation.js` (16/16 PASS); `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js` (7/7 PASS).
+- Open: deploy-preview smoke test on the hosted admin surface, role-based admin permissions if more than one operator joins, and connecting an alerting channel to the red-status warnings remain future tracks.
+- Not built: admin override of deal/buyer/money state, refund/capture/payout actions, marketplace/search/catalog, real SMS/Email/WhatsApp provider activation, role-based admin permissions, deletion of deals or participants. Console is strictly read-only aggregation.
+- Progress: `85%` of the Admin Launch Console track.
+- Next step: deploy smoke on the hosted admin surface and validate that warnings render correctly under realistic data volumes.
 
 ---
 

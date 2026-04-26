@@ -22,6 +22,7 @@ const state = {
   sellerDealPayload: null,
   affiliatePayload: null,
   adminPayload: null,
+  adminLaunchPayload: null,
   adminSystemStatusPayload: null,
   adminNotificationsStatusPayload: null,
   adminInvoiceStatusPayload: null,
@@ -516,13 +517,15 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
-    const [overview, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [overview, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
+      api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status")
     ]);
     state.adminPayload = overview;
+    state.adminLaunchPayload = launchConsole;
     state.adminSystemStatusPayload = systemStatus;
     state.adminNotificationsStatusPayload = notificationsStatus;
     state.adminInvoiceStatusPayload = invoiceStatus;
@@ -665,8 +668,9 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const [next, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [next, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
+      api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status")
@@ -681,8 +685,13 @@ async function refreshAdminSilently() {
     const invoiceChanged =
       !state.adminInvoiceStatusPayload ||
       JSON.stringify(state.adminInvoiceStatusPayload.invoice_documents) !== JSON.stringify(invoiceStatus.invoice_documents);
-    if (totalsChanged || systemChanged || notificationsChanged || invoiceChanged) {
+    const launchChanged =
+      !state.adminLaunchPayload ||
+      JSON.stringify(state.adminLaunchPayload.launch_readiness) !== JSON.stringify(launchConsole.launch_readiness) ||
+      JSON.stringify(state.adminLaunchPayload.system) !== JSON.stringify(launchConsole.system);
+    if (totalsChanged || launchChanged || systemChanged || notificationsChanged || invoiceChanged) {
       state.adminPayload = next;
+      state.adminLaunchPayload = launchConsole;
       state.adminSystemStatusPayload = systemStatus;
       state.adminNotificationsStatusPayload = notificationsStatus;
       state.adminInvoiceStatusPayload = invoiceStatus;
@@ -2802,6 +2811,7 @@ function renderSupportTicketCards(tickets) {
 
 function renderAdminPage() {
   const payload = state.adminPayload?.admin_surface;
+  const launch = state.adminLaunchPayload;
   const systemStatus = state.adminSystemStatusPayload?.system_status;
   const notificationStatus = state.adminNotificationsStatusPayload?.notifications;
   const invoiceStatus = state.adminInvoiceStatusPayload?.invoice_documents;
@@ -2831,6 +2841,9 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">טיוטות פתוחות</span><strong>${num(payload.totals.draft)}</strong></div>
         <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus?.operational_counts?.open_support_tickets || payload.support_tickets.filter((ticket) => ticket.status !== "resolved").length)}</strong></div>
       </aside>
+    </section>
+    <section class="card section stack">
+      ${renderAdminLaunchConsole(launch)}
     </section>
     <section class="card section stack">
       <h2>מה בוער עכשיו</h2>
@@ -2936,6 +2949,65 @@ function renderAdminPage() {
         </div>
       ` : `<div class="empty-surface"><p class="muted">לא הצלחנו לטעון כרגע את מצב המערכת.</p></div>`}
     </section>
+  `;
+}
+
+function renderAdminLaunchConsole(launch) {
+  if (!launch) {
+    return `<h2>קונסולת השקה</h2><div class="empty-surface"><p class="muted">קונסולת ההשקה לא זמינה כרגע.</p></div>`;
+  }
+  const statusLabels = { green: "ירוק", yellow: "כתום", red: "אדום" };
+  const statusTone = launch.system?.status === "red" ? "danger" : launch.system?.status === "yellow" ? "warning" : "success";
+  const warnings = launch.recent_warnings || launch.system?.warnings || [];
+  const recentDeals = launch.recent_deals || [];
+  return `
+    <h2>קונסולת השקה</h2>
+    <p class="small muted">תמונת מצב פנימית וריכוז מוכנות לשוק. המשטח לקריאה בלבד ואינו מפעיל חיוב, החזר, שינוי סטייט או ספק חיצוני.</p>
+    <div class="info-strip tone-${statusTone}">
+      <strong>סטטוס השקה: ${esc(statusLabels[launch.system?.status] || launch.system?.status || "לא ידוע")}</strong>
+      <p class="small">${warnings.length ? "יש פריטים שדורשים בקרה לפני יציאה רחבה." : "לא נמצאו חריגות קריטיות בקונסולת ההשקה."}</p>
+    </div>
+    <div class="summary-grid">
+      <div class="summary-item summary-spotlight"><span class="muted">מוכרים מוכנים</span><strong>${num(launch.sellers?.publish_ready || 0)} / ${num(launch.sellers?.total || 0)}</strong><p class="small muted">חסרי פרטים: ${num(launch.sellers?.incomplete_profile || 0)}</p></div>
+      <div class="summary-item"><span class="muted">עסקאות</span><strong>${num(launch.deals?.total || 0)}</strong><p class="small muted">טיוטות ${num(launch.deals?.draft || 0)} · פעילות ${num((launch.deals?.pending_target || 0) + (launch.deals?.target_reached || 0))} · הושלמו ${num(launch.deals?.completed || 0)}</p></div>
+      <div class="summary-item"><span class="muted">עסקאות חסרות תמונה</span><strong>${num(launch.launch_readiness?.deals_missing_images || 0)}</strong></div>
+      <div class="summary-item"><span class="muted">הסכמות משפטיות</span><strong>${num((launch.legal?.seller_publish_acceptances || 0) + (launch.legal?.buyer_join_acceptances || 0) + (launch.legal?.buyer_payment_disclosures || 0))}</strong><p class="small muted">מוכר ${num(launch.legal?.seller_publish_acceptances || 0)} · קונה ${num(launch.legal?.buyer_join_acceptances || 0)} · מסגרת ${num(launch.legal?.buyer_payment_disclosures || 0)}</p></div>
+      <div class="summary-item"><span class="muted">הודעות מערכת</span><strong>${num(launch.notifications?.pending || 0)} בהמתנה</strong><p class="small muted">נשלחו ${num(launch.notifications?.sent || 0)} · נכשלו ${num(launch.notifications?.failed || 0)}</p></div>
+      <div class="summary-item"><span class="muted">מצב ספק הודעות</span><strong>${esc(launch.notifications?.mode || "פנימי")}</strong><p class="small muted">${launch.notifications?.external_delivery ? "שליחה חיצונית פעילה." : "ספק הודעות במצב פנימי בלבד."}</p></div>
+      <div class="summary-item"><span class="muted">Excel לעסקאות שהושלמו</span><strong>${num(launch.launch_readiness?.completed_deals_with_excel_available || 0)}</strong></div>
+      <div class="summary-item"><span class="muted">חסרות הסכמת מוכר</span><strong>${num(launch.launch_readiness?.deals_missing_legal_acceptance || 0)}</strong></div>
+    </div>
+    ${warnings.length ? `
+      <div class="card-list">
+        ${warnings.map((warning) => `
+          <article class="summary-item stack">
+            <div class="actions spread">
+              <strong>${esc(warning.message || warning.code || "אזהרת השקה")}</strong>
+              <span class="badge ${warning.severity === "red" ? "danger" : "warning"}">${esc(warning.severity === "red" ? "קריטי" : "לתשומת לב")}</span>
+            </div>
+            ${warning.count != null ? `<p class="small muted">כמות: ${num(warning.count)}</p>` : ""}
+          </article>
+        `).join("")}
+      </div>
+    ` : ""}
+    <h3>עסקאות אחרונות</h3>
+    ${recentDeals.length ? `<div class="card-list">${recentDeals.map((deal) => `
+      <article class="summary-item stack">
+        <div class="actions spread">
+          <div>
+            <span class="muted">${esc(getDealCopy(deal.state).label)}</span>
+            <h3>${esc(deal.title || deal.deal_id)}</h3>
+          </div>
+          <strong>${deal.has_excel_export_available ? "Excel זמין" : "ללא Excel"}</strong>
+        </div>
+        <div class="pill-row">
+          <span class="stat-pill"><span>תמונה</span><strong>${deal.has_image ? "קיימת" : "חסרה"}</strong></span>
+          <span class="stat-pill"><span>פרופיל מוכר</span><strong>${deal.has_seller_profile ? "תקין" : "חסר"}</strong></span>
+          <span class="stat-pill"><span>הסכמת מוכר</span><strong>${deal.has_seller_terms_acceptance ? "שמורה" : "חסרה"}</strong></span>
+        </div>
+        <p class="small muted">מוכר: ${esc(deal.seller_business_name || deal.seller_id || "לא זמין")} · עודכן ב-${dt(deal.updated_at || deal.created_at)}</p>
+      </article>
+    `).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין עסקאות להצגה בקונסולת ההשקה.</p></div>`}
   `;
 }
 
