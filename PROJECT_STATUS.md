@@ -42,7 +42,15 @@ Current update: 2026-04-26 (Seller Profile & Publish Readiness)
 - Completed: new-deal wizard (`renderSellerNewPage`) aside shows a readiness notice when `state.sellerProfile.is_publish_ready === false`, with link to profile section.
 - Completed: `loadSeller()` now also fetches `/api/seller/profile` and populates `state.sellerProfile` + form fields on every seller surface load.
 - Checked: `npx tsc -p tsconfig.test.json --noEmit` → clean. `npx tsx tests/seller_profile_readiness_validation.ts` → 6/6 PASS.
+- QA closure (post-commit): demo-mode default seller seed in `ensureRemainingProductSurfaceTables()` now sets `business_name='Default Seller Workspace'` and `support_email='support@siton.local'` so the demo workspace publishes out-of-the-box; `tests/seller_auth_authority_validation.ts` now seeds the alpha profile before non-demo publish. Drift scan re-run: only legacy DROP statements and guard tests reference forbidden patterns — no runtime drift.
+- Checked (QA pass): `node --check frontend/app.js`; `node .tmp_test_dist/tests/seller_profile_readiness_validation.js` (6/6 PASS); `node .tmp_test_dist/tests/frontend_flow_validation.js` (16/16 PASS); `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js` (7/7 PASS); `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js` (4/4 PASS); `node .tmp_test_dist/tests/deal_images_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/seller_auth_authority_validation.js` (1/1 PASS).
 - Open: hosted smoke test for the profile form save and publish gate UI on mobile/desktop.
+- **Intentionally NOT built** (out of scope for this track):
+  - Full KYC / business identity verification (`business_identifier` is captured but not validated against any registry)
+  - Heavy admin review / approval workflow for seller profile changes (admin still uses existing `verification_status` flag manually)
+  - Seller bank / payout details (no payout to sellers in current scope)
+  - Marketplace, deal catalog, public seller directory, search
+  - Shipping management / OMS integration / delivery status tracking
 - Progress: `100%` of Seller Profile & Publish Readiness track.
 
 Current update: 2026-04-26 (Product Images Provider-Ready Layer)

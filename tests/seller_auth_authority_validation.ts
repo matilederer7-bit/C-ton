@@ -113,6 +113,16 @@ await run("non-demo create publish close prepare charge and cancel derive author
     });
     assert.equal(wrongPublish.statusCode, 404);
 
+    // Publish gate requires a complete seller profile (business_name + contact method).
+    // Seed the alpha profile so the rightPublish below clears the readiness check.
+    const profileSetup = await app.inject({
+      method: "PUT",
+      url: "/api/seller/profile",
+      headers: { cookie: alphaCookie, "x-seller-id": "seller-beta" },
+      payload: { business_name: "Seller Alpha Workspace", support_email: "alpha-support@example.com" }
+    });
+    assert.equal(profileSetup.statusCode, 200);
+
     const rightPublish = await app.inject({
       method: "POST",
       url: `/deals/${created.deal_id}/publish`,

@@ -298,10 +298,22 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
 
       await c.query(
         `INSERT INTO siton.seller_accounts (
-           seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note
+           seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note,
+           business_name, support_email
          )
-         VALUES ($1, 'Default Seller Workspace', 'approved', 'active', 'bank_transfer', '***1234', 'Single-tenant internal seller profile')
+         VALUES ($1, 'Default Seller Workspace', 'approved', 'active', 'bank_transfer', '***1234', 'Single-tenant internal seller profile',
+                 'Default Seller Workspace', 'support@siton.local')
          ON CONFLICT (seller_id) DO NOTHING`,
+        [DEFAULT_SELLER_ID]
+      );
+
+      // Backfill business_name + support_email for the default seller if it was inserted before
+      // migration 028 (so demo-mode publish gate is satisfied out of the box for existing rows).
+      await c.query(
+        `UPDATE siton.seller_accounts
+           SET business_name = COALESCE(NULLIF(btrim(business_name), ''), 'Default Seller Workspace'),
+               support_email = COALESCE(NULLIF(btrim(support_email), ''), 'support@siton.local')
+         WHERE seller_id = $1`,
         [DEFAULT_SELLER_ID]
       );
 
