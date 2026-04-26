@@ -3,6 +3,7 @@ import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { dirname, join } from "path";
 import { PassThrough } from "stream";
+import ExcelJS from "exceljs";
 import { fileURLToPath } from "url";
 import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
@@ -26,6 +27,7 @@ import {
   isChargedMoneyState,
   summarizeMoney
 } from "./product_surface_support.js";
+import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
@@ -1762,6 +1764,388 @@ export function registerFrontendExperience(
         .header("Content-Type", "text/csv; charset=utf-8")
         .header("Content-Disposition", `attachment; filename="siton-shipping-${dealId}.csv"`)
         .send(csvContent);
+    });
+  });
+
+  // ── Seller Deal Excel Export ─────────────────────────────────────────────
+  app.get("/api/seller/deals/:dealId/export.xlsx", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state,
+                price_per_unit, min_units, max_units, threshold_units,
+                deadline, published_at, created_at, completion_window_until
+         FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden: you do not own this deal");
+        err.statusCode = 403;
+        err.code = "forbidden";
+        throw err;
+      }
+
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("deal is not completed");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      // All participants
+      const allParticipantsResult = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.buyer_name, p.buyer_phone, p.buyer_email,
+                p.qty, p.buyer_state, p.money_state,
+                p.delivery_method_type, p.delivery_method_label, p.delivery_cost,
+                p.delivery_address, p.delivery_city, p.delivery_notes,
+                p.created_at, p.updated_at
+         FROM siton.participants p
+         WHERE p.deal_id = $1
+         ORDER BY p.created_at ASC`,
+        [dealId]
+      );
+      const allParticipants = allParticipantsResult.rows as any[];
+
+      const pricePerUnit = Number(deal.price_per_unit || 0);
+
+      function isEligible(p: any): boolean {
+        return (
+          p.money_state === "ChargedSuccess" ||
+          p.money_state === "RecoveredCharge" ||
+          p.buyer_state === "DealCompleted"
+        );
+      }
+
+      const eligibleParticipants = allParticipants.filter(isEligible);
+      const droppedCount = allParticipants.filter((p) => p.buyer_state === "Dropped").length;
+
+      // Row-level money for each eligible participant
+      function rowMoney(p: any) {
+        const gross = (pricePerUnit * Number(p.qty || 0)) + Number(p.delivery_cost || 0);
+        return calculatePlatformFeeMoney({ grossAmount: gross });
+      }
+
+      // Deal-level money totals
+      let dealGross = 0;
+      let dealProductsTotal = 0;
+      let dealDeliveryTotal = 0;
+      let dealFinalUnits = 0;
+      for (const p of eligibleParticipants) {
+        const qty = Number(p.qty || 0);
+        const delivery = Number(p.delivery_cost || 0);
+        dealGross += (pricePerUnit * qty) + delivery;
+        dealProductsTotal += pricePerUnit * qty;
+        dealDeliveryTotal += delivery;
+        dealFinalUnits += qty;
+      }
+      const dealMoney = calculatePlatformFeeMoney({ grossAmount: dealGross });
+
+      // Attribution data
+      const attributionResult = await c.query(
+        `SELECT aa.share_code, af.display_name AS affiliate_name,
+                COUNT(aa.participant_id)::int AS joins_attributed,
+                COALESCE(SUM(p.qty), 0) AS units_attributed
+         FROM siton.affiliate_attributions aa
+         JOIN siton.affiliate_accounts af ON af.affiliate_id = aa.affiliate_id
+         LEFT JOIN siton.participants p ON p.participant_id = aa.participant_id
+         WHERE aa.deal_id = $1
+         GROUP BY aa.share_code, af.display_name
+         ORDER BY joins_attributed DESC`,
+        [dealId]
+      );
+      const attributions = attributionResult.rows as any[];
+
+      // ── ExcelJS workbook ────────────────────────────────────────────────────
+
+      function safeText(val: string | number | null | undefined): string {
+        if (val === null || val === undefined) return "";
+        const s = String(val);
+        // Prevent formula injection
+        if (/^[=\-+@*]/.test(s)) return "'" + s;
+        return s;
+      }
+
+      function fmtDate(val: string | Date | null | undefined): string {
+        if (!val) return "";
+        try { return new Date(val as string).toISOString().replace("T", " ").slice(0, 19); }
+        catch { return ""; }
+      }
+
+      function applySheetStyle(ws: ExcelJS.Worksheet, colCount: number) {
+        ws.views = [{ state: "frozen", ySplit: 1 }];
+        ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: colCount } };
+        ws.getRow(1).font = { bold: true };
+      }
+
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Siton";
+      wb.created = new Date();
+
+      // ── Sheet 1: Deal Summary ───────────────────────────────────────────────
+      const ws1 = wb.addWorksheet("Deal Summary");
+      ws1.columns = [
+        { header: "Field", key: "field", width: 32 },
+        { header: "Value", key: "value", width: 40 }
+      ];
+      applySheetStyle(ws1, 2);
+      const summaryRows: [string, string | number][] = [
+        ["deal_id", safeText(deal.deal_id)],
+        ["deal_title", safeText(deal.title)],
+        ["seller_id", safeText(sellerId)],
+        ["deal_state", safeText(deal.state)],
+        ["currency", "ILS"],
+        ["created_at", fmtDate(deal.created_at)],
+        ["published_at", fmtDate(deal.published_at)],
+        ["deadline", fmtDate(deal.deadline)],
+        ["min_units", Number(deal.min_units || 0)],
+        ["max_units", Number(deal.max_units || 0)],
+        ["threshold_units", Number(deal.threshold_units || 0)],
+        ["final_units_charged", dealFinalUnits],
+        ["total_participants", allParticipants.length],
+        ["eligible_buyers_count", eligibleParticipants.length],
+        ["dropped_buyers_count", droppedCount],
+        ["gross_collected_total", dealGross],
+        ["products_total", dealProductsTotal],
+        ["delivery_total", dealDeliveryTotal],
+        ["platform_fee_base_amount", dealMoney.platform_fee_base_amount],
+        ["platform_fee_vat_amount", dealMoney.platform_fee_vat_amount],
+        ["platform_fee_total_amount", dealMoney.platform_fee_total_amount],
+        ["seller_net_amount", dealMoney.seller_net_amount]
+      ];
+      for (const [field, value] of summaryRows) {
+        const row = ws1.addRow([field, value]);
+        if (typeof value === "number") {
+          row.getCell(2).numFmt = "#,##0.00";
+        }
+      }
+
+      // ── Sheet 2: Eligible Buyers ────────────────────────────────────────────
+      const ws2 = wb.addWorksheet("Eligible Buyers");
+      ws2.columns = [
+        { header: "deal_id", key: "deal_id", width: 38 },
+        { header: "participant_id", key: "participant_id", width: 38 },
+        { header: "buyer_id", key: "buyer_id", width: 18 },
+        { header: "buyer_name", key: "buyer_name", width: 20 },
+        { header: "buyer_phone", key: "buyer_phone", width: 18 },
+        { header: "buyer_email", key: "buyer_email", width: 26 },
+        { header: "qty", key: "qty", width: 8 },
+        { header: "unit_price", key: "unit_price", width: 12 },
+        { header: "products_amount", key: "products_amount", width: 16 },
+        { header: "delivery_method", key: "delivery_method", width: 20 },
+        { header: "delivery_method_label", key: "delivery_method_label", width: 24 },
+        { header: "delivery_cost", key: "delivery_cost", width: 14 },
+        { header: "delivery_address", key: "delivery_address", width: 30 },
+        { header: "delivery_city", key: "delivery_city", width: 18 },
+        { header: "delivery_notes", key: "delivery_notes", width: 24 },
+        { header: "row_gross_amount", key: "row_gross_amount", width: 16 },
+        { header: "row_platform_fee_base_amount", key: "row_platform_fee_base_amount", width: 26 },
+        { header: "row_platform_fee_vat_amount", key: "row_platform_fee_vat_amount", width: 26 },
+        { header: "row_platform_fee_total_amount", key: "row_platform_fee_total_amount", width: 28 },
+        { header: "row_seller_net_amount", key: "row_seller_net_amount", width: 22 },
+        { header: "buyer_state", key: "buyer_state", width: 18 },
+        { header: "money_state", key: "money_state", width: 18 },
+        { header: "joined_at", key: "joined_at", width: 22 }
+      ];
+      applySheetStyle(ws2, ws2.columns.length);
+      const moneyColsWs2 = [8, 9, 12, 16, 17, 18, 19, 20]; // 1-based
+      for (const p of eligibleParticipants) {
+        const qty = Number(p.qty || 0);
+        const productsAmt = pricePerUnit * qty;
+        const fm = rowMoney(p);
+        const dataRow = ws2.addRow([
+          safeText(deal.deal_id),
+          safeText(p.participant_id),
+          safeText(p.buyer_id),
+          safeText(p.buyer_name),
+          safeText(p.buyer_phone),
+          safeText(p.buyer_email),
+          qty,
+          pricePerUnit,
+          productsAmt,
+          safeText(p.delivery_method_type),
+          safeText(p.delivery_method_label),
+          Number(p.delivery_cost || 0),
+          safeText(p.delivery_address),
+          safeText(p.delivery_city),
+          safeText(p.delivery_notes),
+          fm.gross_amount,
+          fm.platform_fee_base_amount,
+          fm.platform_fee_vat_amount,
+          fm.platform_fee_total_amount,
+          fm.seller_net_amount,
+          safeText(p.buyer_state),
+          safeText(p.money_state),
+          fmtDate(p.created_at)
+        ]);
+        for (const col of moneyColsWs2) {
+          dataRow.getCell(col).numFmt = "#,##0.00";
+        }
+      }
+
+      // ── Sheet 3: All Participants ───────────────────────────────────────────
+      const ws3 = wb.addWorksheet("All Participants");
+      ws3.columns = [
+        { header: "deal_id", key: "deal_id", width: 38 },
+        { header: "participant_id", key: "participant_id", width: 38 },
+        { header: "buyer_id", key: "buyer_id", width: 18 },
+        { header: "buyer_name", key: "buyer_name", width: 20 },
+        { header: "buyer_phone", key: "buyer_phone", width: 18 },
+        { header: "buyer_email", key: "buyer_email", width: 26 },
+        { header: "qty", key: "qty", width: 8 },
+        { header: "delivery_method", key: "delivery_method", width: 20 },
+        { header: "delivery_method_label", key: "delivery_method_label", width: 24 },
+        { header: "delivery_address", key: "delivery_address", width: 30 },
+        { header: "delivery_city", key: "delivery_city", width: 18 },
+        { header: "buyer_state", key: "buyer_state", width: 18 },
+        { header: "money_state", key: "money_state", width: 18 },
+        { header: "is_eligible_for_fulfillment", key: "is_eligible_for_fulfillment", width: 26 },
+        { header: "is_charged_successfully", key: "is_charged_successfully", width: 24 },
+        { header: "is_dropped", key: "is_dropped", width: 12 },
+        { header: "created_at", key: "created_at", width: 22 },
+        { header: "updated_at", key: "updated_at", width: 22 }
+      ];
+      applySheetStyle(ws3, ws3.columns.length);
+      for (const p of allParticipants) {
+        ws3.addRow([
+          safeText(deal.deal_id),
+          safeText(p.participant_id),
+          safeText(p.buyer_id),
+          safeText(p.buyer_name),
+          safeText(p.buyer_phone),
+          safeText(p.buyer_email),
+          Number(p.qty || 0),
+          safeText(p.delivery_method_type),
+          safeText(p.delivery_method_label),
+          safeText(p.delivery_address),
+          safeText(p.delivery_city),
+          safeText(p.buyer_state),
+          safeText(p.money_state),
+          isEligible(p) ? "YES" : "NO",
+          (p.money_state === "ChargedSuccess" || p.money_state === "RecoveredCharge") ? "YES" : "NO",
+          p.buyer_state === "Dropped" ? "YES" : "NO",
+          fmtDate(p.created_at),
+          fmtDate(p.updated_at)
+        ]);
+      }
+
+      // ── Sheet 4: Money Breakdown ────────────────────────────────────────────
+      const ws4 = wb.addWorksheet("Money Breakdown");
+      ws4.columns = [
+        { header: "participant_id", key: "participant_id", width: 38 },
+        { header: "buyer_name", key: "buyer_name", width: 20 },
+        { header: "qty", key: "qty", width: 8 },
+        { header: "products_amount", key: "products_amount", width: 16 },
+        { header: "delivery_cost", key: "delivery_cost", width: 14 },
+        { header: "gross_amount", key: "gross_amount", width: 14 },
+        { header: "platform_fee_base_amount", key: "platform_fee_base_amount", width: 24 },
+        { header: "platform_fee_vat_amount", key: "platform_fee_vat_amount", width: 22 },
+        { header: "platform_fee_total_amount", key: "platform_fee_total_amount", width: 24 },
+        { header: "seller_net_amount", key: "seller_net_amount", width: 18 },
+        { header: "money_state", key: "money_state", width: 18 }
+      ];
+      applySheetStyle(ws4, ws4.columns.length);
+      const moneyColsWs4 = [4, 5, 6, 7, 8, 9, 10];
+      for (const p of eligibleParticipants) {
+        const qty = Number(p.qty || 0);
+        const fm = rowMoney(p);
+        const dr = ws4.addRow([
+          safeText(p.participant_id),
+          safeText(p.buyer_name),
+          qty,
+          pricePerUnit * qty,
+          Number(p.delivery_cost || 0),
+          fm.gross_amount,
+          fm.platform_fee_base_amount,
+          fm.platform_fee_vat_amount,
+          fm.platform_fee_total_amount,
+          fm.seller_net_amount,
+          safeText(p.money_state)
+        ]);
+        for (const col of moneyColsWs4) {
+          dr.getCell(col).numFmt = "#,##0.00";
+        }
+      }
+      // Total row
+      const totalRow = ws4.addRow([
+        "TOTAL",
+        "",
+        dealFinalUnits,
+        dealProductsTotal,
+        dealDeliveryTotal,
+        dealMoney.gross_amount,
+        dealMoney.platform_fee_base_amount,
+        dealMoney.platform_fee_vat_amount,
+        dealMoney.platform_fee_total_amount,
+        dealMoney.seller_net_amount,
+        ""
+      ]);
+      totalRow.font = { bold: true };
+      for (const col of moneyColsWs4) {
+        totalRow.getCell(col).numFmt = "#,##0.00";
+      }
+
+      // ── Sheet 5: Attribution (only if data exists) ──────────────────────────
+      if (attributions.length > 0) {
+        const ws5 = wb.addWorksheet("Attribution");
+        ws5.addRow(["נתוני ייחוס בלבד. אין בסיטון חישוב עמלה או תשלום למפיצים."]);
+        ws5.getRow(1).font = { italic: true };
+        ws5.addRow([]);
+        ws5.columns = [
+          { header: "attribution_label", key: "attribution_label", width: 30 },
+          { header: "affiliate_name", key: "affiliate_name", width: 24 },
+          { header: "joins_attributed", key: "joins_attributed", width: 18 },
+          { header: "units_attributed", key: "units_attributed", width: 18 }
+        ];
+        const headerRow = ws5.addRow(["attribution_label", "affiliate_name", "joins_attributed", "units_attributed"]);
+        headerRow.font = { bold: true };
+        ws5.views = [{ state: "frozen", ySplit: 3 }];
+        ws5.autoFilter = { from: { row: 3, column: 1 }, to: { row: 3, column: 4 } };
+        for (const a of attributions) {
+          ws5.addRow([
+            safeText(a.share_code),
+            safeText(a.affiliate_name),
+            Number(a.joins_attributed || 0),
+            Number(a.units_attributed || 0)
+          ]);
+        }
+      }
+
+      // ── Sheet 6: Notes ──────────────────────────────────────────────────────
+      const wsNotes = wb.addWorksheet("Notes");
+      wsNotes.columns = [{ header: "", key: "note", width: 80 }];
+      const notesText = [
+        "קובץ זה הוא מסירת נתוני עסקה למוכר לאחר השלמת העסקה.",
+        "סיטון מספקת רשימת זכאים ונתוני גבייה לפי המידע במערכת.",
+        "האחריות לאספקת המוצר, טיפול בכתובות, זמני משלוח ושירות לקוחות לאחר המכירה היא של המוכר.",
+        "נתוני מפיצים, אם קיימים, הם נתוני ייחוס בלבד ואינם מהווים עמלה או התחייבות תשלום מצד סיטון."
+      ];
+      for (const line of notesText) {
+        const nr = wsNotes.addRow([line]);
+        nr.getCell(1).alignment = { wrapText: true };
+      }
+
+      // ── Serialize and send ──────────────────────────────────────────────────
+      const buffer = await wb.xlsx.writeBuffer();
+
+      return reply
+        .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .header("Content-Disposition", `attachment; filename="siton-deal-export-${dealId}.xlsx"`)
+        .send(Buffer.from(buffer));
     });
   });
 

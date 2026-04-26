@@ -1,5 +1,20 @@
 # PROJECT STATUS
 
+Current update: 2026-04-26 (Seller Deal Excel Export)
+
+- Completed: added `GET /api/seller/deals/:dealId/export.xlsx` endpoint in `src/frontend_runtime.ts`. Returns a full multi-sheet Excel workbook for the seller after deal completion. Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. Content-Disposition: `attachment; filename="siton-deal-export-<dealId>.xlsx"`.
+- Completed: workbook includes 5–6 sheets: **Deal Summary** (deal metadata + aggregated money totals), **Eligible Buyers** (one row per eligible participant with delivery snapshot and row-level fee breakdown), **All Participants** (full list with eligibility flags for operational transparency), **Money Breakdown** (per-participant fee drill-down + TOTAL row whose figures match Deal Summary), **Notes** (Hebrew disclaimer about seller responsibility for fulfillment), and **Attribution** (only added if attribution data exists; attribution-only, no commissions or payouts).
+- Completed: money model uses canonical `calculatePlatformFeeMoney()` from `platform_fee_money.ts`. Fee = 8% of gross (qty × unit_price + delivery_cost), VAT = 18% on fee only. `seller_net_amount = gross - platform_fee_total`. No new money logic invented.
+- Completed: eligibility filter matches shipping CSV — `money_state IN ('ChargedSuccess','RecoveredCharge')` or `buyer_state = 'DealCompleted'`. Dropped/DealFailed/AuthReleased excluded from Eligible Buyers and Money Breakdown.
+- Completed: same ownership enforcement as CSV export — 403 for wrong seller, 404 for missing deal, 409 + `deal_not_completed` for non-Completed deal. No state-machine changes, no financial mutations.
+- Completed: Excel injection prevention via `safeText()` — values beginning with `=`, `-`, `+`, `@`, `*` are prefixed with `'`. No provider tokens, webhook IDs, auth internals, or invoice provider references in output.
+- Completed: Excel formatting — freeze top row, auto-filter, bold headers, `#,##0.00` numeric format on all money columns, column widths calibrated for content.
+- Completed: added `exceljs` dependency (no other xlsx library added). CSV shipping export remains unchanged as a lightweight fallback.
+- Checked: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/seller_deal_excel_export_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/seller_shipping_export_validation.js` (4/4 PASS); `node .tmp_test_dist/tests/participant_delivery_snapshot_validation.js` (8/8 PASS). Drift scan: no marketplace, commission_rate, affiliate payout, withdrawal, or balance terms in diff.
+- Open: frontend download button for completed deals not yet wired. Attribution sheet will enrich automatically if attribution data grows.
+- Progress: `90%` of the Seller Deal Excel Export track (endpoint + workbook + tests complete; frontend button is follow-up).
+- Next step: connect an Excel download button in the seller completed-deal surface pointing to `/api/seller/deals/:dealId/export.xlsx`.
+
 Current update: 2026-04-24 (Seller Shipping Export)
 
 - Completed: added `GET /api/seller/deals/:dealId/shipping-export` endpoint in `src/frontend_runtime.ts`. Returns a UTF-8 (BOM-prefixed) CSV file with one row per eligible buyer — only those with `money_state IN ('ChargedSuccess', 'RecoveredCharge')` or `buyer_state = 'DealCompleted'`. Ineligible participants (DealFailed, Dropped, Refunded, etc.) are excluded.
