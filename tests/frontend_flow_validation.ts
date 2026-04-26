@@ -64,7 +64,7 @@ async function publishDeal(dealId: string, suffix: string) {
       "x-request-id": `frontend-test-publish-${unique}`,
       "idempotency-key": `frontend-test-publish-${unique}`
     },
-    payload: {}
+    payload: { seller_terms_accepted: true }
   });
 
   assert.equal(response.statusCode, 200);
@@ -327,6 +327,8 @@ async function main() {
         buyer_id: otpVerifyJson.buyer_id,
         qty: 3,
         delivery_option_id: courierOption.option_id,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
         delivery_address: "רחוב הבדיקה 10",
         delivery_city: "תל אביב",
         delivery_notes: "קומה 2"

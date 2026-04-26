@@ -2056,3 +2056,18 @@ Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs
 
 - **PASS on the strict bar.** The working tree carries zero live file that could mislead a reader into believing any of the five anti-truths. Every remaining `commission_rate` hit in the repo is one of: (a) a `DROP COLUMN` migration statement, (b) a trigger-function re-definition removing the column, (c) an anti-drift test asserting the column/field must NOT exist, or (d) a historical PROJECT_STATUS.md audit log line explicitly marked as historical.
 - The residue policy going forward: any new file that would re-introduce a `commission_rate` column, a per-deal fee override, a marketplace/catalog surface, a distributor money field, or a single-purchase-per-buyer constraint must be treated as a direct contradiction of the canonical spec and rejected.
+
+---
+
+## Current update: 2026-04-26 (Trust & Legal Layer)
+
+- Completed: added legal policy version constants for terms, refund policy, payment disclosure, and seller terms (`2026-04-26`).
+- Completed: added `legal_acceptances` persistence through migration `030_legal_acceptances.sql`, clean setup in `scripts/init_db.sql`, and runtime-safe table creation. Acceptances store actor/deal/participant/type/version metadata without raw IP storage.
+- Completed: seller publish now requires `seller_terms_accepted`; missing acceptance returns `400 seller_terms_required`. Successful publish records `seller_publish_terms` with the seller terms version.
+- Completed: buyer join now requires `buyer_terms_accepted` and `payment_disclosure_accepted`; missing flags return `buyer_terms_required` or `payment_disclosure_required`. Successful join records both `buyer_join_terms` and `buyer_payment_disclosure` idempotently.
+- Completed: frontend legal/trust text was strengthened with links to terms/refunds/payment disclosure, seller responsibility wording, payment-hold wording, the 90% success rule, and distributor attribution-only language. Siton is not presented as the product supplier.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/legal_trust_layer_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `$env:PORT='3497'; node .tmp_test_dist/tests/seller_profile_readiness_validation.js`; `node .tmp_test_dist/tests/notification_rail_validation.js`.
+- Open: final legal review by counsel, full privacy policy expansion if needed, cookie policy if needed, advanced legal version archive, and digital signature workflow if later required.
+- Not built: final legal advice, legal CMS, Siton shipping responsibility, marketplace, affiliate payout/commission semantics.
+- Progress: `85%` of the Trust & Legal Layer track.
+- Next step: deploy-preview smoke test for publish/join legal acceptance UX on mobile and desktop.

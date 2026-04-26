@@ -1,6 +1,6 @@
 import Fastify from "fastify";
 import pg from "pg"; const { Pool } = pg; type PoolClient = any;
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
@@ -33,6 +33,13 @@ import {
   calculatePlatformFeeMoney,
   ensurePlatformFeeMoneyTables
 } from "./platform_fee_money.js";
+import {
+  PAYMENT_DISCLOSURE_VERSION,
+  REFUND_POLICY_VERSION,
+  SELLER_TERMS_VERSION,
+  TERMS_VERSION,
+  type LegalAcceptanceType
+} from "./legal_policy_versions.js";
 import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
 import {
   deleteDealImageFile,
@@ -75,6 +82,81 @@ const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
 const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
 const IS_DEMO_PREVIEW = APP_DEPLOYMENT_MODE === "demo-preview";
+
+function isAccepted(value: unknown): boolean {
+  return value === true || value === "true" || value === "on" || value === "1";
+}
+
+function hashOptional(value: unknown): string | null {
+  const text = String(value || "").trim();
+  if (!text) return null;
+  return createHash("sha256").update(text).digest("hex");
+}
+
+async function ensureLegalAcceptanceTables(withTxFn: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>) {
+  await withTxFn(async (c) => {
+    await c.query(`
+      CREATE TABLE IF NOT EXISTS siton.legal_acceptances (
+        acceptance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        actor_type TEXT NOT NULL CHECK (actor_type IN ('buyer','seller')),
+        actor_ref TEXT NOT NULL,
+        deal_id UUID NULL,
+        participant_id UUID NULL,
+        acceptance_type TEXT NOT NULL CHECK (acceptance_type IN (
+          'buyer_join_terms',
+          'buyer_payment_disclosure',
+          'seller_publish_terms'
+        )),
+        policy_version TEXT NOT NULL,
+        accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        ip_hash TEXT NULL,
+        user_agent_hash TEXT NULL,
+        metadata_jsonb JSONB NOT NULL DEFAULT '{}',
+        CONSTRAINT ux_legal_acceptances_scope UNIQUE (
+          actor_type,
+          actor_ref,
+          deal_id,
+          participant_id,
+          acceptance_type,
+          policy_version
+        )
+      )`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_deal ON siton.legal_acceptances (deal_id, accepted_at)`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_actor ON siton.legal_acceptances (actor_type, actor_ref, accepted_at)`);
+  });
+}
+
+async function recordLegalAcceptance(args: {
+  c: PoolClient;
+  req: any;
+  actorType: "buyer" | "seller";
+  actorRef: string;
+  dealId?: string | null;
+  participantId?: string | null;
+  acceptanceType: LegalAcceptanceType;
+  policyVersion: string;
+  metadata?: Record<string, unknown>;
+}) {
+  await args.c.query(
+    `INSERT INTO siton.legal_acceptances
+       (actor_type, actor_ref, deal_id, participant_id, acceptance_type, policy_version,
+        ip_hash, user_agent_hash, metadata_jsonb)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+     ON CONFLICT (actor_type, actor_ref, deal_id, participant_id, acceptance_type, policy_version)
+     DO NOTHING`,
+    [
+      args.actorType,
+      args.actorRef,
+      args.dealId || null,
+      args.participantId || null,
+      args.acceptanceType,
+      args.policyVersion,
+      null,
+      hashOptional(args.req?.headers?.["user-agent"]),
+      JSON.stringify(args.metadata || {})
+    ]
+  );
+}
 const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
 
 const pool = new Pool({ connectionString: DATABASE_URL });
@@ -2331,11 +2413,20 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
+  const body = req.body || {};
+  if (!isAccepted(body.seller_terms_accepted)) {
+    const err: any = new Error("seller_terms_required");
+    err.statusCode = 400;
+    err.code = "seller_terms_required";
+    throw err;
+  }
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
 
+  let publishSellerId = "";
   await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    publishSellerId = sellerAuthority.seller_id;
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -2393,6 +2484,18 @@ app.post("/deals/:id/publish", async (req: any) => {
       ]);
     }
   });
+  await withTx(async (c) => {
+    await recordLegalAcceptance({
+      c,
+      req,
+      actorType: "seller",
+      actorRef: publishSellerId,
+      dealId,
+      acceptanceType: "seller_publish_terms",
+      policyVersion: SELLER_TERMS_VERSION,
+      metadata: { terms_version: TERMS_VERSION }
+    });
+  });
   await enqueueSellerNotification("seller_deal_published", dealId, "").catch(() => undefined);
   return result;
 });
@@ -2438,6 +2541,18 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   if (!buyer_id) {
     const err: any = new Error("buyer_id required");
     err.statusCode = 400;
+    throw err;
+  }
+  if (!isAccepted(body.buyer_terms_accepted)) {
+    const err: any = new Error("buyer_terms_required");
+    err.statusCode = 400;
+    err.code = "buyer_terms_required";
+    throw err;
+  }
+  if (!isAccepted(body.payment_disclosure_accepted)) {
+    const err: any = new Error("payment_disclosure_required");
+    err.statusCode = 400;
+    err.code = "payment_disclosure_required";
     throw err;
   }
   if (!Number.isInteger(qtyRaw) || qtyRaw < 1) {
@@ -2652,6 +2767,31 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   if (targetAttempt.state === "PendingTarget" && targetAttempt.total >= targetAttempt.threshold) {
     await tryTargetReached(dealId, requestId);
   }
+
+  await withTx(async (c) => {
+    await recordLegalAcceptance({
+      c,
+      req,
+      actorType: "buyer",
+      actorRef: buyer_id,
+      dealId,
+      participantId: participant.participant_id,
+      acceptanceType: "buyer_join_terms",
+      policyVersion: TERMS_VERSION,
+      metadata: { refund_policy_version: REFUND_POLICY_VERSION }
+    });
+    await recordLegalAcceptance({
+      c,
+      req,
+      actorType: "buyer",
+      actorRef: buyer_id,
+      dealId,
+      participantId: participant.participant_id,
+      acceptanceType: "buyer_payment_disclosure",
+      policyVersion: PAYMENT_DISCLOSURE_VERSION,
+      metadata: { no_charge_before_successful_close: true }
+    });
+  });
 
   // Enqueue join_authorized notification (non-blocking — failure must not break join)
   await (async () => {
@@ -2950,6 +3090,7 @@ let workerRunning = false;
   await ensurePayoutRailTables(withTx);
   await ensureInvoiceRailTables(withTx);
   await ensureNotificationRailTables(withTx);
+  await ensureLegalAcceptanceTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

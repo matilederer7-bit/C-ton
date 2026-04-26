@@ -854,7 +854,9 @@ async function payAndJoin(form) {
       deliveryOptionId: flow.deliveryOptionId || "",
       authorizationId: authorization.authorization_id,
       authorizationProvider: authorization.provider,
-      authorizationCorrelationId: authorization.correlation_id
+      authorizationCorrelationId: authorization.correlation_id,
+      buyerTermsAccepted: true,
+      paymentDisclosureAccepted: true
     });
     saveFlow(route.dealId, {
       paymentAuthorized: true,
@@ -951,7 +953,10 @@ async function publishDeal(dealId) {
       headers: {
         "x-request-id": `seller-publish:${Date.now()}`,
         "idempotency-key": `seller-publish:${dealId}`
-      }
+      },
+      body: json({
+        seller_terms_accepted: true
+      })
     });
     state.banner = {
       tone: "success",
@@ -1774,6 +1779,7 @@ function renderPaymentPage(dealId) {
             <div class="field"><label for="expiry">׳×׳•׳§׳£</label><input id="expiry" name="expiry" type="text" data-dir="ltr" value="${esc(state.form.expiry)}" autocomplete="cc-exp" placeholder="12/28" /></div>
             <div class="field"><label for="cvv">CVV</label><input id="cvv" name="cvv" type="password" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cvv)}" autocomplete="cc-csc" placeholder="123" /></div>
           </div>
+          <label class="check-row"><input type="checkbox" name="buyerLegalAcceptance" checked required /> <span>אני מאשר/ת את תנאי השימוש, מדיניות הביטולים וההחזרים, ואת ההסבר על תפיסת מסגרת אשראי.</span></label>
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
       </aside>
@@ -2346,7 +2352,7 @@ function renderSellerNewPage() {
               <div class="summary-item"><span class="muted">מינימום / מקסימום</span><strong>${num(minUnits)} / ${num(maxUnits)}</strong></div>
               <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${num(deliveryOptionsCount || 1)} אפשרויות</strong></div>
             </div>
-            <label class="check-row"><input type="checkbox" name="sellerFinalTerms" /> <span>קראתי והבנתי כי לאחר פרסום לא ניתן לשנות מחיר, כמות מינימום או מקסימום, דדליין, משלוח ותנאים קריטיים.</span></label>
+            <label class="check-row"><input type="checkbox" name="sellerFinalTerms" /> <span>קראתי ואישרתי את תנאי הפרסום למוכר, כולל אחריותי לתיאור המוצר, אספקתו ושירות לאחר השלמת העסקה.</span></label>
             <label class="check-row"><input type="checkbox" name="sellerFinalConfirm" /> <span>אני מאשר שהתנאים סופיים.</span></label>
           </section>
           <div class="actions">
@@ -3700,6 +3706,9 @@ function renderTermsPage() {
       { title: "׳׳”׳• ׳”׳©׳™׳¨׳•׳×", body: "׳¡׳™׳˜׳•׳ ׳”׳™׳ ׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§. ׳”׳׳•׳›׳¨ ׳₪׳•׳×׳— ׳¢׳¡׳§׳”, ׳׳₪׳¨׳¡׳ ׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™, ׳•׳”׳§׳•׳ ׳” ׳׳¦׳˜׳¨׳£ ׳“׳¨׳ ׳§׳™׳©׳•׳¨ ׳™׳©׳™׳¨ ׳•׳׳ ׳“׳¨׳ ׳§׳˜׳׳•׳’ ׳¦׳™׳‘׳•׳¨׳™ ׳₪׳×׳•׳—." },
       { title: "׳׳” ׳§׳•׳¨׳” ׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×", body: "׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳™׳ ׳₪׳¨׳˜׳™ ׳”׳׳¡׳׳•׳, ׳›׳•׳׳ ׳›׳׳•׳×, ׳׳•׳₪׳ ׳§׳‘׳׳” ׳•׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×. ׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳¨׳§ ׳׳¢׳¦׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×. ׳”׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳×׳‘׳¦׳¢ ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳× ׳‘׳”׳¦׳׳—׳” ׳•׳‘׳”׳×׳׳ ׳׳׳¦׳‘ ׳”׳¢׳¡׳§׳”." },
       { title: "׳׳—׳¨׳™׳•׳× ׳”׳׳•׳›׳¨", body: "׳”׳׳•׳›׳¨ ׳׳—׳¨׳׳™ ׳׳ ׳›׳•׳ ׳•׳× ׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳”, ׳׳׳—׳™׳¨, ׳׳—׳׳•׳ ׳”׳–׳׳ ׳™׳, ׳׳׳₪׳©׳¨׳•׳™׳•׳× ׳”׳§׳‘׳׳”, ׳•׳׳×׳§׳©׳•׳¨׳× ׳”׳™׳©׳™׳¨׳” ׳”׳ ׳“׳¨׳©׳× ׳׳•׳ ׳”׳§׳•׳ ׳™׳ ׳‘׳׳¡׳’׳¨׳× ׳”׳¢׳¡׳§׳” ׳©׳₪׳¨׳¡׳." },
+      { title: "אחריות סיטון והמוכר", body: "המוצר והאספקה באחריות המוכר. סיטון מספקת את מערכת העסקה, התיעוד, ניהול ההתחייבויות והעברת נתוני הזכאים למוכר; סיטון אינה מספקת את המוצר בעצמה." },
+      { title: "כלל 90%", body: "עסקה תיחשב מוצלחת רק אם חויבו בפועל לפחות 90% מהמינימום שהוגדר. אם פחות מכך חויב בפועל, העסקה נכשלת לפי מנגנון המערכת." },
+      { title: "לינקי הפצה", body: "לינקי הפצה הם ייחוס ומדידה בלבד. סיטון אינה מחשבת עמלה למפיצים ואינה משלמת למפיצים; כל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ למערכת." },
       { title: "׳׳—׳¨׳™׳•׳× ׳”׳§׳•׳ ׳”", body: "׳”׳§׳•׳ ׳” ׳׳—׳¨׳׳™ ׳׳׳¡׳•׳¨ ׳₪׳¨׳˜׳™׳ ׳ ׳›׳•׳ ׳™׳, ׳׳¢׳§׳•׳‘ ׳׳—׳¨ ׳׳¦׳‘ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳‘׳׳¡׳ ׳”׳׳¢׳§׳‘, ׳•׳׳•׳•׳“׳ ׳©׳”׳›׳׳•׳× ׳•׳׳•׳₪׳ ׳”׳§׳‘׳׳” ׳©׳ ׳©׳׳¨׳• ׳׳›׳ ׳×׳•׳׳׳™׳ ׳׳× ׳¨׳¦׳•׳ ׳• ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×." },
       { title: "׳”׳™׳§׳£ ׳”׳©׳™׳¨׳•׳×", body: "׳”׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳¡׳₪׳§׳× ׳׳× ׳׳©׳˜׳—׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳”׳׳™׳©׳•׳¨ ׳•׳”׳׳¢׳§׳‘. ׳”׳™׳ ׳׳™׳ ׳” ׳׳¨׳—׳™׳‘׳” ׳›׳׳ ׳׳× ׳”׳”׳×׳—׳™׳™׳‘׳•׳™׳•׳× ׳׳¢׳‘׳¨ ׳׳׳” ׳©׳׳•׳₪׳™׳¢ ׳‘׳׳₪׳•׳¨׳© ׳‘׳׳¡׳׳•׳ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳‘׳׳¦׳‘׳™ ׳”׳¢׳¡׳§׳” ׳‘׳₪׳•׳¢׳." }
     ]
@@ -3728,6 +3737,9 @@ function renderRefundsPage() {
     "׳”׳¢׳׳•׳“ ׳”׳–׳” ׳׳‘׳”׳™׳¨ ׳׳× ׳”׳ ׳§׳•׳“׳” ׳”׳›׳™ ׳¨׳’׳™׳©׳” ׳‘׳׳¡׳׳•׳: ׳׳” ׳”׳”׳‘׳“׳ ׳‘׳™׳ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳׳‘׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳•׳׳” ׳§׳•׳¨׳” ׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳׳’׳™׳¢׳” ׳׳¡׳’׳™׳¨׳” ׳׳•׳¦׳׳—׳×.",
     [
       { title: "׳׳₪׳ ׳™ ׳¡׳’׳™׳¨׳× ׳¢׳¡׳§׳”", body: "׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳•׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳׳ ׳ ׳•׳¦׳¨ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳¨׳§ ׳׳¢׳¦׳ ׳”׳›׳ ׳™׳¡׳” ׳׳׳¡׳׳•׳. ׳”׳׳¢׳¨׳›׳× ׳©׳•׳׳¨׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“ ׳¢׳“ ׳׳”׳›׳¨׳¢׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳”." },
+      { title: "תפיסת מסגרת מול חיוב", body: "בזמן הצטרפות לא מתבצע חיוב בפועל. הסכום יתפוס מסגרת אשראי בלבד, והחיוב יתבצע רק אם העסקה תיסגר בהצלחה. אם העסקה לא תיסגר, המסגרת תשוחרר לפי כללי ספק האשראי." },
+      { title: "ביטול לפני ואחרי נעילה", body: "לפני נעילת העסקה, ביטול אפשרי רק אם מצב העסקה והמערכת מאפשרים זאת. אחרי שלבי ReadyForCharging או נעילה תפעולית, אין ביטול מצד קונה מתוך המערכת." },
+      { title: "עסקה שהושלמה", body: "לאחר עסקה Completed, בקשות שירות, אספקה או תיאום המשך הן מול המוכר, לפי פרטי הקשר ותנאי העסקה שהוצגו." },
       { title: "׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳ ׳¡׳’׳¨׳×", body: "׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳׳’׳™׳¢׳” ׳׳”׳©׳׳׳”, ׳”׳׳¡׳’׳¨׳× ׳׳׳•׳¨׳” ׳׳”׳©׳×׳—׳¨׳¨, ׳׳”׳×׳‘׳˜׳ ׳׳• ׳׳ ׳׳”׳₪׳•׳ ׳׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳‘׳”׳×׳׳ ׳׳׳¦׳‘ ׳”׳¡׳•׳₪׳™ ׳©׳ ׳”׳¢׳¡׳§׳” ׳•׳׳©׳›׳‘׳× ׳”׳׳™׳©׳•׳¨ ׳”׳¨׳׳•׳•׳ ׳˜׳™׳×." },
       { title: "׳׳ ׳‘׳•׳¦׳¢ ׳—׳™׳•׳‘ ׳•׳”׳¢׳¡׳§׳” ׳©׳•׳ ׳×׳” ׳׳׳—׳¨ ׳׳›׳", body: "׳‘׳׳§׳¨׳” ׳©׳‘׳• ׳”׳•׳©׳׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳•׳‘׳”׳׳©׳ ׳ ׳“׳¨׳© ׳‘׳™׳˜׳•׳ ׳׳• ׳”׳—׳–׳¨, ׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳•׳”׳¡׳˜׳˜׳•׳¡׳™׳ ׳‘׳׳¢׳¨׳›׳× ׳”׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳׳’׳‘׳™ ׳”׳׳¦׳‘ ׳”׳×׳₪׳¢׳•׳׳™ ׳©׳”׳§׳•׳ ׳” ׳¨׳•׳׳”." },
       { title: "׳׳—׳¨׳™׳•׳× ׳׳”׳¡׳‘׳¨ ׳׳§׳•׳ ׳”", body: "׳”׳׳•׳›׳¨ ׳ ׳“׳¨׳© ׳׳”׳¦׳™׳’ ׳¢׳¡׳§׳” ׳‘׳¨׳•׳¨׳” ׳•׳׳”׳™׳׳ ׳¢ ׳׳™׳¦׳™׳¨׳× ׳₪׳¢׳¨ ׳‘׳™׳ ׳׳” ׳©׳”׳§׳•׳ ׳” ׳׳‘׳™׳ ׳‘׳“׳£ ׳”׳¢׳¡׳§׳” ׳׳‘׳™׳ ׳”׳”׳×׳ ׳”׳’׳•׳× ׳”׳×׳₪׳¢׳•׳׳™׳× ׳©׳ ׳”׳¢׳¡׳§׳” ׳‘׳₪׳•׳¢׳." },
@@ -4112,7 +4124,7 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, authorizationId, authorizationProvider, authorizationCorrelationId }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, authorizationId, authorizationProvider, authorizationCorrelationId, buyerTermsAccepted, paymentDisclosureAccepted }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
@@ -4126,7 +4138,9 @@ const buyerFlowService = {
         delivery_option_id: deliveryOptionId || undefined,
         authorization_id: authorizationId || undefined,
         authorization_provider: authorizationProvider || undefined,
-        authorization_correlation_id: authorizationCorrelationId || undefined
+        authorization_correlation_id: authorizationCorrelationId || undefined,
+        buyer_terms_accepted: buyerTermsAccepted === true,
+        payment_disclosure_accepted: paymentDisclosureAccepted === true
       })
     });
   }

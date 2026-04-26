@@ -294,7 +294,8 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
     const publish = await app.inject({
       method: "POST",
       url: `/deals/${dealId}/publish`,
-      headers: { "x-seller-id": sellerId, "x-request-id": `notification-publish-${suffix}` }
+      headers: { "x-seller-id": sellerId, "x-request-id": `notification-publish-${suffix}` },
+      payload: { seller_terms_accepted: true }
     });
     assert.equal(publish.statusCode, 200, publish.body);
     const option = await pool.query(`SELECT option_id FROM siton.deal_delivery_options WHERE deal_id=$1 LIMIT 1`, [dealId]);
@@ -307,6 +308,8 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
         buyer_id: buyerId,
         qty: 1,
         delivery_option_id: option.rows[0].option_id,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
         buyer_name: "קונה בדיקה"
       }
     });

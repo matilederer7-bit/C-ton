@@ -125,7 +125,8 @@ await run("S5: publish deal → 409 seller_profile_incomplete when profile missi
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/publish`,
-    headers: { "x-seller-id": sellerId }
+    headers: { "x-seller-id": sellerId },
+    payload: { seller_terms_accepted: true }
   });
   assert.equal(res.statusCode, 409);
   const body = res.json() as any;
@@ -150,7 +151,8 @@ await run("S6: publish deal → 200 after completing seller profile", async () =
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/publish`,
-    headers: { "x-seller-id": sellerId }
+    headers: { "x-seller-id": sellerId },
+    payload: { seller_terms_accepted: true }
   });
   const body = res.json() as any;
   assert.equal(res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${JSON.stringify(body)}`);
