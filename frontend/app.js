@@ -204,6 +204,7 @@ document.addEventListener("click", (event) => {
     if (action === "seller-clone") cloneSellerDeal(actionTarget.dataset.dealId);
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
+    if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
     if (action === "clear-product-image") clearSellerProductImage();
   }
 });
@@ -2391,6 +2392,17 @@ function renderSellerDealPage() {
         <div class="summary-item summary-spotlight"><span class="muted">׳ ׳˜׳• ׳׳׳•׳›׳¨</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
         <div class="summary-item"><span class="muted">׳׳¡׳׳›׳™׳</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
       </div>
+      ${deal.state === "Completed" ? `
+        <div class="summary-item stack">
+          <div class="actions spread">
+            <div>
+              <strong>ייצוא עסקה</strong>
+              <p class="small muted">כולל קונים זכאים, פרטי אספקה, כמויות, גבייה, עמלת סיטון ונטו למוכר.</p>
+            </div>
+            <button class="primary" type="button" data-inline-action="seller-excel-export" data-deal-id="${esc(deal.deal_id)}">הורד Excel עסקה</button>
+          </div>
+        </div>
+      ` : ""}
       ${receipts.documents.length ? renderTablePanel("מסמכי עסקה לפי רישום אמיתי", "הטבלה נשענת רק על רשומות invoice_documents אמיתיות. אם עדיין לא נוצרה רשומה, יוצג במפורש שאין מסמך מונפק.", receipts.documents, ["document_id", "document_status", "issued_at", "participant_id", "buyer_id", "qty", "gross_amount", "share_code", "affiliate_name"]) : `<div class="empty-surface"><p class="muted">׳¢׳“׳™׳™׳ ׳׳™׳ ׳¨׳©׳•׳׳•׳× ׳׳¡׳׳ ׳׳׳™׳×׳™׳•׳× ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p></div>`}
       <p class="small muted">׳–׳”׳• ׳׳©׳˜׳— ׳₪׳ ׳™׳׳™ ׳׳׳•׳›׳ ׳•׳× ׳—׳©׳‘׳•׳ ׳׳™׳×, ׳׳ ׳׳¡׳׳ ׳—׳™׳¦׳•׳ ׳™ ׳©׳”׳•׳₪׳§ ׳‘׳₪׳•׳¢׳.</p>
     </section>
@@ -3897,6 +3909,31 @@ async function api(url, options = {}) {
   const error = new Error(payload?.message || payload?.error || fallbackStatus(response.status) || "request_failed");
   error.status = response.status;
   throw error;
+}
+
+async function downloadSellerDealExport(dealId) {
+  if (!dealId) return;
+  const sellerContext = currentSellerContext();
+  const url = `/api/seller/deals/${encodeURIComponent(dealId)}/export.xlsx`;
+  await busy("מכין קובץ Excel לעסקה...", async () => {
+    const response = await fetch(url, {
+      headers: usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}
+    });
+    if (!response.ok) {
+      const error = new Error(await response.text());
+      error.status = response.status;
+      throw error;
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `siton-deal-export-${dealId}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, "לא הצלחנו להוריד את קובץ ה-Excel של העסקה.");
 }
 
 const paymentService = {

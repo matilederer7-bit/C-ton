@@ -41,6 +41,12 @@ await run("seller deal page exposes a clearer operational control summary", asyn
   assert.match(appJs, /participantSnapshot\.unresolved/);
 });
 
+await run("seller completed deal surface exposes Excel export only after completion", async () => {
+  assert.match(appJs, /deal\.state === "Completed" \? `[\s\S]*הורד Excel עסקה/);
+  assert.match(appJs, /data-inline-action="seller-excel-export"/);
+  assert.match(appJs, /\/api\/seller\/deals\/\$\{encodeURIComponent\(dealId\)\}\/export\.xlsx/);
+});
+
 await run("mobile-first responsive support exists for the refined product surfaces", async () => {
   assert.match(stylesCss, /\.deal-hero-layout/);
   assert.match(stylesCss, /\.workspace-focus-grid/);

@@ -2,6 +2,13 @@
 
 Current update: 2026-04-26 (Seller Deal Excel Export)
 
+- Completed: connected the seller completed-deal UI button `הורד Excel עסקה` to `/api/seller/deals/:dealId/export.xlsx`. The button is rendered only when the deal state is `Completed`, uses the existing seller context for demo header auth, and downloads the workbook without parsing it as JSON.
+- Completed: CSV shipping export remains unchanged as a complementary lightweight export endpoint. No delivery-management workflow or delivery status feature was added in this UI pass.
+- Checked in this UI pass: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/read_surfaces_truth_alignment_validation.js`.
+- Open: deploy-preview smoke should verify the browser download path in the hosted seller session. Attribution sheet will enrich automatically if attribution data grows.
+- Progress: `95%` of the Seller Deal Excel Export track (endpoint + workbook + tests + completed-deal UI button complete; hosted smoke remains).
+- Next step: deploy preview and manually smoke-test the completed-deal Excel download in the seller UI.
+
 - Completed: added `GET /api/seller/deals/:dealId/export.xlsx` endpoint in `src/frontend_runtime.ts`. Returns a full multi-sheet Excel workbook for the seller after deal completion. Content-Type: `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`. Content-Disposition: `attachment; filename="siton-deal-export-<dealId>.xlsx"`.
 - Completed: workbook includes 5–6 sheets: **Deal Summary** (deal metadata + aggregated money totals), **Eligible Buyers** (one row per eligible participant with delivery snapshot and row-level fee breakdown), **All Participants** (full list with eligibility flags for operational transparency), **Money Breakdown** (per-participant fee drill-down + TOTAL row whose figures match Deal Summary), **Notes** (Hebrew disclaimer about seller responsibility for fulfillment), and **Attribution** (only added if attribution data exists; attribution-only, no commissions or payouts).
 - Completed: money model uses canonical `calculatePlatformFeeMoney()` from `platform_fee_money.ts`. Fee = 8% of gross (qty × unit_price + delivery_cost), VAT = 18% on fee only. `seller_net_amount = gross - platform_fee_total`. No new money logic invented.
@@ -11,9 +18,9 @@ Current update: 2026-04-26 (Seller Deal Excel Export)
 - Completed: Excel formatting — freeze top row, auto-filter, bold headers, `#,##0.00` numeric format on all money columns, column widths calibrated for content.
 - Completed: added `exceljs` dependency (no other xlsx library added). CSV shipping export remains unchanged as a lightweight fallback.
 - Checked: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/seller_deal_excel_export_validation.js` (8/8 PASS); `node .tmp_test_dist/tests/seller_shipping_export_validation.js` (4/4 PASS); `node .tmp_test_dist/tests/participant_delivery_snapshot_validation.js` (8/8 PASS). Drift scan: no marketplace, commission_rate, affiliate payout, withdrawal, or balance terms in diff.
-- Open: frontend download button for completed deals not yet wired. Attribution sheet will enrich automatically if attribution data grows.
-- Progress: `90%` of the Seller Deal Excel Export track (endpoint + workbook + tests complete; frontend button is follow-up).
-- Next step: connect an Excel download button in the seller completed-deal surface pointing to `/api/seller/deals/:dealId/export.xlsx`.
+- Open: hosted seller-session smoke for the browser download remains. Attribution sheet will enrich automatically if attribution data grows.
+- Progress: `95%` of the Seller Deal Excel Export track.
+- Next step: deploy preview and manually smoke-test the completed-deal Excel download in the seller UI.
 
 Current update: 2026-04-24 (Seller Shipping Export)
 
