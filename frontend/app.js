@@ -15,6 +15,7 @@ const state = {
   homePayload: null,
   sellerContext: null,
   sellerAuth: null,
+  sellerProfile: null,
   dealPayload: null,
   trackingPayload: null,
   sellerPayload: null,
@@ -59,7 +60,13 @@ const state = {
     sellerDeliveryCost2: "0",
     sellerDeliveryType3: "distribution_point",
     sellerDeliveryLabel3: "",
-    sellerDeliveryCost3: "0"
+    sellerDeliveryCost3: "0",
+    sellerBizName: "",
+    sellerContactName: "",
+    sellerSupportPhone: "",
+    sellerSupportEmail: "",
+    sellerBizDesc: "",
+    sellerBizId: ""
   }
 };
 
@@ -434,11 +441,56 @@ async function loadHome() {
 }
 
 async function loadSeller() {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳׳–׳•׳¨ ׳”׳׳•׳›׳¨...", async () => {
-    state.sellerPayload = await api("/api/seller/deals");
+  await busy('טוען את אזור המוכר...', async () => {
+    state.sellerPayload = await api('/api/seller/deals');
     state.sellerAuth = state.sellerPayload?.seller_surface?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerPayload?.seller_surface?.seller_profile || null);
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳–׳•׳¨ ׳”׳׳•׳›׳¨.");
+    try {
+      const profileRes = await api('/api/seller/profile');
+      if (profileRes?.ok) {
+        state.sellerProfile = profileRes.profile;
+        const p = profileRes.profile;
+        state.form.sellerBizName = p.business_name || '';
+        state.form.sellerContactName = p.contact_name || '';
+        state.form.sellerSupportPhone = p.support_phone || '';
+        state.form.sellerSupportEmail = p.support_email || '';
+        state.form.sellerBizDesc = p.business_description || '';
+        state.form.sellerBizId = p.business_identifier || '';
+      }
+    } catch (_) { /* profile fetch failure is non-fatal */ }
+  }, 'לא הצלחנו לטעון את אזור המוכר.');
+}
+
+async function saveSellerProfile(form) {
+  const bizName = String(form.sellerBizName?.value || state.form.sellerBizName || "").trim();
+  if (!bizName) {
+    state.banner = { tone: "warning", title: "שדה חסר", message: "יש להזין שם עסק לפני שמירה." };
+    render(); return;
+  }
+  await busy("שומר פרטי מוכר...", async () => {
+    const res = await api("/api/seller/profile", {
+      method: "PUT",
+      body: JSON.stringify({
+        business_name: bizName,
+        contact_name: String(form.sellerContactName?.value || state.form.sellerContactName || "").trim() || undefined,
+        support_phone: String(form.sellerSupportPhone?.value || state.form.sellerSupportPhone || "").trim() || undefined,
+        support_email: String(form.sellerSupportEmail?.value || state.form.sellerSupportEmail || "").trim() || undefined,
+        business_description: String(form.sellerBizDesc?.value || state.form.sellerBizDesc || "").trim() || undefined,
+        business_identifier: String(form.sellerBizId?.value || state.form.sellerBizId || "").trim() || undefined
+      })
+    });
+    if (res?.ok) {
+      state.sellerProfile = res.profile;
+      const p = res.profile;
+      state.form.sellerBizName = p.business_name || "";
+      state.form.sellerContactName = p.contact_name || "";
+      state.form.sellerSupportPhone = p.support_phone || "";
+      state.form.sellerSupportEmail = p.support_email || "";
+      state.form.sellerBizDesc = p.business_description || "";
+      state.form.sellerBizId = p.business_identifier || "";
+      state.banner = { tone: "success", title: "נשמר", message: "פרטי המוכר עודכנו בהצלחה." };
+    }
+  }, "לא הצלחנו לשמור את פרטי המוכר.");
 }
 
 async function prepareSellerNew() {
@@ -649,6 +701,7 @@ async function submitAction(action, form) {
   if (action === "seller-login") return loginSellerFromForm(form);
   if (action === "seller-logout") return logoutSeller();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId);
+  if (action === "seller-profile-save") return saveSellerProfile(form);
   if (action === "seller-delivery-update") return updateDelivery(form);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
@@ -1444,6 +1497,23 @@ function renderDealPage() {
           <div class="trust-point"><span class="muted">׳‘׳©׳׳‘ ׳”׳–׳”</span><strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
           <div class="trust-point"><span class="muted">׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
         </div>
+        ${(() => {
+          const s = deal.seller;
+          if (!s || !s.business_name) return '';
+          const waNum = s.support_phone ? String(s.support_phone).replace(/\D/g, '') : null;
+          const waUrl = waNum ? 'https://wa.me/' + waNum : null;
+          const contactLinks = [
+            waUrl ? `<a href="${esc(waUrl)}" target="_blank" rel="noopener noreferrer">WhatsApp</a>` : '',
+            s.support_email ? `<a href="mailto:${esc(s.support_email)}">${esc(s.support_email)}</a>` : ''
+          ].filter(Boolean).join(' | ');
+          return `
+            <div class="info-strip seller-info-card">
+              <strong>נמכר על ידי: ${esc(s.business_name)}</strong>
+              ${s.business_description ? `<p class="small muted">${esc(s.business_description)}</p>` : ''}
+              ${contactLinks ? `<p class="small">שאלות? צרו קשר עם המוכר: ${contactLinks}</p>` : ''}
+            </div>
+          `;
+        })()}
         ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
         <div class="metric-grid">
           <div class="metric"><span class="muted">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</span><strong>${currency(deal.price_per_unit)}</strong></div>
@@ -1961,6 +2031,69 @@ function renderHome() {
   `;
 }
 
+function renderSellerProfileSection() {
+  const prof = state.sellerProfile;
+  const bizName = String(state.form.sellerBizName || prof?.business_name || "").trim();
+  const contactName = String(state.form.sellerContactName || prof?.contact_name || "").trim();
+  const phone = String(state.form.sellerSupportPhone || prof?.support_phone || "").trim();
+  const email = String(state.form.sellerSupportEmail || prof?.support_email || "").trim();
+  const desc = String(state.form.sellerBizDesc || prof?.business_description || "").trim();
+  const bizId = String(state.form.sellerBizId || prof?.business_identifier || "").trim();
+  const isReady = prof?.is_publish_ready;
+  return `
+    <section class="card section stack" id="seller-profile-section">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <h2>פרטי המוכר</h2>
+          <p class="muted section-intro">פרטים אלה יוצגו לקונים בדף העסקה. יש להשלים לפחות שם עסק ואמצעי קשר אחד לפני פרסום עסקה.</p>
+        </div>
+        ${isReady === false ? `<span class="badge warning">חסרים פרטים לפרסום</span>` : isReady ? `<span class="badge success">מוכן לפרסום</span>` : ""}
+      </div>
+      ${isReady === false ? `
+        <div class="info-strip tone-warning">
+          <strong>פרופיל לא מושלם</strong>
+          <p class="small">כדי לפרסם עסקה, יש להשלים שם עסק ולפחות אמצעי קשר אחד (טלפון או אימייל).</p>
+        </div>
+      ` : ""}
+      <form data-action="seller-profile-save" class="form-shell">
+        <div class="form-section-card stack">
+          <div class="inline-fields">
+            <div class="field">
+              <label for="sellerBizName">שם העסק <span class="required">*</span></label>
+              <input id="sellerBizName" name="sellerBizName" type="text" value="${esc(bizName)}" placeholder="שם העסק שיוצג לקונים" />
+            </div>
+            <div class="field">
+              <label for="sellerContactName">שם איש קשר</label>
+              <input id="sellerContactName" name="sellerContactName" type="text" value="${esc(contactName)}" placeholder="שם מלא לפניות" />
+            </div>
+          </div>
+          <div class="inline-fields">
+            <div class="field">
+              <label for="sellerSupportPhone">טלפון לשאלות</label>
+              <input id="sellerSupportPhone" name="sellerSupportPhone" type="tel" value="${esc(phone)}" placeholder="05x-xxxxxxx" />
+            </div>
+            <div class="field">
+              <label for="sellerSupportEmail">אימייל לשאלות</label>
+              <input id="sellerSupportEmail" name="sellerSupportEmail" type="email" value="${esc(email)}" placeholder="support@example.com" />
+            </div>
+          </div>
+          <div class="field">
+            <label for="sellerBizDesc">תיאור קצר על העסק</label>
+            <textarea id="sellerBizDesc" name="sellerBizDesc" rows="3" maxlength="420" placeholder="מי אנחנו ומה אנחנו מוכרים">${esc(desc)}</textarea>
+          </div>
+          <div class="field">
+            <label for="sellerBizId">מזהה עסק (ח.פ / עוסק מורשה)</label>
+            <input id="sellerBizId" name="sellerBizId" type="text" value="${esc(bizId)}" placeholder="אופציונלי" />
+          </div>
+        </div>
+        <div class="actions">
+          <button class="primary" type="submit">שמירת פרטי מוכר</button>
+        </div>
+      </form>
+    </section>
+  `;
+}
+
 function renderSellerPage() {
   const auth = currentSellerAuth();
   if (!usesDemoSellerContext() && !auth.authenticated) {
@@ -2056,6 +2189,7 @@ function renderSellerPage() {
         </div>
       `}
     </section>
+    ${renderSellerProfileSection()}
   `;
 }
 
@@ -2222,6 +2356,18 @@ function renderSellerNewPage() {
         </form>
       </article>
       <aside class="card hero-side stack">
+        ${(() => {
+          const prof = state.sellerProfile;
+          if (!prof || prof.is_publish_ready !== false) return '';
+          return '<div class="info-strip tone-warning"><strong>' +
+            'פרטי מוכר חסרים' +
+            '</strong><p class="small">' +
+            'כדי לפרסם עסקה, יש להשלים קודם את פרטי המוכר שיוצגו לקונים. ' +
+            '<a href="/app/seller#seller-profile-section" data-nav="/app/seller">' +
+            'השלמת פרטי מוכר &rarr;' +
+            '</a></p></div>';
+        })()}
+        
         <div class="summary-item summary-spotlight"><span class="muted">׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">׳׳–׳”׳” ׳׳•׳›׳¨: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">׳׳—׳™׳¨ ׳ ׳•׳›׳—׳™</span><strong>${currency(price)}</strong></div>

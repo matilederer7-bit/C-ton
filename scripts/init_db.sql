@@ -391,6 +391,13 @@ CREATE TABLE IF NOT EXISTS seller_accounts (
   payout_method TEXT NOT NULL DEFAULT 'bank_transfer',
   payout_details_masked TEXT NOT NULL DEFAULT '***1234',
   admin_note TEXT NOT NULL DEFAULT '',
+  -- Business profile fields (migration 028): shown publicly on deal pages
+  business_name        TEXT NULL,
+  contact_name         TEXT NULL,
+  support_phone        TEXT NULL,
+  support_email        TEXT NULL,
+  business_description TEXT NULL,
+  business_identifier  TEXT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );

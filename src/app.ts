@@ -2303,6 +2303,22 @@ app.post("/deals/:id/publish", async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
+
+    // Seller profile readiness: business_name + at least one contact method required before publish
+    const profileResult = await c.query(
+      `SELECT business_name, support_phone, support_email
+       FROM siton.seller_accounts WHERE seller_id = $1`,
+      [sellerAuthority.seller_id]
+    );
+    const prof = profileResult.rows[0] as any;
+    if (!prof?.business_name?.trim() || (!prof?.support_phone?.trim() && !prof?.support_email?.trim())) {
+      const err: any = new Error(
+        "seller profile incomplete: set business_name and at least one contact method before publishing"
+      );
+      err.statusCode = 409;
+      err.code = "seller_profile_incomplete";
+      throw err;
+    }
   });
 
   return atomicTransition({

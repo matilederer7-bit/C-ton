@@ -1224,9 +1224,13 @@ export function registerFrontendExperience(
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
       const dealResult = await c.query(
-        `SELECT deal_id, title, state, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until, created_at
-         FROM siton.deals
-         WHERE deal_id=$1`,
+        `SELECT d.deal_id, d.title, d.state, d.price_per_unit, d.min_units, d.max_units,
+                d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
+                d.created_at, d.seller_id,
+                sa.business_name, sa.support_phone, sa.support_email, sa.business_description
+         FROM siton.deals d
+         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+         WHERE d.deal_id=$1`,
         [dealId]
       );
 
@@ -1316,7 +1320,111 @@ export function registerFrontendExperience(
             Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.max_units))) * 100))
           )
         },
+        seller: {
+          business_name: (deal as any).business_name ?? null,
+          support_phone: (deal as any).support_phone ?? null,
+          support_email: (deal as any).support_email ?? null,
+          business_description: (deal as any).business_description ?? null
+        },
         availability
+      };
+    });
+  });
+
+  // ── Seller Profile ────────────────────────────────────────────────────────
+  app.get("/api/seller/profile", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const result = await c.query(
+        `SELECT seller_id, display_name, business_name, contact_name,
+                support_phone, support_email, business_description, business_identifier,
+                verification_status, created_at, updated_at
+         FROM siton.seller_accounts WHERE seller_id = $1`,
+        [sellerContext.seller_id]
+      );
+      const row = result.rows[0] as any;
+      const isProfileReady = Boolean(
+        row?.business_name?.trim() &&
+        (row?.support_phone?.trim() || row?.support_email?.trim())
+      );
+      return {
+        ok: true,
+        profile: {
+          seller_id: sellerContext.seller_id,
+          display_name: String(row?.display_name || sellerContext.seller_id),
+          business_name: row?.business_name ?? null,
+          contact_name: row?.contact_name ?? null,
+          support_phone: row?.support_phone ?? null,
+          support_email: row?.support_email ?? null,
+          business_description: row?.business_description ?? null,
+          business_identifier: row?.business_identifier ?? null,
+          is_publish_ready: isProfileReady,
+          created_at: row?.created_at ?? null,
+          updated_at: row?.updated_at ?? null
+        }
+      };
+    });
+  });
+
+  app.put("/api/seller/profile", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const body = (req.body as any) || {};
+
+      const businessName = String(body.business_name ?? "").trim();
+      const contactName = String(body.contact_name ?? "").trim() || null;
+      const supportPhone = String(body.support_phone ?? "").trim() || null;
+      const supportEmail = String(body.support_email ?? "").trim() || null;
+      const businessDescription = String(body.business_description ?? "").trim() || null;
+      const businessIdentifier = String(body.business_identifier ?? "").trim() || null;
+
+      if (!businessName) {
+        const err: any = new Error("business_name is required");
+        err.statusCode = 400;
+        err.code = "business_name_required";
+        throw err;
+      }
+
+      await c.query(
+        `UPDATE siton.seller_accounts
+         SET business_name = $2, contact_name = $3,
+             support_phone = $4, support_email = $5,
+             business_description = $6, business_identifier = $7,
+             updated_at = now()
+         WHERE seller_id = $1`,
+        [sellerContext.seller_id, businessName, contactName,
+         supportPhone, supportEmail, businessDescription, businessIdentifier]
+      );
+
+      const result = await c.query(
+        `SELECT seller_id, display_name, business_name, contact_name,
+                support_phone, support_email, business_description, business_identifier, updated_at
+         FROM siton.seller_accounts WHERE seller_id = $1`,
+        [sellerContext.seller_id]
+      );
+      const row = result.rows[0] as any;
+      const isProfileReady = Boolean(
+        row?.business_name?.trim() &&
+        (row?.support_phone?.trim() || row?.support_email?.trim())
+      );
+      return {
+        ok: true,
+        profile: {
+          seller_id: sellerContext.seller_id,
+          display_name: String(row?.display_name || sellerContext.seller_id),
+          business_name: row?.business_name ?? null,
+          contact_name: row?.contact_name ?? null,
+          support_phone: row?.support_phone ?? null,
+          support_email: row?.support_email ?? null,
+          business_description: row?.business_description ?? null,
+          business_identifier: row?.business_identifier ?? null,
+          is_publish_ready: isProfileReady,
+          updated_at: row?.updated_at ?? null
+        }
       };
     });
   });

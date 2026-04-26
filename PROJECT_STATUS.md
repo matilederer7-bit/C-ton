@@ -12,6 +12,7 @@
 - `frontend_flow_validation` isolated from background worker interference
 - UX product trust polish — no technical/mock/demo wording in regular buyer or seller surfaces
 - Provider-ready product image layer — `deal_images` table, seller upload endpoint, public safe URLs, upload blocked after publish, failed-upload cleanup
+- **Seller Profile & Publish Readiness** — seller business profile fields (`business_name`, `contact_name`, `support_phone`, `support_email`, `business_description`, `business_identifier`), `GET/PUT /api/seller/profile`, publish gate 409 + `seller_profile_incomplete`, public deal payload exposes safe seller info, seller profile form in seller dashboard, seller info card on deal page, readiness notice in new-deal wizard
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
@@ -28,6 +29,21 @@
 - Seller balance / withdrawal
 
 ---
+
+Current update: 2026-04-26 (Seller Profile & Publish Readiness)
+
+- Completed: added 6 business profile columns to `siton.seller_accounts` — `business_name`, `contact_name`, `support_phone`, `support_email`, `business_description`, `business_identifier`. Migration `028_seller_profiles.sql`; backfill in `ensureRemainingProductSurfaceTables()` and `scripts/init_db.sql`.
+- Completed: `GET /api/seller/profile` — returns full profile for the authenticated seller, including `is_publish_ready` (true iff `business_name` + at least one contact method).
+- Completed: `PUT /api/seller/profile` — validates `business_name` required (400 + `business_name_required`), persists all fields, returns updated profile with `is_publish_ready`.
+- Completed: publish gate in `POST /deals/:id/publish` — 409 + `seller_profile_incomplete` if `business_name` is blank or both `support_phone` and `support_email` are missing. Runs in same transaction as ownership check.
+- Completed: public deal payload (`GET /api/deals/:id/public`) now JOINs `seller_accounts` and exposes `seller: { business_name, support_phone, support_email, business_description }`.
+- Completed: seller dashboard (`renderSellerPage`) shows a `פרטי מוכר` form section with all profile fields; missing-profile warning badge; save action `seller-profile-save`.
+- Completed: deal page (`renderDealPage`) shows a `seller-info-card` strip — "נמכר על ידי: {name}", WhatsApp link (if phone), email link (if email), short description.
+- Completed: new-deal wizard (`renderSellerNewPage`) aside shows a readiness notice when `state.sellerProfile.is_publish_ready === false`, with link to profile section.
+- Completed: `loadSeller()` now also fetches `/api/seller/profile` and populates `state.sellerProfile` + form fields on every seller surface load.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit` → clean. `npx tsx tests/seller_profile_readiness_validation.ts` → 6/6 PASS.
+- Open: hosted smoke test for the profile form save and publish gate UI on mobile/desktop.
+- Progress: `100%` of Seller Profile & Publish Readiness track.
 
 Current update: 2026-04-26 (Product Images Provider-Ready Layer)
 

@@ -270,6 +270,14 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
         ADD COLUMN IF NOT EXISTS delivery_notes TEXT NULL
       `);
 
+      // Migration 028: seller business profile fields
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS business_name        TEXT NULL`);
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS contact_name         TEXT NULL`);
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS support_phone        TEXT NULL`);
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS support_email        TEXT NULL`);
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS business_description TEXT NULL`);
+      await c.query(`ALTER TABLE siton.seller_accounts ADD COLUMN IF NOT EXISTS business_identifier  TEXT NULL`);
+
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal
         ON siton.deal_delivery_options (deal_id, sort_order, created_at)
