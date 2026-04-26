@@ -29,6 +29,11 @@ import {
   ensurePlatformFeeMoneyTables
 } from "./platform_fee_money.js";
 import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
+import {
+  getDealImagePublicUrl,
+  readDealImage,
+  saveDealImage
+} from "./product_image_storage.js";
 import { buildPayoutProvider } from "./payout_provider.js";
 import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
 import {
@@ -1961,7 +1966,7 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
   }
 }
 
-const app = Fastify({ logger: true, trustProxy: true });
+const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
 export { app };
 
 // ---------------------------------------------------------------------------
@@ -2059,6 +2064,52 @@ app.setErrorHandler((error: any, _req, reply) => {
 
 app.get("/health", async () => ({ ok: true }));
 
+function parseImageUploadBody(body: any) {
+  const dataUrl = String(body?.image_data_url || body?.data_url || "").trim();
+  const explicitBase64 = String(body?.image_base64 || body?.base64 || "").trim();
+  const explicitMimeType = String(body?.mime_type || "").trim().toLowerCase();
+  if (dataUrl) {
+    const match = dataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([a-zA-Z0-9+/=\r\n]+)$/);
+    if (!match) {
+      const err: any = new Error("invalid image data");
+      err.statusCode = 400;
+      err.code = "invalid_image_type";
+      throw err;
+    }
+    return {
+      mimeType: String(match[1] || ""),
+      base64Data: String(match[2] || "").replace(/\s/g, "")
+    };
+  }
+  return {
+    mimeType: explicitMimeType,
+    base64Data: explicitBase64.replace(/\s/g, "")
+  };
+}
+
+app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const imageId = String(req.params.imageId || "");
+  requireUuid(imageId, "image_id");
+  const row = await withTx(async (c) => {
+    const result = await c.query(
+      `SELECT storage_key, mime_type FROM siton.deal_images WHERE image_id=$1`,
+      [imageId]
+    );
+    if (!result.rowCount) {
+      const err: any = new Error("image not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return result.rows[0];
+  });
+  const file = await readDealImage(String(row.storage_key));
+  return reply
+    .header("content-type", String(row.mime_type))
+    .header("cache-control", "public, max-age=31536000, immutable")
+    .send(file);
+});
+
 app.post("/deals", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const body = req.body || {};
@@ -2153,6 +2204,77 @@ app.post("/deals", async (req: any) => {
     return deal;
   });
   return r;
+});
+
+app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const body = req.body || {};
+  const parsed = parseImageUploadBody(body);
+  const originalFilename = String(body.original_filename || body.filename || "").trim() || null;
+
+  return withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const dealResult = await c.query(
+      `SELECT seller_id, state FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (!dealResult.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    const deal = dealResult.rows[0];
+    if (normalizeSellerId(deal.seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("seller is not authorized for this deal");
+      err.statusCode = 403;
+      throw err;
+    }
+    if (String(deal.state) !== "Draft") {
+      const err: any = new Error("deal already published");
+      err.statusCode = 409;
+      err.code = "deal_already_published";
+      throw err;
+    }
+
+    const saved = await saveDealImage({
+      dealId,
+      originalFilename,
+      mimeType: parsed.mimeType,
+      base64Data: parsed.base64Data
+    });
+
+    await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
+    const inserted = await c.query(
+      `INSERT INTO siton.deal_images
+         (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, sort_order, is_primary)
+       VALUES ($1,$2,$3,$4,$5,$6,0,true)
+       RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
+      [
+        dealId,
+        saved.storage_provider,
+        saved.storage_key,
+        saved.original_filename,
+        saved.mime_type,
+        saved.size_bytes
+      ]
+    );
+    const image = inserted.rows[0];
+    return reply.code(201).send({
+      ok: true,
+      image: {
+        image_id: image.image_id,
+        deal_id: image.deal_id,
+        public_url: getDealImagePublicUrl(image),
+        image_url: getDealImagePublicUrl(image),
+        mime_type: image.mime_type,
+        size_bytes: Number(image.size_bytes),
+        is_primary: Boolean(image.is_primary),
+        sort_order: Number(image.sort_order || 0)
+      }
+    });
+  });
 });
 
 app.post("/deals/:id/publish", async (req: any) => {

@@ -859,13 +859,35 @@ async function createDeal(form) {
         delivery_options: deliveryOptions
       })
     });
+    let imageUploadWarning = "";
+    if (state.form.sellerImageDataUrl) {
+      try {
+        await uploadSellerDealImage(response.deal_id, {
+          dataUrl: state.form.sellerImageDataUrl,
+          filename: state.form.sellerImageName
+        });
+      } catch {
+        imageUploadWarning = "העסקה נשמרה, אבל העלאת התמונה לא הושלמה. אפשר להמשיך לפרסום עם תצוגת ברירת המחדל.";
+      }
+    }
     state.banner = {
-      tone: "success",
-      title: "׳”׳˜׳™׳•׳˜׳” ׳ ׳©׳׳¨׳”",
-      message: "׳˜׳™׳•׳˜׳× ׳”׳¢׳¡׳§׳” ׳ ׳©׳׳¨׳”. ׳¢׳›׳©׳™׳• ׳׳₪׳©׳¨ ׳׳¢׳‘׳•׳¨ ׳¢׳׳™׳”, ׳׳₪׳¨׳¡׳ ׳׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳•׳׳– ׳׳”׳₪׳™׳¥ ׳׳× ׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨."
+      tone: imageUploadWarning ? "warning" : "success",
+      title: imageUploadWarning ? "הטיוטה נשמרה ללא תמונה" : "׳”׳˜׳™׳•׳˜׳” ׳ ׳©׳׳¨׳”",
+      message: imageUploadWarning || "׳˜׳™׳•׳˜׳× ׳”׳¢׳¡׳§׳” ׳ ׳©׳׳¨׳”. ׳¢׳›׳©׳™׳• ׳׳₪׳©׳¨ ׳׳¢׳‘׳•׳¨ ׳¢׳׳™׳”, ׳׳₪׳¨׳¡׳ ׳׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳•׳׳– ׳׳”׳₪׳™׳¥ ׳׳× ׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨."
     };
     navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
   }, "׳™׳¦׳™׳¨׳× ׳”׳¢׳¡׳§׳” ׳ ׳›׳©׳׳”.");
+}
+
+async function uploadSellerDealImage(dealId, image) {
+  if (!dealId || !image?.dataUrl) return null;
+  return api(`/api/seller/deals/${encodeURIComponent(dealId)}/images`, {
+    method: "POST",
+    body: json({
+      image_data_url: image.dataUrl,
+      original_filename: image.filename || ""
+    })
+  });
 }
 
 async function publishDeal(dealId) {
@@ -1398,7 +1420,7 @@ function renderDealPage() {
         <span class="eyebrow">׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™׳×</span>
         <span class="badge ${dealCopy.badgeTone}">${dealCopy.label}</span>
         <div class="deal-hero-layout">
-          ${renderDealVisual(deal.title, deliveryOptions, selectedDelivery)}
+          ${renderDealVisual(deal.title, deliveryOptions, selectedDelivery, getPrimaryDealImage(deal))}
           <div class="stack deal-hero-copy">
             <h1>${esc(deal.title)}</h1>
             <p class="muted">${availability.message || dealCopy.description}</p>
@@ -2040,9 +2062,11 @@ function renderSellerPage() {
 function renderSellerDealCard(item) {
   const progressPct = sellerDealProgressPct(item.metrics, item.max_units);
   const urgency = sellerDeadlineSignal(item.deadline, item.state);
+  const primaryImage = getPrimaryDealImage(item);
   return `
     <article class="summary-item">
       <div class="seller-card-head">
+        ${primaryImage?.url ? `<img class="seller-card-thumb" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(item.title)}" />` : `<div class="seller-card-thumb placeholder" aria-hidden="true">${esc(([...String(item.title || "")][0] || "ס"))}</div>`}
         <div class="seller-card-meta">
           <span class="muted">׳¢׳¡׳§׳” ${esc(getDealCopy(item.state).label)}</span>
           <h3>${esc(item.title)}</h3>
@@ -2243,6 +2267,7 @@ function renderSellerDealPage() {
   const receiptsNote = normalizeSurfaceNote(receipts.note, "receipts");
   const deliveryNote = normalizeSurfaceNote(delivery.note, "delivery");
   const participantSnapshot = summarizeSellerParticipants(payload.participants);
+  const primaryImage = getPrimaryDealImage(deal);
   const activeSellerId = payload.seller_profile?.seller_id || currentSellerContext().seller_id;
   const activeSellerDisplayName = normalizeSellerDisplayName(
     activeSellerId,
@@ -2253,6 +2278,7 @@ function renderSellerDealPage() {
       <article class="card hero-main stack hero-emphasis">
         <span class="eyebrow">׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳”</span>
         <span class="badge ${DEAL_TONE[deal.state] || "warning"}">${esc(getDealCopy(deal.state).label)}</span>
+        ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : ""}
         <h1>${esc(deal.title)}</h1>
         <p class="muted">׳–׳”׳• ׳—׳“׳¨ ׳”׳‘׳§׳¨׳” ׳©׳ ׳”׳׳•׳›׳¨ ׳׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳, ׳׳¨׳©׳™׳׳× ׳”׳׳©׳×׳×׳₪׳™׳ ׳•׳׳¢׳“׳›׳•׳ ׳™ ׳”׳§׳‘׳׳” ׳•׳”׳׳¡׳™׳¨׳”.</p>
         <div class="trust-band">
@@ -3594,7 +3620,12 @@ function renderNav() {
   `;
 }
 
-function renderDealVisual(title, deliveryOptions, selectedDelivery) {
+function getPrimaryDealImage(deal) {
+  const images = Array.isArray(deal?.images) ? deal.images : [];
+  return images.find((image) => image?.is_primary) || images[0] || null;
+}
+
+function renderDealVisual(title, deliveryOptions, selectedDelivery, image = null) {
   const trimmedTitle = String(title || "").trim();
   const firstLetter = [...trimmedTitle][0] || "\u05e1";
   const visibleOptions = (deliveryOptions || []).slice(0, 3);
@@ -3604,7 +3635,7 @@ function renderDealVisual(title, deliveryOptions, selectedDelivery) {
 
   return `
     <section class="deal-visual-card" aria-label="\u05de\u05d1\u05d8 \u05de\u05d4\u05d9\u05e8 \u05e2\u05dc \u05d4\u05e2\u05e1\u05e7\u05d4">
-      <div class="deal-visual-mark" aria-hidden="true">${esc(firstLetter)}</div>
+      ${image?.url ? `<img class="deal-visual-image" src="${esc(image.url)}" alt="תמונת מוצר עבור ${esc(trimmedTitle || "העסקה")}" />` : `<div class="deal-visual-mark" aria-hidden="true">${esc(firstLetter)}</div>`}
       <div class="deal-visual-copy">
         <span class="eyebrow">\u05de\u05d1\u05d8 \u05de\u05d4\u05d9\u05e8</span>
         <strong>${esc(trimmedTitle || "\u05e2\u05e1\u05e7\u05d4")}</strong>

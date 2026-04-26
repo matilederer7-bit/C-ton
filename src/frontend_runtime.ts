@@ -27,6 +27,7 @@ import {
   isChargedMoneyState,
   summarizeMoney
 } from "./product_surface_support.js";
+import { getDealImagePublicUrl } from "./product_image_storage.js";
 import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
@@ -107,6 +108,8 @@ type DealListRow = {
   platform_fee_rate: number;
   joined_units: number;
   participants_count: number;
+  primary_image_id?: string | null;
+  primary_image_mime_type?: string | null;
 };
 
 const otpSessions = new Map<string, OtpSession>();
@@ -526,6 +529,13 @@ function mapDealListRow(row: DealListRow) {
     completion_window_until: row.completion_window_until,
     created_at: row.created_at,
     platform_fee_rate: Number(row.platform_fee_rate || 0.08),
+    images: row.primary_image_id ? [{
+      image_id: row.primary_image_id,
+      url: getDealImagePublicUrl({ image_id: row.primary_image_id }),
+      is_primary: true,
+      sort_order: 0,
+      mime_type: row.primary_image_mime_type ?? null
+    }] : [],
     metrics: {
       joined_units: joinedUnits,
       remaining_units: remainingUnits,
@@ -1239,6 +1249,13 @@ export function registerFrontendExperience(
          ORDER BY sort_order ASC, created_at ASC`,
         [dealId]
       );
+      const images = await c.query(
+        `SELECT image_id, mime_type, is_primary, sort_order
+         FROM siton.deal_images
+         WHERE deal_id=$1
+         ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+        [dealId]
+      );
 
       const deal = dealResult.rows[0] as {
         deal_id: string;
@@ -1279,6 +1296,13 @@ export function registerFrontendExperience(
             label: row.label,
             cost: Number(row.cost || 0),
             sort_order: Number(row.sort_order || 0)
+          })),
+          images: images.rows.map((row: any) => ({
+            image_id: row.image_id,
+            url: getDealImagePublicUrl(row),
+            is_primary: Boolean(row.is_primary),
+            sort_order: Number(row.sort_order || 0),
+            mime_type: row.mime_type
           }))
         },
         metrics: {
@@ -1318,12 +1342,21 @@ export function registerFrontendExperience(
            d.completion_window_until,
            d.created_at,
            0.08::numeric AS platform_fee_rate,
+           img.image_id AS primary_image_id,
+           img.mime_type AS primary_image_mime_type,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         LEFT JOIN LATERAL (
+           SELECT image_id, mime_type
+           FROM siton.deal_images
+           WHERE deal_id = d.deal_id
+           ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+           LIMIT 1
+         ) img ON true
          WHERE COALESCE(d.seller_id, $1) = $1
-         GROUP BY d.deal_id
+         GROUP BY d.deal_id, img.image_id, img.mime_type
          ORDER BY d.created_at DESC
          LIMIT 100`,
         [sellerId]
@@ -1371,13 +1404,22 @@ export function registerFrontendExperience(
            d.completion_window_until,
            d.created_at,
            0.08::numeric AS platform_fee_rate,
+           img.image_id AS primary_image_id,
+           img.mime_type AS primary_image_mime_type,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         LEFT JOIN LATERAL (
+           SELECT image_id, mime_type
+           FROM siton.deal_images
+           WHERE deal_id = d.deal_id
+           ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+           LIMIT 1
+         ) img ON true
          WHERE d.deal_id = $1
            AND COALESCE(d.seller_id, $2) = $2
-         GROUP BY d.deal_id`,
+         GROUP BY d.deal_id, img.image_id, img.mime_type`,
         [dealId, sellerId]
       );
 

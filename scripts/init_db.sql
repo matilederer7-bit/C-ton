@@ -129,6 +129,22 @@ CREATE TABLE IF NOT EXISTS deal_delivery_options (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS deal_images (
+  image_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  storage_provider TEXT NOT NULL DEFAULT 'local',
+  storage_key TEXT NOT NULL,
+  public_url TEXT NULL,
+  original_filename TEXT NULL,
+  mime_type TEXT NOT NULL CHECK (mime_type IN ('image/jpeg','image/png','image/webp')),
+  size_bytes INT NOT NULL CHECK (size_bytes > 0),
+  width INT NULL,
+  height INT NULL,
+  sort_order INT NOT NULL DEFAULT 0 CHECK (sort_order >= 0),
+  is_primary BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type TEXT NOT NULL CHECK (entity_type IN ('deal','participant')),
@@ -448,6 +464,8 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON participants(deal_id);
 CREATE INDEX IF NOT EXISTS idx_participants_delivery_option ON participants(delivery_option_id);
 CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal ON deal_delivery_options(deal_id, sort_order, created_at);
+CREATE INDEX IF NOT EXISTS idx_deal_images_deal_order ON deal_images(deal_id, sort_order, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deal_images_one_primary ON deal_images(deal_id) WHERE is_primary = true;
 CREATE INDEX IF NOT EXISTS idx_deals_seller_created ON deals(seller_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_outbox_pending ON outbox_events(status, available_at, created_at);
 CREATE INDEX IF NOT EXISTS idx_payment_attempts_lookup ON payment_attempts(participant_id, deal_id, attempt_type, created_at);

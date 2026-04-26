@@ -1,5 +1,14 @@
 # PROJECT STATUS
 
+Current update: 2026-04-26 (Product Images Provider-Ready Layer)
+
+- Completed: added a provider-ready product image layer for deals without connecting an external storage provider. Deal images now have DB metadata in `deal_images`, a local/dev storage adapter, a seller upload endpoint for draft deals, and public deal payloads expose safe image URLs without storage keys or filesystem paths.
+- Completed: the seller create-deal flow uploads the selected primary image after draft creation, public deal pages render the primary product image when present, and seller dashboard/detail surfaces show thumbnails or a polished placeholder. Uploads are limited to JPG/PNG/WebP up to 5MB and are blocked after publish with `deal_already_published`.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/deal_images_validation.js`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`.
+- Open: external object storage/CDN remains future work. Only one primary image is supported in the UI for now; changing images after publish is intentionally blocked until there is a separate product decision.
+- Progress: `85%` of the Product Images Provider-Ready Layer track.
+- Next step: deploy-preview smoke on seller create-deal with image upload and public buyer deal image rendering.
+
 Current update: 2026-04-26 (UX Product Trust Polish)
 
 - Completed: cleaned technical/demo-facing wording from regular buyer and seller surfaces around payment authorization, product image selection, seller access copy, and preview/showcase banners. The payment surface now speaks in terms of `תפיסת מסגרת` and no longer exposes mock/provider/card-test wording to regular users.
