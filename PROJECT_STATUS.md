@@ -1,7 +1,7 @@
 # PROJECT STATUS
 
 ---
-## Current Product Baseline — 2026-04-26
+## Current Product Baseline - 2026-04-27
 
 **Completed in recent sprint:**
 - Seller shipping CSV export (`GET /api/seller/deals/:dealId/shipping-export`) — eligible buyers only, UTF-8 BOM
@@ -16,6 +16,8 @@
 - **Notification Rail Provider-Ready** — `notification_events`, `notification_attempts`, closed Hebrew template registry, log/dev provider, idempotent enqueue, dispatch attempts, and initial buyer/seller event hooks
 - **Admin Launch Console** — internal read-only admin surface aggregating system status, seller readiness, deal state mix, missing-image / missing-profile / missing-acceptance counts, notification rail summary, legal acceptance counts, recent-deal status, and computed green/yellow/red launch status. Endpoint `GET /api/admin/launch-console` (admin-key gated), no PII exposure.
 - **Admin Security Hardening** — `requireAdminKey` is now fail-closed in production-like environments (NODE_ENV=production, APP_ENV=production, RENDER, RENDER_EXTERNAL_URL). Missing `ADMIN_API_KEY` returns 503 `admin_key_not_configured`. Local dev/test without the key keeps legacy open access for compatibility.
+- **Deal Duplicate / Seller Reuse Flow** - seller-owned deals can be duplicated into a new `Draft` only. The flow is owner-only, copies product terms, delivery options, and image metadata, and does not copy participants, payments, legal acceptances, notifications, outbox, invoices, settlements, attribution, or state history. Commit `d206671`.
+- **OTP Rail Provider-Ready** — DB-backed OTP rail (`otp_challenges`, `otp_delivery_attempts`) replaces the in-memory map. SMS / email channel, salted code hashes (no plaintext), 10-minute TTL, max-3 attempts → `otp_locked`, 15-minute / 5-request rate limit per destination, idempotent request reuse, log/dev provider only (no Twilio/SendGrid), test bypass disabled in production-like, signed `otp_token` (HMAC) returned at verify, join now requires verified buyer_join OTP (`otp_required` / `otp_not_verified`).
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
@@ -31,6 +33,28 @@
 - Shipping management / OMS / delivery status tracking
 - Distributor commission model
 - Seller balance / withdrawal
+
+---
+
+Current update: 2026-04-27 (OTP Rail Provider-Ready)
+
+- Completed: replaced the in-memory OTP map with a DB-backed provider-ready rail. New tables: `siton.otp_challenges` (challenge_id, channel, destination_hash, destination_display, purpose, code_hash, status, expires_at, max_attempts, attempts_count, resend_count, idempotency_key, deal_id, …) and `siton.otp_delivery_attempts` (attempt_id, challenge_id, provider, provider_mode, result_status, …). Migration `031_otp_rail.sql` plus matching `init_db.sql` definitions. CHECK constraints lock `channel` to `sms|email`, `purpose` to `buyer_join|buyer_recovery|seller_login`, `status` to `pending|verified|expired|locked|cancelled`, and `result_status` to `success|temporary_fail|permanent_fail|skipped`.
+- Completed: code is hashed at rest (HMAC-SHA-256 over `${challenge_id}:${code}` with `OTP_HASH_SALT`). Plaintext code never stored, never returned, never logged in production-like environments. Token issued at verify is a v1 signed payload (HMAC-SHA-256 over base64url-encoded JSON of `{c,d,p,v}` — challenge_id, destination_hash, purpose, verified_at) with 15-minute TTL.
+- Completed: `OtpProvider` interface + `LogOtpProvider`. `buildOtpProvider()` always returns the log provider regardless of `OTP_PROVIDER` env (Twilio/SendGrid/SMTP/WhatsApp Business not wired). `external_delivery: false`. Each delivery attempt is recorded in `otp_delivery_attempts`.
+- Completed: rate limit — ≤ 5 requests per destination_hash in 15 minutes returns 429 `otp_rate_limited`. Verify increments `attempts_count` even on a thrown error (writes go through the auto-commit pool, not a wrapping transaction). After 3 wrong codes the challenge transitions to `locked` and further attempts return 423 `otp_locked`. Expired challenges return 410 `otp_expired`. Repeat verify of an already-verified challenge re-issues the token.
+- Completed: idempotent request — same `(channel, destination_hash, purpose, deal_id)` within a 10-minute window returns the existing pending challenge instead of creating a new one.
+- Completed: new endpoints `POST /api/otp/request` and `POST /api/otp/verify` (DB-backed). Legacy `POST /api/otp/start` retained as a shim that wraps the new rail and returns `otp_session_id` (= challenge_id) and a `development_code` only in non-production-like environments. Verify accepts both `challenge_id` (new) and `otp_session_id` (legacy alias) and returns `{ verified, otp_token, buyer_id, challenge_id, … }`.
+- Completed: `POST /deals/:id/join` now requires `otp_token` or `otp_challenge_id`. The guard verifies that the referenced challenge is `verified`, has purpose `buyer_join`, is bound to the same deal (when bound at request time), and is within the verification TTL. Failures: 400 `otp_required` (missing) or 400 `otp_not_verified` (invalid/expired/wrong-purpose/wrong-deal). Join failure here happens before any deal/participant/money state mutation.
+- Completed: frontend `/app/join/:dealId/otp` flow now persists `otp_token` and `otp_challenge_id` into the buyer flow store and forwards them through `buyerFlowService.joinDeal`. Existing `start` / `verify` UX preserved; copy unchanged.
+- Completed: test-only bypass via `OTP_TEST_BYPASS_CODE` — `verifyOtpChallenge` honours the bypass only when `isProductionLikeEnv()` is false. Production-like env disables the bypass entirely (test asserts this).
+- Completed: `tests/otp_rail_validation.ts` (16/16 PASS) covers request / hashed code / delivery attempt recorded / invalid channel / invalid purpose / verify success + token / wrong code attempts / lock after max / expired rejected / rate limit / idempotent request / `ensureJoinOtpVerified` (otp_required, otp_not_verified, accepts verified) / production-like ignores bypass / HTTP-level join rejection / masked `destination_display` with no plaintext code in response.
+- Completed: existing tests updated for the new gate — `frontend_flow_validation.ts` and `notification_rail_validation.ts` now request + verify OTP and pass `otp_token` to join. `legal_trust_layer_validation.ts` does the same for the join idempotency case.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/otp_rail_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/legal_trust_layer_validation.js`; `node .tmp_test_dist/tests/notification_rail_validation.js`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`.
+- Commit: `c69af83 feat(auth): add provider-ready OTP rail`.
+- Open: real SMS provider activation behind explicit env validation, real Email provider, WhatsApp Business integration, full E.164 validation per region, deliverability monitoring dashboard, abuse heat-map, resend cooldown UX.
+- Not built: Twilio live, SendGrid live, WhatsApp Business live, full login system, buyer account profile, OTP plaintext storage.
+- Progress: `85%` of OTP Rail Provider-Ready track for the log/dev model. Real provider activation is a separate track.
+- Next step: deploy-preview smoke for OTP request → verify → join end-to-end on mobile, then evaluate provider activation criteria.
 
 ---
 
@@ -2101,3 +2125,17 @@ Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs
 - Not built: final legal advice, legal CMS, Siton shipping responsibility, marketplace, affiliate payout/commission semantics.
 - Progress: `85%` of the Trust & Legal Layer track.
 - Next step: deploy-preview smoke test for publish/join legal acceptance UX on mobile and desktop.
+
+## Current update: 2026-04-27 (Deal Duplicate / Seller Reuse Flow)
+
+- Completed: added an owner-only duplicate-deal endpoint that creates a new `Draft` from an existing seller-owned deal and never publishes automatically.
+- Completed: the duplicate flow copies product terms, delivery options, and product image metadata safely; it does not copy participants, payment attempts, legal acceptances, notification events, outbox events, invoices, settlements, attribution stats, or state history.
+- Completed: seller ownership is enforced before any draft side effect. A seller attempting to duplicate another seller's deal receives `403 seller_deal_forbidden`.
+- Completed: the seller UI now exposes `צור עסקה דומה` on closed seller deal cards and the seller deal screen, then routes the seller to the new draft with a reminder to review and approve all terms before publishing.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/deal_duplicate_validation.js`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/seller_profile_readiness_validation.js`; `node .tmp_test_dist/tests/legal_trust_layer_validation.js`; `node .tmp_test_dist/tests/deal_images_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`.
+- Checked: forbidden-drift scan over the local diff found no marketplace/search/catalog, affiliate commission/payout, withdrawal/balance, revenue-share, or seller-commission runtime drift.
+- Commit: `d206671 feat(seller): add duplicate deal draft flow`.
+- Open: saved deal templates, bulk duplication, scheduled relaunch, and any future private seller catalog remain outside this pass.
+- Not built: marketplace, public catalog/search, auto-publish, shipping management, distributor commission/payout, or admin clone.
+- Progress: `85%` of the Deal Duplicate / Seller Reuse Flow track.
+- Next step: deploy-preview smoke for duplicate draft creation from closed seller deals, then decide whether saved seller templates deserve a separate future track.
