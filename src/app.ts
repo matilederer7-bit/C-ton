@@ -233,6 +233,18 @@ async function requireSellerAuthority(req: any, c: any) {
   };
 }
 
+async function requireSellerAuthorityWithoutBody(req: any, c: any) {
+  if (IS_DEMO_PREVIEW) {
+    const sellerId = normalizeSellerId(req.headers?.["x-seller-id"]);
+    return {
+      seller_id: sellerId,
+      display_name: normalizeSellerDisplayName(req.headers?.["x-seller-display-name"], sellerId),
+      context_source: "demo_context"
+    };
+  }
+  return requireSellerAuthority(req, c);
+}
+
 type DealState =
   | "Draft"
   | "PendingTarget"
@@ -2331,6 +2343,82 @@ app.post("/deals", async (req: any) => {
     return deal;
   });
   return r;
+});
+
+app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const sourceDealId = String(req.params.dealId || "");
+  requireUuid(sourceDealId, "deal_id");
+
+  return withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+    const source = await c.query(
+      `SELECT deal_id, seller_id, title, price_per_unit, min_units, max_units
+       FROM siton.deals
+       WHERE deal_id=$1`,
+      [sourceDealId]
+    );
+    if (!source.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    const sourceDeal = source.rows[0];
+    if (normalizeSellerId(sourceDeal.seller_id) !== sellerAuthority.seller_id) {
+      const err: any = new Error("seller is not authorized for this deal");
+      err.statusCode = 403;
+      err.code = "seller_deal_forbidden";
+      throw err;
+    }
+
+    const minUnits = Math.max(1, Number(sourceDeal.min_units || 1));
+    const maxUnits = Math.max(minUnits, Number(sourceDeal.max_units || minUnits));
+    const thresholdUnits = Math.ceil(0.9 * minUnits);
+    const draftDeadline = new Date(Date.now() + DEADLINE_DEFAULT_MS).toISOString();
+    const inserted = await c.query(
+      `INSERT INTO siton.deals
+         (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, state)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,'Draft')
+       RETURNING deal_id, state`,
+      [
+        String(sourceDeal.title || ""),
+        Number(sourceDeal.price_per_unit || 0),
+        minUnits,
+        maxUnits,
+        thresholdUnits,
+        draftDeadline,
+        sellerAuthority.seller_id
+      ]
+    );
+    const newDeal = inserted.rows[0];
+
+    await c.query(
+      `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
+       SELECT $2, option_type, label, cost, sort_order
+       FROM siton.deal_delivery_options
+       WHERE deal_id=$1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [sourceDealId, newDeal.deal_id]
+    );
+
+    await c.query(
+      `INSERT INTO siton.deal_images
+         (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type,
+          size_bytes, width, height, sort_order, is_primary)
+       SELECT $2, storage_provider, storage_key, public_url, original_filename, mime_type,
+              size_bytes, width, height, sort_order, is_primary
+       FROM siton.deal_images
+       WHERE deal_id=$1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [sourceDealId, newDeal.deal_id]
+    );
+
+    return {
+      source_deal_id: sourceDealId,
+      new_deal_id: String(newDeal.deal_id),
+      state: String(newDeal.state)
+    };
+  });
 });
 
 app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {

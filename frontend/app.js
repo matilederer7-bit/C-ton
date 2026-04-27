@@ -207,7 +207,7 @@ document.addEventListener("click", (event) => {
     const action = actionTarget.getAttribute("data-inline-action");
     if (action === "restart-flow") restartFlow();
     if (action === "reset-otp") resetOtp();
-    if (action === "seller-clone") cloneSellerDeal(actionTarget.dataset.dealId);
+    if (action === "seller-clone") void cloneSellerDeal(actionTarget.dataset.dealId);
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
@@ -1055,28 +1055,20 @@ async function logoutSeller() {
   }, "היציאה מאזור המוכר נכשלה.");
 }
 
-function cloneSellerDeal(dealId) {
-  const deal = state.sellerDealPayload?.deal;
-  if (!deal || deal.deal_id !== dealId) return;
-  state.form.sellerTitle = `${deal.title} - ׳¢׳•׳×׳§`;
-  state.form.sellerDescription = "";
-  state.form.sellerImageDataUrl = "";
-  state.form.sellerImageName = "";
-  state.form.sellerPrice = String(deal.price_per_unit);
-  state.form.sellerMinUnits = String(deal.min_units);
-  state.form.sellerMaxUnits = String(deal.max_units);
-  const deliveryOptions = Array.isArray(state.sellerDealPayload?.delivery_options)
-    ? state.sellerDealPayload.delivery_options
-    : [];
-  for (let index = 0; index < 3; index += 1) {
-    const option = deliveryOptions[index];
-    const slot = index + 1;
-    state.form[`sellerDeliveryType${slot}`] = option?.option_type || (slot === 1 ? "pickup" : slot === 2 ? "delivery" : "distribution_point");
-    state.form[`sellerDeliveryLabel${slot}`] = option?.label || (slot === 1 ? "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™" : "");
-    state.form[`sellerDeliveryCost${slot}`] = option ? String(Number(option.cost || 0)) : "0";
-  }
-  state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
-  navigate("/app/seller/new");
+async function cloneSellerDeal(dealId) {
+  if (!dealId) return;
+  await busy("יוצר טיוטה דומה...", async () => {
+    const result = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/duplicate`, {
+      method: "POST"
+    });
+    state.banner = {
+      tone: "success",
+      title: "נוצרה טיוטה חדשה",
+      message: "נוצרה טיוטה חדשה על בסיס העסקה הקודמת. יש לבדוק ולאשר את כל התנאים לפני פרסום."
+    };
+    await loadSellerDeal(result.new_deal_id);
+    navigate(`/app/seller/deals/${encodeURIComponent(result.new_deal_id)}`);
+  }, "לא הצלחנו ליצור טיוטה דומה לעסקה.");
 }
 
 async function updateDelivery(form) {
@@ -2247,6 +2239,7 @@ function renderSellerDealCard(item) {
           <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”</a>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
           <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>
+          ${["Completed", "Failed", "Cancelled"].includes(item.state) ? `<button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(item.deal_id)}">צור עסקה דומה</button>` : ""}
         </div>
       </div>
     </article>
@@ -2479,7 +2472,7 @@ function renderSellerDealPage() {
         <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">׳ת׳מ׳ו׳ ׳ת ׳ה׳§׳¦׳‘ ׳מ׳ו׳ ׳ה׳ק׳י׳ב׳ו׳׳× ׳ה׳כ׳ו׳ל׳׳ת</span></div>
         <div class="actions">
           ${payload.seller_actions.can_publish ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}"><button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button></form>` : ""}
-          <button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}">׳™׳¦׳™׳¨׳× ׳˜׳™׳•׳˜׳” ׳“׳•׳׳”</button>
+          <button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}">צור עסקה דומה</button>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
         </div>
         <div class="info-strip">
