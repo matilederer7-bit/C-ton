@@ -329,6 +329,8 @@ async function main() {
         delivery_option_id: courierOption.option_id,
         buyer_terms_accepted: true,
         payment_disclosure_accepted: true,
+        otp_token: otpVerifyJson.otp_token,
+        otp_challenge_id: otpVerifyJson.challenge_id || otpVerifyJson.otp_session_id,
         delivery_address: "רחוב הבדיקה 10",
         delivery_city: "תל אביב",
         delivery_notes: "קומה 2"

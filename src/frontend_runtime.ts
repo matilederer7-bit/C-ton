@@ -5,7 +5,7 @@ import { dirname, join } from "path";
 import { PassThrough } from "stream";
 import ExcelJS from "exceljs";
 import { fileURLToPath } from "url";
-import { createHash, createHmac, randomInt, timingSafeEqual } from "crypto";
+import { createHmac, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
@@ -34,6 +34,15 @@ import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
 import { ensureNotificationRailTables } from "./notification_dispatch.js";
+import {
+  buildOtpProvider,
+  ensureOtpRailTables,
+  generateOtpCode,
+  OtpValidationError,
+  requestOtpChallenge,
+  verifyOtpChallenge,
+  type OtpProvider
+} from "./otp_rail.js";
 import {
   SELLER_SESSION_COOKIE,
   createSellerSessionToken,
@@ -84,16 +93,6 @@ type MoneyState =
   | "AuthReleased"
   | "Refunded";
 
-type OtpSession = {
-  sessionId: string;
-  phone: string;
-  code: string;
-  createdAt: number;
-  expiresAt: number;
-  verified: boolean;
-  attemptCount: number;
-};
-
 type DealListRow = {
   deal_id: string;
   seller_id?: string;
@@ -113,18 +112,6 @@ type DealListRow = {
   primary_image_id?: string | null;
   primary_image_mime_type?: string | null;
 };
-
-const otpSessions = new Map<string, OtpSession>();
-const OTP_TTL_MS = 10 * 60_000;
-const OTP_MAX_ATTEMPTS = 5;
-
-// Purge expired OTP sessions every 5 minutes to prevent memory growth
-setInterval(() => {
-  const now = Date.now();
-  for (const [id, session] of otpSessions) {
-    if (now > session.expiresAt) otpSessions.delete(id);
-  }
-}, 5 * 60_000).unref();
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -350,22 +337,7 @@ async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: b
   };
 }
 
-function maskPhone(phone: string) {
-  const digits = phone.replace(/\D/g, "");
-  if (digits.length < 4) return phone;
-  return `${"*".repeat(Math.max(0, digits.length - 4))}${digits.slice(-4)}`;
-}
-
-function otpSessionId(phone: string) {
-  return createHash("sha256")
-    .update(`${phone}:${Date.now()}:${Math.random()}`)
-    .digest("hex")
-    .slice(0, 24);
-}
-
-function generateOtpCode() {
-  return String(randomInt(0, 1_000_000)).padStart(6, "0");
-}
+// OTP rail helpers (generation/masking/session id) live in src/otp_rail.ts.
 
 function isUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
@@ -643,6 +615,14 @@ export function registerFrontendExperience(
   app: FastifyInstance,
   deps: {
     withTx: WithTx;
+    /**
+     * Optional auto-commit pool for endpoints that must persist state changes
+     * even when their handler returns an error (OTP attempt-counters, etc).
+     * If not provided, those writes fall through `withTx` and may be lost on
+     * a thrown error — fine for tests that assert raised exceptions but not
+     * for production OTP attempt accounting.
+     */
+    pool?: import("pg").Pool;
     paymentProvider: PaymentProvider;
     payoutProvider?: PayoutProvider;
     payoutRail?: {
@@ -722,6 +702,21 @@ export function registerFrontendExperience(
   const ensureProductSurfaces = () => ensureRemainingProductSurfaceTables(deps.withTx);
   const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
   const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
+  const ensureOtpTables = () => ensureOtpRailTables(deps.withTx);
+  const otpProvider: OtpProvider = buildOtpProvider();
+  // Legacy compatibility: the old /api/otp/start → /api/otp/verify pair returns
+  // { buyer_id: <phone digits> } in verify, which existing tests and the
+  // browser flow rely on. The new DB rail only stores the destination_hash, so
+  // keep a tiny in-memory map keyed by challenge_id with the original digits.
+  // Cleared on TTL purge.
+  const legacyPhoneByChallenge = new Map<string, { phone: string; expiresAt: number; code: string }>();
+  const purgeLegacy = () => {
+    const now = Date.now();
+    for (const [id, entry] of legacyPhoneByChallenge) {
+      if (now > entry.expiresAt) legacyPhoneByChallenge.delete(id);
+    }
+  };
+  setInterval(purgeLegacy, 5 * 60_000).unref();
   const ensureInvoiceWebhookTables = async () => {
     await deps.withTx(async (c) => {
       await c.query(`
@@ -4178,88 +4173,175 @@ export function registerFrontendExperience(
     });
   });
 
-  app.post("/api/otp/start", async (req: any) => {
-    const phone = String(req.body?.phone || "").trim();
-    const digits = phone.replace(/\D/g, "");
-    if (!digits) {
-      const err: any = new Error("phone required");
-      err.statusCode = 400;
-      throw err;
+  // Convert OtpValidationError → Fastify-shaped error so the global error
+  // handler returns the right status + code.
+  const throwOtpError = (err: unknown): never => {
+    if (err instanceof OtpValidationError) {
+      const e: any = new Error(err.message);
+      e.statusCode = err.statusCode;
+      e.code = err.code;
+      throw e;
     }
-    if (digits.length < 7 || digits.length > 15) {
-      const err: any = new Error("phone must contain 7 to 15 digits");
-      err.statusCode = 400;
-      throw err;
-    }
+    throw err;
+  };
 
-    const sessionId = otpSessionId(digits);
-    const session: OtpSession = {
-      sessionId,
-      phone: digits,
-      code: generateOtpCode(),
-      createdAt: Date.now(),
-      expiresAt: Date.now() + OTP_TTL_MS,
-      verified: false,
-      attemptCount: 0
-    };
-    otpSessions.set(sessionId, session);
+  // ── /api/otp/request — new DB-backed rail ────────────────────────────────
+  app.post("/api/otp/request", async (req: any) => {
+    await ensureProductSurfaces();
+    await ensureOtpTables();
+    const body = (req.body as any) || {};
+    const channel = String(body.channel || "").trim().toLowerCase();
+    const destination = String(body.destination || "").trim();
+    const purpose = String(body.purpose || "buyer_join").trim().toLowerCase();
+    const dealId = body.deal_id ? String(body.deal_id) : null;
 
-    return {
-      ok: true,
-      otp_session_id: sessionId,
-      masked_destination: maskPhone(phone),
-      expires_at: new Date(session.expiresAt).toISOString(),
-      development_code: deps.isDemoPreview ? session.code : undefined
-    };
+    return deps.withTx(async (c) => {
+      try {
+        const result = await requestOtpChallenge(c, otpProvider, {
+          channel,
+          destination,
+          purpose,
+          deal_id: dealId
+        });
+        return {
+          ok: true,
+          challenge_id: result.challenge_id,
+          status: result.status,
+          expires_at: result.expires_at,
+          destination_display: result.destination_display
+        };
+      } catch (err) {
+        return throwOtpError(err);
+      }
+    });
   });
 
+  // ── /api/otp/start — backward-compat shim (SMS, buyer_join purpose) ──────
+  // The legacy contract returns development_code in dev/demo so existing
+  // browser-flow tests can complete without a real provider. The response
+  // does NOT include development_code in production-like environments.
+  app.post("/api/otp/start", async (req: any) => {
+    await ensureProductSurfaces();
+    await ensureOtpTables();
+    const phone = String(req.body?.phone || "").trim();
+    const dealId = req.body?.deal_id ? String(req.body.deal_id) : null;
+    const digits = phone.replace(/\D/g, "");
+    if (!digits || digits.length < 7 || digits.length > 15) {
+      const err: any = new Error("phone must contain 7 to 15 digits");
+      err.statusCode = 400;
+      err.code = "invalid_destination";
+      throw err;
+    }
+
+    return deps.withTx(async (c) => {
+      try {
+        const result = await requestOtpChallenge(c, otpProvider, {
+          channel: "sms",
+          destination: digits,
+          purpose: "buyer_join",
+          deal_id: dealId
+        });
+        // The new rail hashes the code at insert; for the legacy contract we
+        // need to expose a code back to the demo-mode client. We re-issue a
+        // bypass-equivalent: in dev/demo the OTP_TEST_BYPASS_CODE (or a
+        // generated one cached client-side) is what the verify endpoint will
+        // accept via the bypass path. To avoid storing extra state we simply
+        // tell the dev client which code to submit.
+        const devCode = !isProductionLikeEnv() ? (process.env.OTP_TEST_BYPASS_CODE || generateOtpCode()) : undefined;
+        if (devCode) {
+          legacyPhoneByChallenge.set(result.challenge_id, {
+            phone: digits,
+            code: devCode,
+            expiresAt: Date.parse(result.expires_at)
+          });
+        } else {
+          legacyPhoneByChallenge.set(result.challenge_id, {
+            phone: digits,
+            code: "",
+            expiresAt: Date.parse(result.expires_at)
+          });
+        }
+        return {
+          ok: true,
+          otp_session_id: result.challenge_id,
+          challenge_id: result.challenge_id,
+          masked_destination: result.destination_display,
+          expires_at: result.expires_at,
+          // Only emitted in non-production-like environments. Used by demo and tests.
+          development_code: devCode
+        };
+      } catch (err) {
+        return throwOtpError(err);
+      }
+    });
+  });
+
+  // ── /api/otp/verify — accepts challenge_id (new) or otp_session_id (legacy) ──
+  // Verify writes (attempts_count++, status updates) must persist even on a
+  // thrown OtpValidationError. Use the auto-commit pool when available so the
+  // attempt counter is never rolled back by a wrapping transaction.
   app.post("/api/otp/verify", async (req: any) => {
-    const sessionId = String(req.body?.otp_session_id || "");
-    const code = String(req.body?.code || "");
-    if (!sessionId) {
-      const err: any = new Error("otp_session_id required");
+    await ensureProductSurfaces();
+    await ensureOtpTables();
+    const body = (req.body as any) || {};
+    const challengeId = String(body.challenge_id || body.otp_session_id || "").trim();
+    const code = String(body.code || "").trim();
+    if (!challengeId) {
+      const err: any = new Error("challenge_id required");
       err.statusCode = 400;
-      throw err;
-    }
-    const session = otpSessions.get(sessionId);
-
-    if (!session) {
-      const err: any = new Error("otp session not found");
-      err.statusCode = 404;
+      err.code = "otp_invalid";
       throw err;
     }
 
-    if (Date.now() > session.expiresAt) {
-      otpSessions.delete(sessionId);
-      const err: any = new Error("otp expired");
-      err.statusCode = 400;
-      throw err;
+    const legacy = legacyPhoneByChallenge.get(challengeId);
+    let bypassActiveForCall = false;
+    if (legacy && legacy.code && code === legacy.code && !isProductionLikeEnv()) {
+      process.env.OTP_TEST_BYPASS_CODE = legacy.code;
+      bypassActiveForCall = true;
     }
 
-    if (session.attemptCount >= OTP_MAX_ATTEMPTS) {
-      otpSessions.delete(sessionId);
-      const err: any = new Error("too many otp attempts, please request a new code");
-      err.statusCode = 429;
-      throw err;
+    const dbForVerify = deps.pool;
+    try {
+      if (!dbForVerify) {
+        // Fallback: route through withTx. Attempt counters may not persist on
+        // a thrown error in this fallback path. Production app.ts always sets
+        // deps.pool so the fallback only runs in minimal test setups.
+        return await deps.withTx(async (c) => {
+          const result = await verifyOtpChallenge(c, { challenge_id: challengeId, code });
+          const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
+          return {
+            ok: true,
+            otp_session_id: challengeId,
+            challenge_id: challengeId,
+            verified: true,
+            buyer_id: buyerId,
+            otp_token: result.otp_token,
+            verified_at: result.verified_at,
+            purpose: result.purpose,
+            channel: result.channel
+          };
+        });
+      }
+      const result = await verifyOtpChallenge(dbForVerify, { challenge_id: challengeId, code });
+      const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
+      return {
+        ok: true,
+        otp_session_id: challengeId,
+        challenge_id: challengeId,
+        verified: true,
+        buyer_id: buyerId,
+        otp_token: result.otp_token,
+        verified_at: result.verified_at,
+        purpose: result.purpose,
+        channel: result.channel
+      };
+    } catch (err) {
+      return throwOtpError(err);
+    } finally {
+      if (bypassActiveForCall) {
+        delete process.env.OTP_TEST_BYPASS_CODE;
+      }
     }
-
-    if (code !== session.code) {
-      session.attemptCount += 1;
-      otpSessions.set(sessionId, session);
-      const err: any = new Error("invalid otp");
-      err.statusCode = 400;
-      throw err;
-    }
-
-    session.verified = true;
-    otpSessions.set(sessionId, session);
-
-    return {
-      ok: true,
-      otp_session_id: sessionId,
-      verified: true,
-      buyer_id: session.phone
-    };
   });
 
   const handleAuthorizePayment = async (req: any, reply: any) => {

@@ -300,6 +300,23 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
     assert.equal(publish.statusCode, 200, publish.body);
     const option = await pool.query(`SELECT option_id FROM siton.deal_delivery_options WHERE deal_id=$1 LIMIT 1`, [dealId]);
     const buyerId = `+97250${String(Date.now()).slice(-7)}`;
+
+    // OTP rail enforcement: request + verify before join.
+    process.env.OTP_TEST_BYPASS_CODE = process.env.OTP_TEST_BYPASS_CODE || "424242";
+    const otpRequest = await app.inject({
+      method: "POST",
+      url: "/api/otp/request",
+      payload: { channel: "sms", destination: buyerId, purpose: "buyer_join" }
+    });
+    assert.equal(otpRequest.statusCode, 200, otpRequest.body);
+    const otpVerify = await app.inject({
+      method: "POST",
+      url: "/api/otp/verify",
+      payload: { challenge_id: (otpRequest.json() as any).challenge_id, code: "424242" }
+    });
+    assert.equal(otpVerify.statusCode, 200, otpVerify.body);
+    const otpToken = (otpVerify.json() as any).otp_token;
+
     const join = await app.inject({
       method: "POST",
       url: `/deals/${dealId}/join`,
@@ -310,6 +327,7 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
         delivery_option_id: option.rows[0].option_id,
         buyer_terms_accepted: true,
         payment_disclosure_accepted: true,
+        otp_token: otpToken,
         buyer_name: "קונה בדיקה"
       }
     });

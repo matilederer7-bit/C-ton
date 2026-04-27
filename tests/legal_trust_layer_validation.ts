@@ -6,6 +6,12 @@ import pg from "pg";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.PORT = process.env.PORT || "3461";
+// OTP rail enforcement: join now requires a verified OTP. Use bypass code in tests.
+process.env.OTP_TEST_BYPASS_CODE = process.env.OTP_TEST_BYPASS_CODE || "424242";
+delete process.env.NODE_ENV;
+delete process.env.APP_ENV;
+delete process.env.RENDER;
+delete process.env.RENDER_EXTERNAL_URL;
 
 const { app } = await import("../src/app.js");
 import {
@@ -164,6 +170,23 @@ await run("buyer join with terms persists join and payment disclosure acceptance
     await publishDeal(dealId, sellerId);
     const option = await pool.query(`SELECT option_id FROM siton.deal_delivery_options WHERE deal_id=$1 LIMIT 1`, [dealId]);
     const buyerId = `+97250${String(Date.now()).slice(-7)}`;
+
+    // OTP rail: request + verify so join carries a valid otp_token.
+    const otpRequest = await app.inject({
+      method: "POST",
+      url: "/api/otp/request",
+      payload: { channel: "sms", destination: buyerId, purpose: "buyer_join" }
+    });
+    assert.equal(otpRequest.statusCode, 200, otpRequest.body);
+    const challengeId = (otpRequest.json() as any).challenge_id;
+    const otpVerify = await app.inject({
+      method: "POST",
+      url: "/api/otp/verify",
+      payload: { challenge_id: challengeId, code: "424242" }
+    });
+    assert.equal(otpVerify.statusCode, 200, otpVerify.body);
+    const otpToken = (otpVerify.json() as any).otp_token;
+
     const headers = {
       "x-request-id": `legal-join-${dealId}`,
       "idempotency-key": `legal-join-${dealId}:${buyerId}`
@@ -173,7 +196,9 @@ await run("buyer join with terms persists join and payment disclosure acceptance
       qty: 1,
       delivery_option_id: option.rows[0].option_id,
       buyer_terms_accepted: true,
-      payment_disclosure_accepted: true
+      payment_disclosure_accepted: true,
+      otp_token: otpToken,
+      otp_challenge_id: challengeId
     };
     const first = await app.inject({ method: "POST", url: `/deals/${dealId}/join`, headers, payload });
     const second = await app.inject({ method: "POST", url: `/deals/${dealId}/join`, headers, payload });

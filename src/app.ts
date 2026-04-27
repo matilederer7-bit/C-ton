@@ -26,6 +26,7 @@ import {
   type InvoiceProvider
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
+import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
@@ -2650,6 +2651,26 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   }
   const qty = qtyRaw;
 
+  const otpToken = body.otp_token ? String(body.otp_token) : null;
+  const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
+  try {
+    await withTx(async (c) => {
+      await ensureJoinOtpVerified(c, {
+        otp_token: otpToken,
+        otp_challenge_id: otpChallengeId,
+        deal_id: dealId
+      });
+    });
+  } catch (err: any) {
+    if (err instanceof OtpValidationError) {
+      const e: any = new Error(err.message);
+      e.statusCode = err.statusCode;
+      e.code = err.code;
+      throw e;
+    }
+    throw err;
+  }
+
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   // Idempotency key is per-request, not per-buyer — ensures each purchase attempt has a unique key
   const idem = req.headers["idempotency-key"]
@@ -3156,6 +3177,7 @@ const invoiceProvider = buildInvoiceProvider();
 const platformFeeMoney = buildPlatformFeeMoney({ withTx });
 registerFrontendExperience(app, {
   withTx,
+  pool,
   paymentProvider,
   payoutProvider,
   payoutRail,
@@ -3179,6 +3201,7 @@ let workerRunning = false;
   await ensureInvoiceRailTables(withTx);
   await ensureNotificationRailTables(withTx);
   await ensureLegalAcceptanceTables(withTx);
+  await ensureOtpRailTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;
