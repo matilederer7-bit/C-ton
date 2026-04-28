@@ -2,6 +2,17 @@
 
 ---
 
+Current update: 2026-04-28 (Concurrency Proof OTP Refit)
+
+- Completed: aligned `tests/concurrency_proof.ts` to the OTP + legal-acceptance join gate. Added a once-per-suite OTP start/verify setup block that issues `SUITE_OTP_TOKEN` + `SUITE_OTP_CHALLENGE_ID`; the `join()` helper now forwards `buyer_terms_accepted`, `payment_disclosure_accepted`, `otp_token`, and `otp_challenge_id`. Cleanup helpers (`deleteDeal`, pre-run stale-deal loop) now also delete from `siton.legal_acceptances`. Concurrency is still proved at the DB locking layer; OTP gates run before the lock and a single verified token is reused within its 15-minute TTL.
+- Checked: all 14 Wave 1 proof scenarios passed — S1–S7 (oversell/concurrency), I1–I3 (idempotency), M1–M3 (multi-purchase), CONSISTENCY (no DB residue). No product code changed.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json`; `concurrency_proof`; `frontend_flow_validation` (16/16); `otp_rail_validation` (16/16); `otp_runtime_guard_validation` (2/2); `spec_drift_regression_wave3_validation` (13/13).
+- Open: deploy-preview smoke, real-device mobile QA, browser visual QA.
+- Progress: `91%` overall platform QA coverage.
+- Next step: deploy-preview smoke on mobile and desktop covering the full buyer and seller flows.
+
+---
+
 Current update: 2026-04-28 (Admin Mission Control)
 
 - Completed: built a central, admin-key-gated `GET /api/admin/mission-control` read-only snapshot for operational control. It aggregates system status, exception cards, Admin Omnisearch, exceptional deals, seller KYC queue, payouts/settlements oversight, support tickets, audit/forensics, deal state counts, and explicit admin action policy.

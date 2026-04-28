@@ -32,6 +32,35 @@ const DB = new Pool({
 
 const SELLER = "seller-test-proof";
 
+// ─── once-per-suite OTP setup ───────────────────────────────────────────────
+// Legal-acceptance + OTP gates run BEFORE the DB lock, so a single verified,
+// unbound challenge (no deal_id) can be reused across all scenarios within the
+// 15-minute verified-token TTL. Concurrency is still proved at the DB locking
+// layer of the join endpoint.
+const otpStartRes = await app.inject({
+  method: "POST",
+  url: "/api/otp/start",
+  payload: { phone: `0501${String(Date.now()).slice(-7)}` }
+});
+if (otpStartRes.statusCode !== 200) {
+  throw new Error(`OTP start failed for concurrency suite setup: ${otpStartRes.statusCode} ${otpStartRes.body}`);
+}
+const otpStartJson = otpStartRes.json() as any;
+const otpVerifyRes = await app.inject({
+  method: "POST",
+  url: "/api/otp/verify",
+  payload: { otp_session_id: otpStartJson.otp_session_id, code: otpStartJson.development_code }
+});
+if (otpVerifyRes.statusCode !== 200) {
+  throw new Error(`OTP verify failed for concurrency suite setup: ${otpVerifyRes.statusCode} ${otpVerifyRes.body}`);
+}
+const otpVerifyJson = otpVerifyRes.json() as any;
+const SUITE_OTP_TOKEN = String(otpVerifyJson.otp_token || "");
+const SUITE_OTP_CHALLENGE_ID = String(otpVerifyJson.challenge_id || otpVerifyJson.otp_session_id || otpStartJson.otp_session_id);
+if (!SUITE_OTP_TOKEN || !SUITE_OTP_CHALLENGE_ID) {
+  throw new Error("concurrency suite did not receive otp_token + challenge_id from verify");
+}
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 async function createDeal(maxUnits: number, label: string): Promise<string> {
@@ -47,6 +76,7 @@ async function createDeal(maxUnits: number, label: string): Promise<string> {
 
 async function deleteDeal(dealId: string) {
   // audit_log has an append-only trigger — cannot delete rows. Rows are left orphaned after cleanup.
+  await DB.query(`DELETE FROM siton.legal_acceptances WHERE deal_id=$1`, [dealId]);
   await DB.query(`DELETE FROM siton.idempotency_log WHERE entity_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1)`, [dealId]);
   await DB.query(`DELETE FROM siton.participants WHERE deal_id=$1`, [dealId]);
   await DB.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
@@ -88,7 +118,14 @@ async function join(dealId: string, buyerId: string, qty = 1, idemKey?: string) 
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
-    payload: { buyer_id: buyerId, qty },
+    payload: {
+      buyer_id: buyerId,
+      qty,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: SUITE_OTP_TOKEN,
+      otp_challenge_id: SUITE_OTP_CHALLENGE_ID
+    },
     headers
   });
   return { status: res.statusCode, body: JSON.parse(res.body) };
@@ -120,6 +157,7 @@ async function run(name: string, fn: () => Promise<void>) {
     `SELECT deal_id FROM siton.deals WHERE seller_id=$1`, [SELLER]
   );
   for (const row of staleDeals.rows) {
+    await DB.query(`DELETE FROM siton.legal_acceptances WHERE deal_id=$1`, [row.deal_id]);
     await DB.query(`DELETE FROM siton.idempotency_log WHERE entity_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1)`, [row.deal_id]);
     await DB.query(`DELETE FROM siton.participants WHERE deal_id=$1`, [row.deal_id]);
     await DB.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [row.deal_id]);
