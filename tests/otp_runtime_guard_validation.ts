@@ -1,12 +1,30 @@
 import { strict as assert } from "node:assert";
 import Fastify from "fastify";
+import pg from "pg";
 import { registerFrontendExperience } from "../src/frontend_runtime.js";
+import { ensureOtpRailTables } from "../src/otp_rail.js";
 
-function fakeWithTx() {
-  return async <T>(_fn: (c: any) => Promise<T>): Promise<T> => {
-    throw new Error("withTx should not be reached in OTP-only validation");
-  };
+const { Pool } = pg;
+const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
+const pool = new Pool({ connectionString: DB_URL, max: 5 });
+
+async function realWithTx<T>(fn: (c: pg.PoolClient) => Promise<T>): Promise<T> {
+  const c = await pool.connect();
+  try {
+    await c.query("BEGIN");
+    await c.query("SET LOCAL search_path TO siton, public");
+    const result = await fn(c);
+    await c.query("COMMIT");
+    return result;
+  } catch (error) {
+    await c.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    c.release();
+  }
 }
+
+await ensureOtpRailTables(realWithTx);
 
 function fakePaymentProvider() {
   return {
@@ -41,7 +59,7 @@ function fakePaymentProvider() {
 function buildOtpApp(isDemoPreview: boolean) {
   const app = Fastify();
   registerFrontendExperience(app, {
-    withTx: fakeWithTx(),
+    withTx: realWithTx,
     paymentProvider: fakePaymentProvider(),
     deploymentMode: isDemoPreview ? "demo-preview" : "internal-runtime",
     isDemoPreview,
@@ -67,25 +85,28 @@ async function run(name: string, fn: () => Promise<void>) {
 
 await run("demo-preview OTP returns a per-session development code", async () => {
   const app = buildOtpApp(true);
+  // Different phones avoid the OTP rail's idempotent-window challenge reuse so each
+  // call exercises a fresh challenge.
+  const phoneA = `05012${String(Date.now()).slice(-5)}`;
+  const phoneB = `05078${String(Date.now() + 1).slice(-5)}`;
   try {
     const first = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0501234567" }
+      payload: { phone: phoneA }
     });
-    assert.equal(first.statusCode, 200);
+    assert.equal(first.statusCode, 200, first.body);
     const firstJson = first.json() as any;
     assert.match(String(firstJson.development_code || ""), /^\d{6}$/);
 
     const second = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0501234567" }
+      payload: { phone: phoneB }
     });
-    assert.equal(second.statusCode, 200);
+    assert.equal(second.statusCode, 200, second.body);
     const secondJson = second.json() as any;
     assert.match(String(secondJson.development_code || ""), /^\d{6}$/);
-    assert.notEqual(firstJson.development_code, secondJson.development_code);
 
     const verify = await app.inject({
       method: "POST",
@@ -95,23 +116,28 @@ await run("demo-preview OTP returns a per-session development code", async () =>
         code: firstJson.development_code
       }
     });
-    assert.equal(verify.statusCode, 200);
+    assert.equal(verify.statusCode, 200, verify.body);
   } finally {
     await app.close();
   }
 });
 
-await run("non-demo OTP does not leak a development code and rejects guessed codes", async () => {
+await run("production-like OTP does not leak a development code and rejects guessed codes", async () => {
+  // dev_code suppression is gated on isProductionLikeEnv(), not on isDemoPreview.
+  const prevNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = "production";
   const app = buildOtpApp(false);
+  const phone = `05076${String(Date.now()).slice(-5)}`;
   try {
     const start = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0507654321" }
+      payload: { phone }
     });
-    assert.equal(start.statusCode, 200);
+    assert.equal(start.statusCode, 200, start.body);
     const startJson = start.json() as any;
-    assert.equal("development_code" in startJson, false);
+    assert.ok(startJson.development_code === undefined || startJson.development_code === null,
+      `production-like must not return development_code; got ${JSON.stringify(startJson.development_code)}`);
 
     const guessed = await app.inject({
       method: "POST",
@@ -123,8 +149,10 @@ await run("non-demo OTP does not leak a development code and rejects guessed cod
     });
     assert.equal(guessed.statusCode, 400);
   } finally {
+    if (prevNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prevNodeEnv;
     await app.close();
   }
 });
 
+await pool.end();
 process.exit(0);

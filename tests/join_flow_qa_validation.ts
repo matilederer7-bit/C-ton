@@ -111,41 +111,52 @@ await run("qty=1.5 (non-integer) returns 400", async () => {
 
 await run("auto-generated idempotency keys differ between requests for same buyer", async () => {
   const fakeUuid = "00000000-0000-0000-0000-000000000010";
-  // We cannot verify DB behavior without a DB, but we can verify the key logic
-  // by checking that the same buyer hitting the endpoint twice (no explicit header)
-  // does NOT share an idempotency key — i.e. both will attempt a fresh INSERT
-  // (they will fail with 5xx on no-DB, which is expected and fine).
-  const res1 = await app.inject({
-    method: "POST",
-    url: `/deals/${fakeUuid}/join`,
-    payload: { buyer_id: "buyer-idem-test", qty: 1 }
-    // No idempotency-key header → auto-generated as join:{dealId}:{buyer_id}:{requestId}
-  });
-  const res2 = await app.inject({
-    method: "POST",
-    url: `/deals/${fakeUuid}/join`,
-    payload: { buyer_id: "buyer-idem-test", qty: 1 }
-    // Second call — different requestId → different auto-key
-  });
-  // Both should reach DB (5xx expected on no-DB), but must NOT be short-circuited by
-  // a shared idempotency key before DB. Since both are 5xx without DB, we just confirm
-  // neither is a 400 from input validation (which would indicate a logic mis-fire).
-  assert.notEqual(res1.statusCode, 400, "first request should pass input validation");
-  assert.notEqual(res2.statusCode, 400, "second request should pass input validation");
+  // Field validation now includes legal acceptance + OTP gates. With those satisfied
+  // (or surfaced as OTP-gate 400), the response must not surface a field-level error
+  // (buyer_id / buyer_terms / payment_disclosure / qty). Reaching the OTP gate or DB
+  // proves the auto-generated idempotency key logic did not short-circuit on a key
+  // collision.
+  const fieldErrors = new Set([
+    "buyer_id_required",
+    "buyer_terms_required",
+    "payment_disclosure_required"
+  ]);
+  const payload = {
+    buyer_id: "buyer-idem-test",
+    qty: 1,
+    buyer_terms_accepted: true,
+    payment_disclosure_accepted: true
+  };
+  const res1 = await app.inject({ method: "POST", url: `/deals/${fakeUuid}/join`, payload });
+  const res2 = await app.inject({ method: "POST", url: `/deals/${fakeUuid}/join`, payload });
+  for (const res of [res1, res2]) {
+    if (res.statusCode === 400) {
+      const body = (() => { try { return JSON.parse(res.body); } catch { return {}; } })();
+      assert.ok(!fieldErrors.has(String(body.code || "")), `field-level error leaked: ${res.body}`);
+    }
+  }
 });
 
 await run("explicit idempotency-key header is respected as-is", async () => {
   const fakeUuid = "00000000-0000-0000-0000-000000000011";
   // With an explicit header the server must use it (not suffix with requestId).
-  // We verify by checking the request reaches DB (not short-circuited at validation).
+  // We verify by checking the request reaches the OTP gate or DB (not short-circuited at field validation).
   const res = await app.inject({
     method: "POST",
     url: `/deals/${fakeUuid}/join`,
-    payload: { buyer_id: "buyer-explicit-idem", qty: 1 },
+    payload: {
+      buyer_id: "buyer-explicit-idem",
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
+    },
     headers: { "idempotency-key": "my-explicit-key-abc" }
   });
-  // Should reach DB and fail with 5xx (no DB), not a 400 from input guards
-  assert.notEqual(res.statusCode, 400, "explicit idempotency key should not trigger input validation error");
+  if (res.statusCode === 400) {
+    const body = (() => { try { return JSON.parse(res.body); } catch { return {}; } })();
+    const fieldErrors = new Set(["buyer_id_required", "buyer_terms_required", "payment_disclosure_required"]);
+    assert.ok(!fieldErrors.has(String(body.code || "")), `field-level error leaked: ${res.body}`);
+  }
 });
 
 // ---------------------------------------------------------------------------
