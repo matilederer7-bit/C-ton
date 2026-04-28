@@ -32,6 +32,29 @@ await run("seller workspace is grouped around urgency, drafts, and closed deals"
   assert.match(appJs, /seller-board-section/);
 });
 
+await run("seller analytics dashboard surface is present and constitution-safe", async () => {
+  assert.match(appJs, /function renderSellerAnalyticsSection\(\)/);
+  assert.match(appJs, /ביצועי המוכר/);
+  assert.match(appJs, /נטו למוכר/);
+  assert.match(appJs, /עמלת סיטון/);
+  assert.match(appJs, /נתוני ייחוס בלבד/);
+  assert.match(appJs, /טוען את ביצועי המוכר/);
+  assert.match(appJs, /לא הצלחנו לטעון את ביצועי המוכר כרגע/);
+  assert.match(appJs, /עדיין אין נתוני ביצועים/);
+  assert.match(appJs, /הכל/);
+  assert.match(appJs, /30 ימים/);
+  assert.match(appJs, /90 ימים/);
+  assert.match(appJs, /שנה/);
+  assert.match(appJs, /\/api\/seller\/analytics\?period=/);
+  assert.match(stylesCss, /\.seller-analytics-kpis/);
+  assert.match(stylesCss, /\.seller-analytics-grid/);
+  const analyticsSection = appJs.slice(
+    appJs.indexOf("function renderSellerAnalyticsSection()"),
+    appJs.indexOf("function renderSellerAnalyticsPeriodSelector")
+  );
+  assert.doesNotMatch(analyticsSection, /commission|payout|withdrawal|balance|revenue share/i);
+});
+
 await run("seller deal page exposes a clearer operational control summary", async () => {
   assert.match(appJs, /function renderSellerDealPage\(\)/);
   assert.match(appJs, /summarizeSellerParticipants/);

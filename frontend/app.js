@@ -19,6 +19,10 @@ const state = {
   dealPayload: null,
   trackingPayload: null,
   sellerPayload: null,
+  sellerAnalyticsPayload: null,
+  sellerAnalyticsPeriod: "all",
+  sellerAnalyticsLoading: false,
+  sellerAnalyticsError: null,
   sellerDealPayload: null,
   affiliatePayload: null,
   adminPayload: null,
@@ -211,6 +215,7 @@ document.addEventListener("click", (event) => {
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
+    if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
     if (action === "clear-product-image") clearSellerProductImage();
   }
 });
@@ -459,7 +464,26 @@ async function loadSeller() {
         state.form.sellerBizId = p.business_identifier || '';
       }
     } catch (_) { /* profile fetch failure is non-fatal */ }
+    await loadSellerAnalytics(state.sellerAnalyticsPeriod || "all", false);
   }, 'לא הצלחנו לטעון את אזור המוכר.');
+}
+
+async function loadSellerAnalytics(period = "all", shouldRender = true) {
+  const allowed = new Set(["all", "30d", "90d", "year"]);
+  const normalizedPeriod = allowed.has(period) ? period : "all";
+  state.sellerAnalyticsPeriod = normalizedPeriod;
+  state.sellerAnalyticsLoading = true;
+  state.sellerAnalyticsError = null;
+  if (shouldRender) render();
+  try {
+    state.sellerAnalyticsPayload = await api(`/api/seller/analytics?period=${encodeURIComponent(normalizedPeriod)}`);
+  } catch (err) {
+    state.sellerAnalyticsPayload = null;
+    state.sellerAnalyticsError = err;
+  } finally {
+    state.sellerAnalyticsLoading = false;
+    if (shouldRender) render();
+  }
 }
 
 async function saveSellerProfile(form) {
@@ -2172,6 +2196,7 @@ function renderSellerPage() {
         <div class="summary-item"><span class="muted">׳›׳׳ ׳”׳¢׳¨׳™׳›׳”</span><strong>׳¢׳¨׳™׳›׳” ׳׳׳׳” ׳¨׳§ ׳‘׳˜׳™׳•׳˜׳”</strong><p class="small muted">׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳, ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨ ׳”׳•׳₪׳›׳™׳ ׳׳׳§׳•׳¨ ׳”׳׳׳× ׳”׳₪׳¢׳™׳ ׳©׳ ׳”׳¢׳¡׳§׳”.</p></div>
       </aside>
     </section>
+    ${renderSellerAnalyticsSection()}
     <section class="card section stack">
       <div class="section-header">
         <div class="stack compact compact-section">
@@ -2198,6 +2223,208 @@ function renderSellerPage() {
     </section>
     ${renderSellerProfileSection()}
   `;
+}
+
+function renderSellerAnalyticsSection() {
+  const analytics = state.sellerAnalyticsPayload;
+  const period = state.sellerAnalyticsPeriod || analytics?.period || "all";
+  const periods = [
+    ["all", "הכל"],
+    ["30d", "30 ימים"],
+    ["90d", "90 ימים"],
+    ["year", "שנה"]
+  ];
+  if (state.sellerAnalyticsLoading && !analytics) {
+    return `
+      <section class="card section stack seller-analytics-section" aria-live="polite">
+        <div class="section-header">
+          <div class="stack compact compact-section">
+            <h2>ביצועי המוכר</h2>
+            <p class="muted section-intro">טוען את ביצועי המוכר...</p>
+          </div>
+        </div>
+      </section>
+    `;
+  }
+  if (state.sellerAnalyticsError && !analytics) {
+    return `
+      <section class="card section stack seller-analytics-section" aria-live="polite">
+        <div class="section-header">
+          <div class="stack compact compact-section">
+            <h2>ביצועי המוכר</h2>
+            <p class="muted section-intro">לא הצלחנו לטעון את ביצועי המוכר כרגע.</p>
+          </div>
+          ${renderSellerAnalyticsPeriodSelector(period, periods)}
+        </div>
+      </section>
+    `;
+  }
+  if (!analytics) {
+    return `
+      <section class="card section stack seller-analytics-section">
+        <div class="section-header">
+          <div class="stack compact compact-section">
+            <h2>ביצועי המוכר</h2>
+            <p class="muted section-intro">עדיין אין נתוני ביצועים. לאחר פתיחת עסקאות והצטרפות קונים, הנתונים יופיעו כאן.</p>
+          </div>
+          ${renderSellerAnalyticsPeriodSelector(period, periods)}
+        </div>
+      </section>
+    `;
+  }
+  const summary = analytics.summary || {};
+  const money = analytics.money || {};
+  const topDeals = Array.isArray(analytics.top_deals) ? analytics.top_deals.slice(0, 5) : [];
+  const weakDeals = Array.isArray(analytics.weak_deals) ? analytics.weak_deals.slice(0, 5) : [];
+  const funnel = analytics.buyer_funnel || {};
+  const attribution = analytics.attribution || {};
+  const insights = Array.isArray(analytics.action_insights) ? analytics.action_insights.slice(0, 6) : [];
+  const hasPerformanceData = Number(summary.total_deals || 0) > 0 || Number(summary.total_buyers || 0) > 0;
+  return `
+    <section class="card section stack seller-analytics-section" aria-live="polite">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <span class="eyebrow">ביצועי המוכר</span>
+          <h2>ביצועי המוכר</h2>
+          <p class="muted section-intro">עודכן לאחרונה: ${dt(analytics.generated_at)}</p>
+        </div>
+        ${renderSellerAnalyticsPeriodSelector(period, periods)}
+      </div>
+      ${state.sellerAnalyticsError ? `<div class="error-card"><strong>לא הצלחנו לטעון את ביצועי המוכר כרגע.</strong><p class="small muted">הנתונים האחרונים שמורים כאן עד לרענון הבא.</p></div>` : ""}
+      ${!hasPerformanceData ? `<div class="empty-surface stack"><strong>עדיין אין נתוני ביצועים.</strong><p class="small muted">לאחר פתיחת עסקאות והצטרפות קונים, הנתונים יופיעו כאן.</p></div>` : ""}
+      <div class="seller-analytics-kpis">
+        <div class="kpi-card success"><span class="muted">עסקאות שהושלמו</span><strong>${num(summary.completed_deals)}</strong></div>
+        <div class="kpi-card strong"><span class="muted">עסקאות פעילות</span><strong>${num(summary.active_deals)}</strong></div>
+        <div class="kpi-card"><span class="muted">שיעור הצלחה</span><strong>${percent(summary.success_rate_percent)}</strong></div>
+        <div class="kpi-card"><span class="muted">ברוטו שנגבה</span><strong>${currency(summary.gross_collected_total)}</strong></div>
+        <div class="kpi-card success"><span class="muted">נטו למוכר</span><strong>${currency(summary.seller_net_total)}</strong></div>
+        <div class="kpi-card"><span class="muted">קונים</span><strong>${num(summary.total_buyers)}</strong></div>
+        <div class="kpi-card"><span class="muted">יחידות שחויבו</span><strong>${num(summary.total_charged_units)}</strong></div>
+      </div>
+      <div class="seller-analytics-grid">
+        <article class="summary-item seller-analytics-money">
+          <h3>פירוט כסף</h3>
+          <div class="table-like">
+            <div class="table-row"><div class="table-cell"><span class="muted">ברוטו</span><strong>${currency(money.gross_collected_total)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${currency(money.seller_net_total)}</strong></div></div>
+            <div class="table-row"><div class="table-cell"><span class="muted">עמלת סיטון</span><strong>${currency(money.platform_fee_base_total)}</strong></div><div class="table-cell"><span class="muted">מע"מ על עמלת סיטון</span><strong>${currency(money.platform_fee_vat_total)}</strong></div></div>
+          </div>
+        </article>
+        <article class="summary-item">
+          <h3>משפך קונים</h3>
+          <div class="pill-row analytics-pill-row">
+            <span class="stat-pill"><span>הצטרפו ותפסו מסגרת</span><strong>${num(funnel.joined_authorized)}</strong></span>
+            <span class="stat-pill"><span>חויבו בהצלחה</span><strong>${num(funnel.charged_successfully)}</strong></span>
+            <span class="stat-pill"><span>הושלמו לאחר עדכון אמצעי תשלום</span><strong>${num(funnel.recovered)}</strong></span>
+            <span class="stat-pill"><span>נפלו או לא השלימו</span><strong>${num(funnel.dropped)}</strong></span>
+            <span class="stat-pill"><span>עסקאות שנכשלו</span><strong>${num(funnel.deal_failed)}</strong></span>
+          </div>
+        </article>
+      </div>
+      <div class="seller-analytics-grid">
+        <article class="summary-item">
+          <h3>עסקאות מובילות</h3>
+          ${topDeals.length ? `<div class="table-like">${topDeals.map(renderSellerAnalyticsTopDeal).join("")}</div>` : `<p class="small muted">אין עדיין עסקאות מובילות להצגה.</p>`}
+        </article>
+        <article class="summary-item">
+          <h3>עסקאות שדורשות תשומת לב</h3>
+          ${weakDeals.length ? `<div class="table-like">${weakDeals.map(renderSellerAnalyticsWeakDeal).join("")}</div>` : `<p class="small muted">אין עסקאות שדורשות תשומת לב כרגע.</p>`}
+        </article>
+      </div>
+      <div class="seller-analytics-grid">
+        <article class="summary-item">
+          <h3>נתוני ייחוס בלבד</h3>
+          <p class="small muted">${esc(attribution.disclaimer_he || "נתוני ייחוס בלבד. סיטון אינה מחשבת עמלה ואינה מבצעת תשלום למפיצים.")}</p>
+          <div class="summary-grid">
+            <div class="summary-item"><span class="muted">מספר לינקים</span><strong>${num(attribution.links_count)}</strong></div>
+            <div class="summary-item"><span class="muted">יחידות מיוחסות</span><strong>${num(attribution.attributed_units)}</strong></div>
+            <div class="summary-item"><span class="muted">ברוטו מיוחס</span><strong>${currency(attribution.attributed_gross)}</strong></div>
+          </div>
+          ${Array.isArray(attribution.top_links) && attribution.top_links.length ? `<div class="table-like">${attribution.top_links.slice(0, 5).map(renderSellerAnalyticsAttributionLink).join("")}</div>` : ""}
+        </article>
+        <article class="summary-item">
+          <h3>פעולות מומלצות</h3>
+          ${insights.length ? `<div class="status-rail">${insights.map(renderSellerAnalyticsInsight).join("")}</div>` : `<p class="small muted">אין פעולות דחופות כרגע.</p>`}
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+function renderSellerAnalyticsPeriodSelector(currentPeriod, periods) {
+  return `
+    <div class="segmented-control" role="group" aria-label="בחירת תקופה לביצועי המוכר">
+      ${periods.map(([value, label]) => `<button class="${currentPeriod === value ? "active" : ""}" type="button" data-inline-action="seller-analytics-period" data-period="${esc(value)}">${esc(label)}</button>`).join("")}
+    </div>
+  `;
+}
+
+function renderSellerAnalyticsTopDeal(deal) {
+  return `
+    <div class="table-row">
+      <div class="table-cell"><span class="muted">שם עסקה</span><strong>${esc(deal.title || "עסקה ללא שם")}</strong></div>
+      <div class="table-cell"><span class="muted">ברוטו</span><strong>${currency(deal.gross_amount)}</strong></div>
+      <div class="table-cell"><span class="muted">נטו למוכר</span><strong>${currency(deal.seller_net_amount)}</strong></div>
+      <div class="table-cell"><span class="muted">יחידות שחויבו</span><strong>${num(deal.charged_units)}</strong></div>
+      <div class="table-cell"><span class="muted">קונים</span><strong>${num(deal.buyers_count)}</strong></div>
+      <div class="table-cell"><span class="muted">הושלמה</span><strong>${dt(deal.completed_at)}</strong></div>
+    </div>
+  `;
+}
+
+function renderSellerAnalyticsWeakDeal(deal) {
+  const issueParts = [];
+  if (deal.missing_units_to_target !== null && deal.missing_units_to_target !== undefined) {
+    issueParts.push(`${num(deal.missing_units_to_target)} יחידות חסרות`);
+  }
+  if (deal.has_image === false) issueParts.push("חסרה תמונה");
+  if (deal.has_seller_profile === false) issueParts.push("חסר פרופיל מוכר");
+  if (deal.readiness_issue) issueParts.push(analyticsReadinessLabel(deal.readiness_issue));
+  return `
+    <div class="table-row">
+      <div class="table-cell"><span class="muted">שם עסקה</span><strong>${esc(deal.title || "עסקה ללא שם")}</strong></div>
+      <div class="table-cell"><span class="muted">סטטוס</span><strong>${esc(getDealCopy(deal.state).label)}</strong></div>
+      <div class="table-cell"><span class="muted">סיבה</span><strong>${esc(analyticsWeakReasonLabel(deal.reason))}</strong></div>
+      <div class="table-cell"><span class="muted">מה חסר</span><strong>${esc(issueParts.length ? issueParts.join(" · ") : "לא זמין")}</strong></div>
+    </div>
+  `;
+}
+
+function renderSellerAnalyticsAttributionLink(link) {
+  return `
+    <div class="table-row">
+      <div class="table-cell"><span class="muted">לינק</span><strong>${esc(link.label || link.link_id || "לינק ייחוס")}</strong></div>
+      <div class="table-cell"><span class="muted">הצטרפויות</span><strong>${num(link.joins_count)}</strong></div>
+      <div class="table-cell"><span class="muted">יחידות</span><strong>${num(link.attributed_units)}</strong></div>
+      <div class="table-cell"><span class="muted">ברוטו</span><strong>${currency(link.attributed_gross)}</strong></div>
+    </div>
+  `;
+}
+
+function renderSellerAnalyticsInsight(insight) {
+  const tone = insight.severity === "warning" ? "warning" : "success";
+  return `
+    <div class="status-item ${tone}">
+      <strong>${esc(insight.message_he || "אין פעולה נדרשת כרגע.")}</strong>
+    </div>
+  `;
+}
+
+function analyticsWeakReasonLabel(reason) {
+  const labels = {
+    failed_below_target: "העסקה לא הושלמה",
+    active_missing_units: "חסרות יחידות כדי להתקדם",
+    draft_missing_image: "טיוטה בלי תמונת מוצר",
+    seller_profile_not_ready: "פרופיל המוכר לא מלא"
+  };
+  return labels[reason] || "דורשת בדיקה";
+}
+
+function analyticsReadinessLabel(issue) {
+  const labels = {
+    missing_image: "חסרה תמונה",
+    seller_profile_not_ready: "פרופיל מוכר לא מלא"
+  };
+  return labels[issue] || "דורש השלמה";
 }
 
 function renderSellerDealCard(item) {
@@ -4702,6 +4929,10 @@ function currency(value) {
 
 function num(value) {
   return new Intl.NumberFormat("he-IL").format(Number(value || 0));
+}
+
+function percent(value) {
+  return `${num(Math.round(Number(value || 0)))}%`;
 }
 
 function dt(value) {

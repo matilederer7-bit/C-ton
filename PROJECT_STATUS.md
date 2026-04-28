@@ -19,7 +19,7 @@
 - **Deal Duplicate / Seller Reuse Flow** - seller-owned deals can be duplicated into a new `Draft` only. The flow is owner-only, copies product terms, delivery options, and image metadata, and does not copy participants, payments, legal acceptances, notifications, outbox, invoices, settlements, attribution, or state history. Commit `d206671`.
 - **OTP Rail Provider-Ready** — DB-backed OTP rail (`otp_challenges`, `otp_delivery_attempts`) replaces the in-memory map. SMS / email channel, salted code hashes (no plaintext), 10-minute TTL, max-3 attempts → `otp_locked`, 15-minute / 5-request rate limit per destination, idempotent request reuse, log/dev provider only (no Twilio/SendGrid), test bypass disabled in production-like, signed `otp_token` (HMAC) returned at verify, join now requires verified buyer_join OTP (`otp_required` / `otp_not_verified`).
 
-- **Seller Analytics Dashboard** — backend analytics endpoint is in place at `GET /api/seller/analytics?period=all|30d|90d|year`; it uses existing seller context auth, validates period, returns real seller-scoped metrics, keeps attribution measurement-only, and excludes buyer PII / affiliate commission or payout fields.
+- **Seller Analytics Dashboard** — seller dashboard now includes "ביצועי המוכר" backed by `GET /api/seller/analytics?period=all|30d|90d|year`; it uses existing seller context auth, validates period, renders real seller-scoped metrics, keeps attribution measurement-only, and excludes buyer PII / affiliate commission or payout fields.
 
 **Open — known gaps:**
 - External object storage / CDN (current: local disk only)
@@ -40,14 +40,15 @@
 
 Current update: 2026-04-28 (Seller Analytics Dashboard)
 
-- Completed: backend analytics metrics now populate `GET /api/seller/analytics?period=all|30d|90d|year` with seller-scoped summary counts, canonical money totals, deals by state, recent deals, top deals, weak deals, buyer funnel, attribution aggregates, and bounded action insights.
+- Completed: frontend seller analytics dashboard surface added inside the seller workspace under "ביצועי המוכר". It includes period selector (`all`, `30d`, `90d`, `year`), summary KPI cards, money breakdown, top deals, weak deals, buyer funnel, attribution measurement-only card, action insights, and loading / error / empty states.
+- Completed: backend analytics metrics continue to populate `GET /api/seller/analytics?period=all|30d|90d|year` with seller-scoped summary counts, canonical money totals, deals by state, recent deals, top deals, weak deals, buyer funnel, attribution aggregates, and bounded action insights.
 - Completed: money totals prefer stored `platform_fee_money_events` charge entries where available and use the canonical `calculatePlatformFeeMoney(...)` helper for fallback calculation. Dropped / deal-failed / authorization-only participants are excluded from collected-money totals.
-- Completed: response safety guards were expanded: seller isolation is enforced through the existing seller context, external `seller_id` query/body attempts are ignored, attribution remains measurement-only, and the response does not expose buyer PII, payment tokens, provider references, storage keys, affiliate commission fields, payout, balance, withdrawal, or revenue-share semantics.
-- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/seller_analytics_validation.js`; `node .tmp_test_dist/tests/seller_auth_session_validation.js`; `node .tmp_test_dist/tests/seller_profile_readiness_validation.js`; `node .tmp_test_dist/tests/seller_deal_excel_export_validation.js`; `node .tmp_test_dist/tests/deal_duplicate_validation.js`.
-- Open: frontend dashboard, frontend UX polish, advanced charts, analytics export, month-over-month comparisons, cohort analysis, advanced BI, and AI recommendations.
-- Not built: frontend dashboard, migration, state-machine changes, money-model changes, payment/invoice/payout rail changes, marketplace/search/catalog, public rankings, public seller leaderboard, affiliate commission/payout, shipping management, or heavy BI.
-- Progress: `45%` of Seller Analytics Dashboard track.
-- Next step: Phase 3 frontend seller analytics dashboard using the backend metrics without adding marketplace or payout semantics.
+- Completed: response and UI safety guards were expanded: seller isolation is enforced through the existing seller context, external `seller_id` query/body attempts are ignored, attribution remains measurement-only, and the response/UI do not expose buyer PII, payment tokens, provider references, storage keys, affiliate commission fields, payout, balance, withdrawal, or revenue-share semantics.
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/seller_analytics_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`.
+- Open: advanced charts, analytics export, month-over-month comparisons, cohort analysis, advanced BI, and AI recommendations.
+- Not built: migration, state-machine changes, money-model changes, payment/invoice/payout rail changes, marketplace/search/catalog, public rankings, public seller leaderboard, affiliate commission/payout, shipping management, or heavy BI.
+- Progress: `65%` of Seller Analytics Dashboard track.
+- Next step: deploy-preview smoke for the seller analytics surface on mobile and desktop, then decide whether simple charts or analytics export deserve a separate future track.
 
 ---
 
