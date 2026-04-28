@@ -57,6 +57,11 @@ import {
   serializeSellerSessionCookie,
   verifySellerAccessSecret
 } from "./seller_auth.js";
+import {
+  buildSellerAnalytics,
+  normalizeSellerAnalyticsPeriod,
+  SELLER_ANALYTICS_PERIODS
+} from "./seller_analytics.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -1527,6 +1532,28 @@ export function registerFrontendExperience(
           }
         }
       };
+    });
+  });
+
+  app.get("/api/seller/analytics", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    const period = normalizeSellerAnalyticsPeriod(req.query?.period);
+    if (!period) {
+      return reply.code(400).send({
+        error: "invalid_period",
+        code: "invalid_period",
+        allowed_periods: SELLER_ANALYTICS_PERIODS
+      });
+    }
+
+    return deps.withTx(async (c) => {
+      const sanitizedQuery = { ...(req.query || {}) };
+      delete sanitizedQuery.seller_id;
+      delete sanitizedQuery.seller_display_name;
+      const sellerContextRequest = { headers: req.headers, query: sanitizedQuery };
+      const sellerContext = await resolveRequiredSellerContext(sellerContextRequest, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      return buildSellerAnalytics(c, sellerContext.seller_id, period);
     });
   });
 
