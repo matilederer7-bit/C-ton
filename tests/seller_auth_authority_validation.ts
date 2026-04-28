@@ -25,6 +25,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
   process.env.APP_DEPLOYMENT_MODE = "internal-runtime";
   process.env.SELLER_SESSION_SECRET = "seller-session-secret-authority";
   process.env.PORT = "3048";
+  process.env.OTP_TEST_BYPASS_CODE = process.env.OTP_TEST_BYPASS_CODE || "424242";
   const secret = process.env.SELLER_SESSION_SECRET || "";
 
   const { app } = await import(`../src/app.js?seller-auth-app-${Date.now()}`);
@@ -109,7 +110,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         "x-request-id": `seller-auth-publish-wrong-${Date.now()}`,
         "idempotency-key": `seller-auth-publish-wrong-${created.deal_id}`
       },
-      payload: {}
+      payload: { seller_terms_accepted: true }
     });
     assert.equal(wrongPublish.statusCode, 404);
 
@@ -132,9 +133,25 @@ await run("non-demo create publish close prepare charge and cancel derive author
         "x-request-id": `seller-auth-publish-right-${Date.now()}`,
         "idempotency-key": `seller-auth-publish-right-${created.deal_id}`
       },
-      payload: {}
+      payload: { seller_terms_accepted: true }
     });
     assert.equal(rightPublish.statusCode, 200);
+
+    const buyerId = `+97250${String(Date.now()).slice(-7)}`;
+    const otpRequest = await app.inject({
+      method: "POST",
+      url: "/api/otp/request",
+      payload: { channel: "sms", destination: buyerId, purpose: "buyer_join" }
+    });
+    assert.equal(otpRequest.statusCode, 200, otpRequest.body);
+    const otpChallengeId = (otpRequest.json() as any).challenge_id;
+    const otpVerify = await app.inject({
+      method: "POST",
+      url: "/api/otp/verify",
+      payload: { challenge_id: otpChallengeId, code: "424242" }
+    });
+    assert.equal(otpVerify.statusCode, 200, otpVerify.body);
+    const otpToken = (otpVerify.json() as any).otp_token;
 
     const reachTarget = await app.inject({
       method: "POST",
@@ -144,11 +161,15 @@ await run("non-demo create publish close prepare charge and cancel derive author
         "idempotency-key": `seller-auth-reach-target-${created.deal_id}`
       },
       payload: {
-        buyer_id: `buyer-${Date.now()}`,
-        qty: 9
+        buyer_id: buyerId,
+        qty: 9,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
+        otp_token: otpToken,
+        otp_challenge_id: otpChallengeId
       }
     });
-    assert.equal(reachTarget.statusCode, 200);
+    assert.equal(reachTarget.statusCode, 200, reachTarget.body);
 
     const wrongClose = await app.inject({
       method: "POST",

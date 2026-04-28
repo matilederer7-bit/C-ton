@@ -1,6 +1,22 @@
 # PROJECT STATUS
 
 ---
+
+Current update: 2026-04-28 (Seller Console Product QA Gate)
+
+- Completed: cross-cutting product QA pass over the seller console after the Seller Analytics Dashboard milestone closed. No new features, no migration, no DB schema change, no state-machine change, no money-model change, no payment/invoice/payout rail change.
+- Checked: seller dashboard surface, seller profile readiness gate, create-deal flow, seller deal list, live seller deal page, deal duplicate, product images surface, seller deal Excel export gate, Seller Analytics Dashboard surface, mobile/desktop responsive baseline, RTL/accessibility baseline, drift scan against forbidden product surfaces.
+- Checked seller isolation: existing seller_auth tests confirm DB-backed seller sessions own deal lifecycle authority; non-owner publish/close/charge/cancel returns 404, owner returns 200; idempotent buyer join under OTP + legal acceptance.
+- Checked technical-term hygiene: forbidden seller-facing leaks (`webhook`, `outbox`, `provider`, `state machine`, `money_state`, `buyer_state`, `payment token`, `provider reference`) are scoped to admin/operator console code paths. Seller surface translates internal column keys via `INTERNAL_TABLE_HEADER_LABELS` and renders states via `formatVisibleBuyerState` / `formatVisibleMoneyState`.
+- Checked drift scan (`marketplace`, `catalog`, `search deals`, `commission_rate`, `affiliate.*commission`, `affiliate.*payout`, `payout.*affiliate`, `withdrawal`, `balance`, `revenue share`, `seller commission`): zero hits in `frontend/`. Hits in `src/migrations/*` and `src/product_surface_support.ts` are defensive `DROP COLUMN IF EXISTS` enforcing the spec — not runtime exposure. Hits in `tests/` are negative assertions ("must NOT contain"). Hits in `PROJECT_STATUS.md` and `docs/` are explicit "intentionally NOT built" stamps.
+- Fixed pinpoint: `tests/seller_auth_authority_validation.ts` was stale relative to the legal-acceptance + OTP-rail gates. Publish payloads now carry `seller_terms_accepted: true`; the buyer join inside `reachTarget` requests + verifies an OTP and forwards `buyer_terms_accepted`, `payment_disclosure_accepted`, `otp_token`, and `otp_challenge_id`. No production code changed.
+- Checked commands: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist`; `node .tmp_test_dist/tests/product_surfaces_refinement_validation.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/seller_profile_readiness_validation.js`; `node .tmp_test_dist/tests/seller_auth_session_validation.js`; `node .tmp_test_dist/tests/seller_auth_authority_validation.js`; `node .tmp_test_dist/tests/seller_analytics_validation.js`; `node .tmp_test_dist/tests/deal_duplicate_validation.js`; `node .tmp_test_dist/tests/seller_deal_excel_export_validation.js`; `node .tmp_test_dist/tests/seller_shipping_export_validation.js`; `node .tmp_test_dist/tests/seller_payout_rail_validation.js`; `node .tmp_test_dist/tests/legal_trust_layer_validation.js`.
+- Open: full browser visual QA, real-device mobile QA, staged deployment smoke test, advanced seller BI, analytics export, monthly comparisons.
+- Not built: marketplace, public seller leaderboard, affiliate payouts, full shipping management, manual payment operations, heavy BI.
+- Progress: `90%` of Seller Console Product QA Gate track.
+- Next step: deploy-preview smoke on mobile and desktop covering the full seller flow (create → publish → list → live deal → duplicate → export → analytics).
+
+---
 ## Current Product Baseline - 2026-04-27
 
 **Completed in recent sprint:**
