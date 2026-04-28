@@ -10,5 +10,6 @@ function routeExists(pattern: RegExp) {
 
 assert.equal(routeExists(/app\.post\(["']\/api\/admin\/[^"']*(capture|refund|void)[^"']*["']/i), false);
 assert.equal(routeExists(/app\.post\(["']\/api\/admin\/[^"']*payout[^"']*["']/i), false);
-assert.match(frontendApp, /לא מאפשר שינוי state ידני, capture, refund, void או העברה כספית ישירה/);
+assert.match(frontendApp, /לא מאפשר שינוי סטייט ידני, חיוב, זיכוי, ביטול חיוב או העברה כספית ישירה/);
+
 console.log("PASS admin has no direct capture/refund/void/payout mutation endpoints");

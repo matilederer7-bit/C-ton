@@ -59,7 +59,7 @@ const state = {
     sellerMaxUnits: "20",
     sellerDeadline: "",
     sellerDeliveryType1: "pickup",
-    sellerDeliveryLabel1: "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™",
+    sellerDeliveryLabel1: "איסוף עצמי",
     sellerDeliveryCost1: "0",
     sellerDeliveryType2: "delivery",
     sellerDeliveryLabel2: "",
@@ -150,25 +150,25 @@ const MONEY_COPY = {
 };
 
 const ROUTE_LABELS = {
-  seller: "׳׳–׳•׳¨ ׳׳•׳›׳¨",
-  "seller-new": "׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳”",
-  "seller-deal": "׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳”",
+  seller: "אזור מוכר",
+  "seller-new": "פתיחת עסקה",
+  "seller-deal": "ניהול עסקה",
   affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
   "admin-deal": "פרופיל עסקה לתפעול",
   "admin-participant": "פרופיל משתתף לתפעול",
   "admin-user": "פרופיל משתמש לתפעול",
-  home: "׳”׳׳×׳¨ ׳”׳¨׳׳©׳™",
-  deal: "׳“׳£ ׳¢׳¡׳§׳”",
-  otp: "׳׳™׳׳•׳× ׳˜׳׳₪׳•׳",
-  payment: "׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×",
-  confirmation: "׳׳™׳©׳•׳¨ ׳”׳¦׳˜׳¨׳₪׳•׳×",
-  tracking: "׳׳¢׳§׳‘ ׳”׳©׳×׳×׳₪׳•׳×",
-  terms: "׳×׳ ׳׳™ ׳©׳™׳׳•׳©",
-  privacy: "׳׳“׳™׳ ׳™׳•׳× ׳₪׳¨׳˜׳™׳•׳×",
-  refunds: "׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳",
-  contact: "׳™׳¦׳™׳¨׳× ׳§׳©׳¨",
-  "not-found": "׳¢׳׳•׳“ ׳׳ ׳ ׳׳¦׳"
+  home: "האתר הראשי",
+  deal: "דף עסקה",
+  otp: "אימות טלפון",
+  payment: "אישור מסגרת",
+  confirmation: "אישור הצטרפות",
+  tracking: "מעקב השתתפות",
+  terms: "תנאי שימוש",
+  privacy: "מדיניות פרטיות",
+  refunds: "ביטולים והחזרים",
+  contact: "יצירת קשר",
+  "not-found": "עמוד לא נמצא"
 };
 
 const PAYMENT_READINESS = {
@@ -3050,6 +3050,7 @@ function renderAdminPage() {
   if (!payload) return renderEmptyState("מרכז התפעול לא זמין", "לא הצלחנו לטעון עכשיו את מרכז התפעול.");
   const urgencyCards = buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus);
   return `
+    ${renderAdminMissionControl(mission)}
     <section class="hero">
       <article class="card hero-main stack">
         <span class="badge warning">גישה תפעולית</span>
@@ -3073,7 +3074,6 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus?.operational_counts?.open_support_tickets || payload.support_tickets.filter((ticket) => ticket.status !== "resolved").length)}</strong></div>
       </aside>
     </section>
-    ${renderAdminMissionControl(mission)}
     <section class="card section stack">
       ${renderAdminLaunchConsole(launch)}
     </section>
@@ -3276,7 +3276,7 @@ function renderAdminMissionControl(mission) {
   if (!mission) {
     return `
       <section class="card section stack">
-        <h2>Admin Mission Control</h2>
+        <h2>מרכז שליטה תפעולי</h2>
         <div class="empty-surface"><p class="muted">מרכז השליטה התפעולי לא זמין כרגע.</p></div>
       </section>
     `;
@@ -3292,9 +3292,9 @@ function renderAdminMissionControl(mission) {
     <section class="card section stack mission-control">
       <div class="section-header">
         <div>
-          <span class="eyebrow">Admin Mission Control</span>
+          <span class="eyebrow">קונסולת אדמין</span>
           <h2>מרכז שליטה תפעולי</h2>
-          <p class="small muted">חיפוש תפעולי פנימי, חריגים, KYC, תמיכה, Audit ופיקוח על payouts. אין כאן שינוי state ידני, capture, refund, void או payout מתוך הממשק.</p>
+          <p class="small muted">חיפוש תפעולי פנימי, חריגים, זיהוי מוכרים, תמיכה, יומן ביקורת ופיקוח על העברות למוכרים. אין כאן שינוי סטייט ידני, חיוב, זיכוי, ביטול חיוב או העברה כספית מתוך הממשק.</p>
         </div>
         <div class="actions">
           <span class="badge ${statusTone}">סטטוס ${statusLabel}</span>
@@ -3303,20 +3303,27 @@ function renderAdminMissionControl(mission) {
         </div>
       </div>
       <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי מתבצע כל ${num(Math.round(POLL_INTERVAL_MS / 1000))} שניות.</p>
+      <form class="stack" data-action="admin-search">
+        <div class="field">
+          <label for="adminMissionQuery">Omnisearch אדמין</label>
+          <input id="adminMissionQuery" name="adminQuery" type="search" data-dir="ltr" value="${esc(state.form.adminQuery)}" placeholder="מזהה עסקה, טלפון, אימייל, מוכר, correlation id, מסמך או payout batch" />
+        </div>
+        <button class="primary" type="submit">חיפוש תפעולי</button>
+      </form>
       <div class="admin-urgency-grid">
         ${(exceptions.length ? exceptions : [{ label_he: "אין חריגים פעילים", count: 0, severity: "success", code: "no_active_exceptions" }]).map((item) => `
           <article class="kpi-card ${item.severity === "danger" ? "danger" : item.severity === "warning" ? "warning" : "success"}">
             <span class="muted">${esc(item.label_he || item.code)}</span>
             <strong>${num(item.count || 0)}</strong>
-            <p class="small muted">${esc(item.code || "")}</p>
+            <p class="small muted">${esc(formatMissionReason(item.code))}</p>
           </article>
         `).join("")}
       </div>
       <div class="summary-grid">
         <div class="summary-item"><span class="muted">Outbox פעיל</span><strong>${num(mission.system_status?.outbox?.active || 0)}</strong><p class="small muted">DLQ: ${num(mission.system_status?.outbox?.dlq || 0)}</p></div>
         <div class="summary-item"><span class="muted">הודעות מערכת</span><strong>${num(mission.system_status?.notifications?.active || 0)}</strong><p class="small muted">נכשלו: ${num(mission.system_status?.notifications?.failed || 0)}</p></div>
-        <div class="summary-item"><span class="muted">חשבוניות ו־reconcile</span><strong>${num(mission.system_status?.invoices?.active_reconcile || 0)}</strong><p class="small muted">כשלי מסמך: ${num(mission.system_status?.invoices?.failed || 0)}</p></div>
-        <div class="summary-item"><span class="muted">פיקוח payouts</span><strong>${num(mission.payouts_settlements?.active_batches || 0)}</strong><p class="small muted">פעולות כסף ידניות: לא פעילות</p></div>
+        <div class="summary-item"><span class="muted">חשבוניות והתאמה</span><strong>${num(mission.system_status?.invoices?.active_reconcile || 0)}</strong><p class="small muted">כשלי מסמך: ${num(mission.system_status?.invoices?.failed || 0)}</p></div>
+        <div class="summary-item"><span class="muted">פיקוח העברות</span><strong>${num(mission.payouts_settlements?.active_batches || 0)}</strong><p class="small muted">פעולות כסף ידניות: לא פעילות</p></div>
       </div>
       <section class="compact-section stack">
         <h3>Omnisearch אדמין</h3>
@@ -3347,7 +3354,7 @@ function renderAdminMissionControl(mission) {
       </section>
       <div class="admin-ops-grid">
         <section class="compact-section stack">
-          <h3>Seller Onboarding / KYC</h3>
+          <h3>זיהוי מוכרים</h3>
           ${(mission.kyc_queue || []).length ? renderRowsTable((mission.kyc_queue || []).slice(0, 8), ["seller_id", "seller_name", "verification_status", "settlement_status", "missing_fields", "updated_at"]) : `<div class="empty-surface"><p class="muted">אין מוכרים שממתינים לבקרה כרגע.</p></div>`}
         </section>
         <section class="compact-section stack">
@@ -3357,7 +3364,7 @@ function renderAdminMissionControl(mission) {
       </div>
       <div class="info-strip tone-info">
         <strong>גבולות פעולות אדמין</strong>
-        <p>המסך מאפשר בקרה, פתיחת פניות, KYC דרך המסלולים הקיימים וצפייה בפיקוח payout. הוא לא מאפשר שינוי state ידני, capture, refund, void או העברה כספית ישירה.</p>
+        <p>המסך מאפשר בקרה, פתיחת פניות, זיהוי מוכרים דרך המסלולים הקיימים וצפייה בפיקוח העברות. הוא לא מאפשר שינוי סטייט ידני, חיוב, זיכוי, ביטול חיוב או העברה כספית ישירה.</p>
       </div>
     </section>
   `;
@@ -3366,6 +3373,7 @@ function renderAdminMissionControl(mission) {
 function formatMissionReason(reason) {
   const map = {
     completion_window_ending_soon: "חלון השלמה מסתיים בקרוב",
+    dlq_not_empty: "אירועים יצאו מתור העבודה התקין",
     charging_in_progress: "תהליך חיוב פעיל",
     deal_failed: "עסקה נכשלה",
     completed_without_charged_success: "עסקה הושלמה בלי חיוב מוצלח מתועד",
@@ -3419,10 +3427,10 @@ function formatMissionResultKind(kind) {
   const map = {
     admin_deal_profile: "פרופיל עסקה לאדמין",
     admin_participant_profile: "פרופיל משתתף לאדמין",
-    admin_seller_kyc: "תור KYC מוכר",
-    admin_support_ticket: "Support Hub",
+    admin_seller_kyc: "תור זיהוי מוכר",
+    admin_support_ticket: "מרכז תמיכה",
     admin_invoice_document: "מסמך תפעולי",
-    admin_payout_batch: "פיקוח payouts"
+    admin_payout_batch: "פיקוח העברות"
   };
   return map[kind] || kind || "תוצאה תפעולית";
 }
@@ -4226,8 +4234,8 @@ function renderNav() {
   return `
       <nav class="shell-surface page-nav" aria-label="ניווט ראשי">
         <div class="actions">
-          <a href="/app" data-nav="/app" class="button secondary">׳¡׳™׳˜׳•׳</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">׳׳–׳•׳¨ ׳׳•׳›׳¨</a>
+          <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+          <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
         </div>
         <div class="shell-meta">
           ${isInternalSurface ? `<div class="route-chip">גישה פנימית</div>` : `<div class="route-chip">פתוח להצגה</div>`}

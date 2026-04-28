@@ -152,7 +152,7 @@ async function publishDeal(dealId: string) {
       "idempotency-key": unique,
       "x-seller-id": "seller-default"
     },
-    body: JSON.stringify({})
+    body: JSON.stringify({ seller_terms_accepted: true })
   });
 
   assert.equal(response.status, 200);
@@ -209,7 +209,14 @@ async function createJoinedParticipant(dealId: string) {
     body: JSON.stringify({
       buyer_id: otpVerify.json?.buyer_id,
       qty: 3,
-      delivery_option_id: deliveryOptionId
+      delivery_option_id: deliveryOptionId,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: otpVerify.json?.otp_token,
+      otp_challenge_id: otpVerify.json?.challenge_id || otpVerify.json?.otp_session_id,
+      delivery_address: "רחוב הדפדפן 10",
+      delivery_city: "תל אביב",
+      delivery_notes: "קומה 2"
     })
   });
   assert.equal(joinResult.response.status, 200);
@@ -268,7 +275,7 @@ async function main() {
       {
         name: "admin dashboard",
         path: "/app/admin",
-        expect: ["מרכז התפעול של סיטון", "admin-urgency-grid", "חיפוש תפעולי"]
+        expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid", "חיפוש תפעולי"]
       },
       {
         name: "admin deal",
@@ -306,7 +313,7 @@ async function main() {
       {
         name: "admin dashboard mobile",
         path: "/app/admin",
-        expect: ["מרכז התפעול של סיטון", "admin-urgency-grid"]
+        expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid"]
       }
     ];
 

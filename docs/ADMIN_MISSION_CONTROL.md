@@ -14,6 +14,7 @@ Admin Mission Control is Siton's internal operations console. It is an admin-onl
 - System status: green / yellow / red, stale-data threshold, outbox, DLQ, payment, invoice, notification, payout, and support counters.
 - Exception cards: Completion Window ending soon, DLQ not empty, Completed without charged success, payment failures, reconcile backlog, invoice failures, payout exceptions, and PendingTarget near deadline.
 - Admin Omnisearch: internal operational lookup by deal, participant, seller, support ticket, invoice document, or payout batch identifiers.
+- Frontend placement: the Mission Control section is the first operational section in `/app/admin` and includes its own internal search box. Browser visual QA checked desktop and intermediate width; the old overview hero now sits below Mission Control.
 - Exceptional deals: operational deal list with target, charged, pending, not-charged, gross, reason, and profile link.
 - Seller Onboarding / KYC: seller readiness and missing profile fields from existing seller accounts.
 - Payouts & Settlements Control: status visibility only. No manual transfer is executed from request thread or UI.

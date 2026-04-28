@@ -9,7 +9,8 @@ assert.match(html, /dir="rtl"/);
 assert.match(app, /מרכז שליטה תפעולי/);
 assert.match(app, /Omnisearch אדמין/);
 assert.match(app, /עסקאות בעייתיות/);
-assert.match(app, /Audit & Forensics/);
-assert.match(app, /אין כאן שינוי state ידני, capture, refund, void או payout מתוך הממשק/);
+assert.match(app, /Audit & Forensics|יומן ביקורת/);
+assert.match(app, /אין כאן שינוי סטייט ידני, חיוב, זיכוי, ביטול חיוב או העברה כספית מתוך הממשק/);
 assert.match(css, /mission-control/);
+
 console.log("PASS admin mission control surface is RTL and operationally explicit");

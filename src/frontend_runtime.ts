@@ -3282,14 +3282,14 @@ export function registerFrontendExperience(
 
       const counts = systemCounts.rows[0] || {};
       const cardDefs = [
-        ["completion_window_ending_soon", "Completion Window מסתיים בקרוב", counts.completion_window_ending_soon, "warning"],
+        ["completion_window_ending_soon", "חלון השלמה מסתיים בקרוב", counts.completion_window_ending_soon, "warning"],
         ["dlq_not_empty", "DLQ לא ריק", counts.dlq_count, "danger"],
-        ["completed_without_charged_success", "Completed בלי ChargedSuccess", counts.completed_without_charged_success, "danger"],
+        ["completed_without_charged_success", "עסקה הושלמה ללא חיוב מוצלח", counts.completed_without_charged_success, "danger"],
         ["payment_failures_last_hour", "כשלי סליקה בשעה האחרונה", counts.payment_failures_last_hour, "warning"],
-        ["reconcile_open", "Reconcile פתוח או תקוע", counts.active_reconcile, "warning"],
+        ["reconcile_open", "התאמת מסמכים פתוחה", counts.active_reconcile, "warning"],
         ["failed_invoice_documents", "כשלי חשבוניות", counts.failed_invoice_documents, "warning"],
-        ["payout_exceptions", "חריגי payout למוכר", counts.payout_exceptions, "danger"],
-        ["pending_target_near_deadline", "PendingTarget קרוב לדדליין", counts.pending_target_near_deadline, "warning"]
+        ["payout_exceptions", "חריגי העברה למוכר", counts.payout_exceptions, "danger"],
+        ["pending_target_near_deadline", "עסקה קרובה לדדליין לפני יעד", counts.pending_target_near_deadline, "warning"]
       ] as const;
       const exceptionCards = cardDefs
         .map(([code, label, value, severity]) => ({

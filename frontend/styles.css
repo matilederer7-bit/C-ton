@@ -351,6 +351,13 @@ a.button { text-decoration: none; display: inline-flex; align-items: center; jus
     width: 100%;
     justify-content: center;
   }
+  .page-nav .button,
+  .shell-meta .button,
+  .shell-meta .route-chip {
+    width: auto;
+    min-height: 44px;
+    flex: 0 1 auto;
+  }
   .share-panel { position: sticky; bottom: 10px; z-index: 5; box-shadow: 0 16px 36px rgba(65, 39, 21, 0.12); }
   .deal-visual-mark {
     width: 64px;
