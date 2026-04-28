@@ -1,7 +1,6 @@
 import { strict as assert } from "node:assert";
 import Fastify, { type FastifyInstance } from "fastify";
 import pg from "pg";
-import { ensureRemainingProductSurfaceTables } from "../src/product_surface_support.js";
 import { hashSellerSessionToken } from "../src/seller_auth.js";
 
 const { Pool } = pg;
@@ -58,6 +57,7 @@ async function buildRuntimeApp(tag: string, env: Record<string, string>) {
     if (env[key] === undefined) delete process.env[key];
   }
   Object.assign(process.env, env);
+  const { ensureRemainingProductSurfaceTables } = await import(`../src/product_surface_support.js?${tag}-${Date.now()}`);
   const { registerFrontendExperience } = await import(`../src/frontend_runtime.js?${tag}-${Date.now()}`);
   const pool = new Pool({
     connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton"
