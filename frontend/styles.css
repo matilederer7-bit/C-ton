@@ -220,6 +220,8 @@ textarea:focus-visible,
 .admin-urgency-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .admin-search-grid, .admin-ops-grid { display: grid; gap: 16px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .admin-ops-hero-grid { display: grid; gap: 12px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.mission-control { border-color: rgba(24, 90, 73, 0.22); }
+.mission-control .compact-section { padding-block: 8px; }
 .kpi-card { padding: 18px; border-radius: 22px; background: linear-gradient(180deg, rgba(255,255,255,0.95), rgba(248, 238, 227, 0.78)); border: 1px solid rgba(81, 54, 33, 0.09); box-shadow: 0 14px 34px rgba(65, 39, 21, 0.08); }
 .kpi-card strong { display: block; margin-top: 8px; font-size: 1.5rem; }
 .kpi-card.strong { background: linear-gradient(180deg, rgba(170, 61, 35, 0.12), rgba(240, 178, 107, 0.12)); border-color: rgba(170, 61, 35, 0.18); }

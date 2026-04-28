@@ -26,6 +26,7 @@ const state = {
   sellerDealPayload: null,
   affiliatePayload: null,
   adminPayload: null,
+  adminMissionPayload: null,
   adminLaunchPayload: null,
   adminSystemStatusPayload: null,
   adminNotificationsStatusPayload: null,
@@ -216,6 +217,7 @@ document.addEventListener("click", (event) => {
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
+    if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
     if (action === "clear-product-image") clearSellerProductImage();
   }
 });
@@ -541,14 +543,16 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
-    const [overview, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
+      api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status")
     ]);
     state.adminPayload = overview;
+    state.adminMissionPayload = missionControl;
     state.adminLaunchPayload = launchConsole;
     state.adminSystemStatusPayload = systemStatus;
     state.adminNotificationsStatusPayload = notificationsStatus;
@@ -692,8 +696,9 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const [next, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
+      api(`/api/admin/mission-control?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
@@ -713,8 +718,13 @@ async function refreshAdminSilently() {
       !state.adminLaunchPayload ||
       JSON.stringify(state.adminLaunchPayload.launch_readiness) !== JSON.stringify(launchConsole.launch_readiness) ||
       JSON.stringify(state.adminLaunchPayload.system) !== JSON.stringify(launchConsole.system);
-    if (totalsChanged || launchChanged || systemChanged || notificationsChanged || invoiceChanged) {
+    const missionChanged =
+      !state.adminMissionPayload ||
+      JSON.stringify(state.adminMissionPayload.exception_cards) !== JSON.stringify(missionControl.exception_cards) ||
+      JSON.stringify(state.adminMissionPayload.system) !== JSON.stringify(missionControl.system);
+    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged) {
       state.adminPayload = next;
+      state.adminMissionPayload = missionControl;
       state.adminLaunchPayload = launchConsole;
       state.adminSystemStatusPayload = systemStatus;
       state.adminNotificationsStatusPayload = notificationsStatus;
@@ -3031,6 +3041,7 @@ function renderSupportTicketCards(tickets) {
 
 function renderAdminPage() {
   const payload = state.adminPayload?.admin_surface;
+  const mission = state.adminMissionPayload;
   const launch = state.adminLaunchPayload;
   const systemStatus = state.adminSystemStatusPayload?.system_status;
   const notificationStatus = state.adminNotificationsStatusPayload?.notifications;
@@ -3062,6 +3073,7 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus?.operational_counts?.open_support_tickets || payload.support_tickets.filter((ticket) => ticket.status !== "resolved").length)}</strong></div>
       </aside>
     </section>
+    ${renderAdminMissionControl(mission)}
     <section class="card section stack">
       ${renderAdminLaunchConsole(launch)}
     </section>
@@ -3258,6 +3270,161 @@ function renderAdminDealCard(item) {
       </div>
     </article>
   `;
+}
+
+function renderAdminMissionControl(mission) {
+  if (!mission) {
+    return `
+      <section class="card section stack">
+        <h2>Admin Mission Control</h2>
+        <div class="empty-surface"><p class="muted">מרכז השליטה התפעולי לא זמין כרגע.</p></div>
+      </section>
+    `;
+  }
+  const generatedAt = mission.generated_at ? new Date(mission.generated_at) : null;
+  const isStale = generatedAt ? (Date.now() - generatedAt.getTime()) / 1000 > Number(mission.stale_after_seconds || 60) : false;
+  const statusTone = mission.system?.status === "red" ? "danger" : mission.system?.status === "yellow" ? "warning" : "success";
+  const statusLabel = mission.system?.status === "red" ? "אדום" : mission.system?.status === "yellow" ? "כתום" : "ירוק";
+  const exceptions = mission.exception_cards || [];
+  const deals = mission.exceptional_deals || [];
+  const results = mission.omnisearch?.results || [];
+  return `
+    <section class="card section stack mission-control">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Admin Mission Control</span>
+          <h2>מרכז שליטה תפעולי</h2>
+          <p class="small muted">חיפוש תפעולי פנימי, חריגים, KYC, תמיכה, Audit ופיקוח על payouts. אין כאן שינוי state ידני, capture, refund, void או payout מתוך הממשק.</p>
+        </div>
+        <div class="actions">
+          <span class="badge ${statusTone}">סטטוס ${statusLabel}</span>
+          ${isStale ? `<span class="badge warning">נתונים עלולים להיות לא עדכניים</span>` : ""}
+          <button class="secondary" type="button" data-inline-action="admin-refresh">רענון ידני</button>
+        </div>
+      </div>
+      <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי מתבצע כל ${num(Math.round(POLL_INTERVAL_MS / 1000))} שניות.</p>
+      <div class="admin-urgency-grid">
+        ${(exceptions.length ? exceptions : [{ label_he: "אין חריגים פעילים", count: 0, severity: "success", code: "no_active_exceptions" }]).map((item) => `
+          <article class="kpi-card ${item.severity === "danger" ? "danger" : item.severity === "warning" ? "warning" : "success"}">
+            <span class="muted">${esc(item.label_he || item.code)}</span>
+            <strong>${num(item.count || 0)}</strong>
+            <p class="small muted">${esc(item.code || "")}</p>
+          </article>
+        `).join("")}
+      </div>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">Outbox פעיל</span><strong>${num(mission.system_status?.outbox?.active || 0)}</strong><p class="small muted">DLQ: ${num(mission.system_status?.outbox?.dlq || 0)}</p></div>
+        <div class="summary-item"><span class="muted">הודעות מערכת</span><strong>${num(mission.system_status?.notifications?.active || 0)}</strong><p class="small muted">נכשלו: ${num(mission.system_status?.notifications?.failed || 0)}</p></div>
+        <div class="summary-item"><span class="muted">חשבוניות ו־reconcile</span><strong>${num(mission.system_status?.invoices?.active_reconcile || 0)}</strong><p class="small muted">כשלי מסמך: ${num(mission.system_status?.invoices?.failed || 0)}</p></div>
+        <div class="summary-item"><span class="muted">פיקוח payouts</span><strong>${num(mission.payouts_settlements?.active_batches || 0)}</strong><p class="small muted">פעולות כסף ידניות: לא פעילות</p></div>
+      </div>
+      <section class="compact-section stack">
+        <h3>Omnisearch אדמין</h3>
+        <p class="small muted">חיפוש תפעולי פנימי בלבד. זה אינו marketplace, אינו קטלוג ציבורי ואינו חיפוש עסקאות לקונים.</p>
+        ${results.length ? renderAdminMissionSearchResults(results) : `<div class="empty-surface"><p class="muted">אין תוצאות חיפוש תפעולי כרגע.</p></div>`}
+      </section>
+      <section class="compact-section stack">
+        <h3>עסקאות בעייתיות</h3>
+        ${deals.length ? `<div class="card-list admin-ops-grid">${deals.slice(0, 8).map((deal) => `
+          <article class="summary-item stack">
+            <div class="actions spread">
+              <div>
+                <span class="muted">${esc(getDealCopy(deal.state).label)}</span>
+                <h3>${esc(deal.title || deal.deal_id)}</h3>
+              </div>
+              <strong>${currency(deal.gross_amount || 0)}</strong>
+            </div>
+            <div class="pill-row">
+              <span class="stat-pill"><span>יעד</span><strong>${num(deal.min_units)} / ${num(deal.max_units)}</strong></span>
+              <span class="stat-pill"><span>חויבו</span><strong>${num(deal.charged_units)}</strong></span>
+              <span class="stat-pill"><span>בהמתנה</span><strong>${num(deal.pending_units)}</strong></span>
+              <span class="stat-pill"><span>לא חויב</span><strong>${num(deal.not_charged_units)}</strong></span>
+            </div>
+            <p class="small muted">סיבת חריג: ${esc(formatMissionReason(deal.exception_reason))} · מוכר: ${esc(deal.seller_name || deal.seller_id)} · עודכן: ${dt(deal.updated_at)}</p>
+            <div class="actions"><a class="button secondary" href="/app/admin/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(deal.deal_id)}">כניסה לפרופיל עסקה</a></div>
+          </article>
+        `).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין עסקאות חריגות כרגע.</p></div>`}
+      </section>
+      <div class="admin-ops-grid">
+        <section class="compact-section stack">
+          <h3>Seller Onboarding / KYC</h3>
+          ${(mission.kyc_queue || []).length ? renderRowsTable((mission.kyc_queue || []).slice(0, 8), ["seller_id", "seller_name", "verification_status", "settlement_status", "missing_fields", "updated_at"]) : `<div class="empty-surface"><p class="muted">אין מוכרים שממתינים לבקרה כרגע.</p></div>`}
+        </section>
+        <section class="compact-section stack">
+          <h3>Audit & Forensics</h3>
+          ${(mission.audit_forensics?.recent_events || []).length ? renderRowsTable((mission.audit_forensics.recent_events || []).slice(0, 8), ["entity_type", "entity_id", "deal_id", "action_name", "created_at"]) : `<div class="empty-surface"><p class="muted">אין אירועי Audit להצגה כרגע.</p></div>`}
+        </section>
+      </div>
+      <div class="info-strip tone-info">
+        <strong>גבולות פעולות אדמין</strong>
+        <p>המסך מאפשר בקרה, פתיחת פניות, KYC דרך המסלולים הקיימים וצפייה בפיקוח payout. הוא לא מאפשר שינוי state ידני, capture, refund, void או העברה כספית ישירה.</p>
+      </div>
+    </section>
+  `;
+}
+
+function formatMissionReason(reason) {
+  const map = {
+    completion_window_ending_soon: "חלון השלמה מסתיים בקרוב",
+    charging_in_progress: "תהליך חיוב פעיל",
+    deal_failed: "עסקה נכשלה",
+    completed_without_charged_success: "עסקה הושלמה בלי חיוב מוצלח מתועד",
+    pending_target_near_deadline: "קרובה לדדליין ועדיין לא הגיעה ליעד",
+    payout_exception: "חריג בפיקוח payout",
+    invoice_issue_failed: "כשל במסמך או חשבונית",
+    operational_attention: "דורשת תשומת לב תפעולית"
+  };
+  return map[reason] || reason || "דורשת תשומת לב תפעולית";
+}
+
+function renderAdminMissionSearchResults(results) {
+  return `
+    <div class="card-list admin-search-grid">
+      ${results.map((item) => {
+        const route = item.route || "/app/admin";
+        return `
+          <article class="summary-item stack">
+            <div class="actions spread">
+              <div>
+                <span class="muted">${esc(formatMissionEntityType(item.entity_type))}</span>
+                <h3>${esc(item.headline || item.entity_id)}</h3>
+              </div>
+              <strong>${esc(formatOperatorState(item.status, "status"))}</strong>
+            </div>
+            <p class="small muted">מזהה: <span class="mono">${esc(item.entity_id)}</span></p>
+            <p class="small muted">מסלול: ${esc(formatMissionResultKind(item.result_kind))}</p>
+            <div class="actions">
+              <a class="button secondary" href="${esc(route)}" data-nav="${esc(route)}">פתיחת פריט תפעולי</a>
+            </div>
+          </article>
+        `;
+      }).join("")}
+    </div>
+  `;
+}
+
+function formatMissionEntityType(type) {
+  const map = {
+    deal: "עסקה",
+    participant: "משתתף",
+    seller: "מוכר",
+    support_ticket: "פניית תמיכה",
+    invoice_document: "מסמך",
+    payout_batch: "אצוות payout"
+  };
+  return map[type] || type || "פריט תפעולי";
+}
+
+function formatMissionResultKind(kind) {
+  const map = {
+    admin_deal_profile: "פרופיל עסקה לאדמין",
+    admin_participant_profile: "פרופיל משתתף לאדמין",
+    admin_seller_kyc: "תור KYC מוכר",
+    admin_support_ticket: "Support Hub",
+    admin_invoice_document: "מסמך תפעולי",
+    admin_payout_batch: "פיקוח payouts"
+  };
+  return map[kind] || kind || "תוצאה תפעולית";
 }
 
 function renderAdminDealPage() {
