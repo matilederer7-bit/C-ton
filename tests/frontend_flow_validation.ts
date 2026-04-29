@@ -217,6 +217,52 @@ async function main() {
     assert.doesNotMatch(response.body, /החוזה מופרד מה-UI/);
   });
 
+  await runTest("Buyer Experience V1 audit gates cover public join, OTP, authorization, confirmation, and tracking", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/app/assets/app.js"
+    });
+
+    assert.equal(response.statusCode, 200);
+    const source = response.body;
+    const confirmationStart = source.indexOf("function renderConfirmationPage");
+    const trackingStart = source.indexOf("function renderTrackingPage");
+    const trackingEnd = source.indexOf("function renderHome", trackingStart);
+    const confirmationSnippet = source.slice(confirmationStart, trackingStart);
+    const trackingSnippet = source.slice(trackingStart, trackingEnd > trackingStart ? trackingEnd : undefined);
+    const buyerFlowSnippet = source.slice(source.indexOf("async function payAndJoin"), source.indexOf("async function createDeal"));
+
+    assert.match(source, /app\\\/deal/);
+    assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/otp/);
+    assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/payment/);
+    assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/confirmation/);
+    assert.match(source, /app\\\/track/);
+    assert.match(source, /stateName === "TargetReached" \? "הצטרפו ליחידות האחרונות" : "הצטרפו לעסקה"/);
+    assert.match(source, /ClosedForJoining/);
+    assert.match(source, /Completed/);
+    assert.match(source, /Failed/);
+    assert.match(source, /metrics\.remaining_units/);
+    assert.match(source, /calcHoldTotal/);
+    assert.match(source, /deliveryCost/);
+    assert.match(source, /if \(!flow\?\.otpVerified \|\| !flow\?\.buyerId\)/);
+    assert.match(source, /תפיסת מסגרת בלבד/);
+    assert.match(source, /הצטרפת בהצלחה/);
+    assert.match(source, /REQUIRED_CHARGE_CONDITION/);
+    assert.match(source, /REQUIRED_RELEASE_NOTICE/);
+    assert.match(trackingSnippet, /dealState\.label/);
+    assert.match(trackingSnippet, /buyerState\[0\]/);
+    assert.match(trackingSnippet, /moneyState\[0\]/);
+    assert.match(trackingSnippet, /renderShareActions/);
+    assert.doesNotMatch(confirmationSnippet, /esc\(flow\.participantId\)/);
+    assert.doesNotMatch(confirmationSnippet, /esc\(flow\.authorizationId/);
+    assert.doesNotMatch(trackingSnippet, /esc\(tracking\.participant_id\)/);
+    assert.doesNotMatch(trackingSnippet, /esc\(tracking\.buyer_id\)/);
+    assert.doesNotMatch(buyerFlowSnippet, /capture|refund|void/i);
+    assert.doesNotMatch(`${confirmationSnippet}\n${trackingSnippet}\n${buyerFlowSnippet}`, /marketplace|catalog|search/i);
+    assert.doesNotMatch(`${confirmationSnippet}\n${trackingSnippet}\n${buyerFlowSnippet}`, /affiliate commission|affiliate payout|commission_amount|payout_status/i);
+    assert.doesNotMatch(source, /raw_card|card_raw/i);
+  });
+
   await runTest("seller surfaces keep the strengthened operational visual copy", async () => {
     const response = await app.inject({
       method: "GET",

@@ -79,6 +79,11 @@ const state = {
 
 const REQUIRED_PAYMENT_NOTICE =
   "הסכום יתפוס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.";
+const REQUIRED_SUCCESS_HEADLINE = "\u05d4\u05e6\u05d8\u05e8\u05e4\u05ea \u05d1\u05d4\u05e6\u05dc\u05d7\u05d4";
+const REQUIRED_CHARGE_CONDITION =
+  "\u05d4\u05d7\u05d9\u05d5\u05d1 \u05d9\u05ea\u05d1\u05e6\u05e2 \u05e8\u05e7 \u05d0\u05dd \u05d4\u05e2\u05e1\u05e7\u05d4 \u05ea\u05d9\u05e1\u05d2\u05e8 \u05d1\u05d4\u05e6\u05dc\u05d7\u05d4";
+const REQUIRED_RELEASE_NOTICE =
+  "\u05d0\u05dd \u05d4\u05e2\u05e1\u05e7\u05d4 \u05dc\u05d0 \u05ea\u05d9\u05e1\u05d2\u05e8, \u05de\u05e1\u05d2\u05e8\u05ea \u05d4\u05d0\u05e9\u05e8\u05d0\u05d9 \u05ea\u05e9\u05ea\u05d7\u05e8\u05e8 \u05dc\u05dc\u05d0 \u05d7\u05d9\u05d5\u05d1";
 
 const UX_REGRESSION_COPY = [
   "פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים",
@@ -101,6 +106,7 @@ const UX_REGRESSION_COPY = [
   "רק דרך לינק ישיר",
   "סכום אישור המסגרת",
   "זה הסכום שיישמר כתפיסת מסגרת בשלב הזה",
+  "הצטרפת בהצלחה",
   "הצטרפות",
   "נשמרה בהצלחה",
   "מסך המעקב הוא מקור האמת שלך",
@@ -1832,7 +1838,9 @@ function renderPaymentPage(dealId) {
             <div class="field"><label for="expiry">׳×׳•׳§׳£</label><input id="expiry" name="expiry" type="text" data-dir="ltr" value="${esc(state.form.expiry)}" autocomplete="cc-exp" placeholder="12/28" /></div>
             <div class="field"><label for="cvv">CVV</label><input id="cvv" name="cvv" type="password" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cvv)}" autocomplete="cc-csc" placeholder="123" /></div>
           </div>
-          <label class="check-row"><input type="checkbox" name="buyerLegalAcceptance" checked required /> <span>אני מאשר/ת את תנאי השימוש, מדיניות הביטולים וההחזרים, ואת ההסבר על תפיסת מסגרת אשראי.</span></label>
+          <label class="check-row"><input type="checkbox" name="buyerTermsAcceptance" checked required /> <span>אני מאשר/ת את תנאי השימוש.</span></label>
+          <label class="check-row"><input type="checkbox" name="buyerRefundAcceptance" checked required /> <span>אני מאשר/ת שקראתי את מדיניות הביטולים וההחזרים.</span></label>
+          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר/ת שהבנתי שמדובר בתפיסת מסגרת בלבד ולא בחיוב בפועל עכשיו.</span></label>
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
       </aside>
@@ -1861,13 +1869,13 @@ function renderConfirmationPage(dealId) {
     <section class="hero">
       <article class="card hero-main stack hero-emphasis success-surface">
         <span class="eyebrow">׳©׳׳‘ 3 ׳׳×׳•׳ 3</span>
-        <span class="badge success">׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳”</span>
-        <h1>׳”׳§׳•׳ ׳” ׳ ׳¨׳©׳ ׳׳¢׳¡׳§׳” ׳‘׳”׳¦׳׳—׳”</h1>
+        <span class="badge success">${REQUIRED_SUCCESS_HEADLINE}</span>
+        <h1>${REQUIRED_SUCCESS_HEADLINE}</h1>
         <p class="muted">׳”׳©׳׳׳ ׳• ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳”׳¨׳©׳׳” ׳׳¢׳¡׳§׳”. ׳׳›׳׳ ׳¢׳•׳‘׳¨׳™׳ ׳׳׳¢׳§׳‘ ׳¢׳“ ׳׳¡׳’׳™׳¨׳× ׳”׳¢׳¡׳§׳”.</p>
         <div class="tracking-next-panel">
           <span class="muted">׳׳” ׳§׳¨׳” ׳¢׳“ ׳¢׳›׳©׳™׳•</span>
           <strong>׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳” ׳•׳ ׳×׳₪׳¡׳” ׳׳¡׳’׳¨׳×</strong>
-          <p class="small muted">׳׳©׳׳ ׳׳ז׳ה ׳ל׳א ׳ב׳ו׳צ׳ע ׳ח׳י׳ו׳ב ׳ב׳פ׳ו׳ע׳ל. ׳ה׳ח׳י׳ו׳ב ׳י׳ק׳ר׳ה ׳ר׳ק ׳א׳ם ׳ה׳ע׳ס׳ק׳” ׳ת׳י׳ס׳ג׳ר ׳ב׳ה׳צ׳ל׳ח׳ה.</p>
+          <p class="small muted">לא בוצע חיוב בפועל. ${REQUIRED_CHARGE_CONDITION}. ${REQUIRED_RELEASE_NOTICE}.</p>
         </div>
         <div class="trust-band">
           <div class="trust-point"><span class="muted">׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>׳ ׳©׳׳¨׳” ׳‘׳”׳¦׳׳—׳”</strong></div>
@@ -1875,8 +1883,8 @@ function renderConfirmationPage(dealId) {
           <div class="trust-point"><span class="muted">׳”׳©׳׳‘ ׳”׳‘׳</span><strong>׳׳¢׳§׳‘ ׳¢׳“ ׳¡׳’׳™׳¨׳× ׳”׳¢׳¡׳§׳”</strong></div>
         </div>
           <div class="summary-grid">
-            <div class="summary-item"><span class="muted">׳׳–׳”׳” ׳”׳©׳×׳×׳₪׳•׳×</span><strong class="mono">${esc(flow.participantId)}</strong></div>
-            <div class="summary-item"><span class="muted">׳׳–׳”׳” ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span><strong class="mono">${esc(flow.authorizationId || "׳׳ ׳–׳׳™׳")}</strong></div>
+            <div class="summary-item"><span class="muted">סטטוס ההצטרפות</span><strong>שמורה במערכת</strong></div>
+            <div class="summary-item"><span class="muted">סטטוס המסגרת</span><strong>תפיסת מסגרת בלבד</strong></div>
             <div class="summary-item"><span class="muted">׳›׳׳•׳× ׳©׳ ׳¨׳©׳׳”</span><strong>${num(flow.qty || 0)} ׳™׳—'</strong></div>
             <div class="summary-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(flow.deliveryMethodLabel || "׳׳ ׳–׳׳™׳")}</strong></div>
             <div class="summary-item"><span class="muted">׳¢׳׳•׳× ׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${currency(flow.deliveryCost || 0)}</strong></div>
@@ -1912,6 +1920,7 @@ function renderConfirmationPage(dealId) {
             <p class="small">${esc(flow.authorizationMessage)}</p>
           </div>
         ` : ""}
+        ${renderShareActions(`/app/track/${encodeURIComponent(flow.participantId)}`, flow.dealTitle || "מעקב השתתפות בסיטון")}
         <div class="summary-item">
           <span class="muted">׳”׳׳¡׳׳•׳ ׳¢׳•׳“׳›׳</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
@@ -2021,8 +2030,8 @@ function renderTrackingPage() {
           <strong>${buyerState[0]}</strong>
           <p class="small muted">${moneyState[0]} ֲ· ${dealState.label}</p>
         </div>
-        <div class="summary-item"><span class="muted">׳׳–׳”׳” ׳”׳©׳×׳×׳₪׳•׳×</span><strong class="mono">${esc(tracking.participant_id)}</strong></div>
-        <div class="summary-item"><span class="muted">׳׳–׳”׳” ׳§׳•׳ ׳”</span><strong>${esc(tracking.buyer_id)}</strong></div>
+        <div class="summary-item"><span class="muted">קישור המעקב</span><strong>פרטי וזמין מהדף הזה</strong></div>
+        <div class="summary-item"><span class="muted">זיהוי קונה</span><strong>מאומת ומוסתר לצורך פרטיות</strong></div>
         <div class="summary-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(tracking.delivery_method_label || "׳׳ ׳–׳׳™׳")}</strong></div>
         ${linkedFlow?.lastTrackingViewedAt ? `<div class="summary-item"><span class="muted">׳¦׳₪׳™׳™׳” ׳׳—׳¨׳•׳ ׳” ׳‘׳׳¡׳׳•׳</span><strong>${dt(linkedFlow.lastTrackingViewedAt)}</strong></div>` : ""}
         ${linkedFlow?.updatedAt ? `<div class="summary-item"><span class="muted">׳¡׳©׳ ׳”-flow ׳¢׳•׳“׳›׳</span><strong>${relativeTime(linkedFlow.updatedAt)}</strong></div>` : ""}
@@ -2041,6 +2050,7 @@ function renderTrackingPage() {
           <strong>׳”׳׳¢׳§׳‘ ׳”׳–׳” ׳”׳•׳ ׳”׳׳§׳•׳¨ ׳”׳§׳•׳‘׳¢</strong>
           <p class="small muted">${esc(supportNote)}</p>
         </div>
+        ${renderShareActions(`/app/track/${encodeURIComponent(tracking.participant_id)}`, tracking.deal_title || "מעקב השתתפות בסיטון")}
         <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">׳—׳–׳¨׳” ׳׳¢׳¡׳§׳”</a></div>
       </aside>
     </section>
@@ -5084,7 +5094,7 @@ function getLabel(map, key) {
 function nextDealAction(stateName, canJoin) {
   if (canJoin) {
     return {
-      cta: "׳”׳׳©׳ ׳׳׳™׳׳•׳× ׳•׳׳”׳¦׳˜׳¨׳₪׳•׳×",
+      cta: stateName === "TargetReached" ? "הצטרפו ליחידות האחרונות" : "הצטרפו לעסקה",
       description: "׳”׳׳¡׳׳•׳ ׳™׳™׳§׳— ׳׳•׳×׳ ׳“׳¨׳ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳©׳׳™׳¨׳× ׳”׳”׳©׳×׳×׳₪׳•׳×."
     };
   }

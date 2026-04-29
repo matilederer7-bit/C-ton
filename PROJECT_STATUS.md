@@ -2,6 +2,43 @@
 
 ---
 
+Current update: 2026-04-29 (Buyer Experience V1 Audit Closure)
+
+- Audit verdict on `9041e67`: the suspicious commit did **not** implement Buyer Experience V1. `git show --stat --oneline --name-only 9041e67` and `git show --name-status 9041e67` confirmed it changed only `PROJECT_STATUS.md` and `docs/RC_STAGING_SMOKE.md`.
+- Actual implementation location: Buyer Experience V1 already existed mostly in earlier commits across `frontend/app.js`, `src/frontend_runtime.ts`, `src/app.ts`, and tests. Blame showed the main frontend flow predates `9041e67`, with later legal/delivery/OTP context hardening in earlier 2026-04-29 work such as `116a025`.
+- What was missing or weak in the live repo:
+  - Confirmation copy did not include the exact required headline "הצטרפת בהצלחה".
+  - Confirmation and tracking exposed raw participant / buyer / authorization identifiers to the buyer-facing UI.
+  - Authorization legal acceptance was grouped into one checkbox instead of separate terms, refund policy, and payment-frame disclosure acceptances.
+  - Confirmation/tracking share actions were not consistently present.
+  - The audit requirements were not covered by a focused regression gate.
+- Completed now:
+  - Updated `frontend/app.js` to add the exact required success and charge-condition notices, split legal checkboxes, remove raw buyer-facing IDs from confirmation/tracking, add tracking share actions, and use the required PendingTarget / TargetReached CTA copy.
+  - Added a focused Buyer Experience V1 audit gate to `tests/frontend_flow_validation.ts` covering routes, CTA states, hold-total/delivery behavior, OTP-before-payment guard, payment-frame wording, confirmation wording, Hebrew tracking status mapping, no raw IDs in buyer surfaces, no buyer-thread capture/refund/void, and no buyer marketplace/catalog/search or affiliate payout/commission drift.
+- Files changed in this closure:
+  - `frontend/app.js`
+  - `tests/frontend_flow_validation.ts`
+  - `PROJECT_STATUS.md`
+- Checks run:
+  - `git status --short`
+  - `git log --oneline -8`
+  - `git show --stat --oneline --name-only 9041e67`
+  - `git show --name-status 9041e67`
+  - Buyer-flow repository searches for `startJoin`, `/app/deal`, `/app/join`, `/app/track`, "הצטרפת בהצלחה", "תפיסת מסגרת", and "אשרו תפיסת מסגרת"
+  - `node --check frontend/app.js` PASS
+  - `npx tsc -p tsconfig.test.json` PASS
+  - `npm run test:frontend` PASS
+  - `npx tsc --noEmit` PASS
+- Full-suite note: `npm test` was attempted, but was manually stopped after 12m31s because it did not complete in a reasonable time and left test Node processes alive. This is recorded as a test-run hang/infrastructure concern, not as a product assertion failure.
+- Open:
+  - Investigate why the full `npm test` chain can hang or run unreasonably long on this workspace.
+  - Run a staging mobile/desktop smoke with a real deployment environment.
+- Progress: `98%` Buyer Experience V1 audit closure. Product flow is implemented and targeted checks pass; remaining 2% is full-suite runtime hygiene / staging smoke.
+- Next step: isolate the long-running `npm test` segment and make the full QA command finish deterministically.
+- Closure commit hash: final pushed hash is reported in the handoff; embedding the exact hash inside the same commit would change that hash again.
+
+---
+
 Current update: 2026-04-29 (Buyer Experience V1 — Complete End-to-End)
 
 - Completed: full Buyer Experience V1 end-to-end flow:
