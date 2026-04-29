@@ -23,8 +23,13 @@ async function run(name: string, fn: () => Promise<void>) {
 }
 
 // ── Test: no logistics management endpoints exist ─────────────────────────────
+// Checks both the previously-existing delivery_records update endpoint AND
+// other patterns that were never built. All must return 404.
 await run("no shipped/delivered/tracking update endpoints exist", async () => {
   const logisticsRoutes = [
+    // The old delivery_records management endpoint (removed in P1 fix)
+    { method: "POST", url: "/api/seller/deals/fake-deal/delivery/fake-participant" },
+    // Other never-built patterns
     { method: "POST", url: "/api/seller/deals/fake-deal/participants/fake-participant/shipped" },
     { method: "POST", url: "/api/seller/deals/fake-deal/participants/fake-participant/delivered" },
     { method: "PUT", url: "/api/seller/deals/fake-deal/participants/fake-participant/tracking" },

@@ -1643,14 +1643,6 @@ export function registerFrontendExperience(
         [dealId]
       );
 
-      const deliveries = await c.query(
-        `SELECT participant_id, status, tracking_number, issue_note, updated_at
-         FROM siton.delivery_records
-         WHERE deal_id = $1
-         ORDER BY updated_at DESC`,
-        [dealId]
-      );
-
       const invoiceDocuments = await c.query(
         `SELECT document_id, participant_id, status, document_type, provider_document_id,
                 issued_at, created_at, gross_amount, money_state_at_issue
@@ -1663,9 +1655,6 @@ export function registerFrontendExperience(
       const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
       const attributionByParticipant = new Map(
         attributions.rows.map((row: any) => [String(row.participant_id), row])
-      );
-      const deliveryByParticipant = new Map(
-        deliveries.rows.map((row: any) => [String(row.participant_id), row])
       );
       const invoiceByParticipant = new Map<string, any>();
       for (const row of invoiceDocuments.rows) {
@@ -1705,22 +1694,6 @@ export function registerFrontendExperience(
         )
       });
 
-      const deliveryRows = participants.rows
-        .filter((row: any) => deliveryEligible(deal.state, String(row.money_state)))
-        .map((row: any) => {
-          const delivery = deliveryByParticipant.get(String(row.participant_id)) as any;
-          return {
-            participant_id: row.participant_id,
-            buyer_id: row.buyer_id,
-            qty: Number(row.qty),
-            money_state: row.money_state,
-            status: delivery?.status ?? "ready_to_fulfill",
-            tracking_number: delivery?.tracking_number ?? null,
-            issue_note: delivery?.issue_note ?? "",
-            updated_at: delivery?.updated_at ?? null
-          };
-        });
-
       return {
         ok: true,
         deal,
@@ -1756,97 +1729,11 @@ export function registerFrontendExperience(
             },
             documents: fulfilledParticipants
           },
-        delivery_surface: {
-          status: deal.state === "Completed" ? "ready" : "blocked_until_completed",
-          note:
-            deal.state === "Completed"
-              ? "Only successfully charged or recovered buyers appear in delivery operations. Demo mode records fulfillment intent and tracking semantics, but does not claim live carrier execution."
-              : "Delivery operations become active only after a deal completes successfully.",
-          rows: deliveryRows
-        },
         seller_actions: {
           can_publish: (dealResult.rows[0] as DealListRow).state === "Draft",
           edit_locked: (dealResult.rows[0] as DealListRow).state !== "Draft",
-          create_similar_supported: true,
-          can_manage_delivery: deal.state === "Completed"
+          create_similar_supported: true
         }
-      };
-    });
-  });
-
-  app.post("/api/seller/deals/:id/delivery/:participantId", async (req: any, reply: any) => {
-    const dealId = String(req.params.id);
-    const participantId = String(req.params.participantId);
-    requireUuid(dealId, "deal_id");
-    requireUuid(participantId, "participant_id");
-    await ensureProductSurfaces();
-
-    const status = String(req.body?.status || "").trim();
-    const trackingNumber = String(req.body?.tracking_number || "").trim();
-    const issueNote = String(req.body?.issue_note || "").trim();
-    const allowedStatuses = new Set(["ready_to_fulfill", "shipped", "delivered", "issue"]);
-    if (!allowedStatuses.has(status)) {
-      const err: any = new Error("delivery status is invalid");
-      err.statusCode = 400;
-      throw err;
-    }
-    if ((status === "shipped" || status === "delivered") && !trackingNumber) {
-      const err: any = new Error("tracking number is required for shipped or delivered status");
-      err.statusCode = 400;
-      throw err;
-    }
-    if (status === "issue" && !issueNote) {
-      const err: any = new Error("issue note is required when delivery status is issue");
-      err.statusCode = 400;
-      throw err;
-    }
-
-    return deps.withTx(async (c) => {
-      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
-      if (!sellerContext) return reply;
-      const participant = await c.query(
-        `SELECT p.participant_id, p.buyer_id, p.qty, p.money_state, d.state AS deal_state, COALESCE(d.seller_id, $3) AS seller_id
-         FROM siton.participants p
-         JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE p.participant_id = $1 AND p.deal_id = $2`,
-        [participantId, dealId, sellerContext.seller_id]
-      );
-
-      if (!participant.rowCount) {
-        const err: any = new Error("participant not found");
-        err.statusCode = 404;
-        throw err;
-      }
-
-      const row = participant.rows[0] as any;
-      if (String(row.seller_id) !== sellerContext.seller_id) {
-        const err: any = new Error("seller context does not match the requested deal");
-        err.statusCode = 404;
-        throw err;
-      }
-      if (!deliveryEligible(String(row.deal_state) as DealState, String(row.money_state))) {
-        const err: any = new Error("delivery update requires completed deal with charged buyer");
-        err.statusCode = 409;
-        throw err;
-      }
-
-      const upserted = await c.query(
-        `INSERT INTO siton.delivery_records (
-           deal_id, participant_id, status, tracking_number, issue_note
-         )
-         VALUES ($1,$2,$3,$4,$5)
-         ON CONFLICT (participant_id) DO UPDATE
-         SET status = EXCLUDED.status,
-             tracking_number = EXCLUDED.tracking_number,
-             issue_note = EXCLUDED.issue_note,
-             updated_at = now()
-         RETURNING participant_id, status, tracking_number, issue_note, updated_at`,
-        [dealId, participantId, status, trackingNumber || null, issueNote]
-      );
-
-      return {
-        ok: true,
-        delivery: upserted.rows[0]
       };
     });
   });
@@ -1906,10 +1793,8 @@ export function registerFrontendExperience(
            p.delivery_address,
            p.delivery_city,
            p.delivery_notes,
-           p.created_at,
-           dr.status AS shipping_status
+           p.created_at
          FROM siton.participants p
-         LEFT JOIN siton.delivery_records dr ON dr.participant_id = p.participant_id
          WHERE p.deal_id = $1
            AND (p.money_state IN ('ChargedSuccess', 'RecoveredCharge') OR p.buyer_state = 'DealCompleted')
          ORDER BY p.created_at ASC`,
@@ -1939,7 +1824,6 @@ export function registerFrontendExperience(
         "delivery_address",
         "delivery_city",
         "delivery_notes",
-        "shipping_status",
         "charged_amount",
         "created_at"
       ];
@@ -1967,7 +1851,6 @@ export function registerFrontendExperience(
             row.delivery_address,
             row.delivery_city,
             row.delivery_notes,
-            String(row.shipping_status || "ready_to_fulfill"),
             chargedAmount,
             row.created_at ? new Date(row.created_at).toISOString() : ""
           ]
@@ -4267,13 +4150,6 @@ export function registerFrontendExperience(
          LIMIT 30`,
         [dealId]
       );
-      const deliveries = await c.query(
-        `SELECT participant_id, status, tracking_number, issue_note, updated_at
-         FROM siton.delivery_records
-         WHERE deal_id = $1
-         ORDER BY updated_at DESC`,
-        [dealId]
-      );
       const attributions = await c.query(
         `SELECT aa.participant_id, aa.share_code, af.display_name
          FROM siton.affiliate_attributions aa
@@ -4302,7 +4178,6 @@ export function registerFrontendExperience(
           outbox: outbox.rows,
           payment_attempts: attempts.rows,
           audit: audit.rows,
-          delivery: deliveries.rows,
           payout_batches: payoutSummary.batches,
           payout_items: payoutSummary.items,
           affiliate_attributions: attributions.rows,

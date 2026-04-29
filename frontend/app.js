@@ -755,7 +755,6 @@ async function submitAction(action, form) {
   if (action === "seller-logout") return logoutSeller();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId);
   if (action === "seller-profile-save") return saveSellerProfile(form);
-  if (action === "seller-delivery-update") return updateDelivery(form);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
   if (action === "admin-support-create") return createSupportTicket(form);
@@ -1134,29 +1133,6 @@ async function cloneSellerDeal(dealId) {
     await loadSellerDeal(result.new_deal_id);
     navigate(`/app/seller/deals/${encodeURIComponent(result.new_deal_id)}`);
   }, "לא הצלחנו ליצור טיוטה דומה לעסקה.");
-}
-
-async function updateDelivery(form) {
-  const dealId = form.dataset.dealId;
-  const participantId = form.dataset.participantId;
-  if (!dealId || !participantId) return;
-  const formData = new FormData(form);
-  await busy("׳©׳•׳׳¨ ׳׳× ׳¢׳“׳›׳•׳ ׳”׳׳¡׳™׳¨׳”...", async () => {
-    await api(`/api/seller/deals/${encodeURIComponent(dealId)}/delivery/${encodeURIComponent(participantId)}`, {
-      method: "POST",
-      body: json({
-        status: String(formData.get("deliveryStatus") || ""),
-        tracking_number: String(formData.get("trackingNumber") || ""),
-        issue_note: String(formData.get("issueNote") || "")
-      })
-    });
-    state.banner = {
-      tone: "success",
-      title: "סטטוס המסירה עודכן",
-      message: "׳׳¡׳ ׳”׳׳¡׳™׳¨׳” ׳©׳ ׳”׳׳•׳›׳¨ ׳¢׳•׳“׳›׳ ׳¢׳ ׳”׳¡׳˜׳˜׳•׳¡ ׳”׳׳—׳¨׳•׳."
-    };
-    await loadSellerDeal(dealId);
-  }, "עדכון המסירה נכשל.");
 }
 
 async function handleSellerImageSelection(input) {
@@ -2781,12 +2757,10 @@ function renderSellerDealPage() {
   if (!payload) return renderEmptyState("׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳׳¡׳ ׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”.");
   const deal = payload.deal;
   const receipts = payload.receipts_surface;
-  const delivery = payload.delivery_surface;
   const progressPct = sellerDealProgressPct(deal.metrics, deal.max_units);
   const urgency = sellerDeadlineSignal(deal.deadline, deal.state);
   const focus = sellerNextFocus(deal, null);
   const receiptsNote = normalizeSurfaceNote(receipts.note, "receipts");
-  const deliveryNote = normalizeSurfaceNote(delivery.note, "delivery");
   const participantSnapshot = summarizeSellerParticipants(payload.participants);
   const primaryImage = getPrimaryDealImage(deal);
   const activeSellerId = payload.seller_profile?.seller_id || currentSellerContext().seller_id;
@@ -2943,43 +2917,6 @@ function renderSellerDealPage() {
       <p class="small muted">׳–׳”׳• ׳׳©׳˜׳— ׳₪׳ ׳™׳׳™ ׳׳׳•׳›׳ ׳•׳× ׳—׳©׳‘׳•׳ ׳׳™׳×, ׳׳ ׳׳¡׳׳ ׳—׳™׳¦׳•׳ ׳™ ׳©׳”׳•׳₪׳§ ׳‘׳₪׳•׳¢׳.</p>
     </section>
     ${deal.state === "Completed" ? renderDeliveryHandoffSection(deal.deal_id) : ""}
-    <section class="card section stack">
-      <h2>׳ ׳™׳”׳•׳ ׳׳¡׳™׳¨׳” ׳•׳§׳‘׳׳”</h2>
-      <p class="muted">${esc(deliveryNote)}</p>
-      ${delivery.rows.length ? `<div class="card-list">${delivery.rows.map((row) => `
-        <article class="summary-item stack">
-          <div class="actions spread">
-            <div>
-              <span class="muted">${esc(formatDeliveryStatusLabel(row.status))}</span>
-              <h3>${esc(row.buyer_id)}</h3>
-            </div>
-            <strong>${num(row.qty)} ׳™׳—׳™׳“׳•׳×</strong>
-          </div>
-          <p class="small muted">׳׳¡׳₪׳¨ ׳׳¢׳§׳‘: ${esc(row.tracking_number || "׳׳ ׳”׳•׳’׳“׳¨")} ג€¢ ׳׳¦׳‘ ׳›׳¡׳₪׳™: ${esc(formatVisibleMoneyState(row.money_state))}</p>
-          <p class="small muted">׳׳¡׳׳ ׳™׳ ׳ ׳©׳׳— ׳׳• ׳ ׳׳¡׳¨ ׳¨׳§ ׳™׳—׳“ ׳¢׳ ׳׳¡׳₪׳¨ ׳׳¢׳§׳‘. ׳׳¡׳׳ ׳™׳ ׳×׳§׳׳” ׳¨׳§ ׳›׳©׳׳•׳¡׳™׳₪׳™׳ ׳”׳¡׳‘׳¨ ׳‘׳¨׳•׳¨.</p>
-          <form class="stack" data-action="seller-delivery-update" data-deal-id="${esc(deal.deal_id)}" data-participant-id="${esc(row.participant_id)}">
-            <div class="inline-fields">
-              <div class="field">
-                <label>׳¡׳˜׳˜׳•׳¡</label>
-                <select name="deliveryStatus">
-                  ${["ready_to_fulfill","shipped","delivered","issue"].map((option) => `<option value="${option}" ${row.status === option ? "selected" : ""}>${formatDeliveryStatusLabel(option)}</option>`).join("")}
-                </select>
-              </div>
-              <div class="field">
-                <label>׳׳¡׳₪׳¨ ׳׳¢׳§׳‘</label>
-                <input name="trackingNumber" type="text" data-dir="ltr" value="${esc(row.tracking_number || "")}" />
-              </div>
-            </div>
-            <div class="field">
-              <label>׳”׳¢׳¨׳× ׳×׳§׳׳”</label>
-              <input name="issueNote" type="text" value="${esc(row.issue_note || "")}" placeholder="׳”׳¢׳¨׳× ׳׳•׳›׳¨ ׳₪׳ ׳™׳׳™׳×, ׳׳ ׳ ׳“׳¨׳©" />
-            </div>
-            <button class="secondary" type="submit">׳©׳׳™׳¨׳× ׳¢׳“׳›׳•׳</button>
-          </form>
-        </article>
-      `).join("")}</div>` : `<p class="muted">׳ ׳™׳”׳•׳ ׳”׳׳¡׳™׳¨׳” ׳ ׳₪׳×׳— ׳¨׳§ ׳׳׳©׳×׳×׳₪׳™׳ ׳©׳—׳•׳™׳‘׳• ׳‘׳”׳¦׳׳—׳” ׳‘׳¢׳¡׳§׳” ׳©׳”׳•׳©׳׳׳”.</p>`}
-      <p class="small muted">׳”׳¢׳“׳›׳•׳ ׳™׳ ׳›׳׳ ׳׳™׳™׳¦׳’׳™׳ ׳¡׳˜׳˜׳•׳¡ ׳׳¡׳™׳¨׳” ׳•׳׳¢׳§׳‘ ׳‘׳׳‘׳“, ׳•׳׳ ׳—׳™׳‘׳•׳¨ ׳—׳™ ׳׳—׳‘׳¨׳× ׳©׳™׳׳•׳—.</p>
-    </section>
   `;
 }
 
@@ -3604,15 +3541,13 @@ function renderAdminDealPage() {
     </section>
     <section class="card section stack"><h2>תור עבודה והתראות</h2>${ops ? renderAdminDealOpsBuckets(ops) : `<div class="empty-surface"><p class="muted">סיכום התורים לא זמין כרגע.</p></div>`}</section>
     <section class="card section stack"><h2>ניסיונות חיוב מתועדים</h2>${payload.payment_attempts.length ? renderRowsTable(payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו ניסיונות חיוב לעסקה הזו.</p></div>`}</section>
-    <section class="card section stack"><h2>ייחוס, מסירה ותמיכה</h2>
+    <section class="card section stack"><h2>ייחוס ותמיכה</h2>
       <div class="summary-grid">
-        <div class="summary-item"><span class="muted">רשומות מסירה</span><strong>${num(payload.delivery.length)}</strong></div>
         <div class="summary-item"><span class="muted">ייחוסי שיתוף</span><strong>${num(payload.affiliate_attributions.length)}</strong></div>
         <div class="summary-item"><span class="muted">פניות תמיכה</span><strong>${num(payload.support_tickets.length)}</strong></div>
       </div>
-      ${payload.delivery.length ? renderTablePanel("רשומות מסירה", "הטבלה מציגה רק truth תפעולי קיים למסירה.", payload.delivery.map((row) => ({ ...row, delivery_status: row.status })), ["participant_id", "delivery_status", "tracking_number", "issue_note", "updated_at"]) : ""}
       ${payload.affiliate_attributions.length ? renderTablePanel("ייחוסי שיתוף", "מופיעים רק שיוכים שנרשמו בפועל במערכת.", payload.affiliate_attributions, ["participant_id", "share_code", "display_name"]) : ""}
-      ${payload.support_tickets.length ? renderTablePanel("פניות תמיכה לעסקה", "הפניות מחוברות לרשומות support_tickets אמיתיות.", payload.support_tickets.map((row) => ({ ...row, support_status: row.status })), ["ticket_id", "scope_type", "scope_key", "title", "priority", "support_status", "updated_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו פניות תמיכה פתוחות לעסקה הזו.</p></div>`}
+        <div class="summary-item"><span class="muted">פניות תמיכה</span><strong>${num(payload.support_tickets.length)}</strong></div>
     </section>
     <section class="card section stack"><h2>יומן בקרה</h2>${payload.audit.length ? renderTablePanel("Audit אחרון", "יומן הפעולות האחרון שמסביר איך העסקה התקדמה בין מצבים.", payload.audit, ["entity_type", "state_type", "from_state", "to_state", "action_name", "created_at"]) : `<div class="empty-surface"><p class="muted">לא נמצאו אירועי audit לעסקה הזו.</p></div>`}</section>
   `;
@@ -3845,11 +3780,9 @@ const INTERNAL_TABLE_HEADER_LABELS = {
   notification_status: "סטטוס התראה",
   outbox_status: "סטטוס תור",
   support_status: "סטטוס פנייה",
-  delivery_status: "סטטוס מסירה",
   provider_document_id: "׳׳–׳”׳” ׳¡׳₪׳§",
   share_code: "׳§׳•׳“ ׳©׳™׳×׳•׳£",
   display_name: "׳©׳ ׳×׳¦׳•׳’׳”",
-  tracking_number: "׳׳¡׳₪׳¨ ׳׳¢׳§׳‘",
   issue_note: "׳”׳¢׳¨׳× ׳×׳§׳׳”",
   updated_at: "׳¢׳•׳“׳›׳ ׳‘-",
   ticket_id: "׳׳–׳”׳” ׳₪׳ ׳™׳™׳”",
@@ -3886,20 +3819,6 @@ function formatEnvironmentLabel(value) {
   if (normalized === "production") return "׳¡׳‘׳™׳‘׳× ׳™׳™׳¦׳•׳¨";
   if (normalized === "staging") return "׳¡׳‘׳™׳‘׳× ׳‘׳“׳™׳§׳•׳×";
   return String(value);
-}
-
-function formatDeliveryStatusLabel(value) {
-  const normalized = String(value || "").trim();
-  if (!normalized) return "׳׳ ׳¢׳•׳“׳›׳";
-  if (normalized === "ready_to_fulfill") return "׳׳•׳›׳ ׳׳׳¡׳™׳¨׳”";
-  if (normalized === "shipped") return "׳ ׳©׳׳—";
-  if (normalized === "delivered") return "׳ ׳׳¡׳¨";
-  if (normalized === "issue") return "׳“׳•׳¨׳© ׳˜׳™׳₪׳•׳";
-  if (normalized === "Pending") return "׳׳׳×׳™׳ ׳׳׳¡׳™׳¨׳”";
-  if (normalized === "InTransit") return "׳‘׳“׳¨׳";
-  if (normalized === "Delivered") return "׳ ׳׳¡׳¨";
-  if (normalized === "Issue") return "׳“׳•׳¨׳© ׳˜׳™׳₪׳•׳";
-  return normalized;
 }
 
 function formatRuntimeModeLabel(value) {
@@ -4088,7 +4007,6 @@ function formatCell(value, column = "") {
   if (column === "notification_status") return formatNotificationStatus(value);
   if (column === "outbox_status") return formatOutboxStatus(value);
   if (column === "support_status") return formatSupportTicketStatus(value);
-  if (column === "delivery_status") return formatDeliveryStatusLabel(String(value));
   if (column === "delivery_method_type") return formatDeliveryTypeLabel(String(value));
   if (column === "status") return formatOperatorState(value, inferStatusColumn(column, value));
   if (column === "priority") return formatSupportPriority(value);
@@ -4107,7 +4025,6 @@ function inferStatusColumn(column, value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (["pending", "processing", "sent", "failed"].includes(normalized)) return "outbox_status";
   if (["issued", "pending", "processing", "failed"].includes(normalized)) return "document_status";
-  if (["ready_to_fulfill", "shipped", "delivered", "issue"].includes(normalized)) return "delivery_status";
   if (["open", "investigating", "resolved"].includes(normalized)) return "support_status";
   return column;
 }

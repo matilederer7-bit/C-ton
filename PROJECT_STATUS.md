@@ -2,6 +2,24 @@
 
 ---
 
+Current update: 2026-04-29 (P1 Fix: Remove Logistics Management Drift)
+
+- Completed: הסרה מלאה של drift ניהול לוגיסטיקה (P1 שנמצא באודיט RC).
+- Removed: endpoint `POST /api/seller/deals/:id/delivery/:participantId` — ניהול סטטוס מסירה (shipped/delivered/issue/tracking_number).
+- Removed: table `siton.delivery_records` — נמחקה בסיס הנתונים ב-migration idempotent (`DROP TABLE IF EXISTS ... CASCADE`).
+- Removed: frontend `updateDelivery` function, `seller-delivery-update` form/dispatch, `delivery_surface`/`can_manage_delivery` מהתגובה, sections לוגיסטיות מ-seller deal page ו-admin deal profile.
+- Removed: `formatDeliveryStatusLabel`, `delivery_status` מ-formatCell/inferStatusColumn, `tracking_number`/`delivery_status` מ-column labels.
+- Removed: LEFT JOIN ל-delivery_records מ-shipping-export CSV, הוסר עמודת `shipping_status` מה-headers.
+- Kept: כל ה-Delivery Data Handoff הרזה — `GET /api/seller/deals/:id/delivery-handoff`, Excel export, buyer data collection at join time, `renderDeliveryHandoffSection`, copy address, WhatsApp/email deep links.
+- Updated test: `seller_delivery_no_logistics_management_validation` — עכשיו מכסה גם את `POST /api/seller/deals/:id/delivery/:participantId` בפועל. כל 5 הבדיקות עברו.
+- Build checks: `node --check frontend/app.js` PASS, `npx tsc -p tsconfig.test.json` PASS.
+- Tests run after fix: `buyer_delivery_data_validation` 5/5 PASS, `seller_delivery_handoff_validation` PASS, `seller_delivery_excel_export_validation` PASS, `seller_delivery_no_logistics_management_validation` 5/5 PASS, `frontend_flow_validation` 14/14 PASS, `seller_profile_readiness_validation` 6/6 PASS, `seller_auth_session_validation` 2/2 PASS, `seller_deal_excel_export_validation` 8/8 PASS, `spec_drift_regression_wave3_validation` 13/13 PASS, `platform_fee_payments_8_percent_validation` 7/7 PASS.
+- P1 status: CLOSED.
+- Progress: `95%` overall platform QA coverage.
+- Next step: staging deploy smoke — full flow על staging עם real admin key, deal seed, buyer flow (OTP → mock-auth → join → tracking), seller flow (create → publish → delivery handoff).
+
+---
+
 Current update: 2026-04-29 (Closing Product Gaps Audit — RC Gate)
 
 - Completed: Closing Product Gaps Audit לקראת RC. הורצו 28 סוויטות רגרסיה — כולן PASS. build checks נקיים. אין P0 blockers.

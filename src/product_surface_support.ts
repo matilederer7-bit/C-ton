@@ -160,18 +160,9 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
       await c.query(`ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS commission_amount`);
       await c.query(`ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS payout_status`);
 
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.delivery_records (
-          delivery_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          deal_id UUID NOT NULL REFERENCES siton.deals(deal_id) ON DELETE CASCADE,
-          participant_id UUID NOT NULL UNIQUE REFERENCES siton.participants(participant_id) ON DELETE CASCADE,
-          status TEXT NOT NULL DEFAULT 'ready_to_fulfill'
-            CHECK (status IN ('ready_to_fulfill','shipped','delivered','issue')),
-          tracking_number TEXT NULL,
-          issue_note TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )`);
+      // delivery_records was a logistics management table (shipped/delivered/tracking_number).
+      // Siton does not manage logistics. Removed per spec. Migration drops it idempotently.
+      await c.query(`DROP TABLE IF EXISTS siton.delivery_records CASCADE`);
 
       await c.query(`
         CREATE TABLE IF NOT EXISTS siton.support_tickets (
@@ -192,9 +183,7 @@ export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_affiliate_attributions_affiliate
         ON siton.affiliate_attributions (affiliate_id, created_at DESC)`);
-      await c.query(`
-        CREATE INDEX IF NOT EXISTS idx_delivery_records_deal
-        ON siton.delivery_records (deal_id, status, updated_at DESC)`);
+      await c.query(`DROP INDEX IF EXISTS siton.idx_delivery_records_deal`);
       await c.query(`
         CREATE INDEX IF NOT EXISTS idx_support_tickets_status
         ON siton.support_tickets (status, created_at DESC)`);
