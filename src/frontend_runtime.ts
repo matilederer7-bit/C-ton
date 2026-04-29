@@ -1986,6 +1986,191 @@ export function registerFrontendExperience(
     });
   });
 
+  // ── Delivery Data Handoff (JSON) ─────────────────────────────────────────
+  // Returns only eligible buyers (ChargedSuccess / RecoveredCharge) with their
+  // delivery fields. No shipping status, tracking numbers, or payment refs.
+  app.get("/api/seller/deals/:dealId/delivery-handoff", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state
+         FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden");
+        err.statusCode = 403;
+        throw err;
+      }
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("delivery handoff requires a completed deal");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      const result = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.buyer_name, p.buyer_phone, p.buyer_email,
+                p.qty, p.delivery_method_type, p.delivery_method_label, p.delivery_cost,
+                p.delivery_address, p.delivery_city, p.delivery_notes, p.created_at
+         FROM siton.participants p
+         WHERE p.deal_id = $1
+           AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
+         ORDER BY p.created_at ASC`,
+        [dealId]
+      );
+
+      return {
+        deal_id: dealId,
+        deal_title: String(deal.title),
+        eligible_count: result.rowCount,
+        disclaimer: "האספקה מתבצעת באחריות המוכר ומחוץ למערכת סיטון.",
+        buyers: (result.rows as any[]).map((p) => ({
+          participant_id: p.participant_id,
+          buyer_id: p.buyer_id,
+          buyer_name: p.buyer_name || null,
+          buyer_phone: p.buyer_phone || null,
+          buyer_email: p.buyer_email || null,
+          qty: Number(p.qty || 0),
+          delivery_method_type: p.delivery_method_type || null,
+          delivery_method_label: p.delivery_method_label || null,
+          delivery_address: p.delivery_address || null,
+          delivery_city: p.delivery_city || null,
+          delivery_notes: p.delivery_notes || null,
+          joined_at: p.created_at ? new Date(p.created_at).toISOString() : null
+        }))
+      };
+    });
+  });
+
+  // ── Delivery Data Handoff Excel Export ───────────────────────────────────
+  // Lean sheet: only eligible buyers + delivery fields. No tracking, status,
+  // payment provider refs, or internal audit data.
+  app.get("/api/seller/deals/:dealId/delivery-handoff/export.xlsx", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state
+         FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden");
+        err.statusCode = 403;
+        throw err;
+      }
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("delivery handoff requires a completed deal");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      const participantsResult = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.buyer_name, p.buyer_phone, p.buyer_email,
+                p.qty, p.delivery_method_type, p.delivery_method_label,
+                p.delivery_address, p.delivery_city, p.delivery_notes, p.created_at
+         FROM siton.participants p
+         WHERE p.deal_id = $1
+           AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
+         ORDER BY p.created_at ASC`,
+        [dealId]
+      );
+
+      const ExcelJS = (await import("exceljs")).default;
+      const wb = new ExcelJS.Workbook();
+      wb.creator = "Siton";
+      wb.created = new Date();
+
+      function safeTextDH(v: any) { return v == null ? "" : String(v); }
+      function fmtDateDH(v: any) {
+        if (!v) return "";
+        try { return new Date(v).toISOString().slice(0, 10); } catch { return ""; }
+      }
+
+      const ws = wb.addWorksheet("מסירת נתוני אספקה");
+      ws.columns = [
+        { header: "מזהה עסקה", key: "deal_id", width: 38 },
+        { header: "שם עסקה", key: "deal_title", width: 30 },
+        { header: "מזהה השתתפות", key: "participant_id", width: 38 },
+        { header: "שם מקבל", key: "buyer_name", width: 22 },
+        { header: "טלפון", key: "buyer_phone", width: 18 },
+        { header: "אימייל", key: "buyer_email", width: 28 },
+        { header: "כמות", key: "qty", width: 8 },
+        { header: "אופן קבלה", key: "delivery_method", width: 20 },
+        { header: "תווית אופן קבלה", key: "delivery_method_label", width: 24 },
+        { header: "כתובת", key: "delivery_address", width: 32 },
+        { header: "עיר", key: "delivery_city", width: 18 },
+        { header: "הערת משלוח", key: "delivery_notes", width: 26 },
+        { header: "תאריך הצטרפות", key: "joined_at", width: 22 }
+      ];
+
+      const headerRow = ws.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FFD9EAD3" } };
+      headerRow.commit();
+
+      for (const p of participantsResult.rows as any[]) {
+        ws.addRow([
+          safeTextDH(dealId),
+          safeTextDH(deal.title),
+          safeTextDH(p.participant_id),
+          safeTextDH(p.buyer_name),
+          safeTextDH(p.buyer_phone),
+          safeTextDH(p.buyer_email),
+          Number(p.qty || 0),
+          safeTextDH(p.delivery_method_type),
+          safeTextDH(p.delivery_method_label),
+          safeTextDH(p.delivery_address),
+          safeTextDH(p.delivery_city),
+          safeTextDH(p.delivery_notes),
+          fmtDateDH(p.created_at)
+        ]);
+      }
+
+      const wsNotes = wb.addWorksheet("הסבר");
+      wsNotes.addRow(["מסירת נתוני אספקה — סיטון"]);
+      wsNotes.addRow([""]);
+      wsNotes.addRow(["סיטון מוסרת כאן את פרטי הקונים שחויבו בפועל וזכאים למוצר."]);
+      wsNotes.addRow(["האספקה עצמה מתבצעת באחריות המוכר בלבד ומחוץ למערכת סיטון."]);
+      wsNotes.addRow([""]);
+      wsNotes.addRow(["הקובץ לא כולל מספרי מעקב, סטטוס משלוח, או נתוני סליקה פנימיים."]);
+      wsNotes.addRow([`הופק: ${new Date().toISOString().slice(0, 10)}`]);
+
+      const buf = await wb.xlsx.writeBuffer();
+      return reply
+        .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+        .header("Content-Disposition", `attachment; filename="siton-delivery-handoff-${dealId}.xlsx"`)
+        .send(buf);
+    });
+  });
+
   // ── Seller Deal Excel Export ─────────────────────────────────────────────
   app.get("/api/seller/deals/:dealId/export.xlsx", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);

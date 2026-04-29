@@ -2,6 +2,25 @@
 
 ---
 
+Current update: 2026-04-28 (Delivery Data Handoff)
+
+- Completed: built the lean "מסירת נתוני אספקה למוכר" (Delivery Data Handoff) feature. Data collection only — no logistics, no shipment tracking, no status updates, no Siton-initiated delivery notifications.
+- Completed: buyer delivery data collection at join time — delivery address form (recipient name, street, city, optional note ≤200 chars) shown on payment page when buyer selects a `delivery` option; `pickup` options show an info strip with no form; data submitted with join payload and stored in existing `participants` table columns.
+- Completed: `delivery_notes` max-200 server-side validation with `delivery_notes_too_long` error code (400); `delivery_address` required for shipping option with `delivery_address_required` error code (400).
+- Completed: `GET /api/seller/deals/:dealId/delivery-handoff` — returns eligible buyers (ChargedSuccess / RecoveredCharge) with delivery fields; 409 for non-Completed deals; response excludes authorization_id, payment provider refs, tracking numbers, delivery_status, delivery_issue.
+- Completed: `GET /api/seller/deals/:dealId/delivery-handoff/export.xlsx` — lean 2-sheet Excel (מסירת נתוני אספקה + הסבר); filename `siton-delivery-handoff-{dealId}.xlsx`; no internal payment refs, no tracking fields.
+- Completed: seller deal management page — "מסירת נתוני אספקה" section renders after deal Completed; one card per eligible buyer with name, delivery method, address (copy button for shipping), WhatsApp link, email link; Excel download button.
+- Completed: frontend delivery address collection in payment page form; `payAndJoin` collects and validates delivery fields client-side; `buyerFlowService.joinDeal` forwards all delivery fields in join payload.
+- Completed: OTP token / challenge ID save + forward fixed in `otpVerify` → `saveFlow` → `buyerFlowService.joinDeal` (pre-existing gap in frontend OTP handoff).
+- Created docs: `docs/DELIVERY_DATA_HANDOFF.md` covering API contracts, buyer flow, seller UX, DB columns, and test coverage.
+- Test suite: `buyer_delivery_data_validation` (5 cases), `seller_delivery_handoff_validation` (4 cases), `seller_delivery_excel_export_validation` (4 cases), `seller_delivery_no_logistics_management_validation` (5 cases).
+- Checked: `node --check frontend/app.js`; `npx tsc -p tsconfig.test.json`.
+- Not built: shipment tracking, delivery_status updates, logistics management endpoints, delivery SMS/email from Siton, carrier integration, tracking_number, shipped_at, delivered_at, refund/capture/void/payout in delivery path.
+- Progress: `93%` overall platform QA coverage.
+- Next step: run all regression tests + deploy-preview smoke on buyer and seller delivery flows.
+
+---
+
 Current update: 2026-04-28 (Concurrency Proof OTP Refit)
 
 - Completed: aligned `tests/concurrency_proof.ts` to the OTP + legal-acceptance join gate. Added a once-per-suite OTP start/verify setup block that issues `SUITE_OTP_TOKEN` + `SUITE_OTP_CHALLENGE_ID`; the `join()` helper now forwards `buyer_terms_accepted`, `payment_disclosure_accepted`, `otp_token`, and `otp_challenge_id`. Cleanup helpers (`deleteDeal`, pre-run stale-deal loop) now also delete from `siton.legal_acceptances`. Concurrency is still proved at the DB locking layer; OTP gates run before the lock and a single verified token is reused within its 15-minute TTL.

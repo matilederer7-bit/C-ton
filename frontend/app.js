@@ -24,6 +24,7 @@ const state = {
   sellerAnalyticsLoading: false,
   sellerAnalyticsError: null,
   sellerDealPayload: null,
+  sellerDeliveryHandoff: null,
   affiliatePayload: null,
   adminPayload: null,
   adminMissionPayload: null,
@@ -216,6 +217,8 @@ document.addEventListener("click", (event) => {
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
+    if (action === "download-delivery-handoff-excel") void downloadDeliveryHandoffExcel(actionTarget.dataset.dealId);
+    if (action === "copy-delivery-address") void copyLink(actionTarget.dataset.address);
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
     if (action === "clear-product-image") clearSellerProductImage();
@@ -528,11 +531,18 @@ async function prepareSellerNew() {
 }
 
 async function loadSellerDeal(dealId) {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”...", async () => {
+  await busy("טוען את ניהול העסקה...", async () => {
     state.sellerDealPayload = await api(`/api/seller/deals/${encodeURIComponent(dealId)}`);
     state.sellerAuth = state.sellerDealPayload?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerDealPayload?.seller_profile || null);
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”.");
+    if (state.sellerDealPayload?.deal?.state === "Completed") {
+      try {
+        state.sellerDeliveryHandoff = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/delivery-handoff`);
+      } catch { state.sellerDeliveryHandoff = null; }
+    } else {
+      state.sellerDeliveryHandoff = null;
+    }
+  }, "לא הצלחנו לטעון את מסך ניהול העסקה.");
 }
 
 async function loadAffiliate() {
@@ -827,7 +837,9 @@ async function otpVerify(form) {
     });
     saveFlow(route.dealId, {
       buyerId: response.buyer_id,
+      otpToken: response.otp_token || "",
       otpVerified: true,
+      otpChallengeId: response.challenge_id || response.otp_session_id || "",
       otpVerifiedAt: new Date().toISOString()
     });
     state.banner = {
@@ -875,6 +887,19 @@ async function payAndJoin(form) {
   }
 
   const formData = new FormData(form);
+  const buyerName = String(formData.get("buyerName") || "").trim();
+  const deliveryAddress = String(formData.get("deliveryAddress") || "").trim();
+  const deliveryCity = String(formData.get("deliveryCity") || "").trim();
+  const deliveryNote = String(formData.get("deliveryNote") || "").trim();
+  if (flow.deliveryMethodType === "shipping" && !deliveryAddress) {
+    return fail("חסרה כתובת משלוח", "בחרת משלוח — נא למלא רחוב ומספר.");
+  }
+  if (flow.deliveryMethodType === "shipping" && !deliveryCity) {
+    return fail("חסרה עיר", "בחרת משלוח — נא למלא עיר.");
+  }
+  if (deliveryNote.length > 200) {
+    return fail("הערה ארוכה מדי", "הערת המשלוח לא יכולה לעלות על 200 תווים.");
+  }
   const payload = {
     holder_name: String(formData.get("holderName") || "").trim(),
     card_number: String(formData.get("cardNumber") || "").replace(/\s+/g, ""),
@@ -895,6 +920,12 @@ async function payAndJoin(form) {
       qty: flow.qty,
       affiliateRef: flow.affiliateRef || "",
       deliveryOptionId: flow.deliveryOptionId || "",
+      buyerName: buyerName || undefined,
+      deliveryAddress: deliveryAddress || undefined,
+      deliveryCity: deliveryCity || undefined,
+      deliveryNote: deliveryNote || undefined,
+      otpToken: flow.otpToken || undefined,
+      otpChallengeId: flow.otpChallengeId || undefined,
       authorizationId: authorization.authorization_id,
       authorizationProvider: authorization.provider,
       authorizationCorrelationId: authorization.correlation_id,
@@ -1808,6 +1839,17 @@ function renderPaymentPage(dealId) {
           <p class="small muted">׳–׳” ׳”׳׳¡׳ ׳”׳׳—׳¨׳•׳ ׳׳₪׳ ׳™ ׳©׳׳™׳¨׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳×. ׳׳—׳¨׳™ ׳”׳׳™׳©׳•׳¨ ׳×׳¢׳‘׳•׳¨ ׳׳™׳“ ׳׳׳¡׳ ׳”׳¦׳׳—׳” ׳•׳׳¢׳§׳‘.</p>
         </div>
         <form data-action="pay" class="stack">
+          ${flow.deliveryMethodType === "shipping" ? `
+            <div class="info-strip"><strong>פרטי משלוח</strong><p class="small">הפרטים ישמרו ויועברו למוכר לאחר השלמת העסקה. האספקה באחריות המוכר.</p></div>
+            <div class="field"><label for="buyerName">שם מקבל</label><input id="buyerName" name="buyerName" type="text" data-dir="rtl" autocomplete="name" /></div>
+            <div class="inline-fields">
+              <div class="field"><label for="deliveryAddress">רחוב ומספר *</label><input id="deliveryAddress" name="deliveryAddress" type="text" data-dir="rtl" required autocomplete="street-address" /></div>
+              <div class="field"><label for="deliveryCity">עיר *</label><input id="deliveryCity" name="deliveryCity" type="text" data-dir="rtl" required autocomplete="address-level2" /></div>
+            </div>
+            <div class="field"><label for="deliveryNote">הערה למשלוח (אופציונלי, עד 200 תווים)</label><textarea id="deliveryNote" name="deliveryNote" data-dir="rtl" maxlength="200" rows="2"></textarea></div>
+          ` : flow.deliveryMethodType === "pickup" ? `
+            <div class="info-strip tone-success"><strong>איסוף עצמי</strong><p class="small">פרטי האיסוף יועברו ישירות מהמוכר לאחר השלמת העסקה.</p></div>
+          ` : ""}
           <div class="field"><label for="holderName">׳©׳ ׳‘׳¢׳ ׳”׳›׳¨׳˜׳™׳¡</label><input id="holderName" name="holderName" type="text" data-dir="rtl" value="${esc(state.form.holderName)}" autocomplete="cc-name" /></div>
           <div class="field"><label for="cardNumber">׳׳¡׳₪׳¨ ׳›׳¨׳˜׳™׳¡</label><input id="cardNumber" name="cardNumber" type="text" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cardNumber)}" autocomplete="cc-number" placeholder="4111111111111111" /></div>
           <div class="inline-fields">
@@ -2641,6 +2683,94 @@ function renderSellerNewPage() {
   `;
 }
 
+function renderDeliveryHandoffSection(dealId) {
+  const handoff = state.sellerDeliveryHandoff;
+  if (!handoff) return "";
+  const buyers = handoff.buyers || [];
+  const sellerContext = currentSellerContext();
+  function fullAddress(b) {
+    const parts = [b.delivery_address, b.delivery_city].filter(Boolean);
+    return parts.join(", ");
+  }
+  function whatsappHref(phone) {
+    const clean = String(phone || "").replace(/\D/g, "");
+    if (!clean) return null;
+    const intl = clean.startsWith("0") ? "972" + clean.slice(1) : clean;
+    return `https://wa.me/${intl}`;
+  }
+  return `
+    <section class="card section stack">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <h2>נתוני אספקה לקונים</h2>
+          <p class="muted section-intro">סיטון מציגה כאן את פרטי הקונים שחויבו וזכאים למוצר. <strong>האספקה עצמה מתבצעת באחריות המוכר ומחוץ למערכת.</strong></p>
+        </div>
+        <div class="pill-row">
+          <span class="stat-pill"><span>זכאים</span><strong>${num(buyers.length)}</strong></span>
+          ${buyers.length ? `<button class="secondary" type="button" data-inline-action="download-delivery-handoff-excel" data-deal-id="${esc(dealId)}">הורד Excel אספקה</button>` : ""}
+        </div>
+      </div>
+      ${buyers.length ? `
+        <div class="card-list">
+          ${buyers.map((b) => `
+            <article class="summary-item stack">
+              <div class="actions spread">
+                <div>
+                  <strong>${esc(b.buyer_name || b.buyer_id || "—")}</strong>
+                  <p class="small muted">${esc(b.delivery_method_label || b.delivery_method_type || "—")} · ${num(b.qty)} יח'</p>
+                </div>
+                <div class="actions">
+                  ${whatsappHref(b.buyer_phone) ? `<a class="button secondary" href="${esc(whatsappHref(b.buyer_phone))}" target="_blank" rel="noopener">WhatsApp</a>` : ""}
+                  ${b.buyer_email ? `<a class="button secondary" href="mailto:${esc(b.buyer_email)}">מייל</a>` : ""}
+                </div>
+              </div>
+              ${b.delivery_method_type === "shipping" && (b.delivery_address || b.delivery_city) ? `
+                <div class="actions spread">
+                  <p class="small">${esc(fullAddress(b))}${b.delivery_notes ? ` — ${esc(b.delivery_notes)}` : ""}</p>
+                  <button class="secondary" type="button" data-inline-action="copy-delivery-address" data-address="${esc(fullAddress(b))}">העתק כתובת</button>
+                </div>
+              ` : b.delivery_method_type === "pickup" ? `
+                <p class="small muted">איסוף עצמי — פרטים מועברים ישירות על ידי המוכר.</p>
+              ` : `<p class="small muted">${esc(b.delivery_method_label || "אופן קבלה לא צוין")}</p>`}
+              ${b.buyer_phone ? `<p class="small muted mono">${esc(b.buyer_phone)}</p>` : ""}
+              ${b.buyer_email ? `<p class="small muted">${esc(b.buyer_email)}</p>` : ""}
+            </article>
+          `).join("")}
+        </div>
+      ` : `<div class="empty-surface"><p class="muted">אין קונים זכאים למוצר בעסקה זו.</p></div>`}
+      <div class="info-strip">
+        <strong>מדיניות מסירת נתונים</strong>
+        <p class="small">${esc(handoff.disclaimer || "האספקה מתבצעת באחריות המוכר ומחוץ למערכת סיטון.")}</p>
+      </div>
+    </section>
+  `;
+}
+
+async function downloadDeliveryHandoffExcel(dealId) {
+  if (!dealId) return;
+  const sellerContext = currentSellerContext();
+  const url = `/api/seller/deals/${encodeURIComponent(dealId)}/delivery-handoff/export.xlsx`;
+  await busy("מכין Excel נתוני אספקה...", async () => {
+    const response = await fetch(url, {
+      headers: usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}
+    });
+    if (!response.ok) {
+      const error = new Error(await response.text());
+      error.status = response.status;
+      throw error;
+    }
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = `siton-delivery-handoff-${dealId}.xlsx`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(objectUrl);
+  }, "לא הצלחנו להוריד את קובץ נתוני האספקה.");
+}
+
 function renderSellerDealPage() {
   const auth = currentSellerAuth();
   if (!usesDemoSellerContext() && !auth.authenticated) {
@@ -2812,6 +2942,7 @@ function renderSellerDealPage() {
       ${receipts.documents.length ? renderTablePanel("מסמכי עסקה לפי רישום אמיתי", "הטבלה נשענת רק על רשומות invoice_documents אמיתיות. אם עדיין לא נוצרה רשומה, יוצג במפורש שאין מסמך מונפק.", receipts.documents, ["document_id", "document_status", "issued_at", "participant_id", "buyer_id", "qty", "gross_amount", "share_code", "affiliate_name"]) : `<div class="empty-surface"><p class="muted">׳¢׳“׳™׳™׳ ׳׳™׳ ׳¨׳©׳•׳׳•׳× ׳׳¡׳׳ ׳׳׳™׳×׳™׳•׳× ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p></div>`}
       <p class="small muted">׳–׳”׳• ׳׳©׳˜׳— ׳₪׳ ׳™׳׳™ ׳׳׳•׳›׳ ׳•׳× ׳—׳©׳‘׳•׳ ׳׳™׳×, ׳׳ ׳׳¡׳׳ ׳—׳™׳¦׳•׳ ׳™ ׳©׳”׳•׳₪׳§ ׳‘׳₪׳•׳¢׳.</p>
     </section>
+    ${deal.state === "Completed" ? renderDeliveryHandoffSection(deal.deal_id) : ""}
     <section class="card section stack">
       <h2>׳ ׳™׳”׳•׳ ׳׳¡׳™׳¨׳” ׳•׳§׳‘׳׳”</h2>
       <p class="muted">${esc(deliveryNote)}</p>
@@ -4591,7 +4722,7 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, authorizationId, authorizationProvider, authorizationCorrelationId, buyerTermsAccepted, paymentDisclosureAccepted }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, buyerName, deliveryAddress, deliveryCity, deliveryNote, otpToken, otpChallengeId, authorizationId, authorizationProvider, authorizationCorrelationId, buyerTermsAccepted, paymentDisclosureAccepted }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
@@ -4603,6 +4734,12 @@ const buyerFlowService = {
         qty,
         affiliate_ref: affiliateRef || undefined,
         delivery_option_id: deliveryOptionId || undefined,
+        buyer_name: buyerName || undefined,
+        delivery_address: deliveryAddress || undefined,
+        delivery_city: deliveryCity || undefined,
+        delivery_notes: deliveryNote || undefined,
+        otp_token: otpToken || undefined,
+        otp_challenge_id: otpChallengeId || undefined,
         authorization_id: authorizationId || undefined,
         authorization_provider: authorizationProvider || undefined,
         authorization_correlation_id: authorizationCorrelationId || undefined,

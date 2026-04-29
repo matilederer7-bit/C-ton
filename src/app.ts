@@ -2625,6 +2625,12 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const deliveryAddress = String(body.delivery_address || "").trim() || null;
   const deliveryCity = String(body.delivery_city || "").trim() || null;
   const deliveryNotes = String(body.delivery_notes || "").trim() || null;
+  if (deliveryNotes && deliveryNotes.length > 200) {
+    const err: any = new Error("delivery_notes must be 200 characters or less");
+    err.statusCode = 400;
+    err.code = "delivery_notes_too_long";
+    throw err;
+  }
   const qtyRaw = Number(body.qty ?? 1);
 
   if (!buyer_id) {
