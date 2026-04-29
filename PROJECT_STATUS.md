@@ -2,6 +2,18 @@
 
 ---
 
+Current update: 2026-04-29 (Closing Product Gaps Audit — RC Gate)
+
+- Completed: Closing Product Gaps Audit לקראת RC. הורצו 28 סוויטות רגרסיה — כולן PASS. build checks נקיים. אין P0 blockers.
+- Found P1: `delivery_records` logistics drift — `POST /api/seller/deals/:id/delivery/:participantId` ו-`siton.delivery_records` table קיימים ומחוברים ל-frontend, בסתירה לעיקרון "אין ניהול לוגיסטיקה בסיטון". תוצאת הבדיקה `seller_delivery_no_logistics_management_validation` PASS אך יש gap בכיסוי (לא בודקת את ה-endpoint בפועל).
+- Found P2 (6): seller deal preview חלקי (image only), OTP/payment/invoice providers לא מחוברים ב-production, browser visual QA / real-device mobile QA / staging smoke טרם בוצעו.
+- Audit doc: `docs/CLOSING_PRODUCT_GAPS_AUDIT.md`
+- RC recommendation: Not Ready → Ready after P1 fix (delivery_records cleanup) + staging smoke.
+- Progress: `94%` overall platform QA coverage.
+- Next step: הסרת delivery_records logistics management (P1), ולאחר מכן staging deploy smoke.
+
+---
+
 Current update: 2026-04-28 (Delivery Data Handoff)
 
 - Completed: built the lean "מסירת נתוני אספקה למוכר" (Delivery Data Handoff) feature. Data collection only — no logistics, no shipment tracking, no status updates, no Siton-initiated delivery notifications.
