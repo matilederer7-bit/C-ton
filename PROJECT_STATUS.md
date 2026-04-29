@@ -2,6 +2,27 @@
 
 ---
 
+Current update: 2026-04-29 (Buyer Experience V1 — Complete End-to-End)
+
+- Completed: full Buyer Experience V1 end-to-end flow:
+  - **Public Deal Page** (`/app/deal/<dealId>`): Shows deal title, description, images (if uploaded), price per unit, quantity selector, delivery options with costs, progress bar, threshold/max/remaining units, deadline, seller info with contact links, share buttons (WhatsApp/Telegram/Facebook/Email/Copy), hold total amount with authorization notice, clear CTA button with state-dependent behavior (Join/Join Last Units/Closed/etc).
+  - **Join Intent + Context** (`startJoin` function): Validates quantity and delivery choice against deal availability; saves local flow state with deal ID, qty, delivery details, estimated hold total, affiliate ref if present; performs inventory check before proceeding to OTP.
+  - **OTP Gate** (`/app/join/<dealId>/otp`): Buyer enters phone number, receives OTP code, verifies code. OTP is required before payment. Supports SMS delivery. Dev mode shows code for testing. No capture or charge attempt at this stage.
+  - **Authorization Screen** (`/app/join/<dealId>/payment`): Shows deal summary, delivery address collection (if shipping option selected), cardholder name, card number, expiry, CVV fields. Displays hold total with authorization-frame wording ("לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה"). Collects legal acceptance checkboxes. Sends authorization request (mock or real provider) and join request with all context (buyer ID, qty, delivery, OTP, authorization ID, legal acceptances, affiliate ref if present).
+  - **Success/Waiting Screen** (`/app/join/<dealId>/confirmation`): Shows success badge, participant ID, authorization ID, deal summary, clear trust messaging that frame is held (not charged), offer to share deal or view tracking.
+  - **Buyer Tracking Page** (`/app/track/<participantId>`): Shows deal state, buyer participation state, money state (frame held / charged / refunded / etc), participant details (qty, delivery, hold total), progress toward deal completion, share buttons, live status updates via polling.
+  - **UX & Responsive**: All pages are full RTL (Hebrew), mobile-first, accessibility-baseline (focus states, aria-live, button sizes), no technical jargon or state names visible to users, all state transitions and status messages are translated through `formatVisibleBuyerState` / `formatVisibleMoneyState` / `formatVisibleDealState` functions.
+  - **No Prohibited Features**: Zero marketplace/search/catalog surfaces in buyer flow. No affiliate commission or payout. No shipping/logistics management endpoints (delivery data collection only for handoff to seller post-completion). No state override, capture, refund, void from buyer request thread. Platform fee locked at 8% (no UI exposure). No payment provider PII leakage.
+  - **Tests**: `frontend_flow_validation` (16/16 PASS), `frontend_foundation_rtl_accessibility_validation` (5/5 PASS) confirm public deal page, OTP, payment, confirmation, tracking, RTL/accessibility all working.
+- Verified: All buyer surfaces keep trust and status copy. All payment surfaces use "תפיסת מסגרת" (frame authorization) language. No "charged" or "paid" language unless deal actually Completed and participant actually ChargedSuccess. Share actions (WhatsApp, Telegram, Facebook, Email, Copy Link) are present on deal page and confirmation page.
+- Verified: No draft deals shown to buyers. Only published deals allow join. No capture or charge in buyer request path. OTP-based entry enforced. Delivery data collected at join time for shipping options only.
+- Checked: `node --check frontend/app.js` PASS. TypeScript build clean.
+- Checked: All existing tests pass without modification to buyer flow logic.
+- Progress: `100%` of Buyer Experience V1 track.
+- Next step: staging deploy smoke covering full buyer flow on mobile and desktop (link → deal page → OTP → payment → tracking).
+
+---
+
 Current update: 2026-04-29 (P1 Fix: Remove Logistics Management Drift)
 
 - Completed: הסרה מלאה של drift ניהול לוגיסטיקה (P1 שנמצא באודיט RC).
