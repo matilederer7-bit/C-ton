@@ -2,6 +2,26 @@
 
 ---
 
+Current update: 2026-04-30 (Buyer Experience V1 staging smoke)
+
+- Staging URL checked: `https://siton-demo-preview.onrender.com`.
+- Verdict: `FAIL` / blocked. The Render URL is reachable, but the live deploy is stale and does not prove the current Buyer Experience V1 closure commits.
+- Expected code: `bec6e1b` on `master`, including implementation commit `68dca37` and Buyer Experience audit commit `f4c664c`.
+- What was checked:
+  - `GET /health` returned `200 {"ok":true}`.
+  - `GET /api/preview/meta` returned demo-preview guardrails with payment/invoice/shipping/payout/KYC/notifications marked not real.
+  - `GET /app` returned `200`.
+  - `GET /app/assets/app.js` returned `200`.
+  - `GET /health/integrations` did not match the current HEAD contract after `68dca37`; it lacks the current `payout`, `invoice`, and `operational_readiness` sections.
+- Desktop/mobile buyer smoke: not executed, because running the buyer flow on a stale deploy would not validate the audited code.
+- Console/network: no `500` found in the preflight endpoints; full browser console was not inspected because smoke stopped at deploy freshness.
+- Documentation updated: `docs/RC_STAGING_SMOKE.md`.
+- Open: redeploy `siton-demo-preview` from current `master` (`bec6e1b` or newer), then rerun full desktop + mobile smoke.
+- Progress: `98%` overall Buyer Experience V1 readiness; staging smoke remains blocked until deploy freshness is fixed.
+- Next step: Render redeploy, then run public deal -> OTP -> authorization -> confirmation -> tracking on desktop and mobile.
+
+---
+
 Current update: 2026-04-30 (npm test hang isolation after Buyer Experience V1)
 
 - Verdict: the original `npm test` problem was a real test-runtime hang, not a Buyer Experience product-flow failure. After isolating the chain, the first blocker was `tests/backend_sanity_suite.ts`, which imported `app` and left the Fastify listener open. Several later app-importing suites also lacked deterministic teardown.

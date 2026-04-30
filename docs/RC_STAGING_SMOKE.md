@@ -1,4 +1,95 @@
-# RC Staging Deploy Smoke Readiness
+# RC Staging Deploy Smoke
+
+## 2026-04-30 Buyer Experience V1 staging smoke attempt
+
+Verdict: **FAIL** - staging URL is reachable, but the live deployment is stale
+and does not prove commit `bec6e1b` or implementation commit `68dca37`.
+
+### Scope
+
+- URL checked: `https://siton-demo-preview.onrender.com`
+- Expected commit: `bec6e1b` (`docs: record npm test hang closure hash`), with
+  implementation commit `68dca37` (`test: fix npm test hang after buyer
+  experience audit`)
+- Checked at: 2026-04-30 20:44 Asia/Jerusalem
+- Smoke type requested: Buyer Experience V1 desktop + mobile staging smoke
+
+### Preflight Results
+
+| Check | Result |
+|---|---|
+| `GET /health` | PASS: `200 {"ok":true}` |
+| `GET /api/preview/meta` | PASS: `200`, `deployment_mode=demo-preview`, guardrails mark payment/invoice/shipping/payout/KYC/notifications as not real |
+| `GET /app` | PASS: `200`, shell reachable |
+| `GET /app/assets/app.js` | PASS: `200`, asset reachable |
+| Deploy freshness | FAIL: live `/health/integrations` response does not match current HEAD contract after `68dca37`; it lacks the current `payout`, `invoice`, and `operational_readiness` sections |
+| Buyer audit copy freshness | FAIL: live asset did not expose the full current Buyer Experience V1 audit markers checked from the latest code |
+
+### Desktop Result
+
+Not executed. The staging deployment is stale, so a desktop buyer-flow pass
+would not validate the audited code at `bec6e1b` / `68dca37`.
+
+### Mobile Result
+
+Not executed. The staging deployment is stale, so a mobile buyer-flow pass
+would not validate the audited code at `bec6e1b` / `68dca37`.
+
+### Public Deal Result
+
+Not executed beyond shell/asset reachability. Direct Buyer Experience flow
+validation is blocked until the Render service is redeployed from current
+`master`.
+
+### OTP Result
+
+Not executed. Blocked by stale deploy.
+
+### Authorization Result
+
+Not executed. Blocked by stale deploy. The checked staging metadata says
+payment is `mock-backed` / not real, which is correct for demo-preview, but
+the buyer authorization screen was not smoke-tested because the deploy is not
+current.
+
+### Confirmation Result
+
+Not executed. Blocked by stale deploy.
+
+### Tracking Result
+
+Not executed. Blocked by stale deploy.
+
+### Console / Network Findings
+
+- Network preflight: no `500` seen in `/health`, `/api/preview/meta`, `/app`,
+  or `/app/assets/app.js`.
+- Browser console was not inspected because full browser smoke was aborted at
+  deploy freshness.
+- No buyer-thread `capture`, `refund`, or `void` request was executed.
+- No marketplace/search/catalog endpoint was required by the preflight.
+- No affiliate commission/payout surface was exercised or reintroduced.
+- Raw card handling was not exercised because payment/authorization flow was
+  not run against the stale deploy.
+
+### Known Issues
+
+1. Render service `siton-demo-preview` is reachable but appears not redeployed
+   from current `master`.
+2. `render.yaml` has `autoDeploy: false`, so the push to GitHub does not prove
+   the live service picked up `bec6e1b`.
+3. No staging admin key or deployment metadata endpoint exposing Git SHA was
+   available in the repo/session.
+
+### Next Step
+
+Redeploy `siton-demo-preview` from current `master` (`bec6e1b` or newer), then
+rerun the full desktop + mobile Buyer Experience V1 smoke checklist:
+public deal, OTP, authorization, confirmation, tracking, console, and network.
+
+---
+
+# Historical RC Staging Deploy Smoke Readiness
 
 Status: **Ready for staging** — local smoke passed, regression suite green, no
 P0 / P1 blockers open.
