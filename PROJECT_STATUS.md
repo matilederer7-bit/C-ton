@@ -2,6 +2,26 @@
 
 ---
 
+Current update: 2026-04-30 (Seller Analytics Command Center — Phase 1 Staging Smoke)
+
+- Staging URL checked: `https://siton-demo-preview.onrender.com`.
+- Verdict: `FAIL` / blocked. The Render URL is reachable, but the live deploy is stale and does not prove Seller Analytics Phase 1 commit `61910dde824feed1d8d8cce32a220d7b9ebab7a3`.
+- What was checked:
+  - `GET /health` returned `200 {"ok":true}`.
+  - `GET /api/preview/meta` returned `200` with `deployment_mode=demo-preview` and demo guardrails.
+  - `GET /app` returned `200`.
+  - `GET /app/assets/app.js` returned `200`, but feature-probe strings for `מרכז ניתוח מוכר`, `seller-analytics-refresh`, and `risk_reasons` were not present.
+  - `GET /api/seller/analytics` with `x-seller-id: seller-default` returned `404 Route GET:/api/seller/analytics not found`.
+- Desktop seller analytics smoke: not executed, because running browser/UI validation on a stale deploy would not validate commit `61910dd`.
+- Mobile seller analytics smoke: not executed for the same reason.
+- Issues found: staging has not picked up the Seller Analytics Phase 1 code. No product/API/UI bug was proven against the current commit.
+- Fixes performed: none. No code was changed.
+- Open: redeploy `siton-demo-preview` from `61910dde824feed1d8d8cce32a220d7b9ebab7a3` or newer, then rerun API, desktop, and mobile smoke.
+- Progress: `Phase 1 Compact: 100%`; `Staging Smoke: BLOCKED / stale deploy`; `Seller Analytics overall: 25%`.
+- Next step: redeploy staging, then rerun the Phase 1 staging smoke before starting Phase 2.
+
+---
+
 Current update: 2026-04-30 (Seller Analytics Command Center — Phase 1 Compact)
 
 - Completed: upgraded the existing `GET /api/seller/analytics` endpoint instead of creating a duplicate. It now returns the compact Phase 1 `overview`, seller-owned `deals`, Hebrew `status_label`, joined/charged/pending/failed units, collected/expected gross, canonical platform-fee and seller-net amounts, `generated_at`, and first-pass `risk_level` / `risk_reasons`.
