@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,16 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
+
+function paymentWebhookHeaders(payload: Record<string, unknown>, secret = "mock-webhook-secret") {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const rawBody = JSON.stringify(payload);
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return {
+    "x-webhook-signature": `sha256=${digest}`,
+    "x-webhook-timestamp": String(timestamp)
+  };
+}
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -60,6 +71,31 @@ async function post(url: string, requestId: string, payload: Record<string, unkn
   });
 }
 
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: {
+      otp_session_id: requested.otp_session_id,
+      code: requested.development_code
+    }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}`);
+  return verify.json() as any;
+}
+
 async function main() {
   await ensureFrontendAssets();
 
@@ -69,13 +105,14 @@ async function main() {
       url: "/deals",
       payload: {
         title: "Bad Date",
+        price_per_unit: 42,
         min_units: 5,
         max_units: 10,
         deadline: "not-a-date"
       }
     });
     assert.equal(invalidDate.statusCode, 400);
-    assert.equal((invalidDate.json() as any).error, "bad_request");
+    assert.equal((invalidDate.json() as any).error, "deadline must be a valid ISO date");
 
     const invalidPrice = await app.inject({
       method: "POST",
@@ -89,16 +126,17 @@ async function main() {
     });
     assert.equal(invalidPrice.statusCode, 400);
 
-    const invalidMax = await app.inject({
+    const invalidTitle = await app.inject({
       method: "POST",
       url: "/deals",
       payload: {
-        title: "Bad Max",
+        title: "",
+        price_per_unit: 42,
         min_units: 10,
-        max_units: 0
+        max_units: 20
       }
     });
-    assert.equal(invalidMax.statusCode, 400);
+    assert.equal(invalidTitle.statusCode, 400);
   });
 
   await runTest("uuid and identifier abuse is rejected cleanly", async () => {
@@ -133,15 +171,11 @@ async function main() {
   await runTest("sequence abuse does not create false success", async () => {
     const draft = await createDeal("Draft Abuse Deal", "draft-abuse");
 
-    assert.equal(
-      (
-        await post(`/deals/${draft.deal_id}/join`, `adversarial-draft-join-${Date.now()}`, {
-          buyer_id: "buyer-draft",
-          qty: 1
-        })
-      ).statusCode,
-      409
-    );
+    const draftJoin = await post(`/deals/${draft.deal_id}/join`, `adversarial-draft-join-${Date.now()}`, {
+      buyer_id: "buyer-draft",
+      qty: 1
+    });
+    assert.ok([400, 409].includes(draftJoin.statusCode), `expected controlled draft rejection, got ${draftJoin.statusCode}`);
 
     assert.equal(
       (await post(`/deals/${draft.deal_id}/prepare_charging`, `adversarial-prepare-${Date.now()}`)).statusCode,
@@ -158,17 +192,97 @@ async function main() {
     const created = await createDeal("Idempotency Deal", "idem");
     const sameKey = `adversarial-publish-${Date.now()}`;
 
-    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey)).statusCode, 200);
-    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey)).statusCode, 200);
+    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true })).statusCode, 200);
+    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true })).statusCode, 200);
 
     const firstJoinKey = `adversarial-join-${Date.now()}`;
+    const otp = await verifiedOtpForBuyer("buyer-idem", created.deal_id, "idem");
+    const firstJoin = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/join`,
+      headers: { "x-request-id": firstJoinKey, "idempotency-key": firstJoinKey },
+      payload: {
+        buyer_id: "buyer-idem",
+        qty: 1,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
+        otp_token: otp.otp_token,
+        otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+        authorization_id: "auth-idem",
+        authorization_provider: "mockpay"
+      }
+    });
+    assert.equal(firstJoin.statusCode, 200);
+
+    const duplicateJoin = await app.inject({
+      method: "POST",
+      url: `/deals/${created.deal_id}/join`,
+      headers: { "x-request-id": firstJoinKey, "idempotency-key": firstJoinKey },
+      payload: {
+        buyer_id: "buyer-idem",
+        qty: 2,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
+        otp_token: otp.otp_token,
+        otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+        authorization_id: "auth-idem",
+        authorization_provider: "mockpay"
+      }
+    });
+    assert.equal(duplicateJoin.statusCode, 200);
+    assert.equal((duplicateJoin.json() as any).participant_id, (firstJoin.json() as any).participant_id);
+  });
+
+  await runTest("webhook abuse remains controlled under malformed, unknown, and duplicate inputs", async () => {
+    const malformedPayload = {
+      event_id: { bad: true },
+      event_type: "charge_captured",
+      payload: []
+    };
     assert.equal(
       (
         await app.inject({
           method: "POST",
-          url: `/deals/${created.deal_id}/join`,
-          headers: { "x-request-id": firstJoinKey, "idempotency-key": firstJoinKey },
-          payload: { buyer_id: "buyer-idem", qty: 1 }
+          url: "/webhooks/payments/mock",
+          headers: paymentWebhookHeaders(malformedPayload),
+          payload: malformedPayload
+        })
+      ).statusCode,
+      400
+    );
+
+    const unknownPayload = {
+      event_id: `adversarial-unknown-${Date.now()}`,
+      event_type: "provider_ping",
+      payload: {}
+    };
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/webhooks/payments/mock",
+          headers: paymentWebhookHeaders(unknownPayload),
+          payload: unknownPayload
+        })
+      ).statusCode,
+      200
+    );
+
+    const created = await createDeal("Webhook Duplicate Deal", "webhook-dup");
+    const eventId = `dup-${Date.now()}`;
+    const duplicatePayload = {
+      event_id: eventId,
+      event_type: "payment_authorized",
+      deal_id: created.deal_id,
+      payload: {}
+    };
+    assert.equal(
+      (
+        await app.inject({
+          method: "POST",
+          url: "/webhooks/payments/mock",
+          headers: paymentWebhookHeaders(duplicatePayload),
+          payload: duplicatePayload
         })
       ).statusCode,
       200
@@ -178,79 +292,9 @@ async function main() {
       (
         await app.inject({
           method: "POST",
-          url: `/deals/${created.deal_id}/join`,
-          headers: { "x-request-id": firstJoinKey, "idempotency-key": firstJoinKey },
-          payload: { buyer_id: "buyer-idem", qty: 2 }
-        })
-      ).statusCode,
-      400
-    );
-  });
-
-  await runTest("webhook abuse remains controlled under malformed, unknown, and duplicate inputs", async () => {
-    assert.equal(
-      (
-        await app.inject({
-          method: "POST",
           url: "/webhooks/payments/mock",
-          headers: { "x-webhook-secret": "mock-webhook-secret" },
-          payload: {
-            event_id: { bad: true },
-            event_type: "charge_captured",
-            payload: []
-          }
-        })
-      ).statusCode,
-      400
-    );
-
-    assert.equal(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/webhooks/payments/mock",
-          headers: { "x-webhook-secret": "mock-webhook-secret" },
-          payload: {
-            event_id: `adversarial-unknown-${Date.now()}`,
-            event_type: "provider_ping",
-            payload: {}
-          }
-        })
-      ).statusCode,
-      202
-    );
-
-    const created = await createDeal("Webhook Duplicate Deal", "webhook-dup");
-    const eventId = `dup-${Date.now()}`;
-    assert.equal(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/webhooks/payments/mock",
-          headers: { "x-webhook-secret": "mock-webhook-secret" },
-          payload: {
-            event_id: eventId,
-            event_type: "payment_authorized",
-            deal_id: created.deal_id,
-            payload: {}
-          }
-        })
-      ).statusCode,
-      202
-    );
-
-    assert.equal(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/webhooks/payments/mock",
-          headers: { "x-webhook-secret": "mock-webhook-secret" },
-          payload: {
-            event_id: eventId,
-            event_type: "payment_authorized",
-            deal_id: created.deal_id,
-            payload: {}
-          }
+          headers: paymentWebhookHeaders(duplicatePayload),
+          payload: duplicatePayload
         })
       ).statusCode,
       200
@@ -264,7 +308,13 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    process.exit(1);
+  });

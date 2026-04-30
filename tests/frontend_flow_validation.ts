@@ -418,7 +418,7 @@ async function main() {
     const otpStart = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0507654321" }
+      payload: { phone: `050${String(Date.now()).slice(-7)}` }
     });
     const otpStartJson = otpStart.json() as any;
 

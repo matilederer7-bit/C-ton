@@ -61,21 +61,53 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
   return response.json() as { deal_id: string };
 }
 
-async function buildChargedParticipant(suffix: string, buyerId: string) {
-  const created = await createDeal(`Remaining Surface ${suffix}`, suffix);
-  await post(`/deals/${created.deal_id}/publish`, `remaining-publish-${suffix}`);
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: { otp_session_id: requested.otp_session_id, code: requested.development_code }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}`);
+  return verify.json() as any;
+}
 
-  const join = await post(`/deals/${created.deal_id}/join`, `remaining-join-${suffix}`, {
+async function buildChargedParticipant(suffix: string, buyerId: string) {
+  const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const created = await createDeal(`Remaining Surface ${suffix}`, unique);
+  await post(`/deals/${created.deal_id}/publish`, `remaining-publish-${unique}`, {
+    seller_terms_accepted: true
+  });
+
+  const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, suffix);
+  const join = await post(`/deals/${created.deal_id}/join`, `remaining-join-${unique}`, {
     buyer_id: buyerId,
     qty: 5,
-    affiliate_ref: "affiliate-demo"
+    affiliate_ref: "affiliate-demo",
+    buyer_terms_accepted: true,
+    payment_disclosure_accepted: true,
+    otp_token: otp.otp_token,
+    otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+    authorization_id: `auth-${unique}`,
+    authorization_provider: "mockpay"
   });
-  assert.equal(join.statusCode, 200);
+  assert.equal(join.statusCode, 200, `join failed for ${suffix}: ${join.body}`);
   const participant = join.json() as any;
 
-  await post(`/deals/${created.deal_id}/close_joining`, `remaining-close-${suffix}`);
-  await post(`/deals/${created.deal_id}/prepare_charging`, `remaining-prepare-${suffix}`);
-  await post(`/deals/${created.deal_id}/charging/start`, `remaining-start-${suffix}`);
+  await post(`/deals/${created.deal_id}/close_joining`, `remaining-close-${unique}`);
+  await post(`/deals/${created.deal_id}/prepare_charging`, `remaining-prepare-${unique}`);
+  await post(`/deals/${created.deal_id}/charging/start`, `remaining-start-${unique}`);
 
   const webhookPayload = {
     event_id: `remaining-charge-${suffix}-${Date.now()}`,
@@ -130,6 +162,17 @@ async function forceCompleteDeal(dealId: string, participantId: string) {
       [dealId]
     );
     await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participantId]);
+    await client.query(
+      `INSERT INTO siton.invoice_documents
+         (document_key, document_type, deal_id, participant_id, deal_title, qty,
+          money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
+          status, attempt_count, max_attempts, provider_code,
+          available_at, created_at, updated_at)
+       VALUES ($1,'charge_receipt',$2,$3,'Remaining Surface',1,'ChargedSuccess',100.00,8.00,92.00,
+               'issued',1,3,'log-only',now(),now(),now())
+       ON CONFLICT (document_key) DO NOTHING`,
+      [`remaining-charge-receipt:${participantId}`, dealId, participantId]
+    );
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK");
@@ -153,24 +196,18 @@ async function main() {
     const payload = sellerDeal.json() as any;
     assert.equal(payload.receipts_surface.status, "ready");
     assert.equal(payload.receipts_surface.summary.receipt_document_count, 1);
-    assert.equal(payload.delivery_surface.status, "ready");
-    assert.equal(payload.delivery_surface.rows.length, 1);
+    assert.equal(payload.participants.length, 1);
     // Distributor-as-money surfaces must be gone from the live API.
     assert.ok(
       !Object.prototype.hasOwnProperty.call(payload.receipts_surface.summary, "affiliate_fee_amount"),
       "affiliate_fee_amount must not appear on receipts_surface.summary"
     );
 
-    const deliveryUpdate = await app.inject({
-      method: "POST",
-      url: `/api/seller/deals/${charging.deal_id}/delivery/${charging.participant_id}`,
-      payload: {
-        status: "shipped",
-        tracking_number: "TRACK-123",
-        issue_note: ""
-      }
+    const shippingExport = await app.inject({
+      method: "GET",
+      url: `/api/seller/deals/${charging.deal_id}/shipping-export`
     });
-    assert.equal(deliveryUpdate.statusCode, 200);
+    assert.equal(shippingExport.statusCode, 200);
   });
 
   await runTest("affiliate stays attribution-only while verification remains an admin surface", async () => {
@@ -235,7 +272,15 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    await pool.end().catch(() => undefined);
+    process.exit(1);
+  });

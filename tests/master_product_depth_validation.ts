@@ -59,15 +59,47 @@ async function createDeal(title: string, suffix: string) {
   return response.json() as { deal_id: string };
 }
 
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: { otp_session_id: requested.otp_session_id, code: requested.development_code }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}: ${verify.body}`);
+  return verify.json() as any;
+}
+
 async function createCompletedChargedDeal(suffix: string) {
   const created = await createDeal(`Master Depth ${suffix}`, suffix);
-  await post(`/deals/${created.deal_id}/publish`, `master-depth-publish-${suffix}`);
-  const join = await post(`/deals/${created.deal_id}/join`, `master-depth-join-${suffix}`, {
-    buyer_id: `buyer-${suffix}`,
-    qty: 2,
-    affiliate_ref: "affiliate-demo"
+  await post(`/deals/${created.deal_id}/publish`, `master-depth-publish-${suffix}`, {
+    seller_terms_accepted: true
   });
-  assert.equal(join.statusCode, 200);
+  const buyerId = `buyer-${suffix}-${Date.now()}`;
+  const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, suffix);
+  const join = await post(`/deals/${created.deal_id}/join`, `master-depth-join-${suffix}`, {
+    buyer_id: buyerId,
+    qty: 2,
+    affiliate_ref: "affiliate-demo",
+    buyer_terms_accepted: true,
+    payment_disclosure_accepted: true,
+    otp_token: otp.otp_token,
+    otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+    authorization_id: `auth-master-depth-${suffix}-${Date.now()}`,
+    authorization_provider: "mockpay"
+  });
+  assert.equal(join.statusCode, 200, `master depth join failed for ${suffix}: ${join.body}`);
   const participant = join.json() as any;
   await post(`/deals/${created.deal_id}/close_joining`, `master-depth-close-${suffix}`);
   await post(`/deals/${created.deal_id}/prepare_charging`, `master-depth-prepare-${suffix}`);
@@ -138,7 +170,7 @@ async function main() {
     assert.ok("active_outbox" in payload.system_status.operational_counts);
   });
 
-  await runTest("seller delivery semantics reject shallow fulfillment updates", async () => {
+  await runTest("seller delivery handoff rejects shallow fulfillment updates", async () => {
     const charging = await createCompletedChargedDeal("delivery-rules");
 
     const shippedWithoutTracking = await app.inject({
@@ -150,7 +182,7 @@ async function main() {
         issue_note: ""
       }
     });
-    assert.equal(shippedWithoutTracking.statusCode, 400);
+    assert.equal(shippedWithoutTracking.statusCode, 404);
 
     const issueWithoutNote = await app.inject({
       method: "POST",
@@ -161,7 +193,7 @@ async function main() {
         issue_note: ""
       }
     });
-    assert.equal(issueWithoutNote.statusCode, 400);
+    assert.equal(issueWithoutNote.statusCode, 404);
   });
 
   await runTest("affiliate remains attribution-only while verification stays operational", async () => {
@@ -185,7 +217,15 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    await pool.end().catch(() => undefined);
+    process.exit(1);
+  });

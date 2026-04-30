@@ -58,10 +58,35 @@ async function publishDeal(dealId: string, suffix: string, seller?: { seller_id?
       "x-request-id": `product-surface-publish-${unique}`,
       "idempotency-key": `product-surface-publish-${unique}`
     },
-    payload: {}
+    payload: { seller_terms_accepted: true }
   });
 
   assert.equal(response.statusCode, 200);
+}
+
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: {
+      otp_session_id: requested.otp_session_id,
+      code: requested.development_code
+    }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}`);
+  return verify.json() as any;
 }
 
 async function joinDeal(dealId: string, buyerId: string, suffix: string, deliveryOptionId?: string) {
@@ -76,6 +101,7 @@ async function joinDeal(dealId: string, buyerId: string, suffix: string, deliver
     const publicPayload = publicResponse.json() as any;
     selectedDeliveryOptionId = publicPayload.deal.delivery_options[0]?.option_id;
   }
+  const otp = await verifiedOtpForBuyer(buyerId, dealId, suffix);
   const response = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
@@ -86,11 +112,19 @@ async function joinDeal(dealId: string, buyerId: string, suffix: string, deliver
     payload: {
       buyer_id: buyerId,
       qty: 3,
-      delivery_option_id: selectedDeliveryOptionId
+      delivery_option_id: selectedDeliveryOptionId,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: otp.otp_token,
+      otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+      authorization_id: `auth-${unique}`,
+      authorization_provider: "mockpay",
+      delivery_address: "Test Street 10",
+      delivery_city: "Tel Aviv"
     }
   });
 
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.statusCode, 200, `join failed for ${suffix}: ${response.body}`);
   return response.json() as {
     participant_id: string;
     delivery_method_label?: string;
@@ -208,7 +242,7 @@ async function main() {
         "x-request-id": "wrong-seller-publish",
         "idempotency-key": `wrong-seller-publish:${alphaDeal.deal_id}`
       },
-      payload: {}
+      payload: { seller_terms_accepted: true }
     });
     assert.equal(wrongSellerPublish.statusCode, 404);
   });
@@ -329,7 +363,13 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    process.exit(1);
+  });

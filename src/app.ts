@@ -77,7 +77,10 @@ const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
 
 // Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
-const DISABLE_OUTBOX_WORKER = process.env.DISABLE_OUTBOX_WORKER === "1";
+const DISABLE_OUTBOX_WORKER =
+  process.env.DISABLE_OUTBOX_WORKER === "1" ||
+  process.env.NODE_ENV === "test" ||
+  process.env.npm_lifecycle_event === "test";
 
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
@@ -3005,11 +3008,14 @@ app.post("/deals/:id/prepare_charging", async (req: any) => {
       const deal = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
       if (!deal.rowCount) throw new Error("deal not found");
       const state = deal.rows[0].state as DealState;
+      if (state !== "ClosedForJoining") {
+        const err: any = new Error("deal is not closed for joining");
+        err.statusCode = 409;
+        throw err;
+      }
 
       const ops: TransitionOp[] = [];
-      if (state === "ClosedForJoining") {
-        ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ClosedForJoining", toState: "ReadyForCharging" });
-      }
+      ops.push({ entityType: "deal", entityId: dealId, dealId, stateType: "deal_state", fromState: "ClosedForJoining", toState: "ReadyForCharging" });
 
       const parts = await c.query(
         `SELECT participant_id, buyer_state, money_state

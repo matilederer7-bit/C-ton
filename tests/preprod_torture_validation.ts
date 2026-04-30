@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,21 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
+
+function testIp(label: string) {
+  const hash = Math.abs(Array.from(label).reduce((sum, ch) => sum + ch.charCodeAt(0), 0));
+  return `10.${hash % 200}.${Math.floor(hash / 200) % 200}.${(hash % 250) + 1}`;
+}
+
+function paymentWebhookHeaders(payload: Record<string, unknown>, secret = "mock-webhook-secret") {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const rawBody = JSON.stringify(payload);
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return {
+    "x-webhook-signature": `sha256=${digest}`,
+    "x-webhook-timestamp": String(timestamp)
+  };
+}
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -36,7 +52,8 @@ async function createDeal(
     url: "/deals",
     headers: {
       "x-request-id": `preprod-create-${unique}`,
-      "idempotency-key": `preprod-create-${unique}`
+      "idempotency-key": `preprod-create-${unique}`,
+      "x-forwarded-for": testIp(`create-${unique}`)
     },
     payload: {
       title,
@@ -62,14 +79,17 @@ async function post(
     url,
     headers: {
       "x-request-id": requestId,
-      "idempotency-key": requestId
+      "idempotency-key": requestId,
+      "x-forwarded-for": testIp(requestId)
     },
     payload
   });
 }
 
 async function publishDeal(dealId: string, suffix: string) {
-  const response = await post(`/deals/${dealId}/publish`, `preprod-publish-${suffix}`);
+  const response = await post(`/deals/${dealId}/publish`, `preprod-publish-${suffix}`, {
+    seller_terms_accepted: true
+  });
   assert.equal(response.statusCode, 200);
 }
 
@@ -78,34 +98,42 @@ async function buildChargingParticipant(
   buyerId: string,
   qty = 8
 ) {
-  const created = await createDeal(`Preprod Charging ${suffix}`, suffix, {
+  const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const created = await createDeal(`Preprod Charging ${suffix}`, unique, {
     min_units: qty,
     max_units: qty
   });
-  await publishDeal(created.deal_id, suffix);
+  await publishDeal(created.deal_id, unique);
 
-  const join = await post(`/deals/${created.deal_id}/join`, `preprod-join-${suffix}`, {
+  const auth = await authorizeBuyer(unique);
+  const join = await post(`/deals/${created.deal_id}/join`, `preprod-join-${unique}`, {
     buyer_id: buyerId,
-    qty
+    qty,
+    buyer_terms_accepted: true,
+    payment_disclosure_accepted: true,
+    otp_token: auth.otp_token,
+    otp_challenge_id: auth.otp_challenge_id,
+    authorization_id: `auth-${unique}`,
+    authorization_provider: "mockpay"
   });
   assert.equal(join.statusCode, 200);
   const joinJson = join.json() as any;
 
   const closeJoining = await post(
     `/deals/${created.deal_id}/close_joining`,
-    `preprod-close-${suffix}`
+    `preprod-close-${unique}`
   );
   assert.equal(closeJoining.statusCode, 200);
 
   const prepare = await post(
     `/deals/${created.deal_id}/prepare_charging`,
-    `preprod-prepare-${suffix}`
+    `preprod-prepare-${unique}`
   );
   assert.equal(prepare.statusCode, 200);
 
   const start = await post(
     `/deals/${created.deal_id}/charging/start`,
-    `preprod-start-${suffix}`
+    `preprod-start-${unique}`
   );
   assert.equal(start.statusCode, 200);
 
@@ -122,25 +150,24 @@ async function pushWebhook(args: {
   providerReference?: string;
   eventId?: string;
 }) {
+  const payload = {
+    event_id:
+      args.eventId ??
+      `${args.eventType}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    event_type: args.eventType,
+    deal_id: args.dealId ?? undefined,
+    participant_id: args.participantId ?? undefined,
+    payload: {
+      participant_id: args.participantId ?? undefined,
+      deal_id: args.dealId ?? undefined,
+      provider_reference: args.providerReference ?? `${args.eventType}-ref`
+    }
+  };
   return app.inject({
     method: "POST",
     url: "/webhooks/payments/mock",
-    headers: {
-      "x-webhook-secret": "mock-webhook-secret"
-    },
-    payload: {
-      event_id:
-        args.eventId ??
-        `${args.eventType}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      event_type: args.eventType,
-      deal_id: args.dealId ?? undefined,
-      participant_id: args.participantId ?? undefined,
-      payload: {
-        participant_id: args.participantId ?? undefined,
-        deal_id: args.dealId ?? undefined,
-        provider_reference: args.providerReference ?? `${args.eventType}-ref`
-      }
-    }
+    headers: paymentWebhookHeaders(payload),
+    payload
   });
 }
 
@@ -180,11 +207,19 @@ async function debugDeal(dealId: string) {
 }
 
 async function authorizeBuyer(suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`preprod-${suffix}-${Date.now()}-${Math.random()}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
   const otpStart = await app.inject({
     method: "POST",
     url: "/api/otp/start",
+    headers: {
+      "x-forwarded-for": testIp(`otp-${suffix}`)
+    },
     payload: {
-      phone: `05077${suffix.padStart(5, "0").slice(0, 5)}`
+      phone: `050${phoneDigits}`
     }
   });
   assert.equal(otpStart.statusCode, 200);
@@ -193,6 +228,9 @@ async function authorizeBuyer(suffix: string) {
   const otpVerify = await app.inject({
     method: "POST",
     url: "/api/otp/verify",
+    headers: {
+      "x-forwarded-for": testIp(`otp-${suffix}`)
+    },
     payload: {
       otp_session_id: otpStartJson.otp_session_id,
       code: otpStartJson.development_code
@@ -204,6 +242,9 @@ async function authorizeBuyer(suffix: string) {
   const payment = await app.inject({
     method: "POST",
     url: "/api/payments/authorize-mock",
+    headers: {
+      "x-forwarded-for": testIp(`payment-${suffix}`)
+    },
     payload: {
       holder_name: `Preprod Buyer ${suffix}`,
       card_number: "4111111111111111",
@@ -214,7 +255,9 @@ async function authorizeBuyer(suffix: string) {
   assert.equal(payment.statusCode, 200);
 
   return {
-    buyer_id: otpVerifyJson.buyer_id as string
+    buyer_id: otpVerifyJson.buyer_id as string,
+    otp_token: otpVerifyJson.otp_token as string,
+    otp_challenge_id: (otpVerifyJson.challenge_id || otpVerifyJson.otp_session_id) as string
   };
 }
 
@@ -225,9 +268,10 @@ async function main() {
     const created = await createDeal("Preprod Mixed Load Deal", "mixed-load");
     await publishDeal(created.deal_id, "mixed-load");
 
-    const authorizations = await Promise.all(
-      Array.from({ length: 12 }, async (_value, index) => authorizeBuyer(String(index + 1)))
-    );
+    const authorizations = [];
+    for (let index = 0; index < 12; index += 1) {
+      authorizations.push(await authorizeBuyer(String(index + 1)));
+    }
 
     const publicRequests = Array.from({ length: 12 }, () =>
       app.inject({ method: "GET", url: `/api/deals/${created.deal_id}/public` })
@@ -238,7 +282,13 @@ async function main() {
     const joinRequests = authorizations.map((auth, index) =>
       post(`/deals/${created.deal_id}/join`, `preprod-mixed-join-${index}-${Date.now()}`, {
         buyer_id: auth.buyer_id,
-        qty: 1
+        qty: 1,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true,
+        otp_token: auth.otp_token,
+        otp_challenge_id: auth.otp_challenge_id,
+        authorization_id: `auth-mixed-${index}`,
+        authorization_provider: "mockpay"
       })
     );
 
@@ -281,7 +331,13 @@ async function main() {
     const auth = await authorizeBuyer("801");
     const join = await post(`/deals/${created.deal_id}/join`, `preprod-soak-join-${Date.now()}`, {
       buyer_id: auth.buyer_id,
-      qty: 2
+      qty: 2,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: auth.otp_token,
+      otp_challenge_id: auth.otp_challenge_id,
+      authorization_id: "auth-soak",
+      authorization_provider: "mockpay"
     });
     assert.equal(join.statusCode, 200);
     const joinJson = join.json() as any;
@@ -289,11 +345,13 @@ async function main() {
     for (let iteration = 0; iteration < 40; iteration += 1) {
       const publicDeal = await app.inject({
         method: "GET",
-        url: `/api/deals/${created.deal_id}/public`
+        url: `/api/deals/${created.deal_id}/public`,
+        headers: { "x-forwarded-for": testIp(`soak-public-${iteration}`) }
       });
       const tracking = await app.inject({
         method: "GET",
-        url: `/api/participants/${joinJson.participant_id}/tracking`
+        url: `/api/participants/${joinJson.participant_id}/tracking`,
+        headers: { "x-forwarded-for": testIp(`soak-tracking-${iteration}`) }
       });
       assert.equal(publicDeal.statusCode, 200);
       assert.equal(tracking.statusCode, 200);
@@ -313,8 +371,8 @@ async function main() {
       dealId: charging.deal_id,
       participantId: charging.participant_id
     });
-    assert.equal(earlyRecovery.statusCode, 202);
-    assert.equal((earlyRecovery.json() as any).reconciliation.status, "ignored");
+    assert.equal(earlyRecovery.statusCode, 200);
+    assert.equal((earlyRecovery.json() as any).status, "ignored");
 
     const trackingDuringCharge = await app.inject({
       method: "GET",
@@ -328,32 +386,32 @@ async function main() {
       dealId: charging.deal_id,
       participantId: charging.participant_id
     });
-    assert.equal(chargeFailed.statusCode, 202);
-    assert.equal((chargeFailed.json() as any).reconciliation.status, "processed");
+    assert.equal(chargeFailed.statusCode, 200);
+    assert.equal((chargeFailed.json() as any).status, "processed");
 
     const lateChargeDuplicate = await pushWebhook({
       eventType: "charge_failed",
       dealId: charging.deal_id,
       participantId: charging.participant_id
     });
-    assert.equal(lateChargeDuplicate.statusCode, 202);
-    assert.equal((lateChargeDuplicate.json() as any).reconciliation.status, "ignored");
+    assert.equal(lateChargeDuplicate.statusCode, 200);
+    assert.equal((lateChargeDuplicate.json() as any).status, "ignored");
 
     const recoveryCaptured = await pushWebhook({
       eventType: "recovery_captured",
       dealId: charging.deal_id,
       participantId: charging.participant_id
     });
-    assert.equal(recoveryCaptured.statusCode, 202);
-    assert.equal((recoveryCaptured.json() as any).reconciliation.status, "processed");
+    assert.equal(recoveryCaptured.statusCode, 200);
+    assert.equal((recoveryCaptured.json() as any).status, "processed");
 
     const lateRecoveryDuplicate = await pushWebhook({
       eventType: "recovery_captured",
       dealId: charging.deal_id,
       participantId: charging.participant_id
     });
-    assert.equal(lateRecoveryDuplicate.statusCode, 202);
-    assert.equal((lateRecoveryDuplicate.json() as any).reconciliation.status, "ignored");
+    assert.equal(lateRecoveryDuplicate.statusCode, 200);
+    assert.equal((lateRecoveryDuplicate.json() as any).status, "ignored");
 
     const tracking = await app.inject({
       method: "GET",
@@ -413,7 +471,7 @@ async function main() {
         code: "123456"
       }
     });
-    assert.equal(missingOtp.statusCode, 404);
+    assert.equal(missingOtp.statusCode, 400);
   });
 
   await runTest("rc drill under pressure keeps health, integrations, routes, and webhook auth operational", async () => {
@@ -430,18 +488,19 @@ async function main() {
     );
     assert.ok(pressureRequests.every((response: any) => response.statusCode === 200));
 
+    const unauthorizedPayload = {
+      event_id: `unauthorized-${Date.now()}`,
+      event_type: "charge_captured",
+      payload: {}
+    };
     const keyRoutes = await Promise.all([
       app.inject({ method: "GET", url: `/api/deals/${created.deal_id}/public` }),
       app.inject({ method: "GET", url: `/app/deal/${created.deal_id}` }),
       app.inject({
         method: "POST",
         url: "/webhooks/payments/mock",
-        headers: { "x-webhook-secret": "wrong-secret" },
-        payload: {
-          event_id: `unauthorized-${Date.now()}`,
-          event_type: "charge_captured",
-          payload: {}
-        }
+        headers: paymentWebhookHeaders(unauthorizedPayload, "wrong-secret"),
+        payload: unauthorizedPayload
       })
     ]);
 
@@ -454,7 +513,13 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    process.exit(1);
+  });

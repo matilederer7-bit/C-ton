@@ -2,6 +2,47 @@
 
 ---
 
+Current update: 2026-04-30 (npm test hang isolation after Buyer Experience V1)
+
+- Verdict: the original `npm test` problem was a real test-runtime hang, not a Buyer Experience product-flow failure. After isolating the chain, the first blocker was `tests/backend_sanity_suite.ts`, which imported `app` and left the Fastify listener open. Several later app-importing suites also lacked deterministic teardown.
+- Root cause fixed:
+  - Added explicit `app.close()` and, where needed, `pool.end()` teardown to full-suite tests that import the running app.
+  - Disabled the outbox worker automatically for the test lifecycle so full-suite tests do not race against background event processing.
+  - Kept the old unrelated Node process untouched.
+- Product/test contract issues surfaced after the hang was fixed:
+  - Updated stale full-suite fixtures to honor seller legal acceptance, buyer OTP, buyer legal/payment-frame disclosure, and mock authorization fields.
+  - Updated webhook tests to use the signed webhook contract and current `200` reconciliation response.
+  - Kept the removed logistics-management POST route removed; stale delivery-management expectations now assert the canonical 404/no-route behavior.
+  - Added clean validation for malformed affiliate KYC IDs, malformed OTP challenge IDs, and malformed webhook event identifiers so bad inputs fail as 400 instead of DB/internal errors.
+  - Fixed affiliate KYC approval mapping to `verified` while seller approval remains `approved`.
+  - Added/verified `/health/integrations` reporting for mock-backed payment rails and log-only external notification delivery.
+- Files changed:
+  - `src/app.ts`
+  - `src/frontend_runtime.ts`
+  - `tests/backend_sanity_suite.ts`
+  - `tests/real_integrations_validation.ts`
+  - `tests/full_system_qa_validation.ts`
+  - `tests/adversarial_hardening_validation.ts`
+  - `tests/preprod_torture_validation.ts`
+  - `tests/frontend_flow_validation.ts`
+  - `tests/full_product_surface_validation.ts`
+  - `tests/remaining_product_surfaces_validation.ts`
+  - `tests/ultimate_prelive_qa_rc_validation.ts`
+  - `tests/master_product_depth_validation.ts`
+  - `tests/demo_preview_deployment_validation.ts`
+  - `PROJECT_STATUS.md`
+- Checks run:
+  - `npx tsc -p tsconfig.test.json` PASS
+  - `npm test` PASS, completes in about 18 seconds on this workspace
+  - `npx tsc --noEmit` PASS
+  - `npm run test:frontend` PASS
+- Open: no remaining full-suite hang found. Staging smoke has not been run in this step.
+- Progress: `100%` npm test hang isolation and full-suite closure.
+- Next step: proceed to staging smoke for Buyer Experience V1 and seller handoff flows.
+- Closure commit hash: `8d6e53d`.
+
+---
+
 Current update: 2026-04-29 (Buyer Experience V1 Audit Closure)
 
 - Audit verdict on `9041e67`: the suspicious commit did **not** implement Buyer Experience V1. `git show --stat --oneline --name-only 9041e67` and `git show --name-status 9041e67` confirmed it changed only `PROJECT_STATUS.md` and `docs/RC_STAGING_SMOKE.md`.

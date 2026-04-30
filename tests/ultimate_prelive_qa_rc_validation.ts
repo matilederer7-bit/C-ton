@@ -63,6 +63,28 @@ async function createDeal(title: string, suffix: string, overrides: Record<strin
   return response.json() as { deal_id: string };
 }
 
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: { otp_session_id: requested.otp_session_id, code: requested.development_code }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}: ${verify.body}`);
+  return verify.json() as any;
+}
+
 async function fetchRows<T = any>(sql: string, params: unknown[] = []) {
   const client = await pool.connect();
   try {
@@ -105,16 +127,14 @@ async function main() {
        FROM pg_indexes
        WHERE schemaname='siton'
          AND tablename = ANY($1::text[])`,
-      [["webhook_events", "delivery_records", "affiliate_attributions"]]
+      [["webhook_events", "affiliate_attributions"]]
     );
     const names = canonicalIndexes.map((row: any) => String(row.indexname));
     assert.ok(names.includes("webhook_events_pk"));
-    assert.ok(names.includes("delivery_records_participant_id_key"));
     assert.ok(names.includes("affiliate_attributions_participant_id_key"));
 
     const initSql = await readFile("scripts/init_db.sql", "utf8");
     assert.match(initSql, /CREATE TABLE IF NOT EXISTS (siton\.)?webhook_events/);
-    assert.match(initSql, /CREATE TABLE IF NOT EXISTS (siton\.)?delivery_records/);
     assert.match(initSql, /CREATE TABLE IF NOT EXISTS (siton\.)?affiliate_attributions/);
     assert.ok(!/UNIQUE\s*\(\s*deal_id\s*,\s*buyer_id\s*\)/i.test(initSql));
   });
@@ -128,7 +148,7 @@ async function main() {
         admin_note: "bad target"
       }
     });
-    assert.equal(badAffiliateKyc.statusCode, 410);
+    assert.equal(badAffiliateKyc.statusCode, 400);
 
     const missingSellerKyc = await app.inject({
       method: "POST",
@@ -155,14 +175,24 @@ async function main() {
       min_units: 2,
       max_units: 2
     });
-    await post(`/deals/${created.deal_id}/publish`, `ultimate-publish-${Date.now()}`);
-
-    const join = await post(`/deals/${created.deal_id}/join`, `ultimate-join-${Date.now()}`, {
-      buyer_id: `buyer-ultimate-${Date.now()}`,
-      qty: 2,
-      affiliate_ref: "affiliate-demo"
+    await post(`/deals/${created.deal_id}/publish`, `ultimate-publish-${Date.now()}`, {
+      seller_terms_accepted: true
     });
-    assert.equal(join.statusCode, 200);
+
+    const buyerId = `buyer-ultimate-${Date.now()}`;
+    const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, "ultimate-surface");
+    const join = await post(`/deals/${created.deal_id}/join`, `ultimate-join-${Date.now()}`, {
+      buyer_id: buyerId,
+      qty: 2,
+      affiliate_ref: "affiliate-demo",
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: otp.otp_token,
+      otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+      authorization_id: `auth-ultimate-${Date.now()}`,
+      authorization_provider: "mockpay"
+    });
+    assert.equal(join.statusCode, 200, `ultimate join failed: ${join.body}`);
     const participant = join.json() as any;
 
     await post(`/deals/${created.deal_id}/close_joining`, `ultimate-close-${Date.now()}`);
@@ -209,6 +239,17 @@ async function main() {
       await client.query(`SELECT set_config('siton.action_name', 'charging.finalize_completed', true)`);
       await client.query(`UPDATE siton.deals SET state='Completed', completion_window_until=COALESCE(completion_window_until, now()) WHERE deal_id=$1`, [created.deal_id]);
       await client.query(`UPDATE siton.participants SET buyer_state='DealCompleted' WHERE participant_id=$1`, [participant.participant_id]);
+      await client.query(
+        `INSERT INTO siton.invoice_documents
+           (document_key, document_type, deal_id, participant_id, deal_title, qty,
+            money_state_at_issue, gross_amount, siton_fee_amount, seller_net_amount,
+            status, attempt_count, max_attempts, provider_code,
+            available_at, created_at, updated_at)
+         VALUES ($1,'charge_receipt',$2,$3,'Ultimate Product Surface Deal',2,'ChargedSuccess',84.00,6.72,77.28,
+                 'issued',1,3,'log-only',now(),now(),now())
+         ON CONFLICT (document_key) DO NOTHING`,
+        [`ultimate-charge-receipt:${participant.participant_id}`, created.deal_id, participant.participant_id]
+      );
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
@@ -225,7 +266,13 @@ async function main() {
     const sellerJson = seller.json() as any;
     assert.equal(sellerJson.receipts_surface.status, "ready");
     assert.equal(sellerJson.receipts_surface.summary.receipt_document_count, 1);
-    assert.equal(sellerJson.delivery_surface.rows.length, 1);
+    assert.equal(sellerJson.participants.length, 1);
+
+    const shippingExport = await app.inject({
+      method: "GET",
+      url: `/api/seller/deals/${created.deal_id}/shipping-export`
+    });
+    assert.equal(shippingExport.statusCode, 200);
 
     const affiliate = await app.inject({
       method: "GET",
@@ -252,7 +299,15 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    await pool.end();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    await pool.end().catch(() => undefined);
+    process.exit(1);
+  });

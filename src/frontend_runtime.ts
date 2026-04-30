@@ -895,6 +895,27 @@ export function registerFrontendExperience(
       sellerAuthConfigured: deps.isDemoPreview ? true : SELLER_AUTH_CONFIGURED
     });
 
+  app.get("/health/integrations", async () => ({
+    ok: true,
+    deployment_mode: deps.deploymentMode,
+    integrations: {
+      payment: getPaymentProviderSummary(deps.paymentProvider),
+      payout: getPayoutProviderSummary(payoutProvider),
+      invoice: deps.invoiceSummary,
+      notifications: {
+        ...deps.notificationSummary,
+        provider: deps.notificationSummary.external_delivery ? deps.notificationSummary.provider : "log-only"
+      },
+      webhook_ingestion: {
+        provider: getPaymentProviderSummary(deps.paymentProvider).provider,
+        duplicate_policy: "provider+event_id idempotent accept",
+        canonical_route: "/webhooks/payments",
+        legacy_route_alias: "/webhooks/payments/mock"
+      }
+    },
+    operational_readiness: operationalReadiness()
+  }));
+
   // Webhook ingestion + reconciliation helpers (used by /webhooks/payments)
   const webhookIngestion = buildWebhookIngestion({ withTx: deps.withTx });
   const paymentReconciliation = buildPaymentReconciliation({ withTx: deps.withTx });
@@ -2537,9 +2558,17 @@ export function registerFrontendExperience(
 
     const body = req.body as Record<string, unknown>;
     const normalizedProviderEvent = deps.paymentProvider.parseWebhookEvent?.(body) ?? null;
+    const rawEventId = normalizedProviderEvent?.event_id ?? body["event_id"] ?? "";
+    const rawEventType = normalizedProviderEvent?.event_type ?? body["event_type"] ?? "";
+    if (rawEventId && !["string", "number"].includes(typeof rawEventId)) {
+      return reply.code(400).send({ error: "invalid_event_id", message: "event_id must be a string" });
+    }
+    if (rawEventType && typeof rawEventType !== "string") {
+      return reply.code(400).send({ error: "invalid_event_type", message: "event_type must be a string" });
+    }
     const provider = String(normalizedProviderEvent?.provider || body["provider"] || "unknown");
-    const eventId = String(normalizedProviderEvent?.event_id || body["event_id"] || "");
-    const eventType = String(normalizedProviderEvent?.event_type || body["event_type"] || "");
+    const eventId = String(rawEventId || "");
+    const eventType = String(rawEventType || "");
 
     if (!eventId) {
       return reply.code(400).send({ error: "missing_event_id", message: "event_id is required" });
@@ -4411,6 +4440,9 @@ export function registerFrontendExperience(
       err.statusCode = 400;
       throw err;
     }
+    if (subjectType === "affiliate") {
+      requireUuid(subjectId, "affiliate_id");
+    }
 
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
@@ -4431,12 +4463,13 @@ export function registerFrontendExperience(
         return { ok: true, subject_type: subjectType, result: updated.rows[0] };
       }
 
+      const affiliateNextStatus = decision === "approve" ? "verified" : "rejected";
       const updated = await c.query(
         `UPDATE siton.affiliate_accounts
          SET verification_status = $2, admin_note = $3, updated_at = now()
          WHERE affiliate_id = $1
          RETURNING affiliate_id AS subject_id, verification_status AS status, admin_note`,
-        [subjectId, nextStatus, adminNote]
+        [subjectId, affiliateNextStatus, adminNote]
       );
       if (!updated.rowCount) {
         const err: any = new Error("affiliate profile not found");
@@ -4733,6 +4766,12 @@ export function registerFrontendExperience(
     const code = String(body.code || "").trim();
     if (!challengeId) {
       const err: any = new Error("challenge_id required");
+      err.statusCode = 400;
+      err.code = "otp_invalid";
+      throw err;
+    }
+    if (!isUuid(challengeId)) {
+      const err: any = new Error("challenge_id must be a valid uuid");
       err.statusCode = 400;
       err.code = "otp_invalid";
       throw err;

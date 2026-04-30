@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,16 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
+
+function paymentWebhookHeaders(payload: Record<string, unknown>, secret = "mock-webhook-secret") {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const rawBody = JSON.stringify(payload);
+  const digest = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
+  return {
+    "x-webhook-signature": `sha256=${digest}`,
+    "x-webhook-timestamp": String(timestamp)
+  };
+}
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -61,28 +72,63 @@ async function post(url: string, requestId: string, payload: Record<string, unkn
 }
 
 async function publishDeal(dealId: string, suffix: string) {
-  const response = await post(`/deals/${dealId}/publish`, `full-system-publish-${suffix}`);
+  const response = await post(`/deals/${dealId}/publish`, `full-system-publish-${suffix}`, {
+    seller_terms_accepted: true
+  });
   assert.equal(response.statusCode, 200);
 }
 
-async function buildChargingParticipant(suffix: string, buyerId: string) {
-  const created = await createDeal(`Full System Charging ${suffix}`, suffix);
-  await publishDeal(created.deal_id, suffix);
+async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: string) {
+  const phoneDigits = String(
+    Math.abs(Array.from(`${buyerId}-${dealId}-${suffix}`).reduce((sum, ch) => sum + ch.charCodeAt(0), 0))
+  )
+    .padStart(7, "0")
+    .slice(-7);
+  const request = await app.inject({
+    method: "POST",
+    url: "/api/otp/start",
+    payload: { phone: `050${phoneDigits}`, deal_id: dealId }
+  });
+  assert.equal(request.statusCode, 200, `otp start failed for ${suffix}: ${request.body}`);
+  const requested = request.json() as any;
+  const verify = await app.inject({
+    method: "POST",
+    url: "/api/otp/verify",
+    payload: {
+      otp_session_id: requested.otp_session_id,
+      code: requested.development_code
+    }
+  });
+  assert.equal(verify.statusCode, 200, `otp verify failed for ${suffix}`);
+  return verify.json() as any;
+}
 
-  const join = await post(`/deals/${created.deal_id}/join`, `full-system-join-${suffix}`, {
+async function buildChargingParticipant(suffix: string, buyerId: string) {
+  const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+  const created = await createDeal(`Full System Charging ${suffix}`, unique);
+  await publishDeal(created.deal_id, unique);
+
+  const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, suffix);
+  const join = await post(`/deals/${created.deal_id}/join`, `full-system-join-${unique}`, {
     buyer_id: buyerId,
-    qty: 10
+    qty: 10,
+    buyer_terms_accepted: true,
+    payment_disclosure_accepted: true,
+    otp_token: otp.otp_token,
+    otp_challenge_id: otp.challenge_id || otp.otp_session_id,
+    authorization_id: `auth-${unique}`,
+    authorization_provider: "mockpay"
   });
   assert.equal(join.statusCode, 200);
   const joinJson = join.json() as any;
 
-  const closeJoining = await post(`/deals/${created.deal_id}/close_joining`, `full-system-close-${suffix}`);
+  const closeJoining = await post(`/deals/${created.deal_id}/close_joining`, `full-system-close-${unique}`);
   assert.equal(closeJoining.statusCode, 200);
 
-  const prepare = await post(`/deals/${created.deal_id}/prepare_charging`, `full-system-prepare-${suffix}`);
+  const prepare = await post(`/deals/${created.deal_id}/prepare_charging`, `full-system-prepare-${unique}`);
   assert.equal(prepare.statusCode, 200);
 
-  const start = await post(`/deals/${created.deal_id}/charging/start`, `full-system-start-${suffix}`);
+  const start = await post(`/deals/${created.deal_id}/charging/start`, `full-system-start-${unique}`);
   assert.equal(start.statusCode, 200);
 
   return {
@@ -92,23 +138,22 @@ async function buildChargingParticipant(suffix: string, buyerId: string) {
 }
 
 async function pushWebhook(eventType: string, dealId: string, participantId: string, providerReference: string) {
+  const payload = {
+    event_id: `${eventType}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    event_type: eventType,
+    deal_id: dealId,
+    participant_id: participantId,
+    payload: {
+      participant_id: participantId,
+      deal_id: dealId,
+      provider_reference: providerReference
+    }
+  };
   return app.inject({
     method: "POST",
     url: "/webhooks/payments/mock",
-    headers: {
-      "x-webhook-secret": "mock-webhook-secret"
-    },
-    payload: {
-      event_id: `${eventType}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      event_type: eventType,
-      deal_id: dealId,
-      participant_id: participantId,
-      payload: {
-        participant_id: participantId,
-        deal_id: dealId,
-        provider_reference: providerReference
-      }
-    }
+    headers: paymentWebhookHeaders(payload),
+    payload
   });
 }
 
@@ -132,7 +177,7 @@ async function main() {
     const otpStart = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0501111111" }
+      payload: { phone: `050${String(Date.now()).slice(-7)}` }
     });
     assert.equal(otpStart.statusCode, 200);
     const otpStartJson = otpStart.json() as any;
@@ -169,7 +214,13 @@ async function main() {
 
     const join = await post(`/deals/${created.deal_id}/join`, `full-system-join-journey-${Date.now()}`, {
       buyer_id: otpVerifyJson.buyer_id,
-      qty: 3
+      qty: 3,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: otpVerifyJson.otp_token,
+      otp_challenge_id: otpVerifyJson.challenge_id || otpVerifyJson.otp_session_id,
+      authorization_id: paymentJson.authorization_id || "auth-full-system-journey",
+      authorization_provider: paymentJson.provider || "mockpay"
     });
     assert.equal(join.statusCode, 200);
     const joinJson = join.json() as any;
@@ -209,9 +260,16 @@ async function main() {
     });
     await publishDeal(created.deal_id, "capacity");
 
+    const firstOtp = await verifiedOtpForBuyer("buyer-capacity-a", created.deal_id, "capacity-first");
     const firstJoin = await post(`/deals/${created.deal_id}/join`, `full-system-capacity-first-${Date.now()}`, {
       buyer_id: "buyer-capacity-a",
-      qty: 3
+      qty: 3,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: firstOtp.otp_token,
+      otp_challenge_id: firstOtp.challenge_id || firstOtp.otp_session_id,
+      authorization_id: "auth-capacity-first",
+      authorization_provider: "mockpay"
     });
     assert.equal(firstJoin.statusCode, 200);
 
@@ -221,9 +279,16 @@ async function main() {
     assert.equal(publicJson.availability.canJoin, false);
     assert.equal(publicJson.availability.reasonCode, "stock_exhausted");
 
+    const rejectedOtp = await verifiedOtpForBuyer("buyer-capacity-b", created.deal_id, "capacity-second");
     const rejectedJoin = await post(`/deals/${created.deal_id}/join`, `full-system-capacity-second-${Date.now()}`, {
       buyer_id: "buyer-capacity-b",
-      qty: 1
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true,
+      otp_token: rejectedOtp.otp_token,
+      otp_challenge_id: rejectedOtp.challenge_id || rejectedOtp.otp_session_id,
+      authorization_id: "auth-capacity-second",
+      authorization_provider: "mockpay"
     });
     assert.equal(rejectedJoin.statusCode, 409);
   });
@@ -254,7 +319,7 @@ async function main() {
     const otpStart = await app.inject({
       method: "POST",
       url: "/api/otp/start",
-      payload: { phone: "0502222222" }
+      payload: { phone: `050${String(Date.now()).slice(-7)}` }
     });
     assert.equal(otpStart.statusCode, 200);
     const otpSession = otpStart.json() as any;
@@ -273,11 +338,11 @@ async function main() {
       method: "POST",
       url: "/api/otp/verify",
       payload: {
-        otp_session_id: "missing-session",
+        otp_session_id: "00000000-0000-0000-0000-000000000000",
         code: "123456"
       }
     });
-    assert.equal(missingOtp.statusCode, 404);
+    assert.equal(missingOtp.statusCode, 400);
 
     const paymentFailure = await app.inject({
       method: "POST",
@@ -303,7 +368,7 @@ async function main() {
   await runTest("charged, recovered, and dropped tracking states remain coherent for the whole product", async () => {
     const charged = await buildChargingParticipant("charged", "buyer-full-system-charged");
     const chargedWebhook = await pushWebhook("charge_captured", charged.deal_id, charged.participant_id, "cap_full_123");
-    assert.equal(chargedWebhook.statusCode, 202);
+    assert.equal(chargedWebhook.statusCode, 200);
     const chargedTracking = await app.inject({
       method: "GET",
       url: `/api/participants/${charged.participant_id}/tracking`
@@ -317,7 +382,7 @@ async function main() {
     const recovered = await buildChargingParticipant("recovered", "buyer-full-system-recovered");
     await pushWebhook("charge_failed", recovered.deal_id, recovered.participant_id, "cap_recovery_fail");
     const recoveredWebhook = await pushWebhook("recovery_captured", recovered.deal_id, recovered.participant_id, "recovery_full_123");
-    assert.equal(recoveredWebhook.statusCode, 202);
+    assert.equal(recoveredWebhook.statusCode, 200);
     const recoveredTracking = await app.inject({
       method: "GET",
       url: `/api/participants/${recovered.participant_id}/tracking`
@@ -331,7 +396,7 @@ async function main() {
     const dropped = await buildChargingParticipant("dropped", "buyer-full-system-dropped");
     await pushWebhook("charge_failed", dropped.deal_id, dropped.participant_id, "cap_drop_fail");
     const droppedWebhook = await pushWebhook("recovery_failed", dropped.deal_id, dropped.participant_id, "recovery_drop_123");
-    assert.equal(droppedWebhook.statusCode, 202);
+    assert.equal(droppedWebhook.statusCode, 200);
     const droppedTracking = await app.inject({
       method: "GET",
       url: `/api/participants/${dropped.participant_id}/tracking`
@@ -355,23 +420,28 @@ async function main() {
     assert.equal(integrationsJson.ok, true);
     assert.equal(integrationsJson.integrations.payment.mode, "mock-backed");
 
+    const unauthorizedPayload = {
+      event_id: `bad-secret-${Date.now()}`,
+      event_type: "charge_captured",
+      payload: {}
+    };
     const unauthorizedWebhook = await app.inject({
       method: "POST",
       url: "/webhooks/payments/mock",
-      headers: {
-        "x-webhook-secret": "wrong-secret"
-      },
-      payload: {
-        event_id: `bad-secret-${Date.now()}`,
-        event_type: "charge_captured",
-        payload: {}
-      }
+      headers: paymentWebhookHeaders(unauthorizedPayload, "wrong-secret"),
+      payload: unauthorizedPayload
     });
     assert.equal(unauthorizedWebhook.statusCode, 401);
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+main()
+  .then(async () => {
+    await app.close();
+    process.exit(0);
+  })
+  .catch(async (error) => {
+    console.error(error);
+    await app.close().catch(() => undefined);
+    process.exit(1);
+  });
