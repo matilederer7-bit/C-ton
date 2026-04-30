@@ -65,6 +65,8 @@ async function seedDeal(args: {
   maxUnits?: number;
   thresholdUnits?: number;
   createdAt?: Date;
+  deadline?: Date;
+  completionWindowUntil?: Date;
   hasImage?: boolean;
 }) {
   const dealId = randomUUID();
@@ -72,10 +74,11 @@ async function seedDeal(args: {
   await pool.query(
     `INSERT INTO siton.deals
        (deal_id, seller_id, title, state, threshold_units, min_units, max_units,
-        price_per_unit, deadline, published_at, created_at, updated_at)
+        price_per_unit, deadline, published_at, completion_window_until, created_at, updated_at)
      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
-             $9::timestamptz + interval '7 days',
+             $10,
              CASE WHEN $4='Draft' THEN NULL ELSE $9::timestamptz END,
+             $11,
              $9,$9)`,
     [
       dealId,
@@ -86,7 +89,9 @@ async function seedDeal(args: {
       args.minUnits ?? 2,
       args.maxUnits ?? 20,
       args.price ?? 75,
-      createdAt.toISOString()
+      createdAt.toISOString(),
+      (args.deadline || new Date(createdAt.getTime() + 7 * 24 * 60 * 60 * 1000)).toISOString(),
+      args.completionWindowUntil ? args.completionWindowUntil.toISOString() : null
     ]
   );
   if (args.hasImage) {
@@ -224,6 +229,8 @@ function assertShape(payload: any) {
     "generated_at",
     "period",
     "seller",
+    "overview",
+    "deals",
     "summary",
     "money",
     "deals_by_state",
@@ -275,6 +282,23 @@ const oldDate = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000);
 
 const draftDeal = await seedDeal({ sellerId: sellerA, state: "Draft", title: "Analytics Draft" });
 const activeDeal = await seedDeal({ sellerId: sellerA, state: "PendingTarget", title: "Analytics Active", minUnits: 10, thresholdUnits: 9 });
+const nearDeadlineDeal = await seedDeal({
+  sellerId: sellerA,
+  state: "PendingTarget",
+  title: "Analytics Near Deadline",
+  minUnits: 6,
+  thresholdUnits: 6,
+  deadline: new Date(Date.now() + 3 * 60 * 60 * 1000)
+});
+const completionWindowDeal = await seedDeal({
+  sellerId: sellerA,
+  state: "CompletionWindow",
+  title: "Analytics Completion Window",
+  minUnits: 2,
+  thresholdUnits: 2,
+  deadline: new Date(Date.now() + 60 * 60 * 1000),
+  completionWindowUntil: new Date(Date.now() + 8 * 60 * 60 * 1000)
+});
 const completedSmall = await seedDeal({ sellerId: sellerA, state: "Completed", title: "Analytics Completed Small", price: 100, hasImage: true });
 const completedBig = await seedDeal({ sellerId: sellerA, state: "Completed", title: "Analytics Completed Big", price: 200, hasImage: true });
 const failedDeal = await seedDeal({ sellerId: sellerA, state: "Failed", title: "Analytics Failed" });
@@ -289,7 +313,7 @@ const oldCompleted = await seedDeal({
 });
 const sellerBDeal = await seedDeal({ sellerId: sellerB, state: "Completed", title: "Other Seller Completed", price: 999, hasImage: true });
 
-const dealIds = [draftDeal, activeDeal, completedSmall, completedBig, failedDeal, cancelledDeal, oldCompleted, sellerBDeal];
+const dealIds = [draftDeal, activeDeal, nearDeadlineDeal, completionWindowDeal, completedSmall, completedBig, failedDeal, cancelledDeal, oldCompleted, sellerBDeal];
 const affiliateIds: string[] = [];
 
 const activeParticipant = await seedParticipant({
@@ -343,6 +367,20 @@ await seedParticipant({
   qty: 2,
   buyerState: "DealFailed",
   moneyState: "AuthReleased"
+});
+await seedParticipant({
+  dealId: nearDeadlineDeal,
+  buyerId: "buyer-near-deadline",
+  qty: 2,
+  buyerState: "JoinedAuthorized",
+  moneyState: "AuthHeld"
+});
+await seedParticipant({
+  dealId: completionWindowDeal,
+  buyerId: "buyer-completion-window",
+  qty: 2,
+  buyerState: "ChargeFailedCompletion",
+  moneyState: "ChargeFailedRecovery"
 });
 const oldCharged = await seedParticipant({
   dealId: oldCompleted,
@@ -403,16 +441,42 @@ try {
     assert.equal(body.seller.seller_id, sellerA);
     assert.equal(body.seller.business_name, "Analytics a Seller");
     assert.equal(body.seller.is_publish_ready, true);
-    assert.equal(body.summary.total_deals, 7);
+    assert.equal(body.summary.total_deals, 9);
     assert.equal(body.summary.draft_deals, 1);
-    assert.equal(body.summary.active_deals, 1);
+    assert.equal(body.summary.active_deals, 3);
     assert.equal(body.summary.completed_deals, 3);
     assert.equal(body.summary.failed_deals, 1);
     assert.equal(body.summary.cancelled_deals, 1);
     assert.equal(body.summary.success_rate_percent, 60);
     assert.deepEqual(body.deals_by_state.map((row: any) => row.state), DEAL_STATES);
-    assert.equal(stateCount(body, "PendingTarget"), 1);
+    assert.equal(stateCount(body, "PendingTarget"), 2);
     assertNoForbiddenFields(body);
+  });
+
+  await run("phase 1 compact overview and deals shape is present", async () => {
+    const body = (await getAnalytics(sellerA)).json() as any;
+    assert.ok(body.generated_at);
+    assert.ok(body.overview);
+    assert.ok(Array.isArray(body.deals));
+    assert.equal(body.overview.active_deals_count, 4);
+    assert.equal(body.overview.completed_deals_count, 3);
+    assert.equal(body.overview.failed_deals_count, 2);
+    assert.equal(body.overview.risk_deals_count, 3);
+    assert.equal(body.overview.total_joined_units, 34);
+    assert.equal(body.overview.total_charged_units, 16);
+    assert.equal(body.overview.gross_collected_amount, expectedAll.gross);
+    assert.equal(body.overview.platform_fee_total_amount, expectedAll.feeTotal);
+    assert.equal(body.overview.seller_net_amount, expectedAll.sellerNet);
+
+    const compact = body.deals.find((deal: any) => deal.deal_id === completedSmall);
+    assert.ok(compact);
+    assert.equal(compact.status_label, "הושלמה");
+    assert.equal(compact.current_units, 12);
+    assert.equal(compact.charged_units, 3);
+    assert.equal(compact.pending_units, 0);
+    assert.equal(compact.failed_units, 9);
+    assert.equal(compact.progress_to_minimum_percent, 100);
+    assert.equal(compact.gross_collected_amount, 315);
   });
 
   await run("money totals use stored canonical platform fee events", async () => {
@@ -433,9 +497,9 @@ try {
 
   await run("dropped and failed participants are excluded from collected money but counted in funnel", async () => {
     const body = (await getAnalytics(sellerA)).json() as any;
-    assert.equal(body.summary.total_joined_units, 30);
-    assert.equal(body.summary.total_buyers, 8);
-    assert.equal(body.buyer_funnel.joined_authorized, 1);
+    assert.equal(body.summary.total_joined_units, 34);
+    assert.equal(body.summary.total_buyers, 10);
+    assert.equal(body.buyer_funnel.joined_authorized, 2);
     assert.equal(body.buyer_funnel.charged_successfully, 3);
     assert.equal(body.buyer_funnel.recovered, 1);
     assert.equal(body.buyer_funnel.dropped, 1);
@@ -445,7 +509,7 @@ try {
 
   await run("recent deals are own-seller only and expose safe flags", async () => {
     const body = (await getAnalytics(sellerA)).json() as any;
-    assert.ok(body.recent_deals.length >= 7);
+    assert.ok(body.recent_deals.length >= 9);
     assert.ok(body.recent_deals.every((deal: any) => deal.deal_id !== sellerBDeal));
     const completed = body.recent_deals.find((deal: any) => deal.deal_id === completedSmall);
     assert.ok(completed);
@@ -474,6 +538,26 @@ try {
     assert.equal(activeWeak.missing_units_to_target, 6);
   });
 
+  await run("compact risk and progress rules match phase 1 definitions", async () => {
+    const body = (await getAnalytics(sellerA)).json() as any;
+    const completion = body.deals.find((deal: any) => deal.deal_id === completionWindowDeal);
+    assert.ok(completion);
+    assert.equal(completion.risk_level, "high");
+    assert.ok(completion.risk_reasons.includes("חלון השלמה פתוח"));
+    assert.ok(completion.risk_reasons.includes("יש יחידות בהמתנה להשלמה"));
+
+    const nearDeadline = body.deals.find((deal: any) => deal.deal_id === nearDeadlineDeal);
+    assert.ok(nearDeadline);
+    assert.equal(nearDeadline.risk_level, "high");
+    assert.equal(nearDeadline.progress_to_minimum_percent, 33);
+
+    const active = body.deals.find((deal: any) => deal.deal_id === activeDeal);
+    assert.ok(active);
+    assert.equal(active.progress_to_minimum_percent, 30);
+    assert.equal(active.risk_level, "medium");
+    assert.ok(active.risk_reasons.includes("יש יחידות בהמתנה להשלמה"));
+  });
+
   await run("attribution remains measurement only with no payout semantics", async () => {
     const body = (await getAnalytics(sellerA)).json() as any;
     assert.equal(body.attribution.measurement_only, true);
@@ -500,7 +584,7 @@ try {
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json() as any;
     assert.equal(body.period, "30d");
-    assert.equal(body.summary.total_deals, 6);
+    assert.equal(body.summary.total_deals, 8);
     assert.equal(body.summary.completed_deals, 2);
     assert.equal(body.summary.success_rate_percent, 50);
     assert.equal(body.money.gross_collected_total, expectedRecent.gross);
@@ -532,7 +616,7 @@ try {
     const queryRes = await getAnalytics(sellerA, `?period=all&seller_id=${encodeURIComponent(sellerB)}`);
     assert.equal(queryRes.statusCode, 200, queryRes.body);
     assert.equal((queryRes.json() as any).seller.seller_id, sellerA);
-    assert.equal((queryRes.json() as any).summary.total_deals, 7);
+    assert.equal((queryRes.json() as any).summary.total_deals, 9);
 
     const bodyRes = await app.inject({
       method: "GET",
@@ -542,7 +626,7 @@ try {
     });
     assert.equal(bodyRes.statusCode, 200, bodyRes.body);
     assert.equal((bodyRes.json() as any).seller.seller_id, sellerA);
-    assert.equal((bodyRes.json() as any).summary.total_deals, 7);
+    assert.equal((bodyRes.json() as any).summary.total_deals, 9);
   });
 
   await run("empty seller receives full zero response", async () => {
@@ -551,7 +635,9 @@ try {
     const body = res.json() as any;
     assertShape(body);
     assert.equal(body.summary.total_deals, 0);
+    assert.equal(body.overview.active_deals_count, 0);
     assert.equal(body.money.gross_collected_total, 0);
+    assert.deepEqual(body.deals, []);
     assert.deepEqual(body.recent_deals, []);
     assert.deepEqual(body.top_deals, []);
     assert.deepEqual(body.weak_deals, []);

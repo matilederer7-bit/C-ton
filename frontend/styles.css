@@ -239,6 +239,9 @@ textarea:focus-visible,
 .seller-analytics-kpis { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .seller-analytics-grid { display: grid; gap: 14px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .seller-analytics-money .table-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.seller-analytics-deals .seller-analytics-deal-row { grid-template-columns: minmax(180px, 1.4fr) repeat(5, minmax(120px, 1fr)); align-items: start; }
+.seller-analytics-deal-row .badge { padding: 6px 10px; font-size: 0.84rem; }
+.toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .analytics-pill-row { align-items: stretch; }
 .analytics-pill-row .stat-pill { flex: 1 1 170px; }
 .segmented-control { display: inline-flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-radius: 18px; background: rgba(255,255,255,0.72); border: 1px solid rgba(81, 54, 33, 0.1); }

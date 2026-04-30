@@ -2,6 +2,20 @@
 
 ---
 
+Current update: 2026-04-30 (Seller Analytics Command Center — Phase 1 Compact)
+
+- Completed: upgraded the existing `GET /api/seller/analytics` endpoint instead of creating a duplicate. It now returns the compact Phase 1 `overview`, seller-owned `deals`, Hebrew `status_label`, joined/charged/pending/failed units, collected/expected gross, canonical platform-fee and seller-net amounts, `generated_at`, and first-pass `risk_level` / `risk_reasons`.
+- Completed: seller isolation remains enforced through the existing seller context. The endpoint is read-only, ignores external seller override attempts, does not mutate deal or participant state, does not capture/refund/payout, does not expose card data, tokens, provider refs, buyer PII, or distributor commission/payout fields.
+- Completed: the seller UI now presents "מרכז ניתוח מוכר" in the existing seller dashboard area, with RTL Hebrew overview cards, manual refresh, last-updated text, missing-data copy, empty state, and a compact deal performance list with risk badges.
+- Completed: no DB table or migration was added. Analytics are computed from existing `deals`, `participants`, and `platform_fee_money_events`.
+- Checked: `PROJECT_STATUS.md`, `docs/`, `src/app.ts`, `src/frontend_runtime.ts`, `src/product_surface_support.ts`, `src/migrations/`, `scripts/init_db.sql`, `frontend/app.js`, `frontend/index.html`, `frontend/styles.css`, and `tests/` were mapped before implementation. Existing endpoint and seller dashboard were found and extended.
+- Checked: `npx tsc --noEmit` PASS; `npx tsc -p tsconfig.test.json` PASS; `node .tmp_test_dist/tests/seller_analytics_validation.js` PASS; `node .tmp_test_dist/tests/frontend_flow_validation.js` PASS; `node .tmp_test_dist/tests/full_product_surface_validation.js` PASS, including same-buyer repeat purchase with global `max_units`; `npm run test:spec-drift-wave3` PASS; `npm test` PASS.
+- Open: no full funnel, attribution analytics, charts, materialized views, admin view, payout UI, invoice UX, logistics, marketplace, search, or catalog was added. Later phases can add richer trend visualization/export only if still aligned with link-only Siton.
+- Progress: `Phase 1 Compact: 100%`; `Seller Analytics overall: 25%`.
+- Next step: hosted seller smoke on mobile and desktop, then decide whether Phase 2 should add lightweight trend charts or export without reopening funnel/attribution scope.
+
+---
+
 Current update: 2026-04-30 (Buyer Experience V1 staging smoke)
 
 - Staging URL checked: `https://siton-demo-preview.onrender.com`.

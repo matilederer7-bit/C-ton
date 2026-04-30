@@ -26,7 +26,20 @@ const ACTIVE_DEAL_STATES = new Set([
   "CompletionWindow"
 ]);
 
-const CHARGED_MONEY_STATES = ["ChargedSuccess", "RecoveredCharge"] as const;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const STATUS_LABELS_HE: Record<string, string> = {
+  Draft: "טיוטה",
+  PendingTarget: "ממתינה למינימום",
+  TargetReached: "המינימום הושג",
+  ClosedForJoining: "סגורה להצטרפות",
+  ReadyForCharging: "מוכנה לחיוב",
+  Charging: "חיובים מתבצעים",
+  CompletionWindow: "חלון השלמה פתוח",
+  Completed: "הושלמה",
+  Failed: "נכשלה",
+  Cancelled: "בוטלה"
+};
 
 export function normalizeSellerAnalyticsPeriod(value: unknown): SellerAnalyticsPeriod | null {
   const period = String(value || "all").trim() || "all";
@@ -84,6 +97,82 @@ function dealMoney(row: any) {
     platform_fee_vat_amount: money.platform_fee_vat_amount,
     platform_fee_total_amount: money.platform_fee_total_amount,
     seller_net_amount: money.seller_net_amount
+  };
+}
+
+function isTerminalFailedState(state: string) {
+  return state === "Failed" || state === "Cancelled";
+}
+
+function isWithin24Hours(value: unknown) {
+  if (!value) return false;
+  const time = new Date(String(value)).getTime();
+  if (!Number.isFinite(time)) return false;
+  const diff = time - Date.now();
+  return diff >= 0 && diff <= DAY_MS;
+}
+
+function riskForDeal(row: any) {
+  const state = String(row.state || "");
+  const currentUnits = num(row.joined_units);
+  const minUnits = num(row.min_units);
+  const pendingUnits = num(row.pending_units);
+  const reasons: string[] = [];
+  let riskLevel: "low" | "medium" | "high" | "completed" | "failed" = "low";
+
+  if (state === "Completed") {
+    riskLevel = "completed";
+  } else if (isTerminalFailedState(state)) {
+    riskLevel = "failed";
+  } else if (state === "CompletionWindow") {
+    riskLevel = "high";
+    reasons.push("חלון השלמה פתוח");
+  } else if (state === "Charging") {
+    riskLevel = "medium";
+    reasons.push("חיובים מתבצעים");
+  } else if (state === "PendingTarget" && isWithin24Hours(row.deadline) && currentUnits < minUnits) {
+    riskLevel = "high";
+    reasons.push("פחות מ-24 שעות לדדליין ועדיין חסרות יחידות למינימום");
+  } else if (state === "TargetReached" && isWithin24Hours(row.deadline)) {
+    riskLevel = "medium";
+    reasons.push("פחות מ-24 שעות לדדליין");
+  }
+
+  if (pendingUnits > 0) {
+    if (riskLevel === "low") riskLevel = "medium";
+    reasons.push("יש יחידות בהמתנה להשלמה");
+  }
+
+  return { risk_level: riskLevel, risk_reasons: reasons };
+}
+
+function compactDeal(row: any) {
+  const money = dealMoney(row);
+  const state = String(row.state || "");
+  const currentUnits = num(row.joined_units);
+  const minUnits = num(row.min_units);
+  const expectedGross = roundMoney(num(row.expected_gross_amount));
+  const expectedMoney = moneyFromGross(expectedGross);
+  const risk = riskForDeal(row);
+  return {
+    deal_id: String(row.deal_id),
+    title: String(row.title || ""),
+    state,
+    status_label: STATUS_LABELS_HE[state] || state,
+    deadline: row.deadline ?? null,
+    completion_window_until: row.completion_window_until ?? null,
+    min_units: minUnits,
+    max_units: num(row.max_units),
+    current_units: currentUnits,
+    charged_units: num(row.charged_units),
+    pending_units: num(row.pending_units),
+    failed_units: num(row.failed_units),
+    progress_to_minimum_percent: Math.min(100, Math.round(pct(currentUnits, Math.max(1, minUnits)))),
+    gross_expected_amount: expectedGross,
+    gross_collected_amount: money.gross_amount,
+    platform_fee_total_amount: money.platform_fee_total_amount || expectedMoney.platform_fee_total_amount,
+    seller_net_amount: money.seller_net_amount || expectedMoney.seller_net_amount,
+    ...risk
   };
 }
 
@@ -295,10 +384,13 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
          ) AS has_seller_profile,
          COALESCE(pa.joined_units,0) AS joined_units,
          COALESCE(pa.charged_units,0) AS charged_units,
+         COALESCE(pa.pending_units,0) AS pending_units,
+         COALESCE(pa.failed_units,0) AS failed_units,
          COALESCE(pa.buyers_count,0) AS buyers_count,
          COALESCE(pa.products_total,0) AS products_total,
          COALESCE(pa.delivery_total,0) AS delivery_total,
          COALESCE(pa.gross_amount,0) AS gross_amount,
+         COALESCE(pa.expected_gross_amount,0) AS expected_gross_amount,
          COALESCE(ma.money_event_count,0) AS money_event_count,
          COALESCE(ma.money_gross_amount,0) AS money_gross_amount,
          COALESCE(ma.money_platform_fee_base_amount,0) AS money_platform_fee_base_amount,
@@ -311,10 +403,19 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
          SELECT
            COALESCE(SUM(p.qty),0) AS joined_units,
            COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS charged_units,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('AuthHeld','AuthLocked','ChargeAttempt','ChargeFailedRecovery')),0) AS pending_units,
+           COALESCE(SUM(p.qty) FILTER (
+             WHERE p.buyer_state IN ('DealFailed','Dropped')
+                OR (p.money_state IN ('AuthReleased','Refunded') AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge'))
+           ),0) AS failed_units,
            COUNT(DISTINCT p.buyer_id) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge'))::int AS buyers_count,
            COALESCE(SUM(p.qty * d.price_per_unit) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS products_total,
            COALESCE(SUM(COALESCE(p.delivery_cost,0)) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS delivery_total,
-           COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0)) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS gross_amount
+           COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0)) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS gross_amount,
+           COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0)) FILTER (
+             WHERE p.buyer_state NOT IN ('DealFailed','Dropped')
+               AND p.money_state NOT IN ('AuthReleased','Refunded')
+           ),0) AS expected_gross_amount
          FROM siton.participants p
          WHERE p.deal_id=d.deal_id
        ) pa ON true
@@ -407,6 +508,9 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
         eligible_buyers: num(fallbackMoney.eligible_buyers)
       };
   const dealRows = dealRowsResult.rows as any[];
+  const compactDeals = dealRows.map(compactDeal);
+  const riskDealsCount = compactDeals.filter((deal) => deal.risk_level === "medium" || deal.risk_level === "high").length;
+  const grossExpectedAmount = sumRows(compactDeals, (deal) => num(deal.gross_expected_amount));
   const recentDeals = dealRows.slice(0, 10).map(formatDeal);
   const topDeals = dealRows
     .map((row) => {
@@ -458,6 +562,19 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       average_deal_gross: completedDeals > 0 ? roundMoney(moneyTotals.gross_collected_total / completedDeals) : 0,
       average_units_per_completed_deal: completedDeals > 0 ? roundMoney(moneyTotals.total_charged_units / completedDeals) : 0
     },
+    overview: {
+      active_deals_count: totalDeals - completedDeals - failedDeals - cancelledDeals,
+      completed_deals_count: completedDeals,
+      failed_deals_count: failedDeals + cancelledDeals,
+      cancelled_deals_count: cancelledDeals,
+      risk_deals_count: riskDealsCount,
+      total_joined_units: num(participantSummary.total_joined_units),
+      total_charged_units: moneyTotals.total_charged_units,
+      gross_collected_amount: moneyTotals.gross_collected_total,
+      gross_expected_amount: grossExpectedAmount,
+      platform_fee_total_amount: moneyTotals.platform_fee_total,
+      seller_net_amount: moneyTotals.seller_net_total
+    },
     money: {
       gross_collected_total: moneyTotals.gross_collected_total,
       products_total: moneyTotals.products_total,
@@ -468,6 +585,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       seller_net_total: moneyTotals.seller_net_total
     },
     deals_by_state: dealsByState,
+    deals: compactDeals,
     recent_deals: recentDeals,
     top_deals: topDeals,
     weak_deals: weakDeals,

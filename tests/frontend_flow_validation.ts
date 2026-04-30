@@ -199,6 +199,25 @@ async function main() {
     assert.match(response.body, /כל עסקה חדשה תיווצר תחת/);
   });
 
+  await runTest("seller analytics command center frontend is compact and seller-safe", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/app/assets/app.js"
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.match(response.body, /מרכז ניתוח מוכר/);
+    assert.match(response.body, /עסקאות בסיכון/);
+    assert.match(response.body, /יחידות שהצטרפו/);
+    assert.match(response.body, /יחידות שחויבו/);
+    assert.match(response.body, /רענון ידני/);
+    assert.match(response.body, /עודכן לאחרונה/);
+    assert.match(response.body, /לא נאסף עדיין/);
+    assert.match(response.body, /אין עדיין עסקאות להצגה/);
+    assert.match(response.body, /seller-analytics-refresh/);
+    assert.match(response.body, /risk_reasons/);
+  });
+
   await runTest("core buyer surfaces keep the strengthened trust and status copy", async () => {
     const response = await app.inject({
       method: "GET",

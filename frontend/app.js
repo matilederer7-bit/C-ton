@@ -226,6 +226,7 @@ document.addEventListener("click", (event) => {
     if (action === "download-delivery-handoff-excel") void downloadDeliveryHandoffExcel(actionTarget.dataset.dealId);
     if (action === "copy-delivery-address") void copyLink(actionTarget.dataset.address);
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
+    if (action === "seller-analytics-refresh") void loadSellerAnalytics(state.sellerAnalyticsPeriod || "all");
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
     if (action === "clear-product-image") clearSellerProductImage();
   }
@@ -2310,82 +2311,75 @@ function renderSellerAnalyticsSection() {
       </section>
     `;
   }
-  const summary = analytics.summary || {};
-  const money = analytics.money || {};
-  const topDeals = Array.isArray(analytics.top_deals) ? analytics.top_deals.slice(0, 5) : [];
-  const weakDeals = Array.isArray(analytics.weak_deals) ? analytics.weak_deals.slice(0, 5) : [];
-  const funnel = analytics.buyer_funnel || {};
-  const attribution = analytics.attribution || {};
-  const insights = Array.isArray(analytics.action_insights) ? analytics.action_insights.slice(0, 6) : [];
-  const hasPerformanceData = Number(summary.total_deals || 0) > 0 || Number(summary.total_buyers || 0) > 0;
+  const overview = analytics.overview || {};
+  const deals = Array.isArray(analytics.deals) ? analytics.deals : [];
+  const hasPerformanceData = deals.length > 0 || Number(overview.total_joined_units || 0) > 0;
   return `
     <section class="card section stack seller-analytics-section" aria-live="polite">
       <div class="section-header">
         <div class="stack compact compact-section">
-          <span class="eyebrow">ביצועי המוכר</span>
-          <h2>ביצועי המוכר</h2>
+          <span class="eyebrow">מרכז ניתוח מוכר</span>
+          <h2>מרכז ניתוח מוכר</h2>
           <p class="muted section-intro">עודכן לאחרונה: ${dt(analytics.generated_at)}</p>
         </div>
-        ${renderSellerAnalyticsPeriodSelector(period, periods)}
+        <div class="toolbar-actions">
+          ${renderSellerAnalyticsPeriodSelector(period, periods)}
+          <button class="secondary" type="button" data-inline-action="seller-analytics-refresh">רענון ידני</button>
+        </div>
       </div>
       ${state.sellerAnalyticsError ? `<div class="error-card"><strong>לא הצלחנו לטעון את ביצועי המוכר כרגע.</strong><p class="small muted">הנתונים האחרונים שמורים כאן עד לרענון הבא.</p></div>` : ""}
       ${!hasPerformanceData ? `<div class="empty-surface stack"><strong>עדיין אין נתוני ביצועים.</strong><p class="small muted">לאחר פתיחת עסקאות והצטרפות קונים, הנתונים יופיעו כאן.</p></div>` : ""}
       <div class="seller-analytics-kpis">
-        <div class="kpi-card success"><span class="muted">עסקאות שהושלמו</span><strong>${num(summary.completed_deals)}</strong></div>
-        <div class="kpi-card strong"><span class="muted">עסקאות פעילות</span><strong>${num(summary.active_deals)}</strong></div>
-        <div class="kpi-card"><span class="muted">שיעור הצלחה</span><strong>${percent(summary.success_rate_percent)}</strong></div>
-        <div class="kpi-card"><span class="muted">ברוטו שנגבה</span><strong>${currency(summary.gross_collected_total)}</strong></div>
-        <div class="kpi-card success"><span class="muted">נטו למוכר</span><strong>${currency(summary.seller_net_total)}</strong></div>
-        <div class="kpi-card"><span class="muted">קונים</span><strong>${num(summary.total_buyers)}</strong></div>
-        <div class="kpi-card"><span class="muted">יחידות שחויבו</span><strong>${num(summary.total_charged_units)}</strong></div>
+        <div class="kpi-card strong"><span class="muted">עסקאות פעילות</span><strong>${analyticsValue(overview.active_deals_count, num)}</strong></div>
+        <div class="kpi-card warning"><span class="muted">עסקאות בסיכון</span><strong>${analyticsValue(overview.risk_deals_count, num)}</strong></div>
+        <div class="kpi-card"><span class="muted">יחידות שהצטרפו</span><strong>${analyticsValue(overview.total_joined_units, num)}</strong></div>
+        <div class="kpi-card"><span class="muted">יחידות שחויבו</span><strong>${analyticsValue(overview.total_charged_units, num)}</strong></div>
+        <div class="kpi-card"><span class="muted">ברוטו שנגבה</span><strong>${analyticsValue(overview.gross_collected_amount, currency)}</strong></div>
+        <div class="kpi-card success"><span class="muted">נטו למוכר</span><strong>${analyticsValue(overview.seller_net_amount, currency)}</strong></div>
       </div>
-      <div class="seller-analytics-grid">
-        <article class="summary-item seller-analytics-money">
-          <h3>פירוט כסף</h3>
-          <div class="table-like">
-            <div class="table-row"><div class="table-cell"><span class="muted">ברוטו</span><strong>${currency(money.gross_collected_total)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${currency(money.seller_net_total)}</strong></div></div>
-            <div class="table-row"><div class="table-cell"><span class="muted">עמלת סיטון</span><strong>${currency(money.platform_fee_base_total)}</strong></div><div class="table-cell"><span class="muted">מע"מ על עמלת סיטון</span><strong>${currency(money.platform_fee_vat_total)}</strong></div></div>
-          </div>
-        </article>
-        <article class="summary-item">
-          <h3>משפך קונים</h3>
-          <div class="pill-row analytics-pill-row">
-            <span class="stat-pill"><span>הצטרפו ותפסו מסגרת</span><strong>${num(funnel.joined_authorized)}</strong></span>
-            <span class="stat-pill"><span>חויבו בהצלחה</span><strong>${num(funnel.charged_successfully)}</strong></span>
-            <span class="stat-pill"><span>הושלמו לאחר עדכון אמצעי תשלום</span><strong>${num(funnel.recovered)}</strong></span>
-            <span class="stat-pill"><span>נפלו או לא השלימו</span><strong>${num(funnel.dropped)}</strong></span>
-            <span class="stat-pill"><span>עסקאות שנכשלו</span><strong>${num(funnel.deal_failed)}</strong></span>
-          </div>
-        </article>
-      </div>
-      <div class="seller-analytics-grid">
-        <article class="summary-item">
-          <h3>עסקאות מובילות</h3>
-          ${topDeals.length ? `<div class="table-like">${topDeals.map(renderSellerAnalyticsTopDeal).join("")}</div>` : `<p class="small muted">אין עדיין עסקאות מובילות להצגה.</p>`}
-        </article>
-        <article class="summary-item">
-          <h3>עסקאות שדורשות תשומת לב</h3>
-          ${weakDeals.length ? `<div class="table-like">${weakDeals.map(renderSellerAnalyticsWeakDeal).join("")}</div>` : `<p class="small muted">אין עסקאות שדורשות תשומת לב כרגע.</p>`}
-        </article>
-      </div>
-      <div class="seller-analytics-grid">
-        <article class="summary-item">
-          <h3>נתוני ייחוס בלבד</h3>
-          <p class="small muted">${esc(attribution.disclaimer_he || "נתוני ייחוס בלבד. סיטון אינה מחשבת עמלה ואינה מבצעת תשלום למפיצים.")}</p>
-          <div class="summary-grid">
-            <div class="summary-item"><span class="muted">מספר לינקים</span><strong>${num(attribution.links_count)}</strong></div>
-            <div class="summary-item"><span class="muted">יחידות מיוחסות</span><strong>${num(attribution.attributed_units)}</strong></div>
-            <div class="summary-item"><span class="muted">ברוטו מיוחס</span><strong>${currency(attribution.attributed_gross)}</strong></div>
-          </div>
-          ${Array.isArray(attribution.top_links) && attribution.top_links.length ? `<div class="table-like">${attribution.top_links.slice(0, 5).map(renderSellerAnalyticsAttributionLink).join("")}</div>` : ""}
-        </article>
-        <article class="summary-item">
-          <h3>פעולות מומלצות</h3>
-          ${insights.length ? `<div class="status-rail">${insights.map(renderSellerAnalyticsInsight).join("")}</div>` : `<p class="small muted">אין פעולות דחופות כרגע.</p>`}
-        </article>
-      </div>
+      <article class="summary-item seller-analytics-money">
+        <h3>תמונת כסף</h3>
+        <div class="table-like">
+          <div class="table-row"><div class="table-cell"><span class="muted">ברוטו צפוי</span><strong>${analyticsValue(overview.gross_expected_amount, currency)}</strong></div><div class="table-cell"><span class="muted">ברוטו שנגבה</span><strong>${analyticsValue(overview.gross_collected_amount, currency)}</strong></div></div>
+          <div class="table-row"><div class="table-cell"><span class="muted">עמלת סיטון</span><strong>${analyticsValue(overview.platform_fee_total_amount, currency)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${analyticsValue(overview.seller_net_amount, currency)}</strong></div></div>
+        </div>
+      </article>
+      <article class="summary-item">
+        <h3>עסקאות</h3>
+        ${deals.length ? `<div class="table-like seller-analytics-deals">${deals.map(renderSellerAnalyticsDeal).join("")}</div>` : `<div class="empty-surface stack"><strong>אין עדיין עסקאות להצגה.</strong><p class="small muted">לאחר יצירת עסקה ראשונה, היא תופיע כאן עם מצב, יחידות וסיכון.</p></div>`}
+      </article>
     </section>
   `;
+}
+
+function analyticsValue(value, formatter = num) {
+  if (value === null || value === undefined || value === "") return "לא נאסף עדיין";
+  return formatter(value);
+}
+
+function renderSellerAnalyticsDeal(deal) {
+  const risk = sellerAnalyticsRiskCopy(deal.risk_level);
+  return `
+    <div class="table-row seller-analytics-deal-row">
+      <div class="table-cell"><span class="muted">עסקה</span><strong>${esc(deal.title || "עסקה ללא שם")}</strong><span class="small muted">${esc(deal.status_label || getDealCopy(deal.state).label)}</span></div>
+      <div class="table-cell"><span class="muted">סיכון</span><strong class="badge ${risk.tone}">${esc(risk.label)}</strong>${Array.isArray(deal.risk_reasons) && deal.risk_reasons.length ? `<span class="small muted">${esc(deal.risk_reasons.join(" · "))}</span>` : ""}</div>
+      <div class="table-cell"><span class="muted">התקדמות למינימום</span><strong>${percent(deal.progress_to_minimum_percent)}</strong><span class="small muted">${analyticsValue(deal.current_units, num)} מתוך ${analyticsValue(deal.min_units, num)}</span></div>
+      <div class="table-cell"><span class="muted">יחידות</span><strong>${analyticsValue(deal.current_units, num)} הצטרפו</strong><span class="small muted">${analyticsValue(deal.charged_units, num)} חויבו · ${analyticsValue(deal.pending_units, num)} בהמתנה</span></div>
+      <div class="table-cell"><span class="muted">ברוטו</span><strong>${analyticsValue(deal.gross_collected_amount, currency)}</strong><span class="small muted">צפוי ${analyticsValue(deal.gross_expected_amount, currency)}</span></div>
+      <div class="table-cell"><span class="muted">דדליין</span><strong>${dt(deal.deadline)}</strong></div>
+    </div>
+  `;
+}
+
+function sellerAnalyticsRiskCopy(level) {
+  const map = {
+    low: { label: "נמוך", tone: "success" },
+    medium: { label: "בינוני", tone: "warning" },
+    high: { label: "גבוה", tone: "danger" },
+    completed: { label: "הושלמה", tone: "success" },
+    failed: { label: "נכשלה", tone: "danger" }
+  };
+  return map[level] || map.low;
 }
 
 function renderSellerAnalyticsPeriodSelector(currentPeriod, periods) {
