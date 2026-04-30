@@ -39,7 +39,7 @@ Current update: 2026-04-30 (npm test hang isolation after Buyer Experience V1)
 - Open: no remaining full-suite hang found. Staging smoke has not been run in this step.
 - Progress: `100%` npm test hang isolation and full-suite closure.
 - Next step: proceed to staging smoke for Buyer Experience V1 and seller handoff flows.
-- Closure commit hash: `8d6e53d`.
+- Closure implementation commit hash: `68dca37`.
 
 ---
 
