@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS siton.deal_delivery_options (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Existing demo databases may already have siton.participants from an older
+-- bootstrap. CREATE TABLE IF NOT EXISTS will not add columns, so align the
+-- live delivery snapshot columns before creating indexes or accepting joins.
+ALTER TABLE IF EXISTS siton.participants
+  ADD COLUMN IF NOT EXISTS delivery_option_id UUID NULL,
+  ADD COLUMN IF NOT EXISTS delivery_method_type TEXT NULL,
+  ADD COLUMN IF NOT EXISTS delivery_method_label TEXT NULL,
+  ADD COLUMN IF NOT EXISTS delivery_cost NUMERIC(12,2) NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS buyer_name TEXT NULL,
+  ADD COLUMN IF NOT EXISTS buyer_phone TEXT NULL,
+  ADD COLUMN IF NOT EXISTS buyer_email TEXT NULL,
+  ADD COLUMN IF NOT EXISTS delivery_address TEXT NULL,
+  ADD COLUMN IF NOT EXISTS delivery_city TEXT NULL,
+  ADD COLUMN IF NOT EXISTS delivery_notes TEXT NULL;
+
 CREATE TABLE IF NOT EXISTS siton.audit_log (
   audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type TEXT NOT NULL CHECK (entity_type IN ('deal','participant')),

@@ -2,6 +2,42 @@
 
 ---
 
+Current update: 2026-04-30 (Render Deploy Failure - demo bootstrap delivery_option_id)
+
+- Failed commit: `290c5a7` (`test(seller): validate analytics command center smoke`).
+- Exact Render start error: `Demo bootstrap failed`; `error: column "delivery_option_id" does not exist`; at `scripts/bootstrap_demo_db.cjs:21:5` while running `npm run bootstrap:demo-db && node .demo_dist/src/app.js`.
+- Root cause: `src/migrations/014_demo_preview_bootstrap.sql` creates `siton.participants` with `delivery_option_id` only on fresh tables. Existing demo databases that already had an older `siton.participants` table did not receive the delivery snapshot columns, so the later `idx_participants_delivery_option` index creation touched a missing column.
+- Fix: hardened the demo bootstrap with an idempotent `ALTER TABLE IF EXISTS siton.participants ADD COLUMN IF NOT EXISTS ...` block for the live delivery snapshot columns before indexes are created.
+- What was checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node scripts/bootstrap_demo_db.cjs`; `node .tmp_test_dist/tests/seller_analytics_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test`; and a local `npm run start:demo:prod` smoke with `/health` returning `200 {"ok":true}`.
+- Remaining `delivery_option_id` references are live and expected in delivery persistence/runtime/tests/docs: `scripts/init_db.sql`, `src/product_surface_support.ts`, `src/app.ts`, `src/migrations/014_demo_preview_bootstrap.sql`, `src/migrations/016_delivery_method_persistence.sql`, frontend join flow, and delivery validation tests.
+- Open: no application feature work remains for this failure; Render still needs a fresh deploy from the new commit and a staging freshness/API/UI smoke afterward.
+- Progress: `Render deploy failure fix: 100%`; `Seller Analytics overall: unchanged`.
+- Next step: redeploy `siton-demo-preview` from the pushed fix, then rerun Seller Analytics Phase 1 staging smoke.
+
+---
+
+Current update: 2026-04-30 (Seller Analytics Command Center — Phase 1 Staging Smoke Retry)
+
+- Staging URL checked: `https://siton-demo-preview.onrender.com` after Render Manual Deploy / Deploy latest commit.
+- Verdict: `FAIL` / still blocked. Freshness did not pass: staging still does not prove feature commit `61910dde824feed1d8d8cce32a220d7b9ebab7a3` or smoke documentation commit `290c5a7cd2d7f4afbc6cadc2342d27fc0b3bdab9`.
+- Commit running in staging: not identifiable from `/api/preview/meta`; no Git SHA/build hash is exposed by the deploy metadata.
+- What was checked:
+  - `GET /health` returned `200 {"ok":true}`.
+  - `GET /api/preview/meta` returned `200` with `deployment_mode=demo-preview` and demo guardrails.
+  - `GET /api/seller/analytics` with `x-seller-id: seller-default` still returned `404 Route GET:/api/seller/analytics not found`.
+  - Feature probe against `/app/assets/app.js` did not return the required Phase 1 markers: `מרכז ניתוח מוכר`, `seller-analytics-refresh`, `risk_reasons`.
+- Freshness result: `FAIL`; desktop and mobile seller analytics smoke were not executed because they would validate stale code.
+- API result: `FAIL`, endpoint absent on staging.
+- Desktop result: `NOT RUN`, blocked by stale deploy.
+- Mobile result: `NOT RUN`, blocked by stale deploy.
+- Issues found: staging still serves an older runtime without the Seller Analytics endpoint/UI.
+- Fixes performed: none. No application code was changed.
+- Open: redeploy `siton-demo-preview` from current `master` and expose or otherwise verify a build hash; then rerun freshness, API, desktop, and mobile smoke.
+- Progress: `Phase 1 Compact: 100%`; `Staging Smoke: BLOCKED / stale deploy`; `Seller Analytics overall: 25%`.
+- Next step: confirm Render build logs point at `290c5a7` or newer, then rerun this smoke.
+
+---
+
 Current update: 2026-04-30 (Seller Analytics Command Center — Phase 1 Staging Smoke)
 
 - Staging URL checked: `https://siton-demo-preview.onrender.com`.
