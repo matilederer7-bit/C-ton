@@ -205,6 +205,9 @@ async function main() {
     const frontend = await readFile(join(process.cwd(), "frontend", "app.js"), "utf8");
     assert.match(frontend, /עדיין אין הודעות בעסקה הזאת/);
     assert.match(frontend, /כתבו שאלה או עדכון קצר/);
+    assert.match(frontend, /הצ׳אט ייפתח אחרי פרסום העסקה/);
+    assert.match(frontend, /הצ׳אט נסגר כי העסקה עברה למסלול חיוב/);
+    assert.match(frontend, /הצ׳אט נסגר כי העסקה הסתיימה/);
     assert.match(frontend, /function renderDealChatMessage/);
     assert.match(frontend, /<p>\$\{esc\(message\.body \|\| ""\)\}<\/p>/);
     assert.doesNotMatch(frontend, /message\.body[^;\n]*innerHTML/);

@@ -1709,7 +1709,9 @@ function renderDealPage() {
 
 function renderDealChatSection(deal) {
   const messages = Array.isArray(state.dealChatPayload?.messages) ? state.dealChatPayload.messages : [];
-  const isClosed = state.dealChatStatus === "closed" || !["PendingTarget", "TargetReached", "ClosedForJoining"].includes(String(deal?.state || ""));
+  const dealState = String(deal?.state || "");
+  const isClosed = state.dealChatStatus === "closed" || !["PendingTarget", "TargetReached", "ClosedForJoining"].includes(dealState);
+  const closedMessage = getDealChatClosedMessage(dealState);
   return `
     <section class="card section stack deal-chat" aria-labelledby="deal-chat-title">
       <div class="section-heading">
@@ -1723,7 +1725,7 @@ function renderDealChatSection(deal) {
         ${messages.length ? messages.map(renderDealChatMessage).join("") : `<div class="empty-surface"><p class="muted">עדיין אין הודעות בעסקה הזאת</p></div>`}
       </div>
       ${isClosed ? `
-        <div class="info-strip tone-warning"><strong>הצ׳אט נסגר כי העסקה הסתיימה</strong></div>
+        <div class="info-strip tone-warning"><strong>${closedMessage}</strong></div>
       ` : `
         <form data-action="deal-chat-send" class="deal-chat-form">
           <div class="field">
@@ -1739,6 +1741,12 @@ function renderDealChatSection(deal) {
       `}
     </section>
   `;
+}
+
+function getDealChatClosedMessage(dealState) {
+  if (dealState === "Draft") return "הצ׳אט ייפתח אחרי פרסום העסקה";
+  if (["ReadyForCharging", "Charging", "CompletionWindow"].includes(dealState)) return "הצ׳אט נסגר כי העסקה עברה למסלול חיוב";
+  return "הצ׳אט נסגר כי העסקה הסתיימה";
 }
 
 function renderDealChatMessage(message) {

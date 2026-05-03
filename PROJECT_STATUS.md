@@ -2,6 +2,18 @@
 
 ---
 
+Current update: 2026-05-03 (Deal Chat — Phase 1 Local UX/QA Review)
+
+- Checked locally only: empty chat state, valid message send flow, closed-state copy, static escaping guard, problematic input handling, product boundaries, buyer flow, product surface drift, and full test suite. No Render, staging, or redeploy work was performed.
+- Issue found: closed chat copy was too generic and said the deal had ended even for Draft or charging-path states.
+- Fix: adjusted public deal chat closed copy by deal state: Draft says chat opens after publishing; charging-path states say chat closed because the deal moved to charging; final states say chat closed because the deal ended.
+- Tests updated: `deal_chat_validation` now locks the three closed-copy variants.
+- Checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node .tmp_test_dist/tests/deal_chat_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test`.
+- Progress: `Deal Chat Phase 1: 100%`; `Deal Chat local UX/QA review: complete`.
+- Next step: no Phase 1 action remains unless product asks for a visual browser smoke pass or Phase 2 scope.
+
+---
+
 Current update: 2026-05-03 (Deal Chat — Phase 1)
 
 - Completed: added public per-deal chat scoped only to a direct deal link. Buyers can read recent visible messages and post a short message with a display name on the public deal page.
