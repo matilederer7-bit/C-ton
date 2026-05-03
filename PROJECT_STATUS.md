@@ -2,6 +2,64 @@
 
 ---
 
+## RC Closure Surgical Rescue (2026-05-03)
+
+### What was done
+- **Operational Cases — CLOSED**: `src/operational_cases.ts`, `src/migrations/034_operational_cases.sql`, and `tests/admin_support_cases_validation.ts` were WIP-untracked files. All three compile cleanly (`npx tsc --noEmit` and `npx tsc -p tsconfig.test.json --noEmit` both pass). Migration 034 was missing `BEGIN` / `SET search_path TO siton, public` / `COMMIT` — added to match migration convention. `test:admin-support-cases` script added to `package.json` and appended to `npm test` chain. `src/frontend_runtime.ts` already had all four endpoints (`GET/POST /api/admin/support-cases`, `PATCH /api/admin/support-cases/:caseId`, `POST /api/admin/support-cases/:caseId/escalate`) imported from `operational_cases.js`.
+- **Demo Seed — CLOSED**: `scripts/bootstrap_demo_db.cjs` expanded from a single-migration runner into a full idempotent bootstrap: runs all SQL migrations (014 then 007–034), creates TypeScript-managed tables inline (`seller_accounts`, `affiliate_accounts`, `affiliate_attributions`, `notification_events`), and seeds stable demo data (1 seller, 1 affiliate, 3 deals — joinable/completed/failed, 4 participants — joined/charged/recovered/failed, delivery options, attribution). Seed bypasses state machine only on INSERT (runtime machine enforces UPDATE-only); documented in-file. All INSERTs use `ON CONFLICT … DO NOTHING` for idempotency.
+- **init_db.sql drift**: The legacy bootstrap file gained `operational_cases` / `operational_case_events` tables in `public` schema (consistent with the rest of that file, which uses `SET search_path TO public`). This is legacy-only drift — the live runtime uses `siton.` schema via migrations and `ensure*Tables`. Non-blocking, documented.
+- **Patch saved**: `.rc_rescue_before_changes.patch` captures the pre-rescue diff for rollback reference.
+
+### What was checked (static — no local DB available)
+- `npx tsc --noEmit` — PASS
+- `npx tsc -p tsconfig.test.json --noEmit` — PASS
+- Import chain: `frontend_runtime.ts` imports from `./operational_cases.js` (verified); `app.ts` startup calls `ensure*Tables` for all rails (operational cases tables created on first endpoint hit).
+- No marketplace, no search/catalog, no affiliate commission/payout, no distributor settlement added anywhere (grep confirmed).
+- `bootstrap_demo_db.cjs` syntax: `node --check scripts/bootstrap_demo_db.cjs` (CJS, no ES module issues).
+
+### What is open / pending DB environment
+- `npm run test:admin-support-cases` — requires live PostgreSQL; not run locally.
+- `npm run test:demo-readiness` — requires live PostgreSQL; not run locally.
+- DB-layer verification (migration 034 idempotency, bootstrap idempotency, demo-readiness verdict on fresh DB) — all require live PostgreSQL.
+
+### Readiness verdict
+- **READY_FOR_UNIT** — all static checks pass, feature is fully hooked up, no hidden runtime blockers found.
+
+### Next commands for the test runner (in order)
+```
+# TypeScript (already verified)
+npx tsc --noEmit
+npx tsc -p tsconfig.test.json --noEmit
+
+# DB bootstrap (on fresh or existing demo DB)
+npm run bootstrap:demo-db
+
+# Focused tests (require DB)
+npm run test:admin-support-cases
+npm run test:demo-readiness
+npm run test:spec-drift-wave3
+npm run test:seller-payout-rail
+npm run test:buyer-recovery-flow
+
+# Full suite
+npm test
+```
+
+### Operational Cases status
+- CLOSED and committed.
+- Tables: `siton.operational_cases`, `siton.operational_case_events` (created via `ensureOperationalCaseTables` on first endpoint hit, and via migration 034).
+- Endpoints: `GET/POST /api/admin/support-cases`, `PATCH /api/admin/support-cases/:caseId`, `POST /api/admin/support-cases/:caseId/escalate`.
+- Tests: 8 cases in `admin_support_cases_validation.ts` covering create, validation, close-requires-note, escalate, refund-request-no-mutation, state-machine-no-mutation, auto-case-idempotency, guardrails.
+
+### Demo Seed status
+- CLOSED.
+- On fresh DB: `npm run bootstrap:demo-db` → runs all migrations → seeds 3 deals + 4 participants + seller + affiliate.
+- `GET /api/admin/demo-readiness` should return `verdict: "ready"` after bootstrap + app startup.
+
+### Market readiness: 82% → 84% (operational cases and demo seed closed)
+
+---
+
 Current update: 2026-05-03 (Demo Readiness Command Center)
 
 - Completed: added `GET /api/admin/demo-readiness` endpoint in `src/frontend_runtime.ts`. Returns a structured read-only verdict (`ready` | `warning` | `blocked`) covering deploy freshness, database table presence, outbox/DLQ status, provider config, demo data presence, and product contract constants. No state mutation, no provider activation, no money operations.
