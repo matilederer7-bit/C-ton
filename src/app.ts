@@ -35,6 +35,12 @@ import {
   ensurePlatformFeeMoneyTables
 } from "./platform_fee_money.js";
 import {
+  sellerStatusBlocksAction,
+  sellerStatusErrorCode,
+  sellerStatusMessage,
+  type SellerAction
+} from "./seller_enforcement.js";
+import {
   PAYMENT_DISCLOSURE_VERSION,
   REFUND_POLICY_VERSION,
   SELLER_TERMS_VERSION,
@@ -190,7 +196,8 @@ async function sellerSessionContext(req: any, c: any) {
             s.expires_at,
             a.seller_id,
             a.display_name,
-            a.auth_enabled
+            a.auth_enabled,
+            COALESCE(a.seller_status, 'Active') AS seller_status
      FROM siton.seller_sessions s
      JOIN siton.seller_accounts a ON a.seller_id = s.seller_id
      WHERE s.token_hash = $1
@@ -209,8 +216,25 @@ function sellerAuthorityFromDemoRequest(req: any) {
   return {
     seller_id: sellerId,
     display_name: normalizeSellerDisplayName(req.body?.seller_display_name || req.headers?.["x-seller-display-name"], sellerId),
+    seller_status: "Active",
     context_source: "demo_context"
   };
+}
+
+async function ensureSellerActionAllowed(c: any, sellerId: string, action: SellerAction) {
+  const result = await c.query(
+    `SELECT COALESCE(seller_status, 'Active') AS seller_status
+     FROM siton.seller_accounts
+     WHERE seller_id=$1
+     LIMIT 1`,
+    [sellerId]
+  );
+  const status = result.rowCount ? String(result.rows[0].seller_status || "Active") : "Active";
+  if (!sellerStatusBlocksAction(status, action)) return status;
+  const err: any = new Error(sellerStatusMessage(status));
+  err.statusCode = 403;
+  err.code = sellerStatusErrorCode(status);
+  throw err;
 }
 
 async function requireSellerAuthority(req: any, c: any) {
@@ -233,6 +257,7 @@ async function requireSellerAuthority(req: any, c: any) {
   return {
     seller_id: session.seller_id,
     display_name: session.display_name,
+    seller_status: session.seller_status || "Active",
     context_source: "server_session"
   };
 }
@@ -243,6 +268,7 @@ async function requireSellerAuthorityWithoutBody(req: any, c: any) {
     return {
       seller_id: sellerId,
       display_name: normalizeSellerDisplayName(req.headers?.["x-seller-display-name"], sellerId),
+      seller_status: "Active",
       context_source: "demo_context"
     };
   }
@@ -2321,6 +2347,7 @@ app.post("/deals", async (req: any) => {
 
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
     const ins = await c.query(
       `INSERT INTO siton.deals
        (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id)
@@ -2356,6 +2383,7 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
     const source = await c.query(
       `SELECT deal_id, seller_id, title, price_per_unit, min_units, max_units
        FROM siton.deals
@@ -2435,6 +2463,7 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
     const dealResult = await c.query(
       `SELECT seller_id, state FROM siton.deals WHERE deal_id=$1`,
       [dealId]
@@ -2519,6 +2548,7 @@ app.post("/deals/:id/publish", async (req: any) => {
   await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     publishSellerId = sellerAuthority.seller_id;
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "publish");
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");

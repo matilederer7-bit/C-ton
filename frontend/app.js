@@ -39,6 +39,9 @@ const state = {
   adminSystemStatusPayload: null,
   adminNotificationsStatusPayload: null,
   adminInvoiceStatusPayload: null,
+  adminSellerRiskPayload: null,
+  adminSellerStatusModal: null,
+  adminSellerStatusReason: "",
   adminDealPayload: null,
   adminDealOpsPayload: null,
   adminParticipantOpsPayload: null,
@@ -238,6 +241,8 @@ document.addEventListener("click", (event) => {
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
     if (action === "seller-analytics-refresh") void loadSellerAnalytics(state.sellerAnalyticsPeriod || "all");
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
+    if (action === "admin-seller-status-open") openSellerStatusModal(actionTarget);
+    if (action === "admin-seller-status-close") closeSellerStatusModal();
     if (action === "clear-product-image") clearSellerProductImage();
   }
 });
@@ -245,6 +250,12 @@ document.addEventListener("click", (event) => {
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+  if (target.name === "adminSellerStatusReason") {
+    state.adminSellerStatusReason = target.value;
+    const submit = document.querySelector("[data-admin-seller-status-submit]");
+    if (submit instanceof HTMLButtonElement) submit.disabled = !target.value.trim();
+    return;
+  }
   if (!(target.name in state.form)) return;
   state.form[target.name] = target.value;
 });
@@ -668,13 +679,14 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
-    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
-      api("/api/admin/invoice-status")
+      api("/api/admin/invoice-status"),
+      api("/api/admin/sellers/risk")
     ]);
     state.adminPayload = overview;
     state.adminMissionPayload = missionControl;
@@ -682,6 +694,7 @@ async function loadAdmin(query = "") {
     state.adminSystemStatusPayload = systemStatus;
     state.adminNotificationsStatusPayload = notificationsStatus;
     state.adminInvoiceStatusPayload = invoiceStatus;
+    state.adminSellerRiskPayload = sellerRisk;
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™.");
 }
 
@@ -838,13 +851,14 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus] = await Promise.all([
+    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
-      api("/api/admin/invoice-status")
+      api("/api/admin/invoice-status"),
+      api("/api/admin/sellers/risk")
     ]);
     const totalsChanged = !state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals);
     const systemChanged =
@@ -864,13 +878,17 @@ async function refreshAdminSilently() {
       !state.adminMissionPayload ||
       JSON.stringify(state.adminMissionPayload.exception_cards) !== JSON.stringify(missionControl.exception_cards) ||
       JSON.stringify(state.adminMissionPayload.system) !== JSON.stringify(missionControl.system);
-    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged) {
+    const sellerRiskChanged =
+      !state.adminSellerRiskPayload ||
+      JSON.stringify(state.adminSellerRiskPayload.sellers) !== JSON.stringify(sellerRisk.sellers);
+    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged || sellerRiskChanged) {
       state.adminPayload = next;
       state.adminMissionPayload = missionControl;
       state.adminLaunchPayload = launchConsole;
       state.adminSystemStatusPayload = systemStatus;
       state.adminNotificationsStatusPayload = notificationsStatus;
       state.adminInvoiceStatusPayload = invoiceStatus;
+      state.adminSellerRiskPayload = sellerRisk;
       render();
     }
   } catch {}
@@ -891,6 +909,7 @@ async function submitAction(action, form) {
   if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
+  if (action === "admin-seller-status") return changeSellerStatus(form);
   if (action === "admin-support-create") return createSupportTicket(form);
   if (action === "admin-support-update") return updateSupportTicket(form);
 }
@@ -1172,6 +1191,52 @@ async function publishDeal(dealId) {
     };
     await loadSellerDeal(dealId);
   }, "׳₪׳¨׳¡׳•׳ ׳”׳¢׳¡׳§׳” ׳ ׳›׳©׳.");
+}
+
+async function changeSellerStatus(form) {
+  const sellerId = form.dataset.sellerId || "";
+  const status = form.dataset.status || "";
+  if (!sellerId || !status) return;
+  const formData = new FormData(form);
+  const reason = String(formData.get("adminSellerStatusReason") || state.adminSellerStatusReason || "").trim();
+  if (!reason.trim()) {
+    return fail("חסרה סיבה", "כל שינוי סטטוס מוכר דורש סיבה כתובה ונרשם לביקורת.");
+  }
+  await busy("מעדכן סטטוס מוכר...", async () => {
+    await api(`/api/admin/sellers/${encodeURIComponent(sellerId)}/status`, {
+      method: "POST",
+      headers: {
+        "x-request-id": `admin-seller-status:${Date.now()}`,
+        "idempotency-key": `admin-seller-status:${sellerId}:${status}:${Date.now()}`
+      },
+      body: json({ status, reason: reason.trim() })
+    });
+    state.banner = {
+      tone: status === "Active" ? "success" : "warning",
+      title: "סטטוס המוכר עודכן",
+      message: "השינוי נשמר ונרשם לביקורת."
+    };
+    state.adminSellerStatusModal = null;
+    state.adminSellerStatusReason = "";
+    await loadAdmin(state.form.adminQuery || "");
+  }, "עדכון סטטוס המוכר נכשל.");
+}
+
+function openSellerStatusModal(target) {
+  state.adminSellerStatusModal = {
+    sellerId: target.dataset.sellerId || "",
+    sellerName: target.dataset.sellerName || "",
+    status: target.dataset.status || "",
+    label: target.dataset.label || ""
+  };
+  state.adminSellerStatusReason = "";
+  render();
+}
+
+function closeSellerStatusModal() {
+  state.adminSellerStatusModal = null;
+  state.adminSellerStatusReason = "";
+  render();
 }
 
 async function saveSellerContextFromForm(form) {
@@ -1486,6 +1551,7 @@ function render() {
       <main id="main-content" class="shell-main" tabindex="-1">
         ${renderCurrentRoute()}
       </main>
+      ${renderSellerStatusModal()}
       ${renderPublicTrustFooter()}
     </div>
   `;
@@ -2531,6 +2597,9 @@ function renderSellerPage() {
   if (!payload) return renderEmptyState("׳׳–׳•׳¨ ׳”׳׳•׳›׳¨ ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳׳–׳•׳¨ ׳”׳׳•׳›׳¨.");
   const sellerProfile = payload.seller_profile || currentSellerContext();
   const sellerDisplayName = normalizeSellerDisplayName(sellerProfile.seller_id, sellerProfile.display_name);
+  const sellerStatus = sellerProfile.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
+  const sellerNotice = sellerEnforcementNotice(sellerStatus);
+  const canOpenNewDeal = sellerStatus !== "Suspended" && sellerStatus !== "Banned";
   const focus = sellerNextFocus(null, payload.totals);
   const draftDeals = Math.max(
     0,
@@ -2556,8 +2625,9 @@ function renderSellerPage() {
           <div class="metric"><span class="muted">׳“׳₪׳™ ׳¢׳¡׳§׳” ׳—׳™׳™׳</span><strong>${num(payload.totals.live_deals)}</strong></div>
           <div class="metric"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload.totals.completed_deals)}</strong></div>
         </div>
+        ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
         <div class="actions">
-          <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”</a>
+          ${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}
         </div>
         <div class="kpi-strip">
           <div class="kpi-card strong"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳₪׳¢׳™׳׳•׳× ׳¢׳›׳©׳™׳•</span><strong>${num(payload.totals.live_deals)}</strong><p class="small muted">׳”׳׳¡׳›׳™׳ ׳©׳“׳•׳¨׳©׳™׳ ׳¢׳›׳©׳™׳• ׳”׳₪׳¦׳”, ׳׳¢׳§׳‘ ׳׳• ׳‘׳§׳¨׳”.</p></div>
@@ -2613,7 +2683,7 @@ function renderSellerPage() {
         <div class="empty-surface stack">
           <strong>׳¢׳“׳™׳™׳ ׳׳ ׳ ׳₪׳×׳—׳” ׳׳£ ׳¢׳¡׳§׳” ׳×׳—׳× ׳”׳–׳”׳•׳× ׳”׳–׳•</strong>
           <p class="small muted">׳›׳“׳׳™ ׳׳”׳×׳—׳™׳ ׳׳˜׳™׳•׳˜׳” ׳׳—׳× ׳—׳“׳”, ׳׳₪׳¨׳¡׳ ׳׳•׳×׳”, ׳•׳׳”׳₪׳™׳¥ ׳׳™׳ ׳§ ׳׳™׳©׳™ ׳¨׳׳©׳•׳ ׳׳§׳•׳ ׳™׳.</p>
-          <div class="actions"><a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳¨׳׳©׳•׳ ׳”</a></div>
+          <div class="actions">${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳¨׳׳©׳•׳ ׳”</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}</div>
         </div>
       `}
     </section>
@@ -2737,6 +2807,13 @@ function sellerAnalyticsRiskCopy(level) {
     failed: { label: "נכשלה", tone: "danger" }
   };
   return map[level] || map.low;
+}
+
+function sellerEnforcementNotice(status) {
+  if (status === "Restricted") return "חשבונך מוגבל זמנית מפרסום עסקאות חדשות. עסקאות קיימות אינן משתנות אוטומטית.";
+  if (status === "Suspended") return "חשבונך הושעה זמנית מפעולות מוכר.";
+  if (status === "Banned") return "חשבונך חסום מפעולות מוכר.";
+  return "";
 }
 
 function renderSellerAnalyticsPeriodSelector(currentPeriod, periods) {
@@ -2868,6 +2945,20 @@ function renderSellerNewPage() {
     return renderSellerAuthGate();
   }
   const sellerContext = currentSellerContext();
+  const sellerStatus = sellerContext.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
+  const sellerNotice = sellerEnforcementNotice(sellerStatus);
+  if (sellerStatus === "Suspended" || sellerStatus === "Banned") {
+    return `
+      <section class="hero">
+        <article class="card hero-main stack hero-emphasis">
+          <span class="eyebrow">פתיחת עסקה</span>
+          <h1>פתיחת עסקה חדשה אינה זמינה כרגע</h1>
+          <div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>
+          <div class="actions"><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לאזור המוכר</a></div>
+        </article>
+      </section>
+    `;
+  }
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
   const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
@@ -3129,6 +3220,10 @@ function renderSellerDealPage() {
     activeSellerId,
     payload.seller_profile?.display_name || currentSellerContext().display_name
   );
+  const sellerStatus = payload.seller_profile?.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
+  const sellerNotice = sellerEnforcementNotice(sellerStatus);
+  const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(sellerStatus);
+  const cloneBlockedByStatus = ["Suspended", "Banned"].includes(sellerStatus);
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
@@ -3137,6 +3232,7 @@ function renderSellerDealPage() {
         ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : ""}
         <h1>${esc(deal.title)}</h1>
         <p class="muted">׳–׳”׳• ׳—׳“׳¨ ׳”׳‘׳§׳¨׳” ׳©׳ ׳”׳׳•׳›׳¨ ׳׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳, ׳׳¨׳©׳™׳׳× ׳”׳׳©׳×׳×׳₪׳™׳ ׳•׳׳¢׳“׳›׳•׳ ׳™ ׳”׳§׳‘׳׳” ׳•׳”׳׳¡׳™׳¨׳”.</p>
+        ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
         <div class="trust-band">
           <div class="trust-point"><span class="muted">׳׳¦׳‘ ׳¢׳¨׳™׳›׳”</span><strong>${payload.seller_actions.edit_locked ? "׳ ׳¢׳•׳ ׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳" : "׳¢׳“׳™׳™׳ ׳‘׳˜׳™׳•׳˜׳”"}</strong></div>
           <div class="trust-point"><span class="muted">׳“׳£ ׳¦׳™׳‘׳•׳¨׳™</span><strong>${payload.seller_actions.can_publish ? "׳׳•׳›׳ ׳׳₪׳¨׳¡׳•׳" : "׳›׳‘׳¨ ׳₪׳•׳¨׳¡׳ ׳׳• ׳ ׳¡׳’׳¨"}</strong></div>
@@ -3173,8 +3269,8 @@ function renderSellerDealPage() {
         <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
         <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">׳ת׳מ׳ו׳ ׳ת ׳ה׳§׳¦׳‘ ׳מ׳ו׳ ׳ה׳ק׳י׳ב׳ו׳׳× ׳ה׳כ׳ו׳ל׳׳ת</span></div>
         <div class="actions">
-          ${payload.seller_actions.can_publish ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}"><button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button></form>` : ""}
-          <button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}">צור עסקה דומה</button>
+          ${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}"><button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button></form>` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
+          <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
         </div>
         <div class="info-strip">
@@ -3475,6 +3571,7 @@ function renderAdminPage() {
   const systemStatus = state.adminSystemStatusPayload?.system_status;
   const notificationStatus = state.adminNotificationsStatusPayload?.notifications;
   const invoiceStatus = state.adminInvoiceStatusPayload?.invoice_documents;
+  const sellerRisk = state.adminSellerRiskPayload;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("מרכז התפעול לא זמין", "לא הצלחנו לטעון עכשיו את מרכז התפעול.");
   const urgencyCards = buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus);
@@ -3519,6 +3616,7 @@ function renderAdminPage() {
       <h2>עסקאות חריגות</h2>
       ${payload.exceptional_deals.length ? `<div class="card-list">${payload.exceptional_deals.map(renderAdminDealCard).join("")}</div>` : `<div class="empty-surface"><p class="muted">לא חזרו עסקאות חריגות כרגע.</p></div>`}
     </section>
+    ${renderSellerEnforcementAdminSection(sellerRisk)}
     <section class="card section stack">
       <h2>תוצאות חיפוש תפעולי</h2>
       <p class="small muted">החיפוש מפנה ישירות לפרופיל העסקה, המשתתף או המשתמש. אין כאן dump טכני של מזהים בלי מסלול המשך.</p>
@@ -3670,6 +3768,96 @@ function renderAdminLaunchConsole(launch) {
       </article>
     `).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין עסקאות להצגה בקונסולת ההשקה.</p></div>`}
   `;
+}
+
+function renderSellerEnforcementAdminSection(payload) {
+  const sellers = Array.isArray(payload?.sellers) ? payload.sellers : [];
+  return `
+    <section class="card section stack seller-enforcement-section">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <span class="eyebrow">Seller Enforcement</span>
+          <h2>Seller Enforcement</h2>
+          <p class="muted section-intro">התערבות נקודתית בלבד: מוכרים מתחילים Active, ורק חריגים מופיעים כאן.</p>
+        </div>
+        <span class="stat-pill"><span>חריגים</span><strong>${num(sellers.length)}</strong></span>
+      </div>
+      ${sellers.length ? `<div class="card-list">${sellers.map(renderSellerEnforcementCard).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין כרגע מוכרים בסטטוס אכיפה חריג.</p></div>`}
+    </section>
+  `;
+}
+
+function renderSellerEnforcementCard(seller) {
+  const actions = [
+    ["UnderReview", "סמן לבדיקה"],
+    ["Restricted", "הגבל פרסום"],
+    ["Suspended", "השעה"],
+    ["Banned", "חסום"],
+    ["Active", "החזר לפעיל"]
+  ].filter(([status]) => status !== seller.seller_status);
+  return `
+    <article class="summary-item stack">
+      <div class="actions spread">
+        <div>
+          <span class="muted">מוכר</span>
+          <h3>${esc(seller.seller_name || seller.display_name || seller.seller_id)}</h3>
+          <p class="small muted mono">${esc(seller.seller_id)}</p>
+        </div>
+        <span class="badge ${sellerStatusTone(seller.seller_status)}">${esc(seller.seller_status || "Active")}</span>
+      </div>
+      <div class="summary-grid">
+        <div class="summary-item"><span class="muted">סיבה</span><strong>${esc(seller.seller_status_reason || "לא נרשמה")}</strong></div>
+        <div class="summary-item"><span class="muted">עודכן לאחרונה</span><strong>${dt(seller.seller_status_updated_at || seller.updated_at)}</strong></div>
+        <div class="summary-item"><span class="muted">עודכן על ידי</span><strong>${esc(seller.seller_status_updated_by || "admin")}</strong></div>
+      </div>
+      <div class="actions">
+        ${actions.map(([status, label]) => `
+          <button class="secondary" type="button"
+            data-inline-action="admin-seller-status-open"
+            data-seller-id="${esc(seller.seller_id)}"
+            data-seller-name="${esc(seller.seller_name || seller.display_name || seller.seller_id)}"
+            data-status="${esc(status)}"
+            data-label="${esc(label)}">${esc(label)}</button>
+        `).join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderSellerStatusModal() {
+  const modal = state.adminSellerStatusModal;
+  if (!modal) return "";
+  const reason = state.adminSellerStatusReason || "";
+  return `
+    <section class="modal-backdrop" role="presentation">
+      <div class="modal-panel stack" role="dialog" aria-modal="true" aria-labelledby="sellerStatusModalTitle">
+        <div class="section-header">
+          <div class="stack compact compact-section">
+            <span class="eyebrow">Seller Enforcement</span>
+            <h2 id="sellerStatusModalTitle">${esc(modal.label || "שינוי סטטוס מוכר")}</h2>
+            <p class="muted section-intro">${esc(modal.sellerName || modal.sellerId)} · ${esc(modal.status)}</p>
+          </div>
+          <button class="secondary" type="button" data-inline-action="admin-seller-status-close" aria-label="סגירת חלון שינוי סטטוס">סגירה</button>
+        </div>
+        <form class="stack" data-action="admin-seller-status" data-seller-id="${esc(modal.sellerId)}" data-status="${esc(modal.status)}">
+          <div class="field">
+            <label for="adminSellerStatusReason">סיבה חובה</label>
+            <textarea id="adminSellerStatusReason" name="adminSellerStatusReason" rows="4" required>${esc(reason)}</textarea>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit" data-admin-seller-status-submit ${reason.trim() ? "" : "disabled"}>שמירת שינוי סטטוס</button>
+            <button class="secondary" type="button" data-inline-action="admin-seller-status-close">ביטול</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function sellerStatusTone(status) {
+  if (status === "Active") return "success";
+  if (status === "UnderReview") return "warning";
+  return "danger";
 }
 
 function renderAdminDealCard(item) {

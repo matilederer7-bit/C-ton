@@ -63,6 +63,16 @@ import {
   normalizeSellerAnalyticsPeriod,
   SELLER_ANALYTICS_PERIODS
 } from "./seller_analytics.js";
+import {
+  SELLER_STATUSES,
+  isSellerStatus,
+  normalizeSellerStatus,
+  sellerStatusBlocksAction,
+  sellerStatusErrorCode,
+  sellerStatusHebrewNotice,
+  sellerStatusMessage,
+  type SellerAction
+} from "./seller_enforcement.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -145,7 +155,9 @@ async function ensureSellerAccount(c: any, sellerId: string, displayName?: strin
            ELSE siton.seller_accounts.display_name
          END,
          updated_at = now()
-     RETURNING seller_id, display_name, login_email, auth_enabled, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at, last_login_at`,
+     RETURNING seller_id, display_name, login_email, auth_enabled, verification_status, settlement_status,
+               payout_method, payout_details_masked, admin_note, seller_status, seller_status_reason,
+               seller_status_updated_at, seller_status_updated_by, created_at, updated_at, last_login_at`,
     [normalizedSellerId, normalizedDisplayName, Boolean(displayName && String(displayName).trim())]
   );
   return result.rows[0] as any;
@@ -170,6 +182,11 @@ function mapSellerProfile(profile: any, contextSource: string) {
     payout_method: String(profile.payout_method || "bank_transfer"),
     payout_details_masked: String(profile.payout_details_masked || ""),
     admin_note: String(profile.admin_note || ""),
+    seller_status: normalizeSellerStatus(profile.seller_status),
+    seller_status_reason: String(profile.seller_status_reason || ""),
+    seller_status_updated_at: profile.seller_status_updated_at ? String(profile.seller_status_updated_at) : null,
+    seller_status_updated_by: profile.seller_status_updated_by ? String(profile.seller_status_updated_by) : null,
+    seller_enforcement_notice: sellerStatusHebrewNotice(profile.seller_status),
     created_at: String(profile.created_at || ""),
     updated_at: String(profile.updated_at || ""),
     last_login_at: profile.last_login_at ? String(profile.last_login_at) : null,
@@ -186,7 +203,8 @@ async function findSellerLoginAccount(c: any, identifier: string) {
   const result = await c.query(
     `SELECT seller_id, display_name, login_email, auth_secret_hash, auth_enabled,
             verification_status, settlement_status, payout_method, payout_details_masked,
-            admin_note, created_at, updated_at, last_login_at
+            admin_note, seller_status, seller_status_reason, seller_status_updated_at,
+            seller_status_updated_by, created_at, updated_at, last_login_at
      FROM siton.seller_accounts
      WHERE seller_id = $1
         OR ($2 <> '' AND lower(login_email) = $2)
@@ -247,6 +265,10 @@ async function readSellerSessionContext(req: any, c: any) {
             a.payout_method,
             a.payout_details_masked,
             a.admin_note,
+            COALESCE(a.seller_status, 'Active') AS seller_status,
+            a.seller_status_reason,
+            a.seller_status_updated_at,
+            a.seller_status_updated_by,
             a.created_at,
             a.updated_at,
             a.last_login_at
@@ -309,7 +331,9 @@ async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: b
   );
 
   const existing = await c.query(
-    `SELECT seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked, admin_note, created_at, updated_at
+    `SELECT seller_id, display_name, verification_status, settlement_status, payout_method, payout_details_masked,
+            admin_note, seller_status, seller_status_reason, seller_status_updated_at, seller_status_updated_by,
+            created_at, updated_at
      FROM siton.seller_accounts
      WHERE seller_id = $1
      LIMIT 1`,
@@ -331,6 +355,11 @@ async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: b
     payout_method: String(profile.payout_method || "bank_transfer"),
     payout_details_masked: String(profile.payout_details_masked || ""),
     admin_note: String(profile.admin_note || ""),
+    seller_status: normalizeSellerStatus(profile.seller_status),
+    seller_status_reason: String(profile.seller_status_reason || ""),
+    seller_status_updated_at: profile.seller_status_updated_at ? String(profile.seller_status_updated_at) : null,
+    seller_status_updated_by: profile.seller_status_updated_by ? String(profile.seller_status_updated_by) : null,
+    seller_enforcement_notice: sellerStatusHebrewNotice(profile.seller_status),
     created_at: String(profile.created_at || ""),
     updated_at: String(profile.updated_at || ""),
     is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
@@ -1264,6 +1293,11 @@ export function registerFrontendExperience(
             login_email: sellerContext.login_email ?? null,
             verification_status: sellerContext.verification_status,
             settlement_status: sellerContext.settlement_status,
+            seller_status: normalizeSellerStatus(sellerContext.seller_status),
+            seller_status_reason: sellerContext.seller_status_reason ?? "",
+            seller_status_updated_at: sellerContext.seller_status_updated_at ?? null,
+            seller_status_updated_by: sellerContext.seller_status_updated_by ?? null,
+            seller_enforcement_notice: sellerStatusHebrewNotice(sellerContext.seller_status),
             is_default_context: sellerContext.is_default_context,
             context_source: sellerContext.context_source,
             session_id: sellerContext.session_id ?? null,
@@ -1293,6 +1327,26 @@ export function registerFrontendExperience(
       error: "seller_context_switch_disabled",
       message: "manual seller context switching is disabled outside demo-preview"
     });
+  }
+
+  async function ensureSellerActionAllowed(c: any, sellerId: string, action: SellerAction, reply: FastifyReply) {
+    const result = await c.query(
+      `SELECT COALESCE(seller_status, 'Active') AS seller_status
+       FROM siton.seller_accounts
+       WHERE seller_id=$1
+       LIMIT 1`,
+      [sellerId]
+    );
+    const status = result.rowCount ? normalizeSellerStatus(result.rows[0].seller_status) : "Active";
+    if (!sellerStatusBlocksAction(status, action)) return true;
+    void reply.code(403).send({
+      ok: false,
+      error: sellerStatusErrorCode(status),
+      code: sellerStatusErrorCode(status),
+      seller_status: status,
+      message: sellerStatusMessage(status)
+    });
+    return false;
   }
 
   async function resolveOptionalSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
@@ -1732,7 +1786,8 @@ export function registerFrontendExperience(
       const result = await c.query(
         `SELECT seller_id, display_name, business_name, contact_name,
                 support_phone, support_email, business_description, business_identifier,
-                verification_status, created_at, updated_at
+                verification_status, seller_status, seller_status_reason, seller_status_updated_at,
+                seller_status_updated_by, created_at, updated_at
          FROM siton.seller_accounts WHERE seller_id = $1`,
         [sellerContext.seller_id]
       );
@@ -1752,6 +1807,11 @@ export function registerFrontendExperience(
           support_email: row?.support_email ?? null,
           business_description: row?.business_description ?? null,
           business_identifier: row?.business_identifier ?? null,
+          seller_status: normalizeSellerStatus(row?.seller_status),
+          seller_status_reason: row?.seller_status_reason ?? "",
+          seller_status_updated_at: row?.seller_status_updated_at ?? null,
+          seller_status_updated_by: row?.seller_status_updated_by ?? null,
+          seller_enforcement_notice: sellerStatusHebrewNotice(row?.seller_status),
           is_publish_ready: isProfileReady,
           created_at: row?.created_at ?? null,
           updated_at: row?.updated_at ?? null
@@ -1765,6 +1825,7 @@ export function registerFrontendExperience(
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      if (!(await ensureSellerActionAllowed(c, sellerContext.seller_id, "operate", reply))) return reply;
       const body = (req.body as any) || {};
 
       const businessName = String(body.business_name ?? "").trim();
@@ -1794,7 +1855,8 @@ export function registerFrontendExperience(
 
       const result = await c.query(
         `SELECT seller_id, display_name, business_name, contact_name,
-                support_phone, support_email, business_description, business_identifier, updated_at
+                support_phone, support_email, business_description, business_identifier,
+                seller_status, seller_status_reason, seller_status_updated_at, seller_status_updated_by, updated_at
          FROM siton.seller_accounts WHERE seller_id = $1`,
         [sellerContext.seller_id]
       );
@@ -1814,6 +1876,11 @@ export function registerFrontendExperience(
           support_email: row?.support_email ?? null,
           business_description: row?.business_description ?? null,
           business_identifier: row?.business_identifier ?? null,
+          seller_status: normalizeSellerStatus(row?.seller_status),
+          seller_status_reason: row?.seller_status_reason ?? "",
+          seller_status_updated_at: row?.seller_status_updated_at ?? null,
+          seller_status_updated_by: row?.seller_status_updated_by ?? null,
+          seller_enforcement_notice: sellerStatusHebrewNotice(row?.seller_status),
           is_publish_ready: isProfileReady,
           updated_at: row?.updated_at ?? null
         }
@@ -3852,6 +3919,144 @@ export function registerFrontendExperience(
             "trigger_reconcile_only_if_existing_job_route_is_used"
           ],
           sensitive_actions_require_reason_and_audit: true
+        }
+      };
+    });
+  });
+
+  app.get("/api/admin/sellers/risk", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    const rawStatuses = String(req.query?.seller_status || req.query?.status || "").trim();
+    const requestedStatuses = rawStatuses
+      ? rawStatuses.split(",").map((item) => item.trim()).filter(Boolean)
+      : ["UnderReview", "Restricted", "Suspended", "Banned"];
+    const statuses = requestedStatuses.filter(isSellerStatus);
+    if (statuses.length !== requestedStatuses.length || !statuses.length) {
+      return reply.code(400).send({
+        ok: false,
+        error: "invalid_seller_status",
+        allowed_statuses: SELLER_STATUSES
+      });
+    }
+
+    return deps.withTx(async (c) => {
+      const sellers = await c.query(
+        `SELECT seller_id, COALESCE(business_name, display_name, seller_id) AS seller_name,
+                display_name, business_name, support_email, support_phone,
+                COALESCE(seller_status, 'Active') AS seller_status,
+                seller_status_reason, seller_status_updated_at, seller_status_updated_by,
+                created_at, updated_at
+         FROM siton.seller_accounts
+         WHERE COALESCE(seller_status, 'Active') = ANY($1::text[])
+         ORDER BY
+           CASE COALESCE(seller_status, 'Active')
+             WHEN 'Banned' THEN 0
+             WHEN 'Suspended' THEN 1
+             WHEN 'Restricted' THEN 2
+             WHEN 'UnderReview' THEN 3
+             ELSE 4
+           END,
+           seller_status_updated_at DESC NULLS LAST,
+           updated_at DESC NULLS LAST
+         LIMIT 200`,
+        [statuses]
+      );
+      return {
+        ok: true,
+        filters: { seller_status: statuses },
+        allowed_statuses: SELLER_STATUSES,
+        sellers: sellers.rows.map((row: any) => ({
+          seller_id: String(row.seller_id),
+          seller_name: String(row.seller_name || row.seller_id),
+          display_name: String(row.display_name || row.seller_id),
+          business_name: row.business_name ? String(row.business_name) : null,
+          support_email: row.support_email ? String(row.support_email) : null,
+          support_phone: row.support_phone ? String(row.support_phone) : null,
+          seller_status: normalizeSellerStatus(row.seller_status),
+          seller_status_reason: String(row.seller_status_reason || ""),
+          seller_status_updated_at: row.seller_status_updated_at ? String(row.seller_status_updated_at) : null,
+          seller_status_updated_by: row.seller_status_updated_by ? String(row.seller_status_updated_by) : null,
+          created_at: row.created_at ? String(row.created_at) : null,
+          updated_at: row.updated_at ? String(row.updated_at) : null
+        }))
+      };
+    });
+  });
+
+  app.post("/api/admin/sellers/:sellerId/status", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    const sellerId = normalizeSellerId(req.params?.sellerId);
+    const nextStatus = String(req.body?.status || "").trim();
+    const reason = String(req.body?.reason || "").trim();
+    const adminActor = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+
+    if (!isSellerStatus(nextStatus)) {
+      return reply.code(400).send({
+        ok: false,
+        error: "invalid_seller_status",
+        allowed_statuses: SELLER_STATUSES
+      });
+    }
+    if (!reason) {
+      return reply.code(400).send({
+        ok: false,
+        error: "seller_status_reason_required",
+        message: "reason is required for every seller status change"
+      });
+    }
+
+    return deps.withTx(async (c) => {
+      const current = await c.query(
+        `SELECT seller_id, display_name, COALESCE(seller_status, 'Active') AS seller_status
+         FROM siton.seller_accounts
+         WHERE seller_id=$1
+         LIMIT 1`,
+        [sellerId]
+      );
+      if (!current.rowCount) {
+        return reply.code(404).send({ ok: false, error: "seller_not_found" });
+      }
+      const previousStatus = normalizeSellerStatus(current.rows[0].seller_status);
+      const updated = await c.query(
+        `UPDATE siton.seller_accounts
+         SET seller_status=$2,
+             seller_status_reason=$3,
+             seller_status_updated_at=now(),
+             seller_status_updated_by=$4,
+             updated_at=now()
+         WHERE seller_id=$1
+         RETURNING seller_id, display_name, seller_status, seller_status_reason,
+                   seller_status_updated_at, seller_status_updated_by, updated_at`,
+        [sellerId, nextStatus, reason, adminActor]
+      );
+      await c.query(
+        `INSERT INTO siton.seller_security_events
+           (seller_id, event_type, from_status, to_status, actor_ref, reason, request_id, idempotency_key, payload)
+         VALUES ($1, 'seller.status.update', $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          sellerId,
+          previousStatus,
+          nextStatus,
+          adminActor,
+          reason,
+          String(req.headers?.["x-request-id"] || `seller-status:${sellerId}:${Date.now()}`),
+          String(req.headers?.["idempotency-key"] || `seller-status:${sellerId}:${nextStatus}:${Date.now()}`),
+          JSON.stringify({ reason, admin_actor: adminActor })
+        ]
+      );
+      const row = updated.rows[0] as any;
+      return {
+        ok: true,
+        seller: {
+          seller_id: String(row.seller_id),
+          display_name: String(row.display_name || row.seller_id),
+          seller_status: normalizeSellerStatus(row.seller_status),
+          seller_status_reason: String(row.seller_status_reason || ""),
+          seller_status_updated_at: row.seller_status_updated_at ? String(row.seller_status_updated_at) : null,
+          seller_status_updated_by: row.seller_status_updated_by ? String(row.seller_status_updated_by) : null,
+          updated_at: row.updated_at ? String(row.updated_at) : null
         }
       };
     });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 process.env.ADMIN_API_KEY = "mission-control-admin-key";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
-process.env.PORT = "3484";
+process.env.PORT = String(process.env.PORT || "3484");
 
 const { app } = await import("../src/app.js");
 

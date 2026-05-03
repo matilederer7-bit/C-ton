@@ -2,6 +2,22 @@
 
 ---
 
+Current update: 2026-05-03 (Seller Enforcement & Risk Controls)
+
+- Completed: added seller enforcement status model with closed statuses `Active`, `UnderReview`, `Restricted`, `Suspended`, `Banned`. New and existing sellers default/backfill to `Active`; no KYC gate, no approval queue, and no default publish block was added.
+- Completed DB/runtime ensure: added idempotent migration `033_seller_enforcement_status.sql`, runtime table alignment in `ensureRemainingProductSurfaceTables`, `seller_status` fields on `siton.seller_accounts`, CHECK constraint, status index, and `siton.seller_security_events` for sensitive admin status changes.
+- Completed guards: central seller-status enforcement blocks `Restricted` only from publish, blocks `Suspended` and `Banned` from new seller actions, and keeps `Active` / `UnderReview` publish-capable. Error codes: `SELLER_RESTRICTED`, `SELLER_SUSPENDED`, `SELLER_BANNED`.
+- Completed admin API/UI: added `GET /api/admin/sellers/risk` and `POST /api/admin/sellers/:sellerId/status`; status changes require `reason`, reject unknown statuses, and write `seller_security_events`. Admin UI now includes a `Seller Enforcement` section with status, reason, update metadata, actions to review/restrict/suspend/ban/reactivate, and a reason-required modal whose submit button stays disabled until a reason is entered.
+- Completed seller UI: `Active` and `UnderReview` remain quiet; `Restricted`, `Suspended`, and `Banned` show scoped Hebrew notices. Suspended/Banned sellers cannot open new deal UI; Restricted publish controls are disabled where visible.
+- Boundaries kept: no Seller KYC gate, no new-seller approval queue, no default publish block for normal sellers, no marketplace/search/catalog, no affiliate/distributor commission or payout, no fee model change, no deal/buyer/money state machine change, no manual capture/refund/void/payout, and no logistics management.
+- Checked: `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json`; `node .tmp_test_dist/tests/seller_enforcement_validation.js`; `node .tmp_test_dist/tests/seller_auth_session_validation.js`; `PORT=3497 node .tmp_test_dist/tests/seller_profile_readiness_validation.js`; `node .tmp_test_dist/tests/admin_forbidden_money_actions_validation.js`; `node .tmp_test_dist/tests/admin_no_public_search_regression_validation.js`; `node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js`; `node --check frontend/app.js`; `node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js`; `PORT=3498 node .tmp_test_dist/tests/admin_support_product_surfaces_validation.js`; `PORT=3499 node .tmp_test_dist/tests/admin_dashboard_data_validation.js`; `PORT=3500 node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js`; `PORT=3501 node .tmp_test_dist/tests/admin_affiliate_no_commission_regression_validation.js`.
+- Test notes: one parallel frontend validation attempt hit a DB DDL deadlock while multiple app-importing tests were running concurrently; rerun sequentially passed. `seller_profile_readiness_validation` needed a free `PORT` because an older local Node process held `3425`. `admin_affiliate_no_commission_regression_validation` now respects external `PORT` like the other app-importing validations.
+- Open: role-based admin permissions can be improved later; current implementation enforces required reason and records the security event.
+- Progress: `Seller Enforcement & Risk Controls Phase 1: 100%`.
+- Next step: optional browser smoke of the new admin enforcement section with real operator credentials before staging rollout.
+
+---
+
 Current update: 2026-05-03 (Buyer Recovery Flow — Phase 1)
 
 - Completed scope: buyer-facing recovery surface that lets a participant in `ChargeFailedCompletion` / `ChargeFailedRecovery` re-trigger the existing recovery worker pipeline from the tracking screen, without changing quantity, cancelling, or capturing raw card data.
