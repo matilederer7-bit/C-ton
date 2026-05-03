@@ -40,7 +40,10 @@ const state = {
   adminNotificationsStatusPayload: null,
   adminInvoiceStatusPayload: null,
   adminSellerRiskPayload: null,
+  adminSupportCasesPayload: null,
+  adminDemoReadinessPayload: null,
   adminSellerStatusModal: null,
+  adminCaseCloseModal: null,
   adminSellerStatusReason: "",
   adminDealPayload: null,
   adminDealOpsPayload: null,
@@ -50,6 +53,9 @@ const state = {
   banner: null,
   form: {
     adminQuery: "",
+    adminCaseStatus: "",
+    adminCaseType: "",
+    adminCasePriority: "",
     qty: "1",
     deliveryOptionId: "",
     phone: "",
@@ -174,6 +180,7 @@ const ROUTE_LABELS = {
   "seller-deal": "ניהול עסקה",
   affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
+  "admin-support": "Support Hub",
   "admin-deal": "פרופיל עסקה לתפעול",
   "admin-participant": "פרופיל משתתף לתפעול",
   "admin-user": "פרופיל משתמש לתפעול",
@@ -196,7 +203,7 @@ const PAYMENT_READINESS = {
   integrationNote: "מסלול ההצטרפות נשאר זהה: אישור מסגרת עכשיו, חיוב רק אם העסקה נסגרת בהצלחה."
 };
 
-const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-deal", "admin-user"]);
+const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-support", "admin-deal", "admin-user"]);
 const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "contact"]);
 
 const DEAL_TONE = {
@@ -241,8 +248,12 @@ document.addEventListener("click", (event) => {
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
     if (action === "seller-analytics-refresh") void loadSellerAnalytics(state.sellerAnalyticsPeriod || "all");
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
+    if (action === "refresh-demo-readiness") { void loadDemoReadiness(); return; }
     if (action === "admin-seller-status-open") openSellerStatusModal(actionTarget);
     if (action === "admin-seller-status-close") closeSellerStatusModal();
+    if (action === "admin-case-escalate") void escalateSupportCase(actionTarget.dataset.caseId);
+    if (action === "admin-case-close-open") openCaseCloseModal(actionTarget);
+    if (action === "admin-case-close-close") closeCaseCloseModal();
     if (action === "clear-product-image") clearSellerProductImage();
   }
 });
@@ -255,6 +266,10 @@ document.addEventListener("input", (event) => {
     const submit = document.querySelector("[data-admin-seller-status-submit]");
     if (submit instanceof HTMLButtonElement) submit.disabled = !target.value.trim();
     return;
+  }
+  if (target.name === "adminCaseCloseResolution") {
+    const submit = document.querySelector("[data-admin-case-close-submit]");
+    if (submit instanceof HTMLButtonElement) submit.disabled = !target.value.trim();
   }
   if (!(target.name in state.form)) return;
   state.form[target.name] = target.value;
@@ -358,6 +373,7 @@ function parseRoute(path) {
     ["seller-deal", /^\/app\/seller\/deals\/([^/]+)$/],
     ["affiliate", /^\/app\/affiliate$/],
     ["admin", /^\/app\/admin$/],
+    ["admin-support", /^\/app\/admin\/support$/],
     ["admin-deal", /^\/app\/admin\/deals\/([^/]+)$/],
     ["admin-participant", /^\/app\/admin\/participants\/([^/]+)$/],
     ["admin-user", /^\/app\/admin\/users\/([^/]+)$/]
@@ -366,7 +382,7 @@ function parseRoute(path) {
   for (const [name, regex] of patterns) {
     const match = normalized.match(regex);
     if (!match) continue;
-    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "terms" || name === "privacy" || name === "refunds" || name === "contact") {
+    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "terms" || name === "privacy" || name === "refunds" || name === "contact") {
       return { name };
     }
     return name === "tracking" || name === "recovery"
@@ -408,6 +424,7 @@ async function runRoute() {
   if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
   if (route.name === "affiliate") return loadAffiliate();
   if (route.name === "admin") return loadAdmin(state.form.adminQuery);
+  if (route.name === "admin-support") return loadAdminSupportCases();
   if (route.name === "admin-deal") return loadAdminDeal(route.dealId);
   if (route.name === "admin-participant") return loadAdminParticipant(route.participantId);
   if (route.name === "admin-user") return loadAdminUser(route.buyerId);
@@ -679,14 +696,16 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
-    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk] = await Promise.all([
+    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases, demoReadiness] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status"),
-      api("/api/admin/sellers/risk")
+      api("/api/admin/sellers/risk"),
+      api("/api/admin/support-cases"),
+      api("/api/admin/demo-readiness").catch(() => null)
     ]);
     state.adminPayload = overview;
     state.adminMissionPayload = missionControl;
@@ -695,8 +714,27 @@ async function loadAdmin(query = "") {
     state.adminNotificationsStatusPayload = notificationsStatus;
     state.adminInvoiceStatusPayload = invoiceStatus;
     state.adminSellerRiskPayload = sellerRisk;
+    state.adminSupportCasesPayload = supportCases;
+    state.adminDemoReadinessPayload = demoReadiness;
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™.");
 }
+
+async function loadAdminSupportCases() {
+  const params = new URLSearchParams();
+  if (state.form.adminCaseStatus) params.set("status", state.form.adminCaseStatus);
+  if (state.form.adminCaseType) params.set("case_type", state.form.adminCaseType);
+  if (state.form.adminCasePriority) params.set("priority", state.form.adminCasePriority);
+  await busy("טוען את Support Hub...", async () => {
+    state.adminSupportCasesPayload = await api(`/api/admin/support-cases${params.toString() ? `?${params.toString()}` : ""}`);
+  }, "לא הצלחנו לטעון את תיקי התפעול.");
+}
+
+async function loadDemoReadiness() {
+  await busy("בודק מוכנות דמו...", async () => {
+    state.adminDemoReadinessPayload = await api("/api/admin/demo-readiness").catch(() => null);
+  }, "לא הצלחנו לבדוק מוכנות דמו.");
+}
+
 
 async function loadAdminDeal(dealId) {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™...", async () => {
@@ -751,6 +789,7 @@ function currentPollKey() {
   if (route.name === "seller-new") return `seller-new:${currentSellerContext().seller_id}`;
   if (route.name === "seller-deal") return `seller-deal:${route.dealId}:${currentSellerContext().seller_id}`;
   if (route.name === "admin") return "admin";
+  if (route.name === "admin-support") return "admin-support";
   return "";
 }
 
@@ -775,6 +814,10 @@ async function runRouteSilently() {
   }
   if (route.name === "admin") {
     await refreshAdminSilently();
+    return;
+  }
+  if (route.name === "admin-support") {
+    await loadAdminSupportCases();
   }
 }
 
@@ -851,14 +894,15 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk] = await Promise.all([
+    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api("/api/admin/launch-console"),
       api("/api/admin/system-status"),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status"),
-      api("/api/admin/sellers/risk")
+      api("/api/admin/sellers/risk"),
+      api("/api/admin/support-cases")
     ]);
     const totalsChanged = !state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals);
     const systemChanged =
@@ -881,7 +925,10 @@ async function refreshAdminSilently() {
     const sellerRiskChanged =
       !state.adminSellerRiskPayload ||
       JSON.stringify(state.adminSellerRiskPayload.sellers) !== JSON.stringify(sellerRisk.sellers);
-    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged || sellerRiskChanged) {
+    const supportCasesChanged =
+      !state.adminSupportCasesPayload ||
+      JSON.stringify(state.adminSupportCasesPayload.summary) !== JSON.stringify(supportCases.summary);
+    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged || sellerRiskChanged || supportCasesChanged) {
       state.adminPayload = next;
       state.adminMissionPayload = missionControl;
       state.adminLaunchPayload = launchConsole;
@@ -889,6 +936,7 @@ async function refreshAdminSilently() {
       state.adminNotificationsStatusPayload = notificationsStatus;
       state.adminInvoiceStatusPayload = invoiceStatus;
       state.adminSellerRiskPayload = sellerRisk;
+      state.adminSupportCasesPayload = supportCases;
       render();
     }
   } catch {}
@@ -910,6 +958,10 @@ async function submitAction(action, form) {
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
   if (action === "admin-seller-status") return changeSellerStatus(form);
+  if (action === "admin-case-filter") return loadAdminSupportCases();
+  if (action === "admin-case-create") return createSupportCase(form);
+  if (action === "admin-case-update") return updateSupportCase(form);
+  if (action === "admin-case-close") return closeSupportCase(form);
   if (action === "admin-support-create") return createSupportTicket(form);
   if (action === "admin-support-update") return updateSupportTicket(form);
 }
@@ -1470,6 +1522,115 @@ async function updateSupportTicket(form) {
   }, "לא הצלחנו לעדכן את פנית התמיכה.");
 }
 
+async function createSupportCase(form) {
+  const formData = new FormData(form);
+  const caseType = String(formData.get("caseType") || "").trim();
+  const priority = String(formData.get("casePriority") || "Normal").trim();
+  const subject = String(formData.get("caseSubject") || "").trim();
+  const description = String(formData.get("caseDescription") || "").trim();
+  const dealId = String(formData.get("caseDealId") || "").trim();
+  const sellerId = String(formData.get("caseSellerId") || "").trim();
+  const participantId = String(formData.get("caseParticipantId") || "").trim();
+  if (!caseType || !priority || !subject) return fail("חסרים פרטי תיק", "יש לבחור סוג, עדיפות וכותרת לפני פתיחת תיק.");
+  await busy("פותח תיק תפעולי...", async () => {
+    await api("/api/admin/support-cases", {
+      method: "POST",
+      headers: {
+        "x-request-id": `admin-case-create:${Date.now()}`,
+        "idempotency-key": `admin-case-create:${Date.now()}`
+      },
+      body: json({
+        case_type: caseType,
+        priority,
+        subject,
+        description,
+        deal_id: dealId || undefined,
+        seller_id: sellerId || undefined,
+        participant_id: participantId || undefined
+      })
+    });
+    state.banner = {
+      tone: "success",
+      title: "התיק נפתח",
+      message: "התיק נשמר ב-Support Hub ונרשם לאירועי בקרה."
+    };
+    await loadAdminSupportCases();
+  }, "לא הצלחנו לפתוח תיק תפעולי.");
+}
+
+async function updateSupportCase(form) {
+  const caseId = form.dataset.caseId || "";
+  if (!caseId) return;
+  const formData = new FormData(form);
+  await busy("מעדכן תיק תפעולי...", async () => {
+    await api(`/api/admin/support-cases/${encodeURIComponent(caseId)}`, {
+      method: "PATCH",
+      headers: {
+        "x-request-id": `admin-case-update:${caseId}:${Date.now()}`,
+        "idempotency-key": `admin-case-update:${caseId}:${Date.now()}`
+      },
+      body: json({
+        status: String(formData.get("caseStatus") || ""),
+        priority: String(formData.get("casePriority") || ""),
+        assigned_to: String(formData.get("caseAssignedTo") || ""),
+        resolution_note: String(formData.get("caseResolutionNote") || ""),
+        reason: String(formData.get("caseReason") || formData.get("caseResolutionNote") || "")
+      })
+    });
+    state.banner = { tone: "success", title: "התיק עודכן", message: "השינוי נשמר ונרשם לביקורת." };
+    await loadAdminSupportCases();
+  }, "עדכון התיק נכשל.");
+}
+
+async function escalateSupportCase(caseId) {
+  if (!caseId) return;
+  await busy("מסלים תיק...", async () => {
+    await api(`/api/admin/support-cases/${encodeURIComponent(caseId)}/escalate`, {
+      method: "POST",
+      headers: {
+        "x-request-id": `admin-case-escalate:${caseId}:${Date.now()}`,
+        "idempotency-key": `admin-case-escalate:${caseId}:${Date.now()}`
+      },
+      body: json({ reason: "Escalated from Support Hub" })
+    });
+    state.banner = { tone: "warning", title: "התיק הוסלם", message: "העדיפות עודכנה ל-Urgent ללא שינוי סטייט או פעולה כספית." };
+    await loadAdminSupportCases();
+  }, "לא הצלחנו להסלים את התיק.");
+}
+
+function openCaseCloseModal(target) {
+  state.adminCaseCloseModal = {
+    caseId: target.dataset.caseId || "",
+    subject: target.dataset.subject || ""
+  };
+  render();
+}
+
+function closeCaseCloseModal() {
+  state.adminCaseCloseModal = null;
+  render();
+}
+
+async function closeSupportCase(form) {
+  const caseId = form.dataset.caseId || state.adminCaseCloseModal?.caseId || "";
+  const formData = new FormData(form);
+  const resolution = String(formData.get("adminCaseCloseResolution") || "").trim();
+  if (!caseId || !resolution) return fail("חסרה החלטת סגירה", "אי אפשר לסגור תיק בלי resolution_note.");
+  await busy("סוגר תיק תפעולי...", async () => {
+    await api(`/api/admin/support-cases/${encodeURIComponent(caseId)}`, {
+      method: "PATCH",
+      headers: {
+        "x-request-id": `admin-case-close:${caseId}:${Date.now()}`,
+        "idempotency-key": `admin-case-close:${caseId}:${Date.now()}`
+      },
+      body: json({ status: "Closed", resolution_note: resolution, reason: resolution })
+    });
+    state.adminCaseCloseModal = null;
+    state.banner = { tone: "success", title: "התיק נסגר", message: "הסגירה נשמרה עם הערת החלטה ונרשמה לביקורת." };
+    await loadAdminSupportCases();
+  }, "סגירת התיק נכשלה.");
+}
+
 function restartFlow() {
   const dealId = state.route.dealId || state.trackingPayload?.tracking?.deal_id || state.dealPayload?.deal?.deal_id;
   if (!dealId) return navigate("/app");
@@ -1552,6 +1713,7 @@ function render() {
         ${renderCurrentRoute()}
       </main>
       ${renderSellerStatusModal()}
+      ${renderCaseCloseModal()}
       ${renderPublicTrustFooter()}
     </div>
   `;
@@ -1582,6 +1744,7 @@ function getRouteSummary() {
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
     affiliate: "מרכז הפצה וייחוס עם מצב אימות וביצועי קמפיינים. המפיץ הוא ערוץ מדידה והפצה בלבד — ללא עמלה או תשלום.",
     admin: "מרכז תפעול, חיפוש, חריגות, תורי אימות ותמונת מערכת.",
+    "admin-support": "Support Hub לטיפול בתיקי קצה בלבד, בלי אישור מראש ובלי פעולות כסף.",
     "admin-deal": "פרופיל עסקה לתפעול, בקרה ותמיכה.",
     "admin-participant": "פרופיל משתתף לתפעול, תמיכה ואבחון חוצה מערכות.",
     "admin-user": "פרופיל משתמש לתפעול, תמיכה וחקירה.",
@@ -1622,6 +1785,7 @@ function renderCurrentRoute() {
   if (route.name === "seller-deal") return renderSellerDealPage();
   if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
+  if (route.name === "admin-support") return renderAdminSupportPage();
   if (route.name === "admin-deal") return renderAdminDealPage();
   if (route.name === "admin-participant") return renderAdminParticipantPage();
   if (route.name === "admin-user") return renderAdminUserPage();
@@ -3613,10 +3777,21 @@ function renderAdminPage() {
       </div>
     </section>
     <section class="card section stack">
+      <div class="section-header">
+        <div>
+          <h2>Support Cases</h2>
+          <p class="small muted">תיקי קצה תפעוליים בלבד. המשטח לא משנה סטייטים ולא מפעיל כסף.</p>
+        </div>
+        <a class="button primary" href="/app/admin/support" data-nav="/app/admin/support">פתיחת Support Hub</a>
+      </div>
+      ${renderSupportCasesSummary(state.adminSupportCasesPayload)}
+    </section>
+    <section class="card section stack">
       <h2>עסקאות חריגות</h2>
       ${payload.exceptional_deals.length ? `<div class="card-list">${payload.exceptional_deals.map(renderAdminDealCard).join("")}</div>` : `<div class="empty-surface"><p class="muted">לא חזרו עסקאות חריגות כרגע.</p></div>`}
     </section>
     ${renderSellerEnforcementAdminSection(sellerRisk)}
+    ${renderDemoReadinessSection(state.adminDemoReadinessPayload)}
     <section class="card section stack">
       <h2>תוצאות חיפוש תפעולי</h2>
       <p class="small muted">החיפוש מפנה ישירות לפרופיל העסקה, המשתתף או המשתמש. אין כאן dump טכני של מזהים בלי מסלול המשך.</p>
@@ -3711,6 +3886,92 @@ function renderAdminPage() {
   `;
 }
 
+function renderDemoReadinessSection(dr) {
+  if (!dr) {
+    return `<section class="card section stack">
+      <div class="section-header">
+        <div><h2>מוכנות דמו</h2><p class="small muted">בדיקת מוכנות סביבת הדמו להצגה.</p></div>
+        <button class="secondary" data-action="refresh-demo-readiness">בדוק שוב</button>
+      </div>
+      <div class="empty-surface"><p class="muted">לא ניתן לבדוק מוכנות דמו כרגע. נסה שוב.</p></div>
+    </section>`;
+  }
+  const verdictLabel = dr.verdict === "ready" ? "מוכן" : dr.verdict === "warning" ? "אזהרה" : "חסום";
+  const verdictTone  = dr.verdict === "ready" ? "success" : dr.verdict === "warning" ? "warning" : "danger";
+  const blockers = dr.blockers || [];
+  const warnings = dr.warnings || [];
+  const env  = dr.environment || {};
+  const dep  = dr.deploy_freshness || {};
+  const db   = dr.database || {};
+  const prov = dr.providers || {};
+  const q    = dr.queues || {};
+  const demo = dr.demo_data || {};
+  const pc   = dr.product_contract || {};
+
+  function card(title, ok, evidenceLine, issues) {
+    const tone = ok ? "success" : "warning";
+    const issueHtml = issues && issues.length
+      ? `<ul class="small muted" style="margin:0;padding-right:1rem">${issues.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>`
+      : "";
+    return `<article class="summary-item stack">
+      <div class="actions spread">
+        <strong>${esc(title)}</strong>
+        <span class="badge ${tone}">${ok ? "תקין" : "דורש בדיקה"}</span>
+      </div>
+      <p class="small muted">${esc(evidenceLine)}</p>
+      ${issueHtml}
+    </article>`;
+  }
+
+  const deployOk = !dep.is_stale;
+  const deployEvidence = dep.evidence || (dep.runtime_commit_sha ? `commit: ${dep.runtime_commit_sha}` : "לא ידוע");
+  const deployIssues = blockers.filter((b) => b.includes("commit")).concat(warnings.filter((w) => w.includes("commit")));
+
+  const providerIssues = warnings.filter((w) => w.includes("provider") || w.includes("mock"));
+  const outboxOk = q.dlq_count === 0 && q.outbox_failed === 0;
+  const outboxEvidence = `ממתין: ${q.outbox_pending || 0} · נכשל: ${q.outbox_failed || 0} · DLQ: ${q.dlq_count || 0}`;
+  const outboxIssues = blockers.concat(warnings).filter((x) => x.includes("outbox") || x.includes("DLQ"));
+
+  const demoDataOk = demo.has_demo_seller && demo.has_public_deal;
+  const demoDataEvidence = [
+    demo.has_demo_seller ? "מוכר קיים" : "אין מוכר",
+    demo.has_public_deal ? "עסקה פומבית" : "אין עסקה פומבית",
+    demo.has_joinable_deal ? "עסקה פתוחה להצטרפות" : "אין עסקה לצירוף",
+    demo.has_completed_deal ? "עסקה הושלמה" : "אין עסקה שהושלמה"
+  ].join(" · ");
+  const demoDataIssues = warnings.filter((w) => w.includes("deal") || w.includes("seller"));
+
+  const contractOk = pc.platform_fee_8_percent && pc.link_only_no_marketplace;
+  const contractEvidence = `עמלה: ${pc.platform_fee_rate !== undefined ? (pc.platform_fee_rate * 100).toFixed(0) + "%" : "לא ידוע"} · קישור בלבד: כן · attribution בלבד: כן`;
+
+  return `<section class="card section stack">
+    <div class="section-header">
+      <div>
+        <h2>מוכנות דמו</h2>
+        <p class="small muted">בדיקת מוכנות כוללת לסביבת הדמו. לקריאה בלבד — לא מפעיל ספקים ולא משנה סטייטים.</p>
+      </div>
+      <button class="secondary" data-action="refresh-demo-readiness">בדוק שוב</button>
+    </div>
+    <div class="info-strip tone-${verdictTone}">
+      <strong>פסיקה: ${esc(verdictLabel)}</strong>
+      <p class="small">${blockers.length ? `${blockers.length} חסם/חסמים פעיל/ים.` : warnings.length ? `${warnings.length} אזהרה/ות.` : "הסביבה מוכנה להצגה."}</p>
+    </div>
+    <div class="summary-grid">
+      ${card("Deploy", deployOk, deployEvidence, deployIssues)}
+      ${card("מסד נתונים", db.ok, db.ok ? `טבלאות קריטיות נוכחות (${(dr.database.required_tables_present ? "כן" : "לא")})` : `בעיה: ${db.missing_tables?.join(", ") || "שגיאה"}`, blockers.filter((b) => b.includes("table") || b.includes("database")))}
+      ${card("תשלום", !prov.payment?.is_mock || env.demo_preview, `${esc(prov.payment?.provider || "לא ידוע")} · ${esc(prov.payment?.mode || "לא ידוע")}`, providerIssues.filter((w) => w.includes("payment")))}
+      ${card("חשבוניות", true, `${esc(prov.invoice?.provider || "לא ידוע")} · ${esc(prov.invoice?.mode || "לא ידוע")}`, [])}
+      ${card("Outbox", outboxOk, outboxEvidence, outboxIssues)}
+      ${card("נתוני דמו", demoDataOk, demoDataEvidence, demoDataIssues)}
+      ${card("חוזה מוצר", contractOk, contractEvidence, blockers.filter((b) => b.includes("fee")))}
+    </div>
+    ${blockers.length ? `<div class="card-list">${blockers.map((b) => `<div class="info-strip tone-danger"><strong>חסם:</strong> <span>${esc(b)}</span></div>`).join("")}</div>` : ""}
+    ${warnings.length ? `<div class="card-list">${warnings.map((w) => `<div class="info-strip tone-warning"><strong>אזהרה:</strong> <span>${esc(w)}</span></div>`).join("")}</div>` : ""}
+    <p class="small muted" style="text-align:left;direction:ltr">${esc(dr.checked_at || "")}</p>
+  </section>`;
+}
+
+
 function renderAdminLaunchConsole(launch) {
   if (!launch) {
     return `<h2>קונסולת השקה</h2><div class="empty-surface"><p class="muted">קונסולת ההשקה לא זמינה כרגע.</p></div>`;
@@ -3787,6 +4048,152 @@ function renderSellerEnforcementAdminSection(payload) {
   `;
 }
 
+function formatCaseStatus(value) {
+  return ({
+    Open: "פתוח",
+    NeedsSeller: "ממתין למוכר",
+    NeedsAdmin: "דורש אדמין",
+    WaitingExternal: "ממתין לגורם חיצוני",
+    Resolved: "נפתר",
+    Closed: "נסגר"
+  })[value] || value || "";
+}
+
+function formatCaseType(value) {
+  return ({
+    RefundRequest: "בקשת החזר",
+    DeliveryIssue: "בעיית אספקה",
+    SellerRisk: "סיכון מוכר",
+    BuyerComplaint: "תלונת קונה",
+    PaymentMismatch: "פער תשלום",
+    InvoiceIssue: "בעיית חשבונית",
+    ContentReport: "דיווח תוכן",
+    SystemException: "חריגת מערכת",
+    Other: "אחר"
+  })[value] || value || "";
+}
+
+function casePriorityTone(priority) {
+  if (priority === "Urgent") return "danger";
+  if (priority === "High") return "warning";
+  if (priority === "Low") return "info";
+  return "success";
+}
+
+function caseAge(createdAt) {
+  const ts = createdAt ? new Date(createdAt).getTime() : 0;
+  if (!ts) return "";
+  const hours = Math.max(0, Math.floor((Date.now() - ts) / 36e5));
+  if (hours < 1) return "פחות משעה";
+  if (hours < 24) return `${hours} שעות`;
+  return `${Math.floor(hours / 24)} ימים`;
+}
+
+function renderSupportCasesSummary(payload) {
+  const summary = payload?.summary || {};
+  return `
+    <div class="summary-grid">
+      <a class="summary-item" href="/app/admin/support" data-nav="/app/admin/support"><span class="muted">Open cases</span><strong>${num(summary.open_count || 0)}</strong></a>
+      <a class="summary-item" href="/app/admin/support" data-nav="/app/admin/support"><span class="muted">NeedsAdmin</span><strong>${num(summary.needs_admin_count || 0)}</strong></a>
+      <a class="summary-item" href="/app/admin/support" data-nav="/app/admin/support"><span class="muted">Urgent</span><strong>${num(summary.urgent_count || 0)}</strong></a>
+      <a class="summary-item" href="/app/admin/support" data-nav="/app/admin/support"><span class="muted">מעל 48 שעות</span><strong>${num(summary.older_than_48h_count || 0)}</strong></a>
+    </div>
+  `;
+}
+
+function renderSupportCasesTable(cases) {
+  if (!cases.length) return `<div class="empty-surface"><p class="muted">אין תיקי תפעול פתוחים לפי הסינון הנוכחי.</p></div>`;
+  return `
+    <div class="table-wrap">
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Priority</th><th>Status</th><th>Type</th><th>Subject</th><th>Deal</th><th>Seller</th><th>Age</th><th>Assigned To</th><th>Last Updated</th><th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${cases.map((item) => `
+            <tr>
+              <td><span class="badge ${casePriorityTone(item.priority)}">${esc(item.priority)}</span></td>
+              <td>${esc(formatCaseStatus(item.status))}</td>
+              <td>${esc(formatCaseType(item.case_type))}</td>
+              <td>${esc(item.subject || "")}${item.case_type === "RefundRequest" ? `<p class="small muted">בקשת החזר היא תיק תפעולי בלבד. ביצוע החזר מתבצע רק דרך מנגנון refund חוקי ומבוקר, אם קיים, ולא דרך מסך זה.</p>` : ""}</td>
+              <td>${item.deal_id ? `<a href="/app/admin/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(item.deal_id)}">${esc(item.deal_title || item.deal_id)}</a>` : ""}</td>
+              <td>${esc(item.seller_name || item.seller_id || "")}</td>
+              <td>${esc(caseAge(item.created_at))}</td>
+              <td>${esc(item.assigned_to || "")}</td>
+              <td>${dt(item.updated_at || item.created_at)}</td>
+              <td>
+                <form class="inline-fields" data-action="admin-case-update" data-case-id="${esc(item.case_id)}">
+                  <select name="caseStatus">${["Open","NeedsSeller","NeedsAdmin","WaitingExternal","Resolved","Closed"].map((status) => `<option value="${status}" ${item.status === status ? "selected" : ""}>${formatCaseStatus(status)}</option>`).join("")}</select>
+                  <select name="casePriority">${["Low","Normal","High","Urgent"].map((priority) => `<option value="${priority}" ${item.priority === priority ? "selected" : ""}>${priority}</option>`).join("")}</select>
+                  <input name="caseAssignedTo" type="text" value="${esc(item.assigned_to || "")}" placeholder="Assign" />
+                  <input name="caseReason" type="text" placeholder="Reason" />
+                  <button class="secondary" type="submit">Save</button>
+                </form>
+                <div class="actions">
+                  <button class="secondary" type="button" data-inline-action="admin-case-escalate" data-case-id="${esc(item.case_id)}">Escalate</button>
+                  <button class="secondary" type="button" data-inline-action="admin-case-close-open" data-case-id="${esc(item.case_id)}" data-subject="${esc(item.subject || "")}">Close</button>
+                </div>
+              </td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderAdminSupportPage() {
+  const payload = state.adminSupportCasesPayload;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("Support Hub לא זמין", "לא הצלחנו לטעון את תיקי התפעול.");
+  const allowed = payload.allowed || {};
+  return `
+    <section class="card section stack">
+      <div class="section-header">
+        <div class="stack compact compact-section">
+          <span class="eyebrow">Admin Support Hub</span>
+          <h1>Support Hub</h1>
+          <p class="muted section-intro">תיקי קצה בלבד: פניות, חריגים, תלונות, בקשות החזר ובעיות אמון. אין כאן approval gate, capture, refund, void או payout.</p>
+        </div>
+        <a class="button secondary" href="/app/admin" data-nav="/app/admin">חזרה לדשבורד</a>
+      </div>
+      ${renderSupportCasesSummary(payload)}
+    </section>
+    <section class="card section stack">
+      <h2>סינון</h2>
+      <form class="inline-fields" data-action="admin-case-filter">
+        <select name="adminCaseStatus"><option value="">סטטוסים פתוחים</option>${(allowed.statuses || []).map((status) => `<option value="${status}" ${state.form.adminCaseStatus === status ? "selected" : ""}>${formatCaseStatus(status)}</option>`).join("")}</select>
+        <select name="adminCaseType"><option value="">כל הסוגים</option>${(allowed.case_types || []).map((type) => `<option value="${type}" ${state.form.adminCaseType === type ? "selected" : ""}>${formatCaseType(type)}</option>`).join("")}</select>
+        <select name="adminCasePriority"><option value="">כל העדיפויות</option>${(allowed.priorities || []).map((priority) => `<option value="${priority}" ${state.form.adminCasePriority === priority ? "selected" : ""}>${priority}</option>`).join("")}</select>
+        <button class="secondary" type="submit">סינון</button>
+      </form>
+    </section>
+    <section class="card section stack">
+      <h2>פתח Case</h2>
+      <form class="stack" data-action="admin-case-create">
+        <div class="inline-fields">
+          <select name="caseType">${(allowed.case_types || []).map((type) => `<option value="${type}">${formatCaseType(type)}</option>`).join("")}</select>
+          <select name="casePriority">${(allowed.priorities || []).map((priority) => `<option value="${priority}" ${priority === "Normal" ? "selected" : ""}>${priority}</option>`).join("")}</select>
+        </div>
+        <input name="caseSubject" type="text" placeholder="Subject" />
+        <div class="inline-fields">
+          <input name="caseDealId" type="text" placeholder="Deal ID" data-dir="ltr" />
+          <input name="caseSellerId" type="text" placeholder="Seller ID" data-dir="ltr" />
+          <input name="caseParticipantId" type="text" placeholder="Participant ID" data-dir="ltr" />
+        </div>
+        <textarea name="caseDescription" rows="3" placeholder="Description"></textarea>
+        <button class="primary" type="submit">פתיחת Case</button>
+      </form>
+    </section>
+    <section class="card section stack">
+      <h2>Operational Cases</h2>
+      ${renderSupportCasesTable(payload.cases || [])}
+    </section>
+  `;
+}
+
 function renderSellerEnforcementCard(seller) {
   const actions = [
     ["UnderReview", "סמן לבדיקה"],
@@ -3847,6 +4254,35 @@ function renderSellerStatusModal() {
           <div class="actions">
             <button class="primary" type="submit" data-admin-seller-status-submit ${reason.trim() ? "" : "disabled"}>שמירת שינוי סטטוס</button>
             <button class="secondary" type="button" data-inline-action="admin-seller-status-close">ביטול</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function renderCaseCloseModal() {
+  const modal = state.adminCaseCloseModal;
+  if (!modal) return "";
+  return `
+    <section class="modal-backdrop" role="presentation">
+      <div class="modal-panel stack" role="dialog" aria-modal="true" aria-labelledby="caseCloseModalTitle">
+        <div class="section-header">
+          <div class="stack compact compact-section">
+            <span class="eyebrow">Support Hub</span>
+            <h2 id="caseCloseModalTitle">סגירת Case</h2>
+            <p class="muted section-intro">${esc(modal.subject || modal.caseId)}</p>
+          </div>
+          <button class="secondary" type="button" data-inline-action="admin-case-close-close">סגירה</button>
+        </div>
+        <form class="stack" data-action="admin-case-close" data-case-id="${esc(modal.caseId)}">
+          <div class="field">
+            <label for="adminCaseCloseResolution">resolution_note חובה</label>
+            <textarea id="adminCaseCloseResolution" name="adminCaseCloseResolution" rows="4" required></textarea>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit" data-admin-case-close-submit disabled>סגירת Case</button>
+            <button class="secondary" type="button" data-inline-action="admin-case-close-close">ביטול</button>
           </div>
         </form>
       </div>

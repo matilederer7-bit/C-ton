@@ -2,6 +2,26 @@
 
 ---
 
+Current update: 2026-05-03 (Demo Readiness Command Center)
+
+- Completed: added `GET /api/admin/demo-readiness` endpoint in `src/frontend_runtime.ts`. Returns a structured read-only verdict (`ready` | `warning` | `blocked`) covering deploy freshness, database table presence, outbox/DLQ status, provider config, demo data presence, and product contract constants. No state mutation, no provider activation, no money operations.
+- Completed deploy freshness: reads `RENDER_GIT_COMMIT` / `COMMIT_SHA` / `GIT_COMMIT` env vars; compares against optional `EXPECTED_COMMIT_SHA`; mismatch produces `blocked` + `is_stale=true`; missing expected SHA produces `warning` only; unknown runtime commit produces `warning`.
+- Completed DB checks (read-only): queries `information_schema` for `siton` schema and 10 critical tables (`deals`, `participants`, `outbox_events`, `outbox_dlq`, `idempotency_log`, `payment_attempts`, `webhook_events`, `seller_accounts`, `audit_log`, `notification_events`). Missing critical table produces `blocked`. Missing optional tables (`invoice_documents`, `seller_payout_batches`, `operational_cases`) produce `warning`. No migration or mutation.
+- Completed outbox/DLQ: pending/processing/failed counts + oldest-pending age; DLQ > 0 produces `blocked`; failed > 0 produces `warning`; pending older than 1 hour produces `warning`.
+- Completed providers: reads config from existing `getPaymentProviderSummary` / `getPayoutProviderSummary` / `invoiceSummary` / `notificationSummary` deps. No live calls.
+- Completed demo data: checks for seller accounts, non-draft deals, joinable deals, completed deals, and failed/cancelled deals via read-only COUNT queries. Missing items produce `warning`.
+- Completed product contract: static checks using `SITON_PLATFORM_FEE_RATE === 0.08`. Returns `link_only_no_marketplace`, `distributor_attribution_only`, `platform_fee_8_percent`, `buyer_repeat_purchase_allowed`.
+- Completed frontend admin UI (`frontend/app.js`): added `adminDemoReadinessPayload` to state; extended `loadAdmin` to fetch demo-readiness in parallel; added `loadDemoReadiness()` for standalone refresh; added `renderDemoReadinessSection()` with Hebrew RTL cards (Deploy, DB, Payment, Invoice, Outbox, Demo Data, Product Contract) and a verdict banner (ready/warning/blocked in Hebrew); added `refresh-demo-readiness` action; section appears in `renderAdminPage()` after seller enforcement section. Gracefully shows fallback if endpoint fails.
+- Completed tests: `tests/demo_readiness_validation.ts` (18 cases) covering: route registered, no marketplace route, platform fee 0.08, no money mutation in endpoint, no state transition, frontend renders section, refresh action present, buyer repeat purchase contract intact, admin key required, structured JSON returned, missing expected SHA -> warning not blocked, matching SHA -> not stale, mismatched SHA -> blocked+stale, providers returned without live activation, fee 8%, buyer repeat purchase allowed, no marketplace in contract, no state mutation across calls.
+- Added `test:demo-readiness` script to `package.json` and appended to main `test` suite.
+- Boundaries kept: no Seller KYC, no capture/refund/void/payout, no marketplace/search/catalog, no fee model change, no state machine change, no DB mutation, no provider activation.
+- Checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json --noEmit`; `npx tsc -p tsconfig.test.json`; `node --check frontend/app.js`; `PORT=3511 node .tmp_test_dist/tests/demo_readiness_validation.js` (18 PASS, 0 FAIL, EXIT 0).
+- Open: no open items. Set `EXPECTED_COMMIT_SHA` in Render env to activate deploy-staleness detection on real deploys.
+- Progress: `Demo Readiness Command Center: 100%`.
+- Next step: set `EXPECTED_COMMIT_SHA` in Render env when ready for production rollout.
+
+---
+
 Current update: 2026-05-03 (Seller Enforcement & Risk Controls)
 
 - Completed: added seller enforcement status model with closed statuses `Active`, `UnderReview`, `Restricted`, `Suspended`, `Banned`. New and existing sellers default/backfill to `Active`; no KYC gate, no approval queue, and no default publish block was added.

@@ -29,8 +29,21 @@ import {
   roundMoney,
   summarizeMoney
 } from "./product_surface_support.js";
+import {
+  OPEN_OPERATIONAL_CASE_STATUSES,
+  OPERATIONAL_CASE_PRIORITIES,
+  OPERATIONAL_CASE_STATUSES,
+  OPERATIONAL_CASE_TYPES,
+  ensureAutomaticOperationalCases,
+  ensureOperationalCaseTables,
+  isOperationalCasePriority,
+  isOperationalCaseStatus,
+  isOperationalCaseType,
+  operationalCaseEventAction,
+  recordOperationalCaseEvent
+} from "./operational_cases.js";
 import { getDealImagePublicUrl } from "./product_image_storage.js";
-import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
+import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
@@ -4603,6 +4616,10 @@ export function registerFrontendExperience(
                   channel, status, last_error, sent_at, created_at
            FROM siton.notification_events
            WHERE participant_id = $1
+           UNION ALL
+           SELECT event_key, notification_event_type, channel, status, last_error, sent_at, created_at
+           FROM siton.notifications
+           WHERE template_params->>'participant_id' = $1::text
            ORDER BY created_at DESC
            LIMIT 20`,
           [participantId]
@@ -5006,6 +5023,276 @@ export function registerFrontendExperience(
         throw err;
       }
       return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+    });
+  });
+
+  app.get("/api/admin/support-cases", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAutomaticOperationalCases(deps.withTx);
+    const filters = {
+      status: String(req.query?.status || "").trim(),
+      case_type: String(req.query?.case_type || "").trim(),
+      priority: String(req.query?.priority || "").trim(),
+      deal_id: String(req.query?.deal_id || "").trim(),
+      seller_id: String(req.query?.seller_id || "").trim(),
+      participant_id: String(req.query?.participant_id || "").trim()
+    };
+    if (filters.status && !isOperationalCaseStatus(filters.status)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_status", allowed_statuses: OPERATIONAL_CASE_STATUSES });
+    }
+    if (filters.case_type && !isOperationalCaseType(filters.case_type)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_type", allowed_case_types: OPERATIONAL_CASE_TYPES });
+    }
+    if (filters.priority && !isOperationalCasePriority(filters.priority)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_priority", allowed_priorities: OPERATIONAL_CASE_PRIORITIES });
+    }
+    if (filters.deal_id) requireUuid(filters.deal_id, "deal_id");
+    if (filters.participant_id) requireUuid(filters.participant_id, "participant_id");
+
+    return deps.withTx(async (c) => {
+      const where: string[] = [];
+      const values: any[] = [];
+      const add = (clause: string, value: any) => {
+        values.push(value);
+        where.push(clause.replace("?", `$${values.length}`));
+      };
+      if (filters.status) add("oc.status = ?", filters.status);
+      else {
+        values.push([...OPEN_OPERATIONAL_CASE_STATUSES]);
+        where.push(`oc.status = ANY($${values.length}::text[])`);
+      }
+      if (filters.case_type) add("oc.case_type = ?", filters.case_type);
+      if (filters.priority) add("oc.priority = ?", filters.priority);
+      if (filters.deal_id) add("oc.deal_id = ?::uuid", filters.deal_id);
+      if (filters.seller_id) add("oc.seller_id = ?", filters.seller_id);
+      if (filters.participant_id) add("oc.participant_id = ?::uuid", filters.participant_id);
+
+      const cases = await c.query(
+        `SELECT oc.case_id::text, oc.case_type, oc.status, oc.priority, oc.source,
+                oc.deal_id::text, oc.seller_id, oc.participant_id::text, oc.buyer_ref,
+                oc.opened_by, oc.assigned_to, oc.subject, oc.description, oc.resolution_note,
+                oc.created_at, oc.updated_at, oc.closed_at,
+                d.title AS deal_title,
+                COALESCE(sa.business_name, sa.display_name) AS seller_name
+         FROM siton.operational_cases oc
+         LEFT JOIN siton.deals d ON d.deal_id = oc.deal_id
+         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = oc.seller_id
+         ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY
+           CASE oc.priority WHEN 'Urgent' THEN 0 WHEN 'High' THEN 1 WHEN 'Normal' THEN 2 ELSE 3 END,
+           oc.created_at ASC
+         LIMIT 200`,
+        values
+      );
+      const counts = await c.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal'))::int AS open_count,
+           COUNT(*) FILTER (WHERE status='NeedsAdmin')::int AS needs_admin_count,
+           COUNT(*) FILTER (WHERE priority='Urgent' AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal'))::int AS urgent_count,
+           COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND created_at < now() - interval '48 hours')::int AS older_than_48h_count
+         FROM siton.operational_cases`
+      );
+      return {
+        ok: true,
+        filters: {
+          ...filters,
+          status: filters.status || OPEN_OPERATIONAL_CASE_STATUSES
+        },
+        allowed: {
+          case_types: OPERATIONAL_CASE_TYPES,
+          statuses: OPERATIONAL_CASE_STATUSES,
+          priorities: OPERATIONAL_CASE_PRIORITIES
+        },
+        summary: counts.rows[0] || {},
+        cases: cases.rows
+      };
+    });
+  });
+
+  app.post("/api/admin/support-cases", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureOperationalCaseTables(deps.withTx);
+    const body = req.body || {};
+    const caseType = String(body.case_type || "").trim();
+    const priority = String(body.priority || "").trim();
+    const source = String(body.source || "Admin").trim();
+    const subject = String(body.subject || "").trim();
+    const description = String(body.description || "").trim();
+    const dealId = String(body.deal_id || "").trim() || null;
+    const sellerId = String(body.seller_id || "").trim() || null;
+    const participantId = String(body.participant_id || "").trim() || null;
+    const buyerRef = String(body.buyer_ref || "").trim() || null;
+    const openedBy = String(req.headers?.["x-admin-user"] || body.opened_by || "admin").trim().slice(0, 120) || "admin";
+    if (!isOperationalCaseType(caseType)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_type", allowed_case_types: OPERATIONAL_CASE_TYPES });
+    }
+    if (!isOperationalCasePriority(priority)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_priority", allowed_priorities: OPERATIONAL_CASE_PRIORITIES });
+    }
+    if (!["Admin", "Buyer", "Seller", "System"].includes(source)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_source" });
+    }
+    if (!subject) {
+      return reply.code(400).send({ ok: false, error: "case_subject_required" });
+    }
+    if (dealId) requireUuid(dealId, "deal_id");
+    if (participantId) requireUuid(participantId, "participant_id");
+    if (!dealId && !sellerId && !participantId && description.length < 20) {
+      return reply.code(400).send({ ok: false, error: "case_reference_or_detailed_description_required" });
+    }
+
+    return deps.withTx(async (c) => {
+      const inserted = await c.query(
+        `INSERT INTO siton.operational_cases
+           (case_type, status, priority, source, deal_id, seller_id, participant_id, buyer_ref,
+            opened_by, subject, description)
+         VALUES ($1,'Open',$2,$3,$4,$5,$6,$7,$8,$9,$10)
+         RETURNING *`,
+        [caseType, priority, source, dealId, sellerId, participantId, buyerRef, openedBy, subject, description || null]
+      );
+      const row = inserted.rows[0];
+      await recordOperationalCaseEvent(c, {
+        caseId: String(row.case_id),
+        eventType: "case.create",
+        actorRef: openedBy,
+        requestId: String(req.headers?.["x-request-id"] || ""),
+        idempotencyKey: String(req.headers?.["idempotency-key"] || ""),
+        payload: { case_type: caseType, source }
+      });
+      if (caseType === "RefundRequest") {
+        await recordOperationalCaseEvent(c, {
+          caseId: String(row.case_id),
+          eventType: "case.refund_request_marked",
+          actorRef: openedBy,
+          reason: "Refund request recorded as an operational case only",
+          payload: { no_refund_executed_in_request_thread: true }
+        });
+      }
+      return reply.code(201).send({ ok: true, case: row });
+    });
+  });
+
+  app.patch("/api/admin/support-cases/:caseId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureOperationalCaseTables(deps.withTx);
+    const caseId = String(req.params.caseId || "").trim();
+    requireUuid(caseId, "case_id");
+    const body = req.body || {};
+    const hasStatus = Object.prototype.hasOwnProperty.call(body, "status");
+    const hasPriority = Object.prototype.hasOwnProperty.call(body, "priority");
+    const hasAssignedTo = Object.prototype.hasOwnProperty.call(body, "assigned_to");
+    const hasResolutionNote = Object.prototype.hasOwnProperty.call(body, "resolution_note");
+    const status = hasStatus ? String(body.status || "").trim() : null;
+    const priority = hasPriority ? String(body.priority || "").trim() : null;
+    const assignedTo = hasAssignedTo ? String(body.assigned_to || "").trim() : null;
+    const resolutionNote = hasResolutionNote ? String(body.resolution_note || "").trim() : null;
+    const reason = String(body.reason || body.resolution_note || "").trim();
+    const actorRef = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+    if (hasStatus && !isOperationalCaseStatus(status)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_status", allowed_statuses: OPERATIONAL_CASE_STATUSES });
+    }
+    if (hasPriority && !isOperationalCasePriority(priority)) {
+      return reply.code(400).send({ ok: false, error: "invalid_case_priority", allowed_priorities: OPERATIONAL_CASE_PRIORITIES });
+    }
+
+    return deps.withTx(async (c) => {
+      const current = await c.query(`SELECT * FROM siton.operational_cases WHERE case_id=$1 FOR UPDATE`, [caseId]);
+      if (!current.rowCount) return reply.code(404).send({ ok: false, error: "support_case_not_found" });
+      const before = current.rows[0];
+      const nextStatus = hasStatus ? status : String(before.status);
+      const nextPriority = hasPriority ? priority : String(before.priority);
+      const nextResolution = hasResolutionNote ? resolutionNote : String(before.resolution_note || "");
+      if (["Closed", "Resolved"].includes(String(nextStatus)) && !String(nextResolution || "").trim()) {
+        return reply.code(400).send({ ok: false, error: "resolution_note_required_to_close" });
+      }
+      if (String(before.priority) === "Urgent" && nextPriority !== "Urgent" && !reason) {
+        return reply.code(400).send({ ok: false, error: "priority_downgrade_reason_required" });
+      }
+
+      const updated = await c.query(
+        `UPDATE siton.operational_cases
+         SET status=$2,
+             priority=$3,
+             assigned_to=$4,
+             resolution_note=$5,
+             updated_at=now(),
+             closed_at=CASE WHEN $2 IN ('Closed','Resolved') THEN COALESCE(closed_at, now()) ELSE NULL END
+         WHERE case_id=$1
+         RETURNING *`,
+        [
+          caseId,
+          nextStatus,
+          nextPriority,
+          hasAssignedTo ? assignedTo || null : before.assigned_to || null,
+          String(nextResolution || "") || null
+        ]
+      );
+      const after = updated.rows[0];
+      if (hasStatus && String(before.status) !== String(after.status)) {
+        await recordOperationalCaseEvent(c, {
+          caseId,
+          eventType: ["Closed", "Resolved"].includes(String(after.status)) ? "case.close" : "case.update_status",
+          actorRef,
+          reason,
+          fromStatus: String(before.status),
+          toStatus: String(after.status),
+          requestId: String(req.headers?.["x-request-id"] || ""),
+          idempotencyKey: String(req.headers?.["idempotency-key"] || "")
+        });
+      }
+      if (hasPriority && String(before.priority) !== String(after.priority)) {
+        await recordOperationalCaseEvent(c, {
+          caseId,
+          eventType: String(after.priority) === "Urgent" ? "case.escalate" : operationalCaseEventAction("update_status"),
+          actorRef,
+          reason,
+          fromPriority: String(before.priority),
+          toPriority: String(after.priority)
+        });
+      }
+      if (hasAssignedTo && String(before.assigned_to || "") !== String(after.assigned_to || "")) {
+        await recordOperationalCaseEvent(c, {
+          caseId,
+          eventType: "case.assign",
+          actorRef,
+          reason,
+          payload: { assigned_to: after.assigned_to || null }
+        });
+      }
+      return { ok: true, case: after };
+    });
+  });
+
+  app.post("/api/admin/support-cases/:caseId/escalate", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureOperationalCaseTables(deps.withTx);
+    const caseId = String(req.params.caseId || "").trim();
+    requireUuid(caseId, "case_id");
+    const actorRef = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+    const reason = String(req.body?.reason || "Escalated by admin").trim();
+    return deps.withTx(async (c) => {
+      const current = await c.query(`SELECT * FROM siton.operational_cases WHERE case_id=$1 FOR UPDATE`, [caseId]);
+      if (!current.rowCount) return reply.code(404).send({ ok: false, error: "support_case_not_found" });
+      const before = current.rows[0];
+      const updated = await c.query(
+        `UPDATE siton.operational_cases
+         SET priority='Urgent', updated_at=now()
+         WHERE case_id=$1
+         RETURNING *`,
+        [caseId]
+      );
+      await recordOperationalCaseEvent(c, {
+        caseId,
+        eventType: "case.escalate",
+        actorRef,
+        reason,
+        fromPriority: String(before.priority),
+        toPriority: "Urgent",
+        requestId: String(req.headers?.["x-request-id"] || ""),
+        idempotencyKey: String(req.headers?.["idempotency-key"] || ""),
+        payload: { no_state_machine_change: true }
+      });
+      return { ok: true, case: updated.rows[0] };
     });
   });
 
@@ -5760,6 +6047,231 @@ export function registerFrontendExperience(
     }
     if (!result.ok) return reply.code(result.statusCode).send(result);
     return reply.code(200).send(result);
+  });
+
+
+  // ── Demo Readiness Command Center ───────────────────────────────────────
+  // Read-only. Returns a structured verdict on whether the demo environment is
+  // genuinely ready for presentation and future real-money integration.
+  // Never mutates state, never triggers providers.
+  const _demoReadinessStartedAt = new Date().toISOString();
+  app.get("/api/admin/demo-readiness", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+
+    const runtimeCommit =
+      (process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || process.env.GIT_COMMIT || "").trim() || "unknown";
+    const expectedCommit = (process.env.EXPECTED_COMMIT_SHA || "").trim();
+
+    const blockers: string[] = [];
+    const warnings: string[] = [];
+
+    // Deploy freshness
+    let isStale = false;
+    let deployFreshnessEvidence = "";
+    if (expectedCommit) {
+      isStale = runtimeCommit !== "unknown" && runtimeCommit !== expectedCommit;
+      if (isStale) {
+        blockers.push("runtime commit does not match expected commit");
+        deployFreshnessEvidence = "runtime=" + runtimeCommit + " expected=" + expectedCommit;
+      } else if (runtimeCommit === "unknown") {
+        warnings.push("runtime commit SHA is unknown");
+        deployFreshnessEvidence = "commit SHA not available in environment";
+      } else {
+        deployFreshnessEvidence = "commit " + runtimeCommit + " matches expected";
+      }
+    } else {
+      warnings.push("expected commit is not configured");
+      deployFreshnessEvidence = "EXPECTED_COMMIT_SHA not set";
+      if (runtimeCommit === "unknown") warnings.push("runtime commit SHA is unknown");
+    }
+
+    // DB + outbox + demo-data (read-only)
+    const CRITICAL_TABLES = [
+      "deals", "participants", "outbox_events", "outbox_dlq",
+      "idempotency_log", "payment_attempts", "webhook_events",
+      "seller_accounts", "audit_log", "notification_events"
+    ];
+    const OPTIONAL_TABLES = ["invoice_documents", "seller_payout_batches", "operational_cases"];
+
+    let dbOk = false;
+    let schemaReady = false;
+    let migrationsVisible = false;
+    let requiredTablesPresent = false;
+    const missingTables: string[] = [];
+    let outboxPending = 0, outboxProcessing = 0, outboxFailed = 0, dlqCount = 0;
+    let oldestPendingAgeSeconds: number | null = null;
+    let hasDemoSeller = false, hasPublicDeal = false, hasJoinableDeal = false;
+    let hasCompletedDeal = false, hasFailedDeal = false;
+
+    try {
+      await deps.withTx(async (c: any) => {
+        const schemaRes = await c.query(
+          "SELECT schema_name FROM information_schema.schemata WHERE schema_name = 'siton'"
+        );
+        schemaReady = schemaRes.rows.length > 0;
+
+        if (schemaReady) {
+          const tableRes = await c.query(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'siton'"
+          );
+          const existingTables = new Set(tableRes.rows.map((r: any) => String(r.table_name)));
+          migrationsVisible = existingTables.has("deals");
+
+          for (const t of CRITICAL_TABLES) {
+            if (!existingTables.has(t)) missingTables.push(t);
+          }
+          requiredTablesPresent = missingTables.length === 0;
+          if (!requiredTablesPresent) {
+            blockers.push("critical tables missing: " + missingTables.join(", "));
+          }
+          for (const t of OPTIONAL_TABLES) {
+            if (!existingTables.has(t)) warnings.push("optional table missing: " + t);
+          }
+
+          const [outboxRow, dlqRow, demoRow] = await Promise.all([
+            c.query(
+              "SELECT " +
+              "COUNT(*) FILTER (WHERE status='pending')    AS pending, " +
+              "COUNT(*) FILTER (WHERE status='processing') AS processing, " +
+              "COUNT(*) FILTER (WHERE status='failed')     AS failed, " +
+              "EXTRACT(EPOCH FROM (now() - MIN(available_at) FILTER (WHERE status='pending'))) AS oldest_pending_age_s " +
+              "FROM siton.outbox_events"
+            ),
+            c.query("SELECT COUNT(*) AS dlq_count FROM siton.outbox_dlq"),
+            c.query(
+              "SELECT " +
+              "(SELECT COUNT(*) FROM siton.seller_accounts)::int AS seller_count, " +
+              "(SELECT COUNT(*) FROM siton.deals WHERE state <> 'Draft')::int AS public_deal_count, " +
+              "(SELECT COUNT(*) FROM siton.deals WHERE state IN ('PendingTarget','TargetReached'))::int AS joinable_count, " +
+              "(SELECT COUNT(*) FROM siton.deals WHERE state = 'Completed')::int AS completed_count, " +
+              "(SELECT COUNT(*) FROM siton.deals WHERE state IN ('Failed','Cancelled'))::int AS failed_count"
+            )
+          ]);
+
+          const o = outboxRow.rows[0];
+          outboxPending    = Number(o.pending    ?? 0);
+          outboxProcessing = Number(o.processing ?? 0);
+          outboxFailed     = Number(o.failed     ?? 0);
+          dlqCount         = Number(dlqRow.rows[0].dlq_count ?? 0);
+          oldestPendingAgeSeconds = o.oldest_pending_age_s != null
+            ? Number(Number(o.oldest_pending_age_s).toFixed(1)) : null;
+
+          const dm = demoRow.rows[0];
+          hasDemoSeller    = Number(dm.seller_count)      > 0;
+          hasPublicDeal    = Number(dm.public_deal_count) > 0;
+          hasJoinableDeal  = Number(dm.joinable_count)    > 0;
+          hasCompletedDeal = Number(dm.completed_count)   > 0;
+          hasFailedDeal    = Number(dm.failed_count)      > 0;
+        }
+        dbOk = schemaReady && requiredTablesPresent;
+      });
+    } catch (err: any) {
+      blockers.push("database check failed: " + (err?.message ?? String(err)));
+    }
+
+    if (!dbOk && !blockers.some((b) => b.startsWith("database check failed") || b.startsWith("critical tables"))) {
+      blockers.push("database is not ready");
+    }
+    if (dbOk) {
+      if (outboxFailed > 0)
+        warnings.push("outbox has " + outboxFailed + " failed event(s)");
+      if (dlqCount > 0)
+        blockers.push("outbox DLQ has " + dlqCount + " unresolved event(s)");
+      if (oldestPendingAgeSeconds != null && oldestPendingAgeSeconds > 3600)
+        warnings.push("oldest pending outbox event is " + Math.round(oldestPendingAgeSeconds / 60) + "m old");
+    }
+
+    if (!hasDemoSeller)    warnings.push("no demo seller account found");
+    if (!hasPublicDeal)    warnings.push("no public (non-draft) deal found");
+    if (!hasJoinableDeal)  warnings.push("no joinable deal in PendingTarget or TargetReached");
+    if (!hasCompletedDeal) warnings.push("no completed deal found (demo end-state missing)");
+    if (!hasFailedDeal)    warnings.push("no failed/cancelled deal found (failure-state demo missing)");
+
+    // Providers — read config only, never activate
+    const paymentSummary = getPaymentProviderSummary(deps.paymentProvider);
+    const payoutSummary  = getPayoutProviderSummary(payoutProvider);
+
+    // Product contract — static constants
+    const feeRateOk = SITON_PLATFORM_FEE_RATE === 0.08;
+    if (!feeRateOk) blockers.push("platform fee rate is " + SITON_PLATFORM_FEE_RATE + ", expected 0.08");
+
+    const verdict: "ready" | "warning" | "blocked" =
+      blockers.length > 0 ? "blocked" : warnings.length > 0 ? "warning" : "ready";
+
+    return {
+      ok: verdict !== "blocked",
+      verdict,
+      environment: {
+        node_env:           process.env.NODE_ENV || "development",
+        app_env:            process.env.APP_ENV || process.env.APP_DEPLOYMENT_MODE || "demo-preview",
+        demo_preview:       deps.isDemoPreview,
+        commit_sha:         runtimeCommit,
+        build_time:         null,
+        runtime_started_at: _demoReadinessStartedAt
+      },
+      deploy_freshness: {
+        expected_commit_sha: expectedCommit || null,
+        runtime_commit_sha:  runtimeCommit,
+        is_stale:            isStale,
+        evidence:            deployFreshnessEvidence
+      },
+      database: {
+        ok:                      dbOk,
+        schema_ready:            schemaReady,
+        migrations_visible:      migrationsVisible,
+        required_tables_present: requiredTablesPresent,
+        missing_tables:          missingTables
+      },
+      providers: {
+        payment: {
+          provider:   paymentSummary.provider,
+          mode:       paymentSummary.mode,
+          configured: paymentSummary.configured,
+          is_mock:    paymentSummary.mock_backed
+        },
+        invoice: {
+          provider:          deps.invoiceSummary?.provider ?? "internal-invoice-ledger",
+          mode:              deps.invoiceSummary?.mode ?? "internal",
+          configured:        deps.invoiceSummary?.configured ?? false,
+          external_issuance: deps.invoiceSummary?.external_issuance ?? false
+        },
+        payout: {
+          provider:          payoutSummary.provider,
+          mode:              payoutSummary.mode,
+          configured:        payoutSummary.configured,
+          external_transfer: payoutSummary.external_transfer_executed
+        },
+        notifications: {
+          provider:          deps.notificationSummary?.provider ?? "log-only",
+          mode:              deps.notificationSummary?.mode ?? "log-only",
+          external_delivery: deps.notificationSummary?.external_delivery ?? false
+        }
+      },
+      queues: {
+        outbox_pending:             outboxPending,
+        outbox_processing:          outboxProcessing,
+        outbox_failed:              outboxFailed,
+        dlq_count:                  dlqCount,
+        oldest_pending_age_seconds: oldestPendingAgeSeconds
+      },
+      demo_data: {
+        has_demo_seller:    hasDemoSeller,
+        has_public_deal:    hasPublicDeal,
+        has_joinable_deal:  hasJoinableDeal,
+        has_completed_deal: hasCompletedDeal,
+        has_failed_deal:    hasFailedDeal
+      },
+      product_contract: {
+        link_only_no_marketplace:      true,
+        distributor_attribution_only:  true,
+        platform_fee_8_percent:        feeRateOk,
+        platform_fee_rate:             SITON_PLATFORM_FEE_RATE,
+        buyer_repeat_purchase_allowed: true
+      },
+      blockers,
+      warnings,
+      checked_at: new Date().toISOString()
+    };
   });
 
   app.get("/app/assets/styles.css", async (_req, reply) =>
