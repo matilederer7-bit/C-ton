@@ -2,6 +2,21 @@
 
 ---
 
+Current update: 2026-05-03 (Deal Chat — Phase 1)
+
+- Completed: added public per-deal chat scoped only to a direct deal link. Buyers can read recent visible messages and post a short message with a display name on the public deal page.
+- Completed DB: added idempotent migration `032_deal_chat_messages.sql`, runtime table ensure, and legacy bootstrap coverage for `deal_chat_messages` with `visible/hidden` status, 500-character body limit, 80-character display-name limit, and deal-scoped indexes.
+- Completed API: `GET /api/deals/:dealId/chat` returns visible messages only; `POST /api/deals/:dealId/chat` validates deal existence, state, display name/body length, sanitizes active HTML characters, and creates a visible message. Existing sensitive-path rate limiting covers the `/api/deals/...` chat mutation path.
+- Completed UI: public deal page now shows "שאלות ועדכונים מהמשתתפים", empty state "עדיין אין הודעות בעסקה הזאת", display-name/body fields, send button, post-send refresh, and closed-chat copy after non-writable deal states.
+- Guardrails kept: no WebSocket, no inbox, no private messages, no global chat, no marketplace/search/catalog, no payout/commission/distributor money surface, no payment/inventory/attribution/state mutation from chat.
+- Checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node .tmp_test_dist/tests/deal_chat_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test`.
+- Note: an initial parallel validation run hit `EADDRINUSE` on port 3000 because two test processes imported the listening app simultaneously; reran the affected validation sequentially and it passed.
+- Open: Phase 2 can add moderation/reporting/admin hide UI or real-time refresh if product chooses it later.
+- Progress: `Deal Chat Phase 1: 100%`; `Deal Chat overall: 25%`.
+- Next step: decide whether Phase 2 should prioritize lightweight moderation/reporting or real-time delivery.
+
+---
+
 Current update: 2026-04-30 (Demo bootstrap schema hardening)
 
 - Decision: the old Render preview is frozen as a staging target for now; no further Render redeploy/debug work is planned.

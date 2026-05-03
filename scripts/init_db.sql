@@ -145,6 +145,16 @@ CREATE TABLE IF NOT EXISTS deal_images (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS deal_chat_messages (
+  message_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  deal_id UUID NOT NULL REFERENCES deals(deal_id) ON DELETE CASCADE,
+  participant_id UUID NULL REFERENCES participants(participant_id) ON DELETE SET NULL,
+  display_name TEXT NOT NULL CHECK (char_length(display_name) BETWEEN 1 AND 80),
+  body TEXT NOT NULL CHECK (char_length(body) BETWEEN 1 AND 500),
+  status TEXT NOT NULL DEFAULT 'visible' CHECK (status IN ('visible','hidden')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE IF NOT EXISTS audit_log (
   audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   entity_type TEXT NOT NULL CHECK (entity_type IN ('deal','participant')),
@@ -470,6 +480,8 @@ CREATE TABLE IF NOT EXISTS support_tickets (
 
 CREATE INDEX IF NOT EXISTS idx_participants_deal ON participants(deal_id);
 CREATE INDEX IF NOT EXISTS idx_participants_delivery_option ON participants(delivery_option_id);
+CREATE INDEX IF NOT EXISTS idx_deal_chat_messages_deal_created ON deal_chat_messages(deal_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_deal_chat_messages_deal_status_created ON deal_chat_messages(deal_id, status, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_deal_delivery_options_deal ON deal_delivery_options(deal_id, sort_order, created_at);
 CREATE INDEX IF NOT EXISTS idx_deal_images_deal_order ON deal_images(deal_id, sort_order, created_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_deal_images_one_primary ON deal_images(deal_id) WHERE is_primary = true;

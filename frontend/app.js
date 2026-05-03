@@ -17,6 +17,8 @@ const state = {
   sellerAuth: null,
   sellerProfile: null,
   dealPayload: null,
+  dealChatPayload: null,
+  dealChatStatus: "idle",
   trackingPayload: null,
   sellerPayload: null,
   sellerAnalyticsPayload: null,
@@ -73,7 +75,9 @@ const state = {
     sellerSupportPhone: "",
     sellerSupportEmail: "",
     sellerBizDesc: "",
-    sellerBizId: ""
+    sellerBizId: "",
+    chatDisplayName: "",
+    chatBody: ""
   }
 };
 
@@ -432,8 +436,21 @@ async function ensureDeal(dealId) {
 async function loadDeal(dealId) {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳”...", async () => {
     state.dealPayload = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
+    await loadDealChat(dealId, false);
     state.form.qty = String(getFlow(dealId)?.qty || 1);
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳”׳¢׳¡׳§׳”.");
+}
+
+async function loadDealChat(dealId, shouldRender = true) {
+  state.dealChatStatus = "loading";
+  try {
+    state.dealChatPayload = await api(`/api/deals/${encodeURIComponent(dealId)}/chat`);
+    state.dealChatStatus = "ready";
+  } catch (err) {
+    state.dealChatPayload = { ok: false, messages: [], generated_at: new Date().toISOString() };
+    state.dealChatStatus = Number(err?.status || 0) === 403 ? "closed" : "error";
+  }
+  if (shouldRender) render();
 }
 
 async function loadTracking(participantId) {
@@ -528,6 +545,30 @@ async function saveSellerProfile(form) {
       state.banner = { tone: "success", title: "נשמר", message: "פרטי המוכר עודכנו בהצלחה." };
     }
   }, "לא הצלחנו לשמור את פרטי המוכר.");
+}
+
+async function sendDealChatMessage(form) {
+  const dealId = state.dealPayload?.deal?.deal_id || state.route.dealId;
+  if (!dealId) return;
+  const formData = new FormData(form);
+  const displayName = String(formData.get("chatDisplayName") || state.form.chatDisplayName || "").trim();
+  const body = String(formData.get("chatBody") || state.form.chatBody || "").trim();
+  if (!body) return fail("אי אפשר לשלוח הודעה ריקה", "כתבו שאלה או עדכון קצר לפני השליחה.");
+  if (body.length > 500) return fail("ההודעה ארוכה מדי", "אפשר לשלוח עד 500 תווים בהודעה אחת.");
+
+  await busy("שולח הודעה...", async () => {
+    await api(`/api/deals/${encodeURIComponent(dealId)}/chat`, {
+      method: "POST",
+      body: json({
+        display_name: displayName || "משתתף",
+        body
+      })
+    });
+    state.form.chatDisplayName = displayName || "משתתף";
+    state.form.chatBody = "";
+    await loadDealChat(dealId, false);
+    state.banner = { tone: "success", title: "ההודעה נשלחה", message: "השיחה עודכנה בלי לרענן את דף העסקה." };
+  }, "לא הצלחנו לשלוח את ההודעה.");
 }
 
 async function prepareSellerNew() {
@@ -654,6 +695,7 @@ async function refreshDealSilently(dealId) {
     const next = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
     const previous = state.dealPayload;
     state.dealPayload = next;
+    await loadDealChat(dealId, false);
     if (!previous) {
       render();
       return;
@@ -756,6 +798,7 @@ async function submitAction(action, form) {
   if (action === "otp-start") return otpStart(form);
   if (action === "otp-verify") return otpVerify(form);
   if (action === "pay") return payAndJoin(form);
+  if (action === "deal-chat-send") return sendDealChatMessage(form);
   if (action === "seller-create") return createDeal(form);
   if (action === "seller-context") return saveSellerContextFromForm(form);
   if (action === "seller-login") return loginSellerFromForm(form);
@@ -1660,6 +1703,53 @@ function renderDealPage() {
           </form>
       </aside>
     </section>
+    ${renderDealChatSection(deal)}
+  `;
+}
+
+function renderDealChatSection(deal) {
+  const messages = Array.isArray(state.dealChatPayload?.messages) ? state.dealChatPayload.messages : [];
+  const isClosed = state.dealChatStatus === "closed" || !["PendingTarget", "TargetReached", "ClosedForJoining"].includes(String(deal?.state || ""));
+  return `
+    <section class="card section stack deal-chat" aria-labelledby="deal-chat-title">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow">שיח על העסקה</span>
+          <h2 id="deal-chat-title">שאלות ועדכונים מהמשתתפים</h2>
+        </div>
+        <span class="badge ${isClosed ? "tone-warning" : "tone-success"}">${isClosed ? "סגור לכתיבה" : "פתוח"}</span>
+      </div>
+      <div class="deal-chat-list" aria-live="polite">
+        ${messages.length ? messages.map(renderDealChatMessage).join("") : `<div class="empty-surface"><p class="muted">עדיין אין הודעות בעסקה הזאת</p></div>`}
+      </div>
+      ${isClosed ? `
+        <div class="info-strip tone-warning"><strong>הצ׳אט נסגר כי העסקה הסתיימה</strong></div>
+      ` : `
+        <form data-action="deal-chat-send" class="deal-chat-form">
+          <div class="field">
+            <label for="chatDisplayName">שם לתצוגה</label>
+            <input id="chatDisplayName" name="chatDisplayName" type="text" maxlength="80" value="${esc(state.form.chatDisplayName || "")}" placeholder="משתתף" autocomplete="name" />
+          </div>
+          <div class="field deal-chat-body-field">
+            <label for="chatBody">כתבו שאלה או עדכון קצר</label>
+            <textarea id="chatBody" name="chatBody" maxlength="500" rows="3" placeholder="יש אפשרות לאיסוף עצמי?">${esc(state.form.chatBody || "")}</textarea>
+          </div>
+          <button class="primary" type="submit">שלח הודעה</button>
+        </form>
+      `}
+    </section>
+  `;
+}
+
+function renderDealChatMessage(message) {
+  return `
+    <article class="deal-chat-message">
+      <div class="deal-chat-message-head">
+        <strong>${esc(message.display_name || "משתתף")}</strong>
+        <span class="small muted">${dt(message.created_at)}</span>
+      </div>
+      <p>${esc(message.body || "")}</p>
+    </article>
   `;
 }
 

@@ -616,6 +616,30 @@ async function sendFrontendFile(reply: FastifyReply, filename: string, contentTy
   return reply.type(contentType).send(content);
 }
 
+const DEAL_CHAT_READ_BLOCKED_STATES = new Set<DealState>(["Draft"]);
+const DEAL_CHAT_WRITE_ALLOWED_STATES = new Set<DealState>([
+  "PendingTarget",
+  "TargetReached",
+  "ClosedForJoining"
+]);
+
+function normalizeDealChatText(value: unknown, maxLength: number, fallback = "") {
+  const raw = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[<>]/g, "").trim();
+  const normalized = raw.replace(/\s+/g, " ");
+  const text = normalized || fallback;
+  return text.slice(0, maxLength).trim();
+}
+
+function dealChatMessageFromRow(row: any) {
+  return {
+    message_id: String(row.message_id),
+    deal_id: String(row.deal_id),
+    display_name: String(row.display_name),
+    body: String(row.body),
+    created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
+  };
+}
+
 export function registerFrontendExperience(
   app: FastifyInstance,
   deps: {
@@ -1396,6 +1420,84 @@ export function registerFrontendExperience(
         },
         availability
       };
+    });
+  });
+
+  // ── Deal Chat ─────────────────────────────────────────────────────────────
+  app.get("/api/deals/:dealId/chat", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    const rawLimit = Number(req.query?.limit ?? 50);
+    const limit = Math.max(1, Math.min(100, Number.isFinite(rawLimit) ? Math.floor(rawLimit) : 50));
+
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const state = String(dealResult.rows[0].state || "") as DealState;
+      if (DEAL_CHAT_READ_BLOCKED_STATES.has(state)) {
+        return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
+      }
+
+      const messages = await c.query(
+        `SELECT message_id, deal_id, display_name, body, created_at
+         FROM siton.deal_chat_messages
+         WHERE deal_id=$1 AND status='visible'
+         ORDER BY created_at ASC, message_id ASC
+         LIMIT $2`,
+        [dealId, limit]
+      );
+
+      return {
+        ok: true,
+        messages: messages.rows.map(dealChatMessageFromRow),
+        generated_at: new Date().toISOString()
+      };
+    });
+  });
+
+  app.post("/api/deals/:dealId/chat", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    const rawBody = String(req.body?.body ?? "");
+    const bodyText = normalizeDealChatText(rawBody, 500);
+    const displayName = normalizeDealChatText(req.body?.display_name, 80, "משתתף");
+
+    if (!bodyText) {
+      return reply.code(400).send({ ok: false, error: "body is required", code: "invalid_input" });
+    }
+    if (rawBody.trim().length > 500) {
+      return reply.code(400).send({ ok: false, error: "body must be 500 characters or fewer", code: "invalid_input" });
+    }
+
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      const dealResult = await c.query(`SELECT deal_id, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const state = String(dealResult.rows[0].state || "") as DealState;
+      if (!DEAL_CHAT_WRITE_ALLOWED_STATES.has(state)) {
+        return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
+      }
+
+      const inserted = await c.query(
+        `INSERT INTO siton.deal_chat_messages (deal_id, display_name, body)
+         VALUES ($1,$2,$3)
+         RETURNING message_id, deal_id, display_name, body, created_at`,
+        [dealId, displayName, bodyText]
+      );
+
+      return reply.code(201).send({
+        ok: true,
+        message: dealChatMessageFromRow(inserted.rows[0])
+      });
     });
   });
 
