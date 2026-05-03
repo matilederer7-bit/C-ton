@@ -159,7 +159,24 @@ async function forceParticipantRecovery(participantId: string) {
     await client.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
     await client.query(`SELECT set_config('app.in_atomic', 'true', true)`);
     await client.query(`SELECT set_config('siton.audit_written', '1', true)`);
+    await client.query(`SELECT set_config('siton.outbox_written', '1', true)`);
     await client.query(`SELECT set_config('siton.action_name', 'test.buyer_tracking_recovery', true)`);
+    const dealRow = await client.query(
+      `SELECT deal_id FROM siton.participants WHERE participant_id=$1`,
+      [participantId]
+    );
+    const dealId = dealRow.rows[0]?.deal_id as string | undefined;
+    if (dealId) {
+      const completionWindowUntil = new Date(Date.now() + 30 * 60_000).toISOString();
+      const dealStatePath = ["TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"];
+      for (const nextState of dealStatePath) {
+        await client.query(`UPDATE siton.deals SET state=$2 WHERE deal_id=$1`, [dealId, nextState]);
+      }
+      await client.query(
+        `UPDATE siton.deals SET completion_window_until=$2 WHERE deal_id=$1`,
+        [dealId, completionWindowUntil]
+      );
+    }
     for (const buyerState of ["LockedIn", "ChargingAttempt", "ChargeFailedCompletion"]) {
       await client.query(`UPDATE siton.participants SET buyer_state=$2 WHERE participant_id=$1`, [participantId, buyerState]);
     }

@@ -2,6 +2,26 @@
 
 ---
 
+Current update: 2026-05-03 (Buyer Recovery Flow — Phase 1)
+
+- Completed scope: buyer-facing recovery surface that lets a participant in `ChargeFailedCompletion` / `ChargeFailedRecovery` re-trigger the existing recovery worker pipeline from the tracking screen, without changing quantity, cancelling, or capturing raw card data.
+- Completed API: added `POST /api/participants/:id/recovery` in `src/frontend_runtime.ts`. Validates participant exists, deal is in `CompletionWindow`, `completion_window_until` is in the future, buyer is in the canonical recovery state pair, and never `Dropped`/`DealFailed`/`AuthReleased`/`Refunded`. Already-recovered participants get a `status: "already_recovered"` reply with `next_url` pointing back to tracking. Idempotency is enforced via `siton.idempotency_log` with `action_name='participant.recovery_request'`. Optional `payment_method_id` token reference is stored through `siton.buyer_payment_methods`. Raw card fields (`card_number`, `cvv`, etc.) are explicitly rejected with HTTP 400 + `raw_card_data_forbidden`.
+- Recovery execution path: the API enqueues the existing `recovery_deal` outbox event (idempotent via `ux_outbox_one_pending_per_aggregate_event` partial unique index). The existing `handleRecoveryDealEvent` worker performs the recovery attempt through the provider-ready path. No `sale`/`capture` happens in the request thread; no state transition happens in the request thread; the worker remains the source of truth.
+- Completed UI:
+  - New shell route `/app/recovery/:participantId` (registered alongside `/app/track`).
+  - New SPA route `recovery` in `frontend/app.js` with `loadRecovery`, `submitRecoveryRequest`, `refreshRecoverySilently`, and `renderRecoveryPage` covering the screen.
+  - The recovery screen shows deal title, committed quantity (read-only), completion amount, completion window, and a single primary CTA "השלמת תשלום". Explicit copy clarifies that quantity changes and cancellation are not available, and that no raw card data is collected.
+  - The tracking command center (`/app/track/:participantId`) now points the recovery CTA at `/app/recovery/:participantId` (instead of the generic deal page) when, and only when, the deal is in `CompletionWindow` and `completion_window_until` is in the future. When the window is closed, the personal status drops `action_required` and explains that recovery is no longer available.
+- Boundaries kept: no marketplace/search/catalog surfaces, no payout/commission for distributors, no PII for other buyers, no direct state transitions, no quantity mutation, no cancellation, no `sale`/`capture` in request thread, no raw card storage, no payment tokens leaked in responses, no WebSocket/SSE introduced.
+- Tests added: `tests/buyer_recovery_flow_validation.ts` (21 cases) covers CTA visibility per state, API forbidden / `NOT_IN_WINDOW` / `FORBIDDEN_ACTION` paths, the queued-job + already-pending dedupe path, idempotency replay, raw-card rejection, optional token-reference persistence, no quantity/state mutation in request thread, no payment-token leak, frontend route + scaffold checks. `forceParticipantRecovery` in `tests/buyer_tracking_command_center_validation.ts` was updated to walk the deal into `CompletionWindow` so the existing recovery CTA test reflects the canonical fixture.
+- Checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node .tmp_test_dist/tests/buyer_recovery_flow_validation.js`; `node .tmp_test_dist/tests/buyer_tracking_command_center_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test` (130 PASS, 0 FAIL). Local UX smoke: started the demo server on `127.0.0.1:3175`; confirmed `/app/recovery/<id>` serves the SPA shell, `POST /api/participants/<missing>/recovery → 404 participant_not_found`, raw-card body → `400 raw_card_data_forbidden`, malformed UUID → `400 participant_id must be a valid uuid`.
+- Render: not touched. No staging, no redeploy.
+- Open: real recovery using a buyer-supplied new payment method (provider-side tokenization + worker swap of authorization id) is Phase 2; current Phase 1 retries the existing recovery worker against the saved authorization. Mobile/desktop visual screenshot review is optional.
+- Progress: `Buyer Recovery Flow Phase 1: 100%`; `Recovery overall: 40%`.
+- Next step: when product needs buyer-driven payment-method change for recovery, add Phase 2 to swap the stored authorization id via tokenize + replace flow in the worker.
+
+---
+
 Current update: 2026-05-03 (Buyer Tracking Command Center - UX Smoke)
 
 - Checked locally only: demo build/server on `127.0.0.1:3320`, Edge headless DOM smoke on desktop and mobile, and API-backed flows for buyer tracking at `/app/track/:participantId`. No Render, staging, or redeploy work was performed.

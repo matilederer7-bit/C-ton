@@ -26,6 +26,7 @@ import {
   DEFAULT_SELLER_ID,
   ensureRemainingProductSurfaceTables,
   isChargedMoneyState,
+  roundMoney,
   summarizeMoney
 } from "./product_surface_support.js";
 import { getDealImagePublicUrl } from "./product_image_storage.js";
@@ -640,18 +641,34 @@ function dealChatMessageFromRow(row: any) {
   };
 }
 
-function buildTrackingPersonalStatus(dealState: DealState, buyerState: BuyerState, moneyState: MoneyState) {
+function buildTrackingPersonalStatus(
+  dealState: DealState,
+  buyerState: BuyerState,
+  moneyState: MoneyState,
+  args?: { participantId?: string; completionWindowUntil?: string | null }
+) {
   const recoveryRequired = buyerState === "ChargeFailedCompletion" || moneyState === "ChargeFailedRecovery";
   if (recoveryRequired) {
+    const windowEpoch = args?.completionWindowUntil ? Date.parse(args.completionWindowUntil) : NaN;
+    const windowOpen = dealState === "CompletionWindow" && Number.isFinite(windowEpoch) && windowEpoch > Date.now();
+    if (windowOpen && args?.participantId) {
+      return {
+        action_required: true,
+        status: "payment_update_required",
+        title: "נדרש עדכון אמצעי תשלום",
+        detail: "החיוב לא עבר. המקום שלך בעסקה נשמר זמנית, אבל צריך להשלים את התשלום בתוך חלון ההשלמה.",
+        cta: {
+          label: "עדכון אמצעי תשלום",
+          href: `/app/recovery/${encodeURIComponent(args.participantId)}`
+        }
+      };
+    }
     return {
-      action_required: true,
-      status: "payment_update_required",
-      title: "נדרש עדכון תשלום",
-      detail: "החיוב לא הושלם. אם ייפתח מסלול השלמה, זה המקום שבו תופיע הפעולה הברורה לעדכון אמצעי התשלום.",
-      cta: {
-        label: "בדיקת פרטי העסקה",
-        href: "deal"
-      }
+      action_required: false,
+      status: "payment_update_window_closed",
+      title: "השלמת התשלום אינה זמינה",
+      detail: "החיוב לא עבר וחלון ההשלמה אינו פעיל. מסך המעקב יציג את ההמשך לפי חוקי העסקה.",
+      cta: null
     };
   }
   if (dealState === "Completed" || buyerState === "DealCompleted" || moneyState === "ChargedSuccess" || moneyState === "RecoveredCharge") {
@@ -4982,7 +4999,10 @@ export function registerFrontendExperience(
         currentUnits
       });
       const dealStatus = buildTrackingDealStatus(row.deal_state, currentUnits, progress.target_units);
-      const personalStatus = buildTrackingPersonalStatus(row.deal_state, row.buyer_state, row.money_state);
+      const personalStatus = buildTrackingPersonalStatus(row.deal_state, row.buyer_state, row.money_state, {
+        participantId: row.participant_id,
+        completionWindowUntil: row.completion_window_until
+      });
       const primaryImage = imageResult.rows[0]
         ? {
             image_id: imageResult.rows[0].image_id,
@@ -5042,6 +5062,255 @@ export function registerFrontendExperience(
         },
         generated_at: new Date().toISOString()
       };
+    });
+  });
+
+  app.post("/api/participants/:id/recovery", async (req: any, reply: any) => {
+    const participantId = String(req.params.id);
+    requireUuid(participantId, "participant_id");
+
+    const body = (req.body as any) || {};
+    const idempotencyKey = String(req.headers?.["idempotency-key"] || body.idempotency_key || `recovery:${participantId}`)
+      .trim()
+      .slice(0, 200);
+    const requestId = String(req.headers?.["x-request-id"] || req.id || `recovery-req:${Date.now()}`).slice(0, 200);
+    const paymentMethodId = body.payment_method_id ? String(body.payment_method_id).trim().slice(0, 200) : null;
+    const providerCode = body.provider_code
+      ? String(body.provider_code).trim().slice(0, 80)
+      : deps.paymentProvider.providerCode;
+
+    return deps.withTx(async (c) => {
+      // Reject any field that looks like a raw card number / CVV / PAN.
+      // Recovery never accepts raw cardholder data — only references to a
+      // token already issued by the payment provider. We check inside withTx
+      // so the unified .catch() below maps it to the JSON shape clients expect.
+      const FORBIDDEN_RAW_CARD_FIELDS = ["card_number", "cardNumber", "pan", "cvv", "cvc", "expiry", "card_data"];
+      for (const key of FORBIDDEN_RAW_CARD_FIELDS) {
+        if (body[key] !== undefined && body[key] !== null && body[key] !== "") {
+          const err: any = new Error("raw card data is not accepted on the recovery endpoint");
+          err.statusCode = 400;
+          err.code = "raw_card_data_forbidden";
+          throw err;
+        }
+      }
+
+      // Idempotency replay (action_name = participant.recovery_request).
+      const idem = await c.query(
+        `SELECT response_jsonb
+         FROM siton.idempotency_log
+         WHERE entity_type='participant'
+           AND entity_id=$1
+           AND action_name='participant.recovery_request'
+           AND idempotency_key=$2`,
+        [participantId, idempotencyKey]
+      );
+      if (idem.rowCount && idem.rows[0]?.response_jsonb) {
+        return idem.rows[0].response_jsonb;
+      }
+
+      const participantResult = await c.query(
+        `SELECT
+           p.participant_id,
+           p.deal_id,
+           p.buyer_id,
+           p.qty,
+           p.delivery_cost,
+           p.buyer_state,
+           p.money_state,
+           d.state AS deal_state,
+           d.completion_window_until,
+           d.price_per_unit,
+           d.title AS deal_title
+         FROM siton.participants p
+         JOIN siton.deals d ON d.deal_id = p.deal_id
+         WHERE p.participant_id = $1
+         FOR UPDATE OF p`,
+        [participantId]
+      );
+
+      if (!participantResult.rowCount) {
+        const err: any = new Error("participant not found");
+        err.statusCode = 404;
+        err.code = "participant_not_found";
+        throw err;
+      }
+
+      const row = participantResult.rows[0] as {
+        participant_id: string;
+        deal_id: string;
+        buyer_id: string;
+        qty: number;
+        delivery_cost: number;
+        buyer_state: BuyerState;
+        money_state: MoneyState;
+        deal_state: DealState;
+        completion_window_until: string | null;
+        price_per_unit: number;
+        deal_title: string;
+      };
+
+      const completionAmount = roundMoney(
+        Number(row.qty || 0) * Number(row.price_per_unit || 0) + Number(row.delivery_cost || 0)
+      );
+      const trackingUrl = `/app/track/${encodeURIComponent(participantId)}`;
+
+      // Already-recovered / already-charged participants — return success without re-enqueuing.
+      if (
+        (row.buyer_state === "Recovered" || row.buyer_state === "ChargedSuccess" || row.buyer_state === "DealCompleted") &&
+        (row.money_state === "RecoveredCharge" || row.money_state === "ChargedSuccess")
+      ) {
+        const response = {
+          ok: true,
+          status: "already_recovered" as const,
+          participant_id: participantId,
+          deal_id: row.deal_id,
+          deal_title: row.deal_title,
+          buyer_state: row.buyer_state,
+          money_state: row.money_state,
+          deal_state: row.deal_state,
+          qty: Number(row.qty || 0),
+          completion_amount: completionAmount,
+          completion_window_until: row.completion_window_until,
+          next_url: trackingUrl,
+          message: "התשלום כבר הושלם בהצלחה. חזרת למסלול העסקה."
+        };
+        await c.query(
+          `INSERT INTO siton.idempotency_log
+           (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb)
+           VALUES ('participant',$1,'participant.recovery_request',$2,'OK',$3)
+           ON CONFLICT DO NOTHING`,
+          [participantId, idempotencyKey, JSON.stringify(response)]
+        );
+        return response;
+      }
+
+      // Forbidden terminal/non-recovery states.
+      const TERMINAL_BUYER_STATES: BuyerState[] = ["Dropped", "DealFailed"];
+      if (TERMINAL_BUYER_STATES.includes(row.buyer_state)) {
+        const err: any = new Error("participant cannot recover from a terminal state");
+        err.statusCode = 409;
+        err.code = "FORBIDDEN_ACTION";
+        throw err;
+      }
+      if (row.money_state === "AuthReleased" || row.money_state === "Refunded") {
+        const err: any = new Error("payment authorization is no longer recoverable");
+        err.statusCode = 409;
+        err.code = "FORBIDDEN_ACTION";
+        throw err;
+      }
+
+      // Must be in the canonical recovery state.
+      if (row.buyer_state !== "ChargeFailedCompletion" || row.money_state !== "ChargeFailedRecovery") {
+        const err: any = new Error("participant is not in a recovery-eligible state");
+        err.statusCode = 409;
+        err.code = "FORBIDDEN_ACTION";
+        throw err;
+      }
+
+      // Deal must be in CompletionWindow.
+      if (row.deal_state !== "CompletionWindow") {
+        const err: any = new Error("deal is not in the completion window");
+        err.statusCode = 409;
+        err.code = "FORBIDDEN_ACTION";
+        throw err;
+      }
+
+      // Completion window must not have elapsed.
+      const windowUntilEpoch = row.completion_window_until ? Date.parse(row.completion_window_until) : NaN;
+      if (!Number.isFinite(windowUntilEpoch) || windowUntilEpoch <= Date.now()) {
+        const err: any = new Error("completion window has elapsed");
+        err.statusCode = 409;
+        err.code = "NOT_IN_WINDOW";
+        throw err;
+      }
+
+      // Optional payment-method token: persist the reference (status=active) so
+      // the saved-token model stays in sync. Raw card data already rejected
+      // above. Tokens are issued by /api/payments/tokenize.
+      if (paymentMethodId) {
+        await c.query(
+          `INSERT INTO siton.buyer_payment_methods (
+             buyer_id, provider_code, provider_payment_method_id, status,
+             last_authorized_at, correlation_id, created_at, updated_at
+           ) VALUES ($1,$2,$3,'active', now(), $4, now(), now())
+           ON CONFLICT (provider_code, provider_payment_method_id) DO UPDATE
+           SET buyer_id=EXCLUDED.buyer_id,
+               status='active',
+               last_authorized_at=now(),
+               correlation_id=EXCLUDED.correlation_id,
+               updated_at=now()`,
+          [String(row.buyer_id), providerCode, paymentMethodId, `recovery:${participantId}:${idempotencyKey}`]
+        );
+      }
+
+      // Enqueue the deal-level recovery_deal job. The partial unique index
+      // ux_outbox_one_pending_per_aggregate_event ensures we never queue more
+      // than one pending recovery_deal per deal — repeat presses are no-ops at
+      // the DB level. The worker already iterates all ChargeFailedRecovery
+      // participants for the deal, so a single job suffices.
+      await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
+      await c.query(`SELECT set_config('siton.action_name', 'participant.recovery_request', true)`);
+      await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+      await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
+
+      const enqueueResult = await c.query(
+        `INSERT INTO siton.outbox_events
+           (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+         VALUES ('recovery_deal','deal',$1,$2,'pending',0, now())
+         ON CONFLICT DO NOTHING
+         RETURNING event_uuid`,
+        [
+          row.deal_id,
+          JSON.stringify({
+            deal_id: row.deal_id,
+            triggered_by: "participant.recovery_request",
+            participant_id: participantId,
+            request_id: requestId
+          })
+        ]
+      );
+      const queued = Boolean(enqueueResult.rowCount);
+
+      await c.query(`SELECT set_config('siton.outbox_written', '1', true)`);
+      await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
+
+      const response = {
+        ok: true,
+        status: "recovery_queued" as const,
+        already_pending: !queued,
+        participant_id: participantId,
+        deal_id: row.deal_id,
+        deal_title: row.deal_title,
+        buyer_state: row.buyer_state,
+        money_state: row.money_state,
+        deal_state: row.deal_state,
+        qty: Number(row.qty || 0),
+        completion_amount: completionAmount,
+        completion_window_until: row.completion_window_until,
+        next_url: trackingUrl,
+        message: queued
+          ? "ניסיון השלמת התשלום נכנס לתור. ניתן לחזור למסך המעקב כדי לראות את התוצאה."
+          : "ניסיון השלמת תשלום כבר ממתין לעיבוד. אין צורך לנסות שוב."
+      };
+
+      await c.query(
+        `INSERT INTO siton.idempotency_log
+         (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb)
+         VALUES ('participant',$1,'participant.recovery_request',$2,'OK',$3)
+         ON CONFLICT DO NOTHING`,
+        [participantId, idempotencyKey, JSON.stringify(response)]
+      );
+
+      return response;
+    }).catch((err: any) => {
+      if (err && Number.isFinite(err.statusCode)) {
+        return reply.code(Number(err.statusCode)).send({
+          ok: false,
+          error: err.code || "recovery_request_failed",
+          message: String(err.message || "recovery request failed")
+        });
+      }
+      throw err;
     });
   });
 
@@ -5309,6 +5578,7 @@ export function registerFrontendExperience(
   app.get("/app/join/:dealId/payment", sendShell);
   app.get("/app/join/:dealId/confirmation", sendShell);
   app.get("/app/track/:participantId", sendShell);
+  app.get("/app/recovery/:participantId", sendShell);
   app.get("/app/seller", sendShell);
   app.get("/app/seller/new", sendShell);
   app.get("/app/seller/deals/:dealId", sendShell);

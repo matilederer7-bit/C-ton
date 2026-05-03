@@ -21,6 +21,10 @@ const state = {
   dealChatPayload: null,
   dealChatStatus: "idle",
   trackingPayload: null,
+  recoveryPayload: null,
+  recoveryActionState: "idle",
+  recoveryActionMessage: "",
+  recoveryActionTone: "",
   sellerPayload: null,
   sellerAnalyticsPayload: null,
   sellerAnalyticsPeriod: "all",
@@ -176,6 +180,7 @@ const ROUTE_LABELS = {
   payment: "אישור מסגרת",
   confirmation: "אישור הצטרפות",
   tracking: "מעקב השתתפות",
+  recovery: "השלמת תשלום",
   terms: "תנאי שימוש",
   privacy: "מדיניות פרטיות",
   refunds: "ביטולים והחזרים",
@@ -189,7 +194,7 @@ const PAYMENT_READINESS = {
 };
 
 const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-deal", "admin-user"]);
-const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "terms", "privacy", "refunds", "contact"]);
+const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "contact"]);
 
 const DEAL_TONE = {
   Draft: "warning",
@@ -332,6 +337,7 @@ function parseRoute(path) {
     ["payment", /^\/app\/join\/([^/]+)\/payment$/],
     ["confirmation", /^\/app\/join\/([^/]+)\/confirmation$/],
     ["tracking", /^\/app\/track\/([^/]+)$/],
+    ["recovery", /^\/app\/recovery\/([^/]+)$/],
     ["terms", /^\/app\/terms$/],
     ["privacy", /^\/app\/privacy$/],
     ["refunds", /^\/app\/refunds$/],
@@ -352,7 +358,7 @@ function parseRoute(path) {
     if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "terms" || name === "privacy" || name === "refunds" || name === "contact") {
       return { name };
     }
-    return name === "tracking"
+    return name === "tracking" || name === "recovery"
       ? { name, participantId: decodeURIComponent(match[1]) }
       : name === "admin-participant"
         ? { name, participantId: decodeURIComponent(match[1]) }
@@ -385,6 +391,7 @@ async function runRoute() {
   if (route.name === "home") return loadHome();
   if (route.name === "deal") return loadDeal(route.dealId);
   if (route.name === "tracking") return loadTracking(route.participantId);
+  if (route.name === "recovery") return loadRecovery(route.participantId);
   if (route.name === "seller") return loadSeller();
   if (route.name === "seller-new") return prepareSellerNew();
   if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
@@ -466,6 +473,65 @@ async function loadTracking(participantId) {
       });
     }
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳”׳׳¢׳§׳‘.");
+}
+
+async function loadRecovery(participantId) {
+  await busy("טוען את מסך השלמת התשלום...", async () => {
+    state.recoveryPayload = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+  }, "לא הצלחנו לטעון את מסך השלמת התשלום.");
+}
+
+async function refreshRecoverySilently(participantId) {
+  try {
+    state.recoveryPayload = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    render();
+  } catch {}
+}
+
+async function submitRecoveryRequest(participantId) {
+  if (!participantId) return;
+  state.recoveryActionState = "submitting";
+  state.recoveryActionMessage = "";
+  state.recoveryActionTone = "";
+  render();
+  try {
+    const idemKey = `recovery:${participantId}:${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const response = await api(`/api/participants/${encodeURIComponent(participantId)}/recovery`, {
+      method: "POST",
+      headers: {
+        "x-request-id": idemKey,
+        "idempotency-key": idemKey
+      },
+      body: json({})
+    });
+    state.recoveryActionState = "succeeded";
+    state.recoveryActionTone = "tone-success";
+    state.recoveryActionMessage = String(response?.message || "ניסיון השלמת התשלום נכנס לתור.");
+    state.banner = {
+      tone: "success",
+      title: response?.status === "already_recovered" ? "התשלום כבר הושלם" : "ניסיון ההשלמה נשלח",
+      message: state.recoveryActionMessage
+    };
+    await refreshRecoverySilently(participantId);
+  } catch (err) {
+    state.recoveryActionState = "failed";
+    state.recoveryActionTone = "tone-warning";
+    const status = Number(err?.status || 0);
+    if (status === 409) {
+      state.recoveryActionMessage = "לא ניתן להשלים את התשלום במצב הזה. אם חלון ההשלמה הסתיים או שהמצב כבר השתנה, מסך המעקב יציג את התמונה העדכנית.";
+    } else if (status === 400) {
+      state.recoveryActionMessage = "הבקשה לא תקינה. אפשר לחזור למסך המעקב ולנסות שוב.";
+    } else {
+      state.recoveryActionMessage = "לא הצלחנו להשלים את התשלום. אפשר לנסות שוב כל עוד חלון ההשלמה פתוח.";
+    }
+    state.banner = {
+      tone: "warning",
+      title: "ניסיון ההשלמה נכשל",
+      message: state.recoveryActionMessage
+    };
+  } finally {
+    render();
+  }
 }
 
 async function loadHome() {
@@ -667,6 +733,7 @@ function currentPollKey() {
   if (route.name === "home") return "";
   if (route.name === "deal") return `deal:${route.dealId}`;
   if (route.name === "tracking") return `tracking:${route.participantId}`;
+  if (route.name === "recovery") return `recovery:${route.participantId}`;
   if (route.name === "seller") return "seller";
   if (route.name === "seller-new") return `seller-new:${currentSellerContext().seller_id}`;
   if (route.name === "seller-deal") return `seller-deal:${route.dealId}:${currentSellerContext().seller_id}`;
@@ -683,6 +750,10 @@ async function runRouteSilently() {
   }
   if (route.name === "tracking") {
     await refreshTrackingSilently(route.participantId);
+    return;
+  }
+  if (route.name === "recovery") {
+    await refreshRecoverySilently(route.participantId);
     return;
   }
   if (route.name === "seller") {
@@ -817,6 +888,7 @@ async function submitAction(action, form) {
   if (action === "seller-logout") return logoutSeller();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId);
   if (action === "seller-profile-save") return saveSellerProfile(form);
+  if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
   if (action === "admin-support-create") return createSupportTicket(form);
@@ -1438,6 +1510,7 @@ function getRouteSummary() {
     payment: "שמירת ההצטרפות והמשך למסלול אישור המסגרת.",
     confirmation: "סיכום ברור של ההצטרפות ומה קורה מיד אחריה.",
     tracking: "מעקב קונה אחרי מצב ההשתתפות, האישור והעסקה.",
+    recovery: "מסך השלמת תשלום במצב כשל חיוב, ללא שינוי כמות וללא ביטול.",
     seller: "ניהול העסקאות הפעילות, הטיוטות והפעולות של המוכר במקום אחד.",
     "seller-new": "פתיחת עסקה חדשה במסלול מונחה, בעברית מלאה ובמובייל תחילה.",
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
@@ -1473,6 +1546,7 @@ function renderCurrentRoute() {
   if (route.name === "payment") return renderPaymentPage(route.dealId);
   if (route.name === "confirmation") return renderConfirmationPage(route.dealId);
   if (route.name === "tracking") return renderTrackingPage();
+  if (route.name === "recovery") return renderRecoveryPage();
   if (route.name === "terms") return renderTermsPage();
   if (route.name === "privacy") return renderPrivacyPage();
   if (route.name === "refunds") return renderRefundsPage();
@@ -2252,6 +2326,90 @@ function renderTrackingPage() {
         </div>
         ${renderShareActions(`/app/track/${encodeURIComponent(tracking.participant_id)}`, tracking.deal_title || "מעקב השתתפות בסיטון")}
         <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">׳—׳–׳¨׳” ׳׳¢׳¡׳§׳”</a></div>
+      </aside>
+    </section>
+  `;
+}
+
+function renderRecoveryPage() {
+  const route = state.route;
+  const participantId = route?.participantId || "";
+  const trackingHref = participantId ? `/app/track/${encodeURIComponent(participantId)}` : "/app";
+  if (!state.recoveryPayload && state.loading) return "";
+  if (!state.recoveryPayload) {
+    return renderEmptyState(
+      "לא מצאנו את ההשתתפות",
+      "ייתכן שהקישור פג או שהמערכת לא הצליחה לטעון את הפרטים. אפשר לחזור למסך המעקב ולנסות שוב."
+    );
+  }
+  const tracking = state.recoveryPayload.tracking;
+  const buyerState = tracking?.buyer_state;
+  const moneyState = tracking?.money_state;
+  const dealState = tracking?.deal_state;
+  const completionUntil = tracking?.completion_window_until || "";
+  const completionEpoch = completionUntil ? Date.parse(completionUntil) : NaN;
+  const windowOpen = dealState === "CompletionWindow" && Number.isFinite(completionEpoch) && completionEpoch > Date.now();
+  const isRecoveryState =
+    buyerState === "ChargeFailedCompletion" && moneyState === "ChargeFailedRecovery";
+  const alreadyRecovered =
+    moneyState === "RecoveredCharge" || moneyState === "ChargedSuccess" ||
+    buyerState === "Recovered" || buyerState === "ChargedSuccess" || buyerState === "DealCompleted";
+  const actionState = state.recoveryActionState || "idle";
+  const actionMessage = state.recoveryActionMessage || "";
+  const actionTone = state.recoveryActionTone || "";
+  const qty = Number(tracking?.qty || 0);
+  const completionAmount = Number(tracking?.estimated_total || 0);
+
+  let banner = "";
+  if (alreadyRecovered) {
+    banner = `<div class="info-strip tone-success"><strong>התשלום כבר הושלם</strong><p class="small">חזרת למסלול העסקה. אין צורך לבצע פעולה נוספת.</p></div>`;
+  } else if (!isRecoveryState) {
+    banner = `<div class="info-strip"><strong>אין כרגע צורך בהשלמת תשלום</strong><p class="small">הסטטוס שלך לא דורש פעולה במסך הזה. מסך המעקב יציג את התמונה העדכנית.</p></div>`;
+  } else if (!windowOpen) {
+    banner = `<div class="info-strip tone-warning"><strong>חלון השלמת התשלום נסגר</strong><p class="small">לא ניתן יותר לבצע השלמה. המערכת תסיים את התהליך לפי חוקי העסקה.</p></div>`;
+  }
+
+  const canSubmit = isRecoveryState && windowOpen && actionState !== "submitting";
+  const submitLabel = actionState === "submitting" ? "שולח בקשה..." : "השלמת תשלום";
+
+  return `
+    <section class="hero buyer-recovery-flow">
+      <article class="card hero-main stack hero-emphasis">
+        <span class="eyebrow">השלמת תשלום</span>
+        <span class="badge warning">נדרשת פעולה</span>
+        <h1>נדרש עדכון אמצעי תשלום</h1>
+        <p class="muted">החיוב שלך לא עבר. המקום שלך בעסקה נשמר זמנית, אבל צריך להשלים את התשלום בתוך חלון ההשלמה. בשלב הזה לא ניתן לשנות כמות או לבטל, כדי לשמור על יציבות העסקה לכל המשתתפים.</p>
+        ${banner}
+        <div class="summary-grid">
+          <div class="summary-item"><span class="muted">עסקה</span><strong>${esc(tracking?.deal_title || "")}</strong></div>
+          <div class="summary-item"><span class="muted">כמות שהתחייבת</span><strong>${num(qty)} יח'</strong><p class="small muted">לא ניתן לשנות בשלב הזה</p></div>
+          <div class="summary-item summary-spotlight"><span class="muted">סכום ההשלמה</span><strong>${currency(completionAmount)}</strong><p class="small muted">סכום זהה לחיוב המקורי, ללא תוספות</p></div>
+          <div class="summary-item"><span class="muted">חלון השלמה עד</span><strong>${completionUntil ? dt(completionUntil) : "לא זמין"}</strong><p class="small muted">${windowOpen ? "ניתן לנסות עוד פעם כל עוד החלון פתוח" : "החלון נסגר"}</p></div>
+        </div>
+        ${actionMessage ? `<div class="info-strip ${esc(actionTone)}"><strong>${esc(actionState === "succeeded" ? "ניסיון ההשלמה נשלח" : "סטטוס ההשלמה")}</strong><p class="small">${esc(actionMessage)}</p></div>` : ""}
+        <form data-action="recovery-submit" data-participant-id="${esc(participantId)}" class="stack recovery-action-form">
+          <div class="info-strip">
+            <strong>הבהרה חשובה</strong>
+            <p class="small">הפעולה הזו מבצעת ניסיון השלמת תשלום בלבד עבור ההתחייבות הקיימת. לא נפתחת עסקה חדשה, ואין שינוי בכמות. אנחנו לא קולטים פרטי כרטיס אשראי במסך הזה — המערכת משתמשת באישור המסגרת השמור.</p>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit" ${canSubmit ? "" : "disabled"}>${submitLabel}</button>
+            <a class="button secondary" href="${esc(trackingHref)}" data-nav="${esc(trackingHref)}">חזרה למסך המעקב</a>
+          </div>
+        </form>
+      </article>
+      <aside class="card hero-side stack">
+        <div class="summary-item summary-spotlight">
+          <span class="muted">מצב נוכחי</span>
+          <strong>${esc(getLabel(BUYER_COPY, buyerState)[0] || "לא זמין")}</strong>
+          <p class="small muted">${esc(getLabel(MONEY_COPY, moneyState)[0] || "")}</p>
+        </div>
+        <div class="summary-item"><span class="muted">מה לא יקרה כאן</span><strong>שינוי כמות, ביטול, החלפת עסקה</strong><p class="small muted">פעולות אלה אינן זמינות בשלב השלמת התשלום.</p></div>
+        <div class="summary-item"><span class="muted">מה כן יקרה</span><strong>ניסיון השלמת חיוב לעסקה הקיימת</strong><p class="small muted">המערכת משתמשת בנתוני האישור השמורים ומבצעת ניסיון מסודר דרך מסלול ההשלמה הקיים.</p></div>
+        <div class="surface-note">
+          <strong>אם הניסיון נכשל</strong>
+          <p class="small muted">לא הצלחנו להשלים את התשלום. אפשר לנסות שוב כל עוד חלון ההשלמה פתוח.</p>
+        </div>
       </aside>
     </section>
   `;
