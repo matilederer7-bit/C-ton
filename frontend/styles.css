@@ -200,6 +200,39 @@ textarea:focus-visible,
 .tracking-next-panel.tone-success { background: linear-gradient(180deg, rgba(47, 122, 82, 0.12), rgba(255,255,255,0.94)); border-color: rgba(47, 122, 82, 0.18); }
 .tracking-next-panel.tone-warning { background: linear-gradient(180deg, rgba(140, 90, 17, 0.14), rgba(255,255,255,0.94)); border-color: rgba(140, 90, 17, 0.18); }
 .tracking-focus-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.tracking-command-center { align-items: start; }
+.tracking-command-hero { gap: 18px; }
+.tracking-hero-top { display: grid; gap: 18px; grid-template-columns: minmax(0, 1fr) 180px; align-items: start; }
+.tracking-hero-image { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; border-radius: 18px; border: 1px solid rgba(81, 54, 33, 0.1); box-shadow: 0 18px 34px rgba(65, 39, 21, 0.14); }
+.tracking-live-strip { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 13px 16px; border-radius: 18px; background: rgba(47, 122, 82, 0.09); border: 1px solid rgba(47, 122, 82, 0.18); }
+.live-dot { width: 10px; height: 10px; border-radius: 999px; background: var(--success); box-shadow: 0 0 0 0 rgba(47, 122, 82, 0.42); animation: livePulse 1.8s infinite; }
+.tracking-progress-panel, .tracking-chart-card, .tracking-activity-card, .tracking-personal-card { padding: 20px; border-radius: 24px; background: rgba(255,255,255,0.76); border: 1px solid rgba(81, 54, 33, 0.09); box-shadow: 0 14px 32px rgba(65, 39, 21, 0.08); }
+.tracking-progress-head { display: flex; justify-content: space-between; align-items: end; gap: 14px; }
+.tracking-progress-head strong { display: block; font-size: clamp(2rem, 4vw, 3.2rem); line-height: 1; margin-top: 6px; }
+.tracking-meter { margin-top: 14px; height: 18px; }
+.tracking-counter-grid { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 14px; }
+.tracking-counter-grid.compact-counters { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; }
+.tracking-live-layout { display: grid; gap: 16px; grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.85fr); align-items: stretch; }
+.tracking-chart-wrap { display: grid; gap: 10px; }
+.tracking-chart { width: 100%; min-height: 220px; overflow: visible; }
+.chart-grid-line { stroke: rgba(47, 122, 82, 0.34); stroke-width: 2; stroke-dasharray: 6 8; }
+.chart-grid-line-soft { stroke: rgba(81, 54, 33, 0.22); }
+.chart-line { fill: none; stroke: var(--accent); stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 8px 12px rgba(170, 61, 35, 0.18)); }
+.chart-point { fill: #fff; stroke: var(--accent); stroke-width: 3; }
+.chart-label { fill: var(--ink); font-size: 16px; font-weight: 900; }
+.muted-label { fill: var(--muted); }
+.tracking-chart-meta { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; color: var(--muted); font-size: 0.92rem; }
+.tracking-chart-empty { min-height: 220px; place-content: center; text-align: center; border-radius: 18px; border: 1px dashed rgba(81, 54, 33, 0.2); background: rgba(63, 38, 22, 0.04); }
+.tracking-activity-feed { display: grid; gap: 10px; max-height: 360px; overflow: auto; padding-inline-end: 4px; }
+.tracking-activity-item { display: grid; grid-template-columns: 16px minmax(0, 1fr); gap: 12px; padding: 13px 14px; border-radius: 18px; background: rgba(252, 244, 236, 0.72); border: 1px solid rgba(81, 54, 33, 0.08); }
+.activity-dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 999px; background: var(--accent-2); box-shadow: 0 0 0 5px rgba(212, 104, 47, 0.11); }
+.tracking-personal-card.tone-warning { background: linear-gradient(180deg, rgba(140, 90, 17, 0.14), rgba(255,255,255,0.92)); border-color: rgba(140, 90, 17, 0.2); }
+.status-note { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 14px; border-radius: 999px; font-weight: 900; color: var(--success); background: rgba(47, 122, 82, 0.09); }
+@keyframes livePulse {
+  0% { box-shadow: 0 0 0 0 rgba(47, 122, 82, 0.42); }
+  70% { box-shadow: 0 0 0 9px rgba(47, 122, 82, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(47, 122, 82, 0); }
+}
 .product-hero .hero-main { gap: 18px; }
 .deal-hero-layout { display: grid; gap: 16px; grid-template-columns: minmax(220px, 0.9fr) minmax(0, 1.3fr); align-items: stretch; }
 .deal-hero-copy { align-content: start; }
@@ -343,7 +376,7 @@ a.button { text-decoration: none; display: inline-flex; align-items: center; jus
   }
 }
 @media (max-width: 900px) {
-  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields, .card-list, .trust-band, .ops-band, .kpi-strip, .form-preview-grid, .live-summary-grid, .trust-footer-grid, .deal-hero-layout, .workspace-focus-grid, .seller-deal-control-grid, .seller-analytics-kpis, .seller-analytics-grid, .tracking-focus-grid, .admin-urgency-grid, .admin-search-grid, .admin-ops-grid, .admin-ops-hero-grid, .wizard-steps, .product-image-uploader, .deal-chat-form { grid-template-columns: 1fr; }
+  .hero, .metric-grid, .choice-grid, .summary-grid, .status-grid, .inline-fields, .card-list, .trust-band, .ops-band, .kpi-strip, .form-preview-grid, .live-summary-grid, .trust-footer-grid, .deal-hero-layout, .workspace-focus-grid, .seller-deal-control-grid, .seller-analytics-kpis, .seller-analytics-grid, .tracking-focus-grid, .tracking-hero-top, .tracking-counter-grid, .tracking-counter-grid.compact-counters, .tracking-live-layout, .admin-urgency-grid, .admin-search-grid, .admin-ops-grid, .admin-ops-hero-grid, .wizard-steps, .product-image-uploader, .deal-chat-form { grid-template-columns: 1fr; }
   .shell { width: min(100vw - 18px, 1120px); padding-top: 14px; }
   .hero-main, .hero-side, .section { padding: 18px; border-radius: 20px; }
   .seller-card-head, .seller-card-footer, .section-header, .table-toolbar { align-items: stretch; }
@@ -369,6 +402,10 @@ a.button { text-decoration: none; display: inline-flex; align-items: center; jus
     flex: 0 1 auto;
   }
   .share-panel { position: sticky; bottom: 10px; z-index: 5; box-shadow: 0 16px 36px rgba(65, 39, 21, 0.12); }
+  .tracking-hero-image { max-width: 180px; }
+  .tracking-progress-head { align-items: stretch; flex-direction: column; }
+  .tracking-chart { min-height: 190px; }
+  .tracking-activity-feed { max-height: 300px; }
   .deal-visual-mark {
     width: 64px;
     height: 64px;

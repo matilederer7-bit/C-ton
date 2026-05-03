@@ -2,6 +2,21 @@
 
 ---
 
+Current update: 2026-05-03 (Buyer Tracking Command Center — Phase 1 Live)
+
+- Completed: upgraded the existing buyer tracking route `/app/track/:participantId` and existing `GET /api/participants/:id/tracking` endpoint instead of creating a duplicate surface.
+- Completed API/read model: tracking now returns deal progress, personal buyer status, cumulative chart points from real participant quantities, anonymized activity feed, deal status copy, image metadata when available, and live version metadata.
+- Live mechanism: selected short polling for Phase 1 (`6000ms` only on tracking routes). Reason: the app already had route polling, no SSE/WebSocket infra was present, and the surface is read-only aggregation that can update near-real-time without adding long-lived connection complexity.
+- Completed UI: tracking now has a live hero, progress meter, counters, cumulative SVG progress chart, anonymized activity feed, personal status card, and clear CTA/no-action copy. The screen remains RTL and link-scoped.
+- Guardrails kept: no marketplace/search/catalog/public discovery, no inbox/private chat/global feed, no buyer PII for other buyers, no money/state/inventory/attribution mutation, no payout/commission/distributor money surface.
+- Checked: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node .tmp_test_dist/tests/buyer_tracking_command_center_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test`.
+- Note: the first dedicated validation run hung because the new test did not close the imported Fastify app; fixed the test cleanup and stopped the leftover Node process on port 3000 before rerunning. The rerun passed and port 3000 was clear afterward.
+- Open: Phase 2 can consider SSE/WebSocket only if product needs tighter live latency, plus richer recovery action routes if payment recovery UI becomes available.
+- Progress: `Phase 1 Live: 100%`; `Buyer Tracking overall: 40%`.
+- Next step: local browser UX smoke on desktop/mobile screenshots, then decide whether Phase 2 needs SSE or can keep polling.
+
+---
+
 Current update: 2026-05-03 (Deal Chat — Phase 1 Local UX/QA Review)
 
 - Checked locally only: empty chat state, valid message send flow, closed-state copy, static escaping guard, problematic input handling, product boundaries, buyer flow, product surface drift, and full test suite. No Render, staging, or redeploy work was performed.

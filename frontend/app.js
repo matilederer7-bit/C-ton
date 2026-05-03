@@ -4,6 +4,7 @@ const FLOW_SCHEMA_VERSION = 2;
 const SELLER_CONTEXT_KEY = "siton_seller_context_v1";
 const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
 const POLL_INTERVAL_MS = 12000;
+const TRACKING_POLL_INTERVAL_MS = 6000;
 let routePollTimer = null;
 let routePollKey = "";
 
@@ -653,9 +654,12 @@ function syncRoutePolling() {
   routePollKey = pollKey;
   if (!pollKey || document.hidden) return;
 
+  const intervalMs = String(pollKey || "").startsWith("tracking:")
+    ? TRACKING_POLL_INTERVAL_MS
+    : POLL_INTERVAL_MS;
   routePollTimer = setInterval(() => {
     void runRouteSilently();
-  }, POLL_INTERVAL_MS);
+  }, intervalMs);
 }
 
 function currentPollKey() {
@@ -725,17 +729,25 @@ async function refreshTrackingSilently(participantId) {
       return;
     }
 
-    const changed =
+    const stateChanged =
       previous.tracking.deal_state !== next.tracking.deal_state ||
       previous.tracking.buyer_state !== next.tracking.buyer_state ||
       previous.tracking.money_state !== next.tracking.money_state;
+    const liveChanged =
+      previous.tracking.live?.version !== next.tracking.live?.version ||
+      previous.tracking.progress?.current_units !== next.tracking.progress?.current_units ||
+      previous.tracking.activity_feed?.[0]?.at !== next.tracking.activity_feed?.[0]?.at;
 
-    if (changed) {
+    if (stateChanged) {
       state.banner = {
         tone: "success",
         title: "׳¡׳˜׳˜׳•׳¡ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳¢׳•׳“׳›׳",
         message: "׳”׳׳¡׳ ׳¨׳¢׳ ׳ ׳׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳” ׳•׳”׳”׳©׳×׳×׳₪׳•׳× ׳‘׳׳™ ׳׳׳‘׳“ ׳׳× ׳¨׳¦׳£ ׳”׳—׳•׳•׳™׳”."
       };
+      render();
+      return;
+    }
+    if (liveChanged) {
       render();
     }
   } catch {}
@@ -2051,16 +2063,100 @@ function renderTrackingPage() {
   const tone = trackingStatusTone(tracking);
   const supportNote = buildTrackingSupportNote(tracking);
   const documentVisibility = buildTrackingDocumentVisibility(tracking);
+  const progress = tracking.progress || {};
+  const dealStatus = tracking.deal_status || { title: dealState.label, detail: dealState.description, live: false };
+  const personalStatus = tracking.personal_status || buildTrackingPersonalCardFallback(tracking);
+  const activityFeed = Array.isArray(tracking.activity_feed) ? tracking.activity_feed : [];
+  const chartPoints = Array.isArray(tracking.chart_points) ? tracking.chart_points : [];
+  const progressPct = Math.max(0, Math.min(100, Number(progress.progress_to_minimum_pct || 0)));
+  const capacityPct = Math.max(0, Math.min(100, Number(progress.progress_to_capacity_pct || 0)));
+  const image = tracking.image;
+  const liveCopy = tracking.live?.mechanism === "polling"
+    ? `מתעדכן חי כל ${num(Math.round(Number(tracking.live.interval_ms || TRACKING_POLL_INTERVAL_MS) / 1000))} שניות`
+    : "מתעדכן חי";
+  const ctaHref = personalStatus.cta?.href === "deal"
+    ? `/app/deal/${encodeURIComponent(tracking.deal_id)}`
+    : personalStatus.cta?.href;
+  const ctaLabel = personalStatus.cta?.label || "צפייה בפרטי העסקה";
 
   return `
-    <section class="hero">
-      <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳׳¢׳§׳‘ ׳”׳©׳×׳×׳₪׳•׳×</span>
-        <span class="badge ${dealState.badgeTone}">${dealState.label}</span>
-        <h1>${esc(tracking.deal_title)}</h1>
-        <p class="muted">${next.summary}</p>
+    <section class="hero tracking-command-center">
+      <article class="card hero-main stack hero-emphasis tracking-command-hero">
+        <div class="tracking-hero-top">
+          <div class="stack compact compact-section">
+            <span class="eyebrow">מרכז מעקב קונה חי</span>
+            <span class="badge ${dealState.badgeTone}">${dealState.label}</span>
+            <h1>${esc(tracking.deal_title)}</h1>
+            <p class="muted">${esc(dealStatus.detail || next.summary)}</p>
+          </div>
+          ${image?.url ? `<img class="tracking-hero-image" src="${esc(image.url)}" alt="תמונת מוצר עבור ${esc(tracking.deal_title || "העסקה")}" />` : ""}
+        </div>
+        <div class="tracking-live-strip" aria-live="polite">
+          <span class="live-dot" aria-hidden="true"></span>
+          <strong>${esc(dealStatus.title || dealState.label)}</strong>
+          <span class="muted">${esc(liveCopy)} · עודכן ${relativeTime(tracking.live?.generated_at || state.trackingPayload.generated_at)}</span>
+        </div>
+        <div class="tracking-progress-panel">
+          <div class="tracking-progress-head">
+            <div>
+              <span class="muted">התקדמות למינימום</span>
+              <strong>${percent(progressPct)}</strong>
+            </div>
+            <p class="small muted">${progress.remaining_to_minimum > 0 ? `חסרות עוד ${num(progress.remaining_to_minimum)} יחידות למינימום` : "המינימום הושג"}</p>
+          </div>
+          <div class="meter tracking-meter" aria-label="התקדמות העסקה למינימום">
+            <span style="width:${Math.max(4, progressPct)}%"></span>
+          </div>
+          <div class="tracking-counter-grid">
+            <div class="summary-item summary-spotlight"><span class="muted">יחידות כרגע</span><strong>${num(progress.current_units || 0)}</strong><p class="small muted">מתוך יעד בסיס של ${num(progress.target_units || tracking.threshold_units || 0)}</p></div>
+            <div class="summary-item"><span class="muted">משתתפים</span><strong>${num(progress.participants_count || 0)}</strong><p class="small muted">אנונימי, ללא שמות או פרטים אישיים</p></div>
+            <div class="summary-item"><span class="muted">נשאר עד מקסימום</span><strong>${num(progress.remaining_to_capacity || 0)}</strong><p class="small muted">${percent(capacityPct)} מתוך קיבולת כוללת</p></div>
+            <div class="summary-item"><span class="muted">חלון הצטרפות</span><strong>${dt(tracking.deadline)}</strong><p class="small muted">${tracking.completion_window_until ? `חלון השלמה עד ${dt(tracking.completion_window_until)}` : "הדדליין נשמר לפי העסקה"}</p></div>
+          </div>
+        </div>
+        <div class="tracking-live-layout">
+          <section class="tracking-chart-card stack" aria-label="גרף התקדמות מצטברת">
+            <div class="section-header">
+              <div class="stack compact compact-section">
+                <h2>גרף התקדמות חי</h2>
+                <p class="muted section-intro">יחידות מצטברות לאורך זמן, לפי הצטרפויות אמיתיות בלבד.</p>
+              </div>
+              <span class="stat-pill"><span>יעד</span><strong>${num(progress.target_units || tracking.threshold_units || 0)}</strong></span>
+            </div>
+            ${renderTrackingProgressChart(chartPoints, progress)}
+          </section>
+          <section class="tracking-activity-card stack" aria-label="פעילות אנונימית בעסקה">
+            <div class="section-header">
+              <div class="stack compact compact-section">
+                <h2>פעילות חיה בעסקה</h2>
+                <p class="muted section-intro">עדכונים אמיתיים, בלי שמות קונים ובלי מידע אישי.</p>
+              </div>
+            </div>
+            ${renderTrackingActivityFeed(activityFeed)}
+          </section>
+        </div>
+        <section class="tracking-personal-card ${personalStatus.action_required ? "tone-warning" : tone} stack" aria-label="סטטוס אישי">
+          <div class="section-header">
+            <div class="stack compact compact-section">
+              <span class="eyebrow">הסטטוס שלך</span>
+              <h2>${esc(personalStatus.title || buyerState[0])}</h2>
+              <p class="muted section-intro">${esc(personalStatus.detail || buyerState[1])}</p>
+            </div>
+            <span class="badge ${personalStatus.action_required ? "warning" : "success"}">${personalStatus.action_required ? "נדרשת פעולה" : "אין פעולה נדרשת"}</span>
+          </div>
+          <div class="tracking-counter-grid compact-counters">
+            <div class="summary-item"><span class="muted">הכמות שלך</span><strong>${num(tracking.qty)} יח'</strong></div>
+            <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${esc(tracking.delivery_method_label || "לא זמין")}</strong><p class="small muted">${esc(formatDeliveryTypeLabel(tracking.delivery_method_type || ""))}</p></div>
+            <div class="summary-item"><span class="muted">מצב השתתפות</span><strong>${esc(buyerState[0])}</strong><p class="small muted">${esc(buyerState[1])}</p></div>
+            <div class="summary-item"><span class="muted">מצב כספי</span><strong>${esc(moneyState[0])}</strong><p class="small muted">${esc(moneyState[1])}</p></div>
+          </div>
+          <div class="actions">
+            ${personalStatus.action_required && ctaHref ? `<a class="button primary" href="${esc(ctaHref)}" data-nav="${esc(ctaHref)}">${esc(ctaLabel)}</a>` : `<span class="status-note">כרגע לא נדרשת ממך פעולה</span>`}
+            <a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">צפייה בפרטי העסקה</a>
+          </div>
+        </section>
         <div class="tracking-next-panel ${tone}">
-          <span class="muted">׳׳” ׳—׳©׳•׳‘ ׳¢׳›׳©׳™׳•</span>
+          <span class="muted">מה חשוב עכשיו</span>
           <strong>${next.title}</strong>
           <p class="small muted">${next.detail}</p>
         </div>
@@ -2124,6 +2220,11 @@ function renderTrackingPage() {
           </div>
       </article>
       <aside class="card hero-side stack">
+        <div class="summary-item summary-spotlight">
+          <span class="muted">תמונה חיה</span>
+          <strong>${num(progress.current_units || 0)} / ${num(progress.max_units || tracking.max_units || 0)} יח'</strong>
+          <p class="small muted">${progress.remaining_to_minimum > 0 ? `${num(progress.remaining_to_minimum)} יחידות למינימום` : "המינימום הושג"}</p>
+        </div>
         <div class="summary-item summary-spotlight">
           <span class="muted">׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×</span>
           <strong>${buyerState[0]}</strong>
@@ -4647,6 +4748,95 @@ function buildTrackingDocumentVisibility(tracking) {
     documentId: null,
     issuedAt: null
   };
+}
+
+function buildTrackingPersonalCardFallback(tracking) {
+  const actionRequired = tracking?.buyer_state === "ChargeFailedCompletion" || tracking?.money_state === "ChargeFailedRecovery";
+  if (actionRequired) {
+    return {
+      action_required: true,
+      title: "נדרש עדכון תשלום",
+      detail: "החיוב לא הושלם והמסך יציג את הפעולה הזמינה להשלמה.",
+      cta: { label: "בדיקת פרטי העסקה", href: "deal" }
+    };
+  }
+  return {
+    action_required: false,
+    title: "כרגע לא נדרשת ממך פעולה",
+    detail: "ההשתתפות שלך שמורה ומסך המעקב יתעדכן אוטומטית.",
+    cta: null
+  };
+}
+
+function renderTrackingProgressChart(points, progress) {
+  const rows = Array.isArray(points) ? points : [];
+  const targetUnits = Math.max(1, Number(progress?.target_units || progress?.threshold_units || 1));
+  const maxUnits = Math.max(targetUnits, Number(progress?.max_units || targetUnits));
+  const chartMax = Math.max(maxUnits, ...rows.map((point) => Number(point.cumulative_units || 0)), 1);
+  if (!rows.length) {
+    return `
+      <div class="tracking-chart-empty stack">
+        <strong>עדיין אין מספיק נתונים לגרף</strong>
+        <p class="small muted">ברגע שיצטרפו יחידות לעסקה, הגרף יראה את ההתקדמות המצטברת בזמן.</p>
+      </div>
+    `;
+  }
+
+  const width = 640;
+  const height = 260;
+  const paddingX = 34;
+  const paddingY = 24;
+  const span = Math.max(1, rows.length - 1);
+  const toX = (index) => paddingX + (index / span) * (width - paddingX * 2);
+  const toY = (value) => height - paddingY - (Number(value || 0) / chartMax) * (height - paddingY * 2);
+  const polyline = rows.map((point, index) => `${toX(index).toFixed(1)},${toY(point.cumulative_units).toFixed(1)}`).join(" ");
+  const targetY = toY(targetUnits).toFixed(1);
+  const maxY = toY(maxUnits).toFixed(1);
+  const first = rows[0];
+  const last = rows[rows.length - 1];
+
+  return `
+    <div class="tracking-chart-wrap">
+      <svg class="tracking-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="גרף יחידות מצטברות בעסקה">
+        <line class="chart-grid-line" x1="${paddingX}" y1="${targetY}" x2="${width - paddingX}" y2="${targetY}"></line>
+        <line class="chart-grid-line chart-grid-line-soft" x1="${paddingX}" y1="${maxY}" x2="${width - paddingX}" y2="${maxY}"></line>
+        <polyline class="chart-line" points="${esc(polyline)}"></polyline>
+        ${rows.map((point, index) => `<circle class="chart-point" cx="${toX(index).toFixed(1)}" cy="${toY(point.cumulative_units).toFixed(1)}" r="${index === rows.length - 1 ? 5 : 3}"></circle>`).join("")}
+        <text class="chart-label" x="${width - paddingX}" y="${Math.max(14, Number(targetY) - 8)}" text-anchor="end">מינימום ${num(targetUnits)}</text>
+        <text class="chart-label muted-label" x="${paddingX}" y="${Math.max(14, Number(maxY) - 8)}">מקסימום ${num(maxUnits)}</text>
+      </svg>
+      <div class="tracking-chart-meta">
+        <span><strong>${num(first.added_units || first.cumulative_units || 0)}</strong> יח' בהתחלה</span>
+        <span><strong>${num(last.cumulative_units || 0)}</strong> יח' עכשיו</span>
+        <span>${relativeTime(last.at)}</span>
+      </div>
+    </div>
+  `;
+}
+
+function renderTrackingActivityFeed(items) {
+  const rows = Array.isArray(items) ? items : [];
+  if (!rows.length) {
+    return `
+      <div class="empty-surface compact">
+        <strong>עדיין אין פעילות להצגה</strong>
+        <p class="small muted">העדכונים יופיעו כאן כשהעסקה תתקדם בפועל.</p>
+      </div>
+    `;
+  }
+  return `
+    <div class="tracking-activity-feed" aria-live="polite">
+      ${rows.map((item) => `
+        <article class="tracking-activity-item">
+          <span class="activity-dot" aria-hidden="true"></span>
+          <div>
+            <strong>${esc(item.message || "עדכון בעסקה")}</strong>
+            <p class="small muted">${relativeTime(item.at)}${item.cumulative_units ? ` · ${num(item.cumulative_units)} יחידות מצטברות` : ""}</p>
+          </div>
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderErrorCard(error) {
