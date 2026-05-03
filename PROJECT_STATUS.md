@@ -2,6 +2,21 @@
 
 ---
 
+Current update: 2026-05-03 (Buyer Tracking Command Center - UX Smoke)
+
+- Checked locally only: demo build/server on `127.0.0.1:3320`, Edge headless DOM smoke on desktop and mobile, and API-backed flows for buyer tracking at `/app/track/:participantId`. No Render, staging, or redeploy work was performed.
+- States covered: `PendingTarget`, `TargetReached`, `Charging`, payment recovery, `Completed`, `Failed`, and `Cancelled`.
+- UX checked: live hero, Hebrew deal-state copy, progress bar, counters, remaining-to-minimum/capacity copy, cumulative progress chart, anonymous activity feed, personal buyer status card, recovery CTA/no-action copy, desktop layout, and mobile layout.
+- Boundaries checked: no buyer PII from other buyers, no payment provider data, no tokens/secrets, no webhook/outbox/audit internals, no marketplace/search/catalog, no payout/commission, and no fake FOMO counters.
+- Findings: no product UX/QA bugs requiring code changes were found. The screen stayed readable on desktop/mobile, final-state copy was explicit, charging/recovery copy did not imply completion too early, and the activity feed remained anonymous.
+- Smoke harness notes: the first local server launch attempted `npm` through Windows file association and opened Notepad, then was rerun with `npm.cmd`; Edge headless required an escalated local run; the DOM smoke script needed `.env` loading and legal state-machine paths. These were local smoke harness issues, not product defects.
+- Polling decision: `6000ms` remains appropriate for Phase 1 after the smoke. It gives a live feel without adding SSE/WebSocket complexity or causing visible scroll jumps in the tested DOM surfaces.
+- Fixes: no product fixes were needed.
+- Open: optional human visual screenshot review in a real browser before broader rollout; Phase 2 can revisit SSE/WebSocket only if product asks for tighter latency.
+- Next step: keep the current Phase 1 implementation and move to the next scoped buyer-tracking iteration when product defines it.
+
+---
+
 Current update: 2026-05-03 (Buyer Tracking Command Center — Phase 1 Live)
 
 - Completed: upgraded the existing buyer tracking route `/app/track/:participantId` and existing `GET /api/participants/:id/tracking` endpoint instead of creating a duplicate surface.
