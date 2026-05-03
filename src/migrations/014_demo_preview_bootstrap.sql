@@ -113,10 +113,19 @@ CREATE TABLE IF NOT EXISTS siton.deal_delivery_options (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- Existing demo databases may already have siton.participants from an older
--- bootstrap. CREATE TABLE IF NOT EXISTS will not add columns, so align the
--- live delivery snapshot columns before creating indexes or accepting joins.
+-- Existing demo databases may already have core tables from an older bootstrap.
+-- CREATE TABLE IF NOT EXISTS will not add columns, so align live columns before
+-- creating indexes, triggers, or accepting demo traffic.
+ALTER TABLE IF EXISTS siton.deals
+  ADD COLUMN IF NOT EXISTS seller_id TEXT NULL,
+  ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS completion_window_until TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 ALTER TABLE IF EXISTS siton.participants
+  ADD COLUMN IF NOT EXISTS buyer_state siton.buyer_state NOT NULL DEFAULT 'NotJoined',
+  ADD COLUMN IF NOT EXISTS money_state siton.money_state NOT NULL DEFAULT 'NoFinancial',
   ADD COLUMN IF NOT EXISTS delivery_option_id UUID NULL,
   ADD COLUMN IF NOT EXISTS delivery_method_type TEXT NULL,
   ADD COLUMN IF NOT EXISTS delivery_method_label TEXT NULL,
@@ -126,7 +135,15 @@ ALTER TABLE IF EXISTS siton.participants
   ADD COLUMN IF NOT EXISTS buyer_email TEXT NULL,
   ADD COLUMN IF NOT EXISTS delivery_address TEXT NULL,
   ADD COLUMN IF NOT EXISTS delivery_city TEXT NULL,
-  ADD COLUMN IF NOT EXISTS delivery_notes TEXT NULL;
+  ADD COLUMN IF NOT EXISTS delivery_notes TEXT NULL,
+  ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS version INT NOT NULL DEFAULT 1,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE IF EXISTS siton.deal_delivery_options
+  ADD COLUMN IF NOT EXISTS sort_order INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
 
 CREATE TABLE IF NOT EXISTS siton.audit_log (
   audit_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -189,6 +206,40 @@ CREATE TABLE IF NOT EXISTS siton.outbox_dlq (
   LIKE siton.outbox_events INCLUDING ALL
 );
 
+ALTER TABLE IF EXISTS siton.outbox_events
+  ADD COLUMN IF NOT EXISTS event_uuid UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS event_type TEXT NOT NULL DEFAULT 'deadline_check',
+  ADD COLUMN IF NOT EXISTS aggregate_type TEXT NOT NULL DEFAULT 'deal',
+  ADD COLUMN IF NOT EXISTS aggregate_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS sent BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_error TEXT NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+ALTER TABLE IF EXISTS siton.outbox_dlq
+  ADD COLUMN IF NOT EXISTS event_uuid UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS event_type TEXT NOT NULL DEFAULT 'deadline_check',
+  ADD COLUMN IF NOT EXISTS aggregate_type TEXT NOT NULL DEFAULT 'deal',
+  ADD COLUMN IF NOT EXISTS aggregate_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending',
+  ADD COLUMN IF NOT EXISTS attempt_count INT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS max_attempts INT NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS available_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS sent BOOLEAN NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS sent_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ NULL,
+  ADD COLUMN IF NOT EXISTS last_error TEXT NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
 CREATE TABLE IF NOT EXISTS siton.payment_attempts (
   attempt_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   participant_id UUID NOT NULL REFERENCES siton.participants(participant_id) ON DELETE CASCADE,
@@ -198,6 +249,18 @@ CREATE TABLE IF NOT EXISTS siton.payment_attempts (
   correlation_id TEXT NOT NULL,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE IF EXISTS siton.payment_attempts
+  ADD COLUMN IF NOT EXISTS attempt_id UUID NOT NULL DEFAULT gen_random_uuid(),
+  ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL,
+  ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT now();
+
+UPDATE siton.payment_attempts
+SET correlation_id = attempt_id::text
+WHERE correlation_id IS NULL OR btrim(correlation_id) = '';
+
+ALTER TABLE IF EXISTS siton.payment_attempts
+  ALTER COLUMN correlation_id SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS payment_attempts_unique_logical_attempt
 ON siton.payment_attempts(participant_id, deal_id, attempt_type, correlation_id);

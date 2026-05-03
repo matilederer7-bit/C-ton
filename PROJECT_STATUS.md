@@ -2,6 +2,25 @@
 
 ---
 
+Current update: 2026-04-30 (Demo bootstrap schema hardening)
+
+- Decision: the old Render preview is frozen as a staging target for now; no further Render redeploy/debug work is planned.
+- Root cause found during the frozen Render attempt: `CREATE TABLE IF NOT EXISTS` does not retrofit columns into existing preview tables. Migration 014 contained current table definitions and indexes, but it did not fully align existing demo tables before creating indexes.
+- Fix kept because it is generally useful for future demo/staging databases: hardened `src/migrations/014_demo_preview_bootstrap.sql` with idempotent `ALTER TABLE IF EXISTS ... ADD COLUMN IF NOT EXISTS ...` blocks before index creation and trigger setup.
+- Columns strengthened:
+  - `siton.deals`: `seller_id`, `published_at`, `completion_window_until`, `created_at`, `updated_at`.
+  - `siton.participants`: `buyer_state`, `money_state`, delivery option/method/cost fields, buyer delivery snapshot fields, `locked_at`, `version`, `created_at`, `updated_at`.
+  - `siton.deal_delivery_options`: `sort_order`, `created_at`.
+  - `siton.outbox_events` and `siton.outbox_dlq`: `event_uuid`, `event_type`, `aggregate_type`, `aggregate_id`, `payload`, `status`, `attempt_count`, `max_attempts`, `available_at`, sent/processing/error timestamps, `created_at`, `updated_at`.
+  - `siton.payment_attempts`: `attempt_id`, `correlation_id`, `created_at`; missing `correlation_id` values are backfilled from `attempt_id` before restoring `NOT NULL`.
+- Index-risk sweep in 014: checked all `CREATE INDEX` / `CREATE UNIQUE INDEX` statements in the bootstrap area and aligned the non-destructive live columns they depend on before index creation.
+- What was checked before freezing Render: `npx tsc --noEmit`; `npx tsc -p tsconfig.test.json`; `npm run build:demo`; `node scripts/bootstrap_demo_db.cjs` twice in a row; `node .tmp_test_dist/tests/seller_analytics_validation.js`; `node .tmp_test_dist/tests/frontend_flow_validation.js`; `node .tmp_test_dist/tests/full_product_surface_validation.js`; `npm run test:spec-drift-wave3`; `npm test`; and a local `npm run start:demo:prod` smoke with `/health` returning `200 {"ok":true}`.
+- Open: choose a future staging target such as Railway or a new environment before running fresh staging smoke.
+- Progress: `Demo bootstrap schema hardening: 100%`; `Render staging effort: frozen`; `Seller Analytics overall: unchanged`.
+- Next step: clean the working tree, then start Deal Chat Phase 1.
+
+---
+
 Current update: 2026-04-30 (Render Deploy Failure - demo bootstrap delivery_option_id)
 
 - Failed commit: `290c5a7` (`test(seller): validate analytics command center smoke`).
