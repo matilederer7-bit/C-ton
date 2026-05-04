@@ -2648,6 +2648,53 @@ Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs
 - Progress: `85%` of the Trust & Legal Layer track.
 - Next step: deploy-preview smoke test for publish/join legal acceptance UX on mobile and desktop.
 
+## Current update: 2026-05-04 (First Unit Gate — PASSED)
+
+### What was done
+- **First Unit Gate executed** — 17/17 PASS (7 Unit + 10 Static/Contract).
+- **Compile:** `tsc -p tsconfig.test.json --outDir .tmp_test_dist` — PASS, 0 שגיאות.
+- **7 Unit tests:** admin_auth, admin_security_hardening, payment_authorization_env_guard, payment_authorization_real_rail, payment_stripe_adapter, webhook_hmac, webhook_secret_policy — כולם PASS.
+- **10 Static/Contract tests:** כולם PASS לאחר שני תיקונים מינימליים ב-`frontend/app.js`:
+  1. `buyer_tracking_refinement` נכשל → נוסף `flow.authorizationId` לדף אישור (היה נשמר ב-flow אך לא הוצג).
+  2. `product_surfaces_refinement` נכשל → נוסף "נתוני ייחוס בלבד" ל-seller analytics section.
+- **Unit Inventory:** `docs/TEST_INVENTORY.md` — מיפוי מלא של 73 קבצי בדיקה.
+
+### Gate result
+| שלב | תוצאה |
+|---|---|
+| Compile | PASS |
+| Unit (7/7) | PASS |
+| Static / Contract (10/10) | PASS |
+| **Total (17/17)** | **PASS** |
+
+### Readiness
+- **Unit readiness:** 100% (17/17 passed)
+- **Integration readiness:** ממתין — 52 קבצים דורשים PostgreSQL חי
+- **E2E readiness:** ממתין — 4 קבצים דורשים DB + browser
+- **Demo readiness:** ממתין — דורש `npm run bootstrap:demo-db` + DB חי
+
+### Open
+- Integration Gate — 52 tests (require live PostgreSQL)
+- E2E Gate — 4 tests (require browser + DB)
+- `npm run bootstrap:demo-db` → `npm run test:demo-readiness`
+
+### Verdict
+**READY_FOR_INTEGRATION_GATE**
+
+## Current update: 2026-05-04 (Unit Test Inventory Mapping)
+
+- Completed: `docs/TEST_INVENTORY.md` — מיפוי מלא של 73 קבצי בדיקה.
+- Scanned: `package.json` scripts (36 scripts), `tests/` directory, classification by DB/server/provider/env dependency.
+- Compile verified: `tsc -p tsconfig.test.json --noEmit` — PASS, 0 שגיאות.
+- **Unit (safe_for_unit_gate=yes):** 7 קבצים — isolated Fastify + fakeWithTx, או HTTP stub בלבד (אין DB אמיתי).
+- **Static / Contract (safe_for_unit_gate=yes):** 10 קבצים — סריקת קוד מקור, regex assertions, אין DB/שרת/browser.
+- **Integration:** 52 קבצים — כולם דורשים PostgreSQL חי.
+- **E2E:** 4 קבצים — `frontend_browser_smoke` (Edge browser), `adversarial_hardening`, `full_system_qa`, `preprod_torture`.
+- **Unit readiness:** 17/73 קבצים מוכנים ל-Unit Gate (24%).
+- **Integration readiness:** 52/73 דורשים DB — ממתינים לסביבת DB.
+- **E2E readiness:** 4/73 — דורשים DB + browser.
+- Open: הרצת ה-Unit Gate בפועל (17 קבצים, פקודות מפורטות ב-`docs/TEST_INVENTORY.md`).
+
 ## Current update: 2026-04-27 (Deal Duplicate / Seller Reuse Flow)
 
 - Completed: added an owner-only duplicate-deal endpoint that creates a new `Draft` from an existing seller-owned deal and never publishes automatically.

@@ -2329,6 +2329,12 @@ function renderConfirmationPage(dealId) {
           <strong>׳”׳¢׳¡׳§׳” ׳©׳׳ ׳›׳‘׳¨ ׳‘׳×׳•׳ ׳”׳׳¢׳¨׳›׳×</strong>
           <p class="small muted">׳©׳׳•׳¨ ׳׳× ׳׳¡׳ ׳”׳׳¢׳§׳‘, ׳•׳©׳׳— ׳׳•׳×׳• ׳׳¢׳¦׳׳ ׳׳• ׳׳׳™ ׳©׳¦׳¨׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳¡׳˜׳˜׳•׳¡.</p>
         </div>
+        ${flow.authorizationId ? `
+          <div class="summary-item">
+            <span class="muted">מזהה אישור המסגרת</span>
+            <p class="small">${esc(flow.authorizationId)}</p>
+          </div>
+        ` : ""}
         ${flow.authorizationMessage ? `
           <div class="summary-item">
             <span class="muted">׳”׳•׳“׳¢׳× ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span>
@@ -2912,6 +2918,7 @@ function renderSellerAnalyticsSection() {
           <span class="eyebrow">מרכז ניתוח מוכר</span>
           <h2>מרכז ניתוח מוכר</h2>
           <p class="muted section-intro">עודכן לאחרונה: ${dt(analytics.generated_at)}</p>
+            <p class="small muted">נתוני ייחוס בלבד — אינם מהווים אסמכתא פיננסית או קביעת זכאות לתשלום.</p>
         </div>
         <div class="toolbar-actions">
           ${renderSellerAnalyticsPeriodSelector(period, periods)}
