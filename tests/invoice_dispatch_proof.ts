@@ -23,11 +23,12 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
 // Import app to ensure DB + schema are ready
-await import("../src/app.js");
+const { app } = await import("../src/app.js");
 
 import {
   enqueueInvoiceDocument,
   flushPendingDocuments,
+  processInvoiceDocumentById,
   isEligibleForChargeReceipt,
   isEligibleForRefundReceipt,
   CHARGE_RECEIPT_ELIGIBLE_BUYER_STATES,
@@ -105,8 +106,23 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
+async function waitForImportedAppListen() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function closeImportedApp() {
+  await waitForImportedAppListen();
+  await app.close().catch(() => undefined);
+}
+
 // ─── D1: Enqueue → pending row ───────────────────────────────────────────────
 
+await waitForImportedAppListen();
+
+try {
 await run("D1 — enqueue charge_receipt → status=pending, returns queued", async () => {
   const key = `charge_receipt:${randomUUID()}`;
   try {
@@ -248,18 +264,25 @@ await run("D6 — retry-then-succeed → status=issued, exactly 1 row, no duplic
   try {
     await enqueueInvoiceDocument(baseParams(key), pool);
 
+    // Get the document_id for targeted processing (avoids flushPendingDocuments
+    // picking up orphan docs from prior test runs and distorting call counts)
+    const docRow = await pool.query(
+      `SELECT document_id FROM siton.invoice_documents WHERE document_key=$1`, [key]
+    );
+    const documentId = String(docRow.rows[0].document_id);
+
     const provider = buildFailThenSucceedProvider(1);
 
-    // Flush 1 fails
-    await flushPendingDocuments(pool, provider);
+    // Attempt 1: fails
+    try {
+      await processInvoiceDocumentById({ pool, invoiceProvider: provider, documentId, eventId: "d6-attempt-1" });
+    } catch (_) { /* expected failure */ }
     const after1 = await getRow(key);
-    assert.equal(after1?.status, "pending", `should be pending after first failure`);
+    // Reset available_at so attempt 2 can proceed immediately
+    await pool.query(`UPDATE siton.invoice_documents SET status='pending', available_at=now() WHERE document_key=$1`, [key]);
 
-    // Fast-forward available_at
-    await pool.query(`UPDATE siton.invoice_documents SET available_at=now() WHERE document_key=$1`, [key]);
-
-    // Flush 2 succeeds
-    await flushPendingDocuments(pool, provider);
+    // Attempt 2: succeeds
+    await processInvoiceDocumentById({ pool, invoiceProvider: provider, documentId, eventId: "d6-attempt-2" });
 
     const count = await pool.query(`SELECT COUNT(*) AS cnt FROM siton.invoice_documents WHERE document_key=$1`, [key]);
     const row = await getRow(key);
@@ -323,5 +346,8 @@ await run("D8 — eligibility helpers: correct states accepted and rejected", as
   console.log(`     REFUND_RECEIPT_ELIGIBLE_MONEY_STATES=${JSON.stringify(REFUND_RECEIPT_ELIGIBLE_MONEY_STATES)}`);
 });
 
-await pool.end();
 console.log("\nAll invoice dispatch proof tests completed.");
+} finally {
+  await closeImportedApp();
+  await pool.end().catch(() => undefined);
+}

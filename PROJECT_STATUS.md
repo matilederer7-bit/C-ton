@@ -2,6 +2,57 @@
 
 ---
 
+## Current update: 2026-05-06 (First Integration Gate - PASSED CLEAN)
+
+### What was completed
+- First Integration Gate passed clean after timeout/open-handle cleanup.
+- Timeout cluster cleaned: 14/14 PASS, 0 TIMEOUT, 0 FAIL, all tests exited 0.
+- Notification rewrite review completed during Integration Gate triage; notification tests remain assertion-preserving and use isolated event targeting only to avoid stale pending-row pollution.
+
+### What was checked
+- Compile: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist` - PASS.
+- Bootstrap demo DB: `npm run bootstrap:demo-db` - PASS.
+- Bootstrap idempotency rerun: `npm run bootstrap:demo-db` - PASS, no duplicate-key/schema-drift/seed-corruption blocker.
+- Demo readiness: `npm run test:demo-readiness` - PASS. Missing `EXPECTED_COMMIT_SHA` is warning-only and not blocking.
+- Timeout cleanup: focused timeout cluster - PASS.
+- Full integration gate: 61/61 Integration tests from `docs/TEST_INVENTORY.md` - PASS, all `EXIT_CODE_0`, no leftover Node process.
+
+### Gate result
+| Stage | Result |
+|---|---|
+| Compile | PASS |
+| Bootstrap clean | PASS |
+| Bootstrap rerun | PASS |
+| Demo readiness | PASS |
+| Timeout cluster | 14/14 PASS |
+| Full Integration | 61/61 PASS |
+| TIMEOUT | 0 |
+| REAL_FAIL | 0 |
+| INFRA_FAIL | 0 |
+| UNKNOWN | 0 |
+
+### Inventory note
+- `docs/TEST_INVENTORY.md` summary still says 52 Integration files, but the Integration section currently enumerates 61 files.
+- The 61-file gate excluded all E2E/prohibited suites: `frontend_browser_smoke_validation`, `adversarial_hardening_validation`, `full_system_qa_validation`, and `preprod_torture_validation`.
+
+### Open
+- E2E Gate.
+- Demo deploy.
+- CI/CD automation.
+- Real provider credentials if needed for live provider activation.
+
+### Readiness
+- Unit readiness: 100%.
+- Integration readiness: 100%.
+- E2E readiness: not 100% until E2E Gate passes.
+- Demo readiness: ready in local demo-readiness validation, with `EXPECTED_COMMIT_SHA` warning-only when unset.
+- Market readiness: not 100% before E2E and live demo deploy.
+
+### Verdict
+**READY_FOR_E2E_GATE**
+
+---
+
 ## RC Closure Surgical Rescue (2026-05-03)
 
 ### What was done

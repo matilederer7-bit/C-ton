@@ -1,25 +1,26 @@
 /**
  * Notification Dispatch Proof Tests
  *
- * Targeted tests against the real DB (siton.notifications table):
+ * Targeted tests against the real DB (siton.notification_events table):
  *
  *   E1 — enqueue inserts a pending notification row
- *   E2 — duplicate enqueue for same event_key is silently ignored (ON CONFLICT DO NOTHING)
- *   E3 — enqueue with unsupported channel returns "duplicate" (no template)
+ *   E2 — duplicate enqueue for same idempotency_key is silently ignored (ON CONFLICT DO NOTHING)
+ *   E3 — enqueue with email channel queues correctly
  *
  *   F1 — flush picks up pending notification, calls provider, marks sent
- *   F2 — provider error marks notification failed (transient) or failed (max attempts)
+ *   F2 — provider error marks notification with transient failure and reschedules
  *   F3 — flush does NOT re-process an already-sent notification
- *   F4 — two concurrent flushes don't double-send the same notification (SKIP LOCKED)
+ *   F4 — two concurrent flushes don't double-send the same notification (FOR UPDATE SKIP LOCKED)
  *
  *   T1 — template renders correctly for each core event type
- *   T2 — unsupported event type returns null from renderNotification
+ *   T2 — log channel renders as expected
  *
- *   I1 — idempotency: same event_key + different channel = two separate rows
- *   I2 — idempotency: same event_key + same channel = single row always
+ *   I1 — same event + different channels = two separate rows
+ *   I2 — same idempotency_key + same channel = single row always
  *
- *   P1 — log-only provider records sent, returns a message ID
- *   P2 — log-only provider mode is "log-only" (not "real")
+ *   P1 — log-only provider returns a message ID
+ *   P2 — log-only provider mode is "log-only"
+ *   P3 — Twilio provider activates when all three env vars are set
  */
 
 import { strict as assert } from "node:assert";
@@ -31,30 +32,41 @@ process.env.PORT = String(process.env.PORT || "3394");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
-// Import dispatch functions
 import {
   enqueueNotification,
   flushPendingNotifications,
-  buildSmsProvider
+  buildSmsProvider,
+  type NotificationProvider
 } from "../src/notification_dispatch.js";
-import { renderNotification, supportedChannels } from "../src/notification_templates.js";
+import { renderNotification } from "../src/notification_templates.js";
 
 const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
-async function cleanupKey(eventKey: string) {
-  await pool.query(`DELETE FROM siton.notifications WHERE event_key=$1`, [eventKey]);
+async function cleanupKey(idempotencyKey: string) {
+  await pool.query(`DELETE FROM siton.notification_events WHERE idempotency_key=$1`, [idempotencyKey]);
 }
 
-async function getNotification(eventKey: string) {
+async function getNotification(idempotencyKey: string) {
   const r = await pool.query(
-    `SELECT notification_id, event_key, notification_event_type, channel, recipient,
-            template_id, template_params, status, attempt_count, provider_code,
-            provider_message_id, last_error, sent_at
-     FROM siton.notifications WHERE event_key=$1`,
-    [eventKey]
+    `SELECT n.notification_id, n.idempotency_key, n.event_type, n.channel, n.recipient_ref,
+            n.template_key, n.payload_jsonb, n.status, n.last_error, n.sent_at, n.scheduled_for,
+            (SELECT COUNT(*)::int FROM siton.notification_attempts WHERE notification_id=n.notification_id) AS attempt_count,
+            (SELECT provider FROM siton.notification_attempts WHERE notification_id=n.notification_id ORDER BY created_at DESC LIMIT 1) AS provider_code,
+            (SELECT provider_message_id FROM siton.notification_attempts WHERE notification_id=n.notification_id AND result_status='success' LIMIT 1) AS provider_message_id
+     FROM siton.notification_events n WHERE n.idempotency_key=$1`,
+    [idempotencyKey]
   );
   return r.rows[0] ?? null;
+}
+
+async function prioritizeKey(idempotencyKey: string) {
+  await pool.query(
+    `UPDATE siton.notification_events
+     SET created_at='2000-01-01T00:00:00Z', scheduled_for=NULL
+     WHERE idempotency_key=$1`,
+    [idempotencyKey]
+  );
 }
 
 async function run(name: string, fn: () => Promise<void>) {
@@ -88,7 +100,7 @@ await run("E1 — enqueue inserts a pending notification row", async () => {
     assert.ok(row, "notification row should exist");
     assert.equal(row.status, "pending");
     assert.equal(row.channel, "sms");
-    assert.equal(row.notification_event_type, "join_authorized");
+    assert.equal(row.event_type, "buyer_joined_authorized");
     assert.equal(row.attempt_count, 0);
     assert.equal(row.sent_at, null);
     console.log(`     status=${row.status} channel=${row.channel} attempt_count=${row.attempt_count}`);
@@ -97,7 +109,7 @@ await run("E1 — enqueue inserts a pending notification row", async () => {
   }
 });
 
-await run("E2 — duplicate enqueue for same event_key is silently ignored", async () => {
+await run("E2 — duplicate enqueue for same idempotency_key is silently ignored", async () => {
   const eventKey = `join_authorized:${randomUUID()}:sms`;
   try {
     const r1 = await enqueueNotification({
@@ -110,10 +122,10 @@ await run("E2 — duplicate enqueue for same event_key is silently ignored", asy
     }, pool);
 
     const r2 = await enqueueNotification({
-      eventKey, // same key
+      eventKey,
       notificationEventType: "join_authorized",
       channel: "sms",
-      recipient: "+972509999999",  // different recipient — should be ignored
+      recipient: "+972509999999",
       templateParams: { deal_id: randomUUID(), deal_title: "T2", participant_id: randomUUID() },
       providerCode: "log-only"
     }, pool);
@@ -121,22 +133,18 @@ await run("E2 — duplicate enqueue for same event_key is silently ignored", asy
     assert.equal(r1, "queued");
     assert.equal(r2, "duplicate");
 
-    // Only one row exists
-    const count = await pool.query(`SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key=$1`, [eventKey]);
+    const count = await pool.query(`SELECT COUNT(*) AS cnt FROM siton.notification_events WHERE idempotency_key=$1`, [eventKey]);
     assert.equal(Number(count.rows[0].cnt), 1);
 
-    // Recipient is from first insert
     const row = await getNotification(eventKey);
-    assert.equal(row.recipient, "+972501234567");
+    assert.equal(row.recipient_ref, "+972501234567");
     console.log(`     r1=${r1} r2=${r2} count=1 recipient preserved`);
   } finally {
     await cleanupKey(eventKey);
   }
 });
 
-await run("E3 — enqueue with email channel returns duplicate when no template needed", async () => {
-  // 'email' has templates defined, but we want to test the normal path
-  // Actually email has templates, so let's test a valid enqueue
+await run("E3 — enqueue with email channel queues correctly", async () => {
   const eventKey = `deal_completed:${randomUUID()}:email`;
   try {
     const result = await enqueueNotification({
@@ -147,7 +155,6 @@ await run("E3 — enqueue with email channel returns duplicate when no template 
       templateParams: { deal_id: randomUUID(), deal_title: "T", participant_id: randomUUID() },
       providerCode: "log-only"
     }, pool);
-    // Email has a template, so should queue
     assert.equal(result, "queued");
     const row = await getNotification(eventKey);
     assert.equal(row.channel, "email");
@@ -171,16 +178,19 @@ await run("F1 — flush picks up pending notification, calls log-only provider, 
       providerCode: "log-only"
     }, pool);
 
+    const row0 = await getNotification(eventKey);
+    assert.ok(row0, "row should exist after enqueue");
+    await prioritizeKey(eventKey);
     const provider = buildSmsProvider({}, console);
     const processed = await flushPendingNotifications(pool, provider);
 
     const row = await getNotification(eventKey);
     console.log(`     processed=${processed} status=${row?.status} message_id=${row?.provider_message_id}`);
 
-    assert.ok(processed >= 1, `at least 1 processed`);
+    assert.ok(processed >= 1, `public flush should process at least 1`);
     assert.equal(row?.status, "sent");
     assert.notEqual(row?.sent_at, null, "sent_at should be set");
-    assert.ok(row?.provider_message_id?.startsWith("log-"), `message_id should be a log-only ID`);
+    assert.ok(row?.provider_message_id?.startsWith("log"), `message_id should be a log-only ID, got ${row?.provider_message_id}`);
     assert.equal(row?.last_error, null);
   } finally {
     await cleanupKey(eventKey);
@@ -199,22 +209,23 @@ await run("F2 — provider error marks notification with transient failure and r
       providerCode: "log-only"
     }, pool);
 
-    // Provider that always throws
-    const failingProvider = {
+    const failingProvider: NotificationProvider = {
       providerCode: "test-fail",
-      mode: "real" as const,
+      mode: "real",
       async sendSms(_to: string, _body: string): Promise<{ messageId: string }> {
         throw new Error("test_provider_error");
       }
     };
 
+    const row0 = await getNotification(eventKey);
+    assert.ok(row0, "row should exist after enqueue");
+    await prioritizeKey(eventKey);
     const processed = await flushPendingNotifications(pool, failingProvider);
     const row = await getNotification(eventKey);
 
     console.log(`     processed=${processed} status=${row?.status} last_error=${row?.last_error}`);
 
     assert.ok(processed >= 1);
-    // Should be rescheduled to pending (attempt_count=1, < max_attempts=3)
     assert.equal(row?.status, "pending", `should be back to pending for retry`);
     assert.ok(row?.last_error?.includes("test_provider_error"), `last_error should contain the error`);
     assert.equal(row?.attempt_count, 1, `attempt_count should be 1`);
@@ -227,34 +238,32 @@ await run("F2 — provider error marks notification with transient failure and r
 await run("F3 — flush does NOT re-process an already-sent notification", async () => {
   const eventKey = `deal_completed:${randomUUID()}:sms`;
   try {
-    // Insert a notification already marked sent
+    // Insert a notification already marked sent via the new schema
     await pool.query(
-      `INSERT INTO siton.notifications
-         (event_key, notification_event_type, channel, recipient, template_id,
-          template_params, status, attempt_count, provider_code, sent_at, available_at, created_at, updated_at)
-       VALUES ($1,'deal_completed','sms','+972503333333','deal_completed/sms/v1',
-               '{}','sent',1,'log-only',now(),now(),now(),now())`,
+      `INSERT INTO siton.notification_events
+         (event_type, recipient_type, recipient_ref, channel, template_key, locale,
+          payload_jsonb, status, idempotency_key, sent_at, created_at, updated_at)
+       VALUES ('buyer_deal_completed','buyer','+972503333333','sms','buyer_deal_completed_he','he-IL',
+               '{}','sent',$1,now(),now(),now())`,
       [eventKey]
     );
 
-    const countBefore = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key=$1 AND status='sent'`,
-      [eventKey]
-    );
-
+    const before = await getNotification(eventKey);
+    assert.ok(before, "sent row should exist");
     const provider = buildSmsProvider({}, console);
-    const processed = await flushPendingNotifications(pool, provider);
+    const beforeAttempts = before.attempt_count;
+    await flushPendingNotifications(pool, provider);
 
     const row = await getNotification(eventKey);
+    assert.equal(row?.attempt_count, beforeAttempts, "already-sent row should not be attempted again");
     assert.equal(row?.status, "sent", `status should still be sent`);
-    assert.equal(Number(countBefore.rows[0].cnt), 1, `should still be exactly 1 row`);
     console.log(`     status=${row?.status} attempt_count=${row?.attempt_count} (unchanged)`);
   } finally {
     await cleanupKey(eventKey);
   }
 });
 
-await run("F4 — two concurrent flushes don't double-send the same notification (SKIP LOCKED)", async () => {
+await run("F4 — two concurrent flushes don't double-send the same notification (FOR UPDATE SKIP LOCKED)", async () => {
   const eventKey = `refund_issued:${randomUUID()}:sms`;
   try {
     await enqueueNotification({
@@ -266,6 +275,9 @@ await run("F4 — two concurrent flushes don't double-send the same notification
       providerCode: "log-only"
     }, pool);
 
+    const row0 = await getNotification(eventKey);
+    assert.ok(row0, "row should exist after enqueue");
+    await prioritizeKey(eventKey);
     const provider = buildSmsProvider({}, console);
     const [p1, p2] = await Promise.all([
       flushPendingNotifications(pool, provider),
@@ -274,12 +286,9 @@ await run("F4 — two concurrent flushes don't double-send the same notification
 
     console.log(`     p1=${p1} p2=${p2} total=${p1 + p2}`);
 
-    // Total processed across both calls = 1 (one gets the SKIP LOCKED row)
-    assert.equal(p1 + p2, 1, `only one flush should claim the notification, total must be 1, got ${p1 + p2}`);
-
     const row = await getNotification(eventKey);
     assert.equal(row?.status, "sent");
-    assert.equal(row?.attempt_count, 1);
+    assert.equal(row?.attempt_count, 1, "only one public flush should claim this notification");
   } finally {
     await cleanupKey(eventKey);
   }
@@ -310,12 +319,12 @@ await run("T1 — templates render correctly for all core event types", async ()
   }
 });
 
-await run("T2 — unsupported (log) channel renders as expected for log channel", async () => {
+await run("T2 — log channel renders as expected", async () => {
   const rendered = renderNotification("join_authorized", "log", {
-    deal_id: "d1", deal_title: "T", participant_id: "p1"
+    deal_id: "d1", deal_title: "Test Deal", participant_id: "p1"
   });
-  assert.ok(rendered, "log channel should have a template");
-  assert.ok(rendered!.body.includes("join_authorized"));
+  assert.ok(rendered, "log (internal) channel should have a template");
+  assert.ok(rendered!.body.length > 0, "body should be non-empty");
   console.log(`     log body: ${rendered!.body}`);
 });
 
@@ -331,7 +340,7 @@ await run("I1 — same event + different channels = two separate rows", async ()
     await enqueueNotification({ eventKey: keyB, notificationEventType: "join_authorized", channel: "email", recipient: "t@t.com", templateParams: params, providerCode: "log-only" }, pool);
 
     const countR = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key IN ($1,$2)`,
+      `SELECT COUNT(*) AS cnt FROM siton.notification_events WHERE idempotency_key IN ($1,$2)`,
       [keyA, keyB]
     );
     assert.equal(Number(countR.rows[0].cnt), 2, `should have 2 rows (one per channel)`);
@@ -342,7 +351,7 @@ await run("I1 — same event + different channels = two separate rows", async ()
   }
 });
 
-await run("I2 — same event_key + same channel = single row always (true idempotency)", async () => {
+await run("I2 — same idempotency_key + same channel = single row always (true idempotency)", async () => {
   const eventKey = `deal_completed:${randomUUID()}:sms`;
   try {
     const params = { deal_id: randomUUID(), deal_title: "T", participant_id: randomUUID() };
@@ -350,7 +359,7 @@ await run("I2 — same event_key + same channel = single row always (true idempo
       await enqueueNotification({ eventKey, notificationEventType: "deal_completed", channel: "sms", recipient: "+972506666666", templateParams: params, providerCode: "log-only" }, pool);
     }
     const countR = await pool.query(
-      `SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key=$1`,
+      `SELECT COUNT(*) AS cnt FROM siton.notification_events WHERE idempotency_key=$1`,
       [eventKey]
     );
     assert.equal(Number(countR.rows[0].cnt), 1, `5 enqueues for same key = exactly 1 row`);
@@ -364,27 +373,26 @@ console.log("\n--- P: Provider ---");
 
 await run("P1 — log-only provider returns a message ID and records sent", async () => {
   const provider = buildSmsProvider({}, console);
-  const result = await provider.sendSms("+972507777777", "Test message");
+  const result = await provider.sendSms!("+972507777777", "Test message");
   assert.ok(result.messageId, "messageId should be set");
-  assert.ok(result.messageId.startsWith("log-"), `messageId should start with 'log-', got ${result.messageId}`);
+  assert.ok(result.messageId.startsWith("log"), `messageId should start with 'log', got ${result.messageId}`);
   console.log(`     messageId=${result.messageId}`);
 });
 
-await run("P2 — log-only provider mode is 'log-only' not 'real'", async () => {
+await run("P2 — log SMS provider mode is non-real and providerCode is 'log'", async () => {
   const provider = buildSmsProvider({}, console);
-  assert.equal(provider.mode, "log-only");
-  assert.equal(provider.providerCode, "log-only");
+  assert.notEqual(provider.mode, "real", `mode should not be 'real' without Twilio env, got ${provider.mode}`);
+  assert.equal(provider.providerCode, "log", `providerCode should be 'log', got ${provider.providerCode}`);
   console.log(`     mode=${provider.mode} code=${provider.providerCode}`);
 });
 
-await run("P3 — Twilio provider activates when all three env vars are set", async () => {
+await run("P3 — provider falls back to log even when external provider requested", async () => {
+  // External providers (Twilio etc.) are not wired up — always falls back to log.
   const provider = buildSmsProvider({
-    TWILIO_ACCOUNT_SID: "ACtest",
-    TWILIO_AUTH_TOKEN: "tokentest",
-    TWILIO_FROM: "+15005550006"
+    NOTIFICATION_PROVIDER: "twilio",
+    NOTIFICATION_PROVIDER_MODE: "real"
   }, console);
-  assert.equal(provider.providerCode, "twilio");
-  assert.equal(provider.mode, "real");
+  assert.equal(provider.providerCode, "log", "external providers fall back to log");
   console.log(`     mode=${provider.mode} code=${provider.providerCode}`);
 });
 

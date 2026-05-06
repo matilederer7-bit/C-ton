@@ -277,5 +277,6 @@ await run("S6 — all endpoints return 200 on empty state (no crash)", async () 
   }
 });
 
+await app.close().catch(() => undefined);
 await pool.end();
 console.log("\nAll admin observability proof tests completed.");

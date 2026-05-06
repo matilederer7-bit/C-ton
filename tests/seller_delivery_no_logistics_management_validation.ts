@@ -11,6 +11,14 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 
+async function closeImportedApp() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await app.close().catch(() => undefined);
+}
+
 async function run(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -25,6 +33,7 @@ async function run(name: string, fn: () => Promise<void>) {
 // ── Test: no logistics management endpoints exist ─────────────────────────────
 // Checks both the previously-existing delivery_records update endpoint AND
 // other patterns that were never built. All must return 404.
+try {
 await run("no shipped/delivered/tracking update endpoints exist", async () => {
   const logisticsRoutes = [
     // The old delivery_records management endpoint (removed in P1 fix)
@@ -170,3 +179,6 @@ await run("no delivery SMS/email notification endpoints exist", async () => {
 });
 
 console.log("\nAll seller_delivery_no_logistics_management_validation checks completed.");
+} finally {
+  await closeImportedApp();
+}

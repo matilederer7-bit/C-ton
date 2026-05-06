@@ -2329,13 +2329,7 @@ function renderConfirmationPage(dealId) {
           <strong>׳”׳¢׳¡׳§׳” ׳©׳׳ ׳›׳‘׳¨ ׳‘׳×׳•׳ ׳”׳׳¢׳¨׳›׳×</strong>
           <p class="small muted">׳©׳׳•׳¨ ׳׳× ׳׳¡׳ ׳”׳׳¢׳§׳‘, ׳•׳©׳׳— ׳׳•׳×׳• ׳׳¢׳¦׳׳ ׳׳• ׳׳׳™ ׳©׳¦׳¨׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳¡׳˜׳˜׳•׳¡.</p>
         </div>
-        ${flow.authorizationId ? `
-          <div class="summary-item">
-            <span class="muted">מזהה אישור המסגרת</span>
-            <p class="small">${esc(flow.authorizationId)}</p>
-          </div>
-        ` : ""}
-        ${flow.authorizationMessage ? `
+        ${flow.authorizationId && flow.authorizationMessage ? `
           <div class="summary-item">
             <span class="muted">׳”׳•׳“׳¢׳× ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span>
             <p class="small">${esc(flow.authorizationMessage)}</p>

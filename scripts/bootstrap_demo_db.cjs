@@ -171,6 +171,20 @@ async function main() {
     await client.query(TYPESCRIPT_MANAGED_DDL);
     console.log("  OK: seller_accounts, affiliate_accounts, affiliate_attributions, notification_events");
 
+    // Phase 2b: Clear demo-blocking artifacts from prior test runs.
+    // The demo-readiness verdict requires dlq_count = 0 and no stale pending events.
+    // Old test-run outbox artifacts must not block a fresh demo setup.
+    console.log("\nPhase 2b: Clearing outbox artifacts from prior test runs...");
+    try {
+      await client.query("DELETE FROM siton.outbox_dlq");
+      await client.query("DELETE FROM siton.outbox_events WHERE status = 'failed'");
+      // Clear stale pending events older than 1 hour (test artifacts, not live demo state)
+      await client.query("DELETE FROM siton.outbox_events WHERE status IN ('pending','processing') AND available_at < now() - interval '1 hour'");
+      console.log("  OK: outbox_dlq, failed outbox_events, and stale pending events cleared");
+    } catch (err) {
+      console.warn("  WARN: could not clear outbox artifacts —", err.message.split("\n")[0]);
+    }
+
     // Phase 3: Demo seed data
     console.log("\nPhase 3: Demo seed data...");
     await client.query("BEGIN");

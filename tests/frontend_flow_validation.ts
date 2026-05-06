@@ -10,7 +10,8 @@ const { app } = await import("../src/app.js");
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-const repoRoot = join(__dirname, "..", "..");
+// Resolve repo root regardless of whether the test runs from /tests (tsx) or /.tmp_test_dist/tests (compiled)
+const repoRoot = __dirname.includes(".tmp_test_dist") ? join(__dirname, "..", "..") : join(__dirname, "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
 

@@ -382,13 +382,22 @@ async function scenarioR5() {
     const startTime = Date.now();
     let emptyBatches = 0;
 
-    // Drain in batches
-    while (processed < 20 && Date.now() - startTime < 10_000) {
+    // Drain in batches — release non-mine events back to pending so they don't pile up in processing
+    while (processed < 20 && Date.now() - startTime < 30_000) {
       const batch = await claimOutboxBatch(10);
       const mine = batch.filter((e) => uuids.includes(e.event_uuid));
+      const others = batch.filter((e) => !uuids.includes(e.event_uuid));
+      // Release others back to pending+future-scheduled so they don't keep getting reclaimed by us
+      for (const ev of others) {
+        await q(
+          `UPDATE siton.outbox_events SET status='pending', processing_started_at=NULL,
+             available_at=now() + interval '1 hour' WHERE event_uuid=$1`,
+          [ev.event_uuid]
+        );
+      }
       if (mine.length === 0) {
         emptyBatches++;
-        if (emptyBatches > 20) break; // prevent infinite loop if all processed
+        if (emptyBatches > 50) break;
         await sleep(50);
         continue;
       }
@@ -764,6 +773,20 @@ async function main() {
   console.log(`OUTBOX_MAX_ATTEMPTS=${OUTBOX_MAX_ATTEMPTS} OUTBOX_POLL_MS=${OUTBOX_POLL_MS}`);
   console.log(`WORKER_STUCK_TIMEOUT_MS=${WORKER_STUCK_TIMEOUT_MS}`);
   console.log("========================================");
+
+  // Test isolation: defer all currently-pending and stuck-processing events out of the
+  // claim window so they don't compete with this test's freshly-inserted events. The
+  // claim queries sort by created_at ASC, so without this setup an outbox with hundreds
+  // of pre-existing pending events causes the test's new inserts to never be claimed.
+  const deferred = await q(
+    `UPDATE siton.outbox_events
+     SET available_at = now() + interval '24 hours',
+         processing_started_at = NULL,
+         status = CASE WHEN status='processing' THEN 'pending' ELSE status END
+     WHERE status IN ('pending','processing')
+       AND (available_at IS NULL OR available_at <= now() + interval '1 minute')`
+  );
+  console.log(`  setup: deferred ${deferred.rowCount} pre-existing pending/processing events out of the test claim window`);
 
   await scenarioR1();
   await scenarioR2();

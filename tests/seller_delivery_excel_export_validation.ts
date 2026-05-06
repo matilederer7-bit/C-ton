@@ -10,6 +10,18 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 
+async function waitForImportedAppListen() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function closeImportedApp() {
+  await waitForImportedAppListen();
+  await app.close().catch(() => undefined);
+}
+
 async function run(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -21,6 +33,9 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
+await waitForImportedAppListen();
+
+try {
 const SELLER_ID = "seller-excel-test";
 
 async function ensureSellerProfile() {
@@ -169,3 +184,6 @@ await run("handoff JSON response includes required delivery fields for export", 
 });
 
 console.log("\nAll seller_delivery_excel_export_validation checks completed.");
+} finally {
+  await closeImportedApp();
+}

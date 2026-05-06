@@ -214,6 +214,7 @@ export async function ensureAutomaticOperationalCases(withTx: WithTx) {
           WHERE p.deal_id=d.deal_id
             AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
         )
+      ORDER BY d.created_at DESC
       LIMIT 50
     `);
     for (const row of completedWithoutCharges.rows) {

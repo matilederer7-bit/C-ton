@@ -4298,7 +4298,11 @@ export function registerFrontendExperience(
           unique_event_keys: Number(t.unique_event_keys ?? 0),
           oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
           oldest_failed_age_s:  t.oldest_failed_age_s  != null ? Number(Number(t.oldest_failed_age_s).toFixed(1))  : null,
-          provider: { code: deps.notificationSummary.provider, mode: deps.notificationSummary.mode, external_delivery: deps.notificationSummary.external_delivery }
+          provider: {
+            code: deps.notificationSummary.external_delivery ? deps.notificationSummary.provider : "log-only",
+            mode: deps.notificationSummary.external_delivery ? deps.notificationSummary.mode : "log-only",
+            external_delivery: deps.notificationSummary.external_delivery
+          }
         },
         by_channel: channels.rows.map((r: any) => ({
           channel: String(r.channel),

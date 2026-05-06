@@ -196,5 +196,6 @@ await run("H5 — /api/admin/notifications-status includes provider mode", async
   console.log(`     provider=${JSON.stringify(p)}`);
 });
 
+await app.close().catch(() => undefined);
 await pool.end();
 console.log("\nAll invoice queue hardening proof tests completed.");

@@ -222,7 +222,8 @@ await runTest("legal charging.start path succeeds and writes matching audit and 
     url: `/deals/${dealId}/charging/start`,
     headers: {
       "x-request-id": `wave2-start-${Date.now()}`,
-      "idempotency-key": `wave2-start-${Date.now()}`
+      "idempotency-key": `wave2-start-${Date.now()}`,
+      "x-seller-id": "seller-wave2"
     }
   });
   assert.equal(response.statusCode, 200);

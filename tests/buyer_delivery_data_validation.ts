@@ -180,3 +180,4 @@ await run("join does not change deal state", async () => {
 });
 
 console.log("\nAll buyer_delivery_data_validation checks completed.");
+await app.close().catch(() => undefined);

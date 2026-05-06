@@ -355,6 +355,7 @@ await run("B5 — outbox-status stuck_candidates count reflects actual stuck eve
   }
 });
 
+await app.close().catch(() => undefined);
 await DB.end();
 await innerPool.end();
 

@@ -12,6 +12,18 @@ const { app } = await import("../src/app.js");
 const DB_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
+async function waitForImportedAppListen() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function closeImportedApp() {
+  await waitForImportedAppListen();
+  await app.close().catch(() => undefined);
+}
+
 async function run(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -50,6 +62,9 @@ async function insertParticipant(
   );
 }
 
+await waitForImportedAppListen();
+
+try {
 // Test 1: export returns only eligible buyers
 await run("shipping export includes only eligible buyers (ChargedSuccess, RecoveredCharge, DealCompleted)", async () => {
   const dealId = randomUUID();
@@ -161,6 +176,8 @@ await run("shipping export returns headers-only CSV when no eligible buyers exis
   assert.ok(lines[0]?.startsWith("deal_id,"), "header must be present");
 });
 
-await pool.end();
-await app.close();
 console.log("All seller shipping export tests passed.");
+} finally {
+  await closeImportedApp();
+  await pool.end().catch(() => undefined);
+}

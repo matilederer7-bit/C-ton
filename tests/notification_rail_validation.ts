@@ -63,6 +63,26 @@ async function getEvent(idempotencyKey: string) {
   return row.rows[0] ?? null;
 }
 
+// Keep the product flush path while isolating this test from old pending rows in shared DBs.
+// Only the event created by the current test is moved to the front of the public flush queue.
+async function flushUntilProcessed(idempotencyKey: string, provider: NotificationProvider, maxRounds = 30): Promise<number> {
+  let totalProcessed = 0;
+  await pool.query(
+    `UPDATE siton.notification_events
+     SET created_at='2000-01-01T00:00:00Z', scheduled_for=NULL
+     WHERE idempotency_key=$1`,
+    [idempotencyKey]
+  );
+  for (let i = 0; i < maxRounds; i++) {
+    const processed = await flushPendingNotifications(pool, provider);
+    totalProcessed += processed;
+    const event = await getEvent(idempotencyKey);
+    if (event && event.status !== "pending") return totalProcessed;
+    if (processed === 0) return totalProcessed;
+  }
+  return totalProcessed;
+}
+
 await ensureNotificationRailTables(withTx);
 
 await run("enqueue creates pending notification", async () => {
@@ -128,7 +148,7 @@ await run("dispatch log provider marks sent and records attempt", async () => {
       idempotency_key: idempotencyKey
     }, pool);
     const provider = buildNotificationProvider({}, console);
-    const processed = await flushPendingNotifications(pool, provider);
+    const processed = await flushUntilProcessed(idempotencyKey, provider);
     assert.ok(processed >= 1);
     const event = await getEvent(idempotencyKey);
     assert.equal(event.status, "sent");
@@ -217,7 +237,7 @@ await run("notification failure does not mutate deal or participant state", asyn
         return { status: "permanent_fail", error_code: "test_failure", error_message: "test failure" };
       }
     };
-    await flushPendingNotifications(pool, failingProvider);
+    await flushUntilProcessed(idempotencyKey, failingProvider);
     const state = await pool.query(
       `SELECT d.state, p.buyer_state, p.money_state
        FROM siton.deals d

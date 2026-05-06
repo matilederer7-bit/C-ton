@@ -11,7 +11,8 @@
  *   S4 — shipping export CSV includes snapshot fields
  *   S5 — pickup option does NOT require delivery_address
  *   S6 — delivery option DOES require delivery_address (returns 400 + delivery_address_required)
- *   S7 — ownership 403 still enforced after schema change
+ *   S7 — invalid delivery_option_id returns invalid_delivery_option
+ *   S8 — ownership 403 still enforced after schema change
  */
 
 import { strict as assert } from "node:assert";
@@ -44,7 +45,6 @@ async function createDeal(sellerId: string, options?: {
   deliveryOptionType?: "delivery" | "pickup" | "distribution_point";
 }) {
   const dealId = randomUUID();
-  // Insert directly in PendingTarget to avoid trigger requirement on state update
   await pool.query(
     `INSERT INTO siton.deals
        (deal_id, seller_id, title, state, threshold_units, min_units, max_units,
@@ -66,6 +66,23 @@ async function createDeal(sellerId: string, options?: {
   }
 
   return dealId;
+}
+
+// Insert a pre-verified OTP challenge so the join endpoint accepts it without a real OTP flow.
+async function createVerifiedOtpChallenge(dealId: string): Promise<string> {
+  const challengeId = randomUUID();
+  const idempotencyKey = `test:buyer_join:${challengeId}`;
+  await pool.query(
+    `INSERT INTO siton.otp_challenges
+       (challenge_id, channel, destination_hash, destination_display, purpose,
+        code_hash, status, expires_at, verified_at, max_attempts, attempts_count,
+        resend_count, idempotency_key, deal_id, created_at, updated_at)
+     VALUES ($1,'sms','test-hash','test-display','buyer_join',
+             'test-code-hash','verified',now()+interval '1 hour',now(),3,1,
+             0,$2,$3,now(),now())`,
+    [challengeId, idempotencyKey, dealId]
+  );
+  return challengeId;
 }
 
 async function completeDealWithParticipants(
@@ -123,6 +140,7 @@ await run("S1 snapshot columns exist in siton.participants", async () => {
 await run("S2 join persists buyer_phone (from buyer_id), delivery_address, delivery_city, delivery_notes", async () => {
   const sellerId = `seller-snap-${randomUUID().slice(0, 8)}`;
   const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "delivery" });
+  const otpChallengeId = await createVerifiedOtpChallenge(dealId);
 
   const buyerId = "+972501234567";
   const res = await app.inject({
@@ -130,10 +148,13 @@ await run("S2 join persists buyer_phone (from buyer_id), delivery_address, deliv
     url: `/deals/${dealId}/join`,
     payload: {
       buyer_id: buyerId,
+      otp_challenge_id: otpChallengeId,
       delivery_address: "רחוב הרצל 5",
       delivery_city: "תל אביב",
       delivery_notes: "קומה 3, דירה 12",
-      qty: 1
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
     }
   });
   assert.equal(res.statusCode, 200, `join failed: ${res.body}`);
@@ -157,16 +178,20 @@ await run("S2 join persists buyer_phone (from buyer_id), delivery_address, deliv
 await run("S3 join persists buyer_name and buyer_email when provided", async () => {
   const sellerId = `seller-snap-nm-${randomUUID().slice(0, 8)}`;
   const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "delivery" });
+  const otpChallengeId = await createVerifiedOtpChallenge(dealId);
 
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
     payload: {
       buyer_id: "+972509876543",
+      otp_challenge_id: otpChallengeId,
       buyer_name: "ישראל ישראלי",
       buyer_email: "israel@example.com",
       delivery_address: "שדרות רוטשילד 10",
-      qty: 1
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
     }
   });
   assert.equal(res.statusCode, 200, `join failed: ${res.body}`);
@@ -221,13 +246,17 @@ await run("S4 shipping export CSV includes buyer_name, buyer_phone, delivery_add
 await run("S5 pickup option does not require delivery_address", async () => {
   const sellerId = `seller-pickup-${randomUUID().slice(0, 8)}`;
   const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "pickup" });
+  const otpChallengeId = await createVerifiedOtpChallenge(dealId);
 
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
     payload: {
       buyer_id: "+972502222222",
-      qty: 1
+      otp_challenge_id: otpChallengeId,
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
       // no delivery_address — pickup should succeed without it
     }
   });
@@ -238,13 +267,17 @@ await run("S5 pickup option does not require delivery_address", async () => {
 await run("S6 delivery option returns 400 delivery_address_required when address is missing", async () => {
   const sellerId = `seller-deliv-${randomUUID().slice(0, 8)}`;
   const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "delivery" });
+  const otpChallengeId = await createVerifiedOtpChallenge(dealId);
 
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
     payload: {
       buyer_id: "+972503333333",
-      qty: 1
+      otp_challenge_id: otpChallengeId,
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
       // deliberately omit delivery_address
     }
   });
@@ -257,10 +290,11 @@ await run("S6 delivery option returns 400 delivery_address_required when address
   );
 });
 
-// ─── S7: ownership 403 still enforced ────────────────────────────────────────
+// ─── S7: invalid delivery_option_id returns error ────────────────────────────
 await run("S7 invalid delivery_option_id returns invalid_delivery_option and creates no participant", async () => {
   const sellerId = `seller-invalid-opt-${randomUUID().slice(0, 8)}`;
   const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "delivery" });
+  const otpChallengeId = await createVerifiedOtpChallenge(dealId);
   const invalidOptionId = randomUUID();
   const buyerId = "+972504444444";
 
@@ -269,9 +303,12 @@ await run("S7 invalid delivery_option_id returns invalid_delivery_option and cre
     url: `/deals/${dealId}/join`,
     payload: {
       buyer_id: buyerId,
+      otp_challenge_id: otpChallengeId,
       delivery_option_id: invalidOptionId,
-      delivery_address: "׳¨׳—׳•׳‘ ׳“׳’׳ 1",
-      qty: 1
+      delivery_address: "רחוב הנביאים 1",
+      qty: 1,
+      buyer_terms_accepted: true,
+      payment_disclosure_accepted: true
     }
   });
 

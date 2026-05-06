@@ -3,8 +3,8 @@
  *
  * Four targeted tests for the operational surface:
  *
- *   O1 — notification exhausting max_attempts lands in status='failed', never status='sent'
- *   O2 — duplicate dispatch produces exactly one row per event_key+channel (DB truth)
+ *   O1 — notification with permanent_fail lands in status='failed', never 'sent'
+ *   O2 — duplicate dispatch produces exactly one row per idempotency_key (DB truth)
  *   O3 — /api/admin/notifications-status returns correct counts after known inserts
  *   O4 — a retried notification that succeeds on the second attempt produces exactly
  *        one sent row — no duplicate send
@@ -21,48 +21,42 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 
-import { enqueueNotification, flushPendingNotifications, buildSmsProvider } from "../src/notification_dispatch.js";
+import {
+  enqueueNotification,
+  flushPendingNotifications,
+  type NotificationProvider,
+  type NotificationForProvider,
+  type NotificationProviderResult
+} from "../src/notification_dispatch.js";
 
 const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
-async function cleanupKey(eventKey: string) {
-  await pool.query(`DELETE FROM siton.notifications WHERE event_key=$1`, [eventKey]);
+async function cleanupKey(idempotencyKey: string) {
+  await pool.query(
+    `DELETE FROM siton.notification_events WHERE idempotency_key=$1`,
+    [idempotencyKey]
+  );
 }
 
-async function getRow(eventKey: string) {
+async function getRow(idempotencyKey: string) {
   const r = await pool.query(
-    `SELECT status, attempt_count, provider_message_id, last_error, sent_at
-     FROM siton.notifications WHERE event_key=$1`,
-    [eventKey]
+    `SELECT n.status, n.last_error, n.sent_at, n.notification_id,
+            (SELECT COUNT(*) FROM siton.notification_attempts WHERE notification_id=n.notification_id)::int AS attempt_count,
+            (SELECT provider_message_id FROM siton.notification_attempts WHERE notification_id=n.notification_id AND result_status='success' LIMIT 1) AS provider_message_id
+     FROM siton.notification_events n WHERE n.idempotency_key=$1`,
+    [idempotencyKey]
   );
   return r.rows[0] ?? null;
 }
 
-// A provider that always fails — used to exhaust max_attempts
-function buildAlwaysFailProvider(name = "test-always-fail") {
-  return {
-    providerCode: name,
-    mode: "real" as const,
-    async sendSms(_to: string, _body: string): Promise<{ messageId: string }> {
-      throw new Error(`${name}_error`);
-    }
-  };
-}
-
-// A provider that fails on the first N calls, then succeeds
-function buildFailThenSucceedProvider(failCount: number) {
-  let calls = 0;
-  return {
-    providerCode: "fail-then-succeed",
-    mode: "real" as const,
-    callCount: () => calls,
-    async sendSms(_to: string, _body: string): Promise<{ messageId: string }> {
-      calls++;
-      if (calls <= failCount) throw new Error(`deliberate_failure_${calls}`);
-      return { messageId: `ok-${calls}` };
-    }
-  };
+async function prioritizeKey(idempotencyKey: string) {
+  await pool.query(
+    `UPDATE siton.notification_events
+     SET created_at='2000-01-01T00:00:00Z', scheduled_for=NULL
+     WHERE idempotency_key=$1`,
+    [idempotencyKey]
+  );
 }
 
 async function run(name: string, fn: () => Promise<void>) {
@@ -76,98 +70,110 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-// ─── O1: Exhausted retries → status='failed', never 'sent' ──────────────────
+const TEST_DEAL_ID = randomUUID();
 
-await run("O1 — exhausting max_attempts marks status=failed, not sent", async () => {
-  const eventKey = `deal_failed:${randomUUID()}:sms`;
+// ─── O1: permanent_fail → status='failed', never 'sent' ──────────────────────
+
+await run("O1 — permanent_fail provider marks status=failed, not sent", async () => {
+  const idemKey = `test:buyer_deal_failed:o1:${randomUUID()}`;
   try {
-    // Insert with max_attempts=2 so we can exhaust quickly
-    await pool.query(
-      `INSERT INTO siton.notifications
-         (event_key, notification_event_type, channel, recipient, template_id,
-          template_params, status, attempt_count, max_attempts, provider_code,
-          available_at, created_at, updated_at)
-       VALUES ($1,'deal_failed','sms','+972501234567','deal_failed/sms/v1',
-               $2,'pending',0,2,'log-only',now(),now(),now())`,
-      [eventKey, JSON.stringify({ deal_id: randomUUID(), deal_title: "Test", participant_id: randomUUID() })]
-    );
+    await enqueueNotification({
+      event_type: "buyer_deal_failed",
+      recipient_type: "buyer",
+      recipient_ref: "+972501234567",
+      deal_id: TEST_DEAL_ID,
+      channel: "sms",
+      idempotency_key: idemKey,
+      payload_jsonb: { deal_title: "Test Deal O1" }
+    }, pool);
 
-    const failProvider = buildAlwaysFailProvider();
+    const permanentFailProvider: NotificationProvider = {
+      providerCode: "test-permanent-fail",
+      mode: "real",
+      async send(_: NotificationForProvider): Promise<NotificationProviderResult> {
+        return { status: "permanent_fail", error_code: "provider_rejected", error_message: "test_permanent_rejection" };
+      }
+    };
 
-    // Flush 1: attempt_count → 1, status=pending
-    await flushPendingNotifications(pool, failProvider);
-    const after1 = await getRow(eventKey);
-    assert.equal(after1?.status, "pending", `after 1st failure should be pending for retry, got ${after1?.status}`);
-    assert.equal(after1?.attempt_count, 1);
+    const row0 = await getRow(idemKey);
+    assert.ok(row0, "row must exist after enqueue");
+    await prioritizeKey(idemKey);
+    await flushPendingNotifications(pool, permanentFailProvider);
 
-    // Fast-forward available_at so it's claimable again immediately
-    await pool.query(`UPDATE siton.notifications SET available_at=now() WHERE event_key=$1`, [eventKey]);
-
-    // Flush 2: attempt_count reaches max_attempts=2 → permanent failed
-    await flushPendingNotifications(pool, failProvider);
-    const after2 = await getRow(eventKey);
-
-    console.log(`     attempt1=${after1?.attempt_count} status1=${after1?.status} → attempt2=${after2?.attempt_count} status2=${after2?.status}`);
-    console.log(`     last_error=${after2?.last_error}`);
-
-    assert.equal(after2?.status, "failed", `should be permanently failed after max_attempts, got ${after2?.status}`);
-    assert.equal(after2?.sent_at, null, `sent_at must be null — not sent`);
-    assert.ok(after2?.last_error?.includes("max_attempts_exceeded"), `last_error should mention max_attempts_exceeded`);
+    const row = await getRow(idemKey);
+    console.log(`     status=${row?.status} last_error=${row?.last_error}`);
+    assert.equal(row?.status, "failed", `should be failed after permanent_fail, got ${row?.status}`);
+    assert.equal(row?.sent_at, null, "sent_at must be null — not sent");
+    assert.equal(row?.attempt_count, 1, "permanent failure should record exactly one attempt");
+    assert.ok(row?.last_error, "last_error should be set");
   } finally {
-    await cleanupKey(eventKey);
+    await cleanupKey(idemKey);
   }
 });
 
 // ─── O2: Duplicate dispatch = one row (DB truth) ─────────────────────────────
 
-await run("O2 — duplicate dispatch for same event_key produces exactly one DB row", async () => {
-  const eventKey = `join_authorized:${randomUUID()}:sms`;
+await run("O2 — duplicate dispatch for same idempotency_key produces exactly one DB row", async () => {
+  const idemKey = `test:buyer_joined_authorized:o2:${randomUUID()}`;
   try {
-    const params = { deal_id: randomUUID(), deal_title: "D", participant_id: randomUUID() };
-    const base = { notificationEventType: "join_authorized" as const, channel: "sms" as const, recipient: "+972509876543", templateParams: params, providerCode: "log-only" };
-
-    // Fire 10 concurrent enqueues with the same event_key
     const results = await Promise.all(
-      Array.from({ length: 10 }, () => enqueueNotification({ eventKey, ...base }, pool))
+      Array.from({ length: 10 }, () => enqueueNotification({
+        event_type: "buyer_joined_authorized",
+        recipient_type: "buyer",
+        recipient_ref: "+972509876543",
+        deal_id: TEST_DEAL_ID,
+        channel: "sms",
+        idempotency_key: idemKey,
+        payload_jsonb: { deal_title: "Test Deal O2" }
+      }, pool))
     );
 
-    const queued = results.filter(r => r === "queued").length;
+    const queued    = results.filter(r => r === "queued").length;
     const duplicates = results.filter(r => r === "duplicate").length;
-    const rowCount = await pool.query(`SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key=$1`, [eventKey]);
+    const rowCount  = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM siton.notification_events WHERE idempotency_key=$1`,
+      [idemKey]
+    );
 
     console.log(`     queued=${queued} duplicate=${duplicates} db_rows=${rowCount.rows[0].cnt}`);
-
-    assert.equal(Number(rowCount.rows[0].cnt), 1, `exactly 1 DB row regardless of concurrent inserts`);
-    assert.equal(queued, 1, `exactly 1 should report 'queued'`);
-    assert.equal(duplicates, 9, `9 should report 'duplicate'`);
+    assert.equal(Number(rowCount.rows[0].cnt), 1, "exactly 1 DB row regardless of concurrent inserts");
+    assert.equal(queued,    1, "exactly 1 should report 'queued'");
+    assert.equal(duplicates, 9, "9 should report 'duplicate'");
   } finally {
-    await cleanupKey(eventKey);
+    await cleanupKey(idemKey);
   }
 });
 
 // ─── O3: Endpoint returns correct counts ─────────────────────────────────────
 
 await run("O3 — /api/admin/notifications-status returns correct bucket counts", async () => {
-  // Insert one known pending and one known failed notification
-  const keyPending = `charge_succeeded:${randomUUID()}:sms`;
-  const keyFailed  = `charge_failed_recovery:${randomUUID()}:sms`;
+  const idemPending = `test:buyer_deal_target_reached:o3pending:${randomUUID()}`;
+  const idemFailed  = `test:buyer_deal_failed:o3failed:${randomUUID()}`;
   try {
-    const params = JSON.stringify({ deal_id: randomUUID(), deal_title: "T", participant_id: randomUUID() });
+    // Insert one known pending notification
+    await enqueueNotification({
+      event_type: "buyer_deal_target_reached",
+      recipient_type: "buyer",
+      recipient_ref: "+972501111111",
+      deal_id: TEST_DEAL_ID,
+      channel: "sms",
+      idempotency_key: idemPending,
+      payload_jsonb: { deal_title: "Test Deal O3" }
+    }, pool);
+
+    // Insert one that we then manually set to 'failed'
+    await enqueueNotification({
+      event_type: "buyer_deal_failed",
+      recipient_type: "buyer",
+      recipient_ref: "+972502222222",
+      deal_id: TEST_DEAL_ID,
+      channel: "sms",
+      idempotency_key: idemFailed,
+      payload_jsonb: { deal_title: "Test Deal O3 Failed" }
+    }, pool);
     await pool.query(
-      `INSERT INTO siton.notifications
-         (event_key, notification_event_type, channel, recipient, template_id,
-          template_params, status, attempt_count, max_attempts, provider_code,
-          available_at, created_at, updated_at)
-       VALUES ($1,'charge_succeeded','sms','+972501111111','charge_succeeded/sms/v1',$2,'pending',0,3,'log-only',now(),now(),now())`,
-      [keyPending, params]
-    );
-    await pool.query(
-      `INSERT INTO siton.notifications
-         (event_key, notification_event_type, channel, recipient, template_id,
-          template_params, status, attempt_count, max_attempts, provider_code, last_error,
-          available_at, created_at, updated_at)
-       VALUES ($1,'charge_failed_recovery','sms','+972502222222','charge_failed_recovery/sms/v1',$2,'failed',3,3,'log-only','max_attempts_exceeded',now(),now(),now())`,
-      [keyFailed, params]
+      `UPDATE siton.notification_events SET status='failed', last_error='test_failure' WHERE idempotency_key=$1`,
+      [idemFailed]
     );
 
     const res = await app.inject({ method: "GET", url: "/api/admin/notifications-status" });
@@ -179,9 +185,9 @@ await run("O3 — /api/admin/notifications-status returns correct bucket counts"
     assert.ok(typeof body.notifications.sent === "number");
     assert.ok(typeof body.notifications.failed === "number");
     assert.ok(typeof body.notifications.unique_event_keys === "number");
-    assert.ok(Array.isArray(body.by_channel), `by_channel should be an array`);
+    assert.ok(Array.isArray(body.by_channel), "by_channel should be an array");
 
-    // Our inserted known rows should be reflected
+    // Our inserted rows should be reflected
     assert.ok(body.notifications.pending >= 1, `pending should be >= 1`);
     assert.ok(body.notifications.failed >= 1, `failed should be >= 1`);
     assert.ok(body.notifications.unique_event_keys >= 2, `unique_event_keys should be >= 2`);
@@ -192,53 +198,79 @@ await run("O3 — /api/admin/notifications-status returns correct bucket counts"
     console.log(`     notifications=${JSON.stringify(body.notifications)}`);
     console.log(`     by_channel=${JSON.stringify(body.by_channel)}`);
   } finally {
-    await cleanupKey(keyPending);
-    await cleanupKey(keyFailed);
+    await cleanupKey(idemPending);
+    await cleanupKey(idemFailed);
   }
 });
 
 // ─── O4: Retry that succeeds = one sent row, no duplicate ────────────────────
 
 await run("O4 — retry-then-succeed produces exactly one sent row, no duplicate", async () => {
-  const eventKey = `deal_completed:${randomUUID()}:sms`;
+  const idemKey = `test:buyer_deal_completed:o4:${randomUUID()}`;
   try {
     await enqueueNotification({
-      eventKey,
-      notificationEventType: "deal_completed",
+      event_type: "buyer_deal_completed",
+      recipient_type: "buyer",
+      recipient_ref: "+972503333333",
+      deal_id: TEST_DEAL_ID,
       channel: "sms",
-      recipient: "+972503333333",
-      templateParams: { deal_id: randomUUID(), deal_title: "Retry Deal", participant_id: randomUUID() },
-      providerCode: "log-only"
+      idempotency_key: idemKey,
+      payload_jsonb: { deal_title: "Test Deal O4" }
     }, pool);
 
-    // Flush 1 fails
-    const provider = buildFailThenSucceedProvider(1); // fail on call 1, succeed on call 2
-    await flushPendingNotifications(pool, provider);
+    const row0 = await getRow(idemKey);
+    assert.ok(row0, "row must exist after enqueue");
+    const targetNotificationId = String(row0.notification_id);
+    let targetCalls = 0;
+    const failThenSucceedProvider: NotificationProvider = {
+      providerCode: "fail-then-succeed",
+      mode: "real",
+      async send(notification: NotificationForProvider): Promise<NotificationProviderResult> {
+        if (notification.notification_id !== targetNotificationId) {
+          return { status: "temporary_fail", error_code: "non_target_deferred", error_message: "non-target event deferred by test provider" };
+        }
+        targetCalls++;
+        if (targetCalls <= 1) return { status: "temporary_fail", error_code: "temp_error", error_message: `deliberate_failure_${targetCalls}` };
+        return { status: "success", provider_message_id: `ok-${targetCalls}` } as any;
+      }
+    };
 
-    const after1 = await getRow(eventKey);
+    // Attempt 1: temporary_fail
+    await prioritizeKey(idemKey);
+    await flushPendingNotifications(pool, failThenSucceedProvider);
+    const after1 = await getRow(idemKey);
     assert.equal(after1?.status, "pending", `should be pending after first failure`);
 
-    // Fast-forward available_at
-    await pool.query(`UPDATE siton.notifications SET available_at=now() WHERE event_key=$1`, [eventKey]);
+    // Reset scheduled_for so flush 2 can pick it up immediately
+    await pool.query(
+      `UPDATE siton.notification_events
+       SET scheduled_for=NULL, created_at='2000-01-01T00:00:00Z'
+       WHERE idempotency_key=$1`,
+      [idemKey]
+    );
 
-    // Flush 2 succeeds
-    await flushPendingNotifications(pool, provider);
+    // Attempt 2: success
+    await flushPendingNotifications(pool, failThenSucceedProvider);
 
-    // Verify exactly one row, status=sent
-    const count = await pool.query(`SELECT COUNT(*) AS cnt FROM siton.notifications WHERE event_key=$1`, [eventKey]);
-    const row = await getRow(eventKey);
+    const count = await pool.query(
+      `SELECT COUNT(*) AS cnt FROM siton.notification_events WHERE idempotency_key=$1`,
+      [idemKey]
+    );
+    const row = await getRow(idemKey);
 
-    console.log(`     provider_calls=${provider.callCount()} rows=${count.rows[0].cnt} status=${row?.status} message_id=${row?.provider_message_id}`);
+    console.log(`     target_provider_calls=${targetCalls} rows=${count.rows[0].cnt} status=${row?.status} message_id=${row?.provider_message_id}`);
 
-    assert.equal(Number(count.rows[0].cnt), 1, `exactly 1 row — no duplicates`);
+    assert.equal(Number(count.rows[0].cnt), 1, "exactly 1 row — no duplicates");
     assert.equal(row?.status, "sent", `should be sent after successful retry`);
-    assert.equal(row?.attempt_count, 2, `attempt_count should be 2`);
-    assert.notEqual(row?.sent_at, null, `sent_at should be set`);
+    assert.equal(row?.attempt_count, 2, "retry path should record both attempts");
+    assert.equal(targetCalls, 2, "target notification should fail once and then succeed once");
+    assert.notEqual(row?.sent_at, null, "sent_at should be set");
     assert.ok(row?.provider_message_id?.startsWith("ok-"), `message_id should be from successful send`);
   } finally {
-    await cleanupKey(eventKey);
+    await cleanupKey(idemKey);
   }
 });
 
+await app.close().catch(() => undefined);
 await pool.end();
 console.log("\nAll notification ops proof tests completed.");

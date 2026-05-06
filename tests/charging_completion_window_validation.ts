@@ -6,7 +6,7 @@ import pg from "pg";
 import "dotenv/config";
 
 process.env.PORT = "3093";
-process.env.APP_DEPLOYMENT_MODE = "internal-runtime";
+process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-wave3";
 process.env.SELLER_AUTH_CREDENTIALS = JSON.stringify([
   { seller_id: "seller-alpha", display_name: "Seller Alpha", access_code: "alpha-code" }
@@ -193,7 +193,8 @@ async function post(url: string, requestId: string, payload: Record<string, unkn
     url,
     headers: {
       "x-request-id": requestId,
-      "idempotency-key": requestId
+      "idempotency-key": requestId,
+      "x-seller-id": "seller-alpha"
     },
     payload
   });

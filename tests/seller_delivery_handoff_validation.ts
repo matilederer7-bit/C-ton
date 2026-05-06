@@ -188,3 +188,4 @@ await run("handoff has no logistics fields (no shipped/tracking/status)", async 
 });
 
 console.log("\nAll seller_delivery_handoff_validation checks completed.");
+await app.close().catch(() => undefined);

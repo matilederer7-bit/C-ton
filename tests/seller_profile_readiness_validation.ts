@@ -14,6 +14,18 @@ const pool = new Pool({
   max: 5
 });
 
+async function waitForImportedAppListen() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
+
+async function closeImportedApp() {
+  await waitForImportedAppListen();
+  await app.close().catch(() => undefined);
+}
+
 async function run(name: string, fn: () => Promise<void>) {
   try {
     await fn();
@@ -56,6 +68,9 @@ async function createPublishableDeal(sellerId: string) {
   return dealId;
 }
 
+await waitForImportedAppListen();
+
+try {
 // S1: GET /api/seller/profile returns empty profile for new seller
 await run("S1: GET profile returns empty profile for new seller", async () => {
   const sellerId = await createSeller("s1");
@@ -160,5 +175,7 @@ await run("S6: publish deal → 200 after completing seller profile", async () =
   assert.ok(body.response?.ok);
 });
 
-await pool.end();
-await app.close();
+} finally {
+  await closeImportedApp();
+  await pool.end().catch(() => undefined);
+}

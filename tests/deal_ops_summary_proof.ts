@@ -50,17 +50,17 @@ async function insertParticipant(participantId: string, dealId: string, buyerSta
 }
 
 async function insertNotification(dealId: string, participantId: string, status: string, channel = "sms") {
-  const eventKey = `charge_succeeded:${participantId}:${channel}:${randomUUID()}`;
+  const idempotencyKey = `test:deal_completed:${participantId}:${channel}:${randomUUID()}`;
   await pool.query(
-    `INSERT INTO siton.notifications
-       (event_key, notification_event_type, channel, recipient, template_id, template_params,
-        status, attempt_count, max_attempts, provider_code, available_at, created_at, updated_at)
-     VALUES ($1,'charge_succeeded',$2,'+972500000000','charge_succeeded/sms/v1',
-             $3,$4,1,3,'log-only',now(),now(),now())
-     ON CONFLICT (event_key) DO NOTHING`,
-    [eventKey, channel, JSON.stringify({ deal_id: dealId, deal_title: "Test", participant_id: participantId }), status]
+    `INSERT INTO siton.notification_events
+       (event_type, recipient_type, recipient_ref, deal_id, participant_id,
+        channel, template_key, payload_jsonb, status, idempotency_key)
+     VALUES ('buyer_deal_completed','buyer','+972500000000',$1,$2,
+             $3,'buyer_deal_completed_he','{}', $4,$5)
+     ON CONFLICT (idempotency_key) DO NOTHING`,
+    [dealId, participantId, channel, status, idempotencyKey]
   );
-  return eventKey;
+  return idempotencyKey;
 }
 
 async function insertInvoiceDoc(dealId: string, participantId: string, status: string, documentType = "charge_receipt") {
@@ -82,7 +82,7 @@ async function insertInvoiceDoc(dealId: string, participantId: string, status: s
 async function cleanup(dealId: string) {
   await pool.query(`DELETE FROM siton.invoice_documents WHERE deal_id=$1`, [dealId]);
   await pool.query(
-    `DELETE FROM siton.notifications WHERE template_params->>'deal_id' = $1`,
+    `DELETE FROM siton.notification_events WHERE deal_id = $1`,
     [dealId]
   );
   await pool.query(`DELETE FROM siton.participants WHERE deal_id=$1`, [dealId]);
@@ -269,5 +269,6 @@ await run("X6 — by_channel and by_type split is correct", async () => {
   }
 });
 
+await app.close().catch(() => undefined);
 await pool.end();
 console.log("\nAll deal ops summary proof tests completed.");

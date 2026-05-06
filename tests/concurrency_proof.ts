@@ -519,5 +519,6 @@ await run("CONSISTENCY — No proof deal residue remains in DB", async () => {
   assert.equal(leftover, 0, `all test deals should be cleaned up, found ${leftover}`);
 });
 
+await app.close().catch(() => undefined);
 await DB.end();
 console.log("\n\nAll Wave 1 proof scenarios completed.");

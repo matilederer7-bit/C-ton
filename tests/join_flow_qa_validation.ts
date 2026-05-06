@@ -14,6 +14,7 @@ import { strict as assert } from "node:assert";
 
 process.env.PORT = String(process.env.PORT || "3360");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 
@@ -27,10 +28,19 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
+async function closeImportedApp() {
+  const deadline = Date.now() + 5_000;
+  while (!(app as any).server?.listening && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  await app.close().catch(() => undefined);
+}
+
 // ---------------------------------------------------------------------------
 // Bug 4 fix — requireUuid at handler entry
 // ---------------------------------------------------------------------------
 
+try {
 await run("non-UUID deal_id returns 400 before any DB hit", async () => {
   const res = await app.inject({
     method: "POST",
@@ -178,3 +188,6 @@ await run("join endpoint is registered (does not return Fastify route-not-found)
 });
 
 console.log("\nAll join flow QA tests completed.");
+} finally {
+  await closeImportedApp();
+}
