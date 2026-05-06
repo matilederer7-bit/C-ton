@@ -2,6 +2,73 @@
 
 ---
 
+## Current update: 2026-05-06 (First E2E Gate - PASSED CLEAN)
+
+### What was completed
+- First E2E Gate passed clean.
+- E2E browser/open-handle cleanup completed without weakening assertions.
+- Core E2E scenario coverage map reviewed across the four existing E2E suites.
+
+### What was checked
+- Compile: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist` - PASS.
+- Bootstrap demo DB: `npm run bootstrap:demo-db` - PASS.
+- Bootstrap idempotency rerun: `npm run bootstrap:demo-db` - PASS.
+- Demo readiness: `npm run test:demo-readiness` - PASS. Missing `EXPECTED_COMMIT_SHA` remains warning-only when unset.
+- Frontend browser smoke: `node .tmp_test_dist/tests/frontend_browser_smoke_validation.js` - PASS.
+- Full system QA: `node .tmp_test_dist/tests/full_system_qa_validation.js` - PASS.
+- Adversarial hardening: `node .tmp_test_dist/tests/adversarial_hardening_validation.js` - PASS.
+- Preprod torture: `node .tmp_test_dist/tests/preprod_torture_validation.js` - PASS.
+- Full E2E clean run in order: 4/4 PASS, 0 FAIL, 0 TIMEOUT, no leftover Node/Edge process.
+
+### Gate result
+| Stage | Result |
+|---|---|
+| Compile | PASS |
+| Bootstrap clean | PASS |
+| Bootstrap rerun | PASS |
+| Demo readiness | PASS |
+| Browser smoke | PASS |
+| Full system QA | PASS |
+| Adversarial hardening | PASS |
+| Preprod torture | PASS |
+| Full E2E clean run | 4/4 PASS |
+| FAIL | 0 |
+| TIMEOUT | 0 |
+
+### Coverage map
+- Seller Happy Path: covered by browser smoke and full system QA.
+- Buyer Happy Path: covered by browser smoke, full system QA, and preprod torture.
+- Deal Success Path: covered by full system QA and preprod torture.
+- Recovery Path: covered by full system QA and preprod torture.
+- Failed Deal Path: covered by full system QA and preprod torture dropped/failed states.
+- Repeat Purchase: covered by adversarial hardening idempotency/repeat buyer path and preprod max-units pressure.
+- Distributor Attribution Only: covered by demo-readiness/product-contract checks and existing no-commission/no-payout guardrails; no distributor money surface was opened.
+- Seller Exports / Documents: covered by browser/admin participant ops visibility and full-system invoice/document surfaces.
+- Admin/Ops: covered by browser smoke admin surfaces, full system QA health/webhook auth, adversarial hardening, and preprod debug/ops guards.
+
+### Fixes made during gate
+- `tests/demo_readiness_validation.ts`: added explicit successful process exit after app teardown to close the pre-E2E open handle; assertions preserved.
+- `tests/frontend_browser_smoke_validation.ts`: added route-level browser smoke progress and bounded Edge `execFile` timeout to prevent silent browser hangs; assertions preserved.
+
+### Open
+- Demo deploy.
+- Staging/live smoke.
+- CI/CD automation.
+- Real provider credentials if needed for live provider activation.
+- Actual market pilot.
+
+### Readiness
+- Unit readiness: 100%.
+- Integration readiness: 100%.
+- E2E readiness: 100%.
+- Demo readiness: ready locally via demo-readiness plus browser smoke; deploy freshness still depends on real deploy commit env.
+- Market readiness: not 100% until demo deploy, staging/live smoke, provider credentials, and an actual pilot deal.
+
+### Verdict
+**READY_FOR_DEMO_DEPLOY**
+
+---
+
 ## Current update: 2026-05-06 (First Integration Gate - PASSED CLEAN)
 
 ### What was completed

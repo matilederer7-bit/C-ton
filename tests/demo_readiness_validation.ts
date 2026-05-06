@@ -203,3 +203,5 @@ try {
 } finally {
   await app.close().catch(() => undefined);
 }
+
+process.exit(0);

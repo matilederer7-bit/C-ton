@@ -64,6 +64,7 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
     throw new Error(`Edge executable not found at ${edgePath}`);
   }
 
+  console.log(`SMOKE_DOM ${label} ${path}`);
   const profileDir = join(tmpdir(), `siton-browser-smoke-${label}-${Date.now()}`);
   await mkdir(profileDir, { recursive: true });
 
@@ -81,7 +82,7 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
     ];
 
     const output = await new Promise<string>((resolve, reject) => {
-      execFile(edgePath, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
+      execFile(edgePath, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, timeout: 15_000, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
         if (error) {
           reject(new Error(`Edge dump failed for ${path}: ${stderr || error.message}`));
           return;
