@@ -10,7 +10,7 @@
 ALTER TABLE siton.outbox_events DROP CONSTRAINT IF EXISTS outbox_events_aggregate_type_check;
 ALTER TABLE siton.outbox_events
   ADD CONSTRAINT outbox_events_aggregate_type_check
-  CHECK (aggregate_type IN ('deal','participant','seller_payout_batch'));
+  CHECK (aggregate_type IN ('deal','participant','seller_payout_batch','invoice_document'));
 
 ALTER TABLE siton.outbox_events DROP CONSTRAINT IF EXISTS outbox_events_event_type_check;
 ALTER TABLE siton.outbox_events
@@ -24,7 +24,9 @@ ALTER TABLE siton.outbox_events
     'cancel_refund',
     'seller_payout_prepare',
     'seller_payout_dispatch',
-    'seller_payout_reconcile'
+    'seller_payout_reconcile',
+    'invoice_document_issue',
+    'invoice_document_reconcile'
   ));
 
 DROP TABLE IF EXISTS siton.seller_payout_reconciliation;

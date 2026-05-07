@@ -1,4 +1,4 @@
-﻿BEGIN;
+BEGIN;
 
 SET search_path TO siton, public;
 

@@ -9,6 +9,10 @@ services:
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: demo-preview
+      - key: ADMIN_API_KEY
+        generateValue: true
+      - key: EXPECTED_COMMIT_SHA
+        sync: false
       - key: HOST
         value: 0.0.0.0
       - key: DB_SCHEMA

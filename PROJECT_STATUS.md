@@ -2,6 +2,50 @@
 
 ---
 
+## Current update: 2026-05-07 (Demo Deploy Conditions - CONFIRMED)
+
+### What was completed
+- Closed the independent RC verification conditions for demo deploy.
+- `render.yaml` now declares `ADMIN_API_KEY` with Render-generated value; no secret is committed.
+- `render.yaml` now declares `EXPECTED_COMMIT_SHA` as a manual/synced deployment variable so demo-readiness can verify deploy freshness.
+- Removed UTF-8 BOM from migrations `007`, `009`, `010`, and `011`; they now execute normally in bootstrap.
+- Aligned migration `021_seller_payout_rail.sql` with the current outbox constraint contract already present in migration `023` and fresh init paths, so reruns accept `invoice_document` events created by the invoice rail.
+- Browser Smoke remains product-valid but local-environment-sensitive: Codex passed it with Edge headless; Claude's failure was classified as Edge headless ENV, not a product bug. Before CI/remote smoke, use a stable browser runner or migrate this check to Playwright.
+
+### What was checked
+- Compile: `npx tsc -p tsconfig.test.json --outDir .tmp_test_dist` - PASS.
+- Bootstrap demo DB: `npm run bootstrap:demo-db` - PASS, 0 migration warnings.
+- Bootstrap idempotency rerun: `npm run bootstrap:demo-db` - PASS, 0 migration warnings.
+- Demo readiness: `npm run test:demo-readiness` - PASS.
+- Demo-readiness freshness behavior: existing tests confirm missing `EXPECTED_COMMIT_SHA` is warning-only, matching commit is fresh, mismatched commit is blocked/stale.
+
+### Migration warning audit
+- `007_db_alignment_phase1.sql`: A - BOM/syntax easy fix, fixed.
+- `009_db_enforcement_phase2c.sql`: A - BOM/syntax easy fix, fixed.
+- `010_runtime_contract_hard_checks.sql`: A - BOM/syntax easy fix, fixed.
+- `011_outbox_status_processing_fix.sql`: A - BOM/syntax easy fix, fixed.
+- `021_seller_payout_rail.sql`: C - obsolete partial constraint superseded by current invoice rail/init constraint; fixed by aligning to the current outbox aggregate/event type set. No data cleanup or money-flow change was needed.
+
+### Open
+- Demo deploy.
+- Staging/live smoke after deploy.
+- CI/remote browser smoke runner hardening; Playwright is the preferred future runner if Edge headless remains unstable outside local Windows.
+- P1 before controlled live pilot: live provider credentials, live money rail verification, migration history review on a clean production-like DB, and provider-side operational smoke.
+
+### Readiness
+- Unit readiness: 100%.
+- Integration readiness: 100%.
+- E2E readiness: 100%.
+- Demo readiness: confirmed for internal/external demo without real money.
+- Internal/external demo without real money: yes.
+- Controlled live pilot with real money: no, not until P1 is closed.
+- Market readiness: not 100% until demo deploy, staging/live smoke, P1 live-provider closure, and an actual pilot deal.
+
+### Verdict
+**READY_FOR_DEMO_DEPLOY_CONFIRMED**
+
+---
+
 ## Current update: 2026-05-06 (First E2E Gate - PASSED CLEAN)
 
 ### What was completed
