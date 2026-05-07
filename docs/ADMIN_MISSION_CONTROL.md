@@ -1,45 +1,123 @@
 # Admin Mission Control
 
-Admin Mission Control is Siton's internal operations console. It is an admin-only surface, not a public marketplace or buyer-facing search.
+`Admin Mission Control` הוא מרכז התצפית והתפעול הפנימי של סיטון. הוא מיועד לאדמין בלבד, מוגן על ידי `x-admin-key`, ופועל כמשטח read-only לציד תקלות מקצה לקצה.
 
-## Endpoint
+## Endpoints
 
 - `GET /api/admin/mission-control`
-- Protected by the existing `x-admin-key` guard.
-- Read-only by default.
-- Uses existing operational truth tables and does not change deal state, buyer state, money state, payments, invoices, payouts, or settlements.
+- `GET /api/admin/mission-control/anomalies`
+- `GET /api/admin/mission-control/deals/:dealId/trace`
+- `GET /api/admin/mission-control/participants/:participantId/trace`
+- `GET /api/admin/mission-control/correlation/:correlationId`
+- `GET /api/admin/mission-control/outbox/:eventId`
+- `GET /api/admin/mission-control/webhooks/:provider/:eventId`
 
-## Included Areas
+כל endpoints החדשים הם GET/read-only. אין שינוי state, אין capture/refund/void, אין payout ידני, אין מחיקה מ-DLQ ואין replay שמשנה state.
 
-- System status: green / yellow / red, stale-data threshold, outbox, DLQ, payment, invoice, notification, payout, and support counters.
-- Exception cards: Completion Window ending soon, DLQ not empty, Completed without charged success, payment failures, reconcile backlog, invoice failures, payout exceptions, and PendingTarget near deadline.
-- Admin Omnisearch: internal operational lookup by deal, participant, seller, support ticket, invoice document, or payout batch identifiers.
-- Frontend placement: the Mission Control section is the first operational section in `/app/admin` and includes its own internal search box. Browser visual QA checked desktop and intermediate width; the old overview hero now sits below Mission Control.
-- Exceptional deals: operational deal list with target, charged, pending, not-charged, gross, reason, and profile link.
-- Seller Onboarding / KYC: seller readiness and missing profile fields from existing seller accounts.
-- Payouts & Settlements Control: status visibility only. No manual transfer is executed from request thread or UI.
-- Support Hub: open support tickets from the existing support table.
-- Audit & Forensics: recent append-only audit events.
+## Sections
 
-## Explicit Non-Goals
+ה-response המרכזי כולל:
 
-- No buyer-facing marketplace.
-- No public catalog.
-- No public deal search.
-- No affiliate commission or payout.
-- No manual capture, refund, void, or payout operation.
-- No admin state override.
-- No editing critical deal terms.
-- No shipping management / OMS.
+- `system_summary`
+- `frontend_surface`
+- `api_surface`
+- `database`
+- `state_machine_integrity`
+- `outbox`
+- `workers`
+- `webhooks`
+- `payments`
+- `invoices`
+- `payouts`
+- `notifications`
+- `security`
+- `storage_uploads`
+- `performance`
+- `business_metrics`
+- `anomaly_center`
+- `recommended_actions`
 
-## Safety
+ה-UI ב-`/app/admin` מציג את הסקשנים בעברית/RTL, כולל כרטיסי מצב עליונים, `Anomaly Center`, אירועים אחרונים, pause polling, refresh now, badge לנתונים לא עדכניים, וסקשנים מפורטים שאינם JSON גולמי.
 
-The response includes an `action_policy` object where forbidden operations are explicitly disabled:
+## Verdict
 
-- `state_override_enabled: false`
-- `manual_capture_enabled: false`
-- `manual_refund_enabled: false`
-- `manual_void_enabled: false`
-- `manual_payout_enabled: false`
+- `red`: כשל קריטי או חשד לפגיעה בכסף, state, webhooks, outbox, DB או security.
+- `yellow`: חריגה לא חוסמת, latency גבוה, retries, מידע לא ודאי, config חסר בסביבה לא פעילה או נתונים לא עדכניים.
+- `green`: רק כאשר הבדיקות הקיימות מצאו ראיות תקינות.
 
-Any future sensitive admin mutation must remain API-authorized, require a reason, and write audit before it is exposed in the UI.
+כאשר מידע לא ניתן לבדיקה הוא מוצג כ-`unknown` או “לא ידוע”, לא כהצלחה.
+
+## Anomalies
+
+המערכת מזהה בין היתר:
+
+- טבלאות קריטיות חסרות.
+- DLQ או outbox failed/over max attempts.
+- webhooks failed או pending too long.
+- עסקה Completed ללא ChargedSuccess/RecoveredCharge.
+- יחידות מעל `max_units`.
+- עסקאות תקועות ב-Charging/ReadyForCharging.
+- payment attempts במצב unknown או retry storm.
+- invoice, payout או notification failures.
+- admin/debug security posture מסוכן.
+- בעיות frontend סטטיות כגון נכסים חסרים או RTL/lang חסר.
+
+כל anomaly כולל severity, domain, evidence, affected entities, recommended next step ו-link ל-trace כאשר ניתן.
+
+## Allowed Admin Actions
+
+מותר:
+
+- צפייה ו-drill-down.
+- פתיחת פרופיל עסקה/משתתף קיים.
+- העתקת entity/correlation id מהדפדפן.
+- פתיחת support case דרך המסלול הקיים.
+- ניווט ל-outbox/webhook/deal/participant.
+
+## Forbidden Actions
+
+אסור ומושבת במפורש:
+
+- manual capture.
+- manual refund.
+- manual void.
+- manual payout.
+- manual state edit.
+- manual DB patch.
+- delete event.
+- clear DLQ בלי טיפול.
+- mark as resolved בלי ראיה.
+- webhook replay שמשנה state בלי contract idempotent ברור.
+
+## Security
+
+- אין החזרת API keys, tokens, webhook secrets, DB URLs, cookies או authorization headers.
+- env מוחזר כ-presence בלבד: `configured: true/false`.
+- payloads של outbox/webhook מוצגים כ-summary masked בלבד.
+- כל admin endpoint משתמש ב-`requireAdminKey`.
+
+## What Is Unknown
+
+- telemetry פיזי של חומרה אינו זמין מתוך runtime ענני. מוצג `hardware_visibility: unavailable`.
+- correlation רוחבי עדיין חלקי. ראו `docs/OBSERVABILITY_CONTRACT.md`.
+- rate limit ו-CORS מוצגים כ-unknown כאשר אין מקור אמת בטוח.
+
+## Tests
+
+הרצה ייעודית:
+
+```bash
+npm run test:mission-control
+```
+
+Compile:
+
+```bash
+npx tsc --noEmit
+```
+
+הבדיקה מכסה auth, response contract, masking, anomalies endpoint, no destructive actions ו-drill-down auth.
+
+## Next Step
+
+להעמיק את חוזה ה-correlation ברמת middleware ו-worker כך שכל request, audit, outbox, webhook ו-provider reference יקבלו מזהה חקירה אחד עקבי.

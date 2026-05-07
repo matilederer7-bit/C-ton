@@ -86,6 +86,14 @@ import {
   sellerStatusMessage,
   type SellerAction
 } from "./seller_enforcement.js";
+import {
+  buildAdminMissionControlPayload,
+  buildMissionCorrelationTrace,
+  buildMissionDealTrace,
+  buildMissionOutboxTrace,
+  buildMissionParticipantTrace,
+  buildMissionWebhookTrace
+} from "./admin_mission_control.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -3806,9 +3814,22 @@ export function registerFrontendExperience(
         : exceptionCards.some((item) => item.severity === "warning")
           ? "yellow"
           : "green";
+      const missionControlDeep = await buildAdminMissionControlPayload({
+        c,
+        rootDir: join(frontendDir, ".."),
+        deploymentMode: deps.deploymentMode,
+        isDemoPreview: deps.isDemoPreview,
+        paymentProvider: deps.paymentProvider,
+        payoutProvider,
+        invoiceSummary: deps.invoiceSummary,
+        notificationSummary: deps.notificationSummary,
+        debugSurfacesEnabled: deps.debugSurfacesEnabled,
+        getWorkerRunning: deps.getWorkerRunning
+      });
 
       return {
         ok: true,
+        ...missionControlDeep,
         generated_at: new Date().toISOString(),
         stale_after_seconds: 60,
         system: {
@@ -3935,6 +3956,72 @@ export function registerFrontendExperience(
         }
       };
     });
+  });
+
+  app.get("/api/admin/mission-control/anomalies", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    await ensurePayoutTables();
+    await ensureNotificationTables();
+    await ensureInvoiceWebhookTables();
+    await ensurePaymentOpsTables();
+    return deps.withTx(async (c) => {
+      const payload = await buildAdminMissionControlPayload({
+        c,
+        rootDir: join(frontendDir, ".."),
+        deploymentMode: deps.deploymentMode,
+        isDemoPreview: deps.isDemoPreview,
+        paymentProvider: deps.paymentProvider,
+        payoutProvider,
+        invoiceSummary: deps.invoiceSummary,
+        notificationSummary: deps.notificationSummary,
+        debugSurfacesEnabled: deps.debugSurfacesEnabled,
+        getWorkerRunning: deps.getWorkerRunning
+      });
+      return {
+        ok: true,
+        generated_at: payload.generated_at,
+        verdict: payload.verdict,
+        anomaly_center: payload.anomaly_center,
+        recommended_actions: payload.recommended_actions
+      };
+    });
+  });
+
+  app.get("/api/admin/mission-control/deals/:dealId/trace", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const dealId = String(req.params.dealId || "").trim();
+    requireUuid(dealId, "deal_id");
+    return deps.withTx((c) => buildMissionDealTrace(c, dealId));
+  });
+
+  app.get("/api/admin/mission-control/participants/:participantId/trace", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const participantId = String(req.params.participantId || "").trim();
+    requireUuid(participantId, "participant_id");
+    return deps.withTx((c) => buildMissionParticipantTrace(c, participantId));
+  });
+
+  app.get("/api/admin/mission-control/correlation/:correlationId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const correlationId = String(req.params.correlationId || "").trim().slice(0, 200);
+    if (!correlationId) return reply.code(400).send({ ok: false, error: "correlation_id_required" });
+    return deps.withTx((c) => buildMissionCorrelationTrace(c, correlationId));
+  });
+
+  app.get("/api/admin/mission-control/outbox/:eventId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const eventId = String(req.params.eventId || "").trim();
+    requireUuid(eventId, "event_id");
+    return deps.withTx((c) => buildMissionOutboxTrace(c, eventId));
+  });
+
+  app.get("/api/admin/mission-control/webhooks/:provider/:eventId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const provider = String(req.params.provider || "").trim().slice(0, 80);
+    const eventId = String(req.params.eventId || "").trim().slice(0, 200);
+    if (!provider || !eventId) return reply.code(400).send({ ok: false, error: "provider_and_event_id_required" });
+    return deps.withTx((c) => buildMissionWebhookTrace(c, provider, eventId));
   });
 
   app.get("/api/admin/sellers/risk", async (req: any, reply: any) => {

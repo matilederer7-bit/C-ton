@@ -2,6 +2,38 @@
 
 ---
 
+## Current update: 2026-05-07 (Admin Mission Control / Observability Center - DELIVERED)
+
+### What was completed
+- Built `Admin Mission Control` as a full admin-only observability center.
+- Expanded `GET /api/admin/mission-control` with verdict, runtime summary, frontend/API/DB checks, state-machine integrity, outbox, workers, webhooks, payments, invoices, payouts, notifications, security, storage/uploads, performance, business metrics, anomaly center and safe recommendations.
+- Added read-only drill-down endpoints for anomalies, deal trace, participant trace, correlation trace, outbox event trace and webhook event trace.
+- Extended `/app/admin` with Hebrew RTL Mission Control cards, Anomaly Center, recent events, detailed domain sections, refresh now, pause polling and stale-data badge.
+- Added response masking: secrets are represented by configured true/false only.
+- Added `docs/ADMIN_MISSION_CONTROL.md` and `docs/OBSERVABILITY_CONTRACT.md`.
+- Added `tests/mission_control_validation.ts` and `npm run test:mission-control`.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:mission-control` - PASS.
+- Security masking test confirms admin key, provider API key, webhook secret and debug access key values are not present in the response.
+- No destructive Mission Control route was added; POST to a new Mission Control trace endpoint is not available.
+
+### Open
+- Correlation ID coverage is still partial across all requests/workers and is documented in `docs/OBSERVABILITY_CONTRACT.md`.
+- Hardware telemetry remains unavailable from the Node/cloud runtime; Mission Control reports this explicitly as unavailable.
+- CORS/rate-limit are surfaced as unknown until there is a single reliable runtime source of truth.
+
+### Progress
+- Admin Mission Control delivery: 100% for read-only observability surface.
+- Correlation contract rollout: next phase.
+
+### Next step
+- Implement request-level `request_id`/`correlation_id` middleware and propagate it through audit, outbox, workers, webhooks and provider adapters.
+
+---
+
 ## Current update: 2026-05-07 (Adversarial Resilience Gate - PASSED)
 
 ### What was completed

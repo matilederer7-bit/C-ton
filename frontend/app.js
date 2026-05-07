@@ -49,6 +49,7 @@ const state = {
   adminDealOpsPayload: null,
   adminParticipantOpsPayload: null,
   adminUserPayload: null,
+  adminPollingPaused: false,
   error: null,
   banner: null,
   form: {
@@ -248,6 +249,11 @@ document.addEventListener("click", (event) => {
     if (action === "seller-analytics-period") void loadSellerAnalytics(actionTarget.dataset.period || "all");
     if (action === "seller-analytics-refresh") void loadSellerAnalytics(state.sellerAnalyticsPeriod || "all");
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
+    if (action === "admin-polling-toggle") {
+      state.adminPollingPaused = !state.adminPollingPaused;
+      render();
+      return;
+    }
     if (action === "refresh-demo-readiness") { void loadDemoReadiness(); return; }
     if (action === "admin-seller-status-open") openSellerStatusModal(actionTarget);
     if (action === "admin-seller-status-close") closeSellerStatusModal();
@@ -813,6 +819,7 @@ async function runRouteSilently() {
     return;
   }
   if (route.name === "admin") {
+    if (state.adminPollingPaused) return;
     await refreshAdminSilently();
     return;
   }
@@ -4354,9 +4361,10 @@ function renderAdminMissionControl(mission) {
           <span class="badge ${statusTone}">סטטוס ${statusLabel}</span>
           ${isStale ? `<span class="badge warning">נתונים עלולים להיות לא עדכניים</span>` : ""}
           <button class="secondary" type="button" data-inline-action="admin-refresh">רענון ידני</button>
+          <button class="secondary" type="button" data-inline-action="admin-polling-toggle">${state.adminPollingPaused ? "הפעלת polling" : "עצירת polling"}</button>
         </div>
       </div>
-      <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי מתבצע כל ${num(Math.round(POLL_INTERVAL_MS / 1000))} שניות.</p>
+      <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי ${state.adminPollingPaused ? "מושהה" : `כל ${num(Math.round(POLL_INTERVAL_MS / 1000))} שניות`}.</p>
       <form class="stack" data-action="admin-search">
         <div class="field">
           <label for="adminMissionQuery">Omnisearch אדמין</label>
@@ -4379,6 +4387,7 @@ function renderAdminMissionControl(mission) {
         <div class="summary-item"><span class="muted">חשבוניות והתאמה</span><strong>${num(mission.system_status?.invoices?.active_reconcile || 0)}</strong><p class="small muted">כשלי מסמך: ${num(mission.system_status?.invoices?.failed || 0)}</p></div>
         <div class="summary-item"><span class="muted">פיקוח העברות</span><strong>${num(mission.payouts_settlements?.active_batches || 0)}</strong><p class="small muted">פעולות כסף ידניות: לא פעילות</p></div>
       </div>
+      ${renderAdminMissionControlDeep(mission)}
       <section class="compact-section stack">
         <h3>Omnisearch אדמין</h3>
         <p class="small muted">חיפוש תפעולי פנימי בלבד. זה אינו marketplace, אינו קטלוג ציבורי ואינו חיפוש עסקאות לקונים.</p>
@@ -4422,6 +4431,150 @@ function renderAdminMissionControl(mission) {
       </div>
     </section>
   `;
+}
+
+function renderAdminMissionControlDeep(mission) {
+  const anomalies = mission.anomaly_center?.anomalies || [];
+  const sections = [
+    ["system_summary", "System", mission.system_summary],
+    ["database", "DB", mission.database],
+    ["outbox", "Outbox", mission.outbox],
+    ["workers", "Workers", mission.workers],
+    ["webhooks", "Webhooks", mission.webhooks],
+    ["payments", "Payments", mission.payments],
+    ["invoices", "Invoices", mission.invoices],
+    ["payouts", "Payouts", mission.payouts],
+    ["notifications", "Notifications", mission.notifications],
+    ["security", "Security", mission.security],
+    ["frontend_surface", "Frontend", mission.frontend_surface],
+    ["performance", "Performance", mission.performance]
+  ];
+  return `
+    <section class="compact-section stack" id="mission-control">
+      <div class="section-header">
+        <div>
+          <h3>Admin Mission Control</h3>
+          <p class="small muted">תמונת אמת תפעולית read-only: ראיות, חריגים, drill-down והמלצות בטוחות בלבד.</p>
+        </div>
+        <span class="badge ${mission.verdict === "red" ? "danger" : mission.verdict === "yellow" ? "warning" : "success"}">${esc(formatMissionVerdict(mission.verdict))}</span>
+      </div>
+      <div class="admin-urgency-grid">
+        ${sections.map(([key, title, section]) => renderMissionStatusCard(key, title, section)).join("")}
+      </div>
+    </section>
+    <section class="compact-section stack" id="anomaly-center">
+      <div class="section-header">
+        <div>
+          <h3>Anomaly Center</h3>
+          <p class="small muted">חריגים מסודרים לפי חומרה. פתיחת trace מובילה למסכי drill-down או לפרופיל ישות קיים.</p>
+        </div>
+        <span class="badge ${anomalies.some((a) => a.severity === "critical") ? "danger" : anomalies.length ? "warning" : "success"}">${num(anomalies.length)} חריגים</span>
+      </div>
+      ${anomalies.length ? renderMissionAnomalyTable(anomalies) : `<div class="empty-surface"><p class="muted">לא נמצאו חריגים קריטיים לפי הבדיקות הקיימות.</p><p class="small muted">סקשנים שלא ניתן לבדוק מוצגים כלא ידוע ולא כהצלחה.</p></div>`}
+    </section>
+    <section class="compact-section stack">
+      <h3>System Timeline / אירועים קריטיים אחרונים</h3>
+      ${(mission.audit_forensics?.recent_events || []).length ? renderRowsTable((mission.audit_forensics.recent_events || []).slice(0, 20), ["entity_type", "entity_id", "deal_id", "action_name", "state_type", "from_state", "to_state", "created_at"]) : `<div class="empty-surface"><p class="muted">אין אירועים אחרונים להצגה.</p></div>`}
+    </section>
+    <div class="admin-ops-grid">
+      ${renderMissionSection("system_summary", "System", mission.system_summary, ["verdict", "runtime_env", "deploy_freshness_status", "uptime_seconds", "node_version", "platform", "timezone", "warnings_count", "critical_count"])}
+      ${renderMissionSection("frontend_surface", "Frontend Surface", mission.frontend_surface, ["status", "last_modified", "issues"])}
+      ${renderMissionSection("api_surface", "API Surface", mission.api_surface, ["status", "routes_detected", "routes_missing"])}
+      ${renderMissionSection("database", "Database", mission.database, ["status", "connectivity", "missing_tables", "warnings"])}
+      ${renderMissionSection("state_machine_integrity", "State Machine Integrity", mission.state_machine_integrity, ["status", "risk_level", "stuck_deals"])}
+      ${renderMissionSection("outbox", "Outbox", mission.outbox, ["status", "pending", "processing", "failed", "dlq", "oldest_pending_age_seconds", "recommended_action"])}
+      ${renderMissionSection("workers", "Workers", mission.workers, ["status", "enabled", "disabled_reason", "issues"])}
+      ${renderMissionSection("webhooks", "Webhooks", mission.webhooks, ["status", "pending", "failed", "duplicates", "late_events", "secret_configured", "signature_verification_mode"])}
+      ${renderMissionSection("payments", "Payments", mission.payments, ["status", "provider", "mode", "configured", "unknown_count", "reconcile_needed", "retry_storm_candidates"])}
+      ${renderMissionSection("invoices", "Invoices", mission.invoices, ["status", "provider", "mode", "configured", "pending", "failed", "issued"])}
+      ${renderMissionSection("payouts", "Payouts", mission.payouts, ["status", "provider_mode", "pending", "failed", "returned", "frozen"])}
+      ${renderMissionSection("notifications", "Notifications", mission.notifications, ["status", "pending", "failed", "oldest_pending_age_seconds"])}
+      ${renderMissionSection("security", "Security", mission.security, ["status", "admin_auth", "debug_surfaces", "public_debug_risk", "issues"])}
+      ${renderMissionSection("storage_uploads", "Storage & Uploads", mission.storage_uploads, ["status", "adapter", "mime_policy", "size_limit", "path_traversal_protection", "issues"])}
+      ${renderMissionSection("performance", "Performance", mission.performance, ["status", "generated_in_ms", "db_ping_ms", "latency_warnings"])}
+      ${renderMissionSection("business_metrics", "Business Metrics", mission.business_metrics, ["active_deals", "draft_deals", "pending_target", "target_reached", "completion_window", "completed", "failed", "cancelled", "buyers_joined", "units_committed", "units_charged", "gross_charged", "platform_fee_total", "seller_net"])}
+    </div>
+  `;
+}
+
+function renderMissionStatusCard(key, title, section) {
+  const status = section?.status || section?.verdict || "unknown";
+  const tone = status === "red" ? "danger" : status === "yellow" || status === "unknown" ? "warning" : "success";
+  const issues = Array.isArray(section?.issues) ? section.issues.length : Array.isArray(section?.warnings) ? section.warnings.length : 0;
+  return `
+    <a class="kpi-card ${tone}" href="#mission-section-${esc(key)}">
+      <span class="muted">${esc(title)}</span>
+      <strong>${esc(formatMissionVerdict(status))}</strong>
+      <p class="small muted">${num(issues)} אזהרות/סוגיות</p>
+    </a>
+  `;
+}
+
+function renderMissionAnomalyTable(anomalies) {
+  return `
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>חומרה</th><th>Domain</th><th>כותרת</th><th>ישות מושפעת</th><th>גיל</th><th>הצעד הבטוח הבא</th><th>Trace</th></tr></thead>
+        <tbody>
+          ${anomalies.map((item) => {
+            const entity = (item.affected_entities || [])[0] || {};
+            const link = item.link_target || (entity.type === "deal" && entity.id ? `/app/admin/deals/${encodeURIComponent(entity.id)}` : entity.type === "participant" && entity.id ? `/app/admin/participants/${encodeURIComponent(entity.id)}` : "/app/admin");
+            return `
+              <tr>
+                <td><span class="badge ${item.severity === "critical" ? "danger" : item.severity === "warning" ? "warning" : "success"}">${esc(formatMissionSeverity(item.severity))}</span></td>
+                <td>${esc(item.domain || "לא ידוע")}</td>
+                <td>${esc(item.title || "לא ידוע")}</td>
+                <td>${esc(entity.type || "לא ידוע")}: ${esc(entity.id || "לא ידוע")}</td>
+                <td>${item.age_seconds == null ? "לא ידוע" : `${num(Math.round(item.age_seconds))} שניות`}</td>
+                <td>${esc(item.recommended_next_step || "בדיקה ידנית בטוחה בלבד")}</td>
+                <td><a class="button secondary" href="${esc(link)}" data-nav="${esc(link)}">Open Trace</a></td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderMissionSection(id, title, section, keys) {
+  const status = section?.status || "unknown";
+  const tone = status === "red" ? "danger" : status === "yellow" || status === "unknown" ? "warning" : "success";
+  return `
+    <section class="compact-section stack" id="mission-section-${esc(id)}">
+      <div class="section-header">
+        <h3>${esc(title)}</h3>
+        <span class="badge ${tone}">${esc(formatMissionVerdict(status))}</span>
+      </div>
+      <div class="summary-grid">
+        ${keys.map((key) => `
+          <div class="summary-item">
+            <span class="muted">${esc(key)}</span>
+            <strong>${esc(formatMissionValue(section?.[key]))}</strong>
+          </div>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function formatMissionValue(value) {
+  if (value === null || value === undefined || value === "") return "לא ידוע";
+  if (typeof value === "boolean") return value ? "כן" : "לא";
+  if (typeof value === "number") return String(value);
+  if (Array.isArray(value)) return value.length ? value.slice(0, 4).map((item) => typeof item === "string" ? item : JSON.stringify(item)).join(", ") : "אין";
+  if (typeof value === "object") return Object.entries(value).slice(0, 4).map(([key, item]) => `${key}: ${formatMissionValue(item)}`).join(" · ");
+  return String(value);
+}
+
+function formatMissionVerdict(value) {
+  const map = { green: "ירוק", yellow: "צהוב", red: "אדום", unknown: "לא ידוע" };
+  return map[value] || value || "לא ידוע";
+}
+
+function formatMissionSeverity(value) {
+  const map = { critical: "קריטי", warning: "אזהרה", info: "מידע" };
+  return map[value] || value || "לא ידוע";
 }
 
 function formatMissionReason(reason) {

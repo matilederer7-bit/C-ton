@@ -39,7 +39,8 @@
     "test:spec-drift-wave3": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js",
     "test:demo-package": "npm run build:demo",
     "test:demo-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/demo_readiness_validation.js",
-    "test:admin-support-cases": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_support_cases_validation.js"
+    "test:admin-support-cases": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_support_cases_validation.js",
+    "test:mission-control": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mission_control_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"
