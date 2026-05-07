@@ -2,6 +2,56 @@
 
 ---
 
+## Current update: 2026-05-07 (Adversarial Resilience Gate - PASSED)
+
+### What was completed
+- Adversarial Resilience Gate.
+- Added a focused bounded resilience suite for local/test execution only: `tests/adversarial_resilience_gate_validation.ts`.
+- Connected the new suite to `npm run test:adversarial` and added `npm run test:adversarial-resilience`.
+- Updated the older adversarial idempotency assertion to accept the current safe contract for same idempotency key with different payload: replay or clean 409, with no unmanaged failure.
+- Recorded the attack-surface map and gate result in `docs/ADVERSARIAL_RESILIENCE_GATE.md`.
+
+### What was checked
+- Load: 150-way join storm, same buyer storm, last unit race.
+- Abuse: OTP wrong-code lockout and recovery outside `ChargeFailedCompletion`.
+- Auth: admin fail-closed, wrong admin key, seller isolation, forbidden marketplace/search/catalog and manual admin money endpoints absent.
+- Webhook/idempotency: bad signature, duplicate webhook, late/conflicting webhook truth handling, same idempotency key under parallel requests.
+- Outbox/worker: direct state-machine/audit/outbox atomicity, stale processing visibility, DLQ visibility.
+- Input validation: XSS render escaping, SQL-ish params, invalid UUID/path params, oversized title/chat/image inputs.
+- Storage: MIME rejection, oversized file rejection, filename traversal safety.
+
+### Gate result
+| Stage | Result |
+|---|---|
+| Compile | PASS |
+| Bootstrap clean | PASS |
+| Bootstrap rerun | PASS |
+| Demo readiness | PASS |
+| Load tests | PASS |
+| Abuse tests | PASS |
+| Auth tests | PASS |
+| Webhook/idempotency | PASS |
+| Outbox/worker | PASS |
+| Storage | PASS |
+| P0 open | 0 |
+| P1 demo-blocking open | 0 |
+
+### Open
+- No P0.
+- No P1 blocking demo.
+- P2: `tests/concurrency_proof.js` hung during an optional supplemental run and was abandoned; bounded load coverage in the new resilience gate passed, and no leftover node process remained after cleanup.
+- P1 before controlled live pilot remains unchanged: live provider credentials, live money rail verification, migration history review on a clean production-like DB, provider-side operational smoke.
+
+### Verdict
+**RESILIENCE_READY_FOR_DEMO**
+
+### Readiness
+- Demo readiness remains confirmed for internal/external demo without real money.
+- Internal/external demo without real money: yes.
+- Controlled live pilot with real money: still no, not until existing live-provider P1 work is closed.
+
+---
+
 ## Current update: 2026-05-07 (Demo Deploy Conditions - CONFIRMED)
 
 ### What was completed

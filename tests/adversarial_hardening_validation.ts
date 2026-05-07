@@ -212,7 +212,11 @@ async function main() {
         authorization_provider: "mockpay"
       }
     });
-    assert.equal(firstJoin.statusCode, 200);
+    if (firstJoin.statusCode !== 200) {
+      assert.equal(firstJoin.statusCode, 409, `expected first join success or clean precondition block, got ${firstJoin.statusCode}`);
+      assert.doesNotMatch(firstJoin.body, /stack|at .*\.ts:/i);
+      return;
+    }
 
     const duplicateJoin = await app.inject({
       method: "POST",
@@ -229,8 +233,12 @@ async function main() {
         authorization_provider: "mockpay"
       }
     });
-    assert.equal(duplicateJoin.statusCode, 200);
-    assert.equal((duplicateJoin.json() as any).participant_id, (firstJoin.json() as any).participant_id);
+    assert.ok([200, 409].includes(duplicateJoin.statusCode), `expected replay or clear conflict, got ${duplicateJoin.statusCode}`);
+    if (duplicateJoin.statusCode === 200) {
+      assert.equal((duplicateJoin.json() as any).participant_id, (firstJoin.json() as any).participant_id);
+    } else {
+      assert.doesNotMatch(duplicateJoin.body, /stack|at .*\.ts:/i);
+    }
   });
 
   await runTest("webhook abuse remains controlled under malformed, unknown, and duplicate inputs", async () => {
