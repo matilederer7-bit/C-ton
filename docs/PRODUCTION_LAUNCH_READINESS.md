@@ -1,11 +1,11 @@
 # Production Launch Readiness
 
-Status: foundation map. Live launch remains intentionally blocked until provider sandbox / live money validation is complete.
+Status: foundation map with Full E2E Gate passed. Live launch remains intentionally blocked until provider sandbox / live money validation is complete.
 
 ## Verdict
 
 - `demo_ready`: yes
-- `e2e_ready`: yes when scale and security demo gates are not blocked
+- `e2e_ready`: yes
 - `sandbox_ready`: partial, depends on provider env presence
 - `live_ready`: no
 - `blocked`: yes
@@ -39,11 +39,12 @@ This document is a checklist surface for the operator. Mission Control returns t
 
 ## Next Gate
 
-`Full E2E Gate`. After Full E2E, the next and final gate before live money is provider sandbox / live money validation.
+`Provider Sandbox / Live Money Validation`. Full E2E passed, but live money remains blocked until provider sandbox evidence is complete.
 
 ## Validation
 
 - `npm run test:production-launch-readiness`
+- `npm run test:full-e2e-gate`
 - `npm run test:provider-live-money-readiness`
 - `npm run test:scale-readiness`
 - `npm run test:security-hardening`

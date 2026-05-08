@@ -2,6 +2,63 @@
 
 ---
 
+## Current update: 2026-05-08 (Full E2E Gate - PASS)
+
+### What was completed
+- Continued from the Claude Code handoff instead of restarting blindly. Verified `master`, clean starting tree, HEAD `1eadee6`, and required history commits `8e867c4` and `0daacf9`.
+- Closed the `preprod_torture` and `full_system_qa` tails. Root cause was test isolation: both suites imported the app before disabling the outbox worker, allowing background worker activity to race deterministic join/state assertions. Both harnesses now set `DISABLE_OUTBOX_WORKER=1` and fixed ports before dynamic import.
+- Added `npm run test:full-e2e-gate` and `tests/full_e2e_gate_validation.ts`.
+- The Full E2E Gate covers seller KYC/publish, buyer public deal, OTP, hash-only tracking token, demo authorization, deal progression, outbox/webhook idempotency, recovery/90 percent contracts, Mission Control, Admin Control Plane, admin identity/MFA/RBAC, support, storage, legal/trust/accessibility and security/abuse invariants.
+- Added `docs/FULL_E2E_GATE.md`.
+- No live provider was connected. No live money was performed. No state machine or money logic was changed.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:full-e2e-gate` - PASS.
+- `npm run test:mvp-completion` - PASS.
+- `npm run test:security-identity-tracking` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:scale-readiness` - PASS.
+- `npm run test:cache-policy` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run test:seller-onboarding` - PASS.
+- `npm run test:storage-readiness` - PASS.
+- `npm run test:notifications-readiness` - PASS.
+- `npm run test:support-operations` - PASS.
+- `npm run test:admin-intervention` - PASS.
+- `npm run test:legal-trust` - PASS.
+- `npm run test:production-launch-readiness` - PASS.
+- `npm run test:preprod-torture` - PASS.
+- `npm run test:full-system` - PASS.
+- `npm run bootstrap:demo-db` - PASS.
+- Bootstrap rerun - PASS, 0 migration warnings.
+- `npm audit --omit=dev` - PASS, 0 vulnerabilities.
+- `npm audit` - PASS, 0 vulnerabilities.
+
+### Open
+- Live money remains blocked by design until Provider Sandbox / Live Money Validation.
+- Provider sandbox must prove payment, invoice, payout, notification and reconcile behavior with provider IDs/webhooks before any live pilot.
+- Object storage remains required before multi-instance/live.
+- Production admin operations still need named admin provisioning, MFA enrollment runbook evidence and shared-key fallback retirement or containment.
+
+### Progress
+- Full E2E Gate: 100%.
+- Provider sandbox readiness: ready to enter.
+- Live readiness: blocked by design.
+
+### Verdict
+**FULL_E2E_GATE_PASS_READY_FOR_PROVIDER_SANDBOX**
+
+### Next step
+- Run Provider Sandbox / Live Money Validation without marking live-ready until provider evidence is complete.
+
+---
+
 ## Current update: 2026-05-08 (MVP Deep Completion Pass - READY FOR FULL E2E)
 
 ### What was completed

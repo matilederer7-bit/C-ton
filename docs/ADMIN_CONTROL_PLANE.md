@@ -30,17 +30,14 @@ Implemented with bounded, idempotent execution:
 - `retry_notification`: only failed notifications. Does not duplicate sent notifications.
 - `retry_invoice_failed`: only failed invoice documents without provider document reference.
 - `open_support_case`: opens or reuses an operational support case.
+- `trigger_reconcile`: internal dry-run/read-only reconcile action. It does not call a live provider and does not mutate deal state.
+- `freeze_payouts`: creates an internal payout-freeze flag and blocks payout eligibility/new payout creation for the target.
+- `unfreeze_payouts`: removes or expires the internal payout freeze with full audit.
+- `content_takedown_request`: hides content with a placeholder and audit trail; it does not physically delete content.
+- `pause_joining_emergency`: creates an expiring internal pause that blocks new joins with `423` without changing `deal.state`.
+- `pause_charging_emergency`: creates an expiring internal pause that blocks charging/worker execution without manual state edits or money movement.
 
-Foundation-only / NotImplemented when executed:
-
-- `trigger_reconcile`
-- `freeze_payouts`
-- `unfreeze_payouts`
-- `content_takedown_request`
-- `pause_joining_emergency`
-- `pause_charging_emergency`
-
-These are recorded safely but do not pretend to perform unsafe work without a clear worker/contract.
+These actions are internal safe actions only. They do not perform live provider calls, manual captures, manual refunds, manual state edits or external money movement.
 
 ## Forbidden Actions
 
@@ -95,6 +92,7 @@ Action creation/approval/execution requires session identity, RBAC permission, a
 
 ```bash
 npm run test:admin-control-plane
+npm run test:full-e2e-gate
 npm run test:mission-control
 npx tsc --noEmit
 npx tsc -p tsconfig.test.json

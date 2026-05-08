@@ -1,6 +1,6 @@
 # Provider Live Money Readiness
 
-Status: demo-ready architecture audit added; live money remains blocked.
+Status: demo-ready architecture audit added; Full E2E Gate passed; live money remains blocked.
 
 ## Verdict
 
@@ -80,11 +80,12 @@ Real/live mode must fail closed or report blocked when required secrets are miss
 2. Implement or prove production-grade reconcile for stale `UNKNOWN` payment attempts.
 3. Implement real `freeze_payouts` enforcement before live money.
 4. Add production admin identity/MFA and second approval.
-5. Run a live-provider dry run in sandbox with no real card charges.
+5. Run provider sandbox validation with no real card charges and record provider request/webhook IDs.
 
 ## Validation
 
 - `npm run test:provider-live-money-readiness` passed.
+- `npm run test:full-e2e-gate` passed with demo providers only.
 - No live provider connection was made.
 - No secrets were added or exposed.
 - No manual money action was added.

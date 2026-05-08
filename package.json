@@ -56,7 +56,8 @@
     "test:operational-runbooks": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/operational_runbooks_validation.js",
     "test:legal-trust": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/legal_trust_validation.js",
     "test:production-launch-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/production_launch_readiness_validation.js",
-    "test:mvp-completion": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mvp_completion_validation.js && node .tmp_test_dist/tests/seller_onboarding_validation.js && node .tmp_test_dist/tests/storage_readiness_validation.js && node .tmp_test_dist/tests/notifications_readiness_validation.js && node .tmp_test_dist/tests/support_operations_validation.js && node .tmp_test_dist/tests/admin_intervention_validation.js && node .tmp_test_dist/tests/operational_runbooks_validation.js && node .tmp_test_dist/tests/legal_trust_validation.js && node .tmp_test_dist/tests/production_launch_readiness_validation.js"
+    "test:mvp-completion": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mvp_completion_validation.js && node .tmp_test_dist/tests/seller_onboarding_validation.js && node .tmp_test_dist/tests/storage_readiness_validation.js && node .tmp_test_dist/tests/notifications_readiness_validation.js && node .tmp_test_dist/tests/support_operations_validation.js && node .tmp_test_dist/tests/admin_intervention_validation.js && node .tmp_test_dist/tests/operational_runbooks_validation.js && node .tmp_test_dist/tests/legal_trust_validation.js && node .tmp_test_dist/tests/production_launch_readiness_validation.js",
+    "test:full-e2e-gate": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/full_e2e_gate_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

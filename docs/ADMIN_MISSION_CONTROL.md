@@ -28,6 +28,11 @@ The main response includes:
 - `invoices`
 - `payouts`
 - `notifications`
+- `seller_onboarding_readiness`
+- `storage_readiness`
+- `support_readiness`
+- `mvp_completion_readiness`
+- `production_launch_readiness`
 - `security`
 - `storage_uploads`
 - `scale_readiness`
@@ -64,6 +69,8 @@ Action endpoints:
 
 ## Readiness Gates
 
+`seller_onboarding_readiness`, `storage_readiness`, `support_readiness`, `mvp_completion_readiness` and `production_launch_readiness` report the MVP completion and launch-readiness surfaces that the Full E2E Gate consumes.
+
 `scale_readiness` reports stateless API posture, in-memory risks, OTP/rate-limit/storage/worker/idempotency readiness, DB pool posture, load balancer readiness, and blockers before multi-instance deployment.
 
 `live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
@@ -71,6 +78,8 @@ Action endpoints:
 `security_hardening_gate` reports defensive security findings with `pass` / `warning` / `blocked`, P0/P1/P2/P3 severity, masked evidence only, blockers, and safe next actions. It now includes `admin_identity_status`, `mfa_status`, `rbac_status`, `participant_tracking_security`, `demo_security_verdict`, and `live_security_verdict`.
 
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
+
+Full E2E validation is documented in `docs/FULL_E2E_GATE.md`; Mission Control must keep `live_money_readiness.verdicts.live_ready` false after that gate.
 
 - `GET /api/admin/actions`
 - `GET /api/admin/actions/:adminActionId`

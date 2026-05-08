@@ -1,6 +1,6 @@
 # MVP Completion Gate
 
-Status: gate added. Pass means the project is ready for the Full E2E Gate. Pass does not mean live-ready.
+Status: passed and followed by a passing Full E2E Gate. Pass means the project was ready for Full E2E and the next gate is now Provider Sandbox / Live Money Validation. Pass does not mean live-ready.
 
 ## Verdict Values
 
@@ -8,7 +8,7 @@ Status: gate added. Pass means the project is ready for the Full E2E Gate. Pass 
 - `warning` — non-blocking warnings remain (for example overdue support cases or scale partial posture).
 - `blocked` — at least one demo/E2E blocker is present.
 
-The gate is **never** `live_ready`. Live readiness is decided by the next two gates after this one (Full E2E Gate, then Provider Sandbox / Live Money Validation).
+The gate is **never** `live_ready`. Full E2E has now passed; live readiness is still decided only by Provider Sandbox / Live Money Validation.
 
 ## Sections Evaluated
 
@@ -51,11 +51,11 @@ The gate is **never** `live_ready`. Live readiness is decided by the next two ga
 - Publish flow KYC tightening for production-like mode.
 - Payout freeze gate inside `payout_rail`.
 
-The test is intentionally source-static. A full DB-backed E2E happens in the Full E2E Gate after this gate passes.
+The test is intentionally source-static. The DB-backed Full E2E Gate is documented in `docs/FULL_E2E_GATE.md` and runs through `npm run test:full-e2e-gate`.
 
 ## Post-E2E Live Money Blockers
 
-The MVP completion gate explicitly records that live money remains blocked. The next gate (Full E2E) does not unblock live money. Live money requires a separate Provider Sandbox / Live Money Validation gate with:
+The MVP completion gate explicitly records that live money remains blocked. The Full E2E Gate did not unblock live money. Live money requires a separate Provider Sandbox / Live Money Validation gate with:
 
 - Provider sandbox authorization / capture / refund / reconcile evidence.
 - Webhook signature secret rotation policy.
