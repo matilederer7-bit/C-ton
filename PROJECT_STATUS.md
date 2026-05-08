@@ -2,6 +2,50 @@
 
 ---
 
+## Current update: 2026-05-08 (Security Identity And Tracking Gate - PASS FOR DEMO)
+
+### What was completed
+- Added Admin Identity foundation with `admin_users`, `admin_sessions`, hashed session tokens and admin auth endpoints.
+- Added MFA foundation with hash-only email OTP challenges and recent-MFA enforcement for high-trust admin actions.
+- Added RBAC foundation with closed roles and permissions for SuperAdmin, OpsAdmin, SupportAdmin and ReadOnlyAdmin; high-trust payout/emergency permissions are SuperAdmin-only.
+- Restricted `ADMIN_API_KEY` to bootstrap/read-only posture for the hardened action paths; sensitive admin actions require session identity.
+- Added participant tracking token foundation with hash-only persistence, expiry, revocation foundation and production-like legacy blocking.
+- Added `RateLimiterStore` abstraction with explicit `single_instance_only` memory default.
+- Added docs for Admin Identity/RBAC/MFA and Participant Tracking Security.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:security-identity-tracking` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:scale-readiness` - PASS.
+- `npm run test:cache-policy` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run bootstrap:demo-db` - PASS.
+- Bootstrap rerun - PASS, 0 migration warnings observed.
+- `npm audit --omit=dev` - PASS, 0 vulnerabilities.
+- `npm audit` - PASS, 0 vulnerabilities.
+
+### Open
+- Live pilot remains blocked until named admins are provisioned, MFA enrollment/runbooks are operational, shared-key fallback is retired or tightly constrained, tracking is token-only in live, and shared/platform rate limiting exists for multi-instance use.
+- No P0/P1 demo blocker remains in the implemented foundation. Live pilot remains intentionally blocked until operational live controls are complete.
+
+### Progress
+- Demo security identity/tracking gate: 100% foundation.
+- Live security identity/tracking readiness: partial, blocked until operational live controls are closed.
+
+### Verdict
+**SECURITY_IDENTITY_TRACKING_GATE_PASS**
+
+### Next step
+- Complete live admin provisioning/MFA enrollment runbooks and enforce token-only tracking plus platform/shared rate limits before live pilot.
+
+---
+
 ## Current update: 2026-05-08 (Security Hardening Gate - WARNING)
 
 ### What was completed
@@ -33,7 +77,7 @@
 **SECURITY_HARDENING_GATE_WARNING**
 
 ### Next step
-- Add named admin identities, MFA/RBAC, and signed or session-bound participant tracking before live pilot.
+- Complete named admin provisioning, MFA/RBAC enrollment and token-only participant tracking before live pilot.
 
 ---
 

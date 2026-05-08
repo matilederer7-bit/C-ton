@@ -40,7 +40,7 @@ Payouts:
 - `freeze_payouts_admin_action_foundation_only`
 - live refund and payout provider validation are not complete
 - admin identity/MFA and second-approval identity are not production-complete
-- Security Hardening Gate remains `warning` until admin identity/MFA/RBAC and participant tracking access are strengthened for live-pilot sensitivity.
+- Security Identity Tracking Gate passes for demo foundation, but live money remains blocked until named admins are provisioned, MFA is operationally enforced, shared-key fallback is retired or constrained, and participant tracking is token-only in live mode.
 
 ## Required Environment Variables
 

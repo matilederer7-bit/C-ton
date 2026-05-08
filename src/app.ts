@@ -64,6 +64,8 @@ import {
   parseCookies
 } from "./seller_auth.js";
 import { ensureAdminControlPlaneTables, safeHeaderId } from "./admin_control_plane.js";
+import { ensureAdminIdentityTables } from "./admin_identity.js";
+import { ensureParticipantTrackingTables, issueParticipantTrackingToken } from "./participant_tracking_security.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -490,6 +492,8 @@ async function atomicMultiTransition(args: {
   insideTx?: (c: PoolClient) => Promise<void>;
 }): Promise<{ response: any; replay: boolean }> {
   await ensureAdminControlPlaneTables(withTx);
+  await ensureAdminIdentityTables(withTx);
+  await ensureParticipantTrackingTables(withTx);
   const response = args.response ?? { ok: true };
 
   return withTx(async (c) => {
@@ -2197,7 +2201,7 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
 export { app };
 
 // ---------------------------------------------------------------------------
-// In-memory rate limiter
+// Rate limiter
 // Configurable via RATE_LIMIT_MAX (requests per window) and
 // RATE_LIMIT_WINDOW_MS (window duration in ms). Off when RATE_LIMIT_MAX=0.
 // Uses a fixed-window counter keyed by client IP.
@@ -2205,24 +2209,52 @@ export { app };
 // Behind Render (or any proxy with trustProxy:true), req.ip already resolves
 // the first untrusted IP from X-Forwarded-For via Fastify's built-in handling.
 // Sensitive endpoints (OTP, join-deal) use a tighter per-path sub-limit.
+// Default store is memory with explicit single-instance scale mode. The narrow
+// interface is the replacement point for Redis/DB/platform-backed enforcement.
 // ---------------------------------------------------------------------------
 const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 200);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 // Stricter limit for sensitive mutation endpoints (OTP, joining a deal)
 const RATE_LIMIT_SENSITIVE_MAX = Number(process.env.RATE_LIMIT_SENSITIVE_MAX ?? 20);
+export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "single_instance_only";
 
 // Paths that get the tighter per-IP limit (prefix match without trailing slash)
 const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals"];
 
 type RateLimitEntry = { count: number; resetAt: number };
-const rateLimitStore = new Map<string, RateLimitEntry>();
+interface RateLimiterStore {
+  hit(key: string, now: number, windowMs: number): RateLimitEntry;
+  purge(now: number): void;
+  readonly scale_mode: string;
+}
+
+class MemoryRateLimiterStore implements RateLimiterStore {
+  readonly scale_mode = "single_instance_only";
+  private readonly buckets = new Map<string, RateLimitEntry>();
+
+  hit(key: string, now: number, windowMs: number) {
+    const current = this.buckets.get(key);
+    if (!current || current.resetAt <= now) {
+      const next = { count: 1, resetAt: now + windowMs };
+      this.buckets.set(key, next);
+      return next;
+    }
+    current.count += 1;
+    return current;
+  }
+
+  purge(now: number) {
+    for (const [key, entry] of this.buckets) {
+      if (entry.resetAt <= now) this.buckets.delete(key);
+    }
+  }
+}
+
+const rateLimitStore: RateLimiterStore = new MemoryRateLimiterStore();
 
 // Purge expired entries every 5 minutes to prevent unbounded memory growth
 const rateLimitPurge = setInterval(() => {
-  const now = Date.now();
-  for (const [key, entry] of rateLimitStore) {
-    if (entry.resetAt <= now) rateLimitStore.delete(key);
-  }
+  rateLimitStore.purge(Date.now());
 }, 5 * 60_000);
 rateLimitPurge.unref();
 
@@ -2240,36 +2272,26 @@ if (RATE_LIMIT_MAX > 0) {
 
     // Global limit bucket
     const globalKey = `g:${ip}`;
-    const globalEntry = rateLimitStore.get(globalKey);
-    if (!globalEntry || globalEntry.resetAt <= now) {
-      rateLimitStore.set(globalKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-    } else {
-      globalEntry.count += 1;
-      if (globalEntry.count > RATE_LIMIT_MAX) {
-        const retryAfterSecs = Math.ceil((globalEntry.resetAt - now) / 1000);
-        void reply
-          .code(429)
-          .header("Retry-After", String(retryAfterSecs))
-          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
-        return;
-      }
+    const globalEntry = rateLimitStore.hit(globalKey, now, RATE_LIMIT_WINDOW_MS);
+    if (globalEntry.count > RATE_LIMIT_MAX) {
+      const retryAfterSecs = Math.ceil((globalEntry.resetAt - now) / 1000);
+      void reply
+        .code(429)
+        .header("Retry-After", String(retryAfterSecs))
+        .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      return;
     }
 
     // Sensitive-endpoint stricter bucket
     if (RATE_LIMIT_SENSITIVE_MAX > 0 && isSensitivePath(url)) {
       const sensitiveKey = `s:${ip}`;
-      const sensitiveEntry = rateLimitStore.get(sensitiveKey);
-      if (!sensitiveEntry || sensitiveEntry.resetAt <= now) {
-        rateLimitStore.set(sensitiveKey, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
-      } else {
-        sensitiveEntry.count += 1;
-        if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
-          const retryAfterSecs = Math.ceil((sensitiveEntry.resetAt - now) / 1000);
-          void reply
-            .code(429)
-            .header("Retry-After", String(retryAfterSecs))
-            .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
-        }
+      const sensitiveEntry = rateLimitStore.hit(sensitiveKey, now, RATE_LIMIT_WINDOW_MS);
+      if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
+        const retryAfterSecs = Math.ceil((sensitiveEntry.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
       }
     }
   });
@@ -3022,9 +3044,22 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
   const dealPriceRow = await pool.query(`SELECT price_per_unit FROM siton.deals WHERE deal_id=$1`, [dealId]);
   const deliveryCost = Number(participant.delivery_cost || 0);
+  await ensureParticipantTrackingTables(withTx);
+  const trackingAccess = await withTx(async (c) => {
+    return issueParticipantTrackingToken(c, {
+      participant_id: participant.participant_id,
+      deal_id: dealId,
+      purpose: "tracking",
+      issued_via: "buyer_join",
+      correlation_id: correlationId
+    });
+  });
+  const trackingUrl = `/app/track/${encodeURIComponent(participant.participant_id)}?t=${encodeURIComponent(trackingAccess.token)}`;
   return {
     ok: true,
     participant_id: participant.participant_id,
+    tracking_access_token: trackingAccess.token,
+    tracking_url: trackingUrl,
     delivery_option_id: participant.delivery_option_id ?? null,
     delivery_method_type: participant.delivery_method_type ?? null,
     delivery_method_label: participant.delivery_method_label ?? null,
@@ -3306,6 +3341,8 @@ let workerRunning = false;
   await ensureLegalAcceptanceTables(withTx);
   await ensureOtpRailTables(withTx);
   await ensureAdminControlPlaneTables(withTx);
+  await ensureAdminIdentityTables(withTx);
+  await ensureParticipantTrackingTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

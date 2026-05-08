@@ -1,6 +1,6 @@
 # Security Hardening Gate
 
-Status: `SECURITY_HARDENING_GATE_WARNING`.
+Status: `SECURITY_IDENTITY_TRACKING_GATE_PASS` for demo, `live_security_verdict=blocked`.
 
 ## Purpose
 
@@ -41,15 +41,16 @@ None found.
 
 ### P1
 
-- `SEC-P1-ADMIN-IDENTITY`: admin auth is fail-closed in production-like mode, but still shared-key based. This is acceptable for demo operations, not full production identity/MFA/RBAC.
-- `SEC-P1-PARTICIPANT-BEARER-LINK`: participant tracking is bearer-link based by high-entropy participant id. Acceptable for current demo link flow, but should become signed-token or buyer-session bound before live pilot if the tracking surface expands.
+- `SEC-P1-ADMIN-IDENTITY`: fixed for demo foundation. Admin users, hashed sessions, RBAC and sensitive-action identity requirements exist. Shared key remains bootstrap/read-only fallback.
+- `SEC-P1-MFA-RBAC`: fixed for demo foundation. Sensitive actions require session identity, permission and recent MFA. Live pilot still needs enrollment/runbooks.
+- `SEC-P1-PARTICIPANT-BEARER-LINK`: fixed for demo foundation. Tracking tokens are hash-only with expiry/revocation foundation; legacy links are demo compatibility only.
 
 ### P2
 
 - `SEC-P2-HTTP-SECURITY-HEADERS`: fixed.
 - `SEC-P2-TEST-DB-FALLBACK-CREDENTIAL`: fixed.
 - `SEC-P2-SELLER-COOKIE-SECURE`: fixed.
-- `SEC-P2-RATE-LIMIT-SINGLE-INSTANCE`: documented. In-memory rate limiting remains single-instance only.
+- `SEC-P2-RATE-LIMIT-SINGLE-INSTANCE`: foundation closed with `RateLimiterStore` abstraction and explicit `single_instance_only` default. Multi-instance still needs shared/platform enforcement.
 
 ### P3
 
@@ -63,9 +64,9 @@ Baseline browser hardening headers are applied from the app-level request hook. 
 
 ### Auth And Authorization
 
-Admin endpoints require `x-admin-key` when configured and fail closed in production-like mode when no admin key exists. Admin identity, MFA, and scoped RBAC remain P1 before live pilot.
+Admin read endpoints may still accept `x-admin-key` as bootstrap/read-only fallback. Sensitive admin actions require named session identity, RBAC permission and recent MFA.
 
-Seller-sensitive routes must check seller ownership. Participant tracking remains link-contract based and must not expose raw card data or secrets.
+Seller-sensitive routes must check seller ownership. Participant tracking now supports tokenized hash-only access; production-like environments block bare participant-id tracking.
 
 ### Webhooks
 
@@ -94,11 +95,12 @@ Current in-process rate limiting is useful for a single-instance demo. Multi-ins
 
 ## Demo And Live Pilot Gates
 
-Demo is not blocked by this security pass.
+Demo is not blocked by this security pass and can be treated as `SECURITY_IDENTITY_TRACKING_GATE_PASS`.
 
 Live pilot remains blocked/warning until:
 
-- admin identity/MFA/RBAC exists,
-- participant tracking access is strengthened if sensitive data expands,
+- named admins are provisioned and enrolled in MFA,
+- shared-key fallback is removed or tightly constrained operationally,
+- participant tracking is token-only in the live environment,
 - distributed or platform rate limiting is closed for multi-instance use,
 - existing live-money blockers remain closed in `docs/PROVIDER_LIVE_MONEY_READINESS.md`.

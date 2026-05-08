@@ -36,7 +36,8 @@ await runTest("scale_readiness_report_contract_validation", async () => {
 });
 
 await runTest("in_memory_state_inventory_validation", async () => {
-  assert.match(app, /const rateLimitStore = new Map/);
+  assert.match(app, /class MemoryRateLimiterStore/);
+  assert.match(app, /const rateLimitStore: RateLimiterStore = new MemoryRateLimiterStore/);
   assert.match(frontendRuntime, /const legacyPhoneByChallenge = new Map/);
   assert.match(mission, /rateLimitStore/);
   assert.match(mission, /legacyPhoneByChallenge/);

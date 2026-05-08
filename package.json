@@ -11,6 +11,7 @@
     "start": "tsx src/app.ts",
     "start:demo": "npm run build:demo && npm run start:demo:prod",
     "bootstrap:demo-db": "node scripts/bootstrap_demo_db.cjs",
+    "admin:create-user": "node scripts/create_admin_user.cjs",
     "build:demo": "node scripts/build_demo_bundle.cjs",
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",
     "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/deal_chat_validation.js && node .tmp_test_dist/tests/buyer_tracking_command_center_validation.js && node .tmp_test_dist/tests/buyer_recovery_flow_validation.js && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js && node .tmp_test_dist/tests/real_integrations_validation.js && node .tmp_test_dist/tests/full_system_qa_validation.js && node .tmp_test_dist/tests/adversarial_hardening_validation.js && node .tmp_test_dist/tests/preprod_torture_validation.js && node .tmp_test_dist/tests/full_product_surface_validation.js && node .tmp_test_dist/tests/remaining_product_surfaces_validation.js && node .tmp_test_dist/tests/ultimate_prelive_qa_rc_validation.js && node .tmp_test_dist/tests/master_product_depth_validation.js && node .tmp_test_dist/tests/demo_preview_deployment_validation.js && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js && node .tmp_test_dist/tests/demo_readiness_validation.js && node .tmp_test_dist/tests/admin_support_cases_validation.js",
@@ -45,7 +46,8 @@
     "test:cache-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/cache_policy_validation.js",
     "test:scale-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/scale_readiness_validation.js",
     "test:provider-live-money-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/provider_live_money_readiness_validation.js",
-    "test:security-hardening": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_hardening_validation.js"
+    "test:security-hardening": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_hardening_validation.js",
+    "test:security-identity-tracking": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_identity_tracking_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

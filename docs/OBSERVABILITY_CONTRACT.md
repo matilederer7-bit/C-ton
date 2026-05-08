@@ -28,8 +28,8 @@ Coverage is `partial`, not full.
 - Worker log propagation is still partial.
 - Some older legacy direct inserts do not yet write correlation data.
 - Webhooks can link by provider event/payment references, but external providers do not always send an original correlation id.
-- Admin second approval identity enforcement is partial because admin identity is header-based, not a full account/MFA model.
-- Admin MFA is unavailable.
+- Admin second approval identity enforcement now uses session identity for hardened Admin Actions.
+- Admin MFA is available as an email-OTP foundation and required for high-trust actions; live pilot still needs enrollment and recovery runbooks.
 
 ## Rules
 

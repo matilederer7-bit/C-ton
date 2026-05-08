@@ -513,7 +513,7 @@ async function loadDealChat(dealId, shouldRender = true) {
 
 async function loadTracking(participantId) {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳¡׳˜׳˜׳•׳¡ ׳”׳”׳©׳×׳×׳₪׳•׳×...", async () => {
-    state.trackingPayload = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    state.trackingPayload = await api(trackingApiUrl(participantId));
     const tracking = state.trackingPayload?.tracking;
     if (tracking?.deal_id) {
       saveFlow(tracking.deal_id, {
@@ -527,13 +527,13 @@ async function loadTracking(participantId) {
 
 async function loadRecovery(participantId) {
   await busy("טוען את מסך השלמת התשלום...", async () => {
-    state.recoveryPayload = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    state.recoveryPayload = await api(trackingApiUrl(participantId));
   }, "לא הצלחנו לטעון את מסך השלמת התשלום.");
 }
 
 async function refreshRecoverySilently(participantId) {
   try {
-    state.recoveryPayload = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    state.recoveryPayload = await api(trackingApiUrl(participantId));
     render();
   } catch {}
 }
@@ -546,11 +546,13 @@ async function submitRecoveryRequest(participantId) {
   render();
   try {
     const idemKey = `recovery:${participantId}:${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const trackingToken = currentTrackingToken(participantId);
     const response = await api(`/api/participants/${encodeURIComponent(participantId)}/recovery`, {
       method: "POST",
       headers: {
         "x-request-id": idemKey,
-        "idempotency-key": idemKey
+        "idempotency-key": idemKey,
+        ...(trackingToken ? { authorization: `Bearer ${trackingToken}` } : {})
       },
       body: json({})
     });
@@ -873,7 +875,7 @@ async function refreshDealSilently(dealId) {
 
 async function refreshTrackingSilently(participantId) {
   try {
-    const next = await api(`/api/participants/${encodeURIComponent(participantId)}/tracking`);
+    const next = await api(trackingApiUrl(participantId));
     const previous = state.trackingPayload;
     state.trackingPayload = next;
     if (!previous) {
@@ -1197,6 +1199,8 @@ async function payAndJoin(form) {
       authorizationId: authorization.authorization_id,
       authorizationMessage: authorization.hold_message || "",
       participantId: join.participant_id,
+      trackingAccessToken: join.tracking_access_token || "",
+      trackingUrl: join.tracking_url || "",
       deliveryOptionId: join.delivery_option_id || flow.deliveryOptionId || "",
       deliveryMethodType: join.delivery_method_type || flow.deliveryMethodType || "",
       deliveryMethodLabel: join.delivery_method_label || flow.deliveryMethodLabel || "",
@@ -2134,7 +2138,7 @@ function renderDealChatMessage(message) {
 
 function renderExistingFlow(flow, dealId) {
   const continueHref = flow.participantId
-    ? `/app/track/${encodeURIComponent(flow.participantId)}`
+    ? (flow.trackingUrl || `/app/track/${encodeURIComponent(flow.participantId)}`)
     : flow.otpVerified
       ? `/app/join/${encodeURIComponent(dealId)}/payment`
       : `/app/join/${encodeURIComponent(dealId)}/otp`;
@@ -2335,6 +2339,7 @@ function renderConfirmationPage(dealId) {
     );
   }
 
+  const trackingHref = flow.trackingUrl || `/app/track/${encodeURIComponent(flow.participantId)}`;
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis success-surface">
@@ -2390,13 +2395,13 @@ function renderConfirmationPage(dealId) {
             <p class="small">${esc(flow.authorizationMessage)}</p>
           </div>
         ` : ""}
-        ${renderShareActions(`/app/track/${encodeURIComponent(flow.participantId)}`, flow.dealTitle || "מעקב השתתפות בסיטון")}
+        ${renderShareActions(trackingHref, flow.dealTitle || "מעקב השתתפות בסיטון")}
         <div class="summary-item">
           <span class="muted">׳”׳׳¡׳׳•׳ ׳¢׳•׳“׳›׳</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
         </div>
         <div class="actions">
-          <a class="button primary" href="/app/track/${encodeURIComponent(flow.participantId)}" data-nav="/app/track/${encodeURIComponent(flow.participantId)}">׳׳׳¡׳ ׳”׳׳¢׳§׳‘</a>
+          <a class="button primary" href="${trackingHref}" data-nav="${trackingHref}">׳׳׳¡׳ ׳”׳׳¢׳§׳‘</a>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(dealId)}" data-nav="/app/deal/${encodeURIComponent(dealId)}">׳—׳–׳¨׳” ׳׳¢׳¡׳§׳”</a>
         </div>
       </aside>
@@ -6190,6 +6195,24 @@ function getFlow(dealId) {
     return null;
   }
   return flow;
+}
+
+function currentTrackingToken(participantId) {
+  const fromUrl = new URLSearchParams(location.search).get("t");
+  if (fromUrl) return fromUrl;
+  const flows = readFlow();
+  for (const flow of Object.values(flows)) {
+    if (flow && flow.participantId === participantId && flow.trackingAccessToken) {
+      return flow.trackingAccessToken;
+    }
+  }
+  return "";
+}
+
+function trackingApiUrl(participantId) {
+  const base = `/api/participants/${encodeURIComponent(participantId)}/tracking`;
+  const token = currentTrackingToken(participantId);
+  return token ? `${base}?t=${encodeURIComponent(token)}` : base;
 }
 
 function saveFlow(dealId, next) {

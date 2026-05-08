@@ -103,6 +103,31 @@ import {
   isSafeActionType,
   isTargetType
 } from "./admin_control_plane.js";
+import {
+  ADMIN_ACTION_PERMISSION,
+  HIGH_TRUST_ADMIN_ACTIONS,
+  adminPublicIdentity,
+  createAdminMfaCode,
+  ensureAdminIdentityTables,
+  hasAdminPermission,
+  hasRecentMfa,
+  hashAdminOtp,
+  hashAdminSessionToken,
+  hashAdminPassword,
+  issueAdminSession,
+  resolveAdminIdentity,
+  safeAdminId,
+  serializeAdminSessionCookie,
+  serializeExpiredAdminSessionCookie,
+  verifyAdminPassword
+} from "./admin_identity.js";
+import {
+  ensureParticipantTrackingTables,
+  extractTrackingToken,
+  issueParticipantTrackingToken,
+  trackingMode,
+  verifyParticipantTrackingAccess
+} from "./participant_tracking_security.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -1016,6 +1041,8 @@ export function registerFrontendExperience(
   const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
   const ensureOtpTables = () => ensureOtpRailTables(deps.withTx);
   const ensureAdminControlPlane = () => ensureAdminControlPlaneTables(deps.withTx);
+  const ensureAdminIdentity = () => ensureAdminIdentityTables(deps.withTx);
+  const ensureParticipantTracking = () => ensureParticipantTrackingTables(deps.withTx);
   const otpProvider: OtpProvider = buildOtpProvider();
   // Legacy compatibility: the old /api/otp/start → /api/otp/verify pair returns
   // { buyer_id: <phone digits> } in verify, which existing tests and the
@@ -1313,6 +1340,32 @@ export function registerFrontendExperience(
     return true;
   }
 
+  async function requireAdminAuthContext(req: any, reply: any, c: any, options?: {
+    permission?: string;
+    recentMfa?: boolean;
+    sessionRequired?: boolean;
+  }) {
+    await ensureAdminIdentity();
+    const identity = await resolveAdminIdentity(req, c);
+    if (!identity) {
+      void reply.code(401).send({ ok: false, error: "admin_auth_required" });
+      return null;
+    }
+    if (options?.sessionRequired && identity.identity_strength !== "session_identity") {
+      void reply.code(403).send({ ok: false, error: "ADMIN_IDENTITY_REQUIRED", identity_strength: identity.identity_strength });
+      return null;
+    }
+    if (options?.permission && !hasAdminPermission(identity, options.permission)) {
+      void reply.code(403).send({ ok: false, error: "ADMIN_PERMISSION_DENIED", permission: options.permission });
+      return null;
+    }
+    if (options?.recentMfa && !hasRecentMfa(identity)) {
+      void reply.code(403).send({ ok: false, error: "MFA_REQUIRED" });
+      return null;
+    }
+    return identity;
+  }
+
   function sellerAuthSummary(sellerContext?: any) {
     return {
       mode: deps.isDemoPreview ? "demo-context" : SELLER_AUTH_MODE,
@@ -1507,6 +1560,157 @@ export function registerFrontendExperience(
       ok: true,
       seller_auth: sellerAuthSummary()
     };
+  });
+
+  app.post("/api/admin/auth/login", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    const email = String(req.body?.email || "").trim().toLowerCase();
+    const password = String(req.body?.password || "");
+    if (!email || !password) return reply.code(400).send({ ok: false, error: "admin_credentials_required" });
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT admin_user_id, email, display_name, role, status, password_hash, mfa_required, mfa_enabled
+         FROM siton.admin_users
+         WHERE lower(email)=lower($1)
+         LIMIT 1`,
+        [email]
+      );
+      const row = result.rows[0];
+      if (!row || row.status !== "Active" || !(await verifyAdminPassword(password, row.password_hash))) {
+        return reply.code(401).send({ ok: false, error: "admin_invalid_credentials" });
+      }
+      if (row.mfa_required || row.mfa_enabled) {
+        const code = createAdminMfaCode();
+        const challenge = await c.query(
+          `INSERT INTO siton.admin_mfa_challenges
+             (admin_user_id, code_hash, purpose, status, expires_at)
+           VALUES ($1,$2,'login','Pending',now()+interval '10 minutes')
+           RETURNING mfa_challenge_id, expires_at`,
+          [row.admin_user_id, hashAdminOtp(code)]
+        );
+        return {
+          ok: true,
+          mfa_required: true,
+          mfa_challenge_id: challenge.rows[0].mfa_challenge_id,
+          expires_at: challenge.rows[0].expires_at,
+          delivery: "email_otp_foundation",
+          dev_code: isProductionLikeEnv() ? undefined : code
+        };
+      }
+      const issued = await issueAdminSession(c, row.admin_user_id, req, false);
+      reply.header("set-cookie", serializeAdminSessionCookie(issued.token, undefined, { secure: isProductionLikeEnv() }));
+      return { ok: true, admin: { admin_user_id: row.admin_user_id, email: row.email, display_name: row.display_name, role: row.role } };
+    });
+  });
+
+  app.post("/api/admin/auth/mfa/verify", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    const challengeId = String(req.body?.mfa_challenge_id || "").trim();
+    const code = String(req.body?.code || "").trim();
+    requireUuid(challengeId, "mfa_challenge_id");
+    if (!/^\d{6}$/.test(code)) return reply.code(400).send({ ok: false, error: "invalid_mfa_code" });
+    return deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT ch.mfa_challenge_id, ch.admin_user_id, ch.code_hash, ch.status, ch.expires_at,
+                u.email, u.display_name, u.role, u.status AS user_status
+         FROM siton.admin_mfa_challenges ch
+         JOIN siton.admin_users u ON u.admin_user_id=ch.admin_user_id
+         WHERE ch.mfa_challenge_id=$1
+         FOR UPDATE`,
+        [challengeId]
+      );
+      const row = result.rows[0];
+      if (!row || row.status !== "Pending" || row.user_status !== "Active") {
+        return reply.code(401).send({ ok: false, error: "mfa_challenge_invalid" });
+      }
+      if (Date.parse(String(row.expires_at)) <= Date.now()) {
+        await c.query(`UPDATE siton.admin_mfa_challenges SET status='Expired' WHERE mfa_challenge_id=$1`, [challengeId]);
+        return reply.code(401).send({ ok: false, error: "mfa_challenge_expired" });
+      }
+      if (row.code_hash !== hashAdminOtp(code)) return reply.code(401).send({ ok: false, error: "mfa_code_invalid" });
+      await c.query(`UPDATE siton.admin_mfa_challenges SET status='Verified', verified_at=now() WHERE mfa_challenge_id=$1`, [challengeId]);
+      await c.query(
+        `INSERT INTO siton.admin_mfa_factors (admin_user_id, factor_type, secret_hash, status, verified_at)
+         VALUES ($1,'email_otp',$2,'Active',now())
+         ON CONFLICT DO NOTHING`,
+        [row.admin_user_id, hashAdminOtp("email_otp_active")]
+      );
+      await c.query(`UPDATE siton.admin_users SET mfa_enabled=true, updated_at=now() WHERE admin_user_id=$1`, [row.admin_user_id]);
+      const issued = await issueAdminSession(c, row.admin_user_id, req, true);
+      reply.header("set-cookie", serializeAdminSessionCookie(issued.token, undefined, { secure: isProductionLikeEnv() }));
+      return {
+        ok: true,
+        admin: { admin_user_id: row.admin_user_id, email: row.email, display_name: row.display_name, role: row.role },
+        mfa_verified_at: issued.session.mfa_verified_at
+      };
+    });
+  });
+
+  app.post("/api/admin/auth/mfa/setup", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { sessionRequired: true });
+      if (!identity || !identity.admin_user_id) return reply;
+      const code = createAdminMfaCode();
+      const challenge = await c.query(
+        `INSERT INTO siton.admin_mfa_challenges
+           (admin_user_id, code_hash, purpose, status, expires_at)
+         VALUES ($1,$2,'mfa_setup','Pending',now()+interval '10 minutes')
+         RETURNING mfa_challenge_id, expires_at`,
+        [identity.admin_user_id, hashAdminOtp(code)]
+      );
+      return {
+        ok: true,
+        factor_type: "email_otp",
+        mfa_challenge_id: challenge.rows[0].mfa_challenge_id,
+        expires_at: challenge.rows[0].expires_at,
+        dev_code: isProductionLikeEnv() ? undefined : code
+      };
+    });
+  });
+
+  app.post("/api/admin/auth/mfa/disable", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, {
+        permission: "admin_users.manage",
+        sessionRequired: true,
+        recentMfa: true
+      });
+      if (!identity || !identity.admin_user_id) return reply;
+      const targetAdminUserId = String(req.body?.admin_user_id || identity.admin_user_id).trim();
+      requireUuid(targetAdminUserId, "admin_user_id");
+      await c.query(
+        `UPDATE siton.admin_mfa_factors
+         SET status='Disabled', disabled_at=now()
+         WHERE admin_user_id=$1 AND status <> 'Disabled'`,
+        [targetAdminUserId]
+      );
+      await c.query(`UPDATE siton.admin_users SET mfa_enabled=false, updated_at=now() WHERE admin_user_id=$1`, [targetAdminUserId]);
+      return { ok: true, admin_user_id: targetAdminUserId, mfa_enabled: false };
+    });
+  });
+
+  app.post("/api/admin/auth/logout", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    return deps.withTx(async (c) => {
+      const cookies = parseCookies(String(req.headers?.cookie || ""));
+      const rawToken = cookies.siton_admin_session;
+      if (rawToken) {
+        await c.query(`UPDATE siton.admin_sessions SET revoked_at=now() WHERE session_token_hash=$1`, [hashAdminSessionToken(rawToken)]);
+      }
+      reply.header("set-cookie", serializeExpiredAdminSessionCookie({ secure: isProductionLikeEnv() }));
+      return { ok: true };
+    });
+  });
+
+  app.get("/api/admin/auth/me", async (req: any, reply: any) => {
+    await ensureAdminIdentity();
+    return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "mission_control.read" });
+      if (!identity) return reply;
+      return { ok: true, admin: adminPublicIdentity(identity) };
+    });
   });
 
   app.get("/api/site/home", async (req: any) => {
@@ -4042,8 +4246,8 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/actions", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
     const filters = {
       status: String(req.query?.status || "").trim(),
       action_type: String(req.query?.action_type || "").trim(),
@@ -4060,6 +4264,8 @@ export function registerFrontendExperience(
     }
     const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
     return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.read" });
+      if (!identity) return reply;
       const rows = await c.query(
         `SELECT admin_action_id, action_type, status, target_type, target_id,
                 requested_by_admin_id, reason, correlation_id, request_id, idempotency_key,
@@ -4076,11 +4282,13 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/actions/:adminActionId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
     requireUuid(adminActionId, "admin_action_id");
     return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.read" });
+      if (!identity) return reply;
       const row = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
       if (!row.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
       return { ok: true, action: row.rows[0] };
@@ -4088,8 +4296,13 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/actions", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
+    const preAuth = await deps.withTx((c) => requireAdminAuthContext(req, reply, c, {
+      permission: "admin_actions.create",
+      sessionRequired: true
+    }));
+    if (!preAuth) return reply;
     const body = req.body || {};
     const actionType = String(body.action_type || "").trim();
     const targetType = String(body.target_type || "").trim();
@@ -4106,6 +4319,13 @@ export function registerFrontendExperience(
     if (!idempotencyKey) return reply.code(400).send({ ok: false, error: "idempotency_key_required" });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
+      const permission = ADMIN_ACTION_PERMISSION[actionType] || "admin_actions.create";
+      const identity = await requireAdminAuthContext(req, reply, c, {
+        permission,
+        sessionRequired: true,
+        recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionType)
+      });
+      if (!identity) return reply;
       const action = await insertAdminAction(c, {
         action_type: actionType,
         target_type: targetType,
@@ -4115,26 +4335,31 @@ export function registerFrontendExperience(
         metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
         request_id: context.request_id,
         correlation_id: context.correlation_id,
-        admin_id: context.admin_id
+        admin_id: safeAdminId(identity)
       });
       return { ok: true, action };
     });
   });
 
   app.post("/api/admin/actions/:adminActionId/approve", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
     requireUuid(adminActionId, "admin_action_id");
     const note = String(req.body?.reason || req.body?.approval_note || "").trim();
     if (!note) return reply.code(400).send({ ok: false, error: "approval_reason_required" });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
+      if (!identity) return reply;
       const existing = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1 FOR UPDATE`, [adminActionId]);
       if (!existing.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
       const action = existing.rows[0];
       if (!action.requires_second_approval) return reply.code(400).send({ ok: false, error: "second_approval_not_required" });
-      if (action.requested_by_admin_id && action.requested_by_admin_id === context.admin_id) {
+      if (HIGH_TRUST_ADMIN_ACTIONS.has(String(action.action_type)) && !hasRecentMfa(identity)) {
+        return reply.code(403).send({ ok: false, error: "MFA_REQUIRED" });
+      }
+      if (action.requested_by_admin_id && action.requested_by_admin_id === safeAdminId(identity)) {
         return reply.code(403).send({ ok: false, error: "self_approval_forbidden" });
       }
       const updated = await c.query(
@@ -4143,28 +4368,30 @@ export function registerFrontendExperience(
              result_message=$3, updated_at=now()
          WHERE admin_action_id=$1
          RETURNING *`,
-        [adminActionId, context.admin_id, note]
+        [adminActionId, safeAdminId(identity), note]
       );
       return { ok: true, action: updated.rows[0] };
     });
   });
 
   app.post("/api/admin/actions/:adminActionId/reject", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
     requireUuid(adminActionId, "admin_action_id");
     const reason = String(req.body?.reason || "").trim();
     if (!reason) return reply.code(400).send({ ok: false, error: "reject_reason_required" });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
+      if (!identity) return reply;
       const updated = await c.query(
         `UPDATE siton.admin_actions
          SET status='Rejected', result_code='Rejected', result_message=$2,
              approved_by_admin_id=$3, updated_at=now()
          WHERE admin_action_id=$1 AND status IN ('Requested','AwaitingSecondApproval','Approved')
          RETURNING *`,
-        [adminActionId, reason, context.admin_id]
+        [adminActionId, reason, safeAdminId(identity)]
       );
       if (!updated.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found_or_not_rejectable" });
       return { ok: true, action: updated.rows[0] };
@@ -4172,13 +4399,22 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/actions/:adminActionId/execute", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     await ensureAdminControlPlane();
+    await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
     requireUuid(adminActionId, "admin_action_id");
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
-      const result = await executeAdminAction(c, adminActionId, context);
+      const actionResult = await c.query(`SELECT action_type FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
+      if (!actionResult.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
+      const actionTypeForPermission = String(actionResult.rows[0].action_type || "");
+      const identity = await requireAdminAuthContext(req, reply, c, {
+        permission: ADMIN_ACTION_PERMISSION[actionTypeForPermission] || "admin_actions.execute",
+        sessionRequired: true,
+        recentMfa: HIGH_TRUST_ADMIN_ACTIONS.has(actionTypeForPermission)
+      });
+      if (!identity) return reply;
+      const result = await executeAdminAction(c, adminActionId, { ...context, admin_id: safeAdminId(identity) });
       return reply.code(result.statusCode).send(result.body);
     });
   });
@@ -5616,6 +5852,7 @@ export function registerFrontendExperience(
   app.get("/api/participants/:id/tracking", async (req: any) => {
     const participantId = String(req.params.id);
     requireUuid(participantId, "participant_id");
+    await ensureParticipantTracking();
 
     return deps.withTx(async (c) => {
       const participantResult = await c.query(
@@ -5672,6 +5909,25 @@ export function registerFrontendExperience(
         completion_window_until: string | null;
         deal_created_at: string;
       };
+      const accessToken = extractTrackingToken(req);
+      const mode = trackingMode();
+      if (accessToken) {
+        const access = await verifyParticipantTrackingAccess(c, {
+          participant_id: participantId,
+          deal_id: row.deal_id,
+          token: accessToken,
+          purposes: ["tracking", "recovery", "support"]
+        });
+        if (!access.ok) {
+          const err: any = new Error(access.error);
+          err.statusCode = 403;
+          throw err;
+        }
+      } else if (!mode.legacy_links_allowed) {
+        const err: any = new Error("tracking_token_required");
+        err.statusCode = 401;
+        throw err;
+      }
 
       const aggregateResult = await c.query(
         `SELECT COALESCE(SUM(qty),0) AS joined_units, COUNT(*)::int AS participants_count
@@ -5810,6 +6066,7 @@ export function registerFrontendExperience(
   app.post("/api/participants/:id/recovery", async (req: any, reply: any) => {
     const participantId = String(req.params.id);
     requireUuid(participantId, "participant_id");
+    await ensureParticipantTracking();
 
     const body = (req.body as any) || {};
     const idempotencyKey = String(req.headers?.["idempotency-key"] || body.idempotency_key || `recovery:${participantId}`)
@@ -5890,6 +6147,27 @@ export function registerFrontendExperience(
         price_per_unit: number;
         deal_title: string;
       };
+      const accessToken = extractTrackingToken(req);
+      const mode = trackingMode();
+      if (accessToken) {
+        const access = await verifyParticipantTrackingAccess(c, {
+          participant_id: participantId,
+          deal_id: row.deal_id,
+          token: accessToken,
+          purposes: ["recovery", "tracking"]
+        });
+        if (!access.ok) {
+          const err: any = new Error(access.error);
+          err.statusCode = 403;
+          err.code = access.error;
+          throw err;
+        }
+      } else if (!mode.legacy_links_allowed) {
+        const err: any = new Error("tracking_token_required");
+        err.statusCode = 401;
+        err.code = "tracking_token_required";
+        throw err;
+      }
 
       const completionAmount = roundMoney(
         Number(row.qty || 0) * Number(row.price_per_unit || 0) + Number(row.delivery_cost || 0)

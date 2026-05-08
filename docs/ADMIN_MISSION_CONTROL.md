@@ -1,6 +1,6 @@
 # Admin Mission Control
 
-Admin Mission Control is Siton's admin-only observability center. It is protected by `x-admin-key`, uses masked data only, and is designed for investigation before intervention.
+Admin Mission Control is Siton's admin-only observability center. It is protected by admin session identity or the limited read-only `x-admin-key` bootstrap fallback, uses masked data only, and is designed for investigation before intervention.
 
 ## Mission Control Endpoints
 
@@ -68,7 +68,7 @@ Action endpoints:
 
 `live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
 
-`security_hardening_gate` reports defensive security findings with `pass` / `warning` / `blocked`, P0/P1/P2/P3 severity, masked evidence only, blockers, and safe next actions. The current gate is `warning` because admin identity is shared-key based and participant tracking remains bearer-link based.
+`security_hardening_gate` reports defensive security findings with `pass` / `warning` / `blocked`, P0/P1/P2/P3 severity, masked evidence only, blockers, and safe next actions. It now includes `admin_identity_status`, `mfa_status`, `rbac_status`, `participant_tracking_security`, `demo_security_verdict`, and `live_security_verdict`.
 
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 
@@ -110,7 +110,7 @@ The admin plane still blocks:
 - No raw provider payloads are returned.
 - No card data, cookies or authorization headers are returned.
 - Payload summaries are masked.
-- MFA for admin actions is currently unavailable and surfaced as such.
+- Sensitive admin actions require session identity, RBAC permission and recent MFA.
 
 ## Tests
 

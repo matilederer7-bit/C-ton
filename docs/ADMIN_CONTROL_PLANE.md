@@ -74,9 +74,9 @@ Required for:
 
 Self approval is blocked when `x-admin-user` identifies the same requester and approver.
 
-Current limitation: admin identity is still header-based, so enforcement is `partial` until a real admin account/MFA layer exists.
+Admin action identity is now session-based for sensitive actions. `ADMIN_API_KEY` remains bootstrap/read-only fallback and is not enough to create, approve or execute sensitive actions.
 
-Security Hardening Gate classification: this is a P1 live-pilot limitation, not a demo blocker. `ADMIN_API_KEY` still fails closed in production-like environments, and forbidden money/state/evidence actions remain blocked.
+Security Identity Tracking Gate classification: demo pass, live blocked until named admins are provisioned, MFA is enrolled and shared-key operational fallback is retired or tightly constrained.
 
 ## Endpoints
 
@@ -88,6 +88,8 @@ Security Hardening Gate classification: this is a P1 live-pilot limitation, not 
 - `POST /api/admin/actions/:adminActionId/execute`
 
 All endpoints require admin auth.
+
+Action creation/approval/execution requires session identity, RBAC permission, and recent MFA for high-trust actions.
 
 ## Tests
 
@@ -101,6 +103,6 @@ npx tsc -p tsconfig.test.json
 ## Open
 
 - Full worker execution for reconcile/freeze/emergency pause.
-- Real admin identity and MFA.
+- Live admin provisioning/enrollment runbook.
 - Full worker log correlation.
 - Admin action rate-limit integration beyond existing app rate limit.
