@@ -86,9 +86,11 @@ function deriveSettlementStatus(args: {
   payout_amount: number;
   blocking_reasons: string[];
   existing_payout_statuses: string[];
+  payout_freeze_active?: boolean;
 }) {
   const existingStatus = firstBlockingStatus(args.existing_payout_statuses);
   if (existingStatus) return existingStatus as SellerSettlementStatus;
+  if (args.payout_freeze_active) return "pending" as const;
   if (String(args.deal_state) !== "Completed") return "pending" as const;
   if (!args.eligible) return "pending" as const;
   if (args.blocking_reasons.length > 0) return "pending" as const;
@@ -573,6 +575,24 @@ async function calculateSellerSettlementForDealInTx(c: any, dealId: string, opti
   );
   const hasOpenBlockingReconciliationCase = Number(openCasesResult.rows[0]?.open_count || 0) > 0;
   const hasOpenMismatch = sellerNetPayable < 0;
+  // payout_freeze admin flag is a fail-closed eligibility gate. Existing
+  // settlement rows already advanced past 'pending' (paid/reconciled/etc) are
+  // not retroactively rolled back by a freeze; the freeze only prevents new
+  // payout eligibility from forming.
+  const payoutFreezeRow = await c.query(
+    `SELECT 1
+     FROM siton.admin_control_flags
+     WHERE flag_type='payout_freeze' AND status='active'
+       AND (expires_at IS NULL OR expires_at > now())
+       AND (
+         (scope_type='global' AND scope_id='global')
+         OR (scope_type='seller' AND scope_id=$1)
+         OR (scope_type='deal' AND scope_id=$2)
+       )
+     LIMIT 1`,
+    [String(deal.seller_id), String(deal.deal_id)]
+  ).catch(() => ({ rowCount: 0 }));
+  const payoutFreezeActive = Boolean(payoutFreezeRow.rowCount);
   const blockingReasons = uniqueStrings([
     String(deal.state) !== "Completed" ? `deal_state_${String(deal.state).toLowerCase()}` : "",
     settlementStatus !== "active" ? `seller_settlement_status_${settlementStatus}` : "",
@@ -580,7 +600,8 @@ async function calculateSellerSettlementForDealInTx(c: any, dealId: string, opti
     sellerNetPayable <= 0 ? "seller_net_non_positive" : "",
     hasBlockingPayoutStatus ? "deal_already_payouted_or_inflight" : "",
     hasOpenBlockingReconciliationCase ? "open_blocking_reconciliation_case" : "",
-    hasOpenMismatch ? "open_money_mismatch" : ""
+    hasOpenMismatch ? "open_money_mismatch" : "",
+    payoutFreezeActive ? "payout_freeze_admin_flag_active" : ""
   ]);
   const eligible = blockingReasons.length === 0;
   const payoutAmount = eligible ? sellerNetPayable : 0;
@@ -621,7 +642,8 @@ async function calculateSellerSettlementForDealInTx(c: any, dealId: string, opti
       eligible,
       payout_amount: payoutAmount,
       blocking_reasons: blockingReasons,
-      existing_payout_statuses: existingPayoutStatuses
+      existing_payout_statuses: existingPayoutStatuses,
+      payout_freeze_active: payoutFreezeActive
     })
   };
 }

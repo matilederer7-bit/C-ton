@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import { createAdminControlFlag, releaseAdminControlFlag, isAdminFlagScopeType, type AdminFlagScopeType } from "./admin_intervention.js";
 
 export const ADMIN_SAFE_ACTION_TYPES = [
   "trigger_reconcile",
@@ -96,6 +97,38 @@ export function actionRequiresSecondApproval(actionType: string, targetType: str
     actionType === "unfreeze_payouts" ||
     (actionType === "freeze_payouts" && ["payout", "seller", "deal"].includes(targetType))
   );
+}
+
+export function mapAdminTargetToFlagScope(targetType: string, flagType: string): AdminFlagScopeType | null {
+  // Each flag type allows a closed set of scopes. Fail closed so a typo cannot
+  // create a flag with an unintended blast radius.
+  if (flagType === "pause_joining_emergency") {
+    if (targetType === "deal") return "deal";
+    if (targetType === "seller") return "seller";
+    if (targetType === "system") return "global";
+    return null;
+  }
+  if (flagType === "pause_charging_emergency") {
+    if (targetType === "deal") return "deal";
+    if (targetType === "seller") return "seller";
+    if (targetType === "system") return "global";
+    return null;
+  }
+  if (flagType === "payout_freeze") {
+    if (targetType === "payout") return "payout";
+    if (targetType === "seller") return "seller";
+    if (targetType === "deal") return "deal";
+    if (targetType === "system") return "global";
+    return null;
+  }
+  if (flagType === "content_takedown") {
+    if (targetType === "deal") return "deal";
+    if (targetType === "content") return "content";
+    if (targetType === "seller") return "seller";
+    return null;
+  }
+  if (isAdminFlagScopeType(targetType)) return targetType;
+  return null;
 }
 
 export async function ensureAdminControlPlaneTables(withTx: <T>(fn: (c: any) => Promise<T>) => Promise<T>) {
@@ -283,6 +316,147 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
     completed = (upd.rowCount ?? 0) > 0;
     resultCode = completed ? "InvoiceRetryQueued" : "NoSafeFailedInvoice";
     resultMessage = completed ? "מסמך failed ללא provider ref הוחזר ל-pending." : "לא נמצא מסמך failed בטוח ל-retry, או שכבר קיים provider ref.";
+  } else if (action.action_type === "freeze_payouts") {
+    const scopeType = mapAdminTargetToFlagScope(action.target_type, "payout_freeze");
+    if (!scopeType) {
+      resultCode = "InvalidFreezeScope";
+      resultMessage = "scope לא נתמך לחסימת payout. נדרש payout/seller/deal/global.";
+    } else {
+      const flag = await createAdminControlFlag(c, {
+        flag_type: "payout_freeze",
+        scope_type: scopeType,
+        scope_id: action.target_id,
+        reason: action.reason,
+        admin_action_id: action.admin_action_id,
+        request_id: context.request_id,
+        correlation_id: action.correlation_id || context.correlation_id,
+        requested_by_admin_id: action.requested_by_admin_id,
+        approved_by_admin_id: action.approved_by_admin_id,
+        metadata: { admin_action_id: action.admin_action_id }
+      }).catch((err: any) => { resultCode = "FreezeRejected"; resultMessage = String(err?.code || err?.message || "freeze_failed"); return null; });
+      if (flag) {
+        completed = true;
+        resultCode = "PayoutFreezeRecorded";
+        resultMessage = `הקפאת payout פעילה ב-scope ${scopeType}:${action.target_id}. לא בוצעה תנועת כסף.`;
+      }
+    }
+  } else if (action.action_type === "unfreeze_payouts") {
+    const scopeType = mapAdminTargetToFlagScope(action.target_type, "payout_freeze");
+    if (!scopeType) {
+      resultCode = "InvalidFreezeScope";
+      resultMessage = "scope לא נתמך לשחרור payout. נדרש payout/seller/deal/global.";
+    } else {
+      const result = await c.query(
+        `SELECT flag_id FROM siton.admin_control_flags
+         WHERE flag_type='payout_freeze' AND status='active'
+           AND scope_type=$1 AND scope_id=$2
+         ORDER BY created_at DESC LIMIT 1`,
+        [scopeType, action.target_id]
+      );
+      if (!result.rowCount) {
+        resultCode = "NoActivePayoutFreeze";
+        resultMessage = "לא נמצא flag פעיל של הקפאת payout עבור scope זה.";
+      } else {
+        const released = await releaseAdminControlFlag(c, String(result.rows[0].flag_id), {
+          released_by_admin_id: action.approved_by_admin_id || action.requested_by_admin_id || "admin",
+          released_reason: action.reason,
+          request_id: context.request_id,
+          correlation_id: action.correlation_id || context.correlation_id
+        });
+        completed = Boolean(released);
+        resultCode = completed ? "PayoutFreezeReleased" : "PayoutFreezeReleaseFailed";
+        resultMessage = completed
+          ? `הקפאת payout שוחררה ב-scope ${scopeType}:${action.target_id}. לא בוצעה תנועת כסף.`
+          : "שחרור flag הקפאה נכשל.";
+      }
+    }
+  } else if (action.action_type === "pause_joining_emergency" || action.action_type === "pause_charging_emergency") {
+    const flagType = action.action_type as "pause_joining_emergency" | "pause_charging_emergency";
+    const scopeType = mapAdminTargetToFlagScope(action.target_type, flagType);
+    const expiresAtRaw = action.metadata_jsonb?.expires_at || action.metadata_jsonb?.pause_expires_at || null;
+    if (!scopeType) {
+      resultCode = "InvalidPauseScope";
+      resultMessage = "scope לא נתמך להשהיה. נדרש deal/seller/global.";
+    } else if (!expiresAtRaw) {
+      resultCode = "PauseExpiresAtRequired";
+      resultMessage = "השהיית חירום חייבת expires_at ב-metadata. אין להשאיר השהיה ללא תאריך תפוגה.";
+    } else {
+      const flag = await createAdminControlFlag(c, {
+        flag_type: flagType,
+        scope_type: scopeType,
+        scope_id: action.target_id,
+        reason: action.reason,
+        expires_at: new Date(expiresAtRaw),
+        admin_action_id: action.admin_action_id,
+        request_id: context.request_id,
+        correlation_id: action.correlation_id || context.correlation_id,
+        requested_by_admin_id: action.requested_by_admin_id,
+        approved_by_admin_id: action.approved_by_admin_id,
+        metadata: { admin_action_id: action.admin_action_id, source_action: action.action_type }
+      }).catch((err: any) => { resultCode = "PauseRejected"; resultMessage = String(err?.code || err?.message || "pause_failed"); return null; });
+      if (flag) {
+        completed = true;
+        resultCode = flagType === "pause_joining_emergency" ? "PauseJoiningRecorded" : "PauseChargingRecorded";
+        resultMessage = flagType === "pause_joining_emergency"
+          ? `השהיית הצטרפויות פעילה ב-scope ${scopeType}:${action.target_id}. קונים קיימים אינם מושפעים.`
+          : `השהיית charging פעילה ב-scope ${scopeType}:${action.target_id}. workers בודקים את ה-flag לפני ביצוע.`;
+      }
+    }
+  } else if (action.action_type === "content_takedown_request") {
+    const scopeType = mapAdminTargetToFlagScope(action.target_type, "content_takedown");
+    if (!scopeType) {
+      resultCode = "InvalidContentScope";
+      resultMessage = "scope לא נתמך להסתרת תוכן.";
+    } else {
+      const flag = await createAdminControlFlag(c, {
+        flag_type: "content_takedown",
+        scope_type: scopeType,
+        scope_id: action.target_id,
+        reason: action.reason,
+        admin_action_id: action.admin_action_id,
+        request_id: context.request_id,
+        correlation_id: action.correlation_id || context.correlation_id,
+        requested_by_admin_id: action.requested_by_admin_id,
+        approved_by_admin_id: action.approved_by_admin_id,
+        metadata: { admin_action_id: action.admin_action_id }
+      }).catch((err: any) => { resultCode = "ContentTakedownRejected"; resultMessage = String(err?.code || err?.message || "content_takedown_failed"); return null; });
+      if (flag) {
+        completed = true;
+        resultCode = "ContentTakedownRecorded";
+        resultMessage = `התוכן ${scopeType}:${action.target_id} סומן להסתרה. לא בוצעה מחיקה פיזית. CDN purge בנפרד אם קיים contract.`;
+      }
+    }
+  } else if (action.action_type === "trigger_reconcile") {
+    // No live provider call. Internal dry-run only: open a reconcile support case
+    // and surface unknown payment attempts. The caller is responsible for any
+    // provider-side reconcile; we never call a live provider here.
+    const unknownCount = await c.query(
+      `SELECT COUNT(*)::int AS unknowns
+       FROM siton.payment_attempts
+       WHERE result_class='unknown' AND created_at > now() - interval '7 days'`
+    ).catch(() => ({ rows: [{ unknowns: null }] }));
+    const autoKey = `admin-action:trigger_reconcile:${action.target_type}:${action.target_id}`;
+    const inserted = await c.query(
+      `INSERT INTO siton.operational_cases
+         (case_type, status, priority, source, subject, description, opened_by, auto_key, correlation_id, request_id)
+       VALUES ('PaymentMismatch','Open','High','Admin',$1,$2,$3,$4,$5,$6)
+       ON CONFLICT (auto_key) WHERE auto_key IS NOT NULL AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
+       DO UPDATE SET updated_at=siton.operational_cases.updated_at
+       RETURNING case_id`,
+      [
+        `Reconcile dry-run requested for ${action.target_type}:${action.target_id}`,
+        `Internal reconcile dry-run. Unknown payment attempts in last 7d: ${unknownCount.rows[0]?.unknowns ?? "unknown"}. No live provider call performed.`,
+        context.admin_id,
+        autoKey,
+        action.correlation_id || context.correlation_id,
+        context.request_id
+      ]
+    ).catch(() => ({ rowCount: 0, rows: [{ case_id: null }] }));
+    completed = Boolean(inserted.rows[0]?.case_id);
+    resultCode = completed ? "ReconcileDryRunOpened" : "ReconcileDryRunFailed";
+    resultMessage = completed
+      ? `תיק תמיכה לדריסת reconcile נפתח/קיים: ${inserted.rows[0]?.case_id}. לא בוצעה קריאה לספק חי.`
+      : "פתיחת תיק reconcile נכשלה. לא בוצעה קריאה לספק חי.";
   } else if (action.action_type === "open_support_case") {
     const autoKey = `admin-action:${action.action_type}:${action.target_type}:${action.target_id}`;
     const inserted = await c.query(

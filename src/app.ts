@@ -66,6 +66,7 @@ import {
 import { ensureAdminControlPlaneTables, safeHeaderId } from "./admin_control_plane.js";
 import { ensureAdminIdentityTables } from "./admin_identity.js";
 import { ensureParticipantTrackingTables, issueParticipantTrackingToken } from "./participant_tracking_security.js";
+import { ensureAdminInterventionTables, isFlagActive } from "./admin_intervention.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -494,6 +495,7 @@ async function atomicMultiTransition(args: {
   await ensureAdminControlPlaneTables(withTx);
   await ensureAdminIdentityTables(withTx);
   await ensureParticipantTrackingTables(withTx);
+  await ensureAdminInterventionTables(withTx);
   const response = args.response ?? { ok: true };
 
   return withTx(async (c) => {
@@ -2644,7 +2646,9 @@ app.post("/deals/:id/publish", async (req: any) => {
 
     // Seller profile readiness: business_name + at least one contact method required before publish
     const profileResult = await c.query(
-      `SELECT business_name, support_phone, support_email
+      `SELECT business_name, support_phone, support_email,
+              COALESCE(verification_status, 'pending') AS verification_status,
+              COALESCE(seller_status, 'Active') AS seller_status_value
        FROM siton.seller_accounts WHERE seller_id = $1`,
       [sellerAuthority.seller_id]
     );
@@ -2655,6 +2659,16 @@ app.post("/deals/:id/publish", async (req: any) => {
       );
       err.statusCode = 409;
       err.code = "seller_profile_incomplete";
+      throw err;
+    }
+    // Production-like deployments require an explicit KYC approval before live
+    // publish. The local/demo-preview flow stays permissive so existing demo
+    // bootstraps and tests are not affected.
+    const isProductionLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
+    if (isProductionLike && String(prof.verification_status) !== "approved") {
+      const err: any = new Error("seller is not approved for live publish");
+      err.statusCode = 409;
+      err.code = "seller_kyc_not_approved";
       throw err;
     }
   });
@@ -2799,10 +2813,11 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     : `join:${dealId}:${buyer_id}:${requestId}`;
 
   await ensureAdminControlPlaneTables(withTx);
+  await ensureAdminInterventionTables(withTx);
   const participant = await withTx(async (c) => {
     // Lock the deal row to prevent concurrent over-booking
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      `SELECT deal_id, state, max_units, seller_id FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
     );
     if (!dealRow.rowCount) {
@@ -2812,10 +2827,19 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
     const dealState = String(dealRow.rows[0].state) as DealState;
     const maxUnits = Number(dealRow.rows[0].max_units);
+    const dealSellerId = String(dealRow.rows[0].seller_id || "");
 
     if (!["PendingTarget", "TargetReached"].includes(dealState)) {
       const err: any = new Error("deal is not open for joining");
       err.statusCode = 409;
+      throw err;
+    }
+
+    if (await isFlagActive(c, "pause_joining_emergency", "deal", dealId)
+      || (dealSellerId && await isFlagActive(c, "pause_joining_emergency", "seller", dealSellerId))) {
+      const err: any = new Error("joining is paused by admin emergency control");
+      err.statusCode = 423;
+      err.code = "joining_paused_by_admin";
       throw err;
     }
 
@@ -3192,12 +3216,20 @@ app.post("/deals/:id/charging/start", async (req: any) => {
     idempotency: { entityType: "deal", entityId: dealId, idempotencyKey: idem },
     outbox: { event_type: "charge_deal", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } },
     buildOpsInTx: async (c) => {
-      const deal = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
+      const deal = await c.query(`SELECT state, seller_id FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
       if (!deal.rowCount) throw new Error("deal not found");
       const state = deal.rows[0].state as DealState;
+      const sellerIdForFlag = String(deal.rows[0].seller_id || "");
       if (state !== "ReadyForCharging") {
         const err: any = new Error("deal is not ready for charging");
         err.statusCode = 409;
+        throw err;
+      }
+      if (await isFlagActive(c, "pause_charging_emergency", "deal", dealId)
+        || (sellerIdForFlag && await isFlagActive(c, "pause_charging_emergency", "seller", sellerIdForFlag))) {
+        const err: any = new Error("charging is paused by admin emergency control");
+        err.statusCode = 423;
+        err.code = "charging_paused_by_admin";
         throw err;
       }
 
@@ -3343,6 +3375,7 @@ let workerRunning = false;
   await ensureAdminControlPlaneTables(withTx);
   await ensureAdminIdentityTables(withTx);
   await ensureParticipantTrackingTables(withTx);
+  await ensureAdminInterventionTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

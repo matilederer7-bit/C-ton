@@ -128,6 +128,16 @@ import {
   trackingMode,
   verifyParticipantTrackingAccess
 } from "./participant_tracking_security.js";
+import {
+  ADMIN_FLAG_TYPES,
+  ensureAdminInterventionTables,
+  expireDueAdminControlFlags,
+  isAdminFlagType,
+  isAdminFlagScopeType,
+  listActiveAdminControlFlags,
+  releaseAdminControlFlag
+} from "./admin_intervention.js";
+import { getDealImageStorageAdapter } from "./product_image_storage.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -4401,6 +4411,7 @@ export function registerFrontendExperience(
   app.post("/api/admin/actions/:adminActionId/execute", async (req: any, reply: any) => {
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
+    await ensureAdminInterventionTables(deps.withTx);
     const adminActionId = String(req.params.adminActionId || "").trim();
     requireUuid(adminActionId, "admin_action_id");
     const context = adminRequestContext(req);
@@ -4416,6 +4427,119 @@ export function registerFrontendExperience(
       if (!identity) return reply;
       const result = await executeAdminAction(c, adminActionId, { ...context, admin_id: safeAdminId(identity) });
       return reply.code(result.statusCode).send(result.body);
+    });
+  });
+
+  app.get("/api/admin/control-flags", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminInterventionTables(deps.withTx);
+    const flagType = String(req.query?.flag_type || "").trim();
+    const scopeType = String(req.query?.scope_type || "").trim();
+    const scopeId = String(req.query?.scope_id || "").trim();
+    if (flagType && !isAdminFlagType(flagType)) {
+      return reply.code(400).send({ ok: false, error: "invalid_flag_type", allowed: ADMIN_FLAG_TYPES });
+    }
+    if (scopeType && !isAdminFlagScopeType(scopeType)) {
+      return reply.code(400).send({ ok: false, error: "invalid_scope_type" });
+    }
+    return deps.withTx(async (c) => {
+      await expireDueAdminControlFlags(c).catch(() => undefined);
+      const filter: { flag_type?: any; scope_type?: any; scope_id?: string } = {};
+      if (flagType) filter.flag_type = flagType;
+      if (scopeType) filter.scope_type = scopeType;
+      if (scopeId) filter.scope_id = scopeId;
+      const flags = await listActiveAdminControlFlags(c, filter);
+      return { ok: true, flags };
+    });
+  });
+
+  app.post("/api/admin/control-flags/:flagId/release", async (req: any, reply: any) => {
+    await ensureAdminInterventionTables(deps.withTx);
+    const flagId = String(req.params.flagId || "").trim();
+    requireUuid(flagId, "flag_id");
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason) {
+      return reply.code(400).send({ ok: false, error: "reason_required" });
+    }
+    const context = adminRequestContext(req);
+    return deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, {
+        permission: "emergency.pause",
+        sessionRequired: true,
+        recentMfa: true
+      });
+      if (!identity) return reply;
+      const released = await releaseAdminControlFlag(c, flagId, {
+        released_by_admin_id: safeAdminId(identity),
+        released_reason: reason,
+        request_id: context.request_id,
+        correlation_id: context.correlation_id
+      });
+      if (!released) return reply.code(404).send({ ok: false, error: "flag_not_found_or_not_active" });
+      return { ok: true, flag: released };
+    });
+  });
+
+  app.get("/api/admin/storage/orphan-report", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminInterventionTables(deps.withTx);
+    const adapter = getDealImageStorageAdapter();
+    const summary = adapter.describeForReadiness();
+    return deps.withTx(async (c) => {
+      // Cross-check DB image keys against adapter-listed keys. Read-only;
+      // never deletes anything. Limited to small samples to keep requests fast.
+      let dbKeys: string[] = [];
+      let dbCount: number | null = null;
+      try {
+        const r = await c.query("SELECT storage_key FROM siton.deal_images WHERE storage_key IS NOT NULL ORDER BY created_at DESC LIMIT 2000");
+        dbKeys = r.rows.map((row: any) => String(row.storage_key));
+        dbCount = dbKeys.length;
+      } catch {
+        dbCount = null;
+      }
+      let storageKeys: string[] = [];
+      try {
+        storageKeys = await adapter.listKeys("", 5000);
+      } catch {
+        storageKeys = [];
+      }
+      const dbSet = new Set(dbKeys);
+      const storageSet = new Set(storageKeys);
+      const orphanKeys = storageKeys.filter((key) => !dbSet.has(key)).slice(0, 100);
+      const missingFiles = dbKeys.filter((key) => !storageSet.has(key)).slice(0, 100);
+      // Persist a summary report row but keep raw keys out of the row body to avoid leaking layout.
+      try {
+        await c.query(
+          `INSERT INTO siton.storage_orphan_reports
+             (storage_provider, scanned_keys_count, orphan_keys_count, missing_files_count, notes, metadata_jsonb)
+           VALUES ($1,$2,$3,$4,$5,$6)`,
+          [
+            summary.storage_provider,
+            storageKeys.length,
+            orphanKeys.length,
+            missingFiles.length,
+            "read-only report; no deletion performed",
+            JSON.stringify({ multi_instance_safe: summary.multi_instance_safe })
+          ]
+        );
+      } catch {
+        // Persisting the report is best-effort; if it fails, the response is still useful.
+      }
+      return {
+        ok: true,
+        adapter: summary.adapter,
+        storage_provider: summary.storage_provider,
+        multi_instance_safe: summary.multi_instance_safe,
+        scanned_storage_keys: storageKeys.length,
+        scanned_db_keys: dbCount,
+        orphan_keys_sample: orphanKeys,
+        missing_files_sample: missingFiles,
+        notes: [
+          "this report is read-only and never deletes files",
+          "orphan_keys are storage objects without a deal_images row",
+          "missing_files are deal_images rows whose storage object cannot be found"
+        ]
+      };
     });
   });
 

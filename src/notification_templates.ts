@@ -9,7 +9,12 @@ export const NOTIFICATION_EVENT_TYPES = [
   "seller_target_reached",
   "seller_deal_completed",
   "seller_deal_failed",
-  "seller_excel_ready"
+  "seller_excel_ready",
+  "seller_kyc_approved",
+  "seller_kyc_rejected",
+  "seller_payout_frozen",
+  "seller_payout_unfrozen",
+  "admin_security_alert"
 ] as const;
 
 export type NotificationEventType = (typeof NOTIFICATION_EVENT_TYPES)[number];
@@ -28,7 +33,12 @@ export const NOTIFICATION_TEMPLATE_KEYS = [
   "seller_target_reached_he",
   "seller_deal_completed_he",
   "seller_deal_failed_he",
-  "seller_excel_ready_he"
+  "seller_excel_ready_he",
+  "seller_kyc_approved_he",
+  "seller_kyc_rejected_he",
+  "seller_payout_frozen_he",
+  "seller_payout_unfrozen_he",
+  "admin_security_alert_he"
 ] as const;
 
 export type NotificationTemplateKey = (typeof NOTIFICATION_TEMPLATE_KEYS)[number];
@@ -163,6 +173,56 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     render: (p) => ({
       subject: `Excel העסקה מוכן: ${dealTitle(p)}`,
       body: `קובץ Excel לעסקה "${dealTitle(p)}" מוכן להורדה ממסך העסקה.`
+    })
+  },
+  seller_kyc_approved_he: {
+    eventType: "seller_kyc_approved",
+    templateKey: "seller_kyc_approved_he",
+    compatibleChannels: ["email", "internal", "sms"],
+    requiredPayloadFields: ["seller_name"],
+    render: (p) => ({
+      subject: `חשבון המוכר אושר`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך אושר ועכשיו אפשר לפרסם עסקאות חיות בסיטון.\nלא בוצעה תנועת כסף בעקבות האישור.`
+    })
+  },
+  seller_kyc_rejected_he: {
+    eventType: "seller_kyc_rejected",
+    templateKey: "seller_kyc_rejected_he",
+    compatibleChannels: ["email", "internal", "sms"],
+    requiredPayloadFields: ["seller_name", "reason"],
+    render: (p) => ({
+      subject: `חשבון המוכר נדחה`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך לא אושר במצב הנוכחי.\nסיבה: ${text(p.reason) || "לא צוינה"}.\nלא בוצעה תנועת כסף בעקבות הדחייה. ניתן ליצור קשר עם התמיכה לקבלת פירוט.`
+    })
+  },
+  seller_payout_frozen_he: {
+    eventType: "seller_payout_frozen",
+    templateKey: "seller_payout_frozen_he",
+    compatibleChannels: ["email", "internal"],
+    requiredPayloadFields: ["seller_name", "reason"],
+    render: (p) => ({
+      subject: `הקפאת זיכוי payout פעילה`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nהזיכוי שלך הוקפא זמנית מטעמי בקרה.\nסיבה: ${text(p.reason) || "לא צוינה"}.\nלא בוצעה תנועת כסף נוספת. עסקאות שכבר שולמו אינן מושפעות.`
+    })
+  },
+  seller_payout_unfrozen_he: {
+    eventType: "seller_payout_unfrozen",
+    templateKey: "seller_payout_unfrozen_he",
+    compatibleChannels: ["email", "internal"],
+    requiredPayloadFields: ["seller_name"],
+    render: (p) => ({
+      subject: `הקפאת payout שוחררה`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nההקפאה על הזיכוי שלך שוחררה. payout חדש יוערך לפי המסלול הרגיל בעת השלמת עסקה.`
+    })
+  },
+  admin_security_alert_he: {
+    eventType: "admin_security_alert",
+    templateKey: "admin_security_alert_he",
+    compatibleChannels: ["email", "internal"],
+    requiredPayloadFields: ["alert_title"],
+    render: (p) => ({
+      subject: `התראת אבטחה: ${text(p.alert_title) || "התראה אדמין"}`,
+      body: `התקבלה התראת אבטחה אדמינית.\nכותרת: ${text(p.alert_title) || ""}\nמזהה התראה: ${text(p.alert_ref) || "לא צוין"}\nיש לבדוק את לוח Mission Control לפני נקיטת פעולה.`
     })
   }
 };

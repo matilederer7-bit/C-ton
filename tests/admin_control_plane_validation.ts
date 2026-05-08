@@ -182,12 +182,16 @@ try {
   });
 
   await run("admin_actions_execute_readiness_validation", async () => {
+    // After Phase 5, trigger_reconcile is implemented as a non-money internal
+    // dry-run that opens or reuses a PaymentMismatch support case. It does not
+    // call a live provider. Execution is therefore Completed with a
+    // ReconcileDryRunOpened result code, never NotImplemented.
     const created = await postAction({
       action_type: "trigger_reconcile",
       target_type: "deal",
       target_id: "00000000-0000-0000-0000-000000000001",
-      reason: "בדיקת NotImplemented נקי",
-      idempotency_key: `cp-reconcile-not-implemented-${RUN_ID}`
+      reason: "בדיקת dry-run reconcile",
+      idempotency_key: `cp-reconcile-dry-run-${RUN_ID}`
     });
     assert.equal(created.statusCode, 200, created.body);
     const action = (created.json() as any).action;
@@ -196,8 +200,11 @@ try {
       url: `/api/admin/actions/${action.admin_action_id}/execute`,
       headers: ADMIN_HEADERS
     });
-    assert.equal(executed.statusCode, 501, executed.body);
-    assert.equal((executed.json() as any).action.result_code, "NotImplemented");
+    assert.equal(executed.statusCode, 200, executed.body);
+    const executedBody = executed.json() as any;
+    assert.equal(executedBody.action.status, "Completed");
+    assert.ok(["ReconcileDryRunOpened", "ReconcileDryRunFailed"].includes(executedBody.action.result_code));
+    assert.match(String(executedBody.action.result_message || ""), /לא בוצעה קריאה לספק חי/);
   });
 
   await run("admin_actions_no_state_mutation_validation", async () => {

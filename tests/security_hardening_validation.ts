@@ -64,7 +64,10 @@ await runTest("security_api_no_store_validation", async () => {
 await runTest("security_upload_validation", async () => {
   assert.match(imageStorage, /DEAL_IMAGE_MIME_TYPES/);
   assert.match(imageStorage, /DEAL_IMAGE_MAX_BYTES/);
-  assert.match(imageStorage, /finalPath\.startsWith\(root\)/);
+  // Path traversal protection is now enforced in the storage adapter abstraction.
+  const storageAdapter = await readFile("src/storage_adapter.ts", "utf8");
+  assert.match(storageAdapter, /final\.startsWith\(this\.root \+ sep\)/);
+  assert.match(storageAdapter, /invalid_storage_key/);
   assert.doesNotMatch(imageStorage, /image\/svg|text\/html|application\/javascript/);
 });
 

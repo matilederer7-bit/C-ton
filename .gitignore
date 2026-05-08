@@ -49,3 +49,6 @@ backups/
 .tmp_*.png
 .tmp_*server*.log
 
+# local upload roots (image storage adapter writes here in dev)
+uploads/
+

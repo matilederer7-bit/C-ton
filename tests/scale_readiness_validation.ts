@@ -16,6 +16,7 @@ const app = await readFile("src/app.ts", "utf8");
 const frontendRuntime = await readFile("src/frontend_runtime.ts", "utf8");
 const outboxHelpers = await readFile("src/outbox_worker_helpers.ts", "utf8");
 const imageStorage = await readFile("src/product_image_storage.ts", "utf8");
+const storageAdapter = await readFile("src/storage_adapter.ts", "utf8");
 
 await runTest("scale_readiness_report_contract_validation", async () => {
   assert.match(mission, /scale_readiness: scaleReadiness/);
@@ -57,9 +58,11 @@ await runTest("auth_session_not_memory_backed_validation", async () => {
 });
 
 await runTest("storage_scale_readiness_validation", async () => {
-  assert.match(imageStorage, /storage_provider: "local"/);
+  // After the storage adapter refactor, product_image_storage validates and
+  // delegates to the adapter; the path traversal guard lives in storage_adapter.ts.
+  assert.match(imageStorage, /storage_provider/);
   assert.match(imageStorage, /DEAL_IMAGE_MIME_TYPES/);
   assert.match(imageStorage, /DEAL_IMAGE_MAX_BYTES/);
-  assert.match(imageStorage, /finalPath\.startsWith\(root\)/);
+  assert.match(storageAdapter, /final\.startsWith\(this\.root \+ sep\)|finalPath\.startsWith\(root\)|invalid_storage_key/);
   assert.match(mission, /object_storage_required_before_multi_instance/);
 });

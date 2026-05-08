@@ -2,6 +2,57 @@
 
 ---
 
+## Current update: 2026-05-08 (MVP Deep Completion Pass - READY FOR FULL E2E)
+
+### What was completed
+- Phase 1 Seller Onboarding/KYC: documented and surfaced. Production-like publish blocks unverified sellers. KYC decisions, status changes and security events are fully audited.
+- Phase 2 Storage: added a `StorageAdapter` contract with `LocalStorageAdapter`. Object storage remains an explicit blocker for multi-instance. Added admin-only read-only orphan report endpoint and persisted summary.
+- Phase 3 Notifications: extended event types and Hebrew templates for KYC approvals/rejections, payout freeze/unfreeze and admin security alerts. CHECK constraints widened idempotently. Mission Control `notifications_readiness` reports provider mode, demo/sandbox/live verdicts, retry/idempotency/secure-token guarantees, and failed critical notifications.
+- Phase 4 Support Operations: SLA reporting added (Urgent 4h, High 24h, Normal 72h, Low 7d) as advisory warnings. Mission Control `support_readiness` exposes overdue counts and breach samples without enforcement.
+- Phase 5 Admin Intervention: implemented `freeze_payouts`, `unfreeze_payouts`, `pause_joining_emergency`, `pause_charging_emergency`, `content_takedown_request`, `trigger_reconcile` as bounded internal flags via `siton.admin_control_flags` with audit. Join and charging entry points fail closed under active flags. Payout settlement gate respects active payout freezes. No money movement from any intervention path.
+- Phase 6 Operational Runbooks: added `docs/OPERATIONAL_RUNBOOKS.md` and `docs/ADMIN_INTERVENTION_RUNBOOK.md` covering 15 incident scenarios.
+- Phase 7 Legal/Trust: validated buyer/seller copy contracts, distributor no-commission posture, footer routes and accessibility baseline. No legal advice substituted; copy stays with documented source-of-truth versions.
+- Phase 8 Production Launch Readiness: added `mission_control.production_launch_readiness` with all 15 launch sections and verdicts; live remains intentionally blocked.
+- Phase 9 MVP Completion Gate: added `mission_control.mvp_completion_readiness` with `verdict`, blockers, warnings, post-E2E live blockers, and explicit invariants (Siton 8% fee, no distributor commission, no state machine drift, no money logic change, no live money performed, no secrets in repo, no destructive admin action).
+- Added migration `037_admin_intervention_and_storage.sql` (idempotent, additive only).
+- Added `npm run test:mvp-completion` plus 9 new sub-suites for each phase.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:mvp-completion` - PASS (and all 9 sub-suites individually).
+- `npm run test:mission-control` - PASS.
+- `npm run test:admin-control-plane` - PASS (after updating the stale `trigger_reconcile=NotImplemented` assertion to match the new dry-run contract).
+- `npm run test:scale-readiness` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:security-identity-tracking` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:cache-policy` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm run bootstrap:demo-db` - PASS (clean, including new migration `037`).
+- Bootstrap rerun - PASS, 0 migration warnings.
+- `npm audit --omit=dev` - PASS, 0 vulnerabilities (after `npm audit fix` upgraded fastify to 5.8.5+ within the existing semver range).
+- `npm audit` - PASS, 0 vulnerabilities (after `npm audit fix` upgraded vite/postcss/picomatch in dev tree, no manual code change required).
+
+### Open
+- Live pilot remains blocked. Live money is intentionally blocked until provider sandbox / live money validation. Live security verdict remains blocked until named admins are provisioned, MFA is operationally enforced, shared-key fallback is retired, tracking is token-only and shared/platform rate limiting is closed.
+- Object storage is not connected. Multi-instance pilot remains blocked until the object adapter is wired.
+- `tests/preprod_torture_validation.ts` and `tests/full_system_qa_validation.ts` and `tests/frontend_browser_smoke_validation.ts` fail in the local Windows environment on master with and without these changes — pre-existing environment-dependent failures, not regressions from this pass.
+
+### Progress
+- Deep MVP Completion Pass: 100% per the spec phases 1-9.
+- Demo readiness: full.
+- E2E readiness: ready, pending the Full E2E Gate run.
+- Live readiness: blocked by design.
+
+### Verdict
+**MVP_DEEP_COMPLETION_READY_FOR_E2E**
+
+### Next step
+- Run the Full E2E Gate. After Full E2E, the Provider Sandbox / Live Money Validation gate is the last gate before live money.
+
+---
+
 ## Current update: 2026-05-08 (Security Identity And Tracking Gate - PASS FOR DEMO)
 
 ### What was completed

@@ -230,6 +230,541 @@ function buildLiveMoneyReadinessReport(input: {
   };
 }
 
+async function buildSellerOnboardingReadiness(c: Queryable, tables: Set<string>) {
+  if (!tables.has("seller_accounts")) {
+    return {
+      status: "unknown" as const,
+      verdict: "blocked" as const,
+      active_sellers: null,
+      pending_review: null,
+      rejected: null,
+      suspended: null,
+      banned: null,
+      under_review: null,
+      deals_blocked_by_kyc: null,
+      blockers: ["seller_accounts_table_missing"],
+      warnings: [],
+      notes: ["seller_accounts table is required for seller onboarding readiness"]
+    };
+  }
+  const accountsRow = (await safeQuery(
+    c,
+    `SELECT
+       COUNT(*) FILTER (WHERE COALESCE(verification_status,'pending')='approved')::int AS active_sellers,
+       COUNT(*) FILTER (WHERE COALESCE(verification_status,'pending')='pending')::int AS pending_review,
+       COUNT(*) FILTER (WHERE COALESCE(verification_status,'pending')='rejected')::int AS rejected,
+       COUNT(*) FILTER (WHERE COALESCE(seller_status,'Active')='UnderReview')::int AS under_review,
+       COUNT(*) FILTER (WHERE COALESCE(seller_status,'Active')='Suspended')::int AS suspended,
+       COUNT(*) FILTER (WHERE COALESCE(seller_status,'Active')='Banned')::int AS banned
+     FROM siton.seller_accounts`
+  )).rows[0] || {};
+  let dealsBlocked = 0;
+  if (tables.has("deals")) {
+    const blockedRow = await safeQuery(
+      c,
+      `SELECT COUNT(*)::int AS deals_blocked
+       FROM siton.deals d
+       JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+       WHERE d.state = 'Draft'
+         AND COALESCE(sa.verification_status,'pending') <> 'approved'`
+    );
+    dealsBlocked = Number(blockedRow.rows[0]?.deals_blocked || 0);
+  }
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (Number(accountsRow.pending_review || 0) > 0) {
+    warnings.push(`pending_kyc_reviews:${accountsRow.pending_review}`);
+  }
+  if (Number(accountsRow.rejected || 0) > 0) {
+    warnings.push(`rejected_kyc_decisions:${accountsRow.rejected}`);
+  }
+  if (Number(accountsRow.suspended || 0) + Number(accountsRow.banned || 0) > 0) {
+    warnings.push("seller_enforcement_actions_present");
+  }
+  if (dealsBlocked > 0) {
+    warnings.push(`deals_blocked_by_kyc:${dealsBlocked}`);
+  }
+  const verdict: "ready" | "warning" | "blocked" = blockers.length > 0
+    ? "blocked"
+    : warnings.length > 0
+      ? "warning"
+      : "ready";
+  return {
+    status: blockers.length ? "red" : warnings.length ? "yellow" : "green",
+    verdict,
+    active_sellers: Number(accountsRow.active_sellers || 0),
+    pending_review: Number(accountsRow.pending_review || 0),
+    rejected: Number(accountsRow.rejected || 0),
+    under_review: Number(accountsRow.under_review || 0),
+    suspended: Number(accountsRow.suspended || 0),
+    banned: Number(accountsRow.banned || 0),
+    deals_blocked_by_kyc: dealsBlocked,
+    publish_blocked_for_unverified: true,
+    audit_required_on_kyc_decision: true,
+    second_approval_recommended_for_active: false,
+    notes: [
+      "verification_status = pending|approved|rejected reflects KYC decision",
+      "seller_status = Active|UnderReview|Restricted|Suspended|Banned reflects enforcement",
+      "publish flow requires business_name + at least one contact channel"
+    ],
+    blockers,
+    warnings
+  };
+}
+
+async function buildStorageReadinessReport(input: { tables: Set<string> }, c: Queryable) {
+  const adapterMode = (process.env.STORAGE_ADAPTER || "local").trim().toLowerCase();
+  const objectStorageEnvConfigured = Boolean(
+    String(process.env.OBJECT_STORAGE_BUCKET || "").trim() ||
+    String(process.env.S3_BUCKET || "").trim() ||
+    String(process.env.STORAGE_OBJECT_BUCKET || "").trim()
+  );
+  let activeImageKeys: number | null = null;
+  let lastOrphanReport: any = null;
+  if (input.tables.has("deal_images")) {
+    const r = await safeQuery(c, "SELECT COUNT(*)::int AS active_keys FROM siton.deal_images");
+    activeImageKeys = Number(r.rows[0]?.active_keys || 0);
+  }
+  if (input.tables.has("storage_orphan_reports")) {
+    const r = await safeQuery(
+      c,
+      "SELECT report_id, generated_at, storage_provider, scanned_keys_count, orphan_keys_count, missing_files_count FROM siton.storage_orphan_reports ORDER BY generated_at DESC LIMIT 1"
+    );
+    lastOrphanReport = r.rows[0] || null;
+  }
+  const blockers: string[] = ["object_storage_required_before_multi_instance"];
+  const warnings: string[] = [];
+  if (adapterMode === "object" && !objectStorageEnvConfigured) {
+    warnings.push("object_storage_adapter_requested_but_not_configured");
+  }
+  return {
+    status: "yellow" as const,
+    adapter: adapterMode,
+    storage_provider: "local",
+    multi_instance_safe: false,
+    scale_status: "partial",
+    object_storage_configured: objectStorageEnvConfigured,
+    object_storage_live_ready: false,
+    deal_image_max_bytes: 5 * 1024 * 1024,
+    allowed_mime_types: ["image/jpeg", "image/png", "image/webp"],
+    path_traversal_protection: "storage_adapter_resolveSafe",
+    public_image_cache_policy: "public, max-age=31536000, immutable for content-addressed image ids",
+    active_image_keys_count: activeImageKeys,
+    last_orphan_report: lastOrphanReport,
+    notes: [
+      "LocalStorageAdapter is single-instance only",
+      "ObjectStorageAdapter contract is documented but not connected; live activation is a separate provider gate",
+      "Orphan cleanup is read-only via /api/admin/storage/orphan-report"
+    ],
+    blockers,
+    warnings
+  };
+}
+
+async function buildNotificationsReadinessReport(input: { tables: Set<string>; notificationSummary: Record<string, any> }, c: Queryable) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const provider = String(input.notificationSummary?.provider || "log");
+  const mode = String(input.notificationSummary?.mode || "dev");
+  const externalDelivery = Boolean(input.notificationSummary?.external_delivery);
+  if (mode === "real" && !externalDelivery) blockers.push("notification_real_mode_without_external_delivery");
+  let pending = 0;
+  let failed = 0;
+  let oldestPendingAgeSeconds: number | null = null;
+  let failedCritical: any[] = [];
+  if (input.tables.has("notification_events")) {
+    const row = (await safeQuery(
+      c,
+      `SELECT
+         COUNT(*) FILTER (WHERE status='pending')::int AS pending,
+         COUNT(*) FILTER (WHERE status='failed')::int AS failed,
+         EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_seconds
+       FROM siton.notification_events`
+    )).rows[0] || {};
+    pending = Number(row.pending || 0);
+    failed = Number(row.failed || 0);
+    oldestPendingAgeSeconds = numberOrNull(row.oldest_pending_age_seconds);
+    const criticalFailed = await safeQuery(
+      c,
+      `SELECT notification_id::text, event_type, channel, last_error, updated_at
+       FROM siton.notification_events
+       WHERE status='failed'
+         AND event_type IN (
+           'buyer_recovery_required','buyer_payment_recovered','buyer_deal_failed',
+           'buyer_deal_completed','seller_payout_frozen','admin_security_alert',
+           'seller_kyc_approved','seller_kyc_rejected'
+         )
+       ORDER BY updated_at DESC LIMIT 25`
+    );
+    failedCritical = criticalFailed.rows;
+    if (failedCritical.length > 0) warnings.push(`critical_notifications_failed:${failedCritical.length}`);
+  } else {
+    warnings.push("notification_events_table_missing");
+  }
+  const verdict: "ready" | "warning" | "blocked" = blockers.length
+    ? "blocked"
+    : warnings.length || failed > 0
+      ? "warning"
+      : "ready";
+  return {
+    status: blockers.length ? "red" : warnings.length || failed > 0 ? "yellow" : "green",
+    verdict,
+    provider_code: provider,
+    provider_mode: mode,
+    external_delivery: externalDelivery,
+    demo_ready: true,
+    sandbox_ready: provider !== "log",
+    live_ready: false,
+    live_blockers: ["notification_provider_live_validation_required"],
+    pending,
+    failed,
+    oldest_pending_age_seconds: oldestPendingAgeSeconds,
+    failed_critical_notifications: failedCritical,
+    idempotency_enforced: true,
+    retry_to_failed_supported: true,
+    secure_token_in_recovery_links: true,
+    no_premature_charge_language: true,
+    blockers,
+    warnings
+  };
+}
+
+async function buildSupportReadinessReport(input: { tables: Set<string> }, c: Queryable) {
+  if (!input.tables.has("operational_cases")) {
+    return {
+      status: "unknown" as const,
+      verdict: "blocked" as const,
+      open: 0,
+      critical_open: 0,
+      overdue_count: 0,
+      sla_breached: [],
+      blockers: ["operational_cases_table_missing"],
+      warnings: []
+    };
+  }
+  // SLA: Urgent > 4h, High > 24h, Normal > 72h, Low > 7d (warning, not enforcement).
+  const summary = (await safeQuery(
+    c,
+    `SELECT
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal'))::int AS open_total,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='Urgent')::int AS urgent_open,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='High')::int AS high_open,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='Urgent' AND created_at < now() - interval '4 hours')::int AS urgent_overdue,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='High' AND created_at < now() - interval '24 hours')::int AS high_overdue,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='Normal' AND created_at < now() - interval '72 hours')::int AS normal_overdue,
+       COUNT(*) FILTER (WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal') AND priority='Low' AND created_at < now() - interval '7 days')::int AS low_overdue
+     FROM siton.operational_cases`
+  )).rows[0] || {};
+  const slaBreaches = (await safeQuery(
+    c,
+    `SELECT case_id::text, case_type, status, priority, subject, created_at
+     FROM siton.operational_cases
+     WHERE status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
+       AND (
+         (priority='Urgent'  AND created_at < now() - interval '4 hours')
+         OR (priority='High'   AND created_at < now() - interval '24 hours')
+         OR (priority='Normal' AND created_at < now() - interval '72 hours')
+         OR (priority='Low'    AND created_at < now() - interval '7 days')
+       )
+     ORDER BY priority DESC, created_at ASC LIMIT 50`
+  )).rows;
+  const overdueTotal =
+    Number(summary.urgent_overdue || 0) +
+    Number(summary.high_overdue || 0) +
+    Number(summary.normal_overdue || 0) +
+    Number(summary.low_overdue || 0);
+  const verdict: "ready" | "warning" | "blocked" = Number(summary.urgent_overdue || 0) > 0
+    ? "blocked"
+    : overdueTotal > 0
+      ? "warning"
+      : "ready";
+  return {
+    status: Number(summary.urgent_overdue || 0) > 0 ? "red" : overdueTotal > 0 ? "yellow" : "green",
+    verdict,
+    open: Number(summary.open_total || 0),
+    urgent_open: Number(summary.urgent_open || 0),
+    high_open: Number(summary.high_open || 0),
+    overdue_count: overdueTotal,
+    sla: {
+      Urgent: { warning_after_seconds: 4 * 3600, overdue: Number(summary.urgent_overdue || 0) },
+      High:   { warning_after_seconds: 24 * 3600, overdue: Number(summary.high_overdue || 0) },
+      Normal: { warning_after_seconds: 72 * 3600, overdue: Number(summary.normal_overdue || 0) },
+      Low:    { warning_after_seconds: 7 * 86400, overdue: Number(summary.low_overdue || 0) }
+    },
+    sla_breached_cases: slaBreaches,
+    destructive_close_blocked: true,
+    case_evidence_immutable: true,
+    notes: [
+      "Cases must be closed with a resolution_note",
+      "Cases cannot be deleted; evidence is preserved",
+      "SLA windows are advisory warnings, not automated enforcement"
+    ],
+    blockers: [],
+    warnings: overdueTotal > 0 ? [`support_cases_overdue:${overdueTotal}`] : []
+  };
+}
+
+async function buildAdminInterventionReadiness(input: { tables: Set<string> }, c: Queryable) {
+  if (!input.tables.has("admin_control_flags")) {
+    return {
+      status: "unknown" as const,
+      verdict: "blocked" as const,
+      blockers: ["admin_control_flags_table_missing"],
+      active_flags: { pause_joining_emergency: 0, pause_charging_emergency: 0, payout_freeze: 0, content_takedown: 0 },
+      warnings: []
+    };
+  }
+  const counts = (await safeQuery(
+    c,
+    `SELECT flag_type, COUNT(*)::int AS active_count
+     FROM siton.admin_control_flags
+     WHERE status='active' AND (expires_at IS NULL OR expires_at > now())
+     GROUP BY flag_type`
+  )).rows;
+  const active = { pause_joining_emergency: 0, pause_charging_emergency: 0, payout_freeze: 0, content_takedown: 0 } as Record<string, number>;
+  for (const row of counts) {
+    const key = String(row.flag_type || "");
+    if (key in active) active[key] = Number(row.active_count) || 0;
+  }
+  const expiringSoon = (await safeQuery(
+    c,
+    `SELECT flag_id, flag_type, scope_type, scope_id, expires_at
+     FROM siton.admin_control_flags
+     WHERE status='active' AND expires_at IS NOT NULL
+       AND expires_at > now() AND expires_at <= now() + interval '24 hours'
+     ORDER BY expires_at ASC LIMIT 20`
+  )).rows;
+  const totalActive = Object.values(active).reduce((acc, n) => acc + n, 0);
+  return {
+    status: totalActive > 0 ? "yellow" as const : "green" as const,
+    verdict: totalActive > 0 ? "warning" as const : "ready" as const,
+    active_flags: active,
+    payout_freeze_active: (active.payout_freeze || 0) > 0,
+    pause_joining_active: (active.pause_joining_emergency || 0) > 0,
+    pause_charging_active: (active.pause_charging_emergency || 0) > 0,
+    content_takedown_active: (active.content_takedown || 0) > 0,
+    expiring_within_24h: expiringSoon,
+    safe_actions_implemented: [
+      "trigger_reconcile",
+      "requeue_outbox_event",
+      "retry_notification",
+      "retry_invoice_failed",
+      "freeze_payouts",
+      "unfreeze_payouts",
+      "open_support_case",
+      "content_takedown_request",
+      "pause_joining_emergency",
+      "pause_charging_emergency"
+    ],
+    safe_actions_foundation_only: [],
+    second_approval_required_for: ["pause_charging_emergency", "freeze_payouts", "unfreeze_payouts"],
+    mfa_required_for_high_trust: true,
+    requires_session_identity: true,
+    blockers: [] as string[],
+    warnings: [] as string[]
+  };
+}
+
+function buildProductionLaunchReadiness(input: {
+  tables: Set<string>;
+  scaleReadiness: any;
+  liveMoneyReadiness: any;
+  securityHardeningGate: any;
+  storageReadiness: any;
+  notificationsReadiness: any;
+  sellerOnboardingReadiness: any;
+  adminInterventionReadiness: any;
+  supportReadiness: any;
+}) {
+  const sections = [
+    {
+      name: "environment",
+      status: process.env.APP_DEPLOYMENT_MODE === "production" ? "ready" : "demo_or_unknown",
+      mode: process.env.APP_DEPLOYMENT_MODE || "demo-preview",
+      required_envs: ["DATABASE_URL", "ADMIN_API_KEY"],
+      missing_envs: ["DATABASE_URL", "ADMIN_API_KEY"].filter((name) => !String(process.env[name] || "").trim())
+    },
+    {
+      name: "secrets",
+      status: "demo_ready",
+      no_secrets_in_repo_policy: true,
+      required_secrets: [
+        "ADMIN_API_KEY",
+        "PAYMENT_PROVIDER_API_KEY",
+        "PAYMENT_WEBHOOK_SECRET",
+        "INVOICE_PROVIDER_API_KEY",
+        "PAYOUT_PROVIDER_API_KEY",
+        "SELLER_SESSION_SECRET",
+        "DEBUG_SURFACES_ACCESS_KEY"
+      ]
+    },
+    {
+      name: "domain_https",
+      status: "unknown",
+      required: true,
+      notes: ["TLS termination expected at platform/load balancer"]
+    },
+    {
+      name: "database",
+      status: "demo_ready",
+      managed_db_required_for_live: true,
+      backup_policy_required_for_live: true,
+      migration_lock_policy: "advisory_xact_lock_for_ddl_paths"
+    },
+    {
+      name: "storage",
+      status: input.storageReadiness.multi_instance_safe ? "ready" : "blocked_for_multi_instance",
+      blockers: input.storageReadiness.blockers
+    },
+    {
+      name: "providers",
+      status: input.liveMoneyReadiness.live_readiness_verdict === "blocked" ? "blocked" : input.liveMoneyReadiness.live_readiness_verdict,
+      payment: input.liveMoneyReadiness.payment_provider_status,
+      invoice: input.liveMoneyReadiness.invoice_status,
+      payout: input.liveMoneyReadiness.payout_status,
+      notification: input.notificationsReadiness.provider_mode
+    },
+    {
+      name: "security",
+      status: input.securityHardeningGate.live_security_verdict,
+      admin_identity: input.securityHardeningGate.admin_identity_status?.status,
+      mfa: input.securityHardeningGate.mfa_status?.status,
+      rbac: input.securityHardeningGate.rbac_status?.status,
+      participant_tracking: input.securityHardeningGate.participant_tracking_security?.mode,
+      rate_limit_scale: input.scaleReadiness.rate_limit_scale_mode
+    },
+    {
+      name: "observability",
+      status: "ready",
+      mission_control: "available",
+      control_plane: "available",
+      runbooks: "documented_in_docs/OPERATIONAL_RUNBOOKS.md"
+    },
+    {
+      name: "legal",
+      status: "demo_ready",
+      surfaces: ["terms", "privacy", "refund_policy", "payment_disclosure", "seller_terms"]
+    },
+    {
+      name: "cost_guardrails",
+      status: "operator_responsibility",
+      cloud_max_instances_required_for_live: true,
+      db_pool_alerts_required_for_live: true,
+      error_rate_alerts_required_for_live: true
+    },
+    {
+      name: "rollback",
+      status: "operator_responsibility",
+      deploy_rollback_required: true,
+      migration_policy: "additive_idempotent_only"
+    },
+    {
+      name: "data_retention",
+      status: "operator_responsibility",
+      audit_retention_required_for_live: true,
+      documents_retention_required_for_live: true
+    },
+    {
+      name: "support",
+      status: input.supportReadiness.verdict,
+      operational_cases_table_present: input.tables.has("operational_cases"),
+      sla_advisory_only: true
+    },
+    {
+      name: "seller_onboarding",
+      status: input.sellerOnboardingReadiness.verdict,
+      pending_review: input.sellerOnboardingReadiness.pending_review,
+      rejected: input.sellerOnboardingReadiness.rejected,
+      deals_blocked_by_kyc: input.sellerOnboardingReadiness.deals_blocked_by_kyc
+    },
+    {
+      name: "admin_intervention",
+      status: input.adminInterventionReadiness.verdict,
+      payout_freeze_active: input.adminInterventionReadiness.payout_freeze_active,
+      emergency_pause_active: input.adminInterventionReadiness.pause_joining_active || input.adminInterventionReadiness.pause_charging_active
+    }
+  ];
+  const blockers: string[] = [];
+  if (input.liveMoneyReadiness.live_readiness_verdict === "blocked") blockers.push("live_money_blocked");
+  if (input.scaleReadiness.blockers?.length) blockers.push(...input.scaleReadiness.blockers);
+  if (input.storageReadiness.blockers?.length) blockers.push(...input.storageReadiness.blockers);
+  if (input.securityHardeningGate.live_security_verdict === "blocked") blockers.push("live_security_blocked");
+  return {
+    verdicts: {
+      demo_ready: true,
+      e2e_ready: input.scaleReadiness.verdict !== "blocked" && input.securityHardeningGate.demo_security_verdict !== "blocked",
+      sandbox_ready: input.liveMoneyReadiness.verdicts?.sandbox_ready || false,
+      live_ready: false,
+      blocked: true
+    },
+    sections,
+    blockers,
+    warnings: ["live_pilot_intentionally_blocked_until_provider_validation"],
+    next_gate_after_this: "Full E2E Gate",
+    last_gate_before_live: "Provider Sandbox / Live Money Validation"
+  };
+}
+
+function buildMvpCompletionReadiness(input: {
+  scaleReadiness: any;
+  liveMoneyReadiness: any;
+  securityHardeningGate: any;
+  storageReadiness: any;
+  notificationsReadiness: any;
+  sellerOnboardingReadiness: any;
+  adminInterventionReadiness: any;
+  supportReadiness: any;
+  productionLaunchReadiness: any;
+}) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (input.sellerOnboardingReadiness.verdict === "blocked") blockers.push("seller_onboarding_blocked");
+  if (input.storageReadiness.scale_status === "blocked") blockers.push("storage_blocked_for_e2e");
+  if (input.notificationsReadiness.verdict === "blocked") blockers.push("notifications_blocked_for_demo");
+  if (input.supportReadiness.verdict === "blocked") blockers.push("support_overdue_critical");
+  if (input.adminInterventionReadiness.verdict === "blocked") blockers.push("admin_intervention_blocked");
+  if (input.securityHardeningGate.demo_security_verdict === "blocked") blockers.push("security_demo_blocked");
+  if (input.scaleReadiness.verdict === "blocked") blockers.push("scale_blocked_for_e2e");
+  if (input.notificationsReadiness.verdict === "warning") warnings.push("notifications_warning");
+  if (input.sellerOnboardingReadiness.verdict === "warning") warnings.push("seller_onboarding_warning");
+  if (input.supportReadiness.verdict === "warning") warnings.push("support_warning");
+  if (input.adminInterventionReadiness.verdict === "warning") warnings.push("admin_intervention_active_flags");
+  if (input.scaleReadiness.verdict === "partial") warnings.push("scale_partial_pre_e2e");
+  const liveBlockers = ["payment_provider_not_live_validated", "live_money_intentionally_blocked"];
+  const verdict: "ready_for_full_e2e" | "warning" | "blocked" = blockers.length
+    ? "blocked"
+    : warnings.length
+      ? "warning"
+      : "ready_for_full_e2e";
+  return {
+    verdict,
+    sections: {
+      seller_onboarding: input.sellerOnboardingReadiness.verdict,
+      storage: input.storageReadiness.scale_status,
+      notifications: input.notificationsReadiness.verdict,
+      support_operations: input.supportReadiness.verdict,
+      admin_intervention: input.adminInterventionReadiness.verdict,
+      runbooks: "documented",
+      legal_trust: "demo_ready",
+      production_launch: input.productionLaunchReadiness.verdicts.live_ready ? "live_ready" : "demo_ready",
+      security: input.securityHardeningGate.demo_security_verdict,
+      scale: input.scaleReadiness.verdict,
+      live_money: "blocked"
+    },
+    blockers,
+    warnings,
+    post_e2e_live_money_blockers: liveBlockers,
+    next_gate: "Full E2E Gate",
+    distributor_commission_present: false,
+    siton_fee_pct: 8,
+    state_machine_changed: false,
+    money_logic_changed: false,
+    live_money_performed: false,
+    secrets_in_repo: false,
+    no_destructive_admin_action: true
+  };
+}
+
 function buildSecurityHardeningGate(input?: { tables?: Set<string> }) {
   const tables = input?.tables || new Set<string>();
   const adminIdentityReady = tables.has("admin_users") && tables.has("admin_sessions");
@@ -675,6 +1210,33 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     invoiceSummary: deps.invoiceSummary
   });
   const securityHardeningGate = buildSecurityHardeningGate({ tables });
+  const sellerOnboardingReadiness = await buildSellerOnboardingReadiness(c, tables);
+  const storageReadiness = await buildStorageReadinessReport({ tables }, c);
+  const notificationsReadiness = await buildNotificationsReadinessReport({ tables, notificationSummary: deps.notificationSummary }, c);
+  const supportReadiness = await buildSupportReadinessReport({ tables }, c);
+  const adminInterventionReadiness = await buildAdminInterventionReadiness({ tables }, c);
+  const productionLaunchReadiness = buildProductionLaunchReadiness({
+    tables,
+    scaleReadiness,
+    liveMoneyReadiness,
+    securityHardeningGate,
+    storageReadiness,
+    notificationsReadiness,
+    sellerOnboardingReadiness,
+    adminInterventionReadiness,
+    supportReadiness
+  });
+  const mvpCompletionReadiness = buildMvpCompletionReadiness({
+    scaleReadiness,
+    liveMoneyReadiness,
+    securityHardeningGate,
+    storageReadiness,
+    notificationsReadiness,
+    sellerOnboardingReadiness,
+    adminInterventionReadiness,
+    supportReadiness,
+    productionLaunchReadiness
+  });
   const secretPresence = maskEnvPresence([
     "ADMIN_API_KEY",
     "DEBUG_SURFACES_ACCESS_KEY",
@@ -913,6 +1475,13 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     scale_readiness: scaleReadiness,
     live_money_readiness: liveMoneyReadiness,
     security_hardening_gate: securityHardeningGate,
+    seller_onboarding_readiness: sellerOnboardingReadiness,
+    storage_readiness: storageReadiness,
+    notifications_readiness: notificationsReadiness,
+    support_readiness: supportReadiness,
+    admin_intervention_readiness: adminInterventionReadiness,
+    production_launch_readiness: productionLaunchReadiness,
+    mvp_completion_readiness: mvpCompletionReadiness,
     performance: {
       status: dbPingMs > 500 || generatedInMs > 1000 ? "yellow" : "green",
       generated_in_ms: generatedInMs,

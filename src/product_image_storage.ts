@@ -1,6 +1,6 @@
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename } from "node:path";
 import { randomUUID } from "node:crypto";
+import { buildStorageAdapter, type StorageAdapter } from "./storage_adapter.js";
 
 export const DEAL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const DEAL_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -13,15 +13,15 @@ export type DealImageUploadInput = {
 };
 
 export type DealImageFile = {
-  storage_provider: "local";
+  storage_provider: "local" | "object";
   storage_key: string;
   original_filename: string | null;
   mime_type: string;
   size_bytes: number;
 };
 
-function uploadRoot() {
-  return resolve(process.env.DEAL_IMAGE_UPLOAD_DIR || join(process.cwd(), "uploads", "deal-images"));
+function adapter(): StorageAdapter {
+  return buildStorageAdapter();
 }
 
 function extensionForMime(mimeType: string) {
@@ -60,45 +60,29 @@ export async function saveDealImage(input: DealImageUploadInput): Promise<DealIm
 
   const safeDealSegment = String(input.dealId || "").replace(/[^a-zA-Z0-9-]/g, "");
   const storageKey = `${safeDealSegment}/${randomUUID()}${extensionForMime(mimeType)}`;
-  const root = uploadRoot();
-  const finalPath = resolve(root, storageKey);
-  if (!finalPath.startsWith(root)) {
-    const err: any = new Error("invalid image path");
-    err.statusCode = 400;
-    err.code = "invalid_image_path";
-    throw err;
-  }
-
-  await mkdir(dirname(finalPath), { recursive: true });
-  await writeFile(finalPath, buffer);
+  const stored = await adapter().put(storageKey, buffer);
 
   return {
-    storage_provider: "local",
-    storage_key: storageKey,
+    storage_provider: stored.storage_provider,
+    storage_key: stored.storage_key,
     original_filename: input.originalFilename ? basename(String(input.originalFilename)) : null,
     mime_type: mimeType,
-    size_bytes: buffer.length
+    size_bytes: stored.size_bytes
   };
 }
 
 export async function readDealImage(storageKey: string) {
-  const root = uploadRoot();
-  const finalPath = resolve(root, storageKey);
-  if (!finalPath.startsWith(root)) {
-    const err: any = new Error("image not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  return readFile(finalPath);
+  return adapter().get(storageKey);
 }
 
 export async function deleteDealImageFile(storageKey: string) {
-  const root = uploadRoot();
-  const finalPath = resolve(root, storageKey);
-  if (!finalPath.startsWith(root)) return;
-  await rm(finalPath, { force: true });
+  await adapter().delete(storageKey).catch(() => undefined);
 }
 
 export function getDealImagePublicUrl(image: { image_id: string }) {
   return `/api/deal-images/${encodeURIComponent(String(image.image_id))}`;
+}
+
+export function getDealImageStorageAdapter(): StorageAdapter {
+  return adapter();
 }
