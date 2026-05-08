@@ -2144,6 +2144,30 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
 
 const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
 
+function isImmutableDealImageRoute(req: any) {
+  return req.method === "GET" && /^\/api\/deal-images\/[^/?#]+(?:[?#].*)?$/.test(String(req.url || ""));
+}
+
+function isDynamicNoStoreRoute(url: string) {
+  const path = url.split("?")[0] || "/";
+  return (
+    path.startsWith("/api/") ||
+    path.startsWith("/webhooks/") ||
+    path === "/health" ||
+    path === "/health/integrations" ||
+    path.startsWith("/deals") ||
+    path.startsWith("/participants") ||
+    path.startsWith("/admin") ||
+    path.startsWith("/seller") ||
+    path.startsWith("/buyer") ||
+    path.startsWith("/tracking") ||
+    path.startsWith("/payments") ||
+    path.startsWith("/invoices") ||
+    path.startsWith("/payouts") ||
+    path.startsWith("/notifications")
+  );
+}
+
 app.addHook("onRequest", (req: any, reply: any, done) => {
   const requestId = safeHeaderId(req.headers?.["x-request-id"], "req");
   const correlationId = safeHeaderId(req.headers?.["x-correlation-id"], "corr");
@@ -2155,6 +2179,11 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
   req.headers["x-correlation-id"] = correlationId;
   reply.header("x-request-id", requestId);
   reply.header("x-correlation-id", correlationId);
+  if (!isImmutableDealImageRoute(req) && isDynamicNoStoreRoute(String(req.url || ""))) {
+    reply.header("cache-control", "no-store");
+    reply.header("pragma", "no-cache");
+    reply.header("expires", "0");
+  }
   done();
 });
 export { app };

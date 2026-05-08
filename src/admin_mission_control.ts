@@ -102,7 +102,7 @@ async function tableNames(c: Queryable) {
      FROM information_schema.tables
      WHERE table_schema='siton'`
   );
-  return new Set((res.rows || []).map((row: any) => String(row.table_name)));
+  return new Set<string>((res.rows || []).map((row: any) => String(row.table_name)));
 }
 
 async function columnNames(c: Queryable) {
@@ -115,7 +115,7 @@ async function columnNames(c: Queryable) {
   const byTable: Record<string, Set<string>> = {};
   for (const row of res.rows || []) {
     const table = String(row.table_name);
-    byTable[table] ||= new Set();
+    byTable[table] ||= new Set<string>();
     byTable[table].add(String(row.column_name));
   }
   return byTable;
@@ -130,6 +130,104 @@ function fileCheck(rootDir: string, relativePath: string) {
 
 function rowsByKey(rows: any[], key: string, valueKey = "count") {
   return Object.fromEntries(rows.map((row) => [String(row[key] ?? "unknown"), Number(row[valueKey] ?? 0)]));
+}
+
+function hasColumn(columns: Record<string, Set<string>>, table: string, column: string) {
+  return Boolean(columns[table]?.has(column));
+}
+
+function buildScaleReadinessReport(input: {
+  tables: Set<string>;
+  columns: Record<string, Set<string>>;
+  paymentSummary: ReturnType<typeof getPaymentProviderSummary>;
+  payoutSummary: any;
+}) {
+  const blockers: string[] = [];
+  const inMemoryStateRisks = [
+    { name: "rateLimitStore", classification: "B", status: "single_instance_only", reason: "fixed-window in-process Map; not business truth" },
+    { name: "legacyPhoneByChallenge", classification: "B", status: "legacy_compatibility_only", reason: "legacy OTP shim memory map; DB-backed otp_challenges is the canonical OTP authority" }
+  ];
+  const otpScaleStatus = input.tables.has("otp_challenges") ? "partial" : "blocked";
+  if (!input.tables.has("otp_challenges")) blockers.push("otp_challenges table missing");
+  const storageScaleStatus = input.paymentSummary.provider ? "partial" : "partial";
+  blockers.push("object_storage_required_before_multi_instance");
+  const workerParallelismStatus = input.tables.has("outbox_events") && hasColumn(input.columns, "outbox_events", "processing_started_at")
+    ? "partial"
+    : "blocked";
+  if (workerParallelismStatus === "blocked") blockers.push("outbox processing claim columns missing");
+  const idempotencyScaleStatus = input.tables.has("idempotency_log") ? "partial" : "blocked";
+  if (!input.tables.has("idempotency_log")) blockers.push("idempotency_log missing");
+  const statelessApi = blockers.some((item) => item === "otp_challenges table missing") ? "partial" : "partial";
+  return {
+    verdict: blockers.length ? "partial" : "yes",
+    stateless_api: statelessApi,
+    in_memory_state_risks: inMemoryStateRisks,
+    otp_scale_status: otpScaleStatus,
+    rate_limit_scale_status: "partial",
+    rate_limit_scale_mode: "single_instance_only",
+    storage_scale_status: storageScaleStatus,
+    worker_parallelism_status: workerParallelismStatus,
+    idempotency_scale_status: idempotencyScaleStatus,
+    db_pool_status: "partial",
+    load_balancer_readiness: "partial",
+    session_authority: input.tables.has("seller_sessions") ? "db_backed" : "demo_or_unknown",
+    admin_identity_status: process.env.ADMIN_API_KEY ? "env_key_demo_admin" : "missing_or_demo",
+    blockers,
+    evidence: [
+      "outbox_worker_helpers uses FOR UPDATE SKIP LOCKED for batch claims",
+      "seller sessions are looked up by token_hash in siton.seller_sessions when non-demo auth is configured",
+      "deal image storage is local filesystem via product_image_storage"
+    ],
+    scale_mode: "foundation_only_not_full_multi_instance_ready"
+  };
+}
+
+function buildLiveMoneyReadinessReport(input: {
+  tables: Set<string>;
+  paymentSummary: ReturnType<typeof getPaymentProviderSummary>;
+  payoutSummary: any;
+  invoiceSummary: Record<string, any> | undefined;
+}) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const paymentReal = input.paymentSummary.provider === "stripe";
+  const paymentConfigured = Boolean(input.paymentSummary.configured);
+  const webhookSecretConfigured = Boolean(process.env.PAYMENT_WEBHOOK_SECRET || process.env.STRIPE_WEBHOOK_SECRET);
+  if (!paymentReal || !paymentConfigured) blockers.push("payment_provider_not_live_validated");
+  if (!webhookSecretConfigured) blockers.push("payment_webhook_secret_missing_for_live");
+  if (!input.tables.has("webhook_events")) blockers.push("webhook_events table missing");
+  if (!input.tables.has("payment_attempts")) blockers.push("payment_attempts table missing");
+  if (!input.tables.has("invoice_documents")) blockers.push("invoice_documents table missing");
+  if (!input.tables.has("seller_payout_batches")) blockers.push("seller_payout_batches table missing");
+  blockers.push("reconcile_runbook_or_live_provider_status_validation_required_before_live_money");
+  blockers.push("freeze_payouts_admin_action_foundation_only");
+  if (!input.invoiceSummary?.external_issuance) warnings.push("invoice provider is not externally issuing live tax documents");
+  if (!input.payoutSummary.external_transfer_executed) warnings.push("payout provider is not executing live external transfers");
+  return {
+    payment_provider_status: paymentReal && paymentConfigured ? "sandbox_or_provider_ready" : "demo_ready",
+    webhook_status: webhookSecretConfigured ? "provider_ready" : "blocked_for_live",
+    reconcile_status: "partial",
+    refund_status: "partial",
+    invoice_status: input.invoiceSummary?.external_issuance ? "provider_ready" : "demo_ready",
+    payout_status: input.payoutSummary.external_transfer_executed ? "provider_ready" : "blocked_for_live",
+    admin_intervention_status: "partial",
+    security_status: webhookSecretConfigured ? "partial" : "blocked_for_live",
+    live_readiness_verdict: "blocked",
+    verdicts: {
+      demo_ready: true,
+      sandbox_ready: paymentConfigured && webhookSecretConfigured ? "partial" : false,
+      live_ready: false,
+      blocked: true
+    },
+    blockers,
+    warnings,
+    evidence: [
+      "money actions are worker/outbox oriented; request handlers authorize/enqueue rather than direct capture/recovery/refund",
+      "provider summaries are read from configured adapters without activating live money",
+      "webhook dedupe table is expected as siton.webhook_events by provider + event_id"
+    ],
+    secret_policy: maskEnvPresence(["PAYMENT_PROVIDER", "PAYMENT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "INVOICE_PROVIDER", "PAYOUT_PROVIDER"])
+  };
 }
 
 async function frontendSurface(rootDir: string, anomalies: Anomaly[]) {
@@ -402,6 +500,13 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   const frontend = await frontendSurface(deps.rootDir, anomalies);
   const paymentSummary = getPaymentProviderSummary(deps.paymentProvider);
   const payoutSummary = deps.payoutProvider ? getPayoutProviderSummary(deps.payoutProvider) : { provider: "unknown", mode: "unknown", configured: false };
+  const scaleReadiness = buildScaleReadinessReport({ tables, columns, paymentSummary, payoutSummary });
+  const liveMoneyReadiness = buildLiveMoneyReadinessReport({
+    tables,
+    paymentSummary,
+    payoutSummary,
+    invoiceSummary: deps.invoiceSummary
+  });
   const secretPresence = maskEnvPresence([
     "ADMIN_API_KEY",
     "DEBUG_SURFACES_ACCESS_KEY",
@@ -634,6 +739,8 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       missing_assets: [],
       issues: tables.has("deal_images") ? [] : ["deal_images_table_missing_or_unknown"]
     },
+    scale_readiness: scaleReadiness,
+    live_money_readiness: liveMoneyReadiness,
     performance: {
       status: dbPingMs > 500 || generatedInMs > 1000 ? "yellow" : "green",
       generated_in_ms: generatedInMs,

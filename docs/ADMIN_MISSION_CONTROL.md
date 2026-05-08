@@ -30,6 +30,8 @@ The main response includes:
 - `notifications`
 - `security`
 - `storage_uploads`
+- `scale_readiness`
+- `live_money_readiness`
 - `performance`
 - `business_metrics`
 - `anomaly_center`
@@ -58,6 +60,14 @@ Correlation trace aggregates audit, outbox, webhooks, payments, invoices, payout
 `/app/admin` now shows Admin Actions history and Safe Action entry points from anomalies.
 
 Action endpoints:
+
+## Readiness Gates
+
+`scale_readiness` reports stateless API posture, in-memory risks, OTP/rate-limit/storage/worker/idempotency readiness, DB pool posture, load balancer readiness, and blockers before multi-instance deployment.
+
+`live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
+
+These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 
 - `GET /api/admin/actions`
 - `GET /api/admin/actions/:adminActionId`

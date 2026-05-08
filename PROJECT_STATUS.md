@@ -2,6 +2,36 @@
 
 ---
 
+## Current update: 2026-05-08 (Ops Hardening And Readiness Gates - DELIVERED)
+
+### What was completed
+- Phase 1 Cache Hardening: added no-store policy for dynamic API/webhook surfaces and revalidation policy for unhashed frontend assets.
+- Preserved immutable cache policy for `GET /api/deal-images/:imageId`.
+- Phase 2 Horizontal Scale Readiness Foundation: added Mission Control `scale_readiness` with explicit partial/blocker posture.
+- Phase 3 Provider Live Money Readiness Audit: added Mission Control `live_money_readiness` with `live_ready=false` and blockers before real money.
+- Added `docs/CACHE_POLICY.md`, `docs/HORIZONTAL_SCALE_READINESS.md`, and `docs/PROVIDER_LIVE_MONEY_READINESS.md`.
+- Updated `docs/ADMIN_MISSION_CONTROL.md`.
+
+### What was checked
+- `npm run test:cache-policy` - PASS.
+- `npm run test:scale-readiness` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+
+### Open
+- Multi-instance readiness remains partial until object storage, distributed rate limiting or accepted single-instance mode, deployment DB pool limits, and stricter readiness gates are closed.
+- Live money remains blocked until provider sandbox/live validation, webhook secrets, reconcile proof, refund/payout validation, payout freeze enforcement and production admin identity/MFA are complete.
+- No migration was added.
+
+### Progress
+- Cache hardening: 100%.
+- Horizontal scale readiness foundation: 100% foundation, partial full readiness.
+- Provider live money readiness audit: 100% audit, live money blocked by design.
+
+### Next step
+- Close the documented scale and live-money blockers before any multi-instance or live-money pilot.
+
+---
+
 ## Current update: 2026-05-08 (Admin Control Plane Phase 2 - DELIVERED)
 
 ### What was completed

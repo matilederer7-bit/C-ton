@@ -673,7 +673,9 @@ function deriveBuyerDocumentVisibility(args: {
 
 async function sendFrontendFile(reply: FastifyReply, filename: string, contentType: string) {
   const content = await readFile(join(frontendDir, filename), "utf8");
-  return reply.type(contentType).send(content);
+  const cacheControl =
+    filename === "index.html" ? "no-store" : "no-cache, must-revalidate";
+  return reply.header("cache-control", cacheControl).type(contentType).send(content);
 }
 
 const DEAL_CHAT_READ_BLOCKED_STATES = new Set<DealState>(["Draft"]);
