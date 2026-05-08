@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { execFile, spawn } from "node:child_process";
+import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import dotenv from "dotenv";
@@ -67,35 +67,77 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
   console.log(`SMOKE_DOM ${label} ${path}`);
   const profileDir = join(tmpdir(), `siton-browser-smoke-${label}-${Date.now()}`);
   await mkdir(profileDir, { recursive: true });
+  const dumpFile = join(profileDir, "dump.html");
 
-  try {
-    const args = [
-      "--headless",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-default-browser-check",
-      `--user-data-dir=${profileDir}`,
-      `--window-size=${viewport.width},${viewport.height}`,
-      "--virtual-time-budget=9000",
-      "--dump-dom",
-      `${baseUrl}${path}`
-    ];
+  // Edge 147+ requires the legacy headless mode for --dump-dom. The new
+  // headless backend does not stream the rendered DOM to stdout. Additionally,
+  // when launched via Node's child_process.spawn/execFile on Windows, Edge
+  // exits with empty output because Chromium does not honor the piped stdout
+  // handle the way a regular console process does. Launch Edge through
+  // PowerShell's Start-Process with -RedirectStandardOutput, which sets up the
+  // standard handle at the Win32 level that Edge actually respects.
+  const psEdge = edgePath.replaceAll("\\", "\\\\");
+  const psProfile = profileDir.replaceAll("\\", "\\\\");
+  const psDump = dumpFile.replaceAll("\\", "\\\\");
+  const psUrl = `${baseUrl}${path}`;
+  const psCommand = [
+    "$ErrorActionPreference='Stop';",
+    `Start-Process -FilePath '${psEdge}'`,
+    "-ArgumentList",
+    [
+      "'--headless=old'",
+      "'--disable-gpu'",
+      "'--no-first-run'",
+      "'--no-default-browser-check'",
+      `'--user-data-dir=${psProfile}'`,
+      `'--window-size=${viewport.width},${viewport.height}'`,
+      "'--virtual-time-budget=9000'",
+      "'--dump-dom'",
+      `'${psUrl}'`
+    ].join(","),
+    "-NoNewWindow",
+    `-RedirectStandardOutput '${psDump}'`,
+    "-Wait"
+  ].join(" ");
 
-    const output = await new Promise<string>((resolve, reject) => {
-      execFile(edgePath, args, { encoding: "utf8", maxBuffer: 8 * 1024 * 1024, timeout: 15_000, killSignal: "SIGKILL" }, (error, stdout, stderr) => {
-        if (error) {
-          reject(new Error(`Edge dump failed for ${path}: ${stderr || error.message}`));
-          return;
-        }
-        resolve(stdout);
-      });
+  await new Promise<void>((resolve, reject) => {
+    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true
     });
+    let stderrBuf = "";
+    child.stderr?.on("data", (chunk) => { stderrBuf += String(chunk); });
+    const killTimer = setTimeout(() => child.kill("SIGKILL"), 30_000);
+    child.on("error", (error) => {
+      clearTimeout(killTimer);
+      reject(new Error(`Edge dump failed for ${path}: ${stderrBuf || error.message}`));
+    });
+    child.on("exit", (code) => {
+      clearTimeout(killTimer);
+      if (code === 0 || code === null) {
+        resolve();
+      } else {
+        reject(new Error(`Edge dump exited ${code} for ${path}: ${stderrBuf}`));
+      }
+    });
+  });
 
-    assert.ok(output.includes("<html"), `expected rendered HTML for ${path}`);
-    return output;
-  } finally {
-    await rm(profileDir, { recursive: true, force: true });
+  let output = "";
+  try {
+    output = await readFile(dumpFile, "utf8");
+  } catch {
+    output = "";
   }
+  // Cleanup is best-effort. Edge keeps Crashpad handles for a moment after
+  // exit, so a forceful rm can race and produce ENOTEMPTY on Windows. Treat
+  // cleanup errors as non-fatal so the assertion failure (if any) is the one
+  // that surfaces.
+  try {
+    assert.ok(output.includes("<html"), `expected rendered HTML for ${path}`);
+  } finally {
+    rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+  return output;
 }
 
 function randomSuffix(prefix: string) {
