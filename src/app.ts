@@ -63,6 +63,7 @@ import {
   normalizeSellerId,
   parseCookies
 } from "./seller_auth.js";
+import { ensureAdminControlPlaneTables, safeHeaderId } from "./admin_control_plane.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -480,6 +481,7 @@ const payoutRail = buildPayoutRail({
 async function atomicMultiTransition(args: {
   actionName: string;
   requestId: string;
+  correlationId?: string;
   idempotency: { entityType: AtomicEntityType; entityId: string; idempotencyKey: string };
   buildOpsInTx?: (c: PoolClient) => Promise<TransitionOp[]>;
   ops?: TransitionOp[];
@@ -487,6 +489,7 @@ async function atomicMultiTransition(args: {
   response?: any;
   insideTx?: (c: PoolClient) => Promise<void>;
 }): Promise<{ response: any; replay: boolean }> {
+  await ensureAdminControlPlaneTables(withTx);
   const response = args.response ?? { ok: true };
 
   return withTx(async (c) => {
@@ -521,11 +524,12 @@ async function atomicMultiTransition(args: {
     await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
     await c.query(`SELECT set_config('siton.outbox_written', '0', true)`);
 
+    const correlationId = args.correlationId || args.requestId;
     for (const op of ops) {
       await c.query(
         `INSERT INTO siton.audit_log
-         (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+         (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
         [
           op.entityType,
           op.entityId,
@@ -535,6 +539,7 @@ async function atomicMultiTransition(args: {
           op.toState,
           args.actionName,
           args.requestId,
+          correlationId,
           args.idempotency.idempotencyKey,
           JSON.stringify(op.payload ?? {})
         ]
@@ -546,14 +551,16 @@ async function atomicMultiTransition(args: {
     if (args.outbox) {
       await c.query(
         `INSERT INTO siton.outbox_events
-         (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-         VALUES ($1,$2,$3,$4,'pending',0,COALESCE($5, now()))`,
+         (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, correlation_id, request_id)
+         VALUES ($1,$2,$3,$4,'pending',0,COALESCE($5, now()),$6,$7)`,
         [
           args.outbox.event_type,
           args.outbox.aggregate_type,
           args.outbox.aggregate_id,
           JSON.stringify(args.outbox.payload ?? {}),
-          args.outbox.available_at ? args.outbox.available_at.toISOString() : null
+          args.outbox.available_at ? args.outbox.available_at.toISOString() : null,
+          correlationId,
+          args.requestId
         ]
       );
       await c.query(`SELECT set_config('siton.outbox_written', '1', true)`);
@@ -586,9 +593,9 @@ async function atomicMultiTransition(args: {
 
     await c.query(
       `INSERT INTO siton.idempotency_log
-       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb)
-       VALUES ($1,$2,$3,$4,'OK',$5)`,
-      [args.idempotency.entityType, args.idempotency.entityId, args.actionName, args.idempotency.idempotencyKey, JSON.stringify(response)]
+       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb, correlation_id, request_id)
+       VALUES ($1,$2,$3,$4,'OK',$5,$6,$7)`,
+      [args.idempotency.entityType, args.idempotency.entityId, args.actionName, args.idempotency.idempotencyKey, JSON.stringify(response), correlationId, args.requestId]
     );
 
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
@@ -2136,6 +2143,20 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
 }
 
 const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
+
+app.addHook("onRequest", (req: any, reply: any, done) => {
+  const requestId = safeHeaderId(req.headers?.["x-request-id"], "req");
+  const correlationId = safeHeaderId(req.headers?.["x-correlation-id"], "corr");
+  req.request_id = requestId;
+  req.requestId = requestId;
+  req.correlation_id = correlationId;
+  req.correlationId = correlationId;
+  req.headers["x-request-id"] = requestId;
+  req.headers["x-correlation-id"] = correlationId;
+  reply.header("x-request-id", requestId);
+  reply.header("x-correlation-id", correlationId);
+  done();
+});
 export { app };
 
 // ---------------------------------------------------------------------------
@@ -2542,6 +2563,7 @@ app.post("/deals/:id/publish", async (req: any) => {
     throw err;
   }
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
+  const correlationId = req.headers["x-correlation-id"] ? String(req.headers["x-correlation-id"]) : requestId;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
 
   let publishSellerId = "";
@@ -2712,10 +2734,12 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   // Idempotency key is per-request, not per-buyer — ensures each purchase attempt has a unique key
+  const correlationId = req.headers["x-correlation-id"] ? String(req.headers["x-correlation-id"]) : requestId;
   const idem = req.headers["idempotency-key"]
     ? String(req.headers["idempotency-key"])
     : `join:${dealId}:${buyer_id}:${requestId}`;
 
+  await ensureAdminControlPlaneTables(withTx);
   const participant = await withTx(async (c) => {
     // Lock the deal row to prevent concurrent over-booking
     const dealRow = await c.query(
@@ -2861,15 +2885,15 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const payloadJson = JSON.stringify(authorizationPayload);
     await c.query(
       `INSERT INTO siton.audit_log
-       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
-       VALUES ('participant',$1,$2,'buyer_state','NotJoined','JoinedAuthorized','participant.join_authorize',$3,$4,$5)`,
-      [pid, dealId, requestId, idem, payloadJson]
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'buyer_state','NotJoined','JoinedAuthorized','participant.join_authorize',$3,$4,$5,$6)`,
+      [pid, dealId, requestId, correlationId, idem, payloadJson]
     );
     await c.query(
       `INSERT INTO siton.audit_log
-       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
-       VALUES ('participant',$1,$2,'money_state','NoFinancial','AuthHeld','participant.join_authorize',$3,$4,$5)`,
-      [pid, dealId, requestId, idem, payloadJson]
+       (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+       VALUES ('participant',$1,$2,'money_state','NoFinancial','AuthHeld','participant.join_authorize',$3,$4,$5,$6)`,
+      [pid, dealId, requestId, correlationId, idem, payloadJson]
     );
     await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
 
@@ -2886,9 +2910,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
     await c.query(
       `INSERT INTO siton.idempotency_log
-       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb)
-       VALUES ('participant',$1,'participant.join_authorize',$2,'OK',$3)`,
-      [pid, idem, JSON.stringify({ ok: true })]
+       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb, correlation_id, request_id)
+       VALUES ('participant',$1,'participant.join_authorize',$2,'OK',$3,$4,$5)`,
+      [pid, idem, JSON.stringify({ ok: true }), correlationId, requestId]
     );
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
 
@@ -3244,6 +3268,7 @@ let workerRunning = false;
   await ensureNotificationRailTables(withTx);
   await ensureLegalAcceptanceTables(withTx);
   await ensureOtpRailTables(withTx);
+  await ensureAdminControlPlaneTables(withTx);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

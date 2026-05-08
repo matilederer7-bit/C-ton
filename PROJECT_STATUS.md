@@ -2,6 +2,45 @@
 
 ---
 
+## Current update: 2026-05-08 (Admin Control Plane Phase 2 - DELIVERED)
+
+### What was completed
+- Added global request/correlation handling for HTTP requests and responses.
+- Added idempotent migration `035_admin_control_plane.sql`.
+- Added `siton.admin_actions` with closed action/status/target constraints, idempotency, second approval fields and result fields.
+- Added runtime DDL guard `ensureAdminControlPlaneTables`.
+- Added admin action endpoints for list, read, create, approve, reject and execute.
+- Added bounded Safe Action execution for requeue outbox, retry notification, retry failed invoice and open support case.
+- Added foundation-only NotImplemented behavior for reconcile/freeze/unfreeze/content takedown/emergency pause actions when no safe worker contract exists.
+- Updated Mission Control correlation trace to include admin actions, support cases, notifications and payouts.
+- Updated `/app/admin` with Admin Actions history and Safe Action modal.
+- Updated observability/admin docs and added `docs/ADMIN_CONTROL_PLANE.md`.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run bootstrap:demo-db` - PASS.
+- `npm run bootstrap:demo-db` rerun - PASS.
+
+### Open
+- Full worker execution for reconcile/freeze/emergency pause remains future work.
+- Admin MFA is unavailable.
+- Admin identity is still header-based, so second-approval identity enforcement is partial.
+- Full worker/provider correlation remains partial.
+
+### Progress
+- Admin Control Plane Phase 2 foundation: 100%.
+- Correlation coverage: partial by design.
+- Safe action execution: implemented only where bounded and safe.
+
+### Next step
+- Add real admin identity/MFA and worker-backed execution for the remaining NotImplemented safe actions.
+
+---
+
 ## Current update: 2026-05-07 (Admin Mission Control / Observability Center - DELIVERED)
 
 ### What was completed

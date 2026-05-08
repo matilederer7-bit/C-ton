@@ -1,8 +1,8 @@
 # Admin Mission Control
 
-`Admin Mission Control` הוא מרכז התצפית והתפעול הפנימי של סיטון. הוא מיועד לאדמין בלבד, מוגן על ידי `x-admin-key`, ופועל כמשטח read-only לציד תקלות מקצה לקצה.
+Admin Mission Control is Siton's admin-only observability center. It is protected by `x-admin-key`, uses masked data only, and is designed for investigation before intervention.
 
-## Endpoints
+## Mission Control Endpoints
 
 - `GET /api/admin/mission-control`
 - `GET /api/admin/mission-control/anomalies`
@@ -12,11 +12,9 @@
 - `GET /api/admin/mission-control/outbox/:eventId`
 - `GET /api/admin/mission-control/webhooks/:provider/:eventId`
 
-כל endpoints החדשים הם GET/read-only. אין שינוי state, אין capture/refund/void, אין payout ידני, אין מחיקה מ-DLQ ואין replay שמשנה state.
-
 ## Sections
 
-ה-response המרכזי כולל:
+The main response includes:
 
 - `system_summary`
 - `frontend_surface`
@@ -35,89 +33,83 @@
 - `performance`
 - `business_metrics`
 - `anomaly_center`
+- `admin_actions`
 - `recommended_actions`
-
-ה-UI ב-`/app/admin` מציג את הסקשנים בעברית/RTL, כולל כרטיסי מצב עליונים, `Anomaly Center`, אירועים אחרונים, pause polling, refresh now, badge לנתונים לא עדכניים, וסקשנים מפורטים שאינם JSON גולמי.
 
 ## Verdict
 
-- `red`: כשל קריטי או חשד לפגיעה בכסף, state, webhooks, outbox, DB או security.
-- `yellow`: חריגה לא חוסמת, latency גבוה, retries, מידע לא ודאי, config חסר בסביבה לא פעילה או נתונים לא עדכניים.
-- `green`: רק כאשר הבדיקות הקיימות מצאו ראיות תקינות.
+- `red`: critical failure or suspected impact to money, state, webhook, outbox, DB or security.
+- `yellow`: non-blocking anomaly, stale data, retries, partial configuration or unknown coverage.
+- `green`: only when current checks have positive evidence.
 
-כאשר מידע לא ניתן לבדיקה הוא מוצג כ-`unknown` או “לא ידוע”, לא כהצלחה.
+Unknown data is shown as `unknown` / "לא ידוע", never as success.
 
-## Anomalies
+## Phase 2: Correlation
 
-המערכת מזהה בין היתר:
+Every HTTP response includes:
 
-- טבלאות קריטיות חסרות.
-- DLQ או outbox failed/over max attempts.
-- webhooks failed או pending too long.
-- עסקה Completed ללא ChargedSuccess/RecoveredCharge.
-- יחידות מעל `max_units`.
-- עסקאות תקועות ב-Charging/ReadyForCharging.
-- payment attempts במצב unknown או retry storm.
-- invoice, payout או notification failures.
-- admin/debug security posture מסוכן.
-- בעיות frontend סטטיות כגון נכסים חסרים או RTL/lang חסר.
+- `x-request-id`
+- `x-correlation-id`
 
-כל anomaly כולל severity, domain, evidence, affected entities, recommended next step ו-link ל-trace כאשר ניתן.
+Correlation trace aggregates audit, outbox, webhooks, payments, invoices, payouts, notifications, support cases and admin actions. Coverage is reported per domain and remains `partial` until every worker/provider path carries the same ID.
 
-## Allowed Admin Actions
+## Phase 2: Admin Safe Actions
 
-מותר:
+`/app/admin` now shows Admin Actions history and Safe Action entry points from anomalies.
 
-- צפייה ו-drill-down.
-- פתיחת פרופיל עסקה/משתתף קיים.
-- העתקת entity/correlation id מהדפדפן.
-- פתיחת support case דרך המסלול הקיים.
-- ניווט ל-outbox/webhook/deal/participant.
+Action endpoints:
+
+- `GET /api/admin/actions`
+- `GET /api/admin/actions/:adminActionId`
+- `POST /api/admin/actions`
+- `POST /api/admin/actions/:adminActionId/approve`
+- `POST /api/admin/actions/:adminActionId/reject`
+- `POST /api/admin/actions/:adminActionId/execute`
+
+Safe Actions require:
+
+- admin auth
+- non-empty reason
+- idempotency key
+- correlation id
+- second approval where required
 
 ## Forbidden Actions
 
-אסור ומושבת במפורש:
+The admin plane still blocks:
 
-- manual capture.
-- manual refund.
-- manual void.
-- manual payout.
-- manual state edit.
-- manual DB patch.
-- delete event.
-- clear DLQ בלי טיפול.
-- mark as resolved בלי ראיה.
-- webhook replay שמשנה state בלי contract idempotent ברור.
+- manual capture
+- manual refund
+- manual void
+- manual state edit
+- manual money state edit
+- manual buyer state edit
+- manual DB patch
+- webhook/outbox/audit deletion
+- clear DLQ without repair
+- manual payment success
+- manual deal completion
+- amount/fee/net edits
 
 ## Security
 
-- אין החזרת API keys, tokens, webhook secrets, DB URLs, cookies או authorization headers.
-- env מוחזר כ-presence בלבד: `configured: true/false`.
-- payloads של outbox/webhook מוצגים כ-summary masked בלבד.
-- כל admin endpoint משתמש ב-`requireAdminKey`.
-
-## What Is Unknown
-
-- telemetry פיזי של חומרה אינו זמין מתוך runtime ענני. מוצג `hardware_visibility: unavailable`.
-- correlation רוחבי עדיין חלקי. ראו `docs/OBSERVABILITY_CONTRACT.md`.
-- rate limit ו-CORS מוצגים כ-unknown כאשר אין מקור אמת בטוח.
+- No secrets are returned.
+- No raw provider payloads are returned.
+- No card data, cookies or authorization headers are returned.
+- Payload summaries are masked.
+- MFA for admin actions is currently unavailable and surfaced as such.
 
 ## Tests
 
-הרצה ייעודית:
-
 ```bash
 npm run test:mission-control
-```
-
-Compile:
-
-```bash
+npm run test:admin-control-plane
+npm run test:frontend-browser-smoke
 npx tsc --noEmit
+npx tsc -p tsconfig.test.json
 ```
 
-הבדיקה מכסה auth, response contract, masking, anomalies endpoint, no destructive actions ו-drill-down auth.
+## Related Docs
 
-## Next Step
-
-להעמיק את חוזה ה-correlation ברמת middleware ו-worker כך שכל request, audit, outbox, webhook ו-provider reference יקבלו מזהה חקירה אחד עקבי.
+- `docs/OBSERVABILITY_CONTRACT.md`
+- `docs/ADMIN_CONTROL_PLANE.md`

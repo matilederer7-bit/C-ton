@@ -371,6 +371,9 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   const notificationRow = tables.has("notification_events")
     ? (await safeQuery(c, "SELECT COUNT(*) FILTER (WHERE status='pending')::int AS pending, COUNT(*) FILTER (WHERE status='failed')::int AS failed, EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_seconds, MAX(sent_at) AS last_sent FROM siton.notification_events")).rows[0] || {}
     : {};
+  const adminActionsRow = tables.has("admin_actions")
+    ? (await safeQuery(c, "SELECT COUNT(*) FILTER (WHERE status IN ('Requested','AwaitingSecondApproval','Approved','Executing'))::int AS open, COUNT(*) FILTER (WHERE status='Failed')::int AS failed, COUNT(*) FILTER (WHERE requires_second_approval AND status='AwaitingSecondApproval')::int AS awaiting_second_approval FROM siton.admin_actions")).rows[0] || {}
+    : {};
 
   for (const [domain, row, failedKey] of [
     ["invoices", invoiceRow, "failed"],
@@ -494,6 +497,8 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       cpu_hint: os.loadavg ? { loadavg: os.loadavg(), cpus: os.cpus().length } : null,
       hardware_visibility: "unavailable",
       hardware_visibility_reason: "cloud/runtime does not expose physical hardware telemetry",
+      correlation_coverage: "partial",
+      admin_safe_actions: tables.has("admin_actions") ? "available" : "missing",
       warnings_count: warningsCount,
       critical_count: criticalCount
     },
@@ -610,6 +615,8 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     security: {
       status: sections.security.status,
       admin_auth: { configured: adminAuthConfigured, production_like: process.env.NODE_ENV === "production" || process.env.RENDER === "true" },
+      mfa_for_admin_actions: "unavailable",
+      second_approval_identity_enforcement: "partial",
       debug_surfaces: { enabled: Boolean(deps.debugSurfacesEnabled), access_key_configured: Boolean(process.env.DEBUG_SURFACES_ACCESS_KEY) },
       cors: "unknown",
       rate_limit: "unknown",
@@ -662,6 +669,15 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     anomaly_center: {
       status: verdict,
       anomalies: anomalies.sort((a, b) => ({ critical: 0, warning: 1, info: 2 }[a.severity] - { critical: 0, warning: 1, info: 2 }[b.severity]))
+    },
+    admin_actions: {
+      status: tables.has("admin_actions") ? statusFromCounts(safeCount(adminActionsRow, "failed"), safeCount(adminActionsRow, "awaiting_second_approval")) : "unknown",
+      open: safeCount(adminActionsRow, "open"),
+      failed: safeCount(adminActionsRow, "failed"),
+      awaiting_second_approval: safeCount(adminActionsRow, "awaiting_second_approval"),
+      safe_actions_supported: ["requeue_outbox_event", "retry_notification", "retry_invoice_failed", "open_support_case"],
+      safe_actions_foundation_only: ["trigger_reconcile", "freeze_payouts", "unfreeze_payouts", "content_takedown_request", "pause_joining_emergency", "pause_charging_emergency"],
+      forbidden_actions_blocked: ["manual_capture", "manual_refund", "manual_state_edit", "manual_money_state_edit", "delete_audit", "delete_outbox", "delete_webhook"]
     },
     recommended_actions: anomalies.map((item) => ({
       severity: item.severity,
@@ -730,24 +746,44 @@ export async function buildMissionParticipantTrace(c: Queryable, participantId: 
 }
 
 export async function buildMissionCorrelationTrace(c: Queryable, correlationId: string) {
-  const [audit, outbox, webhooks, payments, invoices] = await Promise.all([
+  const [audit, outbox, webhooks, payments, invoices, payouts, notifications, supportCases, adminActions] = await Promise.all([
     safeQuery(c, "SELECT audit_id, entity_type, entity_id, deal_id, action_name, created_at FROM siton.audit_log WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
-    safeQuery(c, "SELECT event_id, event_type, aggregate_type, aggregate_id, status, attempt_count, created_at FROM siton.outbox_events WHERE correlation_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, request_id, created_at FROM siton.outbox_events WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT provider, event_id, event_type, status, participant_id, deal_id, created_at FROM siton.webhook_events WHERE correlation_id=$1 OR event_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT attempt_id, deal_id, participant_id, attempt_type, result_class, provider_reference, created_at FROM siton.payment_attempts WHERE correlation_id=$1 OR provider_reference=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
-    safeQuery(c, "SELECT document_id, deal_id, participant_id, document_type, status, provider_document_id, created_at FROM siton.invoice_documents WHERE correlation_id=$1 OR provider_document_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId])
+    safeQuery(c, "SELECT document_id, deal_id, participant_id, document_type, status, provider_document_id, created_at FROM siton.invoice_documents WHERE correlation_id=$1 OR provider_document_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT payout_batch_id, seller_id, trigger_deal_id, payout_status, provider_batch_reference, created_at FROM siton.seller_payout_batches WHERE correlation_id=$1 OR provider_batch_reference=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT notification_id, event_type, status, recipient_type, recipient_ref, deal_id, participant_id, created_at FROM siton.notification_events WHERE correlation_id=$1 OR request_id=$1 OR idempotency_key=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT case_id, case_type, status, priority, subject, created_at FROM siton.operational_cases WHERE correlation_id=$1 OR request_id=$1 OR auto_key=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT admin_action_id, action_type, status, target_type, target_id, requested_by_admin_id, created_at FROM siton.admin_actions WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId])
   ]);
-  const total = audit.rows.length + outbox.rows.length + webhooks.rows.length + payments.rows.length + invoices.rows.length;
+  const total = audit.rows.length + outbox.rows.length + webhooks.rows.length + payments.rows.length + invoices.rows.length + payouts.rows.length + notifications.rows.length + supportCases.rows.length + adminActions.rows.length;
   return {
     ok: true,
     correlation_id: correlationId,
     correlation_id_support: total > 0 ? "partial" : "missing",
+    correlation_coverage: {
+      requests: "partial",
+      audit: audit.rows.length ? "partial" : "missing",
+      outbox: outbox.rows.length ? "partial" : "missing",
+      webhooks: webhooks.rows.length ? "partial" : "missing",
+      payments: payments.rows.length ? "partial" : "missing",
+      invoices: invoices.rows.length ? "partial" : "missing",
+      payouts: payouts.rows.length ? "partial" : "missing",
+      notifications: notifications.rows.length ? "partial" : "missing",
+      support_cases: supportCases.rows.length ? "partial" : "missing",
+      admin_actions: adminActions.rows.length ? "partial" : "missing"
+    },
     todo: total > 0 ? null : "Adopt docs/OBSERVABILITY_CONTRACT.md across request_id, audit, outbox, workers, webhooks, payments, invoices, payouts and notifications.",
     audit: audit.rows,
     outbox: outbox.rows,
     webhooks: webhooks.rows,
     payment_attempts: payments.rows,
-    invoice_documents: invoices.rows
+    invoice_documents: invoices.rows,
+    payout_records: payouts.rows,
+    notifications: notifications.rows,
+    support_cases: supportCases.rows,
+    admin_actions: adminActions.rows
   };
 }
 

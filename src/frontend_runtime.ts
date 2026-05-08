@@ -94,6 +94,15 @@ import {
   buildMissionParticipantTrace,
   buildMissionWebhookTrace
 } from "./admin_mission_control.js";
+import {
+  adminRequestContext,
+  ensureAdminControlPlaneTables,
+  executeAdminAction,
+  insertAdminAction,
+  isForbiddenAdminAction,
+  isSafeActionType,
+  isTargetType
+} from "./admin_control_plane.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -1004,6 +1013,7 @@ export function registerFrontendExperience(
   const ensurePayoutTables = () => ensurePayoutRailTables(deps.withTx);
   const ensureNotificationTables = () => ensureNotificationRailTables(deps.withTx);
   const ensureOtpTables = () => ensureOtpRailTables(deps.withTx);
+  const ensureAdminControlPlane = () => ensureAdminControlPlaneTables(deps.withTx);
   const otpProvider: OtpProvider = buildOtpProvider();
   // Legacy compatibility: the old /api/otp/start → /api/otp/verify pair returns
   // { buyer_id: <phone digits> } in verify, which existing tests and the
@@ -3596,6 +3606,7 @@ export function registerFrontendExperience(
     await ensureLegalAcceptanceTables();
     await ensureInvoiceWebhookTables();
     await ensurePaymentOpsTables();
+    await ensureAdminControlPlane();
 
     return deps.withTx(async (c) => {
       const [
@@ -3965,6 +3976,7 @@ export function registerFrontendExperience(
     await ensureNotificationTables();
     await ensureInvoiceWebhookTables();
     await ensurePaymentOpsTables();
+    await ensureAdminControlPlane();
     return deps.withTx(async (c) => {
       const payload = await buildAdminMissionControlPayload({
         c,
@@ -4022,6 +4034,148 @@ export function registerFrontendExperience(
     const eventId = String(req.params.eventId || "").trim().slice(0, 200);
     if (!provider || !eventId) return reply.code(400).send({ ok: false, error: "provider_and_event_id_required" });
     return deps.withTx((c) => buildMissionWebhookTrace(c, provider, eventId));
+  });
+
+  app.get("/api/admin/actions", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const filters = {
+      status: String(req.query?.status || "").trim(),
+      action_type: String(req.query?.action_type || "").trim(),
+      target_type: String(req.query?.target_type || "").trim(),
+      target_id: String(req.query?.target_id || "").trim(),
+      correlation_id: String(req.query?.correlation_id || "").trim()
+    };
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    for (const [key, value] of Object.entries(filters)) {
+      if (!value) continue;
+      params.push(value);
+      clauses.push(`${key}=$${params.length}`);
+    }
+    const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+    return deps.withTx(async (c) => {
+      const rows = await c.query(
+        `SELECT admin_action_id, action_type, status, target_type, target_id,
+                requested_by_admin_id, reason, correlation_id, request_id, idempotency_key,
+                requires_second_approval, approved_by_admin_id, approved_at,
+                executed_at, failed_at, result_code, result_message, created_at, updated_at
+         FROM siton.admin_actions
+         ${where}
+         ORDER BY created_at DESC
+         LIMIT 100`,
+        params
+      );
+      return { ok: true, actions: rows.rows };
+    });
+  });
+
+  app.get("/api/admin/actions/:adminActionId", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const adminActionId = String(req.params.adminActionId || "").trim();
+    requireUuid(adminActionId, "admin_action_id");
+    return deps.withTx(async (c) => {
+      const row = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
+      if (!row.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
+      return { ok: true, action: row.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/actions", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const body = req.body || {};
+    const actionType = String(body.action_type || "").trim();
+    const targetType = String(body.target_type || "").trim();
+    const targetId = String(body.target_id || "").trim();
+    const reason = String(body.reason || "").trim();
+    const idempotencyKey = String(body.idempotency_key || "").trim();
+    if (isForbiddenAdminAction(actionType)) {
+      return reply.code(403).send({ ok: false, error: "admin_action_forbidden", action_type: actionType });
+    }
+    if (!isSafeActionType(actionType)) return reply.code(400).send({ ok: false, error: "invalid_action_type" });
+    if (!isTargetType(targetType)) return reply.code(400).send({ ok: false, error: "invalid_target_type" });
+    if (!targetId) return reply.code(400).send({ ok: false, error: "target_id_required" });
+    if (!reason) return reply.code(400).send({ ok: false, error: "reason_required" });
+    if (!idempotencyKey) return reply.code(400).send({ ok: false, error: "idempotency_key_required" });
+    const context = adminRequestContext(req);
+    return deps.withTx(async (c) => {
+      const action = await insertAdminAction(c, {
+        action_type: actionType,
+        target_type: targetType,
+        target_id: targetId,
+        reason,
+        idempotency_key: idempotencyKey,
+        metadata: body.metadata && typeof body.metadata === "object" ? body.metadata : {},
+        request_id: context.request_id,
+        correlation_id: context.correlation_id,
+        admin_id: context.admin_id
+      });
+      return { ok: true, action };
+    });
+  });
+
+  app.post("/api/admin/actions/:adminActionId/approve", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const adminActionId = String(req.params.adminActionId || "").trim();
+    requireUuid(adminActionId, "admin_action_id");
+    const note = String(req.body?.reason || req.body?.approval_note || "").trim();
+    if (!note) return reply.code(400).send({ ok: false, error: "approval_reason_required" });
+    const context = adminRequestContext(req);
+    return deps.withTx(async (c) => {
+      const existing = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1 FOR UPDATE`, [adminActionId]);
+      if (!existing.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
+      const action = existing.rows[0];
+      if (!action.requires_second_approval) return reply.code(400).send({ ok: false, error: "second_approval_not_required" });
+      if (action.requested_by_admin_id && action.requested_by_admin_id === context.admin_id) {
+        return reply.code(403).send({ ok: false, error: "self_approval_forbidden" });
+      }
+      const updated = await c.query(
+        `UPDATE siton.admin_actions
+         SET status='Approved', approved_by_admin_id=$2, approved_at=now(),
+             result_message=$3, updated_at=now()
+         WHERE admin_action_id=$1
+         RETURNING *`,
+        [adminActionId, context.admin_id, note]
+      );
+      return { ok: true, action: updated.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/actions/:adminActionId/reject", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const adminActionId = String(req.params.adminActionId || "").trim();
+    requireUuid(adminActionId, "admin_action_id");
+    const reason = String(req.body?.reason || "").trim();
+    if (!reason) return reply.code(400).send({ ok: false, error: "reject_reason_required" });
+    const context = adminRequestContext(req);
+    return deps.withTx(async (c) => {
+      const updated = await c.query(
+        `UPDATE siton.admin_actions
+         SET status='Rejected', result_code='Rejected', result_message=$2,
+             approved_by_admin_id=$3, updated_at=now()
+         WHERE admin_action_id=$1 AND status IN ('Requested','AwaitingSecondApproval','Approved')
+         RETURNING *`,
+        [adminActionId, reason, context.admin_id]
+      );
+      if (!updated.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found_or_not_rejectable" });
+      return { ok: true, action: updated.rows[0] };
+    });
+  });
+
+  app.post("/api/admin/actions/:adminActionId/execute", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureAdminControlPlane();
+    const adminActionId = String(req.params.adminActionId || "").trim();
+    requireUuid(adminActionId, "admin_action_id");
+    const context = adminRequestContext(req);
+    return deps.withTx(async (c) => {
+      const result = await executeAdminAction(c, adminActionId, context);
+      return reply.code(result.statusCode).send(result.body);
+    });
   });
 
   app.get("/api/admin/sellers/risk", async (req: any, reply: any) => {

@@ -1,32 +1,55 @@
 # Observability Contract
 
-מסמך זה מגדיר את חוזה התצפית הפנימי של סיטון. המטרה היא שכל חקירת תקלה תוכל לחבר בין request, audit, outbox, worker, webhook, payment, invoice, payout ו-notification בלי ניחושים ובלי פעולות ידניות מסוכנות.
+This contract defines the practical request/correlation model now used by Siton.
 
-## מצב נוכחי
+## IDs
 
-- תמיכת `correlation_id` קיימת בחלק מהמסילות: `payment_attempts`, `invoice_documents`, `webhook_events`, `outbox_events` וחלק מאירועי audit.
-- הכיסוי עדיין חלקי ולא מובטח בכל request ובכל worker.
-- `Admin Mission Control` מציג `correlation_id_support: partial` כאשר נמצאו ראיות, ו-`missing` כאשר אין קישור רוחבי.
+- `request_id`: one HTTP request. Accepted from `x-request-id` only when it is safe (`A-Z`, `a-z`, digits, `.`, `_`, `:`, `-`, length 8-160). Otherwise the server generates `req:<uuid>`.
+- `correlation_id`: one investigation flow. Accepted from `x-correlation-id` with the same safety rules. Otherwise the server generates `corr:<uuid>`.
+- Every HTTP response returns `x-request-id` and `x-correlation-id`.
 
-## חוזה נדרש
+## Current Coverage
 
-1. כל request נכנס מקבל `request_id` יציב.
-2. כל פעולה עסקית מקבלת `correlation_id` אחד שממשיך לכל שרשרת הפעולה.
-3. כל רשומת `audit_log` שומרת `request_id` ו-`correlation_id`.
-4. כל `outbox_events` ו-`outbox_dlq` שומרים `correlation_id`.
-5. כל worker log שומר `correlation_id`, `event_id`, `aggregate_type`, `aggregate_id`, attempt ו-result.
-6. כל webhook processing שומר `provider`, `provider_event_id`, `correlation_id` אם קיים, וקישור ל-`deal_id`/`participant_id` כאשר ניתן.
-7. כל `payment_attempts` שומר `provider_reference`, `provider_request_id` אם קיים, ו-`correlation_id`.
-8. כל invoice/payout/notification שומר provider reference ו-`correlation_id`.
-9. raw payloads לא מוחזרים ל-admin UI. מוצגים summary masked בלבד.
+Coverage is `partial`, not full.
 
-## כללים
+- HTTP: `request_id` and `correlation_id` are assigned globally.
+- Audit: new atomic transition audit rows can carry `request_id` and `correlation_id`.
+- Idempotency: new transition idempotency rows can carry both IDs.
+- Outbox: new atomic outbox rows can carry both IDs.
+- Payment attempts: existing provider/payment rail already stores `correlation_id`.
+- Invoices: existing invoice rail already stores `correlation_id`.
+- Payouts: existing payout rail already stores `correlation_id`.
+- Notifications: Phase 2 adds `correlation_id` and `request_id` columns.
+- Support/operational cases: Phase 2 adds `correlation_id` and `request_id` columns.
+- Admin actions: every `admin_action` requires `correlation_id` and may carry `request_id`.
 
-- לא מייצרים correlation מזויף בדיעבד.
-- אם correlation לא ודאי, מציגים “לא ידוע”.
-- תיקון state או כסף לא מתבצע דרך Observability.
-- פעולות רגישות קיימות בלבד חייבות reason, rate limit ו-audit.
+## Missing / Partial
 
-## שלב הבא
+- Worker log propagation is still partial.
+- Some older legacy direct inserts do not yet write correlation data.
+- Webhooks can link by provider event/payment references, but external providers do not always send an original correlation id.
+- Admin second approval identity enforcement is partial because admin identity is header-based, not a full account/MFA model.
+- Admin MFA is unavailable.
 
-להוסיף middleware בקצה ה-HTTP שמייצר `request_id`, להעביר אותו ל-context של פעולות ה-domain, ולחייב כתיבה עקבית בכל audit/outbox/provider adapter.
+## Rules
+
+- Do not fabricate a historical correlation link without evidence.
+- If a link is uncertain, Mission Control must show `missing` or `partial`, not `full`.
+- Raw provider payloads, secrets, cookies, authorization headers and card data are never returned.
+- Observability never edits deal state, buyer state, money state or money amounts.
+
+## Trace Surface
+
+`GET /api/admin/mission-control/correlation/:correlationId` aggregates:
+
+- audit
+- outbox
+- webhooks
+- payments
+- invoices
+- payouts
+- notifications
+- support cases
+- admin actions
+
+The endpoint returns `correlation_coverage` per domain.

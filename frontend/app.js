@@ -42,6 +42,7 @@ const state = {
   adminSellerRiskPayload: null,
   adminSupportCasesPayload: null,
   adminDemoReadinessPayload: null,
+  adminActionsPayload: null,
   adminSellerStatusModal: null,
   adminCaseCloseModal: null,
   adminSellerStatusReason: "",
@@ -50,6 +51,7 @@ const state = {
   adminParticipantOpsPayload: null,
   adminUserPayload: null,
   adminPollingPaused: false,
+  adminSafeActionDraft: null,
   error: null,
   banner: null,
   form: {
@@ -251,6 +253,20 @@ document.addEventListener("click", (event) => {
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
     if (action === "admin-polling-toggle") {
       state.adminPollingPaused = !state.adminPollingPaused;
+      render();
+      return;
+    }
+    if (action === "admin-safe-action-open") {
+      state.adminSafeActionDraft = {
+        action_type: actionTarget.dataset.actionType || "open_support_case",
+        target_type: actionTarget.dataset.targetType || "system",
+        target_id: actionTarget.dataset.targetId || "mission-control"
+      };
+      render();
+      return;
+    }
+    if (action === "admin-safe-action-close") {
+      state.adminSafeActionDraft = null;
       render();
       return;
     }
@@ -702,7 +718,7 @@ async function loadAffiliate() {
 
 async function loadAdmin(query = "") {
   await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
-    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases, demoReadiness] = await Promise.all([
+    const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases, adminActions, demoReadiness] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
       api("/api/admin/launch-console"),
@@ -711,6 +727,7 @@ async function loadAdmin(query = "") {
       api("/api/admin/invoice-status"),
       api("/api/admin/sellers/risk"),
       api("/api/admin/support-cases"),
+      api("/api/admin/actions"),
       api("/api/admin/demo-readiness").catch(() => null)
     ]);
     state.adminPayload = overview;
@@ -721,6 +738,7 @@ async function loadAdmin(query = "") {
     state.adminInvoiceStatusPayload = invoiceStatus;
     state.adminSellerRiskPayload = sellerRisk;
     state.adminSupportCasesPayload = supportCases;
+    state.adminActionsPayload = adminActions;
     state.adminDemoReadinessPayload = demoReadiness;
   }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™.");
 }
@@ -901,7 +919,7 @@ async function refreshSellerSilently() {
 
 async function refreshAdminSilently() {
   try {
-    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases] = await Promise.all([
+    const [next, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases, adminActions] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api("/api/admin/launch-console"),
@@ -909,7 +927,8 @@ async function refreshAdminSilently() {
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status"),
       api("/api/admin/sellers/risk"),
-      api("/api/admin/support-cases")
+      api("/api/admin/support-cases"),
+      api("/api/admin/actions")
     ]);
     const totalsChanged = !state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals);
     const systemChanged =
@@ -935,7 +954,10 @@ async function refreshAdminSilently() {
     const supportCasesChanged =
       !state.adminSupportCasesPayload ||
       JSON.stringify(state.adminSupportCasesPayload.summary) !== JSON.stringify(supportCases.summary);
-    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged || sellerRiskChanged || supportCasesChanged) {
+    const actionsChanged =
+      !state.adminActionsPayload ||
+      JSON.stringify(state.adminActionsPayload.actions) !== JSON.stringify(adminActions.actions);
+    if (totalsChanged || launchChanged || missionChanged || systemChanged || notificationsChanged || invoiceChanged || sellerRiskChanged || supportCasesChanged || actionsChanged) {
       state.adminPayload = next;
       state.adminMissionPayload = missionControl;
       state.adminLaunchPayload = launchConsole;
@@ -944,9 +966,34 @@ async function refreshAdminSilently() {
       state.adminInvoiceStatusPayload = invoiceStatus;
       state.adminSellerRiskPayload = sellerRisk;
       state.adminSupportCasesPayload = supportCases;
+      state.adminActionsPayload = adminActions;
       render();
     }
   } catch {}
+}
+
+async function createAdminSafeAction(form) {
+  const data = new FormData(form);
+  const actionType = String(data.get("action_type") || "").trim();
+  const targetType = String(data.get("target_type") || "").trim();
+  const targetId = String(data.get("target_id") || "").trim();
+  const reason = String(data.get("reason") || "").trim();
+  const confirmed = data.get("safe_action_confirm") === "on";
+  if (!reason) return fail("חסרה סיבה", "כל Safe Action דורשת reason ברור.");
+  if (!confirmed) return fail("נדרש אישור הבנה", "צריך לאשר שהפעולה אינה משנה state ידנית ואינה עוקפת את החוקה.");
+  await busy("יוצר Safe Action...", async () => {
+    const payload = {
+      action_type: actionType,
+      target_type: targetType,
+      target_id: targetId,
+      reason,
+      idempotency_key: `admin-ui:${actionType}:${targetType}:${targetId}:${Date.now()}`
+    };
+    await api("/api/admin/actions", { method: "POST", body: json(payload) });
+    state.adminActionsPayload = await api("/api/admin/actions");
+    state.adminSafeActionDraft = null;
+    state.banner = { tone: "success", title: "Safe Action נרשמה", message: "הפעולה נרשמה בצורה מבוקרת ותופיע בהיסטוריית Admin Actions." };
+  }, "לא הצלחנו ליצור Safe Action.");
 }
 
 async function submitAction(action, form) {
@@ -971,6 +1018,7 @@ async function submitAction(action, form) {
   if (action === "admin-case-close") return closeSupportCase(form);
   if (action === "admin-support-create") return createSupportTicket(form);
   if (action === "admin-support-update") return updateSupportTicket(form);
+  if (action === "admin-safe-action-create") return createAdminSafeAction(form);
 }
 
 function startJoin() {
@@ -4388,6 +4436,7 @@ function renderAdminMissionControl(mission) {
         <div class="summary-item"><span class="muted">פיקוח העברות</span><strong>${num(mission.payouts_settlements?.active_batches || 0)}</strong><p class="small muted">פעולות כסף ידניות: לא פעילות</p></div>
       </div>
       ${renderAdminMissionControlDeep(mission)}
+      ${renderAdminSafeActionModal()}
       <section class="compact-section stack">
         <h3>Omnisearch אדמין</h3>
         <p class="small muted">חיפוש תפעולי פנימי בלבד. זה אינו marketplace, אינו קטלוג ציבורי ואינו חיפוש עסקאות לקונים.</p>
@@ -4435,6 +4484,7 @@ function renderAdminMissionControl(mission) {
 
 function renderAdminMissionControlDeep(mission) {
   const anomalies = mission.anomaly_center?.anomalies || [];
+  const actions = state.adminActionsPayload?.actions || [];
   const sections = [
     ["system_summary", "System", mission.system_summary],
     ["database", "DB", mission.database],
@@ -4471,6 +4521,16 @@ function renderAdminMissionControlDeep(mission) {
         <span class="badge ${anomalies.some((a) => a.severity === "critical") ? "danger" : anomalies.length ? "warning" : "success"}">${num(anomalies.length)} חריגים</span>
       </div>
       ${anomalies.length ? renderMissionAnomalyTable(anomalies) : `<div class="empty-surface"><p class="muted">לא נמצאו חריגים קריטיים לפי הבדיקות הקיימות.</p><p class="small muted">סקשנים שלא ניתן לבדוק מוצגים כלא ידוע ולא כהצלחה.</p></div>`}
+    </section>
+    <section class="compact-section stack" id="admin-actions">
+      <div class="section-header">
+        <div>
+          <h3>Admin Actions</h3>
+          <p class="small muted">היסטוריית Safe Actions: פעולות מערכת מבוקרות, מתועדות ואידמפוטנטיות. אין כאן עריכת state או כסף ידנית.</p>
+        </div>
+        <button class="secondary" type="button" data-inline-action="admin-safe-action-open" data-action-type="open_support_case" data-target-type="system" data-target-id="mission-control">פתיחת Safe Action</button>
+      </div>
+      ${actions.length ? renderRowsTable(actions.slice(0, 20), ["created_at", "action_type", "target_type", "target_id", "status", "requested_by_admin_id", "correlation_id", "result_code"]) : `<div class="empty-surface"><p class="muted">עדיין אין פעולות אדמין מתועדות.</p></div>`}
     </section>
     <section class="compact-section stack">
       <h3>System Timeline / אירועים קריטיים אחרונים</h3>
@@ -4527,7 +4587,13 @@ function renderMissionAnomalyTable(anomalies) {
                 <td>${esc(entity.type || "לא ידוע")}: ${esc(entity.id || "לא ידוע")}</td>
                 <td>${item.age_seconds == null ? "לא ידוע" : `${num(Math.round(item.age_seconds))} שניות`}</td>
                 <td>${esc(item.recommended_next_step || "בדיקה ידנית בטוחה בלבד")}</td>
-                <td><a class="button secondary" href="${esc(link)}" data-nav="${esc(link)}">Open Trace</a></td>
+                <td>
+                  <div class="actions">
+                    <a class="button secondary" href="${esc(link)}" data-nav="${esc(link)}">Open Trace</a>
+                    <button class="secondary" type="button" data-inline-action="admin-safe-action-open" data-action-type="${esc(recommendedActionForDomain(item.domain))}" data-target-type="${esc(entity.type || "system")}" data-target-id="${esc(entity.id || item.id || "mission-control")}">Safe Actions</button>
+                    ${item.evidence?.correlation_id ? `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="${esc(item.evidence.correlation_id)}">העתקת correlation</button>` : ""}
+                  </div>
+                </td>
               </tr>
             `;
           }).join("")}
@@ -4535,6 +4601,92 @@ function renderMissionAnomalyTable(anomalies) {
       </table>
     </div>
   `;
+}
+
+function recommendedActionForDomain(domain) {
+  const map = {
+    outbox: "requeue_outbox_event",
+    webhooks: "trigger_reconcile",
+    payments: "trigger_reconcile",
+    invoices: "retry_invoice_failed",
+    payouts: "freeze_payouts",
+    notifications: "retry_notification",
+    security: "open_support_case"
+  };
+  return map[domain] || "open_support_case";
+}
+
+function renderAdminSafeActionModal() {
+  const draft = state.adminSafeActionDraft;
+  if (!draft) return "";
+  return `
+    <section class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="safeActionTitle">
+      <div class="modal wide stack">
+        <div class="section-header">
+          <div>
+            <h2 id="safeActionTitle">Safe Action</h2>
+            <p class="small muted">הפעולה נרשמת כ-admin_action. היא לא משנה state ידנית, לא נוגעת בכסף ידנית ולא מוחקת ראיות.</p>
+          </div>
+          <button class="secondary" type="button" data-inline-action="admin-safe-action-close">סגירה</button>
+        </div>
+        <form class="stack" data-action="admin-safe-action-create">
+          <input type="hidden" name="action_type" value="${esc(draft.action_type)}" />
+          <input type="hidden" name="target_type" value="${esc(draft.target_type)}" />
+          <input type="hidden" name="target_id" value="${esc(draft.target_id)}" />
+          <div class="summary-grid">
+            <div class="summary-item"><span class="muted">פעולה</span><strong>${esc(formatAdminActionType(draft.action_type))}</strong></div>
+            <div class="summary-item"><span class="muted">Target</span><strong>${esc(draft.target_type)}: ${esc(draft.target_id)}</strong></div>
+          </div>
+          <div class="info-strip tone-info">
+            <strong>מה הפעולה עושה</strong>
+            <p>${esc(describeSafeAction(draft.action_type))}</p>
+          </div>
+          <div class="info-strip tone-warning">
+            <strong>מה הפעולה לא עושה</strong>
+            <p>לא עורכת state, לא מחייבת, לא מזכה, לא מוחקת payloads, לא מנקה DLQ ולא עוקפת idempotency.</p>
+          </div>
+          <div class="field">
+            <label>reason חובה</label>
+            <textarea name="reason" rows="4" required></textarea>
+          </div>
+          <label class="check-row">
+            <input type="checkbox" name="safe_action_confirm" required />
+            <span>אני מבין שהפעולה אינה משנה state ידנית ואינה עוקפת את חוקת סיטון.</span>
+          </label>
+          ${["freeze_payouts", "unfreeze_payouts", "pause_charging_emergency"].includes(draft.action_type) ? `<span class="badge warning">דורש אישור מנהל נוסף</span>` : ""}
+          <div class="actions">
+            <button class="primary" type="submit">יצירת Safe Action</button>
+            <button class="secondary" type="button" data-inline-action="admin-safe-action-close">ביטול</button>
+          </div>
+        </form>
+      </div>
+    </section>
+  `;
+}
+
+function formatAdminActionType(type) {
+  const map = {
+    trigger_reconcile: "Trigger reconcile",
+    requeue_outbox_event: "Requeue outbox event",
+    retry_notification: "Retry notification",
+    retry_invoice_failed: "Retry failed invoice",
+    freeze_payouts: "Freeze payouts",
+    unfreeze_payouts: "Unfreeze payouts",
+    open_support_case: "Open support case"
+  };
+  return map[type] || type || "Safe Action";
+}
+
+function describeSafeAction(type) {
+  const map = {
+    trigger_reconcile: "מבקשת מהמערכת לבדוק מחדש מצב מול מקור אמת קיים. אם אין worker בטוח, הפעולה תסומן NotImplemented.",
+    requeue_outbox_event: "מחזירה אירוע outbox תקוע ל-pending רק אם הוא לא הסתיים בהצלחה.",
+    retry_notification: "מחזירה notification שנכשלה לתור retry בלי לייצר כפילות אם כבר נשלחה.",
+    retry_invoice_failed: "מנסה שוב מסמך failed בלבד ורק אם אין provider reference שמעלה סיכון לכפילות.",
+    freeze_payouts: "מבקשת הקפאת payout במסלול מבוקר ודורשת אישור נוסף.",
+    open_support_case: "פותחת או מאתרת תיק תמיכה פתוח עבור היעד."
+  };
+  return map[type] || "מתעדת בקשת פעולה. אם אין מסילה בטוחה, היא תישאר NotImplemented.";
 }
 
 function renderMissionSection(id, title, section, keys) {

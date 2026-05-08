@@ -1,0 +1,324 @@
+import { randomUUID } from "crypto";
+
+export const ADMIN_SAFE_ACTION_TYPES = [
+  "trigger_reconcile",
+  "requeue_outbox_event",
+  "retry_notification",
+  "retry_invoice_failed",
+  "freeze_payouts",
+  "unfreeze_payouts",
+  "open_support_case",
+  "content_takedown_request",
+  "pause_joining_emergency",
+  "pause_charging_emergency"
+] as const;
+
+export const ADMIN_ACTION_STATUSES = [
+  "Requested",
+  "AwaitingSecondApproval",
+  "Approved",
+  "Rejected",
+  "Executing",
+  "Completed",
+  "Failed",
+  "Cancelled"
+] as const;
+
+export const ADMIN_ACTION_TARGET_TYPES = [
+  "deal",
+  "participant",
+  "payment",
+  "invoice",
+  "payout",
+  "webhook",
+  "outbox",
+  "seller",
+  "support_case",
+  "content",
+  "system"
+] as const;
+
+const FORBIDDEN_ACTIONS = new Set([
+  "manual_capture",
+  "manual_refund",
+  "manual_void",
+  "manual_state_edit",
+  "manual_money_state_edit",
+  "manual_buyer_state_edit",
+  "manual_db_patch",
+  "delete_webhook",
+  "delete_outbox",
+  "delete_audit",
+  "clear_dlq_without_repair",
+  "mark_payment_success_manual",
+  "mark_deal_completed_manual",
+  "edit_amount",
+  "edit_platform_fee",
+  "edit_seller_net",
+  "edit_product_eligibility"
+]);
+
+type Queryable = {
+  query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
+};
+
+let ensurePromise: Promise<void> | null = null;
+
+export function safeHeaderId(raw: unknown, prefix: string) {
+  const text = String(raw || "").trim();
+  if (/^[A-Za-z0-9._:-]{8,160}$/.test(text)) return text;
+  return `${prefix}:${randomUUID()}`;
+}
+
+export function adminRequestContext(req: any) {
+  return {
+    request_id: String(req.request_id || req.requestId || req.headers?.["x-request-id"] || "").trim(),
+    correlation_id: String(req.correlation_id || req.correlationId || req.headers?.["x-correlation-id"] || "").trim(),
+    admin_id: String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin"
+  };
+}
+
+export function isForbiddenAdminAction(actionType: string) {
+  return FORBIDDEN_ACTIONS.has(actionType);
+}
+
+export function isSafeActionType(actionType: string): actionType is typeof ADMIN_SAFE_ACTION_TYPES[number] {
+  return (ADMIN_SAFE_ACTION_TYPES as readonly string[]).includes(actionType);
+}
+
+export function isTargetType(targetType: string): targetType is typeof ADMIN_ACTION_TARGET_TYPES[number] {
+  return (ADMIN_ACTION_TARGET_TYPES as readonly string[]).includes(targetType);
+}
+
+export function actionRequiresSecondApproval(actionType: string, targetType: string) {
+  return (
+    actionType === "pause_charging_emergency" ||
+    actionType === "unfreeze_payouts" ||
+    (actionType === "freeze_payouts" && ["payout", "seller", "deal"].includes(targetType))
+  );
+}
+
+export async function ensureAdminControlPlaneTables(withTx: <T>(fn: (c: any) => Promise<T>) => Promise<T>) {
+  if (ensurePromise) return ensurePromise;
+  ensurePromise = withTx(async (c) => {
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext('siton_admin_control_plane_ddl'))`);
+    await c.query(`ALTER TABLE IF EXISTS siton.audit_log ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.idempotency_log ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.idempotency_log ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.outbox_events ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.outbox_events ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.outbox_dlq ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.outbox_dlq ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.webhook_events ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.notification_events ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.notification_events ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.operational_cases ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.operational_cases ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.operational_case_events ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+
+    await c.query(`
+      CREATE TABLE IF NOT EXISTS siton.admin_actions (
+        admin_action_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        action_type TEXT NOT NULL CHECK (action_type IN (
+          'trigger_reconcile',
+          'requeue_outbox_event',
+          'retry_notification',
+          'retry_invoice_failed',
+          'freeze_payouts',
+          'unfreeze_payouts',
+          'open_support_case',
+          'content_takedown_request',
+          'pause_joining_emergency',
+          'pause_charging_emergency'
+        )),
+        status TEXT NOT NULL CHECK (status IN (
+          'Requested',
+          'AwaitingSecondApproval',
+          'Approved',
+          'Rejected',
+          'Executing',
+          'Completed',
+          'Failed',
+          'Cancelled'
+        )),
+        target_type TEXT NOT NULL CHECK (target_type IN (
+          'deal','participant','payment','invoice','payout','webhook','outbox','seller','support_case','content','system'
+        )),
+        target_id TEXT NOT NULL,
+        requested_by_admin_id TEXT NULL,
+        reason TEXT NOT NULL,
+        correlation_id TEXT NOT NULL,
+        request_id TEXT NULL,
+        idempotency_key TEXT NOT NULL,
+        requires_second_approval BOOLEAN NOT NULL DEFAULT false,
+        approved_by_admin_id TEXT NULL,
+        approved_at TIMESTAMPTZ NULL,
+        executed_at TIMESTAMPTZ NULL,
+        failed_at TIMESTAMPTZ NULL,
+        result_code TEXT NULL,
+        result_message TEXT NULL,
+        metadata_jsonb JSONB NULL,
+        result_jsonb JSONB NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+        UNIQUE (action_type, target_type, target_id, idempotency_key)
+      )
+    `);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS correlation_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS request_id TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS requires_second_approval BOOLEAN NOT NULL DEFAULT false`);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS result_code TEXT NULL`);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS result_message TEXT NULL`);
+    await c.query(`UPDATE siton.admin_actions SET correlation_id=COALESCE(NULLIF(correlation_id,''), 'legacy-admin-action:' || admin_action_id::text) WHERE correlation_id IS NULL OR btrim(correlation_id)=''`);
+    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ALTER COLUMN correlation_id SET NOT NULL`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_actions_status_created ON siton.admin_actions (status, created_at DESC)`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_actions_action_created ON siton.admin_actions (action_type, created_at DESC)`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_actions_target ON siton.admin_actions (target_type, target_id)`);
+    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_actions_correlation ON siton.admin_actions (correlation_id)`);
+    await c.query(`
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='siton' AND table_name='audit_log' AND column_name='correlation_id') THEN
+          CREATE INDEX IF NOT EXISTS idx_audit_log_correlation ON siton.audit_log (correlation_id);
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='siton' AND table_name='outbox_events' AND column_name='correlation_id') THEN
+          CREATE INDEX IF NOT EXISTS idx_outbox_events_correlation ON siton.outbox_events (correlation_id);
+        END IF;
+        IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='siton' AND table_name='webhook_events' AND column_name='correlation_id') THEN
+          CREATE INDEX IF NOT EXISTS idx_webhook_events_correlation ON siton.webhook_events (correlation_id);
+        END IF;
+      END $$;
+    `);
+  });
+  return ensurePromise;
+}
+
+export async function insertAdminAction(c: Queryable, input: {
+  action_type: string;
+  target_type: string;
+  target_id: string;
+  reason: string;
+  idempotency_key: string;
+  metadata?: Record<string, unknown>;
+  request_id: string;
+  correlation_id: string;
+  admin_id: string;
+}) {
+  const requires = actionRequiresSecondApproval(input.action_type, input.target_type);
+  const status = requires ? "AwaitingSecondApproval" : "Requested";
+  const result = await c.query(
+    `INSERT INTO siton.admin_actions
+       (action_type, status, target_type, target_id, requested_by_admin_id, reason,
+        correlation_id, request_id, idempotency_key, requires_second_approval, metadata_jsonb)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+     ON CONFLICT (action_type, target_type, target_id, idempotency_key)
+     DO UPDATE SET updated_at=siton.admin_actions.updated_at
+     RETURNING *`,
+    [
+      input.action_type,
+      status,
+      input.target_type,
+      input.target_id,
+      input.admin_id,
+      input.reason,
+      input.correlation_id,
+      input.request_id,
+      input.idempotency_key,
+      requires,
+      JSON.stringify(input.metadata || {})
+    ]
+  );
+  return result.rows[0];
+}
+
+export async function executeAdminAction(c: Queryable, actionId: string, context: { admin_id: string; request_id: string; correlation_id: string }) {
+  const locked = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1 FOR UPDATE`, [actionId]);
+  if (!locked.rowCount) return { statusCode: 404, body: { ok: false, error: "admin_action_not_found" } };
+  const action = locked.rows[0];
+  if (action.status === "Completed") return { statusCode: 200, body: { ok: true, replay: true, action } };
+  if (action.status === "Failed") return { statusCode: 409, body: { ok: false, error: "admin_action_failed_requires_new_action", action } };
+  if (action.requires_second_approval && action.status !== "Approved") {
+    return { statusCode: 403, body: { ok: false, error: "second_approval_required", action } };
+  }
+
+  await c.query(`UPDATE siton.admin_actions SET status='Executing', updated_at=now() WHERE admin_action_id=$1`, [actionId]);
+  let resultCode = "NotImplemented";
+  let resultMessage = "הפעולה תועדה אך אין worker/מסילה בטוחה לביצוע אוטומטי בשלב זה.";
+  let completed = false;
+
+  if (action.action_type === "requeue_outbox_event") {
+    const upd = await c.query(
+      `UPDATE siton.outbox_events
+       SET status='pending', available_at=now(), processing_started_at=NULL,
+           correlation_id=COALESCE(correlation_id,$2), request_id=COALESCE(request_id,$3), updated_at=now()
+       WHERE (event_uuid::text=$1 OR event_id::text=$1)
+         AND status IN ('pending','processing','failed')
+       RETURNING event_uuid`,
+      [action.target_id, action.correlation_id || context.correlation_id, context.request_id]
+    );
+    completed = (upd.rowCount ?? 0) > 0;
+    resultCode = completed ? "Requeued" : "NoEligibleOutboxEvent";
+    resultMessage = completed ? "אירוע outbox הוחזר ל-pending ללא מחיקה וללא איפוס היסטוריה." : "לא נמצא אירוע outbox מתאים או שהאירוע כבר הסתיים.";
+  } else if (action.action_type === "retry_notification") {
+    const upd = await c.query(
+      `UPDATE siton.notification_events
+       SET status='pending', scheduled_for=now(), last_error=NULL,
+           correlation_id=COALESCE(correlation_id,$2), request_id=COALESCE(request_id,$3), updated_at=now()
+       WHERE notification_id::text=$1 AND status='failed'
+       RETURNING notification_id`,
+      [action.target_id, action.correlation_id || context.correlation_id, context.request_id]
+    );
+    completed = (upd.rowCount ?? 0) > 0;
+    resultCode = completed ? "NotificationRetryQueued" : "NoFailedNotification";
+    resultMessage = completed ? "Notification failed הוחזר לתור retry." : "לא נמצאה הודעה failed מתאימה או שהיא כבר נשלחה.";
+  } else if (action.action_type === "retry_invoice_failed") {
+    const upd = await c.query(
+      `UPDATE siton.invoice_documents
+       SET status='pending', document_status='pending', available_at=now(),
+           correlation_id=COALESCE(correlation_id,$2), updated_at=now()
+       WHERE document_id::text=$1 AND status='failed' AND provider_document_id IS NULL
+       RETURNING document_id`,
+      [action.target_id, action.correlation_id || context.correlation_id]
+    );
+    completed = (upd.rowCount ?? 0) > 0;
+    resultCode = completed ? "InvoiceRetryQueued" : "NoSafeFailedInvoice";
+    resultMessage = completed ? "מסמך failed ללא provider ref הוחזר ל-pending." : "לא נמצא מסמך failed בטוח ל-retry, או שכבר קיים provider ref.";
+  } else if (action.action_type === "open_support_case") {
+    const autoKey = `admin-action:${action.action_type}:${action.target_type}:${action.target_id}`;
+    const inserted = await c.query(
+      `INSERT INTO siton.operational_cases
+         (case_type, status, priority, source, subject, description, opened_by, auto_key, correlation_id, request_id)
+       VALUES ('SystemException','Open','Normal','Admin',$1,$2,$3,$4,$5,$6)
+       ON CONFLICT (auto_key) WHERE auto_key IS NOT NULL AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
+       DO UPDATE SET updated_at=siton.operational_cases.updated_at
+       RETURNING case_id`,
+      [
+        `Admin action follow-up: ${action.target_type}:${action.target_id}`,
+        action.reason,
+        context.admin_id,
+        autoKey,
+        action.correlation_id || context.correlation_id,
+        context.request_id
+      ]
+    );
+    completed = Boolean(inserted.rows[0]?.case_id);
+    resultCode = "SupportCaseOpen";
+    resultMessage = `תיק תמיכה קיים או נפתח: ${inserted.rows[0]?.case_id || "unknown"}`;
+  }
+
+  const nextStatus = completed ? "Completed" : "Failed";
+  const updated = await c.query(
+    `UPDATE siton.admin_actions
+     SET status=$2,
+         executed_at=CASE WHEN $2='Completed' THEN now() ELSE executed_at END,
+         failed_at=CASE WHEN $2='Failed' THEN now() ELSE failed_at END,
+         result_code=$3,
+         result_message=$4,
+         result_jsonb=$5,
+         updated_at=now()
+     WHERE admin_action_id=$1
+     RETURNING *`,
+    [actionId, nextStatus, resultCode, resultMessage, JSON.stringify({ completed, executor: context.admin_id })]
+  );
+  return { statusCode: completed ? 200 : 501, body: { ok: completed, action: updated.rows[0] } };
+}
