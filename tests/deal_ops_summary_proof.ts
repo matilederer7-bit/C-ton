@@ -22,7 +22,7 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 
-const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
+const DB_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
 // ─── helpers ─────────────────────────────────────────────────────────────────

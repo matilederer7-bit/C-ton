@@ -44,7 +44,8 @@
     "test:admin-control-plane": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_control_plane_validation.js",
     "test:cache-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/cache_policy_validation.js",
     "test:scale-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/scale_readiness_validation.js",
-    "test:provider-live-money-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/provider_live_money_readiness_validation.js"
+    "test:provider-live-money-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/provider_live_money_readiness_validation.js",
+    "test:security-hardening": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_hardening_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

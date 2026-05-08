@@ -32,6 +32,7 @@ The main response includes:
 - `storage_uploads`
 - `scale_readiness`
 - `live_money_readiness`
+- `security_hardening_gate`
 - `performance`
 - `business_metrics`
 - `anomaly_center`
@@ -66,6 +67,8 @@ Action endpoints:
 `scale_readiness` reports stateless API posture, in-memory risks, OTP/rate-limit/storage/worker/idempotency readiness, DB pool posture, load balancer readiness, and blockers before multi-instance deployment.
 
 `live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
+
+`security_hardening_gate` reports defensive security findings with `pass` / `warning` / `blocked`, P0/P1/P2/P3 severity, masked evidence only, blockers, and safe next actions. The current gate is `warning` because admin identity is shared-key based and participant tracking remains bearer-link based.
 
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 
@@ -114,6 +117,7 @@ The admin plane still blocks:
 ```bash
 npm run test:mission-control
 npm run test:admin-control-plane
+npm run test:security-hardening
 npm run test:frontend-browser-smoke
 npx tsc --noEmit
 npx tsc -p tsconfig.test.json

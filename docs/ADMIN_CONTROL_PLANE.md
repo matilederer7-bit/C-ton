@@ -76,6 +76,8 @@ Self approval is blocked when `x-admin-user` identifies the same requester and a
 
 Current limitation: admin identity is still header-based, so enforcement is `partial` until a real admin account/MFA layer exists.
 
+Security Hardening Gate classification: this is a P1 live-pilot limitation, not a demo blocker. `ADMIN_API_KEY` still fails closed in production-like environments, and forbidden money/state/evidence actions remain blocked.
+
 ## Endpoints
 
 - `GET /api/admin/actions`

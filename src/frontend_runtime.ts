@@ -1481,7 +1481,7 @@ export function registerFrontendExperience(
         });
       }
       const session = await issueSellerSession(c, req, sellerAccount);
-      reply.header("set-cookie", serializeSellerSessionCookie(session.token, SELLER_SESSION_TTL_SECONDS));
+      reply.header("set-cookie", serializeSellerSessionCookie(session.token, SELLER_SESSION_TTL_SECONDS, { secure: isProductionLikeEnv() }));
       const sellerContext = {
         ...mapSellerProfile(sellerAccount, "server_session"),
         session_id: session.session_id,
@@ -1502,7 +1502,7 @@ export function registerFrontendExperience(
         await revokeSellerSession(c, req, "logout");
       });
     }
-    reply.header("set-cookie", serializeExpiredSellerSessionCookie());
+    reply.header("set-cookie", serializeExpiredSellerSessionCookie({ secure: isProductionLikeEnv() }));
     return {
       ok: true,
       seller_auth: sellerAuthSummary()
@@ -2436,7 +2436,10 @@ export function registerFrontendExperience(
       wb.creator = "Siton";
       wb.created = new Date();
 
-      function safeTextDH(v: any) { return v == null ? "" : String(v); }
+      function safeTextDH(v: any) {
+        const s = v == null ? "" : String(v);
+        return /^[=+\-@]/.test(s) ? `'${s}` : s;
+      }
       function fmtDateDH(v: any) {
         if (!v) return "";
         try { return new Date(v).toISOString().slice(0, 10); } catch { return ""; }

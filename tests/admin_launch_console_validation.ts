@@ -10,7 +10,7 @@ process.env.PORT = process.env.PORT || "3471";
 const { app } = await import("../src/app.js");
 
 const { Pool } = pg;
-const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
+const DB_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 const ADMIN_HEADERS = { "x-admin-key": "launch-console-admin-key" };
 

@@ -7,7 +7,7 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PAYOUT_PROVIDER = "internal-ledger";
 process.env.PAYOUT_PROVIDER_MODE = "internal-truth-only";
-process.env.DATABASE_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
+process.env.DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 
 const { Pool } = pg;
 const pool = new Pool({

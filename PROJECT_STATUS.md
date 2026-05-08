@@ -2,6 +2,41 @@
 
 ---
 
+## Current update: 2026-05-08 (Security Hardening Gate - WARNING)
+
+### What was completed
+- Completed a defensive Security Hardening Gate across secrets, admin auth, seller/buyer authorization, input validation, webhooks, money boundaries, uploads, headers, CORS/CSRF, rate limits, debug surfaces, error disclosure, supply chain and business invariants.
+- Added global baseline security headers: `nosniff`, `no-referrer`, `DENY` frame policy and restrictive permissions policy.
+- Hardened seller session cookies to use `Secure` in production-like environments.
+- Fixed delivery handoff CSV/Excel formula injection protection.
+- Removed a hardcoded legacy local test DB fallback credential from tests.
+- Added Mission Control `security_hardening_gate`.
+- Added `docs/SECURITY_HARDENING_GATE.md` and `npm run test:security-hardening`.
+
+### What was checked
+- `npm run test:security-hardening` - PASS.
+- `npm audit --omit=dev` - PASS, 0 vulnerabilities.
+- `npm audit` - PASS, 0 vulnerabilities.
+
+### Open
+- P0: none found.
+- P1: admin auth is still shared-key based, suitable for demo but not production identity/MFA/RBAC.
+- P1: participant tracking remains bearer-link based by high-entropy participant id; acceptable for demo, but should be strengthened before live pilot if sensitive tracking data expands.
+- P2: in-memory rate limiting remains single-instance only.
+
+### Progress
+- Security hardening gate implementation: 100%.
+- Demo security posture: warning, not blocked.
+- Live-pilot security posture: blocked/warning until P1 identity and access-model work is closed.
+
+### Verdict
+**SECURITY_HARDENING_GATE_WARNING**
+
+### Next step
+- Add named admin identities, MFA/RBAC, and signed or session-bound participant tracking before live pilot.
+
+---
+
 ## Current update: 2026-05-08 (Ops Hardening And Readiness Gates - DELIVERED)
 
 ### What was completed

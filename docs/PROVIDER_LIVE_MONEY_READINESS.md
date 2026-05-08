@@ -40,6 +40,7 @@ Payouts:
 - `freeze_payouts_admin_action_foundation_only`
 - live refund and payout provider validation are not complete
 - admin identity/MFA and second-approval identity are not production-complete
+- Security Hardening Gate remains `warning` until admin identity/MFA/RBAC and participant tracking access are strengthened for live-pilot sensitivity.
 
 ## Required Environment Variables
 

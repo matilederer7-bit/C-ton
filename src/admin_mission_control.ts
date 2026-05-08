@@ -230,6 +230,111 @@ function buildLiveMoneyReadinessReport(input: {
   };
 }
 
+function buildSecurityHardeningGate() {
+  const findings = [
+    {
+      id: "SEC-P1-ADMIN-IDENTITY",
+      severity: "P1",
+      domain: "admin_auth",
+      title: "Admin auth is shared-key based",
+      description: "ADMIN_API_KEY is fail-closed in production-like environments, but this is not full production identity, MFA, or per-admin RBAC.",
+      evidence: { admin_key_required_when_configured: true, production_like_fail_closed: true, values_masked: true },
+      affected_files: ["src/frontend_runtime.ts"],
+      affected_routes: ["/api/admin/*"],
+      risk: "A leaked shared key grants broad admin read/action access until rotated.",
+      fix_status: "documented",
+      safe_next_step: "Add named admin identities, MFA, scoped permissions, and rotation before live pilot."
+    },
+    {
+      id: "SEC-P1-PARTICIPANT-BEARER-LINK",
+      severity: "P1",
+      domain: "buyer_access",
+      title: "Participant tracking is bearer-link based",
+      description: "Participant tracking uses a high-entropy participant id as the access contract. This is acceptable for demo link flows but not a full buyer-auth model.",
+      evidence: { participant_id_is_uuid: true, no_raw_card_data: true },
+      affected_files: ["src/frontend_runtime.ts"],
+      affected_routes: ["/api/participants/:id/tracking", "/app/track/:participantId"],
+      risk: "If a participant link is leaked, the holder can view the tracking surface.",
+      fix_status: "documented",
+      safe_next_step: "Add a signed tracking token or buyer session binding before live pilot if tracking data expands."
+    },
+    {
+      id: "SEC-P2-HTTP-SECURITY-HEADERS",
+      severity: "P2",
+      domain: "http_headers",
+      title: "Baseline browser security headers added",
+      description: "Global responses now include nosniff, no-referrer, DENY frame policy, and restrictive permissions policy.",
+      evidence: { x_content_type_options: "nosniff", referrer_policy: "no-referrer", x_frame_options: "DENY", permissions_policy: "restricted" },
+      affected_files: ["src/app.ts"],
+      affected_routes: ["*"],
+      risk: "Missing browser hardening headers increase clickjacking, MIME sniffing, and unnecessary browser capability exposure.",
+      fix_status: "fixed",
+      safe_next_step: "Consider CSP after browser smoke coverage for any future payment iframe/provider assets."
+    },
+    {
+      id: "SEC-P2-TEST-DB-FALLBACK-CREDENTIAL",
+      severity: "P2",
+      domain: "secrets",
+      title: "Hardcoded test DB fallback credential removed",
+      description: "Legacy tests used a specific postgres password fallback. It was replaced with the existing demo-local fallback.",
+      evidence: { values_masked: true, tracked_credential_fallback_removed: true },
+      affected_files: ["tests/*"],
+      affected_routes: [],
+      risk: "Hardcoded credentials in tests can normalize unsafe secret handling and trigger accidental reuse.",
+      fix_status: "fixed",
+      safe_next_step: "Keep local DB credentials in ignored env files or developer-specific config only."
+    },
+    {
+      id: "SEC-P2-SELLER-COOKIE-SECURE",
+      severity: "P2",
+      domain: "cookies_csrf",
+      title: "Seller session cookie uses Secure in production-like environments",
+      description: "Seller session cookies were already HttpOnly and SameSite=Lax. Secure is now set when the runtime is production-like.",
+      evidence: { http_only: true, same_site: "Lax", secure_in_production_like: true },
+      affected_files: ["src/frontend_runtime.ts", "src/seller_auth.ts"],
+      affected_routes: ["/api/seller/session/login", "/api/seller/session/logout"],
+      risk: "Cookie transport over non-HTTPS is unsafe in production-like deployments.",
+      fix_status: "fixed",
+      safe_next_step: "Keep TLS enforced at the platform/load balancer."
+    },
+    {
+      id: "SEC-P2-RATE-LIMIT-SINGLE-INSTANCE",
+      severity: "P2",
+      domain: "abuse_protection",
+      title: "Rate limiting is in-memory and single-instance",
+      description: "The rate limiter is suitable for a single app instance demo but not distributed enforcement behind multiple instances.",
+      evidence: { rate_limit_store: "in_process_map", business_truth: false },
+      affected_files: ["src/app.ts"],
+      affected_routes: ["/api/otp/*", "/api/deals/*", "/deals/*"],
+      risk: "Multi-instance deployments can dilute per-IP limits.",
+      fix_status: "documented",
+      safe_next_step: "Use shared rate limit storage or platform WAF/rate limits before multi-instance pilot."
+    }
+  ];
+  const blockers = findings.filter((finding) => finding.severity === "P0" || finding.fix_status === "blocked");
+  const warnings = findings.filter((finding) => finding.severity === "P1" || finding.severity === "P2");
+  return {
+    verdict: blockers.length ? "blocked" : warnings.length ? "warning" : "pass",
+    generated_at: new Date().toISOString(),
+    critical_count: findings.filter((finding) => finding.severity === "P0").length,
+    warning_count: warnings.length,
+    checks: [
+      { id: "security_headers_validation", status: "pass" },
+      { id: "security_admin_auth_validation", status: "pass_with_demo_limitations" },
+      { id: "security_no_secret_exposure_validation", status: "pass" },
+      { id: "security_webhook_signature_policy_validation", status: "pass_with_demo_limitations" },
+      { id: "security_upload_validation", status: "pass" },
+      { id: "security_static_scan_validation", status: "pass_with_documented_findings" },
+      { id: "dependency_audit", status: "documented" }
+    ],
+    findings,
+    blockers,
+    recommended_actions: findings
+      .filter((finding) => finding.fix_status !== "fixed")
+      .map((finding) => ({ severity: finding.severity, domain: finding.domain, title: finding.safe_next_step, destructive: false }))
+  };
+}
+
 async function frontendSurface(rootDir: string, anomalies: Anomaly[]) {
   const files = ["frontend/index.html", "frontend/app.js", "frontend/styles.css"].map((path) => fileCheck(rootDir, path));
   const [indexFile, appFile, stylesFile] = files as [ReturnType<typeof fileCheck>, ReturnType<typeof fileCheck>, ReturnType<typeof fileCheck>];
@@ -507,6 +612,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     payoutSummary,
     invoiceSummary: deps.invoiceSummary
   });
+  const securityHardeningGate = buildSecurityHardeningGate();
   const secretPresence = maskEnvPresence([
     "ADMIN_API_KEY",
     "DEBUG_SURFACES_ACCESS_KEY",
@@ -741,6 +847,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     },
     scale_readiness: scaleReadiness,
     live_money_readiness: liveMoneyReadiness,
+    security_hardening_gate: securityHardeningGate,
     performance: {
       status: dbPingMs > 500 || generatedInMs > 1000 ? "yellow" : "green",
       generated_in_ms: generatedInMs,

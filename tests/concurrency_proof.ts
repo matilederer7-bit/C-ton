@@ -26,7 +26,7 @@ const { app } = await import("../src/app.js");
 
 // ─── direct DB pool for setup / evidence ────────────────────────────────────
 const DB = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres",
+  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 20
 });
 

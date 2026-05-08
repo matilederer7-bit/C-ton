@@ -30,7 +30,7 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 const { app } = await import("../src/app.js");
 
 const DB = new Pool({
-  connectionString: process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres",
+  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 5
 });
 
@@ -38,7 +38,7 @@ const DB = new Pool({
 import { buildOutboxWorkerHelpers } from "../src/outbox_worker_helpers.js";
 import pg2 from "pg";
 const innerPool = new pg2.Pool({
-  connectionString: process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres",
+  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 5
 });
 async function withTx<T>(fn: (c: any) => Promise<T>): Promise<T> {

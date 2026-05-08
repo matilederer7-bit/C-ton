@@ -20,6 +20,8 @@ Response policy:
 
 This is a response-header hardening only. No Redis, memory cache, business memoization, or provider result cache was added.
 
+The Security Hardening Gate also adds baseline browser security headers globally. These do not change the cache policy and do not override the immutable deal-image exception.
+
 ## Deal Images
 
 `GET /api/deal-images/:imageId` remains explicitly immutable:

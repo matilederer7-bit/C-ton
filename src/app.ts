@@ -2144,6 +2144,13 @@ async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvi
 
 const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
 
+function applySecurityHeaders(reply: any) {
+  reply.header("x-content-type-options", "nosniff");
+  reply.header("referrer-policy", "no-referrer");
+  reply.header("x-frame-options", "DENY");
+  reply.header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()");
+}
+
 function isImmutableDealImageRoute(req: any) {
   return req.method === "GET" && /^\/api\/deal-images\/[^/?#]+(?:[?#].*)?$/.test(String(req.url || ""));
 }
@@ -2179,6 +2186,7 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
   req.headers["x-correlation-id"] = correlationId;
   reply.header("x-request-id", requestId);
   reply.header("x-correlation-id", correlationId);
+  applySecurityHeaders(reply);
   if (!isImmutableDealImageRoute(req) && isDynamicNoStoreRoute(String(req.url || ""))) {
     reply.header("cache-control", "no-store");
     reply.header("pragma", "no-cache");

@@ -4,7 +4,7 @@ import Fastify from "fastify";
 import pg from "pg";
 
 const pool = new pg.Pool({
-  connectionString: process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres",
+  connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 2
 });
 

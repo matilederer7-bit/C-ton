@@ -29,7 +29,7 @@ import {
   type NotificationProviderResult
 } from "../src/notification_dispatch.js";
 
-const DB_URL = process.env.DATABASE_URL || "postgres://postgres:861434Ml@localhost:5432/postgres";
+const DB_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
 
 async function cleanupKey(idempotencyKey: string) {

@@ -8,7 +8,7 @@
  */
 
 process.env.PORT = "3390";
-process.env.DATABASE_URL = "postgres://postgres:861434Ml@localhost:5432/postgres";
+process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/siton";
 process.env.OUTBOX_POLL_MS = "100";
 process.env.OUTBOX_MAX_ATTEMPTS = "3";
 process.env.DISABLE_OUTBOX_WORKER = "1";          // We drive the worker manually in tests
