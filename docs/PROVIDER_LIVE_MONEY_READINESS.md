@@ -86,6 +86,7 @@ Real/live mode must fail closed or report blocked when required secrets are miss
 
 - `npm run test:provider-live-money-readiness` passed.
 - `npm run test:full-e2e-gate` passed with demo providers only.
+- `npm run test:json-boundary` passed: JSONB is evidence/job/metadata only — money, state, eligibility, invoice issuance, payout eligibility, admin permissions, and legal compliance live in rigid columns. See [`PAYMENT_JSON_BOUNDARY_AUDIT.md`](PAYMENT_JSON_BOUNDARY_AUDIT.md).
 - No live provider connection was made.
 - No secrets were added or exposed.
 - No manual money action was added.

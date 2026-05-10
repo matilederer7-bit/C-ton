@@ -39,6 +39,7 @@ The main response includes:
 - `accordion_scaling_readiness`
 - `live_money_readiness`
 - `security_hardening_gate`
+- `json_boundary_readiness`
 - `performance`
 - `business_metrics`
 - `anomaly_center`
@@ -79,6 +80,8 @@ Action endpoints:
 `live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
 
 `security_hardening_gate` reports defensive security findings with `pass` / `warning` / `blocked`, P0/P1/P2/P3 severity, masked evidence only, blockers, and safe next actions. It now includes `admin_identity_status`, `mfa_status`, `rbac_status`, `participant_tracking_security`, `demo_security_verdict`, and `live_security_verdict`.
+
+`json_boundary_readiness` reports the audit that JSON / JSONB columns are evidence, outbox job envelopes, or supplemental metadata only — never a source of truth for money, state, eligibility, invoice issuance, payout eligibility, admin permissions, or legal compliance. It exposes `verdict` (`pass` / `warning` / `blocked`), `jsonb_columns_total`, per-classification counts (`allowed_evidence_payload`, `allowed_job_payload`, `allowed_metadata`, `risky_business_source`, `forbidden_money_source`), the full `columns` classification list with `truth_source` per column, and findings (P0/P1/P2). The static guard `npm run test:json-boundary` enforces the boundary on every change. See [`PAYMENT_JSON_BOUNDARY_AUDIT.md`](PAYMENT_JSON_BOUNDARY_AUDIT.md).
 
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 

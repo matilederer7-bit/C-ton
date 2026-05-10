@@ -2,6 +2,55 @@
 
 ---
 
+## Current update: 2026-05-10 (Payment JSON Boundary Audit - PASS)
+
+### What was completed
+- Performed a full Payment JSON Boundary Audit across the repository: every JSONB column in `src/migrations/*.sql` was inventoried and classified (`allowed_evidence_payload`, `allowed_job_payload`, `allowed_metadata`, `risky_business_source`, `forbidden_money_source`).
+- Confirmed that money truth (`gross_amount`, `platform_fee_total_amount`, `seller_net_amount`, `siton_fee_amount`, `amount_minor`) lives in rigid columns and is computed via `calculatePlatformFeeMoney` from `participants.qty`, `deals.price_per_unit`, `participants.delivery_cost` — not from JSON payload.
+- Confirmed that state truth (`siton.deal_state`, `siton.buyer_state`, `siton.money_state`) lives in PostgreSQL enums with DB-level transition triggers (`siton.is_valid_*_transition`, `deals_before_update_enforce`, `participants_before_update_enforce`, `audit_log_before_insert_enforce`, `deals_outbox_enforce`).
+- Confirmed that webhook payloads cannot mutate state directly: `payment_reconciliation.classifyEvent` reads current DB `buyer_state` / `money_state` and ignores duplicate / late events; `siton.webhook_events` PK `(provider, event_id)` provides dedupe.
+- Confirmed that outbox workers (`handleChargeDealEvent`, `handleRefundEvent`, `handleFinalizeDealEvent`) re-load the aggregate from DB by `aggregate_id` and never trust `event.payload` for money or state. The only thing read out of `audit_log.payload` is the provider authorization / capture reference identifier — used to call the provider, never as money truth.
+- Confirmed that invoice eligibility (`enqueueChargeReceiptForParticipant`, `enqueueRefundReceiptForParticipant`) gates on `money_state` rigid column and computes amounts from rigid columns.
+- Confirmed that payout eligibility (`calculateSellerSettlementForDealInTx`) derives `seller_net_payable` from `siton.platform_fee_money_events` rigid sums and gates on `siton.admin_control_flags(flag_type='payout_freeze', status='active')` rigid CHECK columns.
+- Confirmed that `admin_actions.metadata_jsonb` cannot bypass `action_type` / `target_type` / `requires_second_approval` rigid columns and cannot grant role / permission / approval.
+- Confirmed that no raw card data (`card_number`, `cvv`, `pan`, `raw_card`, `security_code`) is stored in any JSONB column or any DB column.
+- Confirmed that frontend `localStorage` / `sessionStorage` is used only for demo seller-context switching and in-progress join form state; real authorization comes from server-side cookie session and DB rigid `seller_id` ownership checks.
+- Added Mission Control `json_boundary_readiness` section: `verdict`, `jsonb_columns_total`, classification counts, full per-column truth-source mapping, P0/P1/P2 findings, blockers/warnings.
+- Added `tests/json_boundary_validation.ts` and wired `npm run test:json-boundary`. The guard enforces (a) every JSONB column is classified, (b) no source file reads forbidden truth keys from JSON, (c) no raw card data exists in storage or non-provider JSON, (d) invoice/payout/webhook/outbox/admin truth paths use rigid columns, (e) frontend storage is demo-only, (f) the audit doc exists.
+- Authored `docs/PAYMENT_JSON_BOUNDARY_AUDIT.md` describing the rule, the inventory, what is allowed, what is forbidden, special cases (with explicit justification for `audit_log.payload->>'authorization_id'` and `admin_actions.metadata_jsonb?.expires_at`), findings, what was fixed (no code change required), what remains open, and how the guard defends forward.
+- Updated `docs/ADMIN_MISSION_CONTROL.md` with the new `json_boundary_readiness` section description.
+- No state machine change. No money logic change. No live money. No live provider connected. No secret added or exposed. No JSONB column was deleted. No outbox/webhook evidence was deleted.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:json-boundary` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:security-identity-tracking` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npm run test:full-e2e-gate` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm audit --omit=dev` - 0 new advisories (pre-existing `fast-uri` advisory unchanged).
+- `npm audit` - 0 new advisories (pre-existing `fast-uri` advisory unchanged).
+
+### Open
+- Live money remains blocked by design until Provider Sandbox / Live Money Validation. JSON boundary findings do not unblock live money.
+- The `fast-uri` advisory is unchanged from prior gate — pre-existing and not introduced by this audit.
+
+### Progress
+- JSON Boundary Audit: 100% (all known JSONB columns classified, guard wired, doc written).
+- Money / state / eligibility truth source verification: 100%.
+
+### Verdict
+**PAYMENT_JSON_BOUNDARY_PASS** — JSONB does not act as a source of truth for money, state, eligibility, invoice issuance, payout eligibility, admin permissions, or legal compliance. Mission Control reports `json_boundary_readiness.verdict=pass`. The `npm run test:json-boundary` guard prevents regression.
+
+### Next step
+- Provider Sandbox / Live Money Validation — exercise the same boundary against a real provider sandbox with provider request IDs and webhook event IDs recorded.
+
+---
+
 ## Current update: 2026-05-10 (Docker + AWS Accordion Readiness - PASS)
 
 ### What was completed

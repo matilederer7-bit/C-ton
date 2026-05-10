@@ -93,6 +93,17 @@ Current in-process rate limiting is useful for a single-instance demo. Multi-ins
 - `npm audit --omit=dev`: 0 vulnerabilities.
 - `npm audit`: 0 vulnerabilities.
 
+## JSON / JSONB Boundary
+
+JSONB columns in Siton are evidence (raw provider/audit), outbox job envelopes,
+or supplemental metadata. They are never a source of truth for money, state,
+eligibility, invoice issuance, payout eligibility, admin permissions, or legal
+compliance. The audit, full classification, special-case justifications, and
+forward-defense guard are documented in
+[`PAYMENT_JSON_BOUNDARY_AUDIT.md`](PAYMENT_JSON_BOUNDARY_AUDIT.md). The static
+guard `npm run test:json-boundary` enforces the boundary on every change.
+Mission Control surfaces `json_boundary_readiness`.
+
 ## Demo And Live Pilot Gates
 
 Demo is not blocked by this security pass and can be treated as `SECURITY_IDENTITY_TRACKING_GATE_PASS`.

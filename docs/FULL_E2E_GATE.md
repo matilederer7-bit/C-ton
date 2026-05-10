@@ -77,3 +77,11 @@ No migration was added by this gate, but bootstrap and a rerun were executed aft
 - Object storage before multi-instance/live.
 - Production admin provisioning, MFA enrollment operations and shared-key fallback retirement or strict containment.
 - Live-money runbook sign-off and explicit business approval.
+
+## JSON / JSONB Boundary
+
+JSON / JSONB does not act as a source of truth for money, state, eligibility,
+invoice issuance, payout eligibility, admin permissions, or legal compliance.
+The boundary is documented and guarded by
+[`PAYMENT_JSON_BOUNDARY_AUDIT.md`](PAYMENT_JSON_BOUNDARY_AUDIT.md) and
+`npm run test:json-boundary`. Mission Control reports `json_boundary_readiness`.

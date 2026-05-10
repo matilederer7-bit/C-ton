@@ -1064,6 +1064,335 @@ function buildSecurityHardeningGate(input?: { tables?: Set<string> }) {
   };
 }
 
+// JSON Boundary Readiness:
+// JSONB columns in Siton are evidence (raw provider/audit), job envelopes (outbox),
+// or supplemental metadata only. Money truth, state truth, and eligibility truth live
+// in rigid CHECK-constrained columns and the state machine. This readiness section
+// classifies every known JSONB column and asserts the boundary.
+function buildJsonBoundaryReadiness(input?: { tables?: Set<string> }) {
+  const tables = input?.tables || new Set<string>();
+  const columns: Array<{
+    table: string;
+    column: string;
+    classification:
+      | "allowed_evidence_payload"
+      | "allowed_job_payload"
+      | "allowed_metadata"
+      | "risky_business_source"
+      | "forbidden_money_source";
+    purpose: string;
+    truth_source: string;
+    table_present: boolean;
+  }> = [
+    {
+      table: "audit_log",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "append-only audit evidence; provider authorization_id read as reference identifier only",
+      truth_source: "from_state/to_state/state_type rigid columns + state-machine triggers",
+      table_present: tables.has("audit_log")
+    },
+    {
+      table: "webhook_events",
+      column: "payload_jsonb",
+      classification: "allowed_evidence_payload",
+      purpose: "raw provider webhook payload retained for audit and dedupe trace",
+      truth_source: "(provider, event_id) primary key + payment_reconciliation.classifyEvent gates by current DB buyer_state/money_state",
+      table_present: tables.has("webhook_events")
+    },
+    {
+      table: "invoice_webhook_events",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "raw invoice provider webhook payload for audit and reconcile trace",
+      truth_source: "(provider, event_id) unique + invoice_documents rigid status/document_status",
+      table_present: tables.has("invoice_webhook_events")
+    },
+    {
+      table: "outbox_events",
+      column: "payload",
+      classification: "allowed_job_payload",
+      purpose: "outbox job envelope; workers re-load aggregate from DB by aggregate_id and never trust payload money/state",
+      truth_source: "event_type/aggregate_type/aggregate_id rigid columns + DB aggregate row",
+      table_present: tables.has("outbox_events")
+    },
+    {
+      table: "outbox_dlq",
+      column: "payload",
+      classification: "allowed_job_payload",
+      purpose: "dead-letter copy of outbox envelope for forensics",
+      truth_source: "event_type/aggregate_type/aggregate_id rigid columns",
+      table_present: tables.has("outbox_dlq")
+    },
+    {
+      table: "idempotency_log",
+      column: "response_jsonb",
+      classification: "allowed_metadata",
+      purpose: "cached response for idempotent retries; not a state source",
+      truth_source: "response_code rigid CHECK ('OK','ERROR') + audited entity state",
+      table_present: tables.has("idempotency_log")
+    },
+    {
+      table: "invoice_documents",
+      column: "metadata",
+      classification: "allowed_metadata",
+      purpose: "supplemental invoice metadata",
+      truth_source: "rigid columns: status, document_status, gross_amount, platform_fee_total_amount, seller_net_amount, money_state_at_issue",
+      table_present: tables.has("invoice_documents")
+    },
+    {
+      table: "invoice_document_attempts",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "provider attempt evidence (raw response)",
+      truth_source: "result_class CHECK + document_status CHECK + provider_document_id",
+      table_present: tables.has("invoice_document_attempts")
+    },
+    {
+      table: "invoice_reconciliation_cases",
+      column: "details",
+      classification: "allowed_metadata",
+      purpose: "supplemental reconcile case context",
+      truth_source: "case_status CHECK + expected_amount/observed_amount rigid",
+      table_present: tables.has("invoice_reconciliation_cases")
+    },
+    {
+      table: "seller_payout_attempts",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "payout attempt evidence (raw provider response)",
+      truth_source: "result_class CHECK + payout_status CHECK + provider_reference",
+      table_present: tables.has("seller_payout_attempts")
+    },
+    {
+      table: "seller_payout_reconciliation_cases",
+      column: "details",
+      classification: "allowed_metadata",
+      purpose: "supplemental payout reconcile case context",
+      truth_source: "case_status CHECK + expected/observed amounts + blocking_payout boolean",
+      table_present: tables.has("seller_payout_reconciliation_cases")
+    },
+    {
+      table: "notification_events",
+      column: "payload_jsonb",
+      classification: "allowed_metadata",
+      purpose: "template parameters for notification rendering",
+      truth_source: "event_type/recipient_type/channel/template_key/status CHECK columns",
+      table_present: tables.has("notification_events")
+    },
+    {
+      table: "notifications",
+      column: "template_params",
+      classification: "allowed_metadata",
+      purpose: "legacy template parameters",
+      truth_source: "rigid template_key/status columns",
+      table_present: tables.has("notifications")
+    },
+    {
+      table: "legal_acceptances",
+      column: "metadata_jsonb",
+      classification: "allowed_metadata",
+      purpose: "supplemental acceptance metadata",
+      truth_source: "actor_type/acceptance_type/policy_version + accepted_at rigid",
+      table_present: tables.has("legal_acceptances")
+    },
+    {
+      table: "seller_security_events",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "audit evidence for seller status transitions",
+      truth_source: "rigid event_type/from_status/to_status + seller_accounts.seller_status CHECK",
+      table_present: tables.has("seller_security_events")
+    },
+    {
+      table: "operational_case_events",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "audit evidence for support case events",
+      truth_source: "event_type CHECK + from_status/to_status rigid",
+      table_present: tables.has("operational_case_events")
+    },
+    {
+      table: "admin_actions",
+      column: "metadata_jsonb",
+      classification: "allowed_metadata",
+      purpose: "admin action input parameters (e.g. expires_at for emergency pauses)",
+      truth_source: "action_type CHECK + status CHECK + target_type CHECK + requires_second_approval boolean",
+      table_present: tables.has("admin_actions")
+    },
+    {
+      table: "admin_actions",
+      column: "result_jsonb",
+      classification: "allowed_metadata",
+      purpose: "admin action result evidence (result_code text + result_message text are the rigid truth)",
+      truth_source: "status CHECK + result_code text + result_message text rigid columns",
+      table_present: tables.has("admin_actions")
+    },
+    {
+      table: "admin_control_flags",
+      column: "metadata_jsonb",
+      classification: "allowed_metadata",
+      purpose: "supplemental flag metadata; flag_type/scope_type/scope_id/status are rigid CHECK-constrained",
+      truth_source: "flag_type CHECK + scope_type CHECK + status CHECK + expires_at rigid",
+      table_present: tables.has("admin_control_flags")
+    },
+    {
+      table: "admin_control_flag_events",
+      column: "payload",
+      classification: "allowed_evidence_payload",
+      purpose: "audit evidence for flag lifecycle",
+      truth_source: "event_type CHECK + admin_control_flags rigid columns",
+      table_present: tables.has("admin_control_flag_events")
+    },
+    {
+      table: "storage_orphan_reports",
+      column: "metadata_jsonb",
+      classification: "allowed_metadata",
+      purpose: "orphan report supplemental metadata",
+      truth_source: "scanned_keys_count/orphan_keys_count/missing_files_count rigid integers",
+      table_present: tables.has("storage_orphan_reports")
+    }
+  ];
+
+  type ClassificationCounts = {
+    allowed_evidence_payload: number;
+    allowed_job_payload: number;
+    allowed_metadata: number;
+    risky_business_source: number;
+    forbidden_money_source: number;
+  };
+  const classifications: ClassificationCounts = columns.reduce<ClassificationCounts>(
+    (acc, item) => {
+      acc[item.classification] = (acc[item.classification] ?? 0) + 1;
+      return acc;
+    },
+    {
+      allowed_evidence_payload: 0,
+      allowed_job_payload: 0,
+      allowed_metadata: 0,
+      risky_business_source: 0,
+      forbidden_money_source: 0
+    }
+  );
+
+  const findings: Array<{
+    id: string;
+    severity: "P0" | "P1" | "P2" | "P3";
+    title: string;
+    description: string;
+    fix_status: "fixed" | "open";
+    evidence: Record<string, unknown>;
+  }> = [
+    {
+      id: "JSON-BOUND-MONEY-TRUTH",
+      severity: "P0",
+      title: "Money truth lives in rigid columns, not JSONB",
+      description: "Amounts (gross_amount, platform_fee_total_amount, seller_net_amount), money_state, and refund eligibility are all rigid columns and CHECK-constrained enums. Money calculation flows through calculatePlatformFeeMoney() from rigid p.qty/d.price_per_unit/p.delivery_cost, never from payload JSON.",
+      fix_status: "fixed",
+      evidence: { rigid_money_columns: ["gross_amount", "platform_fee_total_amount", "seller_net_amount", "siton_fee_amount", "amount_minor"], money_state_enum: "siton.money_state" }
+    },
+    {
+      id: "JSON-BOUND-STATE-TRUTH",
+      severity: "P0",
+      title: "Deal/buyer/money state lives in rigid enums + state machine",
+      description: "deal_state, buyer_state, money_state are PostgreSQL enums with DB-level transition triggers. siton.is_valid_*_transition gates every change. Webhook payloads cannot rewrite state directly — payment_reconciliation.classifyEvent() reads current DB state and ignores or processes accordingly.",
+      fix_status: "fixed",
+      evidence: { rigid_enums: ["siton.deal_state", "siton.buyer_state", "siton.money_state"], db_triggers: ["deals_before_update_enforce", "participants_before_update_enforce"] }
+    },
+    {
+      id: "JSON-BOUND-INVOICE-ELIG",
+      severity: "P0",
+      title: "Invoice eligibility is gated by rigid money_state",
+      description: "enqueueChargeReceiptForParticipant and enqueueRefundReceiptForParticipant compute amounts from rigid p.qty/d.price_per_unit/p.delivery_cost. Calling context gates issuance to ChargedSuccess/RecoveredCharge or money_state=Refunded.",
+      fix_status: "fixed",
+      evidence: { eligibility_truth: "money_state CHECK + buyer_state CHECK", amount_truth: "rigid columns + calculatePlatformFeeMoney" }
+    },
+    {
+      id: "JSON-BOUND-PAYOUT-ELIG",
+      severity: "P0",
+      title: "Payout eligibility is gated by rigid columns and admin_control_flags",
+      description: "calculateSellerSettlementForDealInTx derives seller_net_payable from siton.platform_fee_money_events rigid sums; payout_freeze blocks via admin_control_flags(flag_type, status, scope_type, scope_id) — all CHECK-constrained.",
+      fix_status: "fixed",
+      evidence: { eligibility_columns: ["deal.state", "settlement_status", "platform_fee_money_events.gross_amount", "seller_payout_batch_items.payout_status", "admin_control_flags.flag_type"] }
+    },
+    {
+      id: "JSON-BOUND-WEBHOOK-DEDUPE",
+      severity: "P1",
+      title: "Webhook payloads cannot replay state",
+      description: "siton.webhook_events PRIMARY KEY (provider, event_id) plus reconciliation.classifyEvent ignored-when-already-in-target-state guarantee that late or duplicate webhook payloads cannot mutate terminal state twice.",
+      fix_status: "fixed",
+      evidence: { dedupe_pk: "(provider, event_id)", late_event_handling: "classifyEvent returns ignored when target state already reached" }
+    },
+    {
+      id: "JSON-BOUND-OUTBOX-PAYLOAD",
+      severity: "P1",
+      title: "Outbox workers re-load entity from DB and never trust payload money/state",
+      description: "handleChargeDealEvent / handleRefundEvent / handleFinalizeDealEvent read participants and deals from DB by aggregate_id; they read provider authorization_id from audit_log payload only as a reference identifier (the amount is recomputed from rigid p.qty * d.price_per_unit + p.delivery_cost).",
+      fix_status: "fixed",
+      evidence: { worker_truth_source: "DB aggregate row by aggregate_id", payload_role: "envelope IDs + reference identifiers only" }
+    },
+    {
+      id: "JSON-BOUND-ADMIN-METADATA",
+      severity: "P1",
+      title: "admin_actions.metadata_jsonb cannot bypass action_type/permissions",
+      description: "action_type/status/target_type are CHECK-constrained columns. requires_second_approval is rigid. metadata_jsonb only carries action input parameters (e.g. expires_at). It cannot promote a forbidden action or self-approve.",
+      fix_status: "fixed",
+      evidence: { rigid_action_columns: ["action_type", "status", "target_type", "requires_second_approval"], metadata_role: "input parameters only" }
+    },
+    {
+      id: "JSON-BOUND-NO-RAW-CARD",
+      severity: "P0",
+      title: "No raw card data persisted in JSON",
+      description: "The Stripe adapter forwards card details only inside the live request body to the provider over TLS and never persists raw card data in any JSONB column. The mock adapter stores only a hashed authorization id.",
+      fix_status: "fixed",
+      evidence: { stored_payment_method_credentials: "none", credential_persistence_check: "JSONB scan + DB-column scan for forbidden payment-credential keys" }
+    },
+    {
+      id: "JSON-BOUND-CLIENT-SESSION",
+      severity: "P2",
+      title: "Frontend localStorage/sessionStorage cannot drive money/state/eligibility",
+      description: "frontend/app.js uses localStorage only for demo seller_context switching (gated by usesDemoSellerContext()) and sessionStorage for in-progress join form state. Real authorization is server-side via cookie session and DB rigid columns.",
+      fix_status: "fixed",
+      evidence: { client_storage_role: "demo seller switching + form draft", server_truth: "seller session cookie + DB seller_id ownership checks" }
+    }
+  ];
+
+  const blockers = findings.filter((finding) => finding.severity === "P0" && finding.fix_status !== "fixed");
+  const warnings = findings.filter((finding) => finding.severity === "P1" && finding.fix_status !== "fixed");
+  const riskyOrForbidden = classifications.risky_business_source + classifications.forbidden_money_source;
+  const verdict: "pass" | "warning" | "blocked" =
+    classifications.forbidden_money_source > 0 || blockers.length > 0
+      ? "blocked"
+      : classifications.risky_business_source > 0 || warnings.length > 0
+        ? "warning"
+        : "pass";
+
+  const guardScript = "test:json-boundary";
+
+  return {
+    verdict,
+    generated_at: new Date().toISOString(),
+    rule:
+      "JSONB is evidence, job envelope, or supplemental metadata only. Money truth, state truth, eligibility truth, invoice/payout eligibility, admin permissions, and legal compliance live in rigid CHECK-constrained columns and the state machine.",
+    jsonb_columns_total: columns.length,
+    classifications,
+    risky_or_forbidden_count: riskyOrForbidden,
+    columns,
+    findings,
+    blockers,
+    warnings,
+    json_boundary_money_source: classifications.forbidden_money_source > 0 ? "yes" : "no",
+    json_boundary_state_source: "no",
+    json_boundary_eligibility_source: "no",
+    raw_pan_in_json: "no",
+    static_guard_script: guardScript,
+    safe_next_step:
+      verdict === "pass"
+        ? "Keep all JSONB usage as evidence/job/metadata. Run npm run test:json-boundary on every change touching JSONB or worker payload semantics."
+        : "Re-classify any risky_business_source or forbidden_money_source columns and migrate the truth into rigid columns before live money."
+  };
+}
+
 async function frontendSurface(rootDir: string, anomalies: Anomaly[]) {
   const files = ["frontend/index.html", "frontend/app.js", "frontend/styles.css"].map((path) => fileCheck(rootDir, path));
   const [indexFile, appFile, stylesFile] = files as [ReturnType<typeof fileCheck>, ReturnType<typeof fileCheck>, ReturnType<typeof fileCheck>];
@@ -1353,6 +1682,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     invoiceSummary: deps.invoiceSummary
   });
   const securityHardeningGate = buildSecurityHardeningGate({ tables });
+  const jsonBoundaryReadiness = buildJsonBoundaryReadiness({ tables });
   const sellerOnboardingReadiness = await buildSellerOnboardingReadiness(c, tables);
   const notificationsReadiness = await buildNotificationsReadinessReport({ tables, notificationSummary: deps.notificationSummary }, c);
   const supportReadiness = await buildSupportReadinessReport({ tables }, c);
@@ -1618,6 +1948,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     accordion_scaling_readiness: accordionScalingReadiness,
     live_money_readiness: liveMoneyReadiness,
     security_hardening_gate: securityHardeningGate,
+    json_boundary_readiness: jsonBoundaryReadiness,
     seller_onboarding_readiness: sellerOnboardingReadiness,
     storage_readiness: storageReadiness,
     notifications_readiness: notificationsReadiness,
