@@ -114,7 +114,8 @@ Yes:
 
 ## 25. Commit Hash
 
-`0e37f0f` (`fix(admin): isolate mission control safe queries for deal type e2e`)
+Implementation commit: `c115ff5`
+(`fix(admin): isolate mission control safe queries for deal type e2e`).
 
 ## 26. Push Status
 
