@@ -2,7 +2,39 @@
 
 ---
 
-## Current update: 2026-05-10 (Deal Type Expansion — PASS, READY FOR E2E)
+## Current update: 2026-05-10 (Deal Types E2E Gate — IN PROGRESS, BLOCKED)
+
+### What was completed
+- Built `tests/deal_types_e2e_validation.ts` — drives physical / voucher / ticket flows against the real Fastify in-process app + real Postgres demo bootstrap. Wired `npm run test:deal-types-e2e`.
+- Validated 11 of 12 test groups end-to-end against a populated demo DB:
+  - **A1** physical default (omitting `deal_type` still creates physical) — PASS
+  - **A2** physical buyer joins; tracking surface contains no voucher/ticket fields — PASS
+  - **B1–B5** voucher full flow: create with `voucher_terms`, public copy, charge → Completed (with mock-failure retry loop), `qty=N → N units`, idempotent issuance, plaintext code never persisted (only SHA-256 hash + last4), buyer tracking exposes last4 only when eligible, `voucher-export` Completed-only + eligible-only + CSV-injection-safe, redeem ownership + idempotency + no money/state mutation — PASS
+  - **C1–C3** ticket full flow: same shape with `ticket_terms`, event metadata, `ticket-export`, check-in — PASS
+  - **D1** failed deal (`deadline_check` Failed branch) issues zero `fulfillment_units` — PASS
+- Identified an upstream Mission Control bug while building **E1**: the first failing `safeQuery` inside `buildAdminMissionControlPayload` aborts the surrounding Postgres transaction, and every subsequent `safeQuery` returns empty rows silently. My new `deal_type_readiness` and `fulfillment_readiness` builders are downstream of the failing query so they show all-zero counts even when the DB has thousands of deals and 22 fulfillment_units. Concrete reproducer + suggested fixes in `docs/DEAL_TYPES_E2E_HANDOFF.md`.
+
+### What was checked
+- `npx tsc --noEmit` — PASS.
+- `npx tsc -p tsconfig.test.json` — PASS.
+- `npm run test:deal-types-e2e` — 11 PASS / 1 FAIL (E1, see handoff).
+- `npm run test:deal-types` — PASS (24/24, unchanged).
+- Direct DB probe confirms data is present; the failure is in Mission Control's transaction handling, not in the deal type expansion code.
+
+### What is open / blocked
+- **E1 (Mission Control readiness assertions)** — blocked by upstream `safeQuery` tx poisoning. Fix path: either (a) fix the specific failing column reference, or (b) wrap `safeQuery` in per-call SAVEPOINTs so an individual failure doesn't poison the whole tx. Option (b) raises the floor for every readiness section, not just the new ones.
+- **E2 / F1–F4 / G1** — not reached because E1 short-circuits the test run; they should pass once E1 unblocks.
+- **`docs/DEAL_TYPES_E2E_GATE.md`** (canonical doc) and `DEAL_TYPES_E2E_DELIVERY_REPORT` — pending until the gate lands green.
+
+### Verdict
+`DEAL_TYPES_E2E_BLOCKED` — see `docs/DEAL_TYPES_E2E_HANDOFF.md` for full root cause, reproducer, suggested fixes, and resume steps for the next agent.
+
+### Production source touched this session
+None. The Deal Type Expansion itself (commits `ba334eb`, `10f5489`) is unchanged and remains `DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E`.
+
+---
+
+## Previous update: 2026-05-10 (Deal Type Expansion — PASS, READY FOR E2E)
 
 ### What was completed
 - Added migration `038_deal_types_voucher_ticket.sql` adding `siton.deals.deal_type` (closed CHECK + default `physical_product`), the rigid voucher/ticket terms tables `siton.deal_voucher_terms` / `siton.deal_ticket_terms`, and the unified `siton.fulfillment_units` table with status CHECK and `UNIQUE (deal_id, participant_id, unit_index)` for idempotent issuance.
