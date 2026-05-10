@@ -4122,7 +4122,7 @@ function formatCaseStatus(value) {
 
 function formatCaseType(value) {
   return ({
-    RefundRequest: "בקשת החזר",
+    RefundRequest: "מחלוקת מסחרית",
     DeliveryIssue: "בעיית אספקה",
     SellerRisk: "סיכון מוכר",
     BuyerComplaint: "תלונת קונה",
@@ -4178,7 +4178,7 @@ function renderSupportCasesTable(cases) {
               <td><span class="badge ${casePriorityTone(item.priority)}">${esc(item.priority)}</span></td>
               <td>${esc(formatCaseStatus(item.status))}</td>
               <td>${esc(formatCaseType(item.case_type))}</td>
-              <td>${esc(item.subject || "")}${item.case_type === "RefundRequest" ? `<p class="small muted">בקשת החזר היא תיק תפעולי בלבד. ביצוע החזר מתבצע רק דרך מנגנון refund חוקי ומבוקר, אם קיים, ולא דרך מסך זה.</p>` : ""}</td>
+              <td>${esc(item.subject || "")}${item.case_type === "RefundRequest" ? `<p class="small muted">סוג legacy זה מתועד כמחלוקת מסחרית בלבד. אין החזר כספי ידני דרך Support או דרך מסך זה.</p>` : ""}</td>
               <td>${item.deal_id ? `<a href="/app/admin/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/admin/deals/${encodeURIComponent(item.deal_id)}">${esc(item.deal_title || item.deal_id)}</a>` : ""}</td>
               <td>${esc(item.seller_name || item.seller_id || "")}</td>
               <td>${esc(caseAge(item.created_at))}</td>
@@ -4216,7 +4216,7 @@ function renderAdminSupportPage() {
         <div class="stack compact compact-section">
           <span class="eyebrow">Admin Support Hub</span>
           <h1>Support Hub</h1>
-          <p class="muted section-intro">תיקי קצה בלבד: פניות, חריגים, תלונות, בקשות החזר ובעיות אמון. אין כאן approval gate, capture, refund, void או payout.</p>
+          <p class="muted section-intro">תיקי קצה בלבד: פניות, חריגים, תלונות, מחלוקות מסחריות ובעיות אמון. אין כאן approval gate, capture, refund, void או payout.</p>
         </div>
         <a class="button secondary" href="/app/admin" data-nav="/app/admin">חזרה לדשבורד</a>
       </div>

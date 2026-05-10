@@ -100,6 +100,10 @@ try {
     assert.equal(body.action_policy.manual_capture_enabled, false);
     assert.equal(body.action_policy.manual_refund_enabled, false);
     assert.equal(body.action_policy.manual_payout_enabled, false);
+    assert.equal(body.refund_policy_readiness.manual_refund_allowed, false);
+    assert.equal(body.refund_policy_readiness.seller_refund_allowed, false);
+    assert.equal(body.refund_policy_readiness.admin_commercial_refund_allowed, false);
+    assert.equal(body.refund_policy_readiness.system_refund_on_failed_deal_required, true);
     assert.ok(body.recommended_actions.every((action: any) => action.destructive === false));
   });
 

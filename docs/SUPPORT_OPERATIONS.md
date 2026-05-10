@@ -33,6 +33,8 @@ SystemException
 Other
 ```
 
+`RefundRequest` is a legacy internal alias only. It must be treated as `commercial dispute` / `buyer complaint` evidence, not refund eligibility and not refund approval. Support can document a delivery issue, buyer complaint, seller-buyer dispute, chargeback evidence, or payment mismatch. Support cannot execute, approve, enqueue, or trigger a refund.
+
 ## Correlation Linking
 
 Each case is linked, where possible, to:
@@ -71,6 +73,9 @@ Closing requires a `resolution_note`. Reason is required on every state change.
 
 ## Forbidden Remediations
 
+- Executing a support refund.
+- Approving a commercial refund.
+- Turning a support case into a refund action.
 - Resolving a `PaymentMismatch` by editing money state.
 - Deleting a case.
 - Deleting case events.

@@ -2,6 +2,52 @@
 
 ---
 
+## Current update: 2026-05-10 (Refund Policy Alignment - PASS)
+
+### What was completed
+- Audited refund surfaces across backend routes, Admin Actions, Seller/Admin UI, Support Operations, Provider Live Money Readiness, Mission Control, invoice/refund receipts, and policy/legal docs.
+- Confirmed there is no seller/admin/support endpoint that initiates a commercial refund and no request-thread refund route. Refund execution remains worker/outbox driven.
+- Confirmed the only allowed refund path is system-mandated: `charging.finalize_failed` enqueues `refund_issue` after the completion window when charged/recovered units are below stored `threshold_units`; the worker refunds only participants in rigid `money_state IN ('ChargedSuccess','RecoveredCharge')`.
+- Expanded Admin Action forbidden policy to explicitly block `admin_refund`, `merchant_refund`, `seller_refund`, `support_refund`, `partial_refund`, and `manual_credit` in addition to existing manual capture/refund/void/state/money edits.
+- Added Mission Control `refund_policy_readiness` with route/action/UI scan results and hard fields: `manual_refund_allowed=false`, `seller_refund_allowed=false`, `admin_commercial_refund_allowed=false`, `support_refund_allowed=false`, `partial_commercial_refund_allowed=false`, `system_refund_on_failed_deal_required=true`, `json_boundary_respected=true`, and `provider_sandbox_required=true`.
+- Added canonical [`docs/REFUND_POLICY.md`](docs/REFUND_POLICY.md).
+- Updated Provider Live Money Readiness so provider validation means `system_mandated_refund_on_deal_failed`, not admin manual refund.
+- Updated Admin Control Plane, Admin Mission Control, Legal/Trust, Support Operations, Full E2E, and Payment JSON Boundary docs.
+- Clarified Support UI copy: legacy `RefundRequest` is rendered as a commercial dispute/support evidence surface only, with no manual money movement.
+- Added `tests/refund_policy_validation.ts` and wired `npm run test:refund-policy`.
+- No live money. No provider connected. No state machine change. No 90% rule change. No money logic change beyond policy enforcement/audit surfaces. No dependency added.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:refund-policy` - PASS.
+- `npm run test:json-boundary` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:full-e2e-gate` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm run test:support-operations` - PASS.
+- `npm run test:legal-trust` - PASS.
+- `npm audit --omit=dev` - 0 vulnerabilities.
+- `npm audit` - 0 vulnerabilities.
+
+### Open
+- Provider Sandbox is still required to prove the automatic failed-deal refund/void path with provider request IDs and webhook IDs.
+- The support case type `RefundRequest` remains as a legacy internal alias for commercial dispute / buyer complaint evidence only; it is not eligibility and cannot move money.
+
+### Progress
+- Refund Policy Alignment Audit + Enforcement: 100%.
+
+### Verdict
+**REFUND_POLICY_ALIGNMENT_PASS**
+
+### Next step
+- Provider Sandbox Validation for `system_mandated_refund_on_deal_failed`; do not add any manual refund operation.
+
+---
+
 ## Current update: 2026-05-10 (Payment JSON Boundary Audit - PASS)
 
 ### What was completed

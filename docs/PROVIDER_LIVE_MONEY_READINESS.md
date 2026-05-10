@@ -17,6 +17,7 @@ Payment:
 
 - provider abstraction exists
 - authorization/capture/recovery/refund paths are worker/outbox oriented
+- refund provider validation means `system_mandated_refund_on_deal_failed` only
 - webhook ingestion and dedupe are expected through provider/event IDs
 - idempotency is expected through DB-backed logs and provider request IDs
 
@@ -38,7 +39,7 @@ Payouts:
 - `payment_webhook_secret_missing_for_live` when real webhook secrets are absent
 - `reconcile_runbook_or_live_provider_status_validation_required_before_live_money`
 - `freeze_payouts_admin_action_foundation_only`
-- live refund and payout provider validation are not complete
+- system failed-deal refund and payout provider validation are not complete
 - admin identity/MFA and second-approval identity are not production-complete
 - Security Identity Tracking Gate passes for demo foundation, but live money remains blocked until named admins are provisioned, MFA is operationally enforced, shared-key fallback is retired or constrained, and participant tracking is token-only in live mode.
 
@@ -64,7 +65,7 @@ Real/live mode must fail closed or report blocked when required secrets are miss
 
 ## Required Tests Before Pilot
 
-- provider sandbox authorization/capture/refund/reconcile
+- provider sandbox authorization/capture/system_mandated_refund_on_deal_failed/reconcile
 - duplicate webhook replay
 - late webhook after terminal deal state
 - unknown payment result over 24 hours
@@ -90,3 +91,17 @@ Real/live mode must fail closed or report blocked when required secrets are miss
 - No live provider connection was made.
 - No secrets were added or exposed.
 - No manual money action was added.
+
+## Refund Policy Contract
+
+- `manual_refund_allowed`: false
+- `seller_refund_allowed`: false
+- `admin_commercial_refund_allowed`: false
+- `support_refund_allowed`: false
+- `partial_commercial_refund_allowed`: false
+- `system_refund_on_failed_deal_required`: true
+- `system_refund_provider_validation_status`: `pending_provider_sandbox`
+
+Provider Sandbox must validate only the automatic failed-deal refund path. It must not introduce an admin manual refund operation, seller refund button, support refund flow, or partial commercial refund.
+
+See [`REFUND_POLICY.md`](REFUND_POLICY.md).

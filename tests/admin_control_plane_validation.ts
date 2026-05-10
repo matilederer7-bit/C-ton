@@ -133,15 +133,27 @@ try {
   });
 
   await run("admin_actions_forbidden_actions_validation", async () => {
-    const res = await postAction({
-      action_type: "manual_capture",
-      target_type: "payment",
-      target_id: "pay-1",
-      reason: "must be forbidden",
-      idempotency_key: `cp-forbidden-capture-${RUN_ID}`
-    });
-    assert.equal(res.statusCode, 403);
-    assert.equal((res.json() as any).error, "admin_action_forbidden");
+    for (const actionType of [
+      "manual_capture",
+      "manual_refund",
+      "admin_refund",
+      "merchant_refund",
+      "seller_refund",
+      "support_refund",
+      "partial_refund",
+      "manual_credit",
+      "manual_void"
+    ]) {
+      const res = await postAction({
+        action_type: actionType,
+        target_type: "payment",
+        target_id: `pay-${actionType}`,
+        reason: "must be forbidden",
+        idempotency_key: `cp-forbidden-${actionType}-${RUN_ID}`
+      });
+      assert.equal(res.statusCode, 403, `${actionType}: ${res.body}`);
+      assert.equal((res.json() as any).error, "admin_action_forbidden");
+    }
   });
 
   await run("admin_actions_second_approval_validation", async () => {

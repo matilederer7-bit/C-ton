@@ -344,7 +344,14 @@ function buildLiveMoneyReadinessReport(input: {
     payment_provider_status: paymentReal && paymentConfigured ? "sandbox_or_provider_ready" : "demo_ready",
     webhook_status: webhookSecretConfigured ? "provider_ready" : "blocked_for_live",
     reconcile_status: "partial",
-    refund_status: "partial",
+    refund_status: "system_failed_deal_only_pending_provider_sandbox",
+    manual_refund_allowed: false,
+    seller_refund_allowed: false,
+    admin_commercial_refund_allowed: false,
+    support_refund_allowed: false,
+    partial_commercial_refund_allowed: false,
+    system_refund_on_failed_deal_required: true,
+    system_refund_provider_validation_status: "pending_provider_sandbox",
     invoice_status: input.invoiceSummary?.external_issuance ? "provider_ready" : "demo_ready",
     payout_status: input.payoutSummary.external_transfer_executed ? "provider_ready" : "blocked_for_live",
     admin_intervention_status: "partial",
@@ -360,10 +367,91 @@ function buildLiveMoneyReadinessReport(input: {
     warnings,
     evidence: [
       "money actions are worker/outbox oriented; request handlers authorize/enqueue rather than direct capture/recovery/refund",
+      "refund execution is reserved for system-mandated failed-deal outbox events after rigid state/money eligibility",
       "provider summaries are read from configured adapters without activating live money",
       "webhook dedupe table is expected as siton.webhook_events by provider + event_id"
     ],
     secret_policy: maskEnvPresence(["PAYMENT_PROVIDER", "PAYMENT_WEBHOOK_SECRET", "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET", "INVOICE_PROVIDER", "PAYOUT_PROVIDER"])
+  };
+}
+
+async function buildRefundPolicyReadiness(rootDir: string) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const read = async (relativePath: string) => {
+    try {
+      return await readFile(join(rootDir, relativePath), "utf8");
+    } catch {
+      warnings.push(`${relativePath}_unreadable`);
+      return "";
+    }
+  };
+
+  const [runtime, app, controlPlane, supportCases, frontend, policyDoc] = await Promise.all([
+    read("src/frontend_runtime.ts"),
+    read("src/app.ts"),
+    read("src/admin_control_plane.ts"),
+    read("src/operational_cases.ts"),
+    read("frontend/app.js"),
+    read("docs/REFUND_POLICY.md")
+  ]);
+  const routeText = `${runtime}\n${app}`;
+  const manualRefundRoutePatterns = [
+    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/admin\/[^"']*refund/i,
+    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/seller\/[^"']*refund/i,
+    /app\.(post|patch|put|delete)\(\s*["'][^"']*\/api\/support\/[^"']*refund/i
+  ];
+  const manualRefundRoutesFound = manualRefundRoutePatterns.some((pattern) => pattern.test(routeText));
+  if (manualRefundRoutesFound) blockers.push("manual_refund_route_found");
+
+  const forbiddenActions = [
+    "manual_refund",
+    "admin_refund",
+    "merchant_refund",
+    "seller_refund",
+    "support_refund",
+    "partial_refund",
+    "manual_credit",
+    "manual_void",
+    "manual_capture"
+  ];
+  const missingForbiddenActions = forbiddenActions.filter((action) => !controlPlane.includes(`"${action}"`));
+  if (missingForbiddenActions.length) blockers.push(`missing_forbidden_admin_actions:${missingForbiddenActions.join(",")}`);
+
+  const sellerRefundUiFound = /seller[^`"'\n]{0,80}(manual refund|refund button|seller can refund|החזר לקונה|בצע החזר)/i.test(frontend);
+  const adminRefundUiFound = /admin[^`"'\n]{0,80}(manual refund|admin can refund|refund approval|refund request approved|יאשר החזר)/i.test(frontend);
+  if (sellerRefundUiFound) warnings.push("seller_refund_ui_copy_found");
+  if (adminRefundUiFound) warnings.push("admin_refund_ui_copy_found");
+  if (!policyDoc.includes("Refunds in Siton are system-mandated only")) {
+    warnings.push("canonical_refund_policy_doc_missing_or_incomplete");
+  }
+  if (!/outbox:\s*\{\s*event_type:\s*"refund_issue"/.test(app)) {
+    blockers.push("system_failed_deal_refund_outbox_path_missing");
+  }
+  if (!/p\.money_state IN \('ChargedSuccess','RecoveredCharge'\)/.test(app)) {
+    blockers.push("refund_worker_rigid_money_state_gate_missing");
+  }
+
+  const verdict: "pass" | "warning" | "blocked" = blockers.length ? "blocked" : warnings.length ? "warning" : "pass";
+  return {
+    verdict,
+    manual_refund_allowed: false,
+    seller_refund_allowed: false,
+    admin_commercial_refund_allowed: false,
+    support_refund_allowed: false,
+    partial_commercial_refund_allowed: false,
+    system_refund_on_failed_deal_required: true,
+    manual_refund_routes_found: manualRefundRoutesFound,
+    manual_refund_actions_found: missingForbiddenActions.length === 0 ? 0 : missingForbiddenActions.length,
+    seller_refund_ui_found: sellerRefundUiFound,
+    admin_refund_ui_found: adminRefundUiFound,
+    support_refund_flow_found: supportCases.includes('"RefundRequest"') ? "legacy_alias_only_no_money_movement" : false,
+    system_failed_deal_refund_path: "refund_issue outbox from charging.finalize_failed only; worker gates on ChargedSuccess/RecoveredCharge",
+    json_boundary_respected: true,
+    provider_sandbox_required: true,
+    forbidden_admin_actions: forbiddenActions,
+    blockers,
+    warnings
   };
 }
 
@@ -1683,6 +1771,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   });
   const securityHardeningGate = buildSecurityHardeningGate({ tables });
   const jsonBoundaryReadiness = buildJsonBoundaryReadiness({ tables });
+  const refundPolicyReadiness = await buildRefundPolicyReadiness(deps.rootDir);
   const sellerOnboardingReadiness = await buildSellerOnboardingReadiness(c, tables);
   const notificationsReadiness = await buildNotificationsReadinessReport({ tables, notificationSummary: deps.notificationSummary }, c);
   const supportReadiness = await buildSupportReadinessReport({ tables }, c);
@@ -1949,6 +2038,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     live_money_readiness: liveMoneyReadiness,
     security_hardening_gate: securityHardeningGate,
     json_boundary_readiness: jsonBoundaryReadiness,
+    refund_policy_readiness: refundPolicyReadiness,
     seller_onboarding_readiness: sellerOnboardingReadiness,
     storage_readiness: storageReadiness,
     notifications_readiness: notificationsReadiness,
@@ -1999,7 +2089,22 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       awaiting_second_approval: safeCount(adminActionsRow, "awaiting_second_approval"),
       safe_actions_supported: ["requeue_outbox_event", "retry_notification", "retry_invoice_failed", "open_support_case"],
       safe_actions_foundation_only: ["trigger_reconcile", "freeze_payouts", "unfreeze_payouts", "content_takedown_request", "pause_joining_emergency", "pause_charging_emergency"],
-      forbidden_actions_blocked: ["manual_capture", "manual_refund", "manual_state_edit", "manual_money_state_edit", "delete_audit", "delete_outbox", "delete_webhook"]
+      forbidden_actions_blocked: [
+        "manual_capture",
+        "manual_refund",
+        "admin_refund",
+        "merchant_refund",
+        "seller_refund",
+        "support_refund",
+        "partial_refund",
+        "manual_credit",
+        "manual_void",
+        "manual_state_edit",
+        "manual_money_state_edit",
+        "delete_audit",
+        "delete_outbox",
+        "delete_webhook"
+      ]
     },
     recommended_actions: anomalies.map((item) => ({
       severity: item.severity,

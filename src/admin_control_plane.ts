@@ -42,6 +42,12 @@ export const ADMIN_ACTION_TARGET_TYPES = [
 const FORBIDDEN_ACTIONS = new Set([
   "manual_capture",
   "manual_refund",
+  "admin_refund",
+  "merchant_refund",
+  "seller_refund",
+  "support_refund",
+  "partial_refund",
+  "manual_credit",
   "manual_void",
   "manual_state_edit",
   "manual_money_state_edit",

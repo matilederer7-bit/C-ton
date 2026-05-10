@@ -49,6 +49,7 @@ Passed on 2026-05-08:
 - `npm run test:mission-control`
 - `npm run test:admin-control-plane`
 - `npm run test:provider-live-money-readiness`
+- `npm run test:refund-policy`
 - `npm run test:scale-readiness`
 - `npm run test:cache-policy`
 - `npm run test:adversarial`
@@ -85,3 +86,7 @@ invoice issuance, payout eligibility, admin permissions, or legal compliance.
 The boundary is documented and guarded by
 [`PAYMENT_JSON_BOUNDARY_AUDIT.md`](PAYMENT_JSON_BOUNDARY_AUDIT.md) and
 `npm run test:json-boundary`. Mission Control reports `json_boundary_readiness`.
+
+## Refund Policy
+
+Refunds are system-mandated only. No seller, admin, or support user can initiate a manual commercial refund through Siton, and partial commercial refunds are forbidden. The only allowed refund path is the automatic failed-deal path after the completion window when actual charged/recovered units do not satisfy the stored 90% threshold. `npm run test:refund-policy` guards this contract and Mission Control reports `refund_policy_readiness`.

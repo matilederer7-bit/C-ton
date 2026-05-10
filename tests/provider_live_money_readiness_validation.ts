@@ -16,6 +16,7 @@ const app = await readFile("src/app.ts", "utf8");
 const paymentProvider = await readFile("src/payment_provider.ts", "utf8");
 const webhookIngestion = await readFile("src/webhook_ingestion.ts", "utf8");
 const invoiceDispatch = await readFile("src/invoice_dispatch.ts", "utf8");
+const providerReadinessDoc = await readFile("docs/PROVIDER_LIVE_MONEY_READINESS.md", "utf8");
 
 await runTest("provider_live_money_readiness_contract_validation", async () => {
   assert.match(mission, /live_money_readiness: liveMoneyReadiness/);
@@ -24,6 +25,11 @@ await runTest("provider_live_money_readiness_contract_validation", async () => {
     "webhook_status",
     "reconcile_status",
     "refund_status",
+    "manual_refund_allowed",
+    "seller_refund_allowed",
+    "admin_commercial_refund_allowed",
+    "system_refund_on_failed_deal_required",
+    "system_refund_provider_validation_status",
     "invoice_status",
     "payout_status",
     "admin_intervention_status",
@@ -74,4 +80,13 @@ await runTest("invoice_no_duplicate_issuance_validation", async () => {
 await runTest("payout_freeze_blocker_validation", async () => {
   assert.match(mission, /freeze_payouts_admin_action_foundation_only/);
   assert.match(mission, /live_readiness_verdict: "blocked"/);
+});
+
+await runTest("refund_provider_readiness_is_system_failed_deal_only_validation", async () => {
+  assert.match(mission, /refund_status:\s*"system_failed_deal_only_pending_provider_sandbox"/);
+  assert.match(mission, /manual_refund_allowed:\s*false/);
+  assert.match(mission, /seller_refund_allowed:\s*false/);
+  assert.match(mission, /admin_commercial_refund_allowed:\s*false/);
+  assert.match(mission, /system_refund_on_failed_deal_required:\s*true/);
+  assert.match(providerReadinessDoc, /system_mandated_refund_on_deal_failed/);
 });

@@ -45,6 +45,12 @@ Blocked with `403 admin_action_forbidden`:
 
 - `manual_capture`
 - `manual_refund`
+- `admin_refund`
+- `merchant_refund`
+- `seller_refund`
+- `support_refund`
+- `partial_refund`
+- `manual_credit`
 - `manual_void`
 - `manual_state_edit`
 - `manual_money_state_edit`
@@ -60,6 +66,8 @@ Blocked with `403 admin_action_forbidden`:
 - `edit_platform_fee`
 - `edit_seller_net`
 - `edit_product_eligibility`
+
+Refund policy alignment: Admin Actions cannot create commercial refunds. The only allowed refund path is the automatic system-mandated failed-deal outbox path described in [`REFUND_POLICY.md`](REFUND_POLICY.md).
 
 ## Second Approval
 

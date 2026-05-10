@@ -13,6 +13,7 @@ Status: surfaces and copy contracts validated against the spec. Final legal text
 - The recovery screen explains that the previous payment did not go through and asks for a new method.
 - The failed screen says no charge was made and explains that a held framework will be released by the issuing bank.
 - The completed screen says charging has been performed only when the deal is in `Completed` state.
+- Refund copy must not promise a manual seller, admin, or support refund. It may say that if a deal fails under Siton's rules after actual charges were attempted, charges are handled by the automatic system refund path.
 
 ## Seller Surface
 
@@ -28,8 +29,13 @@ Status: surfaces and copy contracts validated against the spec. Final legal text
 ## Admin Surface
 
 - No "manual refund", "manual capture", or "edit money" admin action exists.
+- No admin commercial refund or partial commercial refund exists.
 - Admin actions never delete audit, outbox, or webhook rows.
 - Admin actions surface bounded reason and audit fields only.
+
+## Refund Policy
+
+Refunds are system-mandated only. Seller-buyer disputes can be recorded as support cases, but they do not move money through Siton. Refund eligibility is determined by rigid deal/buyer/money state and money columns, never by JSON metadata. See [`REFUND_POLICY.md`](REFUND_POLICY.md).
 
 ## Footer Links
 

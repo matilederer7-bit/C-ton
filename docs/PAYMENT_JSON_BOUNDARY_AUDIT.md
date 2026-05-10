@@ -19,6 +19,7 @@ JSONB / JSON is **never** allowed as the source of truth for:
 - eligibility (invoice issuance, payout eligibility, product/buyer eligibility),
 - completion / failure decisions,
 - charge / refund decisions,
+- refund eligibility,
 - payouts,
 - platform fees,
 - legal compliance,

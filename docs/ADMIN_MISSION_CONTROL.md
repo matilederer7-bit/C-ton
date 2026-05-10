@@ -40,6 +40,7 @@ The main response includes:
 - `live_money_readiness`
 - `security_hardening_gate`
 - `json_boundary_readiness`
+- `refund_policy_readiness`
 - `performance`
 - `business_metrics`
 - `anomaly_center`
@@ -85,6 +86,8 @@ Action endpoints:
 
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 
+`refund_policy_readiness` reports the refund-policy alignment audit. It exposes `verdict` (`pass` / `warning` / `blocked`), `manual_refund_allowed=false`, `seller_refund_allowed=false`, `admin_commercial_refund_allowed=false`, `support_refund_allowed=false`, `partial_commercial_refund_allowed=false`, `system_refund_on_failed_deal_required=true`, route/action/UI scan results, `json_boundary_respected=true`, `provider_sandbox_required=true`, blockers and warnings. See [`REFUND_POLICY.md`](REFUND_POLICY.md).
+
 Full E2E validation is documented in `docs/FULL_E2E_GATE.md`; Mission Control must keep `live_money_readiness.verdicts.live_ready` false after that gate.
 
 - `GET /api/admin/actions`
@@ -108,6 +111,12 @@ The admin plane still blocks:
 
 - manual capture
 - manual refund
+- admin refund
+- merchant refund
+- seller refund
+- support refund
+- partial refund
+- manual credit
 - manual void
 - manual state edit
 - manual money state edit

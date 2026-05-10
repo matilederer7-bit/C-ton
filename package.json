@@ -60,7 +60,8 @@
     "test:full-e2e-gate": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/full_e2e_gate_validation.js",
     "test:docker-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/docker_readiness_validation.js",
     "test:aws-accordion-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/aws_accordion_readiness_validation.js",
-    "test:json-boundary": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/json_boundary_validation.js"
+    "test:json-boundary": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/json_boundary_validation.js",
+    "test:refund-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/refund_policy_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"
