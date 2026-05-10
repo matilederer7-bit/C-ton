@@ -2,7 +2,50 @@
 
 ---
 
-## Current update: 2026-05-10 (Refund Policy Alignment - PASS)
+## Current update: 2026-05-10 (Deal Type Expansion — PASS, READY FOR E2E)
+
+### What was completed
+- Added migration `038_deal_types_voucher_ticket.sql` adding `siton.deals.deal_type` (closed CHECK + default `physical_product`), the rigid voucher/ticket terms tables `siton.deal_voucher_terms` / `siton.deal_ticket_terms`, and the unified `siton.fulfillment_units` table with status CHECK and `UNIQUE (deal_id, participant_id, unit_index)` for idempotent issuance.
+- Added `src/deal_types.ts` with closed-set constants, `decideFulfillmentIssuance` (only ChargedSuccess/RecoveredCharge + DealCompleted + Completed deal can issue), `issueFulfillmentUnitsForParticipant` (idempotent, never persists plaintext codes — SHA-256 hash + last4 only), `upsertVoucherTerms` (rejects `seller_uploaded` mode at API boundary), `upsertTicketTerms` (rejects `assigned_seating_not_supported_yet`), per-type Hebrew copy helpers, and `csvSafeCell` for export injection neutralization.
+- Wired deal creation `POST /deals` to accept `deal_type` and per-type bodies (`voucher_terms`, `ticket_terms`); kept `physical_product` default so no historical deal breaks.
+- Updated public deal page `GET /api/deals/:id/public` to expose `deal_type`, voucher/ticket terms, and per-type Hebrew copy. Suppressed delivery_options for non-physical deals.
+- Updated buyer tracking `GET /api/participants/:id/tracking` to include a `fulfillment` block: eligibility, copy, and (only when eligible) the unit list with `code_display_last4`. Plaintext codes never reach this surface.
+- Wired post-completion fulfillment issuance: `handleFinalizeDealEvent` success branch calls `issueFulfillmentForCompletedDeal(dealId)` which re-checks `state='Completed'` inside its own tx. Idempotent via `ON CONFLICT (deal_id, participant_id, unit_index) DO NOTHING`. Failure of issuance does not roll back the deal.
+- Added `GET /api/seller/deals/:dealId/voucher-export` and `GET /api/seller/deals/:dealId/ticket-export` — both Completed-only, eligible-only (`buyer_state=DealCompleted` AND `money_state IN ('ChargedSuccess','RecoveredCharge')`), per-type-only (409 otherwise), and CSV-injection-neutralized.
+- Added redemption foundation `POST /api/seller/fulfillment/:unitId/redeem` enforcing seller ownership, deal-Completed state, status ∈ {Issued,Sent}, and idempotency on already-Redeemed units. Does not touch money/state/deal machines.
+- Added notification templates `buyer_voucher_issued` and `buyer_ticket_issued` (and their `_he` template keys) via the existing closed-set `NOTIFICATION_TEMPLATE_KEYS` registry.
+- Added Mission Control sections `deal_type_readiness` (deal counts by type, per-type table presence, issuance policy) and `fulfillment_readiness` (totals + ineligible/before-Completed P0 counters). Classified `fulfillment_units.metadata_jsonb` as `allowed_metadata` in `buildJsonBoundaryReadiness` (truth lives in rigid columns).
+- Added `tests/deal_types_validation.ts` with 24 source-static checks. Wired `npm run test:deal-types`.
+- Wrote canonical `docs/DEAL_TYPES_PHYSICAL_VOUCHER_TICKET.md` and updated `docs/REFUND_POLICY.md` to reference the fulfillment policy.
+- No state machine change. No money logic change. No 90% rule change. No refund pathway opened. No live money. No card data persisted. No new runtime dependency.
+
+### What was checked
+- `npx tsc --noEmit` — PASS.
+- `npx tsc -p tsconfig.test.json` — PASS.
+- `npm run test:deal-types` — PASS (24/24).
+- `npm run test:refund-policy` — PASS (10/10).
+- `npm run test:json-boundary` — PASS (12/12).
+- `npm run test:provider-live-money-readiness` — PASS.
+- `npm run test:mission-control` — PASS (6/6).
+- `npm run test:notifications-readiness` — PASS (7/7).
+- `npm run test:adversarial` — PASS (19/19).
+- `npm run test:full-e2e-gate` — PASS (9/9).
+- `npm run bootstrap:demo-db` clean + idempotent rerun — PASS, 0 migration warnings (migration 038 in bootstrap order).
+- `npm audit --omit=dev` — 1 high severity (`fast-uri` transitive via `fastify`), pre-existing, not introduced by this change.
+
+### What is open
+- Provider Sandbox Validation (refund + capture under live provider) still pending — unchanged by this work, scope is system-mandated refund path only.
+- Seller-uploaded voucher codes (`voucher_code_mode = 'seller_uploaded'`) — rejected at API boundary; needs upload + assignment surface.
+- Assigned-seat ticketing (`seat_mode = 'assigned_seating_not_supported_yet'`) — rejected at API boundary; needs a real seating engine.
+- Voucher reminder before expiry / ticket reminder before event — templates wired via registry, scheduler hookup pending.
+- QR / scanner app — out of scope. Redemption foundation endpoint is the stable hook.
+
+### Verdict
+`DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E`
+
+---
+
+## Previous update: 2026-05-10 (Refund Policy Alignment - PASS)
 
 ### What was completed
 - Audited refund surfaces across backend routes, Admin Actions, Seller/Admin UI, Support Operations, Provider Live Money Readiness, Mission Control, invoice/refund receipts, and policy/legal docs.

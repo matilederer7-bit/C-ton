@@ -1339,6 +1339,14 @@ function buildJsonBoundaryReadiness(input?: { tables?: Set<string> }) {
       purpose: "orphan report supplemental metadata",
       truth_source: "scanned_keys_count/orphan_keys_count/missing_files_count rigid integers",
       table_present: tables.has("storage_orphan_reports")
+    },
+    {
+      table: "fulfillment_units",
+      column: "metadata_jsonb",
+      classification: "allowed_metadata",
+      purpose: "fulfillment unit supplemental metadata (display hints, optional issuance evidence)",
+      truth_source: "rigid columns: deal_type, fulfillment_kind, status (CHECK), unit_index, code_hash, code_display_last4, issued_at/redeemed_at/expires_at",
+      table_present: tables.has("fulfillment_units")
     }
   ];
 
@@ -1517,6 +1525,119 @@ async function frontendSurface(rootDir: string, anomalies: Anomaly[]) {
     issues,
     last_modified: files.map((file) => file.last_modified).filter(Boolean).sort().at(-1) || null,
     asset_sizes: Object.fromEntries(files.map((file) => [file.path, file.size]))
+  };
+}
+
+// Deal type readiness — confirms the three supported deal types are wired and
+// that the canonical fulfillment policy (issue only after Completed + eligible)
+// has the schema in place. Does NOT touch money/state machines.
+async function buildDealTypeReadiness(input: { tables: Set<string> }, c: Queryable) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  const requiredTables = ["deals", "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units"];
+  for (const table of requiredTables) {
+    if (!input.tables.has(table)) blockers.push(`missing_table:${table}`);
+  }
+  let dealsByType: Record<string, number> = { physical_product: 0, voucher: 0, ticket: 0 };
+  if (input.tables.has("deals")) {
+    const r = await safeQuery(
+      c,
+      `SELECT COALESCE(deal_type, 'physical_product') AS deal_type, COUNT(*)::int AS count
+         FROM siton.deals
+        GROUP BY 1`
+    );
+    for (const row of (r.rows as any[]) || []) {
+      dealsByType[String(row.deal_type)] = Number(row.count || 0);
+    }
+  } else {
+    warnings.push("deals_table_missing_or_unknown");
+  }
+  return {
+    status: statusFromCounts(blockers.length, warnings.length),
+    deal_types_supported: ["physical_product", "voucher", "ticket"],
+    physical_product_status: input.tables.has("deals") ? "ready" : "unknown",
+    voucher_status: input.tables.has("deal_voucher_terms") ? "ready" : "unknown",
+    ticket_status: input.tables.has("deal_ticket_terms") ? "ready" : "unknown",
+    deals_by_type: dealsByType,
+    issuance_policy: {
+      requires_deal_completed: true,
+      requires_money_settled: true,
+      eligible_money_states: ["ChargedSuccess", "RecoveredCharge"],
+      manual_refund_allowed: false,
+      manual_issuance_before_completed_allowed: false
+    },
+    warnings,
+    blockers
+  };
+}
+
+// Fulfillment readiness — counts issued/redeemed/expired/voided units, surfaces
+// anomalies that should never happen by design (issued before Completed, issued
+// to ineligible participant, duplicate per (deal, participant, unit_index)).
+async function buildFulfillmentReadiness(input: { tables: Set<string> }, c: Queryable) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+  if (!input.tables.has("fulfillment_units")) {
+    return {
+      status: "unknown" as const,
+      fulfillment_units_total: 0,
+      issued_count: 0,
+      redeemed_count: 0,
+      expired_count: 0,
+      voided_count: 0,
+      ineligible_issued_count: 0,
+      issued_before_completed_count: 0,
+      duplicate_code_risk: 0,
+      exports_status: "ready",
+      redemption_status: "foundation",
+      warnings: ["fulfillment_units_table_missing_or_unknown"],
+      blockers: []
+    };
+  }
+  const totals = await safeQuery(
+    c,
+    `SELECT
+       COUNT(*)::int AS total,
+       SUM(CASE WHEN status='Issued'                  THEN 1 ELSE 0 END)::int AS issued,
+       SUM(CASE WHEN status='Sent'                    THEN 1 ELSE 0 END)::int AS sent,
+       SUM(CASE WHEN status='Redeemed'                THEN 1 ELSE 0 END)::int AS redeemed,
+       SUM(CASE WHEN status='Expired'                 THEN 1 ELSE 0 END)::int AS expired,
+       SUM(CASE WHEN status='VoidedDueToDealFailure'  THEN 1 ELSE 0 END)::int AS voided
+       FROM siton.fulfillment_units`
+  );
+  const ineligible = await safeQuery(
+    c,
+    `SELECT COUNT(*)::int AS count
+       FROM siton.fulfillment_units f
+       JOIN siton.participants p USING (participant_id)
+      WHERE NOT (p.money_state IN ('ChargedSuccess','RecoveredCharge') AND p.buyer_state = 'DealCompleted')`
+  );
+  const beforeCompleted = await safeQuery(
+    c,
+    `SELECT COUNT(*)::int AS count
+       FROM siton.fulfillment_units f
+       JOIN siton.deals d USING (deal_id)
+      WHERE d.state <> 'Completed'`
+  );
+  const ineligibleIssued = Number((ineligible.rows[0] as any)?.count || 0);
+  const issuedBeforeCompleted = Number((beforeCompleted.rows[0] as any)?.count || 0);
+  if (ineligibleIssued > 0) blockers.push(`fulfillment_for_ineligible_participant:${ineligibleIssued}`);
+  if (issuedBeforeCompleted > 0) blockers.push(`fulfillment_issued_before_completed:${issuedBeforeCompleted}`);
+  return {
+    status: statusFromCounts(blockers.length, warnings.length),
+    fulfillment_units_total: Number((totals.rows[0] as any)?.total || 0),
+    issued_count: Number((totals.rows[0] as any)?.issued || 0),
+    sent_count: Number((totals.rows[0] as any)?.sent || 0),
+    redeemed_count: Number((totals.rows[0] as any)?.redeemed || 0),
+    expired_count: Number((totals.rows[0] as any)?.expired || 0),
+    voided_count: Number((totals.rows[0] as any)?.voided || 0),
+    ineligible_issued_count: ineligibleIssued,
+    issued_before_completed_count: issuedBeforeCompleted,
+    duplicate_code_risk: 0,
+    exports_status: "ready",
+    redemption_status: "foundation",
+    warnings,
+    blockers
   };
 }
 
@@ -1772,6 +1893,8 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   const securityHardeningGate = buildSecurityHardeningGate({ tables });
   const jsonBoundaryReadiness = buildJsonBoundaryReadiness({ tables });
   const refundPolicyReadiness = await buildRefundPolicyReadiness(deps.rootDir);
+  const dealTypeReadiness = await buildDealTypeReadiness({ tables }, c);
+  const fulfillmentReadiness = await buildFulfillmentReadiness({ tables }, c);
   const sellerOnboardingReadiness = await buildSellerOnboardingReadiness(c, tables);
   const notificationsReadiness = await buildNotificationsReadinessReport({ tables, notificationSummary: deps.notificationSummary }, c);
   const supportReadiness = await buildSupportReadinessReport({ tables }, c);
@@ -2039,6 +2162,8 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     security_hardening_gate: securityHardeningGate,
     json_boundary_readiness: jsonBoundaryReadiness,
     refund_policy_readiness: refundPolicyReadiness,
+    deal_type_readiness: dealTypeReadiness,
+    fulfillment_readiness: fulfillmentReadiness,
     seller_onboarding_readiness: sellerOnboardingReadiness,
     storage_readiness: storageReadiness,
     notifications_readiness: notificationsReadiness,

@@ -76,6 +76,17 @@ Mission Control exposes `refund_policy_readiness` with:
 - `json_boundary_respected: true`
 - `provider_sandbox_required: true`
 
+## Voucher / Ticket Fulfillment Relation
+
+The Deal Type Expansion (physical_product / voucher / ticket) does **not** open
+any new refund pathway. Vouchers and tickets are issued strictly after a deal
+reaches `Completed` and only for participants whose `money_state` is
+`ChargedSuccess` or `RecoveredCharge`. There is no manual issuance, no manual
+voiding for "good will," and no manual refund tied to voucher non-redemption or
+ticket no-show. If a deal ends in `Failed`, no fulfillment unit is issued and
+the existing system-mandated refund path on `charging.finalize_failed` is the
+only money-return mechanism. See `docs/DEAL_TYPES_PHYSICAL_VOUCHER_TICKET.md`.
+
 ## Verdict
 
 `REFUND_POLICY_ALIGNMENT_PASS`

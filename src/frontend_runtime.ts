@@ -138,6 +138,16 @@ import {
   releaseAdminControlFlag
 } from "./admin_intervention.js";
 import { getDealImageStorageAdapter } from "./product_image_storage.js";
+import {
+  ensureDealTypeTables,
+  readVoucherTerms,
+  readTicketTerms,
+  decideFulfillmentIssuance,
+  publicDealCopy,
+  trackingCopyForFulfillment,
+  csvSafeCell,
+  type DealType
+} from "./deal_types.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -1838,10 +1848,11 @@ export function registerFrontendExperience(
 
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
+      await ensureDealTypeTables(deps.withTx);
       const dealResult = await c.query(
         `SELECT d.deal_id, d.title, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
-                d.created_at, d.seller_id,
+                d.created_at, d.seller_id, d.deal_type,
                 sa.business_name, sa.support_phone, sa.support_email, sa.business_description
          FROM siton.deals d
          LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
@@ -1888,7 +1899,15 @@ export function registerFrontendExperience(
         published_at: string | null;
         completion_window_until: string | null;
         created_at: string;
+        deal_type: string;
       };
+
+      const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(deal.deal_type))
+        ? (deal.deal_type as DealType)
+        : "physical_product");
+      const voucherTerms = dealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
+      const ticketTerms = dealType === "ticket" ? await readTicketTerms(c, dealId) : null;
+      const fulfillmentCopy = publicDealCopy(dealType);
 
       const joinedUnits = Number(aggregate.rows[0].joined_units || 0);
       const participantsCount = Number(aggregate.rows[0].participants_count || 0);
@@ -1901,6 +1920,7 @@ export function registerFrontendExperience(
           deal_id: deal.deal_id,
           title: deal.title,
           state: deal.state,
+          deal_type: dealType,
           price_per_unit: Number(deal.price_per_unit),
           min_units: Number(deal.min_units),
           max_units: Number(deal.max_units),
@@ -1909,13 +1929,46 @@ export function registerFrontendExperience(
           published_at: deal.published_at,
           completion_window_until: deal.completion_window_until,
           created_at: deal.created_at,
-          delivery_options: deliveryOptions.rows.map((row: any) => ({
-            option_id: row.option_id,
-            option_type: row.option_type,
-            label: row.label,
-            cost: Number(row.cost || 0),
-            sort_order: Number(row.sort_order || 0)
-          })),
+          // Physical-only fields are suppressed for voucher/ticket so the public
+          // page can't accidentally show shipping copy where it doesn't apply.
+          delivery_options: dealType === "physical_product"
+            ? deliveryOptions.rows.map((row: any) => ({
+                option_id: row.option_id,
+                option_type: row.option_type,
+                label: row.label,
+                cost: Number(row.cost || 0),
+                sort_order: Number(row.sort_order || 0)
+              }))
+            : [],
+          voucher_terms: voucherTerms
+            ? {
+                face_value_amount: Number(voucherTerms.face_value_amount),
+                currency: voucherTerms.currency,
+                valid_from: voucherTerms.valid_from,
+                valid_until: voucherTerms.valid_until,
+                redemption_location: voucherTerms.redemption_location,
+                redemption_instructions: voucherTerms.redemption_instructions,
+                terms: voucherTerms.terms,
+                is_single_use: Boolean(voucherTerms.is_single_use),
+                allow_partial_redemption: Boolean(voucherTerms.allow_partial_redemption),
+                voucher_code_mode: voucherTerms.voucher_code_mode
+              }
+            : null,
+          ticket_terms: ticketTerms
+            ? {
+                event_name: ticketTerms.event_name,
+                event_starts_at: ticketTerms.event_starts_at,
+                event_ends_at: ticketTerms.event_ends_at,
+                venue_name: ticketTerms.venue_name,
+                venue_address: ticketTerms.venue_address,
+                venue_city: ticketTerms.venue_city,
+                entry_instructions: ticketTerms.entry_instructions,
+                ticket_type: ticketTerms.ticket_type,
+                seat_mode: ticketTerms.seat_mode,
+                transfer_allowed: Boolean(ticketTerms.transfer_allowed)
+              }
+            : null,
+          fulfillment_copy: fulfillmentCopy,
           images: images.rows.map((row: any) => ({
             image_id: row.image_id,
             url: getDealImagePublicUrl(row),
@@ -2713,6 +2766,321 @@ export function registerFrontendExperience(
         .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         .header("Content-Disposition", `attachment; filename="siton-delivery-handoff-${dealId}.xlsx"`)
         .send(buf);
+    });
+  });
+
+  // ── Voucher Fulfillment Export (CSV) ─────────────────────────────────────
+  // Lists eligible buyers + voucher fulfillment unit metadata. Plaintext
+  // voucher codes are NEVER persisted (we keep only SHA-256 hash + last4),
+  // so the export shows fulfillment_unit_id and last4 only — by design, not
+  // by accident. Sellers redeem via POST /api/seller/fulfillment/:unitId/redeem.
+  app.get("/api/seller/deals/:dealId/voucher-export", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    await ensureDealTypeTables(deps.withTx);
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state, deal_type
+           FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden");
+        err.statusCode = 403;
+        throw err;
+      }
+      if (String(deal.deal_type) !== "voucher") {
+        const err: any = new Error("voucher export is only available for voucher deals");
+        err.statusCode = 409;
+        err.code = "deal_type_not_voucher";
+        throw err;
+      }
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("voucher export requires a completed deal");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      const voucherTermsRow = await readVoucherTerms(c, dealId);
+      const result = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.buyer_name, p.buyer_phone, p.buyer_email,
+                p.qty, p.money_state, p.buyer_state,
+                f.fulfillment_unit_id, f.unit_index, f.code_display_last4,
+                f.status AS fulfillment_status, f.issued_at, f.redeemed_at, f.expires_at
+           FROM siton.participants p
+           LEFT JOIN siton.fulfillment_units f
+                  ON f.participant_id = p.participant_id
+           WHERE p.deal_id = $1
+             AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
+             AND p.buyer_state = 'DealCompleted'
+           ORDER BY p.created_at ASC, f.unit_index ASC`,
+        [dealId]
+      );
+
+      const headers = [
+        "deal_id",
+        "deal_title",
+        "participant_id",
+        "buyer_name",
+        "buyer_phone",
+        "buyer_email",
+        "qty",
+        "fulfillment_unit_id",
+        "unit_index",
+        "voucher_code_last4",
+        "face_value_amount",
+        "currency",
+        "valid_from",
+        "valid_until",
+        "fulfillment_status",
+        "issued_at",
+        "redeemed_at",
+        "expires_at"
+      ];
+      const lines: string[] = [headers.join(",")];
+      for (const row of result.rows as any[]) {
+        lines.push(
+          [
+            deal.deal_id,
+            deal.title,
+            row.participant_id,
+            row.buyer_name,
+            row.buyer_phone,
+            row.buyer_email,
+            String(row.qty),
+            row.fulfillment_unit_id || "",
+            row.unit_index !== null && row.unit_index !== undefined ? String(row.unit_index) : "",
+            row.code_display_last4 || "",
+            voucherTermsRow ? Number(voucherTermsRow.face_value_amount).toFixed(2) : "",
+            voucherTermsRow?.currency || "",
+            voucherTermsRow?.valid_from ? new Date(voucherTermsRow.valid_from).toISOString() : "",
+            voucherTermsRow?.valid_until ? new Date(voucherTermsRow.valid_until).toISOString() : "",
+            row.fulfillment_status || "",
+            row.issued_at ? new Date(row.issued_at).toISOString() : "",
+            row.redeemed_at ? new Date(row.redeemed_at).toISOString() : "",
+            row.expires_at ? new Date(row.expires_at).toISOString() : ""
+          ]
+            .map(csvSafeCell)
+            .join(",")
+        );
+      }
+      const csvContent = "﻿" + lines.join("\r\n");
+      return reply
+        .header("Content-Type", "text/csv; charset=utf-8")
+        .header("Content-Disposition", `attachment; filename="siton-voucher-${dealId}.csv"`)
+        .send(csvContent);
+    });
+  });
+
+  // ── Ticket Attendee Export (CSV) ─────────────────────────────────────────
+  app.get("/api/seller/deals/:dealId/ticket-export", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    await ensureDealTypeTables(deps.withTx);
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state, deal_type
+           FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+      if (!dealResult.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+      if (String(deal.effective_seller_id) !== sellerId) {
+        const err: any = new Error("forbidden");
+        err.statusCode = 403;
+        throw err;
+      }
+      if (String(deal.deal_type) !== "ticket") {
+        const err: any = new Error("ticket export is only available for ticket deals");
+        err.statusCode = 409;
+        err.code = "deal_type_not_ticket";
+        throw err;
+      }
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("ticket export requires a completed deal");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+
+      const ticketTermsRow = await readTicketTerms(c, dealId);
+      const result = await c.query(
+        `SELECT p.participant_id, p.buyer_id, p.buyer_name, p.buyer_phone, p.buyer_email,
+                p.qty, p.money_state, p.buyer_state,
+                f.fulfillment_unit_id, f.unit_index, f.code_display_last4,
+                f.status AS fulfillment_status, f.issued_at, f.redeemed_at
+           FROM siton.participants p
+           LEFT JOIN siton.fulfillment_units f
+                  ON f.participant_id = p.participant_id
+           WHERE p.deal_id = $1
+             AND p.money_state IN ('ChargedSuccess','RecoveredCharge')
+             AND p.buyer_state = 'DealCompleted'
+           ORDER BY p.created_at ASC, f.unit_index ASC`,
+        [dealId]
+      );
+
+      const headers = [
+        "deal_id",
+        "deal_title",
+        "participant_id",
+        "attendee_name",
+        "attendee_phone",
+        "attendee_email",
+        "qty",
+        "fulfillment_unit_id",
+        "unit_index",
+        "ticket_code_last4",
+        "event_name",
+        "event_starts_at",
+        "venue_name",
+        "venue_city",
+        "ticket_type",
+        "fulfillment_status",
+        "issued_at",
+        "checked_in_at"
+      ];
+      const lines: string[] = [headers.join(",")];
+      for (const row of result.rows as any[]) {
+        lines.push(
+          [
+            deal.deal_id,
+            deal.title,
+            row.participant_id,
+            row.buyer_name,
+            row.buyer_phone,
+            row.buyer_email,
+            String(row.qty),
+            row.fulfillment_unit_id || "",
+            row.unit_index !== null && row.unit_index !== undefined ? String(row.unit_index) : "",
+            row.code_display_last4 || "",
+            ticketTermsRow?.event_name || "",
+            ticketTermsRow?.event_starts_at ? new Date(ticketTermsRow.event_starts_at).toISOString() : "",
+            ticketTermsRow?.venue_name || "",
+            ticketTermsRow?.venue_city || "",
+            ticketTermsRow?.ticket_type || "",
+            row.fulfillment_status || "",
+            row.issued_at ? new Date(row.issued_at).toISOString() : "",
+            row.redeemed_at ? new Date(row.redeemed_at).toISOString() : ""
+          ]
+            .map(csvSafeCell)
+            .join(",")
+        );
+      }
+      const csvContent = "﻿" + lines.join("\r\n");
+      return reply
+        .header("Content-Type", "text/csv; charset=utf-8")
+        .header("Content-Disposition", `attachment; filename="siton-tickets-${dealId}.csv"`)
+        .send(csvContent);
+    });
+  });
+
+  // ── Seller Redemption / Check-in Foundation ──────────────────────────────
+  // Marks a fulfillment_unit as Redeemed. Strict guarantees:
+  //   • Seller ownership: caller must own the deal.
+  //   • Unit must already be Issued or Sent (cannot redeem Pending/Failed).
+  //   • Idempotent on already-Redeemed units (returns ok=true, idempotent=true).
+  //   • Money/state machine and refund policy are not touched.
+  app.post("/api/seller/fulfillment/:unitId/redeem", async (req: any, reply: any) => {
+    const unitId = String(req.params.unitId || "");
+    requireUuid(unitId, "fulfillment_unit_id");
+    await ensureDealTypeTables(deps.withTx);
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+
+      const lookup = await c.query(
+        `SELECT f.fulfillment_unit_id, f.deal_id, f.participant_id, f.status,
+                f.fulfillment_kind, f.deal_type,
+                COALESCE(d.seller_id, '') AS seller_id, d.state AS deal_state
+           FROM siton.fulfillment_units f
+           JOIN siton.deals d ON d.deal_id = f.deal_id
+          WHERE f.fulfillment_unit_id = $1
+          FOR UPDATE`,
+        [unitId]
+      );
+      if (!lookup.rowCount) {
+        const err: any = new Error("fulfillment unit not found");
+        err.statusCode = 404;
+        err.code = "fulfillment_unit_not_found";
+        throw err;
+      }
+      const unit = lookup.rows[0] as any;
+      if (String(unit.seller_id) !== sellerId) {
+        const err: any = new Error("seller does not own this fulfillment unit");
+        err.statusCode = 403;
+        err.code = "fulfillment_unit_forbidden";
+        throw err;
+      }
+      if (String(unit.deal_state) !== "Completed") {
+        const err: any = new Error("cannot redeem before deal is Completed");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+      if (String(unit.status) === "Redeemed") {
+        return {
+          ok: true,
+          idempotent: true,
+          fulfillment_unit_id: unit.fulfillment_unit_id,
+          status: "Redeemed"
+        };
+      }
+      if (!["Issued", "Sent"].includes(String(unit.status))) {
+        const err: any = new Error(`cannot redeem unit in status ${unit.status}`);
+        err.statusCode = 409;
+        err.code = "fulfillment_unit_not_redeemable";
+        throw err;
+      }
+      const updated = await c.query(
+        `UPDATE siton.fulfillment_units
+            SET status = 'Redeemed',
+                redeemed_at = now(),
+                updated_at = now()
+          WHERE fulfillment_unit_id = $1
+            AND status IN ('Issued','Sent')
+          RETURNING fulfillment_unit_id, status, redeemed_at`,
+        [unitId]
+      );
+      if (!updated.rowCount) {
+        const err: any = new Error("redemption update lost a race");
+        err.statusCode = 409;
+        err.code = "fulfillment_unit_race";
+        throw err;
+      }
+      return {
+        ok: true,
+        idempotent: false,
+        fulfillment_unit_id: updated.rows[0].fulfillment_unit_id,
+        status: updated.rows[0].status,
+        redeemed_at: updated.rows[0].redeemed_at
+          ? new Date(updated.rows[0].redeemed_at).toISOString()
+          : null
+      };
     });
   });
 
@@ -5977,6 +6345,7 @@ export function registerFrontendExperience(
     const participantId = String(req.params.id);
     requireUuid(participantId, "participant_id");
     await ensureParticipantTracking();
+    await ensureDealTypeTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const participantResult = await c.query(
@@ -5993,6 +6362,7 @@ export function registerFrontendExperience(
            p.created_at,
            d.title,
            d.state AS deal_state,
+           d.deal_type,
            d.price_per_unit,
            d.min_units,
            d.max_units,
@@ -6025,6 +6395,7 @@ export function registerFrontendExperience(
         created_at: string;
         title: string;
         deal_state: DealState;
+        deal_type: string;
         price_per_unit: number;
         min_units: number;
         max_units: number;
@@ -6033,6 +6404,9 @@ export function registerFrontendExperience(
         completion_window_until: string | null;
         deal_created_at: string;
       };
+      const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(row.deal_type))
+        ? (row.deal_type as DealType)
+        : "physical_product");
       const accessToken = extractTrackingToken(req);
       const mode = trackingMode();
       if (accessToken) {
@@ -6091,6 +6465,52 @@ export function registerFrontendExperience(
         issued_at?: string | null;
       } | null;
 
+      // Fulfillment (voucher/ticket) is only revealed to the eligible buyer
+      // after deal completion. For physical_product we emit an empty fulfillment
+      // block but still surface the per-type copy so the UI can be coherent.
+      const fulfillmentDecision = decideFulfillmentIssuance({
+        dealState: row.deal_state,
+        buyerState: row.buyer_state,
+        moneyState: row.money_state
+      });
+      const voucherTermsRow = dealType === "voucher" ? await readVoucherTerms(c, row.deal_id) : null;
+      const ticketTermsRow = dealType === "ticket" ? await readTicketTerms(c, row.deal_id) : null;
+      let fulfillmentUnits: Array<{
+        fulfillment_unit_id: string;
+        unit_index: number;
+        status: string;
+        code_display_last4: string | null;
+        issued_at: string | null;
+        sent_at: string | null;
+        redeemed_at: string | null;
+        expires_at: string | null;
+      }> = [];
+      if (fulfillmentDecision.shouldIssue && dealType !== "physical_product") {
+        const r = await c.query(
+          `SELECT fulfillment_unit_id, unit_index, status,
+                  code_display_last4, issued_at, sent_at, redeemed_at, expires_at
+             FROM siton.fulfillment_units
+            WHERE participant_id = $1
+            ORDER BY unit_index ASC`,
+          [participantId]
+        );
+        fulfillmentUnits = r.rows.map((u: any) => ({
+          fulfillment_unit_id: String(u.fulfillment_unit_id),
+          unit_index: Number(u.unit_index),
+          status: String(u.status),
+          code_display_last4: u.code_display_last4 ?? null,
+          issued_at: u.issued_at ? new Date(u.issued_at).toISOString() : null,
+          sent_at: u.sent_at ? new Date(u.sent_at).toISOString() : null,
+          redeemed_at: u.redeemed_at ? new Date(u.redeemed_at).toISOString() : null,
+          expires_at: u.expires_at ? new Date(u.expires_at).toISOString() : null
+        }));
+      }
+      const fulfillmentCopyForBuyer = trackingCopyForFulfillment({
+        dealType,
+        dealState: row.deal_state,
+        buyerState: row.buyer_state,
+        moneyState: row.money_state
+      });
       const copy = deriveTrackingCopy(row.deal_state, row.buyer_state, row.money_state);
       const documentVisibility = deriveBuyerDocumentVisibility({
         dealState: row.deal_state,
@@ -6156,8 +6576,42 @@ export function registerFrontendExperience(
           buyer_state: row.buyer_state,
           money_state: row.money_state,
           deal_state: row.deal_state,
+          deal_type: dealType,
           deal_title: row.title,
           deal_created_at: row.deal_created_at,
+          fulfillment: {
+            eligible: fulfillmentDecision.shouldIssue,
+            reason: fulfillmentDecision.reason,
+            units: fulfillmentUnits,
+            voucher_terms: voucherTermsRow
+              ? {
+                  face_value_amount: Number(voucherTermsRow.face_value_amount),
+                  currency: voucherTermsRow.currency,
+                  valid_from: voucherTermsRow.valid_from,
+                  valid_until: voucherTermsRow.valid_until,
+                  redemption_location: voucherTermsRow.redemption_location,
+                  redemption_instructions: voucherTermsRow.redemption_instructions,
+                  terms: voucherTermsRow.terms,
+                  is_single_use: Boolean(voucherTermsRow.is_single_use),
+                  allow_partial_redemption: Boolean(voucherTermsRow.allow_partial_redemption)
+                }
+              : null,
+            ticket_terms: ticketTermsRow
+              ? {
+                  event_name: ticketTermsRow.event_name,
+                  event_starts_at: ticketTermsRow.event_starts_at,
+                  event_ends_at: ticketTermsRow.event_ends_at,
+                  venue_name: ticketTermsRow.venue_name,
+                  venue_address: ticketTermsRow.venue_address,
+                  venue_city: ticketTermsRow.venue_city,
+                  entry_instructions: ticketTermsRow.entry_instructions,
+                  ticket_type: ticketTermsRow.ticket_type,
+                  seat_mode: ticketTermsRow.seat_mode,
+                  transfer_allowed: Boolean(ticketTermsRow.transfer_allowed)
+                }
+              : null,
+            copy: fulfillmentCopyForBuyer
+          },
           price_per_unit: Number(row.price_per_unit),
           min_units: Number(row.min_units),
           max_units: Number(row.max_units),

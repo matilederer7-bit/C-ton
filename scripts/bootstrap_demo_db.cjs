@@ -53,6 +53,7 @@ const SQL_MIGRATIONS = [
   "035_admin_control_plane.sql",
   "036_security_identity_tracking.sql",
   "037_admin_intervention_and_storage.sql",
+  "038_deal_types_voucher_ticket.sql",
 ];
 
 // Tables created only by TypeScript ensure*Tables functions (not in SQL migrations).

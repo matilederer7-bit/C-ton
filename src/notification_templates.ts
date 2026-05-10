@@ -5,6 +5,8 @@ export const NOTIFICATION_EVENT_TYPES = [
   "buyer_deal_failed",
   "buyer_recovery_required",
   "buyer_payment_recovered",
+  "buyer_voucher_issued",
+  "buyer_ticket_issued",
   "seller_deal_published",
   "seller_target_reached",
   "seller_deal_completed",
@@ -29,6 +31,8 @@ export const NOTIFICATION_TEMPLATE_KEYS = [
   "buyer_deal_failed_he",
   "buyer_recovery_required_he",
   "buyer_payment_recovered_he",
+  "buyer_voucher_issued_he",
+  "buyer_ticket_issued_he",
   "seller_deal_published_he",
   "seller_target_reached_he",
   "seller_deal_completed_he",
@@ -123,6 +127,26 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     render: (p) => ({
       subject: `התשלום עודכן: ${dealTitle(p)}`,
       body: `אמצעי התשלום עבור העסקה "${dealTitle(p)}" עודכן בהצלחה. פרטי ההמשך מופיעים במסך המעקב.`
+    })
+  },
+  buyer_voucher_issued_he: {
+    eventType: "buyer_voucher_issued",
+    templateKey: "buyer_voucher_issued_he",
+    compatibleChannels: ["sms", "email", "whatsapp_link", "internal"],
+    requiredPayloadFields: ["deal_title"],
+    render: (p) => ({
+      subject: `השובר הונפק: ${dealTitle(p)}`,
+      body: `השובר עבור העסקה "${dealTitle(p)}" הונפק.\nפרטי המימוש (קוד אחרון, תוקף, מקום מימוש) זמינים במסך המעקב שלך.\nאחריות המימוש על המוכר לפי תנאי השובר שצוינו.`
+    })
+  },
+  buyer_ticket_issued_he: {
+    eventType: "buyer_ticket_issued",
+    templateKey: "buyer_ticket_issued_he",
+    compatibleChannels: ["sms", "email", "whatsapp_link", "internal"],
+    requiredPayloadFields: ["deal_title"],
+    render: (p) => ({
+      subject: `הכרטיס הונפק: ${dealTitle(p)}`,
+      body: `הכרטיס עבור האירוע "${dealTitle(p)}" הונפק.\nפרטי הכניסה (תאריך, מקום, תנאים) זמינים במסך המעקב שלך.\nאחריות הכניסה לאירוע על המוכר.`
     })
   },
   seller_deal_published_he: {

@@ -49,6 +49,15 @@ import {
 } from "./legal_policy_versions.js";
 import { ensureRemainingProductSurfaceTables } from "./product_surface_support.js";
 import {
+  ensureDealTypeTables,
+  normalizeDealType,
+  upsertVoucherTerms,
+  upsertTicketTerms,
+  issueFulfillmentUnitsForParticipant,
+  decideFulfillmentIssuance,
+  type DealType
+} from "./deal_types.js";
+import {
   deleteDealImageFile,
   getDealImagePublicUrl,
   readDealImage,
@@ -1098,6 +1107,51 @@ async function failAllParticipantsForDeal(dealId: string, requestId: string) {
   }
 }
 
+// Issue fulfillment_units for every eligible participant of a Completed deal.
+// Called once per deal completion. Idempotent on (deal_id, participant_id, unit_index)
+// via the UNIQUE constraint on siton.fulfillment_units. Voucher/ticket plaintext
+// codes are minted here but never persisted — only SHA-256 hash + last4.
+async function issueFulfillmentForCompletedDeal(dealId: string): Promise<void> {
+  await ensureDealTypeTables(withTx);
+  const { dealType, eligible } = await withTx(async (c) => {
+    const dealRow = await c.query(
+      `SELECT deal_type, state FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (!dealRow.rowCount) {
+      return { dealType: "physical_product" as DealType, eligible: [] as Array<{ participant_id: string; qty: number }> };
+    }
+    const deal = dealRow.rows[0] as { deal_type: string; state: string };
+    if (deal.state !== "Completed") {
+      return { dealType: deal.deal_type as DealType, eligible: [] };
+    }
+    const r = await c.query(
+      `SELECT p.participant_id, p.qty
+         FROM siton.participants p
+        WHERE p.deal_id = $1
+          AND p.buyer_state = 'DealCompleted'
+          AND p.money_state IN ('ChargedSuccess','RecoveredCharge')`,
+      [dealId]
+    );
+    return {
+      dealType: (deal.deal_type as DealType) || "physical_product",
+      eligible: r.rows as Array<{ participant_id: string; qty: number }>
+    };
+  });
+  for (const participant of eligible) {
+    await withTx(async (c) =>
+      issueFulfillmentUnitsForParticipant(c, {
+        dealId,
+        participantId: participant.participant_id,
+        qty: Math.max(1, Number(participant.qty || 1)),
+        dealType
+      })
+    ).catch((error) => {
+      console.error("[fulfillment] participant issuance failed", participant.participant_id, error);
+    });
+  }
+}
+
 async function cleanupObsoleteDealOutboxEvents(dealId: string) {
   await withTx(async (c) => {
     await c.query(`SELECT set_config('siton.is_worker','true',true)`);
@@ -1844,6 +1898,13 @@ async function handleFinalizeDealEvent(
     for (const p of completedParticipants) {
       await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
     }
+    // Issue fulfillment units (vouchers / tickets / physical placeholders).
+    // Strict rule: this only runs after deal_state=Completed and only for
+    // participants whose money_state ∈ {ChargedSuccess,RecoveredCharge}.
+    // Idempotent — safe under retry. Failure here does not roll back the deal.
+    await issueFulfillmentForCompletedDeal(dealId).catch((error) => {
+      console.error("[fulfillment] issuance failed for deal", dealId, error);
+    });
     await payoutRail.enqueuePrepareForDeal(dealId).catch(() => undefined);
     return;
   }
@@ -2200,7 +2261,7 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
   }
   done();
 });
-export { app };
+export { app, issueFulfillmentForCompletedDeal };
 
 // ---------------------------------------------------------------------------
 // Rate limiter
@@ -2363,7 +2424,29 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
 
 app.post("/deals", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
+  await ensureDealTypeTables(withTx);
   const body = req.body || {};
+  const dealType: DealType = normalizeDealType(body.deal_type, "physical_product");
+  if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket"].includes(String(body.deal_type))) {
+    const err: any = new Error("deal_type must be one of physical_product, voucher, ticket");
+    err.statusCode = 400;
+    err.code = "deal_type_invalid";
+    throw err;
+  }
+  const voucherTermsInput = body.voucher_terms && typeof body.voucher_terms === "object" ? body.voucher_terms : null;
+  const ticketTermsInput = body.ticket_terms && typeof body.ticket_terms === "object" ? body.ticket_terms : null;
+  if (dealType === "voucher" && !voucherTermsInput) {
+    const err: any = new Error("voucher_terms is required for voucher deals");
+    err.statusCode = 400;
+    err.code = "voucher_terms_required";
+    throw err;
+  }
+  if (dealType === "ticket" && !ticketTermsInput) {
+    const err: any = new Error("ticket_terms is required for ticket deals");
+    err.statusCode = 400;
+    err.code = "ticket_terms_required";
+    throw err;
+  }
   const title = String(body.title || "").trim();
   if (!title) {
     const err: any = new Error("title is required");
@@ -2432,9 +2515,9 @@ app.post("/deals", async (req: any) => {
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING deal_id, state`,
+       (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING deal_id, state, deal_type`,
       [
         title,
         priceRaw,
@@ -2442,16 +2525,25 @@ app.post("/deals", async (req: any) => {
         maxUnits,
         draftThreshold,
         deadlineIso,
-        sellerAuthority.seller_id
+        sellerAuthority.seller_id,
+        dealType
       ]
     );
     const deal = ins.rows[0];
-    for (const option of deliveryOptions) {
-      await c.query(
-        `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
-         VALUES ($1,$2,$3,$4,$5)`,
-        [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order]
-      );
+    if (dealType === "physical_product") {
+      for (const option of deliveryOptions) {
+        await c.query(
+          `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
+           VALUES ($1,$2,$3,$4,$5)`,
+          [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order]
+        );
+      }
+    }
+    if (dealType === "voucher" && voucherTermsInput) {
+      await upsertVoucherTerms(c, String(deal.deal_id), voucherTermsInput);
+    }
+    if (dealType === "ticket" && ticketTermsInput) {
+      await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
     }
     return deal;
   });
