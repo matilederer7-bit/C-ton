@@ -2,6 +2,76 @@
 
 ---
 
+## Current update: 2026-05-10 (Project handoff and restore tightening)
+
+### What was completed
+- Audited git state before handoff / machine migration: branch is `master`, remote is `https://github.com/matilederer7-bit/C-ton.git`, working tree was clean before this documentation update, and local `HEAD` was even with `origin/master` (`0 behind / 0 ahead`).
+- Checked ignored and untracked surfaces. There are no regular untracked files. Ignored local artifacts include `.env`, `.claude/`, `.demo_dist/`, `.tmp_*`, browser profiles, `node_modules/`, and local `uploads/`.
+- Added [`docs/LOCAL_RESTORE_CHECKLIST.md`](docs/LOCAL_RESTORE_CHECKLIST.md) for clone, install, checks, env restore, Render DB location, branch sync, local run, and demo deployment restart.
+- Confirmed the package requires Node `>=22.0.0` and exposes `dev`, `start`, `bootstrap:demo-db`, `build:demo`, `start:demo`, and many focused `test:*` scripts.
+
+### What was checked
+- `git status --short` - clean before this documentation update.
+- `git branch --show-current` - `master`.
+- `git remote -v` - `origin` points to `https://github.com/matilederer7-bit/C-ton.git`.
+- `git log -5 --oneline` - latest local commit before this update was `97dcd74 docs: update deal types e2e push status`.
+- `git rev-list --left-right --count origin/master...HEAD` - `0 0`.
+- `git ls-files --others --exclude-standard` - no regular untracked files.
+- `git ls-files --others --ignored --exclude-standard` - local ignored artifacts present, including `.env`.
+- Tracked-secret scan was performed without printing secret values. The scan found expected env names, placeholders, examples, test literals, and code references; no confirmed real tracked secret was identified in this pass.
+- `README.md` exists as a directory, not a readable markdown file.
+- `npm run typecheck` - not declared in `package.json`.
+- `npm test` - PASS.
+- `npm run build` - not declared in `package.json`.
+- `npm run lint` - not declared in `package.json`.
+
+### Local secrets / external config to preserve manually
+- `.env` exists locally and is gitignored. It currently declares `DATABASE_URL`; preserve the actual value manually outside git before formatting.
+- Render-managed `DATABASE_URL`: configured in Render for the demo Postgres database. Do not commit the URL or password.
+- `ADMIN_API_KEY`: Render generated / external secret for admin route access.
+- `PAYMENT_WEBHOOK_SECRET`: Render generated / external secret for payment webhook verification.
+- `EXPECTED_COMMIT_SHA`: Render sync value for deployed commit drift checks.
+- `INVOICE_PROVIDER`: external invoice provider selector when Morning is activated.
+- `INVOICE_PROVIDER_MODE`: external invoice provider mode.
+- `INVOICE_PROVIDER_BASE_URL`: external invoice provider API base URL.
+- `INVOICE_PROVIDER_API_KEY`: external invoice provider API key.
+- `INVOICE_PROVIDER_BEARER_TOKEN`: external invoice provider bearer token.
+- `INVOICE_WEBHOOK_SECRET`: external invoice webhook verification secret.
+- Optional future provider secrets from the environment contract, if enabled outside this repo: `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, `PAYOUT_PROVIDER_API_KEY`, `DEBUG_SURFACES_ACCESS_KEY`, `SELLER_SESSION_SECRET`, `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM`.
+- Local-only `.claude/` settings may contain workstation preferences; preserve manually only if needed. Do not add them to git.
+- Local `uploads/` contains development uploaded deal images; decide manually whether these are disposable demo artifacts or should be backed up outside git.
+
+### Demo deployment / Render status
+- Demo DB created in Render:
+  - name: `cton-demo-db`
+  - database: `cton_demo`
+  - user: `cton_demo_user`
+  - region: Frankfurt
+  - PostgreSQL: 18
+  - status: available
+  - plan: free
+  - note: DB expires on 2026-06-09 unless upgraded
+- `render.yaml` still references the older external resource naming (`siton-demo-preview`, `siton-demo-db`, `siton_demo`, `siton_demo_user`). Before the next Render apply, confirm whether the live Render resources should be renamed to C-ton naming or whether `render.yaml` should remain compatible with the existing service. No deploy config was changed in this handoff pass.
+
+### What is open / blocked
+- Manual backup of `.env` and Render dashboard secrets is required before formatting.
+- Manual decision required for local `uploads/` artifacts.
+- Provider Sandbox Validation remains open. No live money was performed and no live provider was connected.
+- Morning invoice provider activation remains external-config dependent.
+- Render naming alignment should be verified before changing service/database names.
+
+### Progress
+- Project handoff documentation: 100%.
+- Restore readiness: 85% until `.env`, Render secrets, and any required uploads are manually backed up.
+
+### Next step
+- Back up local `.env` and Render external secret names/values outside git, then rerun the short restore checklist from a fresh clone.
+
+### Verdict
+`HANDOFF_DOCS_READY_MANUAL_SECRET_BACKUP_REQUIRED`
+
+---
+
 ## Current update: 2026-05-10 (Deal Types E2E Gate - PASS, READY FOR PROVIDER SANDBOX)
 
 ### What was completed
