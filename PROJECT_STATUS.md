@@ -3208,3 +3208,63 @@ Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs
 - Not built: marketplace, public catalog/search, auto-publish, shipping management, distributor commission/payout, or admin clone.
 - Progress: `85%` of the Deal Duplicate / Seller Reuse Flow track.
 - Next step: deploy-preview smoke for duplicate draft creation from closed seller deals, then decide whether saved seller templates deserve a separate future track.
+
+## Current update: 2026-05-10 (Post E2E Refactor Audit)
+
+### What was done
+
+- Ran a Post-E2E refactor audit on top of `c3f416c test(e2e): add full system gate before provider validation`. The bias was strict: surgical cleanup only, no behaviour change, no contract change, no DB schema change, no provider/live-money work.
+- Built an internal candidate list across `src/`, `frontend/`, `tests/` covering file size, function length, mixed-layer leakage, duplications, dead code, test-harness hygiene and provider-sandbox-prep cleanliness. Each candidate was risk-graded `low`/`medium`/`high`.
+- Applied exactly one change: deleted the zero-byte tracked file `src/app_vscode_backup.ts` (no imports, no exports, no compile inclusion side effect under either `tsconfig.json` or `tsconfig.test.json`). Every other candidate was deferred.
+- Documented the full audit in [docs/POST_E2E_REFACTOR_AUDIT.md](docs/POST_E2E_REFACTOR_AUDIT.md), including each rejected candidate with risk class and explicit rationale, so future passes do not re-derive the same temptation without seeing why this pass declined it.
+
+### What was deliberately NOT changed (and why)
+
+- `src/frontend_runtime.ts` (~6960 lines), `src/app.ts` (~3426 lines) and `frontend/app.js` (~6630 lines) split: rejected. Multiple test suites (`cache_policy_validation.ts`, `security_hardening_validation.ts`) regex-match literal source patterns inside these files as anti-drift tripwires. A move-only refactor would either silently break those gates or require weakening them.
+- Tracking-token validation helper extraction (two near-duplicate blocks in `frontend_runtime.ts` around the participant tracking and recovery routes): rejected. The two blocks attach error context differently; the security-identity-tracking gate covers this exact area; the cost is ~30 lines and reversible later.
+- Test-harness env-set boilerplate centralisation: rejected. Each test file sets `process.env.X` immediately before `await import("../src/app.js")` precisely because that ordering closed the previous `preprod_torture` and `full_system_qa` tail. Centralising the helper risks reintroducing the very ordering hazard that the FULL E2E gate just fixed.
+- Cache-control / security-header helper: rejected. The tests assert on the literal call shape `reply.header("cache-control", "no-store")` as a deliberate anti-drift tripwire.
+- Empty filesystem-only directories `src/services/`, `src/routes/`, `src/workers/`: not tracked by git, no compile input. Not touched.
+
+### Validation
+
+- `npx tsc --noEmit` — PASS.
+- `npx tsc -p tsconfig.test.json --noEmit` — PASS.
+- `npm run test:cache-policy` — PASS.
+- `npm run test:scale-readiness` — PASS.
+- `npm run test:provider-live-money-readiness` — PASS.
+- `npm run test:security-hardening` — PASS.
+- `npm run test:adversarial` — PASS.
+- `npm run test:full-e2e-gate` — PASS (9/9 contracts).
+- `npm run test:mvp-completion` — PASS.
+- `npm run test:mission-control` — PASS.
+- `npm run test:admin-control-plane` — PASS.
+- `npm run test:security-identity-tracking` — PASS.
+- `npm run test:frontend-browser-smoke` — PASS.
+- `npm run test:preprod-torture` — PASS.
+- `npm run test:full-system` — PASS.
+- `npm run test:seller-onboarding`, `npm run test:storage-readiness`, `npm run test:notifications-readiness`, `npm run test:support-operations`, `npm run test:admin-intervention`, `npm run test:legal-trust`, `npm run test:production-launch-readiness` — all PASS.
+- `npm audit --omit=dev` and `npm audit`: unchanged from the FULL E2E gate baseline (1 high in transitive `fast-uri`); no new advisory introduced by this pass.
+- No migration added; no `bootstrap:demo-db` rerun required.
+
+### Invariants preserved
+
+- State machine: not changed.
+- Money logic: not changed.
+- 8% Siton fee + delivery base + 18% VAT model: not changed.
+- No distributor commission / payout: not reintroduced.
+- Tracking-token cryptographic / storage contract: not changed.
+- Outbox/worker semantics: not changed.
+- Admin RBAC / MFA / session: not changed.
+- DB schema: not changed.
+- Live-money: not connected, not exercised.
+- No new dependency added.
+- No secret exposed.
+
+### Verdict
+
+`POST_E2E_REFACTOR_PASS` — surgical cleanup only.
+
+### Next step
+
+Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly marked deeper refactors (`frontend_runtime.ts`/`app.ts`/`frontend/app.js` split, tracking-token validation helper, provider error/correlation centralisation) as "consider only after the Provider Sandbox gate is green". This pass keeps the system ready for that gate without perturbing any proven contract.
