@@ -2,6 +2,57 @@
 
 ---
 
+## Current update: 2026-05-10 (Docker + AWS Accordion Readiness - PASS)
+
+### What was completed
+- Hardened `.dockerignore` so the image excludes `.env`, `.env.*` (except `.env.demo.example`), `node_modules`, `.git`, `uploads/`, `.tmp_*`, `.demo_dist`, `archive/`, `backups/`, `docs/`, `.claude/`, IDE state, OS noise, delivery reports and `PROJECT_STATUS.md`. The image keeps `.env.demo.example` as a documented template.
+- Added defense-in-depth to `Dockerfile`: an explicit `find ... -delete` removes any `.env`/`.env.local`/`.env.production`/`.env.real` that survived `.dockerignore` due to a future change. Healthcheck and non-root user posture preserved.
+- Added `docker-compose.yml` for local cloud-like runs — `postgres:16-alpine` with healthcheck, app service depending on Postgres, demo defaults inline (no real secrets, mock providers, log-only notifications). Bootstrap runs automatically on container start via `start:demo:prod`.
+- Added `accordion_scaling_readiness` section to Mission Control. Reports `docker_status`, `container_smoke_status`, `external_db_ready`, `storage_mode`, `rate_limit_scale_mode`, `worker_scale_status`, `load_balancer_readiness`, `cost_guardrails_status`, `aws_blueprint_status`, `estimated_scale_risk`, `tier_status` (Tier 0 → Tier 3), blockers and warnings.
+- Authored `docs/AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md` covering Tier 0 (local/demo), Tier 1 (small market launch — ECS Fargate / App Runner / RDS / S3 / CloudFront / WAF / Secrets Manager / Route 53 / ACM, alternative non-AWS shapes), Tier 2 (accordion scale — split API/worker, autoscaling caps, CDN, WAF rate-based rules, AWS Budgets) and Tier 3 (mature production — blueprint only). Cost guardrails listed explicitly per tier.
+- Authored `docs/DOCKER_READINESS.md` — what the image contains, what it does NOT contain, required env, how to build / run / smoke-test, app vs worker split path.
+- Authored `docs/ENVIRONMENT_CONTRACT.md` — env per mode (demo / sandbox / live), secret/non-secret classification, fail-closed behaviour for missing envs in production-like.
+- Updated `docs/CACHE_POLICY.md` with explicit CDN-readiness section: which paths CloudFront/Cloudflare may cache (only `/api/deal-images/*` immutable + `/app/*` per origin headers), which must stay origin-only (`/api/*`, `/webhooks/*`, all admin/buyer/tracking).
+- Updated `docs/HORIZONTAL_SCALE_READINESS.md`, `docs/PRODUCTION_LAUNCH_READINESS.md` and `docs/ADMIN_MISSION_CONTROL.md` with cross-references to the new readiness surfaces.
+- Added `tests/docker_readiness_validation.ts` — static Dockerfile, `.dockerignore`, compose, env contract, no-Windows-path validation, plus container build / compose smoke gated on `docker --version` (skipped with reason when Docker engine is unavailable, never reported as a false pass).
+- Added `tests/aws_accordion_readiness_validation.ts` — blueprint coverage, no AWS SDK in runtime deps, mission-control accordion section contract, readiness contract, CDN posture, cost guardrails documented, no state-machine / money-logic change.
+- Wired `npm run test:docker-readiness` and `npm run test:aws-accordion-readiness`.
+- No live money. No state machine change. No money logic change. No AWS credentials in repo. No secrets in repo. No live providers connected.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:docker-readiness` - PASS (container build / compose smoke skipped: Docker engine unavailable in this environment, static validation only).
+- `npm run test:aws-accordion-readiness` - PASS.
+- `npm run test:cache-policy` - PASS (CDN posture validated).
+- `npm run test:scale-readiness` - PASS.
+- `npm run test:mission-control` - PASS (with new `accordion_scaling_readiness` section).
+- `npm run test:full-e2e-gate` - PASS (no regression).
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm audit --omit=dev` - 1 high (pre-existing `fast-uri` advisory, same as prior gate, no new advisory introduced).
+- `npm audit` - 1 high (same `fast-uri`, pre-existing).
+
+### Open
+- Live money remains blocked by design until Provider Sandbox / Live Money Validation.
+- Container build / runtime / compose smoke require a Docker-equipped environment to actually build and run — covered by static validation here, real exec covered by the Docker-aware harness (skipped here with reason, never falsely passed).
+- Object storage adapter remains required before multi-instance.
+- AWS Budgets / WAF / CloudWatch alarms are operator responsibility — documented but not provisioned.
+- Pre-existing `fast-uri` advisory is unchanged from prior gate.
+
+### Progress
+- Docker readiness: 100% (static validation).
+- AWS Accordion blueprint: 100% (Tier 0 / Tier 1 / Tier 2 documented; Tier 3 deferred).
+- Mission Control accordion section: 100%.
+
+### Verdict
+**DOCKER_AWS_ACCORDION_READY** — packaging and blueprint complete for Tier 0 local demo and Tier 1 small market launch (subject to separate provider/security gates for live money). Tier 2 accordion scale is documented and ready to be operationalised when demand justifies it.
+
+### Next step
+- Container build / runtime / compose smoke on a Docker-equipped CI host (the static validation suite pre-flights this; real exec confirms reproducibility).
+- Provider Sandbox / Live Money Validation remains the next live-money gate.
+
+---
+
 ## Current update: 2026-05-08 (Full E2E Gate - PASS)
 
 ### What was completed

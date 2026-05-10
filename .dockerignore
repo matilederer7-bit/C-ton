@@ -1,9 +1,58 @@
-node_modules
+# Secrets — never copy real env files into the image.
+# .env.demo.example is intentionally shipped (template only, no secrets).
+.env
+.env.*
+!.env.demo.example
+!.env.example
+*.local
+*.bak
+*.tmp
+
+# Source control & VCS
 .git
+.gitignore
+.gitattributes
+
+# Dependencies (re-installed inside the image)
+node_modules
+
+# Build outputs (the image runs `npm run build:demo` itself)
 .demo_dist
 .tmp_test_dist
+dist
+build
 coverage
+.nyc_output
+
+# Local runtime artefacts
+.tmp_*
+.tmp*/
+uploads
+logs
+*.log
+
+# Local helper / IDE state
+.claude
+.cursor
+.vscode
+.idea
+.sixth
+
+# Backups & legacy archives — not needed at runtime
 archive
 backups
+archive_temp
+
+# Docs and large test fixtures — image is leaner without them
 docs
-*.log
+*.docx
+*.pdf
+
+# OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Reports that live at repo root
+*_DELIVERY_REPORT.md
+PROJECT_STATUS.md

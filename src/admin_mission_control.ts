@@ -182,6 +182,143 @@ function buildScaleReadinessReport(input: {
   };
 }
 
+function buildAccordionScalingReadiness(input: {
+  rootDir: string;
+  scaleReadiness: any;
+  storageReadiness: any;
+}) {
+  const blockers: string[] = [];
+  const warnings: string[] = [];
+
+  const dockerfile = fileCheck(input.rootDir, "Dockerfile");
+  const dockerignore = fileCheck(input.rootDir, ".dockerignore");
+  const composeFile = fileCheck(input.rootDir, "docker-compose.yml");
+
+  let dockerStatus: "present" | "missing" = dockerfile.exists && dockerignore.exists ? "present" : "missing";
+  if (!dockerfile.exists) blockers.push("dockerfile_missing");
+  if (!dockerignore.exists) blockers.push("dockerignore_missing");
+  if (!composeFile.exists) warnings.push("docker_compose_missing_for_local_cloud_like_run");
+
+  // The container runtime smoke is run by `npm run test:docker-readiness` and
+  // requires a Docker engine. Mission Control reports the static contract,
+  // not the live container probe — that is the test job.
+  const containerSmokeStatus = "static_validation_only";
+
+  // External DB readiness — partial unless DATABASE_URL points to a non-loopback
+  // host (managed RDS / Cloud SQL / Render Postgres). We check the host shape
+  // without exposing values.
+  const dbUrl = String(process.env.DATABASE_URL || "");
+  let externalDbReady: "yes" | "partial" | "no" = "no";
+  if (dbUrl) {
+    try {
+      const parsed = new URL(dbUrl);
+      const host = String(parsed.hostname || "").toLowerCase();
+      if (!host) {
+        externalDbReady = "no";
+      } else if (host === "localhost" || host === "127.0.0.1" || host === "::1") {
+        externalDbReady = "partial";
+        warnings.push("database_url_points_to_localhost_not_external_db");
+      } else if (host === "postgres") {
+        // docker-compose internal hostname — partial
+        externalDbReady = "partial";
+        warnings.push("database_url_points_to_compose_internal_postgres_not_managed_db");
+      } else {
+        externalDbReady = "yes";
+      }
+    } catch {
+      externalDbReady = "no";
+      warnings.push("database_url_unparseable");
+    }
+  } else {
+    externalDbReady = "no";
+    blockers.push("database_url_missing");
+  }
+
+  // Storage mode — local single-instance vs object storage multi-instance.
+  const storageMode = input.storageReadiness?.adapter === "object"
+    ? "object_storage"
+    : "local_filesystem_single_instance_only";
+  if (input.storageReadiness?.multi_instance_safe === false) {
+    blockers.push("object_storage_required_before_multi_instance");
+  }
+
+  const rateLimitScaleMode = input.scaleReadiness?.rate_limit_scale_mode || "single_instance_only";
+  if (rateLimitScaleMode === "single_instance_only") {
+    warnings.push("rate_limit_is_in_process_only_not_shared_across_instances");
+  }
+
+  const workerScaleStatus = input.scaleReadiness?.worker_parallelism_status || "unknown";
+  if (workerScaleStatus !== "yes") warnings.push("worker_parallelism_partial_until_dedicated_worker_service");
+
+  const loadBalancerReadiness = input.scaleReadiness?.load_balancer_readiness || "partial";
+
+  // Cost guardrails are operator responsibility — we cannot inspect the cloud account.
+  // The blueprint document is the source of policy; presence of the doc is what we report.
+  const blueprintDoc = fileCheck(input.rootDir, "docs/AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md");
+  const dockerReadinessDoc = fileCheck(input.rootDir, "docs/DOCKER_READINESS.md");
+  const envContractDoc = fileCheck(input.rootDir, "docs/ENVIRONMENT_CONTRACT.md");
+
+  const awsBlueprintStatus = blueprintDoc.exists ? "documented" : "missing";
+  if (!blueprintDoc.exists) blockers.push("aws_accordion_deployment_blueprint_missing");
+  if (!dockerReadinessDoc.exists) warnings.push("docker_readiness_doc_missing");
+  if (!envContractDoc.exists) warnings.push("environment_contract_doc_missing");
+
+  const costGuardrailsStatus = blueprintDoc.exists ? "documented_operator_responsibility" : "missing";
+
+  // Estimated scale risk — high when storage is local-only OR rate limit is single-instance.
+  // This is purely advisory — we do not cap traffic from inside the app.
+  const scaleRiskFactors: string[] = [];
+  if (storageMode === "local_filesystem_single_instance_only") scaleRiskFactors.push("local_storage");
+  if (rateLimitScaleMode === "single_instance_only") scaleRiskFactors.push("local_rate_limit");
+  if (externalDbReady !== "yes") scaleRiskFactors.push("non_managed_db");
+  const estimatedScaleRisk: "low" | "medium" | "high" =
+    scaleRiskFactors.length >= 2 ? "high" : scaleRiskFactors.length === 1 ? "medium" : "low";
+
+  let verdict: "ready" | "warning" | "blocked";
+  if (blockers.length > 0) {
+    verdict = "blocked";
+  } else if (warnings.length > 0) {
+    verdict = "warning";
+  } else {
+    verdict = "ready";
+  }
+
+  return {
+    verdict,
+    docker_status: dockerStatus,
+    container_smoke_status: containerSmokeStatus,
+    external_db_ready: externalDbReady,
+    storage_mode: storageMode,
+    rate_limit_scale_mode: rateLimitScaleMode,
+    worker_scale_status: workerScaleStatus,
+    load_balancer_readiness: loadBalancerReadiness,
+    cost_guardrails_status: costGuardrailsStatus,
+    aws_blueprint_status: awsBlueprintStatus,
+    estimated_scale_risk: estimatedScaleRisk,
+    tier_status: {
+      tier_0_local_demo: dockerfile.exists && composeFile.exists ? "ready" : "partial",
+      tier_1_small_market_launch: blueprintDoc.exists ? "documented" : "missing",
+      tier_2_accordion_scale: blueprintDoc.exists ? "documented" : "missing",
+      tier_3_mature_production: "blueprint_only_not_implemented"
+    },
+    artefacts: {
+      dockerfile,
+      dockerignore,
+      docker_compose: composeFile,
+      blueprint_doc: blueprintDoc,
+      docker_readiness_doc: dockerReadinessDoc,
+      env_contract_doc: envContractDoc
+    },
+    notes: [
+      "live money is not connected — accordion readiness covers packaging, runtime config and scaling blueprint only",
+      "cost guardrails (cloud max instances, RDS class cap, WAF rate rules, budgets) are operator responsibility",
+      "no AWS credentials are loaded by the app at runtime"
+    ],
+    blockers,
+    warnings
+  };
+}
+
 function buildLiveMoneyReadinessReport(input: {
   tables: Set<string>;
   paymentSummary: ReturnType<typeof getPaymentProviderSummary>;
@@ -1203,6 +1340,12 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   const paymentSummary = getPaymentProviderSummary(deps.paymentProvider);
   const payoutSummary = deps.payoutProvider ? getPayoutProviderSummary(deps.payoutProvider) : { provider: "unknown", mode: "unknown", configured: false };
   const scaleReadiness = buildScaleReadinessReport({ tables, columns, paymentSummary, payoutSummary });
+  const storageReadiness = await buildStorageReadinessReport({ tables }, c);
+  const accordionScalingReadiness = buildAccordionScalingReadiness({
+    rootDir: deps.rootDir,
+    scaleReadiness,
+    storageReadiness
+  });
   const liveMoneyReadiness = buildLiveMoneyReadinessReport({
     tables,
     paymentSummary,
@@ -1211,7 +1354,6 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
   });
   const securityHardeningGate = buildSecurityHardeningGate({ tables });
   const sellerOnboardingReadiness = await buildSellerOnboardingReadiness(c, tables);
-  const storageReadiness = await buildStorageReadinessReport({ tables }, c);
   const notificationsReadiness = await buildNotificationsReadinessReport({ tables, notificationSummary: deps.notificationSummary }, c);
   const supportReadiness = await buildSupportReadinessReport({ tables }, c);
   const adminInterventionReadiness = await buildAdminInterventionReadiness({ tables }, c);
@@ -1473,6 +1615,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       issues: tables.has("deal_images") ? [] : ["deal_images_table_missing_or_unknown"]
     },
     scale_readiness: scaleReadiness,
+    accordion_scaling_readiness: accordionScalingReadiness,
     live_money_readiness: liveMoneyReadiness,
     security_hardening_gate: securityHardeningGate,
     seller_onboarding_readiness: sellerOnboardingReadiness,

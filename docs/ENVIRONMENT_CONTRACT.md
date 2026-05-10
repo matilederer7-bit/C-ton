@@ -1,0 +1,134 @@
+# Environment Contract
+
+Status: contract documented. The application reads all configuration from environment variables. No secrets are committed to the repository. No `.env` files are baked into Docker images.
+
+## Verdict
+
+- `env_contract_documented`: yes
+- `secrets_in_repo`: no
+- `env_in_image`: no (`.dockerignore` excludes `.env*`, Dockerfile defense-in-depth deletes any that slipped through)
+- `production_like_fail_closed`: yes for `ADMIN_API_KEY`, `PAYMENT_WEBHOOK_SECRET` in live mode
+
+## Modes
+
+The application observes three runtime modes:
+
+| Mode | How detected | What it means |
+|---|---|---|
+| `demo` / `demo-preview` | `APP_DEPLOYMENT_MODE=demo-preview` (default) | Mock providers, demo admin key allowed, in-memory rate limit accepted, single instance. **No live money.** |
+| `sandbox` | `APP_DEPLOYMENT_MODE=production` + provider envs pointing to provider sandbox | Real provider sandbox calls, no real charges. |
+| `live` / `real` | `APP_DEPLOYMENT_MODE=production` + provider envs pointing to live keys | Real money. Requires Provider Sandbox / Live Money Validation gate to be closed. **Currently blocked.** |
+
+Production-like detection (`isProductionLikeEnv` in [`src/runtime_config.ts`](../src/runtime_config.ts)):
+
+```
+NODE_ENV === "production"
+|| APP_ENV === "production"
+|| RENDER === "true"
+|| RENDER_EXTERNAL_URL is set
+```
+
+In production-like mode, missing critical envs must fail closed (block) rather than fall back to demo defaults silently.
+
+## Variables
+
+Legend:
+- **Required**: ✅ required, ⚠ required in production-like, ⬜ optional
+- **Secret**: 🔒 must come from secret store (Secrets Manager / SSM / Render env), 📄 non-secret config
+
+| Env | Required (demo) | Required (sandbox) | Required (live) | Secret | Default | Purpose |
+|---|---|---|---|---|---|---|
+| `APP_DEPLOYMENT_MODE` | ✅ | ✅ | ✅ | 📄 | `demo-preview` | Selects runtime mode. |
+| `NODE_ENV` | ✅ | ✅ | ✅ | 📄 | — / `production` in container | Standard Node mode flag. |
+| `HOST` | ⬜ | ⬜ | ⬜ | 📄 | `0.0.0.0` | Bind address. |
+| `PORT` | ✅ | ✅ | ✅ | 📄 | `3000` | TCP port. |
+| `LOG_LEVEL` | ⬜ | ⬜ | ⬜ | 📄 | `info` | Pino log level. |
+| `DATABASE_URL` | ✅ | ✅ | ✅ | 🔒 | local fallback | Postgres connection string. Live mode must point to a managed Postgres. |
+| `DB_SCHEMA` | ⬜ | ⬜ | ⬜ | 📄 | `siton` | Schema name. |
+| `EXPECTED_COMMIT_SHA` | ⬜ | ⚠ | ⚠ | 📄 | — | Mission Control reports drift if deployed sha doesn't match. |
+| `ADMIN_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Admin route gate. Demo accepts empty; production-like blocks. |
+| `DEBUG_SURFACES_ENABLED` | ⬜ | ⬜ (off recommended) | ⬜ (off required) | 📄 | `0` | Toggles `/debug/*` surfaces. |
+| `DEBUG_SURFACES_ACCESS_KEY` | ⬜ | ⚠ if enabled | ⚠ if enabled | 🔒 | — | Required when `DEBUG_SURFACES_ENABLED=1`. |
+| `PAYMENT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `mockpay` | Selects payment adapter. `stripe` is the first live adapter. |
+| `PAYMENT_PROVIDER_MODE` | ✅ | ✅ | ✅ | 📄 | `mock-backed` | Mode for the chosen provider. |
+| `PAYMENT_PROVIDER_BASE_URL` | ⬜ | ⚠ for live | ⚠ for live | 📄 | — | |
+| `PAYMENT_PROVIDER_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider API key. |
+| `PAYMENT_PROVIDER_PUBLIC_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider public key (e.g. Stripe `pk_*`). |
+| `PAYMENT_PROVIDER_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `8000` | Provider HTTP timeout. |
+| `PAYMENT_PROVIDER_CURRENCY` | ⬜ | ⬜ | ⬜ | 📄 | `ILS` | |
+| `PAYMENT_WEBHOOK_PROVIDER` | ✅ | ✅ | ✅ | 📄 | matches `PAYMENT_PROVIDER` | |
+| `PAYMENT_WEBHOOK_SECRET` | ⬜ (`mock-webhook-secret`) | ⚠ | ⚠ | 🔒 | demo default in demo-preview | Live requires a real provider webhook secret. |
+| `STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION` | ⬜ | ⬜ | ⬜ (`0` recommended) | 📄 | `0` | Compliance posture flag. |
+| `PAYOUT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `internal-ledger` | |
+| `PAYOUT_PROVIDER_MODE` | ✅ | ✅ | ✅ | 📄 | `internal-truth-only` | |
+| `PAYOUT_PROVIDER_API_KEY` | ⬜ | ⚠ if external | ⚠ if external | 🔒 | — | |
+| `INVOICE_PROVIDER` | ⬜ | ⬜ | ⚠ | 📄 | unset | `morning` is the first live invoice adapter. |
+| `INVOICE_PROVIDER_MODE` | ⬜ | ⬜ | ⚠ | 📄 | unset | |
+| `INVOICE_PROVIDER_BASE_URL` | ⬜ | ⬜ | ⚠ | 📄 | unset | |
+| `INVOICE_PROVIDER_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
+| `INVOICE_PROVIDER_BEARER_TOKEN` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
+| `INVOICE_WEBHOOK_SECRET` | ⬜ | ⚠ | ⚠ | 🔒 | — | |
+| `NOTIFICATION_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `log-only` | `twilio` / similar require their own envs. |
+| `TWILIO_ACCOUNT_SID` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 🔒 | — | |
+| `TWILIO_AUTH_TOKEN` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 🔒 | — | |
+| `TWILIO_FROM` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 📄 | — | E.164 sender. |
+| `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
+| `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
+| `SITON_PLATFORM_FEE_VAT_RATE` | ⬜ | ⬜ | ⬜ | 📄 | `0.18` | |
+| `COMPLETION_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | `1440` | C6 spec — 24 h. |
+| `OUTBOX_POLL_MS` | ⬜ | ⬜ | ⬜ | 📄 | `1000` | |
+| `OUTBOX_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `4` | |
+| `DISABLE_OUTBOX_WORKER` | ⬜ | ⬜ | ⬜ | 📄 | unset | Set `1` when running a dedicated worker container. |
+| `RATE_LIMIT_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | `0` disables. |
+| `RATE_LIMIT_WINDOW_MS` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | |
+| `MOCK_SEED` | ⬜ (demo only) | ⬜ | ⬜ | 📄 | unset | |
+
+## Failure modes
+
+When a required env is missing in production-like mode the relevant readiness section reports `blocked`:
+
+| Missing env | Surface | Blocker code |
+|---|---|---|
+| `DATABASE_URL` | mission-control / `accordion_scaling_readiness` | `database_url_missing` |
+| `ADMIN_API_KEY` (in production-like) | mission-control / `security` | `admin_key_missing_in_production_like_env` |
+| `PAYMENT_WEBHOOK_SECRET` (in live) | mission-control / `live_money_readiness` | `payment_webhook_secret_missing_for_live` |
+| `STRIPE_SECRET_KEY` (when stripe selected) | mission-control / `live_money_readiness` | `payment_provider_not_live_validated` |
+| `INVOICE_PROVIDER_API_KEY` (in live with `INVOICE_PROVIDER=morning`) | mission-control / `live_money_readiness` | `invoice provider not externally issuing live tax documents` (warning) |
+
+Demo defaults are accepted **only** in demo-preview mode and only when documented as such (e.g. `mock-webhook-secret`).
+
+## Mission Control posture
+
+Mission Control reports environment posture as **configured: true / false**, never as raw values. Specifically:
+
+- `mission_control.security.admin_auth.configured`
+- `mission_control.live_money_readiness.secret_policy[*].configured`
+- `mission_control.security.debug_surfaces.access_key_configured`
+- `mission_control.accordion_scaling_readiness.external_db_ready`
+
+No env value is logged, surfaced, or returned by any admin endpoint.
+
+## Where envs live in deployment
+
+| Tier | Source |
+|---|---|
+| Tier 0 — local | `.env` (gitignored) for local dev. Compose hardcodes demo defaults inline. |
+| Tier 1 — small market launch | AWS Secrets Manager / SSM Parameter Store SecureString. Render injects via dashboard / `render.yaml`. |
+| Tier 2 — accordion scale | Same as Tier 1 plus rotation policy and per-secret IAM. |
+| Tier 3 — mature production | Plus annual rotation, audit log, optional SIEM forwarding. |
+
+## Anti-patterns explicitly forbidden
+
+- Committing `.env` / `.env.local` / `.env.production` / `.env.real` to the repository.
+- Baking `.env` into the Docker image (`.dockerignore` excludes them; Dockerfile deletes any that slipped through).
+- Logging env values.
+- Returning env values from any admin / mission-control / control-plane endpoint.
+- Falling back from real-mode to demo defaults silently when a required env is missing.
+
+## Cross-references
+
+- [`src/runtime_config.ts`](../src/runtime_config.ts) — single source of truth for env reads.
+- [DOCKER_READINESS.md](DOCKER_READINESS.md) — what envs the container needs.
+- [AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md) — env per tier.
+- [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md) — required envs before live money.
+- [PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md) — full launch checklist.

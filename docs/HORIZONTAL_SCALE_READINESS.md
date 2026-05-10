@@ -65,8 +65,22 @@ Readiness is partial. `/health` exists, and Mission Control reports DB and opera
 
 Do not implement autoscaling inside the app. Before multi-instance deployment, configure cloud-side max instances, DB connection alerts, error-rate alerts, traffic anomaly alerts, WAF/DDoS controls, and bot abuse protection.
 
+## Accordion Deployment
+
+The app is now packaged for the accordion deployment model — start small (single instance, managed Postgres, optional CDN) and expand horizontally without code changes:
+
+- [docs/DOCKER_READINESS.md](DOCKER_READINESS.md) — image build contract, `.dockerignore` posture, `docker-compose.yml` for local cloud-like runs.
+- [docs/AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md) — Tier 0 (local) → Tier 1 (small market) → Tier 2 (accordion scale) → Tier 3 (mature) with explicit cost guardrails.
+- [docs/ENVIRONMENT_CONTRACT.md](ENVIRONMENT_CONTRACT.md) — env contract per mode (demo / sandbox / live), secret/non-secret classification, fail-closed behaviour.
+
+Mission Control now reports `accordion_scaling_readiness` with `docker_status`, `external_db_ready`, `storage_mode`, `rate_limit_scale_mode`, `worker_scale_status`, `load_balancer_readiness`, `cost_guardrails_status`, `aws_blueprint_status`, `estimated_scale_risk`, `tier_status`, blockers and warnings.
+
 ## Validation
 
 - `npm run test:scale-readiness` passed.
+- `npm run test:docker-readiness` passed (container build/runtime/compose smoke skipped when Docker engine is unavailable — never reported as a false pass).
+- `npm run test:aws-accordion-readiness` passed.
+- `npm run test:cache-policy` passed (CDN posture validated).
+- `npm run test:mission-control` passed with the new `accordion_scaling_readiness` section.
 - No migration was added.
 - No state machine or money logic was changed.

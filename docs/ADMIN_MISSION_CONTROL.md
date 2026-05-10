@@ -36,6 +36,7 @@ The main response includes:
 - `security`
 - `storage_uploads`
 - `scale_readiness`
+- `accordion_scaling_readiness`
 - `live_money_readiness`
 - `security_hardening_gate`
 - `performance`
@@ -72,6 +73,8 @@ Action endpoints:
 `seller_onboarding_readiness`, `storage_readiness`, `support_readiness`, `mvp_completion_readiness` and `production_launch_readiness` report the MVP completion and launch-readiness surfaces that the Full E2E Gate consumes.
 
 `scale_readiness` reports stateless API posture, in-memory risks, OTP/rate-limit/storage/worker/idempotency readiness, DB pool posture, load balancer readiness, and blockers before multi-instance deployment.
+
+`accordion_scaling_readiness` reports docker packaging status, external DB readiness, storage mode, rate-limit/worker/load-balancer posture, cost guardrails posture, AWS blueprint status, estimated scale risk, per-tier (Tier 0–Tier 3) status, blockers and warnings — see [`AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md`](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md), [`DOCKER_READINESS.md`](DOCKER_READINESS.md) and [`ENVIRONMENT_CONTRACT.md`](ENVIRONMENT_CONTRACT.md).
 
 `live_money_readiness` reports payment, webhook, reconcile, refund, invoice, payout, admin intervention, and security posture. `live_ready` remains false unless required controls and validation evidence are present.
 

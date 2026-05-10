@@ -1,0 +1,88 @@
+# Local cloud-like run for Siton.
+# Demo defaults only — never use in production.
+# Usage:
+#   docker compose up --build         # build + run app + postgres
+#   docker compose down -v            # stop and discard the demo DB volume
+#
+# Bootstrap runs automatically on container start via `start:demo:prod` which
+# invokes `npm run bootstrap:demo-db` before launching the app.
+#
+# This compose intentionally does NOT mount source from the host. The app
+# image is the unit of deployment — what runs locally is what ships.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: siton-postgres
+    environment:
+      POSTGRES_USER: siton_demo
+      POSTGRES_PASSWORD: siton_demo_password
+      POSTGRES_DB: siton_demo
+    ports:
+      - "5433:5432"  # host:container — 5433 to avoid collision with local Postgres
+    volumes:
+      - siton_demo_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siton_demo -d siton_demo"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: siton-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # --- Runtime ---
+      APP_DEPLOYMENT_MODE: demo-preview
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "3000"
+      LOG_LEVEL: info
+
+      # --- Database ---
+      DATABASE_URL: postgresql://siton_demo:siton_demo_password@postgres:5432/siton_demo
+      DB_SCHEMA: siton
+
+      # --- Admin (DEMO key only — rotate / replace before any external access) ---
+      ADMIN_API_KEY: demo-admin-key-do-not-use-in-production
+
+      # --- Debug surfaces (off by default for safety) ---
+      DEBUG_SURFACES_ENABLED: "0"
+      DEBUG_SQL_LOGGING: "0"
+      DEBUG_JOIN_LOGGING: "0"
+
+      # --- Providers (demo / log-only — no live money, no real notifications) ---
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+      PAYMENT_WEBHOOK_PROVIDER: mockpay
+      PAYMENT_WEBHOOK_SECRET: mock-webhook-secret
+      PAYOUT_PROVIDER: internal-ledger
+      PAYOUT_PROVIDER_MODE: internal-truth-only
+      NOTIFICATION_PROVIDER: log-only
+
+      # --- Worker control ---
+      # Set DISABLE_OUTBOX_WORKER=1 if running app multi-instance in the future
+      # and dedicating a separate worker container.
+      # DISABLE_OUTBOX_WORKER: "1"
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  siton_demo_pgdata:

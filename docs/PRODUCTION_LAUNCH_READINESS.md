@@ -41,6 +41,14 @@ This document is a checklist surface for the operator. Mission Control returns t
 
 `Provider Sandbox / Live Money Validation`. Full E2E passed, but live money remains blocked until provider sandbox evidence is complete.
 
+## Deployment Packaging
+
+The app is packaged for the accordion deployment model — see [docs/AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md). Tier 1 (small market launch) and Tier 2 (accordion scale) are documented, with explicit cost guardrails and per-tier capacity caps. The application code is portable — no AWS-specific imports, no AWS credentials in the runtime.
+
+- [docs/DOCKER_READINESS.md](DOCKER_READINESS.md) — image build, `.dockerignore`, `docker-compose.yml`.
+- [docs/ENVIRONMENT_CONTRACT.md](ENVIRONMENT_CONTRACT.md) — env per mode (demo / sandbox / live), secret/non-secret classification.
+- Mission Control reports `accordion_scaling_readiness` with tier status and blockers.
+
 ## Validation
 
 - `npm run test:production-launch-readiness`
@@ -48,3 +56,5 @@ This document is a checklist surface for the operator. Mission Control returns t
 - `npm run test:provider-live-money-readiness`
 - `npm run test:scale-readiness`
 - `npm run test:security-hardening`
+- `npm run test:docker-readiness`
+- `npm run test:aws-accordion-readiness`
