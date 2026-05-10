@@ -41,6 +41,8 @@ The main response includes:
 - `security_hardening_gate`
 - `json_boundary_readiness`
 - `refund_policy_readiness`
+- `deal_type_readiness`
+- `fulfillment_readiness`
 - `performance`
 - `business_metrics`
 - `anomaly_center`
@@ -87,6 +89,12 @@ Action endpoints:
 These gates are audit/reporting surfaces only. They do not activate Redis, live providers, live charges, manual money changes, or destructive actions.
 
 `refund_policy_readiness` reports the refund-policy alignment audit. It exposes `verdict` (`pass` / `warning` / `blocked`), `manual_refund_allowed=false`, `seller_refund_allowed=false`, `admin_commercial_refund_allowed=false`, `support_refund_allowed=false`, `partial_commercial_refund_allowed=false`, `system_refund_on_failed_deal_required=true`, route/action/UI scan results, `json_boundary_respected=true`, `provider_sandbox_required=true`, blockers and warnings. See [`REFUND_POLICY.md`](REFUND_POLICY.md).
+
+`deal_type_readiness` and `fulfillment_readiness` report physical/voucher/ticket
+counts, required table presence, fulfillment unit totals, and impossible
+issuance anomalies. Mission Control safe queries are isolated with per-query
+SAVEPOINT handling so one collector error cannot poison downstream readiness
+sections.
 
 Full E2E validation is documented in `docs/FULL_E2E_GATE.md`; Mission Control must keep `live_money_readiness.verdicts.live_ready` false after that gate.
 

@@ -2,6 +2,9 @@
 
 Status: PASS for provider sandbox validation. This gate does not mark the system live-ready and did not connect live money.
 
+Deal Types E2E is also pass-ready for Provider Sandbox Validation as of
+2026-05-10. See [`DEAL_TYPES_E2E_GATE.md`](DEAL_TYPES_E2E_GATE.md).
+
 ## Verdict
 
 - `full_e2e_gate`: pass

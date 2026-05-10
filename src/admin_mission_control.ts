@@ -88,9 +88,23 @@ function addAnomaly(anomalies: Anomaly[], input: Omit<Anomaly, "id"> & { id?: st
 }
 
 async function safeQuery(c: Queryable, sql: string, params?: unknown[]) {
+  const savepoint = `mission_control_safe_query_${Math.random().toString(36).slice(2, 10)}`;
+  let savepointActive = false;
   try {
-    return await c.query(sql, params);
+    await c.query(`SAVEPOINT ${savepoint}`);
+    savepointActive = true;
+  } catch {
+    savepointActive = false;
+  }
+  try {
+    const result = await c.query(sql, params);
+    if (savepointActive) await c.query(`RELEASE SAVEPOINT ${savepoint}`).catch(() => undefined);
+    return result;
   } catch (error: any) {
+    if (savepointActive) {
+      await c.query(`ROLLBACK TO SAVEPOINT ${savepoint}`).catch(() => undefined);
+      await c.query(`RELEASE SAVEPOINT ${savepoint}`).catch(() => undefined);
+    }
     return { rows: [], rowCount: 0, error: String(error?.message || error) } as any;
   }
 }
@@ -1735,9 +1749,9 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
            COUNT(*) FILTER (WHERE status='pending')::int AS pending,
            COUNT(*) FILTER (WHERE status='failed')::int AS failed,
            COUNT(*) FILTER (WHERE status='ignored')::int AS ignored,
-           COUNT(*) FILTER (WHERE status='pending' AND created_at < now() - interval '10 minutes')::int AS pending_too_long,
+           COUNT(*) FILTER (WHERE status='pending' AND received_at < now() - interval '10 minutes')::int AS pending_too_long,
            COUNT(*)::int - COUNT(DISTINCT provider || ':' || event_id)::int AS duplicates,
-           MAX(created_at) AS last_received_at
+           MAX(received_at) AS last_received_at
          FROM siton.webhook_events`
       )).rows[0] || {}
     : {};
@@ -2077,7 +2091,7 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
     },
     webhooks: {
       status: sections.webhooks.status,
-      providers: tables.has("webhook_events") ? (await safeQuery(c, "SELECT provider, status, COUNT(*)::int AS count, MAX(created_at) AS last_received_at FROM siton.webhook_events GROUP BY provider, status ORDER BY provider, status")).rows : [],
+      providers: tables.has("webhook_events") ? (await safeQuery(c, "SELECT provider, status, COUNT(*)::int AS count, MAX(received_at) AS last_received_at FROM siton.webhook_events GROUP BY provider, status ORDER BY provider, status")).rows : [],
       pending: safeCount(webhookRow, "pending"),
       failed: safeCount(webhookRow, "failed"),
       duplicates: safeCount(webhookRow, "duplicates"),
@@ -2247,7 +2261,7 @@ export async function buildMissionDealTrace(c: Queryable, dealId: string) {
     safeQuery(c, "SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at, updated_at FROM siton.participants WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 200", [dealId]),
     safeQuery(c, "SELECT audit_id, entity_type, entity_id, action_name, state_type, from_state, to_state, correlation_id, request_id, created_at FROM siton.audit_log WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT event_id, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_events WHERE aggregate_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
-    safeQuery(c, "SELECT provider, event_id, event_type, status, correlation_id, participant_id, deal_id, created_at, processed_at FROM siton.webhook_events WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
+    safeQuery(c, "SELECT provider, event_id, NULL::text AS event_type, status, request_id AS correlation_id, participant_id, deal_id, received_at AS created_at, processed_at FROM siton.webhook_events WHERE deal_id=$1 ORDER BY received_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT attempt_id, participant_id, attempt_type, result_class, provider_reference, correlation_id, created_at FROM siton.payment_attempts WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT document_id, participant_id, document_type, status, provider_document_id, correlation_id, created_at, issued_at FROM siton.invoice_documents WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT payout_batch_id, seller_id, payout_status, trigger_deal_id, created_at, updated_at FROM siton.seller_payout_batches WHERE trigger_deal_id=$1 ORDER BY created_at DESC LIMIT 50", [dealId]),
@@ -2279,7 +2293,7 @@ export async function buildMissionParticipantTrace(c: Queryable, participantId: 
   const [payments, notifications, webhooks, audit] = await Promise.all([
     safeQuery(c, "SELECT attempt_id, attempt_type, result_class, provider_reference, correlation_id, created_at FROM siton.payment_attempts WHERE participant_id=$1 ORDER BY created_at DESC LIMIT 100", [participantId]),
     safeQuery(c, "SELECT notification_id, event_type, channel, status, attempt_count, created_at, sent_at FROM siton.notification_events WHERE participant_id=$1 ORDER BY created_at DESC LIMIT 100", [participantId]),
-    safeQuery(c, "SELECT provider, event_id, event_type, status, correlation_id, created_at, processed_at FROM siton.webhook_events WHERE participant_id=$1 ORDER BY created_at DESC LIMIT 100", [participantId]),
+    safeQuery(c, "SELECT provider, event_id, NULL::text AS event_type, status, request_id AS correlation_id, received_at AS created_at, processed_at FROM siton.webhook_events WHERE participant_id=$1 ORDER BY received_at DESC LIMIT 100", [participantId]),
     safeQuery(c, "SELECT audit_id, action_name, state_type, from_state, to_state, correlation_id, request_id, created_at FROM siton.audit_log WHERE entity_id=$1 OR participant_id=$1 ORDER BY created_at DESC LIMIT 100", [participantId])
   ]);
   return {
@@ -2301,7 +2315,7 @@ export async function buildMissionCorrelationTrace(c: Queryable, correlationId: 
   const [audit, outbox, webhooks, payments, invoices, payouts, notifications, supportCases, adminActions] = await Promise.all([
     safeQuery(c, "SELECT audit_id, entity_type, entity_id, deal_id, action_name, created_at FROM siton.audit_log WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, request_id, created_at FROM siton.outbox_events WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
-    safeQuery(c, "SELECT provider, event_id, event_type, status, participant_id, deal_id, created_at FROM siton.webhook_events WHERE correlation_id=$1 OR event_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT provider, event_id, NULL::text AS event_type, status, participant_id, deal_id, received_at AS created_at FROM siton.webhook_events WHERE request_id=$1 OR event_id=$1 ORDER BY received_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT attempt_id, deal_id, participant_id, attempt_type, result_class, provider_reference, created_at FROM siton.payment_attempts WHERE correlation_id=$1 OR provider_reference=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT document_id, deal_id, participant_id, document_type, status, provider_document_id, created_at FROM siton.invoice_documents WHERE correlation_id=$1 OR provider_document_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT payout_batch_id, seller_id, trigger_deal_id, payout_status, provider_batch_reference, created_at FROM siton.seller_payout_batches WHERE correlation_id=$1 OR provider_batch_reference=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
@@ -2360,7 +2374,7 @@ export async function buildMissionOutboxTrace(c: Queryable, eventId: string) {
 export async function buildMissionWebhookTrace(c: Queryable, provider: string, eventId: string) {
   const event = await safeQuery(
     c,
-    "SELECT provider, event_id, event_type, status, participant_id, deal_id, provider_reference, correlation_id, created_at, processed_at, last_error FROM siton.webhook_events WHERE provider=$1 AND event_id=$2",
+    "SELECT provider, event_id, NULL::text AS event_type, status, participant_id, deal_id, NULL::text AS provider_reference, request_id AS correlation_id, received_at AS created_at, processed_at, NULL::text AS last_error FROM siton.webhook_events WHERE provider=$1 AND event_id=$2",
     [provider, eventId]
   );
   const row = event.rows[0] || null;

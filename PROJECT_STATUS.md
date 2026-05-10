@@ -2,7 +2,52 @@
 
 ---
 
-## Current update: 2026-05-10 (Deal Types E2E Gate — IN PROGRESS, BLOCKED)
+## Current update: 2026-05-10 (Deal Types E2E Gate - PASS, READY FOR PROVIDER SANDBOX)
+
+### What was completed
+- Completed `tests/deal_types_e2e_validation.ts` against the real Fastify in-process app + real PostgreSQL demo database. All groups A1-G1 now pass.
+- Fixed the upstream Mission Control E1 blocker. Root cause: the webhook collector queried `siton.webhook_events.created_at`, but the table uses `received_at`; the first error poisoned the transaction and downstream readiness collectors returned empty rows. Mission Control now reads webhook timestamps from `received_at`, aliases trace fields to the actual schema, and wraps `safeQuery` calls in per-query SAVEPOINT handling.
+- Hardened the E2E harness for deterministic mock-provider retries by rotating the outbox `event_uuid` for forced retry attempts and resetting `attempt_count`; this keeps the test's intended retry loop real without changing production money logic.
+- Corrected Full E2E's deterministic mock capture prediction key from `charge:` to the provider's actual `capture:` key.
+- Authored [`docs/DEAL_TYPES_E2E_GATE.md`](docs/DEAL_TYPES_E2E_GATE.md) and `DEAL_TYPES_E2E_DELIVERY_REPORT.md`.
+
+### What was checked
+- `npx tsc --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `npm run test:deal-types` - PASS.
+- `npm run test:deal-types-e2e` - PASS (A1-G1).
+- `npm run test:full-e2e-gate` - PASS.
+- `npm run test:refund-policy` - PASS.
+- `npm run test:json-boundary` - PASS.
+- `npm run test:provider-live-money-readiness` - PASS.
+- `npm run test:mission-control` - PASS.
+- `npm run test:admin-control-plane` - PASS.
+- `npm run test:security-hardening` - PASS.
+- `npm run test:security-identity-tracking` - PASS.
+- `npm run test:adversarial` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run test:notifications-readiness` - PASS.
+- `npm run test:support-operations` - PASS.
+- `npm run test:legal-trust` - PASS.
+- `npm run test:production-launch-readiness` - PASS.
+- `npm audit --omit=dev` - 0 vulnerabilities.
+- `npm audit` - 0 vulnerabilities.
+
+### What is open / blocked
+- Provider Sandbox Validation remains open. No live money was performed and no live provider was connected.
+- Seller-uploaded voucher codes remain rejected at the API boundary.
+- Assigned-seat ticketing remains rejected until a real seating engine exists.
+- Voucher expiry reminders and ticket event reminders remain scheduler work.
+
+### Verdict
+`DEAL_TYPES_E2E_PASS_READY_FOR_PROVIDER_SANDBOX`
+
+### Production source touched this session
+`src/admin_mission_control.ts` only. No state machine change, no money logic change, no 90% rule change, no manual refund path, no plaintext voucher/ticket code storage, no JSONB truth-source regression, and no live money.
+
+---
+
+## Previous update: 2026-05-10 (Deal Types E2E Gate — superseded BLOCKED handoff)
 
 ### What was completed
 - Built `tests/deal_types_e2e_validation.ts` — drives physical / voucher / ticket flows against the real Fastify in-process app + real Postgres demo bootstrap. Wired `npm run test:deal-types-e2e`.
@@ -27,7 +72,7 @@
 - **`docs/DEAL_TYPES_E2E_GATE.md`** (canonical doc) and `DEAL_TYPES_E2E_DELIVERY_REPORT` — pending until the gate lands green.
 
 ### Verdict
-`DEAL_TYPES_E2E_BLOCKED` — see `docs/DEAL_TYPES_E2E_HANDOFF.md` for full root cause, reproducer, suggested fixes, and resume steps for the next agent.
+Superseded by the pass entry above: `DEAL_TYPES_E2E_PASS_READY_FOR_PROVIDER_SANDBOX`.
 
 ### Production source touched this session
 None. The Deal Type Expansion itself (commits `ba334eb`, `10f5489`) is unchanged and remains `DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E`.

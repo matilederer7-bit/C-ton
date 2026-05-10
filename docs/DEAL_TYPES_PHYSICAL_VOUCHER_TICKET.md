@@ -1,7 +1,7 @@
 # Deal Types — Physical Product / Voucher / Ticket
 
-Status: `DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E` (foundation merged, awaiting
-deal-types E2E run before Provider Sandbox Validation).
+Status: `DEAL_TYPES_E2E_PASS_READY_FOR_PROVIDER_SANDBOX` (foundation and
+deal-types E2E gate passed; Provider Sandbox Validation remains next).
 
 ## 1. What is `deal_type`?
 
@@ -169,7 +169,11 @@ deal rigid state machines, never in JSON.
 
 ## 14. Test surface
 
-- `npm run test:deal-types` — 22 source-static + behavioral checks across the
+- `npm run test:deal-types` — 24 source-static + behavioral checks across the
   schema, API, exports, mission control, and copy.
+- `npm run test:deal-types-e2e` - real Fastify + PostgreSQL E2E coverage for
+  physical regression, voucher full flow, ticket full flow, failed-deal no
+  fulfillment, Mission Control E1, refund/JSON/plaintext-code guardrails, and
+  webhook replay idempotency.
 - Existing regression suites (`test:full-e2e-gate`, `test:refund-policy`,
   `test:json-boundary`, `test:mvp-completion`, etc.) must remain green.

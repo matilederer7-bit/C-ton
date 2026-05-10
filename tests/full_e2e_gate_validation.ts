@@ -387,7 +387,7 @@ try {
     );
     const eventId = String(outbox.rows[0].event_uuid);
     const canProcessDeterministically = participantRows.rows.every((row: any) =>
-      mockCaptureWillSucceed(`charge:${eventId}:${row.participant_id}`)
+      mockCaptureWillSucceed(`capture:${eventId}:${row.participant_id}`)
     );
     if (canProcessDeterministically) {
       const processed = await processOutboxEventById(eventId);

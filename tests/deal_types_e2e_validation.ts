@@ -242,15 +242,17 @@ async function driveDealToFinalState(dealId: string, sellerId: string, suffix: s
       [dealId]
     );
     if (!charge.rowCount) break;
-    if (String(charge.rows[0].status) !== "pending") break;
-    await pool.query(
-      `UPDATE siton.outbox_events SET available_at = now() - interval '1 second',
+    const retryEvent = await pool.query(
+      `UPDATE siton.outbox_events SET event_uuid = gen_random_uuid(),
+                                    available_at = now() - interval '1 second',
                                     processing_started_at = NULL,
-                                    status = 'pending'
-        WHERE event_uuid = $1`,
+                                    status = 'pending',
+                                    attempt_count = 0
+        WHERE event_uuid = $1
+        RETURNING event_uuid`,
       [charge.rows[0].event_uuid]
     );
-    const result = await processOutboxEventById(String(charge.rows[0].event_uuid));
+    const result = await processOutboxEventById(String(retryEvent.rows[0].event_uuid));
     if (result?.status === "sent") break;
   }
 
