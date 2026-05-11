@@ -5,6 +5,8 @@ const originalEnabled = process.env.DEBUG_SURFACES_ENABLED;
 const originalAccessKey = process.env.DEBUG_SURFACES_ACCESS_KEY;
 
 process.env.PORT = "3012";
+process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.OUTBOX_POLL_MS = "60000";
 delete process.env.DEBUG_SURFACES_ENABLED;
 delete process.env.DEBUG_SURFACES_ACCESS_KEY;
 

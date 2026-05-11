@@ -21,10 +21,17 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
+const { pool: appPool } = await import("../src/db.js");
 import { reclaimStuckInvoiceDocuments, flushPendingDocuments, type InvoiceProvider, type InvoiceDocumentInput } from "../src/invoice_dispatch.js";
 
 const DB_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const pool = new Pool({ connectionString: DB_URL, max: 5 });
+const TEST_TIMEOUT_MS = 60_000;
+
+const watchdog = setTimeout(() => {
+  console.error(`FAIL  invoice_queue_hardening_proof timed out after ${TEST_TIMEOUT_MS}ms`);
+  process.exit(124);
+}, TEST_TIMEOUT_MS);
 
 async function cleanupKey(documentKey: string) {
   await pool.query(`DELETE FROM siton.invoice_documents WHERE document_key=$1`, [documentKey]);
@@ -56,6 +63,11 @@ async function insertProcessingDoc(documentKey: string, updatedAtOffset: string)
 }
 
 async function run(name: string, fn: () => Promise<void>) {
+  const timeout = setTimeout(() => {
+    console.error(`FAIL  ${name}`);
+    console.error("      scenario timed out");
+    process.exit(124);
+  }, 15_000);
   try {
     await fn();
     console.log(`PASS  ${name}`);
@@ -63,6 +75,8 @@ async function run(name: string, fn: () => Promise<void>) {
     console.error(`FAIL  ${name}`);
     console.error(`      ${e.message}`);
     throw e;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -198,4 +212,7 @@ await run("H5 — /api/admin/notifications-status includes provider mode", async
 
 await app.close().catch(() => undefined);
 await pool.end();
+await appPool.end().catch(() => undefined);
+clearTimeout(watchdog);
 console.log("\nAll invoice queue hardening proof tests completed.");
+process.exit(0);

@@ -51,6 +51,7 @@ import { ensureNotificationRailTables } from "./notification_dispatch.js";
 import {
   buildOtpProvider,
   ensureOtpRailTables,
+  ensureJoinOtpVerified,
   generateOtpCode,
   OtpValidationError,
   requestOtpChallenge,
@@ -459,6 +460,22 @@ function requireUuid(value: string, fieldName: string) {
     err.statusCode = 400;
     throw err;
   }
+}
+
+function paymentMinorAmount(args: { qty: number; pricePerUnit: number; deliveryCost: number }) {
+  const total = Number(args.qty || 0) * Number(args.pricePerUnit || 0) + Number(args.deliveryCost || 0);
+  return Math.max(0, Math.round(total * 100));
+}
+
+function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
+  const raw = value ?? defaultValue;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    const err: any = new Error("qty must be a positive integer");
+    err.statusCode = 400;
+    err.code = "invalid_qty";
+    throw err;
+  }
+  return raw;
 }
 
 function deriveDealAvailability(state: DealState, remainingUnits: number) {
@@ -7090,25 +7107,117 @@ export function registerFrontendExperience(
   });
 
   const handleAuthorizePayment = async (req: any, reply: any) => {
+    const body = req.body || {};
     const authorizeInput: Parameters<typeof deps.paymentProvider.authorize>[0] = {
-      holder_name: String(req.body?.holder_name || ""),
-      card_number: String(req.body?.card_number || ""),
-      expiry: String(req.body?.expiry || ""),
-      cvv: String(req.body?.cvv || ""),
-      amount_minor: req.body?.amount_minor,
-      currency: String(req.body?.currency || ""),
+      holder_name: String(body.holder_name || ""),
+      card_number: String(body.card_number || ""),
+      expiry: String(body.expiry || ""),
+      cvv: String(body.cvv || ""),
+      amount_minor: body.amount_minor,
+      currency: String(body.currency || ""),
       request_id: String(req.headers?.["x-request-id"] || req.id || "")
     };
-    if (req.body?.buyer_id) authorizeInput.buyer_id = String(req.body.buyer_id);
-    if (req.body?.deal_id) authorizeInput.deal_id = String(req.body.deal_id);
-    if (req.body?.correlation_id) authorizeInput.correlation_id = String(req.body.correlation_id);
-    if (req.body?.payment_method_id) authorizeInput.payment_method_id = String(req.body.payment_method_id);
+    if (body.buyer_id) authorizeInput.buyer_id = String(body.buyer_id);
+    if (body.deal_id) authorizeInput.deal_id = String(body.deal_id);
+    if (body.correlation_id) authorizeInput.correlation_id = String(body.correlation_id);
+    if (body.payment_method_id) authorizeInput.payment_method_id = String(body.payment_method_id);
+
+    if (body.deal_id) {
+      const dealId = String(body.deal_id);
+      requireUuid(dealId, "deal_id");
+      const qty = parsePositiveIntegerQuantity(body.qty);
+
+      const otpToken = body.otp_token ? String(body.otp_token) : null;
+      const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
+      await deps.withTx(async (c) => {
+        await ensureJoinOtpVerified(c, {
+          otp_token: otpToken,
+          otp_challenge_id: otpChallengeId,
+          deal_id: dealId
+        });
+      });
+
+      const serverMoney = await deps.withTx(async (c) => {
+        const dealResult = await c.query(
+          `SELECT deal_id, state, max_units, price_per_unit
+           FROM siton.deals
+           WHERE deal_id=$1
+           FOR UPDATE`,
+          [dealId]
+        );
+        if (!dealResult.rowCount) {
+          const err: any = new Error("deal not found");
+          err.statusCode = 404;
+          err.code = "deal_not_found";
+          throw err;
+        }
+        const deal = dealResult.rows[0] as {
+          state: string;
+          max_units: string | number;
+          price_per_unit: string | number;
+        };
+        if (!["PendingTarget", "TargetReached"].includes(String(deal.state))) {
+          const err: any = new Error("deal is not open for payment authorization");
+          err.statusCode = 409;
+          err.code = "deal_not_open_for_authorization";
+          throw err;
+        }
+
+        const deliveryOptionId = String(body.delivery_option_id || "").trim();
+        const deliveryOption = deliveryOptionId
+          ? await c.query(
+              `SELECT option_id, cost
+               FROM siton.deal_delivery_options
+               WHERE option_id=$1 AND deal_id=$2`,
+              [deliveryOptionId, dealId]
+            )
+          : await c.query(
+              `SELECT option_id, cost
+               FROM siton.deal_delivery_options
+               WHERE deal_id=$1
+               ORDER BY sort_order ASC, created_at ASC
+               LIMIT 1`,
+              [dealId]
+            );
+        if (deliveryOptionId && !deliveryOption.rowCount) {
+          const err: any = new Error("invalid_delivery_option");
+          err.statusCode = 400;
+          err.code = "invalid_delivery_option";
+          throw err;
+        }
+
+        const reservedResult = await c.query(
+          `SELECT COALESCE(SUM(qty), 0) AS total
+           FROM siton.participants
+           WHERE deal_id=$1
+             AND buyer_state NOT IN ('DealFailed','Dropped')`,
+          [dealId]
+        );
+        const remaining = Number(deal.max_units || 0) - Number(reservedResult.rows[0]?.total || 0);
+        if (qty > remaining) {
+          const err: any = new Error(`requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`);
+          err.statusCode = 409;
+          err.code = "max_units_exceeded";
+          throw err;
+        }
+
+        const deliveryCost = Number(deliveryOption.rows[0]?.cost || 0);
+        return paymentMinorAmount({
+          qty,
+          pricePerUnit: Number(deal.price_per_unit || 0),
+          deliveryCost
+        });
+      });
+
+      authorizeInput.amount_minor = serverMoney;
+    }
+
     const result = await deps.paymentProvider.authorize(authorizeInput);
-    if (req.body?.buyer_id && req.body?.payment_method_id) {
+    if (body.buyer_id && body.payment_method_id) {
       await upsertBuyerPaymentMethod({
-        buyer_id: String(req.body.buyer_id),
+        buyer_id: String(body.buyer_id),
         provider_code: deps.paymentProvider.providerCode,
-        provider_payment_method_id: String(req.body.payment_method_id),
+        provider_payment_method_id: String(body.payment_method_id),
         correlation_id: result.ok ? result.correlation_id : authorizeInput.correlation_id ?? null,
         mark_authorized: result.ok,
         mark_failed: !result.ok && !result.retryable

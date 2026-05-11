@@ -1169,7 +1169,11 @@ async function payAndJoin(form) {
     amount_minor: Math.round(Number(flow.estimatedTotal || 0) * 100),
     currency: "ILS",
     buyer_id: flow.buyerId,
-    deal_id: route.dealId
+    deal_id: route.dealId,
+    qty: flow.qty,
+    delivery_option_id: flow.deliveryOptionId || undefined,
+    otp_token: flow.otpToken || undefined,
+    otp_challenge_id: flow.otpChallengeId || undefined
   };
   const issue = validatePayment(payload);
   if (issue) return fail("׳₪׳¨׳˜׳™ ׳”׳׳©׳¨׳׳™ ׳׳ ׳׳׳׳™׳", issue);

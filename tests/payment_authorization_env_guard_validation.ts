@@ -61,7 +61,6 @@ await run("provider-ready without required env fails closed instead of silently 
         cvv: "123",
         amount_minor: 9900,
         currency: "ILS",
-        deal_id: "deal-live-3",
         buyer_id: "buyer-live-3"
       }
     });

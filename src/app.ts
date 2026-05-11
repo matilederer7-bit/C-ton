@@ -703,6 +703,17 @@ function paymentMinorAmount(args: { qty: number; pricePerUnit: number; deliveryC
   return Math.max(0, Math.round(total * 100));
 }
 
+function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
+  const raw = value ?? defaultValue;
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw < 1) {
+    const err: any = new Error("qty must be a positive integer");
+    err.statusCode = 400;
+    err.code = "invalid_qty";
+    throw err;
+  }
+  return raw;
+}
+
 function attemptResultClassFromWebhookEvent(eventType: string): PaymentResultClass | null {
   if (eventType === "charge_captured" || eventType === "recovery_captured" || eventType === "refund_issued") {
     return "success";
@@ -2851,7 +2862,13 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     err.code = "delivery_notes_too_long";
     throw err;
   }
-  const qtyRaw = Number(body.qty ?? 1);
+  let qtyRaw: number;
+  try {
+    qtyRaw = parsePositiveIntegerQuantity(body.qty, 1);
+  } catch (err: any) {
+    err.statusCode = err.statusCode || 400;
+    throw err;
+  }
 
   if (!buyer_id) {
     const err: any = new Error("buyer_id required");
@@ -2868,11 +2885,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const err: any = new Error("payment_disclosure_required");
     err.statusCode = 400;
     err.code = "payment_disclosure_required";
-    throw err;
-  }
-  if (!Number.isInteger(qtyRaw) || qtyRaw < 1) {
-    const err: any = new Error("qty must be a positive integer");
-    err.statusCode = 400;
     throw err;
   }
   const qty = qtyRaw;

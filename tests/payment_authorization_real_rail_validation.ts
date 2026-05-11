@@ -126,7 +126,6 @@ await run("non-demo authorization hits the real provider transport and legacy al
     if (body.payment_method.card.holder_name === "Live Buyer") {
       assert.equal(body.amount_minor, 14100);
       assert.equal(body.currency, "ILS");
-      assert.equal(body.deal_id, "deal-live-1");
       assert.equal(body.buyer_id, "buyer-live-1");
       return {
         statusCode: 200,
@@ -175,7 +174,6 @@ await run("non-demo authorization hits the real provider transport and legacy al
         cvv: "123",
         amount_minor: 14100,
         currency: "ILS",
-        deal_id: "deal-live-1",
         buyer_id: "buyer-live-1"
       }
     });
@@ -198,7 +196,6 @@ await run("non-demo authorization hits the real provider transport and legacy al
         cvv: "123",
         amount_minor: 4200,
         currency: "ILS",
-        deal_id: "deal-live-2",
         buyer_id: "buyer-live-2"
       }
     });

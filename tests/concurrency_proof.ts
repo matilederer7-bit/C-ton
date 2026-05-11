@@ -18,6 +18,8 @@ const { Pool } = pg;
 
 process.env.PORT = String(process.env.PORT || "3370");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.OUTBOX_POLL_MS = "60000";
 // Disable rate limiting for concurrency proof — each scenario uses a unique spoofed IP anyway
 process.env.RATE_LIMIT_MAX = "1000000";
 process.env.RATE_LIMIT_SENSITIVE_MAX = "1000000";
@@ -31,6 +33,7 @@ const DB = new Pool({
 });
 
 const SELLER = "seller-test-proof";
+const SCENARIO_TIMEOUT_MS = 30_000;
 
 // ─── once-per-suite OTP setup ───────────────────────────────────────────────
 // Legal-acceptance + OTP gates run BEFORE the DB lock, so a single verified,
@@ -112,7 +115,7 @@ async function evidence(dealId: string): Promise<Evidence> {
 // Each scenario gets its own spoofed IP subnet so rate buckets never bleed across scenarios
 let scenarioIp = "10.0.0.1";
 
-async function join(dealId: string, buyerId: string, qty = 1, idemKey?: string) {
+async function join(dealId: string, buyerId: string, qty: unknown = 1, idemKey?: string) {
   const headers: Record<string, string> = { "x-forwarded-for": scenarioIp };
   if (idemKey) headers["idempotency-key"] = idemKey;
   const res = await app.inject({
@@ -140,13 +143,21 @@ function nextScenarioIp() {
 
 async function run(name: string, fn: () => Promise<void>) {
   nextScenarioIp(); // fresh rate-limit bucket per scenario
+  let timeout: NodeJS.Timeout | null = null;
   try {
-    await fn();
+    await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`scenario timed out after ${SCENARIO_TIMEOUT_MS}ms`)), SCENARIO_TIMEOUT_MS);
+      })
+    ]);
     console.log(`\nPASS ${name}`);
   } catch (e: any) {
     console.error(`\nFAIL ${name}`);
     console.error("     ", e.message);
     throw e;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
 }
 

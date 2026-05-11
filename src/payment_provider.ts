@@ -1305,7 +1305,21 @@ export function buildPaymentProvider(): PaymentProvider {
     return buildStripePaymentProvider();
   }
   if (PAYMENT_PROVIDER_MODE === "provider-ready") {
+    if (isProductionRuntime()) {
+      if (!PAYMENT_PROVIDER_BASE_URL) {
+        throw new Error("PAYMENT_PROVIDER_MODE=provider-ready requires PAYMENT_PROVIDER_BASE_URL in production");
+      }
+      if (!PAYMENT_PROVIDER_API_KEY) {
+        throw new Error("PAYMENT_PROVIDER_MODE=provider-ready requires PAYMENT_PROVIDER_API_KEY in production");
+      }
+      if (!PAYMENT_WEBHOOK_SECRET || PAYMENT_WEBHOOK_SECRET_IS_DEFAULT) {
+        throw new Error("PAYMENT_PROVIDER_MODE=provider-ready requires a non-default PAYMENT_WEBHOOK_SECRET in production");
+      }
+    }
     return buildProviderReadyPaymentProvider();
+  }
+  if (isProductionRuntime()) {
+    throw new Error("production payment provider cannot use mock-backed mode; set PAYMENT_PROVIDER=stripe or PAYMENT_PROVIDER_MODE=provider-ready");
   }
   return buildMockPaymentProvider();
 }

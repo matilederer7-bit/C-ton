@@ -46,6 +46,7 @@
     "test:cache-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/cache_policy_validation.js",
     "test:scale-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/scale_readiness_validation.js",
     "test:provider-live-money-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/provider_live_money_readiness_validation.js",
+    "test:provider-production-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/provider_production_readiness_validation.js",
     "test:security-hardening": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_hardening_validation.js",
     "test:security-identity-tracking": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/security_identity_tracking_validation.js",
     "test:seller-onboarding": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/seller_onboarding_validation.js",
@@ -62,6 +63,7 @@
     "test:aws-accordion-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/aws_accordion_readiness_validation.js",
     "test:json-boundary": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/json_boundary_validation.js",
     "test:refund-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/refund_policy_validation.js",
+    "test:server-side-money-authority": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/server_side_money_authority_validation.js",
     "test:deal-types": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_validation.js",
     "test:deal-types-e2e": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_e2e_validation.js"
   },

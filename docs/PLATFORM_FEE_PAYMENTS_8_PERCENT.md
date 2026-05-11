@@ -11,6 +11,47 @@ catalog browsing.
 When money is actually captured from a buyer, the canonical financial truth is
 recorded per participant-level financial event in `siton.platform_fee_money_events`.
 
+## Canonical money fields and lifecycle
+
+For a buyer participation, the canonical amount inputs are rigid DB values:
+
+- `unit price`: `siton.deals.price_per_unit`
+- `quantity`: `siton.participants.qty` after server validation, or the
+  authorization request `qty` only long enough to calculate the pre-join hold
+- `delivery_cost`: `siton.deal_delivery_options.cost`, selected by
+  `delivery_option_id`; client-sent `delivery_cost` is not authoritative
+- `gross_amount`: `qty * price_per_unit + delivery_cost`
+- `platform_fee_base_amount`: `gross_amount - vat_amount`
+- `platform_fee_vat_amount`: VAT on Siton's fee only
+- `platform_fee_total_amount`: `platform_fee_base_amount + platform_fee_vat_amount`
+- `seller_net_amount`: `gross_amount - platform_fee_total_amount`
+
+Amounts are decimal shekel amounts in the DB and are rounded to two decimal
+places by `roundMoney()`. Provider authorization/capture/refund calls use minor
+currency units through `paymentMinorAmount()` (`ILS` agorot).
+
+Lifecycle rule:
+
+- OTP is required before a deal payment authorization/hold.
+- Authorization hold is created before join is committed, but the hold amount
+  is calculated server-side from the deal and selected delivery option.
+- Capture is worker/outbox driven and only for participants in
+  `ChargingAttempt` / `ChargeAttempt`.
+- A deal can enter charging only after it reaches the product success path.
+- Cancel/void/release is automatic state-machine behavior for failed, dropped,
+  or unrecovered participants; it is not a support/admin tool.
+- Refund is automatic only from the failed-deal path described in
+  `REFUND_POLICY.md`.
+
+Forbidden as money authority:
+
+- browser/client supplied `price`, `total`, `amount`, `amount_minor`,
+  `delivery_cost`, `platform_fee_*`, or `seller_net_amount`
+- manual refund
+- distributor commission or payout
+- public marketplace/search/catalog economics
+- logistics management by C-ton
+
 The supported canonical event types are:
 
 - `charge_captured`

@@ -324,7 +324,33 @@ await run("S7 invalid delivery_option_id returns invalid_delivery_option and cre
   assert.equal(Number(participants.rows[0]?.count || 0), 0, "invalid delivery option must not create a participant");
 });
 
-await run("S8 ownership 403 still enforced after schema migration", async () => {
+await run("S8 join rejects boolean, string, exponent, decimal and non-positive qty values", async () => {
+  const sellerId = `seller-bad-qty-${randomUUID().slice(0, 8)}`;
+  const dealId = await createDeal(sellerId, { withDeliveryOption: true, deliveryOptionType: "pickup" });
+  for (const qty of [true, "1", "1e2", 1.5, 0, -1]) {
+    const otpChallengeId = await createVerifiedOtpChallenge(dealId);
+    const buyerId = `+97250${String(randomUUID()).replace(/\D/g, "").slice(0, 7).padEnd(7, "0")}`;
+    const res = await app.inject({
+      method: "POST",
+      url: `/deals/${dealId}/join`,
+      payload: {
+        buyer_id: buyerId,
+        otp_challenge_id: otpChallengeId,
+        qty,
+        buyer_terms_accepted: true,
+        payment_disclosure_accepted: true
+      }
+    });
+    assert.equal(res.statusCode, 400, `qty=${String(qty)} should be rejected: ${res.body}`);
+    const participants = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM siton.participants WHERE deal_id=$1 AND buyer_id=$2`,
+      [dealId, buyerId]
+    );
+    assert.equal(Number(participants.rows[0]?.count || 0), 0, `qty=${String(qty)} must not create a participant`);
+  }
+});
+
+await run("S9 ownership 403 still enforced after schema migration", async () => {
   const ownerSellerId = `seller-owner2-${randomUUID().slice(0, 8)}`;
   const otherSellerId = `seller-other2-${randomUUID().slice(0, 8)}`;
   const { dealId } = await completeDealWithParticipants(ownerSellerId, [
