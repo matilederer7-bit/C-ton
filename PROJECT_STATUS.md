@@ -2,6 +2,40 @@
 
 ---
 
+## Current update: 2026-05-12 (Load & Capacity Baseline - PASS FOR SMALL PILOT)
+
+### What was completed
+- Added a local load/capacity baseline harness in `tests/load_capacity_baseline.ts`.
+- Added `docs/LOAD_CAPACITY_BASELINE_REPORT.md` with the first numeric baseline for public reads, tracking reads, same-deal joins, oversubscribe joins, multi-deal joins, and seller export.
+- Fixed the load harness DB path by loading `dotenv/config` before opening the direct `pg.Pool`, so it uses the same local environment loading path as the runtime.
+- Added harness-only DB/schema/provider preflight, a public-route warmup for first-request table ensure work, and a hard harness timeout.
+- Confirmed no external provider was enabled and no real money was touched.
+
+### What was checked
+- `git status --short` before closure showed only `tests/load_capacity_baseline.ts` and `docs/LOAD_CAPACITY_BASELINE_REPORT.md` as load-baseline work products.
+- Secret/log review of the load report: no real `DATABASE_URL`, no real env values, no raw request logs, and no provider secrets in the report.
+- Product runtime review: no `src/`, `frontend/`, package, or runtime config files were changed.
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `LOAD_BASELINE_TIMEOUT_MS=600000 node .tmp_test_dist/tests/load_capacity_baseline.js` - PASS.
+
+### What is open
+- Repeat the same baseline in staging with managed Postgres metrics before claiming production capacity.
+- Investigate or clear the stale local outbox backlog observed during the run: 109 pending events, oldest about 21.6 hours.
+- Stage 3 was not run; 1,000-buyer viral deal readiness is not proven.
+- 100 deals/day production readiness is not proven by the local in-process baseline.
+
+### Progress
+- Load & Capacity Baseline: 100% for local small-pilot baseline.
+- Production capacity proof: 60% pending staging/managed-DB repeat and larger stage-3 style run.
+
+### Next step
+- Run the baseline in staging with managed Postgres observability and decide whether concurrent join tuning is needed if p95 approaches or exceeds 1 second.
+
+### Verdict
+`LOAD_BASELINE_PASS_FOR_SMALL_PILOT`
+
+---
+
 ## Current update: 2026-05-10 (Project handoff and restore tightening)
 
 ### What was completed
