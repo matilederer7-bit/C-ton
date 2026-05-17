@@ -250,10 +250,10 @@ async function authorizeBuyer(suffix: string) {
       "x-forwarded-for": testIp(`payment-${suffix}`)
     },
     payload: {
-      holder_name: `Preprod Buyer ${suffix}`,
-      card_number: "4111111111111111",
-      expiry: "12/28",
-      cvv: "123"
+      payer_name: `Preprod Buyer ${suffix}`,
+      payment_method_id: `pm_preprod_${String(suffix).replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`,
+      amount_minor: 1000,
+      currency: "ILS"
     }
   });
   assert.equal(payment.statusCode, 200);
@@ -447,10 +447,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "Route Jumper",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "Route Jumper",
+        payment_method_id: "pm_preprod_route_jumper",
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
     assert.equal(paymentWithoutOtp.statusCode, 200);

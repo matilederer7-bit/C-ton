@@ -2,6 +2,43 @@
 
 ---
 
+## Current update: 2026-05-17 (Full Test Contract Cleanup after Legal Compliance Alignment)
+
+### What was completed
+- Investigated the `400` response from `/api/payments/authorize-mock` in `full_system_qa_validation`.
+- Confirmed the endpoint now correctly requires the hosted/provider payment contract: `payer_name`, `payment_method_id`, and operational amount/currency data.
+- Confirmed the failure was a stale test contract, not a product regression.
+- Updated `tests/full_system_qa_validation.ts` to send provider-style mock payment method ids instead of legacy direct card-like fields.
+- During the required rerun, found the same stale authorize contract in `tests/preprod_torture_validation.ts` and updated it to the same hosted/provider shape.
+
+### What was not changed
+- No backend payment endpoint was loosened.
+- No raw card payload fields were restored.
+- No legal documents, age gate, marketing flow, forced popup, KYC approval flow, or policy surfaces were changed.
+
+### What was checked
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `node scripts/compliance_payment_scan.cjs` - PASS.
+- `node scripts/legal_compliance_gate.cjs` - PASS.
+- `npm test` - BLOCKED after two focused stale-contract/encoding fix rounds. `full_system_qa_validation` now passes, and the later `preprod_torture_validation` payment-contract blocker was also fixed. The current blocker is `full_product_surface_validation`, which still expects mojibake Hebrew labels while the product returns valid UTF-8 Hebrew.
+
+### Root cause
+- `/api/payments/authorize-mock` returned `400` because the test posted the pre-hosted-payment contract. The mock provider correctly rejects payment authorization requests without `payer_name` and `payment_method_id`.
+
+### Progress
+- Legal/compliance gates: 100%.
+- Payment contract cleanup requested here: 100%.
+- Full regression suite: blocked by a separate stale UTF-8 expectation after the allowed two fix rounds.
+
+### Next step
+- Update `tests/full_product_surface_validation.ts` to expect valid UTF-8 Hebrew product-surface labels, then rerun `npm test`.
+
+### Verdict
+`LEGAL_COMPLIANCE_FINAL_ALIGNMENT_PASS`
+`FULL_TEST_SUITE_BLOCKED_BY_STALE_TEST_CONTRACT`
+
+---
+
 ## Current update: 2026-05-17 (Legal Compliance Final Alignment Cleanup)
 
 ### What was completed

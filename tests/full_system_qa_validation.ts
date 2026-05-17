@@ -205,10 +205,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "QA Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "QA Buyer",
+        payment_method_id: `pm_full_system_${created.deal_id.replace(/-/g, "").slice(0, 18)}`,
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
     assert.equal(payment.statusCode, 200);
@@ -352,10 +352,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "Declined QA Buyer",
-        card_number: "4111111111110000",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "Declined QA Buyer",
+        payment_method_id: "pm_full_system_declined_0000",
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
     assert.equal(paymentFailure.statusCode, 402);
