@@ -1201,7 +1201,6 @@ async function payAndJoin(form) {
       authorizationId: authorization.authorization_id,
       authorizationProvider: authorization.provider,
       authorizationCorrelationId: authorization.correlation_id,
-      buyerTermsAccepted: true,
       paymentDisclosureAccepted: true
     });
     saveFlow(route.dealId, {
@@ -2279,21 +2278,21 @@ function renderPaymentPage(dealId) {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳©׳׳‘ 2 ׳׳×׳•׳ 3</span>
-        <h1>׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳׳₪׳ ׳™ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳¡׳•׳₪׳™׳×</h1>
-        <p class="muted">׳–׳”׳• ׳©׳׳‘ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳׳™׳ ׳›׳׳ ׳—׳™׳•׳‘ ׳׳™׳™׳“׳™, ׳׳׳ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳׳§׳¨׳׳× ׳”׳©׳׳׳× ׳”׳¢׳¡׳§׳”.</p>
+        <span class="eyebrow">שלב 2 מתוך 3</span>
+        <h1>אישור מסגרת לפני הצטרפות סופית</h1>
+        <p class="muted">זהו שלב אישור מסגרת בלבד. אין כאן חיוב מיידי, אלא תפיסת מסגרת לקראת השלמת העסקה.</p>
         <div class="trust-band">
           <div class="trust-point"><span class="muted">׳׳” ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•</span><strong>׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
           <div class="trust-point"><span class="muted">׳׳” ׳׳ ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•</span><strong>׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</strong></div>
           <div class="trust-point"><span class="muted">׳׳×׳™ ׳›׳ ׳™׳—׳•׳™׳‘</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
         </div>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳¢׳¡׳§׳”</span><strong>${esc(deal?.title || flow.dealTitle || "")}</strong></div>
-          <div class="summary-item"><span class="muted">׳§׳•׳ ׳” ׳׳׳•׳׳×</span><strong>${esc(flow.buyerId || "")}</strong></div>
-          <div class="summary-item"><span class="muted">׳›׳׳•׳×</span><strong>${num(flow.qty || 0)} ׳™׳—'</strong></div>
-          <div class="summary-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(deliveryLabel)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳׳•׳× ׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${currency(deliveryCost)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳׳•׳× ׳׳©׳•׳¢׳¨׳×</span><strong>${currency(holdTotal)}</strong></div>
+          <div class="summary-item"><span class="muted">עסקה</span><strong>${esc(deal?.title || flow.dealTitle || "")}</strong></div>
+          <div class="summary-item"><span class="muted">קונה מאומת</span><strong>${esc(flow.buyerId || "")}</strong></div>
+          <div class="summary-item"><span class="muted">מחיר ליחידה</span><strong>${currency(Number(deal?.price_per_unit ?? flow.unitPrice ?? 0))}</strong></div>
+          <div class="summary-item"><span class="muted">כמות</span><strong>${num(flow.qty || 0)} יח'</strong></div>
+          <div class="summary-item"><span class="muted">משלוח</span><strong>${currency(deliveryCost)}</strong><p class="small muted">${esc(deliveryLabel)}</p></div>
+          <div class="summary-item"><span class="muted">סך הכול לתפיסת מסגרת</span><strong>${currency(holdTotal)}</strong></div>
         </div>
           <div class="summary-item">
             <span class="muted">׳¢׳“׳›׳•׳ ׳׳—׳¨׳•׳ ׳׳׳¡׳׳•׳</span>
@@ -2306,9 +2305,9 @@ function renderPaymentPage(dealId) {
             <p class="small">${PAYMENT_READINESS.settlementModel}. ${PAYMENT_READINESS.integrationNote}</p>
         </div>
         <div class="summary-item summary-spotlight">
-          <span class="muted">׳¡׳›׳•׳ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span>
+          <span class="muted">סך הכול לתפיסת מסגרת</span>
           <strong>${currency(holdTotal)}</strong>
-          <p class="small muted">׳–׳” ׳”׳¡׳›׳•׳ ׳©׳™׳™׳©׳׳¨ ׳›׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳©׳׳‘ ׳”׳–׳”. ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳™׳§׳¨׳” ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳.</p>
+          <p class="small muted">זה הסכום שיישמר כתפיסת מסגרת בשלב הזה. לא מתבצע חיוב כעת; חיוב בפועל יתבצע רק אם העסקה תיסגר בהצלחה.</p>
         </div>
       </article>
       <aside class="card hero-side stack">
@@ -2338,8 +2337,6 @@ function renderPaymentPage(dealId) {
           </div>
           <div class="field"><label for="payerName">שם למשלם/ת</label><input id="payerName" name="payerName" type="text" data-dir="rtl" value="${esc(state.form.payerName)}" autocomplete="name" /></div>
           <input type="hidden" id="providerPaymentMethodId" name="providerPaymentMethodId" value="" />
-          <label class="check-row"><input type="checkbox" name="buyerTermsAcceptance" checked required /> <span>אני מאשר/ת את תנאי השימוש.</span></label>
-          <label class="check-row"><input type="checkbox" name="buyerRefundAcceptance" checked required /> <span>אני מאשר/ת שקראתי את מדיניות הביטולים וההחזרים.</span></label>
           <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר תפיסת מסגרת בלבד. ידוע לי שלא מתבצע חיוב בפועל כעת, ושהחיוב יתבצע רק אם העסקה תיסגר בהצלחה.</span></label>
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
@@ -6107,7 +6104,7 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, buyerName, deliveryAddress, deliveryCity, deliveryNote, otpToken, otpChallengeId, authorizationId, authorizationProvider, authorizationCorrelationId, buyerTermsAccepted, paymentDisclosureAccepted }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, buyerName, deliveryAddress, deliveryCity, deliveryNote, otpToken, otpChallengeId, authorizationId, authorizationProvider, authorizationCorrelationId, paymentDisclosureAccepted }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
@@ -6128,7 +6125,6 @@ const buyerFlowService = {
         authorization_id: authorizationId || undefined,
         authorization_provider: authorizationProvider || undefined,
         authorization_correlation_id: authorizationCorrelationId || undefined,
-        buyer_terms_accepted: buyerTermsAccepted === true,
         payment_disclosure_accepted: paymentDisclosureAccepted === true
       })
     });

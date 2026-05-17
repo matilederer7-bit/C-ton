@@ -1,9 +1,11 @@
-# Payment Security And PCI Scope
+# Payment Security and PCI Scope
 
 Written as an initial MVP response; legal validation is recommended later.
 
-C-ton אינה שומרת ואינה מעבדת מספר כרטיס אשראי גולמי, CVV או תוקף כרטיס. פרטי הכרטיס מוזנים רק ברכיב מאובטח של ספק הסליקה. C-ton שומרת רק מזהים תפעוליים כגון token/auth id, ככל שנדרש לניהול תפיסת מסגרת, חיוב, השלמה ובקרה.
+C-ton אינה שומרת ואינה מעבדת מספר כרטיס אשראי גולמי, CVV או תוקף כרטיס. פרטי הכרטיס מוזנים רק ברכיב מאובטח של ספק הסליקה, כגון hosted field, iframe או redirect.
 
-The MVP architecture reduces PCI DSS scope by keeping C-ton outside raw card-data collection. Public buyer screens must use a provider hosted field, iframe or redirect. Server endpoints accept provider identifiers only.
+C-ton שומרת רק מזהים תפעוליים כגון token או auth id, ככל שנדרש לניהול תפיסת מסגרת, חיוב, השלמה, בקרה או החזר.
 
-Operational code must not define application-owned raw payment fields such as card_number, credit_card_number, cvv, cvc, raw_card, pan, expiry_month, expiry_year, full_card or cardholder_data. These terms may appear only in compliance documents or tests that enforce the prohibition.
+המטרה התפעולית היא לצמצם את PCI scope של C-ton: אין שדות כרטיס רגילים בפרונט, אין DTO תפעולי לפרטי כרטיס גולמיים, אין שמירה בסכמה ואין לוגים של פרטי כרטיס.
+
+בדיקת `scripts/compliance_payment_scan.cjs` נכשלת אם נמצאים מונחי כרטיס גולמי בקוד תפעולי.

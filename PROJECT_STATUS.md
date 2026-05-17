@@ -2,6 +2,53 @@
 
 ---
 
+## Current update: 2026-05-17 (Legal Compliance Final Alignment Cleanup)
+
+### What was completed
+- Fixed `frontend_flow_validation` to expect valid UTF-8 Hebrew instead of mojibake, including the shell title `<title>סיטון</title>`.
+- Removed forced buyer terms/refund consent from the join flow. Legal documents remain linked in the relevant screens and footer, but they do not block the buyer flow.
+- Kept the operational payment disclosure checkbox for auth hold only, because it is not a terms popup and explains the money action being performed.
+- Removed the production-like seller KYC/admin approval blocker from publish. Seller publish still requires basic profile readiness and seller enforcement statuses can restrict activity after the fact.
+- Updated public policy documents to the lean management line: no age gate, no marketing messages, support email for refund/cancellation issues, seller responsibility for product legality, and retrospective enforcement rights for C-ton.
+- Updated `scripts/legal_compliance_gate.cjs` to enforce the final lean line: no age gate, no forced terms popup/consent, no marketing opt-in/newsletter/marketing consent, no default deal approval flow, no heavy seller admin approval gate, no free manual refund surface, distributor remains attribution-only.
+
+### What was removed or softened
+- Removed hidden `buyer_terms_accepted` submission and backend `buyer_terms_required` enforcement.
+- Removed buyer terms/refund checkboxes from the payment screen.
+- Removed the live publish dependency on explicit `verification_status='approved'`.
+- Replaced heavy KYC wording with basic seller identification and declarations plus after-the-fact enforcement.
+- Replaced the previous blocked reason about UTF-8/mojibake with the current exact blocker.
+
+### What remains
+- Seller publish still requires critical-terms and 90% rule confirmations.
+- Buyer payment still requires explicit auth-hold/payment-disclosure confirmation.
+- Public legal links remain available across the app.
+- Admin enforcement, seller suspension, content takedown, emergency stop and support/reconcile paths remain operational controls, not default approval gates.
+
+### What was checked
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `node scripts/compliance_payment_scan.cjs` - PASS.
+- `node scripts/legal_compliance_gate.cjs` - PASS.
+- `npm test` - BLOCKED after two compliance/encoding fix rounds. The UTF-8 blocker is fixed and `frontend_flow_validation` now passes. The suite now stops later at `full_system_qa_validation`, where an older test still posts to `/api/payments/authorize-mock` using the pre-hosted payment contract and receives `400` instead of `200`.
+
+### What is open
+- Update remaining legacy payment-contract tests, starting with `tests/full_system_qa_validation.ts`, to use `payer_name` plus `payment_method_id` instead of direct card-like fields.
+- Replace placeholder contact addresses with real launch details before public launch.
+- Run a manual accessibility pass on the deployed MVP.
+
+### Progress
+- Final legal alignment: 95%.
+- Compliance/payment gates: 100%.
+- Full regression suite: blocked by remaining legacy hosted-payment test fixture.
+
+### Next step
+- Convert the remaining old payment fixtures in `npm test` to hosted payment method ids, then rerun the full suite.
+
+### Verdict
+`LEGAL_COMPLIANCE_FINAL_ALIGNMENT_BLOCKED`
+
+---
+
 ## Current update: 2026-05-17 (Legal Compliance Alignment Gate)
 
 ### What was completed

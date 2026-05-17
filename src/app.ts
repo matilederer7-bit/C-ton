@@ -2764,16 +2764,6 @@ app.post("/deals/:id/publish", async (req: any) => {
       err.code = "seller_profile_incomplete";
       throw err;
     }
-    // Production-like deployments require an explicit KYC approval before live
-    // publish. The local/demo-preview flow stays permissive so existing demo
-    // bootstraps and tests are not affected.
-    const isProductionLike = process.env.NODE_ENV === "production" || process.env.RENDER === "true";
-    if (isProductionLike && String(prof.verification_status) !== "approved") {
-      const err: any = new Error("seller is not approved for live publish");
-      err.statusCode = 409;
-      err.code = "seller_kyc_not_approved";
-      throw err;
-    }
   });
 
   const result = await atomicTransition({
@@ -2873,12 +2863,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   if (!buyer_id) {
     const err: any = new Error("buyer_id required");
     err.statusCode = 400;
-    throw err;
-  }
-  if (!isAccepted(body.buyer_terms_accepted)) {
-    const err: any = new Error("buyer_terms_required");
-    err.statusCode = 400;
-    err.code = "buyer_terms_required";
     throw err;
   }
   if (!isAccepted(body.payment_disclosure_accepted)) {
@@ -3128,17 +3112,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   }
 
   await withTx(async (c) => {
-    await recordLegalAcceptance({
-      c,
-      req,
-      actorType: "buyer",
-      actorRef: buyer_id,
-      dealId,
-      participantId: participant.participant_id,
-      acceptanceType: "buyer_join_terms",
-      policyVersion: TERMS_VERSION,
-      metadata: { refund_policy_version: REFUND_POLICY_VERSION }
-    });
     await recordLegalAcceptance({
       c,
       req,

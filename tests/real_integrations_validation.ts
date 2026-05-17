@@ -163,10 +163,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize",
       payload: {
-        holder_name: "Integration Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "Integration Buyer",
+        payment_method_id: "pm_integration_success",
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
 
@@ -183,10 +183,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "Integration Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "Integration Buyer",
+        payment_method_id: "pm_integration_alias",
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
 
@@ -200,10 +200,10 @@ async function main() {
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "Declined Buyer",
-        card_number: "4111111111110000",
-        expiry: "12/28",
-        cvv: "123"
+        payer_name: "Declined Buyer",
+        payment_method_id: "pm_integration_declined_0000",
+        amount_minor: 1000,
+        currency: "ILS"
       }
     });
 

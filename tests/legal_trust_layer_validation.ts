@@ -56,12 +56,12 @@ async function createDeal(sellerId: string, suffix = randomUUID()) {
       "idempotency-key": `legal-create-${suffix}`
     },
     payload: {
-      title: `׳¢׳¡׳§׳× ׳׳׳•׳ ${suffix}`,
+      title: `עסקת אמון ${suffix}`,
       price_per_unit: 20,
       min_units: 2,
       max_units: 6,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™", cost: 0 }]
+      delivery_options: [{ option_type: "pickup", label: "איסוף עצמי", cost: 0 }]
     }
   });
   assert.equal(response.statusCode, 200, response.body);
@@ -140,7 +140,7 @@ await run("seller publish with legal acceptance succeeds and persists acceptance
   }
 });
 
-await run("buyer join without terms is blocked", async () => {
+await run("buyer join without payment disclosure is blocked", async () => {
   const sellerId = await seedReadySeller();
   const dealId = await createDeal(sellerId);
   try {
@@ -157,13 +157,13 @@ await run("buyer join without terms is blocked", async () => {
       }
     });
     assert.equal(response.statusCode, 400);
-    assert.equal(response.json().code, "buyer_terms_required");
+    assert.equal(response.json().code, "payment_disclosure_required");
   } finally {
     await cleanupDeal(dealId, sellerId);
   }
 });
 
-await run("buyer join with terms persists join and payment disclosure acceptances idempotently", async () => {
+await run("buyer join persists payment disclosure acceptance idempotently", async () => {
   const sellerId = await seedReadySeller();
   const dealId = await createDeal(sellerId);
   try {
@@ -195,7 +195,6 @@ await run("buyer join with terms persists join and payment disclosure acceptance
       buyer_id: buyerId,
       qty: 1,
       delivery_option_id: option.rows[0].option_id,
-      buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
       otp_token: otpToken,
       otp_challenge_id: challengeId
@@ -216,7 +215,6 @@ await run("buyer join with terms persists join and payment disclosure acceptance
     assert.deepEqual(
       rows.rows.map((row) => [row.acceptance_type, row.policy_version, Number(row.cnt)]),
       [
-        ["buyer_join_terms", TERMS_VERSION, 1],
         ["buyer_payment_disclosure", PAYMENT_DISCLOSURE_VERSION, 1]
       ]
     );
@@ -229,9 +227,9 @@ await run("public deal footer and UI wording stay trust-safe", async () => {
   const appJs = await app.inject({ method: "GET", url: "/app/assets/app.js" });
   assert.match(appJs.body, /\/app\/terms/);
   assert.match(appJs.body, /\/app\/refunds/);
-  assert.doesNotMatch(appJs.body, /׳©׳׳ ׳¢׳›׳©׳™׳•/);
-  assert.doesNotMatch(appJs.body, /׳©׳™׳׳׳×/);
-  assert.doesNotMatch(appJs.body, /׳¡׳™׳˜׳•׳ ׳×׳¡׳₪׳§ ׳׳× ׳”׳׳•׳¦׳¨/);
+  assert.doesNotMatch(appJs.body, /שלם עכשיו/);
+  assert.doesNotMatch(appJs.body, /שילמת/);
+  assert.doesNotMatch(appJs.body, /סיטון תספק את המוצר/);
 });
 
 await app.close().catch(() => undefined);
