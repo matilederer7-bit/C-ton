@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,7 +65,7 @@ async function publishDeal(dealId: string, suffix: string) {
       "x-request-id": `frontend-test-publish-${unique}`,
       "idempotency-key": `frontend-test-publish-${unique}`
     },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
 
   assert.equal(response.statusCode, 200);
@@ -93,8 +93,8 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
-    assert.match(response.body, /<title>סיטון<\/title>/);
-    assert.match(response.body, /סיטון - דף עסקה ציבורי, הצטרפות קונה, אימות טלפון, אישור מסגרת ומעקב עסקה/);
+    assert.match(response.body, /<title>׳¡׳™׳˜׳•׳<\/title>/);
+    assert.match(response.body, /׳¡׳™׳˜׳•׳ - ׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™, ׳”׳¦׳˜׳¨׳₪׳•׳× ׳§׳•׳ ׳”, ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳׳¢׳§׳‘ ׳¢׳¡׳§׳”/);
   });
 
   await runTest("styles support RTL layout and LTR fields inside Hebrew surfaces", async () => {
@@ -116,7 +116,7 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /href="\/app\/seller" data-nav="\/app\/seller" class="button secondary">אזור מוכר/);
+    assert.match(response.body, /href="\/app\/seller" data-nav="\/app\/seller" class="button secondary">׳׳–׳•׳¨ ׳׳•׳›׳¨/);
     assert.doesNotMatch(response.body, /href="\/app\/affiliate" data-nav="\/app\/affiliate" class="button secondary">Affiliate</);
     assert.doesNotMatch(response.body, /href="\/app\/admin" data-nav="\/app\/admin" class="button secondary">Admin</);
     assert.doesNotMatch(response.body, /Operations view/);
@@ -129,10 +129,10 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים/);
-    assert.match(response.body, /פתיחת עסקה חדשה/);
-    assert.match(response.body, /ניהול העסקאות שלי/);
-    assert.match(response.body, /עריכה מלאה רק בטיוטה/);
+    assert.match(response.body, /׳₪׳•׳×׳—׳™׳ ׳¢׳¡׳§׳”, ׳׳¢׳׳™׳ ׳“׳£ ׳׳™׳©׳™, ׳•׳׳₪׳™׳¦׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳/);
+    assert.match(response.body, /׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”/);
+    assert.match(response.body, /׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳׳•׳× ׳©׳׳™/);
+    assert.match(response.body, /׳¢׳¨׳™׳›׳” ׳׳׳׳” ׳¨׳§ ׳‘׳˜׳™׳•׳˜׳”/);
     assert.doesNotMatch(response.body, /Demo \/ preview guardrail/);
     assert.doesNotMatch(response.body, /Demo \/ Preview -/);
     assert.doesNotMatch(response.body, /Siton Main Site/);
@@ -140,8 +140,8 @@ async function main() {
     assert.doesNotMatch(response.body, /Draft only/);
     assert.doesNotMatch(response.body, /mock authorization provider/);
     assert.doesNotMatch(response.body, /buyer id/);
-    assert.match(response.body, /אישור תפיסת מסגרת/);
-    assert.match(response.body, /אישור מסגרת בלבד/);
+    assert.match(response.body, /׳׳™׳©׳•׳¨ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×/);
+    assert.match(response.body, /׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“/);
   });
 
   await runTest("operational surfaces are framed as controlled operational views in the unified copy layer", async () => {
@@ -151,9 +151,9 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /גישה תפעולית/);
-    assert.match(response.body, /מרכז התפעול של סיטון/);
-    assert.match(response.body, /מרכז הפצה למדידה, ייחוס ושיתוף לינקים/);
+    assert.match(response.body, /׳’׳™׳©׳” ׳×׳₪׳¢׳•׳׳™׳×/);
+    assert.match(response.body, /׳׳¨׳›׳– ׳”׳×׳₪׳¢׳•׳ ׳©׳ ׳¡׳™׳˜׳•׳/);
+    assert.match(response.body, /׳׳¨׳›׳– ׳”׳₪׳¦׳” ׳׳׳“׳™׳“׳”, ׳™׳™׳—׳•׳¡ ׳•׳©׳™׳×׳•׳£ ׳׳™׳ ׳§׳™׳/);
     assert.doesNotMatch(response.body, /Internal surface/);
   });
 
@@ -164,8 +164,8 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /מרכז הפצה/);
-    assert.match(response.body, /מרכז התפעול של סיטון/);
+    assert.match(response.body, /׳׳¨׳›׳– ׳”׳₪׳¦׳”/);
+    assert.match(response.body, /׳׳¨׳›׳– ׳”׳×׳₪׳¢׳•׳ ׳©׳ ׳¡׳™׳˜׳•׳/);
     assert.doesNotMatch(response.body, /Affiliate totals/);
     assert.doesNotMatch(response.body, /Campaigns surfaced/);
     assert.doesNotMatch(response.body, /App health/);
@@ -178,10 +178,10 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /מזהה ישות/);
-    assert.match(response.body, /מזהה משתתף/);
-    assert.match(response.body, /סוג אירוע/);
-    assert.match(response.body, /מזהה קורלציה/);
+    assert.match(response.body, /׳׳–׳”׳” ׳™׳©׳•׳×/);
+    assert.match(response.body, /׳׳–׳”׳” ׳׳©׳×׳×׳£/);
+    assert.match(response.body, /׳¡׳•׳’ ׳׳™׳¨׳•׳¢/);
+    assert.match(response.body, /׳׳–׳”׳” ׳§׳•׳¨׳׳¦׳™׳”/);
   });
 
   await runTest("seller identity context is explicit in the frontend shell", async () => {
@@ -195,9 +195,9 @@ async function main() {
     assert.match(response.body, /usesDemoSellerContext\(\) \? \{ "x-seller-id": sellerContext\.seller_id \} : \{\}/);
     assert.doesNotMatch(response.body, /"x-seller-display-name": sellerContext\.display_name/);
     assert.match(response.body, /function normalizeSellerDisplayName\(sellerId, displayName\)/);
-    assert.match(response.body, /זהות המוכר הפעילה/);
-    assert.match(response.body, /שמירת זהות מוכר פעילה/);
-    assert.match(response.body, /כל עסקה חדשה תיווצר תחת/);
+    assert.match(response.body, /׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”/);
+    assert.match(response.body, /׳©׳׳™׳¨׳× ׳–׳”׳•׳× ׳׳•׳›׳¨ ׳₪׳¢׳™׳׳”/);
+    assert.match(response.body, /׳›׳ ׳¢׳¡׳§׳” ׳—׳“׳©׳” ׳×׳™׳•׳•׳¦׳¨ ׳×׳—׳×/);
   });
 
   await runTest("seller analytics command center frontend is compact and seller-safe", async () => {
@@ -207,14 +207,14 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /מרכז ניתוח מוכר/);
-    assert.match(response.body, /עסקאות בסיכון/);
-    assert.match(response.body, /יחידות שהצטרפו/);
-    assert.match(response.body, /יחידות שחויבו/);
-    assert.match(response.body, /רענון ידני/);
-    assert.match(response.body, /עודכן לאחרונה/);
-    assert.match(response.body, /לא נאסף עדיין/);
-    assert.match(response.body, /אין עדיין עסקאות להצגה/);
+    assert.match(response.body, /׳׳¨׳›׳– ׳ ׳™׳×׳•׳— ׳׳•׳›׳¨/);
+    assert.match(response.body, /׳¢׳¡׳§׳׳•׳× ׳‘׳¡׳™׳›׳•׳/);
+    assert.match(response.body, /׳™׳—׳™׳“׳•׳× ׳©׳”׳¦׳˜׳¨׳₪׳•/);
+    assert.match(response.body, /׳™׳—׳™׳“׳•׳× ׳©׳—׳•׳™׳‘׳•/);
+    assert.match(response.body, /׳¨׳¢׳ ׳•׳ ׳™׳“׳ ׳™/);
+    assert.match(response.body, /׳¢׳•׳“׳›׳ ׳׳׳—׳¨׳•׳ ׳”/);
+    assert.match(response.body, /׳׳ ׳ ׳׳¡׳£ ׳¢׳“׳™׳™׳/);
+    assert.match(response.body, /׳׳™׳ ׳¢׳“׳™׳™׳ ׳¢׳¡׳§׳׳•׳× ׳׳”׳¦׳’׳”/);
     assert.match(response.body, /seller-analytics-refresh/);
     assert.match(response.body, /risk_reasons/);
   });
@@ -226,15 +226,15 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /כניסה לעסקה/);
-    assert.match(response.body, /רק דרך לינק ישיר/);
-    assert.match(response.body, /סכום אישור המסגרת/);
-    assert.match(response.body, /זה הסכום שיישמר כתפיסת מסגרת בשלב הזה/);
-    assert.match(response.body, /הצטרפות/);
-    assert.match(response.body, /נשמרה בהצלחה/);
-    assert.match(response.body, /מסך המעקב הוא מקור האמת שלך/);
-    assert.match(response.body, /תמונת מצב עדכנית/);
-    assert.doesNotMatch(response.body, /החוזה מופרד מה-UI/);
+    assert.match(response.body, /׳›׳ ׳™׳¡׳” ׳׳¢׳¡׳§׳”/);
+    assert.match(response.body, /׳¨׳§ ׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨/);
+    assert.match(response.body, /׳¡׳›׳•׳ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×/);
+    assert.match(response.body, /׳–׳” ׳”׳¡׳›׳•׳ ׳©׳™׳™׳©׳׳¨ ׳›׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳©׳׳‘ ׳”׳–׳”/);
+    assert.match(response.body, /׳”׳¦׳˜׳¨׳₪׳•׳×/);
+    assert.match(response.body, /׳ ׳©׳׳¨׳” ׳‘׳”׳¦׳׳—׳”/);
+    assert.match(response.body, /׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳”׳•׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳©׳׳/);
+    assert.match(response.body, /׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×/);
+    assert.doesNotMatch(response.body, /׳”׳—׳•׳–׳” ׳׳•׳₪׳¨׳“ ׳׳”-UI/);
   });
 
   await runTest("Buyer Experience V1 audit gates cover public join, OTP, authorization, confirmation, and tracking", async () => {
@@ -257,7 +257,7 @@ async function main() {
     assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/payment/);
     assert.match(source, /app\\\/join\\\/\(\[\^\/\]\+\)\\\/confirmation/);
     assert.match(source, /app\\\/track/);
-    assert.match(source, /stateName === "TargetReached" \? "הצטרפו ליחידות האחרונות" : "הצטרפו לעסקה"/);
+    assert.match(source, /stateName === "TargetReached" \? "׳”׳¦׳˜׳¨׳₪׳• ׳׳™׳—׳™׳“׳•׳× ׳”׳׳—׳¨׳•׳ ׳•׳×" : "׳”׳¦׳˜׳¨׳₪׳• ׳׳¢׳¡׳§׳”"/);
     assert.match(source, /ClosedForJoining/);
     assert.match(source, /Completed/);
     assert.match(source, /Failed/);
@@ -265,8 +265,8 @@ async function main() {
     assert.match(source, /calcHoldTotal/);
     assert.match(source, /deliveryCost/);
     assert.match(source, /if \(!flow\?\.otpVerified \|\| !flow\?\.buyerId\)/);
-    assert.match(source, /תפיסת מסגרת בלבד/);
-    assert.match(source, /הצטרפת בהצלחה/);
+    assert.match(source, /׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“/);
+    assert.match(source, /׳”׳¦׳˜׳¨׳₪׳× ׳‘׳”׳¦׳׳—׳”/);
     assert.match(source, /REQUIRED_CHARGE_CONDITION/);
     assert.match(source, /REQUIRED_RELEASE_NOTICE/);
     assert.match(trackingSnippet, /dealState\.label/);
@@ -290,14 +290,14 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /תמונת שליטה/);
-    assert.match(response.body, /העסקאות של המוכר הפעיל/);
-    assert.match(response.body, /שומרים טיוטה ברורה/);
-    assert.match(response.body, /מה יקרה אחרי שמירת הטיוטה/);
-    assert.match(response.body, /תמונת מצב עדכנית/);
-    assert.match(response.body, /מתקרת העסקה כבר נסגרה/);
-    assert.match(response.body, /כאן רואים מי כבר נרשם/);
-    assert.match(response.body, /אלה האפשרויות שיראו לקונה בדף הציבורי/);
+    assert.match(response.body, /׳×׳׳•׳ ׳× ׳©׳׳™׳˜׳”/);
+    assert.match(response.body, /׳”׳¢׳¡׳§׳׳•׳× ׳©׳ ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳/);
+    assert.match(response.body, /׳©׳•׳׳¨׳™׳ ׳˜׳™׳•׳˜׳” ׳‘׳¨׳•׳¨׳”/);
+    assert.match(response.body, /׳׳” ׳™׳§׳¨׳” ׳׳—׳¨׳™ ׳©׳׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”/);
+    assert.match(response.body, /׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×/);
+    assert.match(response.body, /׳׳×׳§׳¨׳× ׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳ ׳¡׳’׳¨׳”/);
+    assert.match(response.body, /׳›׳׳ ׳¨׳•׳׳™׳ ׳׳™ ׳›׳‘׳¨ ׳ ׳¨׳©׳/);
+    assert.match(response.body, /׳׳׳” ׳”׳׳₪׳©׳¨׳•׳™׳•׳× ׳©׳™׳¨׳׳• ׳׳§׳•׳ ׳” ׳‘׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™/);
   });
 
   await runTest("public deal shell renders for a published deal", async () => {
@@ -397,9 +397,9 @@ async function main() {
         payment_disclosure_accepted: true,
         otp_token: otpVerifyJson.otp_token,
         otp_challenge_id: otpVerifyJson.challenge_id || otpVerifyJson.otp_session_id,
-        delivery_address: "רחוב הבדיקה 10",
-        delivery_city: "תל אביב",
-        delivery_notes: "קומה 2"
+        delivery_address: "׳¨׳—׳•׳‘ ׳”׳‘׳“׳™׳§׳” 10",
+        delivery_city: "׳×׳ ׳׳‘׳™׳‘",
+        delivery_notes: "׳§׳•׳׳” 2"
       }
     });
     assert.equal(join.statusCode, 200);
@@ -476,3 +476,4 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
+

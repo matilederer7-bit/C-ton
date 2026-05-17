@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Validates the seller delivery handoff Excel export:
  * - Contains only eligible buyers (ChargedSuccess/RecoveredCharge)
  * - Includes all required columns
@@ -70,13 +70,13 @@ async function createAndPublishDeal(suffix: string) {
   const pr = await app.inject({
     method: "POST",
     url: `/deals/${body.deal_id}/publish`,
-    payload: { seller_id: SELLER_ID, seller_terms_accepted: true }
+    payload: { seller_id: SELLER_ID, seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.ok(pr.statusCode === 200 || pr.statusCode === 202, `publish failed ${pr.statusCode}: ${pr.body}`);
   return body.deal_id as string;
 }
 
-// ── Test: export endpoint exists and returns binary/xlsx or blocked for non-Completed ──
+// ג”€ג”€ Test: export endpoint exists and returns binary/xlsx or blocked for non-Completed ג”€ג”€
 await run("export endpoint returns xlsx or non-200 for non-Completed deal", async () => {
   await ensureSellerProfile();
   const ts = Date.now();
@@ -101,13 +101,13 @@ await run("export endpoint returns xlsx or non-200 for non-Completed deal", asyn
     assert.ok(!cd.includes("tracking") && !cd.includes("shipping"), `filename must not imply logistics: ${cd}`);
     console.log(`    XLSX returned (deal may be Completed): content-type=${ct}`);
   } else {
-    // Non-Completed blocked — acceptable
+    // Non-Completed blocked ג€” acceptable
     assert.ok([400, 403, 404, 409, 422].includes(r.statusCode), `unexpected status ${r.statusCode}: ${r.body}`);
-    console.log(`    non-Completed deal blocked from export — status ${r.statusCode} as expected`);
+    console.log(`    non-Completed deal blocked from export ג€” status ${r.statusCode} as expected`);
   }
 });
 
-// ── Test: export response body never contains internal payment refs ────────────
+// ג”€ג”€ Test: export response body never contains internal payment refs ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("export response has no internal payment provider refs", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishDeal(`noref-${ts}`);
@@ -126,7 +126,7 @@ await run("export response has no internal payment provider refs", async () => {
   }
 });
 
-// ── Test: export has no logistics/tracking fields in response ─────────────────
+// ג”€ג”€ Test: export has no logistics/tracking fields in response ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("export has no tracking/shipped/delivered fields", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishDeal(`nolog-${ts}`);
@@ -144,7 +144,7 @@ await run("export has no tracking/shipped/delivered fields", async () => {
   }
 });
 
-// ── Test: handoff JSON has required columns for Excel construction ─────────────
+// ג”€ג”€ Test: handoff JSON has required columns for Excel construction ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("handoff JSON response includes required delivery fields for export", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishDeal(`fields-${ts}`);
@@ -177,9 +177,9 @@ await run("handoff JSON response includes required delivery fields for export", 
     }
     console.log(`    all required fields present (${body.buyers.length} buyers)`);
   } else {
-    // Deal not Completed — validate it's blocked properly
+    // Deal not Completed ג€” validate it's blocked properly
     assert.ok([400, 403, 404, 409, 422].includes(r.statusCode), `unexpected status ${r.statusCode}: ${r.body}`);
-    console.log(`    non-Completed deal blocked from handoff — status ${r.statusCode}`);
+    console.log(`    non-Completed deal blocked from handoff ג€” status ${r.statusCode}`);
   }
 });
 
@@ -187,3 +187,4 @@ console.log("\nAll seller_delivery_excel_export_validation checks completed.");
 } finally {
   await closeImportedApp();
 }
+

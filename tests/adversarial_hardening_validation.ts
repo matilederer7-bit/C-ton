@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -192,8 +192,8 @@ async function main() {
     const created = await createDeal("Idempotency Deal", "idem");
     const sameKey = `adversarial-publish-${Date.now()}`;
 
-    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true })).statusCode, 200);
-    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true })).statusCode, 200);
+    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })).statusCode, 200);
+    assert.equal((await post(`/deals/${created.deal_id}/publish`, sameKey, { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })).statusCode, 200);
 
     const firstJoinKey = `adversarial-join-${Date.now()}`;
     const otp = await verifiedOtpForBuyer("buyer-idem", created.deal_id, "idem");
@@ -326,3 +326,4 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
+

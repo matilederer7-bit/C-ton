@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { app } from "../src/app.js";
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
@@ -58,7 +58,7 @@ async function publishDeal(dealId: string, suffix: string, seller?: { seller_id?
       "x-request-id": `product-surface-publish-${unique}`,
       "idempotency-key": `product-surface-publish-${unique}`
     },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
 
   assert.equal(response.statusCode, 200);
@@ -156,12 +156,12 @@ async function main() {
     assert.equal(response.statusCode, 200);
     const payload = response.json() as any;
     assert.deepEqual(payload.site.core_surfaces, [
-      "אתר מותג ודף פתיחה למוכרים",
-      "יצירת עסקה וניהול עסקה למוכר",
-      "דף עסקה ציבורי מבוסס לינק",
-      "מסלול הצטרפות קונה עם אימות והרשאה",
-      "מסך מעקב לקונה",
-      "ניהול בסיסי לעסקאות מוכר"
+      "׳׳×׳¨ ׳׳•׳×׳’ ׳•׳“׳£ ׳₪׳×׳™׳—׳” ׳׳׳•׳›׳¨׳™׳",
+      "׳™׳¦׳™׳¨׳× ׳¢׳¡׳§׳” ׳•׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳” ׳׳׳•׳›׳¨",
+      "׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™ ׳׳‘׳•׳¡׳¡ ׳׳™׳ ׳§",
+      "׳׳¡׳׳•׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳§׳•׳ ׳” ׳¢׳ ׳׳™׳׳•׳× ׳•׳”׳¨׳©׳׳”",
+      "׳׳¡׳ ׳׳¢׳§׳‘ ׳׳§׳•׳ ׳”",
+      "׳ ׳™׳”׳•׳ ׳‘׳¡׳™׳¡׳™ ׳׳¢׳¡׳§׳׳•׳× ׳׳•׳›׳¨"
     ]);
   });
 
@@ -242,7 +242,7 @@ async function main() {
         "x-request-id": "wrong-seller-publish",
         "idempotency-key": `wrong-seller-publish:${alphaDeal.deal_id}`
       },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(wrongSellerPublish.statusCode, 404);
   });
@@ -373,3 +373,4 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
+

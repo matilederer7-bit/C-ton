@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { app } from "../src/app.js";
 
@@ -86,7 +86,7 @@ async function buildChargingParticipant(suffix: string, buyerId: string) {
   const created = await createDeal(`Charging Deal ${suffix}`, unique);
 
   const publish = await post(`/deals/${created.deal_id}/publish`, `publish-${unique}`, {
-    seller_terms_accepted: true
+    seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
   });
   assert.equal(publish.statusCode, 200);
 
@@ -372,3 +372,4 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
+

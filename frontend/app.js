@@ -63,10 +63,7 @@ const state = {
     deliveryOptionId: "",
     phone: "",
     code: "",
-    holderName: "",
-    cardNumber: "",
-    expiry: "",
-    cvv: "",
+    payerName: "",
     sellerTitle: "",
     sellerDescription: "",
     sellerImageDataUrl: "",
@@ -93,6 +90,8 @@ const state = {
     sellerSupportEmail: "",
     sellerBizDesc: "",
     sellerBizId: "",
+    sellerPublishCriticalTermsAccepted: "",
+    sellerPublishThresholdAccepted: "",
     chatDisplayName: "",
     chatBody: ""
   }
@@ -197,6 +196,9 @@ const ROUTE_LABELS = {
   terms: "תנאי שימוש",
   privacy: "מדיניות פרטיות",
   refunds: "ביטולים והחזרים",
+  accessibility: "הצהרת נגישות",
+  "seller-terms": "תנאי מוכר",
+  "distributor-terms": "תנאי מפיץ",
   contact: "יצירת קשר",
   "not-found": "עמוד לא נמצא"
 };
@@ -207,7 +209,7 @@ const PAYMENT_READINESS = {
 };
 
 const INTERNAL_SURFACE_ROUTES = new Set(["affiliate", "admin", "admin-support", "admin-deal", "admin-user"]);
-const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "contact"]);
+const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirmation", "tracking", "recovery", "terms", "privacy", "refunds", "accessibility", "seller-terms", "distributor-terms", "contact"]);
 
 const DEAL_TONE = {
   Draft: "warning",
@@ -301,6 +303,9 @@ document.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement)) return;
   if (target.name === "sellerImage") void handleSellerImageSelection(target);
+  if (target.name in state.form && target.type === "checkbox") {
+    state.form[target.name] = target.checked ? "on" : "";
+  }
 });
 
 document.addEventListener("submit", (event) => {
@@ -389,6 +394,9 @@ function parseRoute(path) {
     ["terms", /^\/app\/terms$/],
     ["privacy", /^\/app\/privacy$/],
     ["refunds", /^\/app\/refunds$/],
+    ["accessibility", /^\/app\/accessibility$/],
+    ["seller-terms", /^\/app\/seller-terms$/],
+    ["distributor-terms", /^\/app\/distributor-terms$/],
     ["contact", /^\/app\/contact$/],
     ["seller", /^\/app\/seller$/],
     ["seller-new", /^\/app\/seller\/new$/],
@@ -404,7 +412,7 @@ function parseRoute(path) {
   for (const [name, regex] of patterns) {
     const match = normalized.match(regex);
     if (!match) continue;
-    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "terms" || name === "privacy" || name === "refunds" || name === "contact") {
+    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "terms" || name === "privacy" || name === "refunds" || name === "accessibility" || name === "seller-terms" || name === "distributor-terms" || name === "contact") {
       return { name };
     }
     return name === "tracking" || name === "recovery"
@@ -1008,7 +1016,7 @@ async function submitAction(action, form) {
   if (action === "seller-context") return saveSellerContextFromForm(form);
   if (action === "seller-login") return loginSellerFromForm(form);
   if (action === "seller-logout") return logoutSeller();
-  if (action === "seller-publish") return publishDeal(form.dataset.dealId);
+  if (action === "seller-publish") return publishDeal(form.dataset.dealId, form);
   if (action === "seller-profile-save") return saveSellerProfile(form);
   if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
@@ -1161,11 +1169,10 @@ async function payAndJoin(form) {
   if (deliveryNote.length > 200) {
     return fail("הערה ארוכה מדי", "הערת המשלוח לא יכולה לעלות על 200 תווים.");
   }
+  const hostedPaymentMethodId = String(formData.get("providerPaymentMethodId") || "").trim();
   const payload = {
-    holder_name: String(formData.get("holderName") || "").trim(),
-    card_number: String(formData.get("cardNumber") || "").replace(/\s+/g, ""),
-    expiry: String(formData.get("expiry") || "").trim(),
-    cvv: String(formData.get("cvv") || "").trim(),
+    payer_name: String(formData.get("payerName") || "").trim(),
+    payment_method_id: hostedPaymentMethodId || paymentService.createHostedPaymentMethodId(route.dealId, flow.buyerId),
     amount_minor: Math.round(Number(flow.estimatedTotal || 0) * 100),
     currency: "ILS",
     buyer_id: flow.buyerId,
@@ -1176,7 +1183,7 @@ async function payAndJoin(form) {
     otp_challenge_id: flow.otpChallengeId || undefined
   };
   const issue = validatePayment(payload);
-  if (issue) return fail("׳₪׳¨׳˜׳™ ׳”׳׳©׳¨׳׳™ ׳׳ ׳׳׳׳™׳", issue);
+  if (issue) return fail("חסר אישור מסגרת", issue);
 
   await busy("׳׳׳©׳¨ ׳׳× ׳”׳׳¡׳’׳¨׳× ׳•׳©׳•׳׳¨ ׳׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳×...", async () => {
     const authorization = await paymentService.authorize(payload);
@@ -1286,8 +1293,17 @@ async function uploadSellerDealImage(dealId, image) {
   });
 }
 
-async function publishDeal(dealId) {
+async function publishDeal(dealId, form) {
   if (!dealId) return;
+  const formData = form ? new FormData(form) : null;
+  const criticalTerms = formData ? formData.get("sellerPublishCriticalTermsAccepted") === "on" : Boolean(state.form.sellerPublishCriticalTermsAccepted);
+  const thresholdRule = formData ? formData.get("sellerPublishThresholdAccepted") === "on" : Boolean(state.form.sellerPublishThresholdAccepted);
+  if (!criticalTerms || !thresholdRule) {
+    return fail(
+      "חסרים אישורי פרסום",
+      "לפני פרסום עסקה עם כסף אמיתי צריך לאשר שהתנאים הקריטיים סופיים ושכלל 90% ברור ומקובל."
+    );
+  }
   await busy("׳׳₪׳¨׳¡׳ ׳׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™...", async () => {
     await api(`/deals/${encodeURIComponent(dealId)}/publish`, {
       method: "POST",
@@ -1296,7 +1312,9 @@ async function publishDeal(dealId) {
         "idempotency-key": `seller-publish:${dealId}`
       },
       body: json({
-        seller_terms_accepted: true
+        seller_terms_accepted: true,
+        seller_critical_terms_accepted: criticalTerms,
+        seller_threshold_90_accepted: thresholdRule
       })
     });
     state.banner = {
@@ -1704,10 +1722,7 @@ function restartFlow() {
     deliveryOptionId: "",
     phone: "",
     code: "",
-    holderName: "",
-    cardNumber: "",
-    expiry: "",
-    cvv: "",
+    payerName: "",
     sellerTitle: state.form.sellerTitle,
     sellerDescription: state.form.sellerDescription,
     sellerImageDataUrl: state.form.sellerImageDataUrl,
@@ -1842,6 +1857,9 @@ function renderCurrentRoute() {
   if (route.name === "terms") return renderTermsPage();
   if (route.name === "privacy") return renderPrivacyPage();
   if (route.name === "refunds") return renderRefundsPage();
+  if (route.name === "accessibility") return renderAccessibilityPage();
+  if (route.name === "seller-terms") return renderSellerTermsPage();
+  if (route.name === "distributor-terms") return renderDistributorTermsPage();
   if (route.name === "contact") return renderContactPage();
   if (route.name === "seller") return renderSellerPage();
   if (route.name === "seller-new") return renderSellerNewPage();
@@ -1973,6 +1991,10 @@ function renderDealPage() {
           <div class="trust-point"><span class="muted">׳‘׳©׳׳‘ ׳”׳–׳”</span><strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
           <div class="trust-point"><span class="muted">׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
         </div>
+        <div class="info-strip trust-box">
+          <strong>בהצטרפות תתבצע תפיסת מסגרת בלבד</strong>
+          <p class="small">חיוב בפועל יתבצע רק אם העסקה תיסגר בהצלחה לפי תנאי העסקה.</p>
+        </div>
         ${(() => {
           const s = deal.seller;
           if (!s || !s.business_name) return '';
@@ -1999,7 +2021,7 @@ function renderDealPage() {
         <div class="meter"><span style="width:${Math.max(4, metrics.progress_to_capacity_pct)}%"></span></div>
         <div class="progress-caption"><strong>${num(metrics.progress_to_capacity_pct)}%</strong><span class="muted">׳׳¢׳¡׳§׳” ׳ ׳¢׳ה ׳›׳¨׳’׳¢ ׳‘׳§׳¦׳‘ ׳”׳ ׳•׳›׳—׳™ ׳׳×׳•׳ ׳§׳™׳‘׳•׳׳× ׳›׳•׳׳׳×</span></div>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳™׳¢׳“ ׳‘׳¡׳™׳¡ ׳׳¢׳¡׳§׳”</span><strong>${num(deal.threshold_units)} ׳™׳—'</strong></div>
+          <div class="summary-item"><span class="muted">׳™׳¢׳“ ׳‘׳¡׳™׳¡ ׳׳¢׳¡׳§׳”</span><strong>${num(deal.threshold_units)} ׳™׳—'</strong><p class="small muted">העסקה תיחשב מוצלחת אם יחויבו בפועל לפחות 90% מכמות המינימום. אם פחות מכך יחויב בפועל, העסקה תיכשל והכספים יטופלו לפי מדיניות ההחזרים.</p></div>
           <div class="summary-item"><span class="muted">׳׳§׳¡׳™׳׳•׳ ׳‘׳¢׳¡׳§׳”</span><strong>${num(deal.max_units)} ׳™׳—'</strong></div>
           <div class="summary-item"><span class="muted">׳¡׳’׳™׳¨׳× ׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>${dt(deal.deadline)}</strong></div>
           <div class="summary-item"><span class="muted">׳׳¡׳₪׳¨ ׳׳©׳×׳×׳₪׳™׳</span><strong>${num(metrics.participants_count)}</strong></div>
@@ -2310,15 +2332,15 @@ function renderPaymentPage(dealId) {
           ` : flow.deliveryMethodType === "pickup" ? `
             <div class="info-strip tone-success"><strong>איסוף עצמי</strong><p class="small">פרטי האיסוף יועברו ישירות מהמוכר לאחר השלמת העסקה.</p></div>
           ` : ""}
-          <div class="field"><label for="holderName">׳©׳ ׳‘׳¢׳ ׳”׳›׳¨׳˜׳™׳¡</label><input id="holderName" name="holderName" type="text" data-dir="rtl" value="${esc(state.form.holderName)}" autocomplete="cc-name" /></div>
-          <div class="field"><label for="cardNumber">׳׳¡׳₪׳¨ ׳›׳¨׳˜׳™׳¡</label><input id="cardNumber" name="cardNumber" type="text" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cardNumber)}" autocomplete="cc-number" placeholder="4111111111111111" /></div>
-          <div class="inline-fields">
-            <div class="field"><label for="expiry">׳×׳•׳§׳£</label><input id="expiry" name="expiry" type="text" data-dir="ltr" value="${esc(state.form.expiry)}" autocomplete="cc-exp" placeholder="12/28" /></div>
-            <div class="field"><label for="cvv">CVV</label><input id="cvv" name="cvv" type="password" data-dir="ltr" inputmode="numeric" value="${esc(state.form.cvv)}" autocomplete="cc-csc" placeholder="123" /></div>
+          <div class="info-strip trust-box" aria-live="polite">
+            <strong>פרטי האשראי מוזנים אצל ספק הסליקה</strong>
+            <p class="small">C-ton אינה מציגה ואינה שומרת פרטי כרטיס גולמיים. בלחיצה על האישור יופעל רכיב ספק מאובטח או הפניה מאובטחת, והמערכת תשמור רק מזהה תפעולי של תפיסת המסגרת.</p>
           </div>
+          <div class="field"><label for="payerName">שם למשלם/ת</label><input id="payerName" name="payerName" type="text" data-dir="rtl" value="${esc(state.form.payerName)}" autocomplete="name" /></div>
+          <input type="hidden" id="providerPaymentMethodId" name="providerPaymentMethodId" value="" />
           <label class="check-row"><input type="checkbox" name="buyerTermsAcceptance" checked required /> <span>אני מאשר/ת את תנאי השימוש.</span></label>
           <label class="check-row"><input type="checkbox" name="buyerRefundAcceptance" checked required /> <span>אני מאשר/ת שקראתי את מדיניות הביטולים וההחזרים.</span></label>
-          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר/ת שהבנתי שמדובר בתפיסת מסגרת בלבד ולא בחיוב בפועל עכשיו.</span></label>
+          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר תפיסת מסגרת בלבד. ידוע לי שלא מתבצע חיוב בפועל כעת, ושהחיוב יתבצע רק אם העסקה תיסגר בהצלחה.</span></label>
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
       </aside>
@@ -2354,7 +2376,7 @@ function renderConfirmationPage(dealId) {
         <div class="tracking-next-panel">
           <span class="muted">׳׳” ׳§׳¨׳” ׳¢׳“ ׳¢׳›׳©׳™׳•</span>
           <strong>׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳” ׳•׳ ׳×׳₪׳¡׳” ׳׳¡׳’׳¨׳×</strong>
-          <p class="small muted">לא בוצע חיוב בפועל. ${REQUIRED_CHARGE_CONDITION}. ${REQUIRED_RELEASE_NOTICE}.</p>
+          <p class="small muted">הצטרפת לעסקה. המסגרת נתפסה, אך לא בוצע חיוב בפועל. ${REQUIRED_CHARGE_CONDITION}. ${REQUIRED_RELEASE_NOTICE}.</p>
         </div>
         <div class="trust-band">
           <div class="trust-point"><span class="muted">׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>׳ ׳©׳׳¨׳” ׳‘׳”׳¦׳׳—׳”</strong></div>
@@ -3498,7 +3520,14 @@ function renderSellerDealPage() {
         <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
         <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">׳ת׳מ׳ו׳ ׳ת ׳ה׳§׳¦׳‘ ׳מ׳ו׳ ׳ה׳ק׳י׳ב׳ו׳׳× ׳ה׳כ׳ו׳ל׳׳ת</span></div>
         <div class="actions">
-          ${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}"><button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button></form>` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
+          ${payload.seller_actions.can_publish && !publishBlockedByStatus ? `
+            <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">
+              <label class="check-row"><input type="checkbox" name="sellerPublishCriticalTermsAccepted" required /> <span>אני מאשר שהתנאים הקריטיים של העסקה סופיים ולא ניתנים לשינוי לאחר פרסום.</span></label>
+              <label class="check-row"><input type="checkbox" name="sellerPublishThresholdAccepted" required /> <span>אני מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום, לפי מנגנון C-ton.</span></label>
+              <div class="legal-link-row"><a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a></div>
+              <button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button>
+            </form>
+          ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
           <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
         </div>
@@ -5454,6 +5483,9 @@ function renderLegalLinkRow() {
       <a href="/app/terms" data-nav="/app/terms">׳×׳ ׳׳™ ׳©׳™׳׳•׳©</a>
       <a href="/app/privacy" data-nav="/app/privacy">׳׳“׳™׳ ׳™׳•׳× ׳₪׳¨׳˜׳™׳•׳×</a>
       <a href="/app/refunds" data-nav="/app/refunds">׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳</a>
+      <a href="/app/accessibility" data-nav="/app/accessibility">הצהרת נגישות</a>
+      <a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a>
+      <a href="/app/distributor-terms" data-nav="/app/distributor-terms">תנאי מפיץ</a>
       <a href="/app/contact" data-nav="/app/contact">׳™׳¦׳™׳¨׳× ׳§׳©׳¨</a>
     </div>
   `;
@@ -5559,6 +5591,49 @@ function renderRefundsPage() {
       { title: "׳׳ ׳‘׳•׳¦׳¢ ׳—׳™׳•׳‘ ׳•׳”׳¢׳¡׳§׳” ׳©׳•׳ ׳×׳” ׳׳׳—׳¨ ׳׳›׳", body: "׳‘׳׳§׳¨׳” ׳©׳‘׳• ׳”׳•׳©׳׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳•׳‘׳”׳׳©׳ ׳ ׳“׳¨׳© ׳‘׳™׳˜׳•׳ ׳׳• ׳”׳—׳–׳¨, ׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳•׳”׳¡׳˜׳˜׳•׳¡׳™׳ ׳‘׳׳¢׳¨׳›׳× ׳”׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳׳’׳‘׳™ ׳”׳׳¦׳‘ ׳”׳×׳₪׳¢׳•׳׳™ ׳©׳”׳§׳•׳ ׳” ׳¨׳•׳׳”." },
       { title: "׳׳—׳¨׳™׳•׳× ׳׳”׳¡׳‘׳¨ ׳׳§׳•׳ ׳”", body: "׳”׳׳•׳›׳¨ ׳ ׳“׳¨׳© ׳׳”׳¦׳™׳’ ׳¢׳¡׳§׳” ׳‘׳¨׳•׳¨׳” ׳•׳׳”׳™׳׳ ׳¢ ׳׳™׳¦׳™׳¨׳× ׳₪׳¢׳¨ ׳‘׳™׳ ׳׳” ׳©׳”׳§׳•׳ ׳” ׳׳‘׳™׳ ׳‘׳“׳£ ׳”׳¢׳¡׳§׳” ׳׳‘׳™׳ ׳”׳”׳×׳ ׳”׳’׳•׳× ׳”׳×׳₪׳¢׳•׳׳™׳× ׳©׳ ׳”׳¢׳¡׳§׳” ׳‘׳₪׳•׳¢׳." },
       { title: "׳׳™׳₪׳” ׳¨׳•׳׳™׳ ׳¡׳˜׳˜׳•׳¡", body: "׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳ ׳©׳׳¨ ׳”׳ ׳§׳•׳“׳” ׳”׳₪׳¢׳™׳׳” ׳‘׳™׳•׳×׳¨ ׳׳§׳•׳ ׳” ׳׳—׳¨׳™ ׳”׳¦׳˜׳¨׳₪׳•׳×, ׳•׳‘׳• ׳¨׳•׳׳™׳ ׳”׳׳ ׳ ׳©׳׳¨׳” ׳׳¡׳’׳¨׳×, ׳”׳׳ ׳©׳•׳—׳¨׳¨׳”, ׳•׳”׳׳ ׳—׳ ׳©׳™׳ ׳•׳™ ׳©׳׳¦׳¨׳™׳ ׳׳¢׳§׳‘ ׳ ׳•׳¡׳£." }
+    ]
+  );
+}
+
+function renderAccessibilityPage() {
+  return renderLegalPage(
+    "הצהרת נגישות",
+    "נגישות השירות",
+    "C-ton פועלת להנגיש את השירות הדיגיטלי לפי תי 5568 ו-WCAG 2.0 AA, כדי לאפשר שימוש ברור במקלדת, בקורא מסך, בזום ובמובייל.",
+    [
+      { title: "תקן יעד", body: "השירות מתוכנן לפי דרישות הנגישות בישראל, תי 5568 והנחיות WCAG 2.0 ברמת AA. המשמעות היא מבנה סמנטי, ניווט מקלדת, ניגודיות סבירה, טקסט חלופי לתמונות והודעות סטטוס קריאות." },
+      { title: "מה הונגש", body: "קיימים קישור דילוג לתוכן המרכזי, אזורי header, nav, main ו-footer, תוויות לשדות, הודעות חיות למצבי טעינה ושגיאה, focus-visible ברור, תמיכה בעברית RTL ופריסות מותאמות מובייל." },
+      { title: "מסכי כסף ומעקב", body: "מסכי אימות טלפון, תפיסת מסגרת, אישור הצטרפות ומעקב קונה מציגים טקסט ברור על סטטוס העסקה, סטטוס המסגרת ומה יקרה במקרה של כשל עסקה." },
+      { title: "פנייה בנושא נגישות", body: "אם נתקלת בקושי נגישות בשימוש בשירות, אפשר לפנות אל accessibility@c-ton.co.il בצירוף תיאור הבעיה, הקישור הרלוונטי וסוג המכשיר או הדפדפן." }
+    ]
+  );
+}
+
+function renderSellerTermsPage() {
+  return renderLegalPage(
+    "תנאי מוכר",
+    "פרסום עסקאות",
+    "תנאים אלה חלים על מוכר שפותח או מפרסם עסקה ב-C-ton. המוכר אחראי לפרטי העסקה, למוצר, לאספקה, לאחריות ולשירות.",
+    [
+      { title: "אחריות לפרטי העסקה", body: "המוכר אחראי לכך שכל פרטי העסקה נכונים, מלאים ואינם מטעים: מחיר, מינימום, מקסימום, דדליין, אפשרויות אספקה, חלון השלמה וכל תנאי מהותי אחר." },
+      { title: "תנאים קריטיים", body: "לאחר פרסום אין שינוי שקט של תנאים קריטיים. מחיר, מינימום, מקסימום, דדליין, משלוח, חלון השלמה ועמלות חייבים להיות סופיים לפני פרסום." },
+      { title: "כלל 90%", body: "המוכר מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום לפי יחידות. לכן ייתכן שהעסקה תושלם גם אם לא כל ההתחייבויות חויבו בפועל." },
+      { title: "עמלת C-ton", body: "C-ton גובה 8% כולל הכל מהכל, כולל משלוח, למעט מעמ. אין עמלת מפיצים במערכת וכל הסדר עם מפיץ הוא מחוץ למערכת בלבד." },
+      { title: "KYC והקפאה", body: "מוכר נדרש לאישור KYC בסיסי לפני פעילות אמיתית. C-ton רשאית להקפיא פעילות במקרה של חשד להונאה, תלונה מהותית, בעיית אספקה או סיכון משפטי." }
+    ]
+  );
+}
+
+function renderDistributorTermsPage() {
+  return renderLegalPage(
+    "תנאי מפיץ",
+    "מדידה ושיתוף",
+    "מפיץ ב-C-ton הוא ערוץ מדידה ושיתוף בלבד. אין במערכת יתרה, משיכה, עמלה, payout או חשבונית למפיץ.",
+    [
+      { title: "תפקיד המפיץ", body: "המפיץ משתף לינק ומאפשר ייחוס אנליטי של קליקים, כניסות, הצטרפויות מצרפיות, יחידות מיוחסות וברוטו מיוחס. הנתונים אינם יוצרים זכאות כספית במערכת." },
+      { title: "אין זכאות כספית במערכת", body: "אין עמלה למפיץ, אין יתרה, אין משיכה, אין payout ואין חשבונית למפיץ דרך C-ton. כל הסדר כספי בין מוכר למפיץ נמצא מחוץ למערכת בלבד." },
+      { title: "פרטיות קונים", body: "המפיץ לא מקבל מידע אישי על קונים. משטח ההפצה מציג נתונים מצרפיים בלבד לצורך מדידה." },
+      { title: "שימוש אסור", body: "אסור למפיץ להטעות, להבטיח מחיר אחר, להבטיח זמינות, או להציג עצמו כנציג רשמי של C-ton. C-ton רשאית לחסום לינק הפצה במקרה של שימוש מטעה." }
     ]
   );
 }
@@ -6019,6 +6094,10 @@ async function downloadSellerDealExport(dealId) {
 }
 
 const paymentService = {
+  createHostedPaymentMethodId(dealId, buyerId) {
+    const seed = `${dealId || "deal"}:${buyerId || "buyer"}:${Date.now()}`;
+    return `pm_hosted_${btoa(unescape(encodeURIComponent(seed))).replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`;
+  },
   authorize(paymentDetails) {
     return api("/api/payments/authorize", {
       method: "POST",
@@ -6176,11 +6255,8 @@ function collectSellerDeliveryOptions(formData) {
 }
 
 function validatePayment(payload) {
-  if (!payload.holder_name || !payload.card_number || !payload.expiry || !payload.cvv) {
-    return "׳™׳© ׳׳׳׳ ׳©׳ ׳‘׳¢׳ ׳›׳¨׳˜׳™׳¡, ׳׳¡׳₪׳¨ ׳›׳¨׳˜׳™׳¡, ׳×׳•׳§׳£ ׳•-CVV.";
-  }
-  if (!/^\d{12,19}$/.test(payload.card_number)) {
-    return "׳׳¡׳₪׳¨ ׳”׳›׳¨׳˜׳™׳¡ ׳¦׳¨׳™׳ ׳׳”׳›׳™׳ ׳‘׳™׳ 12 ׳-19 ׳¡׳₪׳¨׳•׳×.";
+  if (!payload.payer_name || !payload.payment_method_id) {
+    return "יש להזין שם למשלם/ת ולאשר את תפיסת המסגרת דרך רכיב ספק הסליקה המאובטח.";
   }
   return "";
 }

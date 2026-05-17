@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
@@ -84,7 +84,7 @@ async function verifiedOtpForBuyer(buyerId: string, dealId: string, suffix: stri
 async function createCompletedChargedDeal(suffix: string) {
   const created = await createDeal(`Master Depth ${suffix}`, suffix);
   await post(`/deals/${created.deal_id}/publish`, `master-depth-publish-${suffix}`, {
-    seller_terms_accepted: true
+    seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
   });
   const buyerId = `buyer-${suffix}-${Date.now()}`;
   const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, suffix);
@@ -229,3 +229,4 @@ main()
     await pool.end().catch(() => undefined);
     process.exit(1);
   });
+

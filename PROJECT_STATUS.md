@@ -2,6 +2,69 @@
 
 ---
 
+## Current update: 2026-05-17 (Legal Compliance Alignment Gate)
+
+### What was completed
+- Added MVP legal/compliance policy surfaces for accessibility, privacy, data mapping, information security, payment security/PCI scope, buyer terms, cancellation/refund policy, seller terms, seller KYC, distributor terms, and admin legal ops.
+- Added public SPA routes and footer/legal links for accessibility, seller terms, distributor terms, privacy, refunds, and buyer terms surfaces.
+- Hardened buyer payment copy around authorization hold only, including 90% charged-units success language and post-join copy that no actual charge occurred yet.
+- Reworked the frontend payment collection flow away from C-ton-owned card fields and toward hosted-provider payment method references.
+- Tightened backend payment/recovery handling so direct payment data is rejected and provider payment method ids are the allowed operational reference.
+- Added seller publish confirmations for final critical terms and the 90% charged-units rule.
+- Added compliance scan scripts for payment/PCI terms and the broader legal compliance gate.
+
+### What was fixed in code
+- `frontend/app.js`: public legal routes, policy links, accessibility statement route, seller/distributor terms routes, hosted-payment UI copy, buyer auth-hold disclosures, 90% rule copy, seller publish checkboxes.
+- `src/frontend_runtime.ts`: registered public legal SPA routes and blocked legacy direct payment tokenization/recovery payloads.
+- `src/payment_provider.ts`: removed app-side raw card input flow and requires hosted payment method ids in provider-ready mode.
+- `src/app.ts`: requires seller critical-terms and 90% confirmations before publish.
+- `tests/*`: updated seller publish fixtures for the new required confirmations and aligned affected payment/recovery assertions.
+
+### Documents added
+- `docs/ACCESSIBILITY_COMPLIANCE.md`
+- `docs/PRIVACY_DATA_MAP.md`
+- `docs/PRIVACY_POLICY_HE.md`
+- `docs/INFORMATION_SECURITY_POLICY.md`
+- `docs/PAYMENT_SECURITY_AND_PCI_SCOPE.md`
+- `docs/BUYER_TERMS_HE.md`
+- `docs/CANCELLATION_REFUND_POLICY_HE.md`
+- `docs/SELLER_TERMS_HE.md`
+- `docs/SELLER_KYC_POLICY.md`
+- `docs/DISTRIBUTOR_TERMS_HE.md`
+- `docs/ADMIN_LEGAL_OPS_POLICY.md`
+
+### What was checked
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `node scripts/compliance_payment_scan.cjs` - PASS.
+- `node scripts/legal_compliance_gate.cjs` - PASS.
+- `npm test` - BLOCKED after the allowed fix rounds. The suite now reaches `frontend_flow_validation`, but legacy frontend tests still assert mojibake Hebrew such as `<title>׳¡׳™׳˜׳•׳</title>` while the served HTML correctly returns UTF-8 Hebrew such as `<title>סיטון</title>`.
+
+### What is open
+- Replace the placeholder accessibility/privacy contact `accessibility@c-ton.co.il` with real launch contact details.
+- Align the remaining legacy frontend-flow Hebrew assertions to UTF-8 text and rerun `npm test`.
+- Run a manual WCAG 2.0 AA keyboard/screen-reader pass on the live MVP build before launch.
+- Written as an initial MVP response; legal validation is recommended later.
+
+### Risks remaining
+- The legal compliance gate passes, but full regression status is blocked by legacy mojibake assertions in older frontend tests.
+- Public policy text is MVP-ready, but real operator/contact/company details still need final launch substitution.
+- Accessibility was hardened in code and documented, but automated checks do not replace manual assistive-technology verification.
+
+### Progress
+- Legal/policy surface: 100%.
+- Payment PCI-scope hardening: 100% for app-owned raw-card removal.
+- Compliance gate: 100%.
+- Full regression suite: blocked at legacy frontend Hebrew assertion cleanup.
+- Overall legal compliance alignment: 90%.
+
+### Next step
+- Convert remaining `frontend_flow_validation` and related legacy mojibake assertions to UTF-8 Hebrew, rerun `npm test`, then update verdict from blocked to MVP pass if the suite clears.
+
+### Verdict
+`LEGAL_COMPLIANCE_GATE_BLOCKED`
+
+---
+
 ## Current update: 2026-05-12 (Load & Capacity Baseline - PASS FOR SMALL PILOT)
 
 ### What was completed

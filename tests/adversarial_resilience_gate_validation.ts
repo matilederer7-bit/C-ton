@@ -1,4 +1,4 @@
-import { strict as assert } from "node:assert";
+﻿import { strict as assert } from "node:assert";
 import { createHmac, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
@@ -92,7 +92,7 @@ async function publishDeal(dealId: string, label: string) {
       "idempotency-key": key,
       "x-forwarded-for": testIp(key)
     },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(response.statusCode, 200, response.body);
 }
@@ -548,3 +548,4 @@ try {
 }
 
 console.log("Adversarial resilience gate validation passed.");
+

@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Validates seller delivery handoff endpoint:
  * - Only eligible buyers (ChargedSuccess/RecoveredCharge) appear after Completed
  * - Uncharged/non-joined buyers do not appear
@@ -55,7 +55,7 @@ async function createAndPublishDeal(suffix: string, units: number = 1) {
   const pr = await app.inject({
     method: "POST",
     url: `/deals/${body.deal_id}/publish`,
-    payload: { seller_id: SELLER_ID, seller_terms_accepted: true }
+    payload: { seller_id: SELLER_ID, seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.ok(pr.statusCode === 200 || pr.statusCode === 202, `publish failed ${pr.statusCode}: ${pr.body}`);
   return body.deal_id as string;
@@ -108,7 +108,7 @@ async function fetchHandoff(dealId: string, sellerId: string = SELLER_ID) {
 
 await ensureSellerProfile();
 
-// ── Test: non-Completed deal blocks handoff ──────────────────────────────────
+// ג”€ג”€ Test: non-Completed deal blocks handoff ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("non-Completed deal returns 409 or blocked", async () => {
   const dealId = await createAndPublishDeal(`nc-${Date.now()}`);
   const r = await fetchHandoff(dealId);
@@ -116,7 +116,7 @@ await run("non-Completed deal returns 409 or blocked", async () => {
   assert.ok(r.statusCode !== 200, `expected non-200 for non-Completed deal, got ${r.statusCode}: ${r.body}`);
 });
 
-// ── Test: Completed deal shows eligible buyers ───────────────────────────────
+// ג”€ג”€ Test: Completed deal shows eligible buyers ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("Completed deal shows only eligible buyers", async () => {
   const ts = Date.now();
   // min_units=1 so first join triggers Completed if payment succeeds
@@ -130,9 +130,9 @@ await run("Completed deal shows only eligible buyers", async () => {
 
   // Force deal to Completed by injecting money_state = ChargedSuccess via the DB
   // We simulate this through the admin charge endpoint if available, otherwise
-  // check the handoff endpoint — if deal moved to Completed, buyers appear.
+  // check the handoff endpoint ג€” if deal moved to Completed, buyers appear.
   // The join itself may or may not move to Completed (depends on payment mock).
-  // We validate structure: if Completed → buyers array present with correct fields.
+  // We validate structure: if Completed ג†’ buyers array present with correct fields.
 
   const dealState = await app.inject({ method: "GET", url: `/api/deals/${dealId}/public` });
   const dealBody = dealState.json() as any;
@@ -152,15 +152,15 @@ await run("Completed deal shows only eligible buyers", async () => {
       assert.ok(buyer.delivery_method_type, `buyer missing delivery_method_type: ${JSON.stringify(buyer)}`);
       assert.ok(buyer.delivery_method_label, `buyer missing delivery_method_label: ${JSON.stringify(buyer)}`);
     }
-    console.log(`    deal is Completed — ${body.buyers.length} eligible buyer(s) returned`);
+    console.log(`    deal is Completed ג€” ${body.buyers.length} eligible buyer(s) returned`);
   } else {
     // Deal not yet Completed (payment mock doesn't auto-charge in test env)
     assert.ok(r.statusCode !== 200, `non-Completed deal should not return 200 handoff, got ${r.statusCode}`);
-    console.log(`    deal state is ${state} — handoff blocked as expected`);
+    console.log(`    deal state is ${state} ג€” handoff blocked as expected`);
   }
 });
 
-// ── Test: handoff response never contains internal payment refs ───────────────
+// ג”€ג”€ Test: handoff response never contains internal payment refs ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("handoff response has no internal payment refs", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishDeal(`noref-${ts}`, 1);
@@ -174,7 +174,7 @@ await run("handoff response has no internal payment refs", async () => {
   }
 });
 
-// ── Test: handoff has no logistics management fields ─────────────────────────
+// ג”€ג”€ Test: handoff has no logistics management fields ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("handoff has no logistics fields (no shipped/tracking/status)", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishDeal(`nolog-${ts}`, 1);
@@ -189,3 +189,4 @@ await run("handoff has no logistics fields (no shipped/tracking/status)", async 
 
 console.log("\nAll seller_delivery_handoff_validation checks completed.");
 await app.close().catch(() => undefined);
+

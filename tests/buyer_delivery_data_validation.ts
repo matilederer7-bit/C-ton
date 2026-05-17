@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Validates buyer delivery data collection at join time.
  * Asserts shipping requires address, pickup does not, delivery_notes has max 200,
  * and data is persisted without state change.
@@ -54,7 +54,7 @@ async function createDeal(suffix: string) {
   const pr = await app.inject({
     method: "POST",
     url: `/deals/${body.deal_id}/publish`,
-    payload: { seller_id: SELLER_ID, seller_terms_accepted: true }
+    payload: { seller_id: SELLER_ID, seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.ok(pr.statusCode === 200 || pr.statusCode === 202, `publish failed ${pr.statusCode}: ${pr.body}`);
   return body.deal_id as string;
@@ -116,7 +116,7 @@ await run("pickup does not require delivery_address", async () => {
       payment_disclosure_accepted: true,
       otp_token: otp.otp_token,
       otp_challenge_id: otp.otp_challenge_id
-      // no delivery_address — should be fine for pickup
+      // no delivery_address ג€” should be fine for pickup
     }
   });
   assert.equal(r.statusCode, 200, `expected 200, got ${r.statusCode}: ${r.body}`);
@@ -132,10 +132,10 @@ await run("shipping with full address saves data", async () => {
       buyer_id: otp.buyer_id,
       qty: 1,
       delivery_option_id: courierOption.option_id,
-      buyer_name: "ישראל ישראלי",
-      delivery_address: "רחוב הרצל 5",
-      delivery_city: "תל אביב",
-      delivery_notes: "קומה 3 דלת שמאל",
+      buyer_name: "׳™׳©׳¨׳׳ ׳™׳©׳¨׳׳׳™",
+      delivery_address: "׳¨׳—׳•׳‘ ׳”׳¨׳¦׳ 5",
+      delivery_city: "׳×׳ ׳׳‘׳™׳‘",
+      delivery_notes: "׳§׳•׳׳” 3 ׳“׳׳× ׳©׳׳׳",
       buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
       otp_token: otp.otp_token,
@@ -150,7 +150,7 @@ await run("shipping with full address saves data", async () => {
 
 await run("delivery_notes over 200 chars is rejected", async () => {
   const otp = await otpVerify(`0504${String(Date.now()).slice(-7)}`);
-  const longNote = "א".repeat(201);
+  const longNote = "׳".repeat(201);
   const r = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
@@ -159,8 +159,8 @@ await run("delivery_notes over 200 chars is rejected", async () => {
       buyer_id: otp.buyer_id,
       qty: 1,
       delivery_option_id: courierOption.option_id,
-      delivery_address: "רחוב הרצל 5",
-      delivery_city: "תל אביב",
+      delivery_address: "׳¨׳—׳•׳‘ ׳”׳¨׳¦׳ 5",
+      delivery_city: "׳×׳ ׳׳‘׳™׳‘",
       delivery_notes: longNote,
       buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
@@ -181,3 +181,4 @@ await run("join does not change deal state", async () => {
 
 console.log("\nAll buyer_delivery_data_validation checks completed.");
 await app.close().catch(() => undefined);
+

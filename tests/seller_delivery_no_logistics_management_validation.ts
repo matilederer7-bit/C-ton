@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Validates that the delivery data handoff feature contains NO logistics management:
  * - No shipped/delivered/tracking_number/delivery_issue endpoints or responses
  * - No refund/capture/void/payout in the handoff path
@@ -30,7 +30,7 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-// ── Test: no logistics management endpoints exist ─────────────────────────────
+// ג”€ג”€ Test: no logistics management endpoints exist ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 // Checks both the previously-existing delivery_records update endpoint AND
 // other patterns that were never built. All must return 404.
 try {
@@ -58,7 +58,7 @@ await run("no shipped/delivered/tracking update endpoints exist", async () => {
   }
 });
 
-// ── Test: no financial action endpoints in handoff path ──────────────────────
+// ג”€ג”€ Test: no financial action endpoints in handoff path ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("no refund/capture/void/payout endpoints in handoff path", async () => {
   const financialRoutes = [
     { method: "POST", url: "/api/seller/deals/fake-deal/delivery-refund" },
@@ -109,7 +109,7 @@ async function createAndPublishNoLogDeal(suffix: string) {
   const pr = await app.inject({
     method: "POST",
     url: `/deals/${deal.deal_id}/publish`,
-    payload: { seller_id: NOLOG_SELLER_ID, seller_terms_accepted: true }
+    payload: { seller_id: NOLOG_SELLER_ID, seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.ok(pr.statusCode === 200 || pr.statusCode === 202, `publish failed ${pr.statusCode}: ${pr.body}`);
   return deal.deal_id as string;
@@ -117,7 +117,7 @@ async function createAndPublishNoLogDeal(suffix: string) {
 
 await ensureNoLogSellerProfile();
 
-// ── Test: handoff endpoint response has no logistics fields ───────────────────
+// ג”€ג”€ Test: handoff endpoint response has no logistics fields ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("handoff JSON response contains no logistics management fields", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishNoLogDeal(`chk-${ts}`);
@@ -139,7 +139,7 @@ await run("handoff JSON response contains no logistics management fields", async
   }
 });
 
-// ── Test: Excel export response has no logistics fields ───────────────────────
+// ג”€ג”€ Test: Excel export response has no logistics fields ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("Excel export has no logistics management fields", async () => {
   const ts = Date.now();
   const dealId = await createAndPublishNoLogDeal(`xl-${ts}`);
@@ -161,7 +161,7 @@ await run("Excel export has no logistics management fields", async () => {
   }
 });
 
-// ── Test: Siton does not send delivery notifications on behalf of seller ───────
+// ג”€ג”€ Test: Siton does not send delivery notifications on behalf of seller ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 await run("no delivery SMS/email notification endpoints exist", async () => {
   const notifyRoutes = [
     { method: "POST", url: "/api/seller/deals/fake-deal/notify-delivery" },
@@ -182,3 +182,4 @@ console.log("\nAll seller_delivery_no_logistics_management_validation checks com
 } finally {
   await closeImportedApp();
 }
+

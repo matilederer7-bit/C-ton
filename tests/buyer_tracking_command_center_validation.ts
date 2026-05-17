@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 
@@ -52,7 +52,7 @@ async function createDeal(suffix: string, opts: { min?: number; max?: number; pu
         "x-request-id": `buyer-tracking-publish-${unique}`,
         "idempotency-key": `buyer-tracking-publish-${unique}`
       },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(publish.statusCode, 200, publish.body);
   }
@@ -315,3 +315,4 @@ try {
   console.error(error);
   process.exit(1);
 }
+

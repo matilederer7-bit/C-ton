@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
@@ -87,7 +87,7 @@ async function buildChargedParticipant(suffix: string, buyerId: string) {
   const unique = `${suffix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
   const created = await createDeal(`Remaining Surface ${suffix}`, unique);
   await post(`/deals/${created.deal_id}/publish`, `remaining-publish-${unique}`, {
-    seller_terms_accepted: true
+    seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
   });
 
   const otp = await verifiedOtpForBuyer(buyerId, created.deal_id, suffix);
@@ -284,3 +284,4 @@ main()
     await pool.end().catch(() => undefined);
     process.exit(1);
   });
+

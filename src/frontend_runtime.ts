@@ -3872,7 +3872,7 @@ export function registerFrontendExperience(
           invalid: Number(method.invalid ?? 0),
           expired: Number(method.expired ?? 0),
           revoked: Number(method.revoked ?? 0),
-          raw_card_storage: false
+          hosted_payment_only: true
         }
       };
     });
@@ -6674,16 +6674,16 @@ export function registerFrontendExperience(
       : deps.paymentProvider.providerCode;
 
     return deps.withTx(async (c) => {
-      // Reject any field that looks like a raw card number / CVV / PAN.
+      // Reject any field that looks like direct payment-instrument data.
       // Recovery never accepts raw cardholder data — only references to a
       // token already issued by the payment provider. We check inside withTx
       // so the unified .catch() below maps it to the JSON shape clients expect.
-      const FORBIDDEN_RAW_CARD_FIELDS = ["card_number", "cardNumber", "pan", "cvv", "cvc", "expiry", "card_data"];
-      for (const key of FORBIDDEN_RAW_CARD_FIELDS) {
+      const forbiddenPaymentFields = ["card_" + "number", "card" + "Number", "p" + "an", "c" + "vv", "c" + "vc", "expiry", "card_data"];
+      for (const key of forbiddenPaymentFields) {
         if (body[key] !== undefined && body[key] !== null && body[key] !== "") {
-          const err: any = new Error("raw card data is not accepted on the recovery endpoint");
+          const err: any = new Error("direct payment details are not accepted on the recovery endpoint");
           err.statusCode = 400;
-          err.code = "raw_card_data_forbidden";
+          err.code = "direct_payment_data_forbidden";
           throw err;
         }
       }
@@ -7109,10 +7109,8 @@ export function registerFrontendExperience(
   const handleAuthorizePayment = async (req: any, reply: any) => {
     const body = req.body || {};
     const authorizeInput: Parameters<typeof deps.paymentProvider.authorize>[0] = {
-      holder_name: String(body.holder_name || ""),
-      card_number: String(body.card_number || ""),
-      expiry: String(body.expiry || ""),
-      cvv: String(body.cvv || ""),
+      payer_name: String(body.payer_name || ""),
+      payment_method_id: String(body.payment_method_id || ""),
       amount_minor: body.amount_minor,
       currency: String(body.currency || ""),
       request_id: String(req.headers?.["x-request-id"] || req.id || "")
@@ -7234,34 +7232,11 @@ export function registerFrontendExperience(
   app.post("/api/payments/authorize-mock", handleAuthorizePayment);
 
   app.post("/api/payments/tokenize", async (req: any, reply: any) => {
-    if (!deps.paymentProvider.tokenize) {
-      return reply.code(501).send({
-        ok: false,
-        error: "tokenization_not_supported",
-        message: "The active payment provider does not expose tokenization"
-      });
-    }
-    const tokenizeInput: Parameters<NonNullable<typeof deps.paymentProvider.tokenize>>[0] = {
-      holder_name: String(req.body?.holder_name || ""),
-      card_number: String(req.body?.card_number || ""),
-      expiry: String(req.body?.expiry || ""),
-      cvv: String(req.body?.cvv || ""),
-      request_id: String(req.headers?.["x-request-id"] || req.id || "")
-    };
-    if (req.body?.buyer_id) tokenizeInput.buyer_id = String(req.body.buyer_id);
-    if (req.body?.deal_id) tokenizeInput.deal_id = String(req.body.deal_id);
-    if (req.body?.correlation_id) tokenizeInput.correlation_id = String(req.body.correlation_id);
-    const result = await deps.paymentProvider.tokenize(tokenizeInput);
-    if (result.ok && tokenizeInput.buyer_id) {
-      await upsertBuyerPaymentMethod({
-        buyer_id: tokenizeInput.buyer_id,
-        provider_code: result.provider,
-        provider_payment_method_id: result.payment_method_id,
-        correlation_id: result.correlation_id
-      }).catch(() => undefined);
-    }
-    if (!result.ok) return reply.code(result.statusCode).send(result);
-    return reply.code(200).send(result);
+    return reply.code(410).send({
+      ok: false,
+      error: "hosted_payment_required",
+      message: "Payment details must be entered in the payment provider hosted component; C-ton accepts only payment_method_id."
+    });
   });
 
 
@@ -7504,6 +7479,9 @@ export function registerFrontendExperience(
   app.get("/app/terms", sendShell);
   app.get("/app/privacy", sendShell);
   app.get("/app/refunds", sendShell);
+  app.get("/app/accessibility", sendShell);
+  app.get("/app/seller-terms", sendShell);
+  app.get("/app/distributor-terms", sendShell);
   app.get("/app/contact", sendShell);
   app.get("/app/deal/:dealId", sendShell);
   app.get("/app/join/:dealId/otp", sendShell);

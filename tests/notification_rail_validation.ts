@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 
@@ -96,7 +96,7 @@ await run("enqueue creates pending notification", async () => {
       deal_id: randomUUID(),
       participant_id: randomUUID(),
       channel: "sms",
-      payload_jsonb: { deal_title: "עסקת בדיקה" },
+      payload_jsonb: { deal_title: "׳¢׳¡׳§׳× ׳‘׳“׳™׳§׳”" },
       idempotency_key: idempotencyKey
     }, pool);
     assert.equal(result, "queued");
@@ -119,7 +119,7 @@ await run("enqueue idempotency keeps one row", async () => {
       deal_id: randomUUID(),
       participant_id: randomUUID(),
       channel: "sms" as const,
-      payload_jsonb: { deal_title: "עסקת בדיקה" },
+      payload_jsonb: { deal_title: "׳¢׳¡׳§׳× ׳‘׳“׳™׳§׳”" },
       idempotency_key: idempotencyKey
     };
     assert.equal(await enqueueNotification(input, pool), "queued");
@@ -144,7 +144,7 @@ await run("dispatch log provider marks sent and records attempt", async () => {
       deal_id: randomUUID(),
       participant_id: randomUUID(),
       channel: "sms",
-      payload_jsonb: { deal_title: "עסקת בדיקה" },
+      payload_jsonb: { deal_title: "׳¢׳¡׳§׳× ׳‘׳“׳™׳§׳”" },
       idempotency_key: idempotencyKey
     }, pool);
     const provider = buildNotificationProvider({}, console);
@@ -176,7 +176,7 @@ await run("invalid event type is rejected", async () => {
       recipient_type: "buyer",
       recipient_ref: "+972501234567",
       channel: "sms",
-      payload_jsonb: { deal_title: "עסקת בדיקה" }
+      payload_jsonb: { deal_title: "׳¢׳¡׳§׳× ׳‘׳“׳™׳§׳”" }
     } as any, pool),
     (error) => error instanceof NotificationValidationError && error.code === "invalid_notification_event_type"
   );
@@ -189,7 +189,7 @@ await run("invalid channel is rejected", async () => {
       recipient_type: "buyer",
       recipient_ref: "+972501234567",
       channel: "push",
-      payload_jsonb: { deal_title: "עסקת בדיקה" }
+      payload_jsonb: { deal_title: "׳¢׳¡׳§׳× ׳‘׳“׳™׳§׳”" }
     } as any, pool),
     (error) => error instanceof NotificationValidationError && error.code === "invalid_notification_channel"
   );
@@ -269,7 +269,7 @@ await run("seller completed notification references Excel without affiliate payo
       deal_id: dealId,
       seller_id: "seller-notification-test",
       channel: "internal",
-      payload_jsonb: { deal_id: dealId, deal_title: "עסקת מוכר" },
+      payload_jsonb: { deal_id: dealId, deal_title: "׳¢׳¡׳§׳× ׳׳•׳›׳¨" },
       idempotency_key: idempotencyKey
     }, pool);
     const event = await getEvent(idempotencyKey);
@@ -301,12 +301,12 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
       url: "/deals",
       headers: { "x-seller-id": sellerId, "x-request-id": `notification-create-${suffix}` },
       payload: {
-        title: "עסקת הודעות",
+        title: "׳¢׳¡׳§׳× ׳”׳•׳“׳¢׳•׳×",
         price_per_unit: 12,
         min_units: 2,
         max_units: 5,
         deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-        delivery_options: [{ option_type: "pickup", label: "איסוף עצמי", cost: 0 }]
+        delivery_options: [{ option_type: "pickup", label: "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™", cost: 0 }]
       }
     });
     assert.equal(create.statusCode, 200, create.body);
@@ -315,7 +315,7 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
       method: "POST",
       url: `/deals/${dealId}/publish`,
       headers: { "x-seller-id": sellerId, "x-request-id": `notification-publish-${suffix}` },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(publish.statusCode, 200, publish.body);
     const option = await pool.query(`SELECT option_id FROM siton.deal_delivery_options WHERE deal_id=$1 LIMIT 1`, [dealId]);
@@ -348,7 +348,7 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
         buyer_terms_accepted: true,
         payment_disclosure_accepted: true,
         otp_token: otpToken,
-        buyer_name: "קונה בדיקה"
+        buyer_name: "׳§׳•׳ ׳” ׳‘׳“׳™׳§׳”"
       }
     });
     assert.equal(join.statusCode, 200, join.body);
@@ -378,3 +378,4 @@ await run("successful join enqueues buyer_joined_authorized", async () => {
 
 await app.close().catch(() => undefined);
 await pool.end();
+

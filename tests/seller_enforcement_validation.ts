@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
@@ -87,7 +87,7 @@ async function publishViaApi(sellerId: string, dealId: string) {
       "idempotency-key": `seller-enforcement-publish:${dealId}:${randomUUID()}`
     },
     payload: {
-      seller_terms_accepted: true
+      seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
     }
   });
 }
@@ -203,3 +203,4 @@ try {
   await app.close().catch(() => undefined);
   await pool.end();
 }
+

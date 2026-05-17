@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { cp, mkdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -92,7 +92,7 @@ async function post(
 
 async function publishDeal(dealId: string, suffix: string) {
   const response = await post(`/deals/${dealId}/publish`, `preprod-publish-${suffix}`, {
-    seller_terms_accepted: true
+    seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
   });
   assert.equal(response.statusCode, 200);
 }
@@ -527,3 +527,4 @@ main()
     await app.close().catch(() => undefined);
     process.exit(1);
   });
+

@@ -1,4 +1,4 @@
-import { strict as assert } from "node:assert";
+﻿import { strict as assert } from "node:assert";
 import pg from "pg";
 import { hashSellerSessionToken } from "../src/seller_auth.js";
 
@@ -110,7 +110,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         "x-request-id": `seller-auth-publish-wrong-${Date.now()}`,
         "idempotency-key": `seller-auth-publish-wrong-${created.deal_id}`
       },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(wrongPublish.statusCode, 404);
 
@@ -133,7 +133,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
         "x-request-id": `seller-auth-publish-right-${Date.now()}`,
         "idempotency-key": `seller-auth-publish-right-${created.deal_id}`
       },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(rightPublish.statusCode, 200);
 
@@ -244,3 +244,4 @@ await run("non-demo create publish close prepare charge and cancel derive author
 });
 
 process.exit(0);
+

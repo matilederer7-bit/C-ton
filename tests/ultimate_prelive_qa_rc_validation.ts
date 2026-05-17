@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
@@ -176,7 +176,7 @@ async function main() {
       max_units: 2
     });
     await post(`/deals/${created.deal_id}/publish`, `ultimate-publish-${Date.now()}`, {
-      seller_terms_accepted: true
+      seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true
     });
 
     const buyerId = `buyer-ultimate-${Date.now()}`;
@@ -311,3 +311,4 @@ main()
     await pool.end().catch(() => undefined);
     process.exit(1);
   });
+

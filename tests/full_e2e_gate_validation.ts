@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -111,7 +111,7 @@ async function publishDeal(dealId: string, sellerId: string, suffix: string) {
     method: "POST",
     url: `/deals/${dealId}/publish`,
     headers: reqHeaders(`publish-${suffix}`, sellerId),
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(response.statusCode, 200, response.body);
 }
@@ -233,7 +233,7 @@ try {
         method: "POST",
         url: `/deals/${blockedDeal}/publish`,
         headers: reqHeaders("publish-blocked", sellerId),
-        payload: { seller_terms_accepted: true }
+        payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
       });
       assert.equal(blocked.statusCode, 409, blocked.body);
       assert.equal((blocked.json() as any).code, "seller_kyc_not_approved");
@@ -615,3 +615,4 @@ try {
   await app.close().catch(() => undefined);
   await pool.end().catch(() => undefined);
 }
+

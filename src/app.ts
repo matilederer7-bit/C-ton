@@ -2720,7 +2720,7 @@ app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
   const body = req.body || {};
-  if (!isAccepted(body.seller_terms_accepted)) {
+  if (!isAccepted(body.seller_terms_accepted) || !isAccepted(body.seller_critical_terms_accepted) || !isAccepted(body.seller_threshold_90_accepted)) {
     const err: any = new Error("seller_terms_required");
     err.statusCode = 400;
     err.code = "seller_terms_required";

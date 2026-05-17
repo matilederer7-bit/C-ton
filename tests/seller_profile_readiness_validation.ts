@@ -1,4 +1,4 @@
-import { strict as assert } from "node:assert";
+﻿import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 const { Pool } = pg;
@@ -62,7 +62,7 @@ async function createPublishableDeal(sellerId: string) {
   // Add required delivery option
   await pool.query(
     `INSERT INTO siton.deal_delivery_options (option_id, deal_id, option_type, label, cost, sort_order)
-     VALUES (gen_random_uuid(), $1, 'pickup', 'איסוף עצמי', 0, 0)`,
+     VALUES (gen_random_uuid(), $1, 'pickup', '׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™', 0, 0)`,
     [dealId]
   );
   return dealId;
@@ -89,7 +89,7 @@ await run("S1: GET profile returns empty profile for new seller", async () => {
 });
 
 // S2: PUT /api/seller/profile requires business_name
-await run("S2: PUT profile without business_name → 400 business_name_required", async () => {
+await run("S2: PUT profile without business_name ג†’ 400 business_name_required", async () => {
   const sellerId = await createSeller("s2");
   const res = await app.inject({
     method: "PUT",
@@ -102,8 +102,8 @@ await run("S2: PUT profile without business_name → 400 business_name_required"
   assert.equal(body.code, "business_name_required");
 });
 
-// S3: PUT profile with business_name only → is_publish_ready still false (no contact)
-await run("S3: PUT profile with business_name only → is_publish_ready false", async () => {
+// S3: PUT profile with business_name only ג†’ is_publish_ready still false (no contact)
+await run("S3: PUT profile with business_name only ג†’ is_publish_ready false", async () => {
   const sellerId = await createSeller("s3");
   const res = await app.inject({
     method: "PUT",
@@ -118,8 +118,8 @@ await run("S3: PUT profile with business_name only → is_publish_ready false", 
   assert.equal(body.profile.is_publish_ready, false);
 });
 
-// S4: PUT profile with business_name + support_phone → is_publish_ready true
-await run("S4: PUT profile with business_name + support_phone → is_publish_ready true", async () => {
+// S4: PUT profile with business_name + support_phone ג†’ is_publish_ready true
+await run("S4: PUT profile with business_name + support_phone ג†’ is_publish_ready true", async () => {
   const sellerId = await createSeller("s4");
   const res = await app.inject({
     method: "PUT",
@@ -134,14 +134,14 @@ await run("S4: PUT profile with business_name + support_phone → is_publish_rea
 });
 
 // S5: Publish blocked when profile is incomplete
-await run("S5: publish deal → 409 seller_profile_incomplete when profile missing", async () => {
+await run("S5: publish deal ג†’ 409 seller_profile_incomplete when profile missing", async () => {
   const sellerId = await createSeller("s5");
   const dealId = await createPublishableDeal(sellerId);
   const res = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/publish`,
     headers: { "x-seller-id": sellerId },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(res.statusCode, 409);
   const body = res.json() as any;
@@ -149,7 +149,7 @@ await run("S5: publish deal → 409 seller_profile_incomplete when profile missi
 });
 
 // S6: Publish succeeds after completing seller profile
-await run("S6: publish deal → 200 after completing seller profile", async () => {
+await run("S6: publish deal ג†’ 200 after completing seller profile", async () => {
   const sellerId = await createSeller("s6");
   // Complete profile with email contact
   const profileRes = await app.inject({
@@ -167,7 +167,7 @@ await run("S6: publish deal → 200 after completing seller profile", async () =
     method: "POST",
     url: `/deals/${dealId}/publish`,
     headers: { "x-seller-id": sellerId },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   const body = res.json() as any;
   assert.equal(res.statusCode, 200, `Expected 200, got ${res.statusCode}: ${JSON.stringify(body)}`);
@@ -179,3 +179,4 @@ await run("S6: publish deal → 200 after completing seller profile", async () =
   await closeImportedApp();
   await pool.end().catch(() => undefined);
 }
+

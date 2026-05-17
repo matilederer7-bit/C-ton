@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
 import "dotenv/config";
@@ -53,7 +53,7 @@ async function createDeal(suffix: string) {
       "x-request-id": `recovery-publish-${unique}`,
       "idempotency-key": `recovery-publish-${unique}`
     },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(publish.statusCode, 200, publish.body);
   return dealId;
@@ -200,7 +200,7 @@ async function setStates(participantId: string, args: {
     if (args.buyerState) {
       const targetPath = BUYER_STATE_PATH[args.buyerState];
       assert.ok(targetPath, `unsupported buyer state ${args.buyerState}`);
-      // Always walk the full path from JoinedAuthorized — this is fresh-join state
+      // Always walk the full path from JoinedAuthorized ג€” this is fresh-join state
       const currentBuyerRow = await client.query(`SELECT buyer_state FROM siton.participants WHERE participant_id=$1`, [participantId]);
       const currentBuyer = currentBuyerRow.rows[0]?.buyer_state as string | undefined;
       const startIdx = targetPath.indexOf(currentBuyer || "JoinedAuthorized");
@@ -503,7 +503,7 @@ async function main() {
     assert.equal(events.length, 1, "partial unique index should prevent duplicate pending recovery_deal");
   });
 
-  await runTest("recovery API rejects raw card data", async () => {
+  await runTest("recovery API rejects direct payment data", async () => {
     const dealOk = await createDeal("raw-card");
     const pid = await joinDeal(dealOk, "rawcard");
     await moveToRecovery(pid, { withinWindow: true });
@@ -514,7 +514,7 @@ async function main() {
       payload: { card_number: "4111111111111111", cvv: "123", expiry: "12/30" }
     });
     assert.equal(r.statusCode, 400, r.body);
-    assert.equal((r.json() as any).error, "raw_card_data_forbidden");
+    assert.equal((r.json() as any).error, "direct_payment_data_forbidden");
 
     const events = await readOutboxRecoveryEvents(dealOk);
     assert.equal(events.length, 0, "raw-card request must not enqueue any recovery job");
@@ -645,3 +645,4 @@ try {
   console.error(error);
   process.exit(1);
 }
+

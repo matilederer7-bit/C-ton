@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import pg from "pg";
@@ -50,7 +50,7 @@ async function createDeal(suffix: string, publish = true) {
         "x-request-id": `deal-chat-publish-${unique}`,
         "idempotency-key": `deal-chat-publish-${unique}`
       },
-      payload: { seller_terms_accepted: true }
+      payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
     });
     assert.equal(publishResponse.statusCode, 200);
   }
@@ -220,3 +220,5 @@ try {
   await pool.end();
   await app.close();
 }
+
+

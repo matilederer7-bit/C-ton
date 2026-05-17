@@ -79,10 +79,7 @@ export type PaymentExecutionResult = {
 };
 
 export type AuthorizePaymentInput = {
-  holder_name: string;
-  card_number: string;
-  expiry: string;
-  cvv: string;
+  payer_name?: string;
   payment_method_id?: string;
   amount_minor?: number;
   currency?: string;
@@ -172,8 +169,8 @@ function rand01Deterministic(key: string) {
   return (x >>> 0) / 0x100000000;
 }
 
-function paymentAuthorizationId(cardNumber: string) {
-  return `auth_${createHash("sha256").update(cardNumber).digest("hex").slice(0, 12)}`;
+function paymentAuthorizationId(paymentMethodId: string) {
+  return `auth_${createHash("sha256").update(paymentMethodId).digest("hex").slice(0, 12)}`;
 }
 
 function buildAuthorizationCorrelationId() {
@@ -186,20 +183,6 @@ function buildCaptureCorrelationId() {
 
 function buildRecoveryCorrelationId() {
   return `payrec_${randomUUID().replace(/-/g, "")}`;
-}
-
-function parseExpiry(expiry: string) {
-  const match = String(expiry || "").trim().match(/^(\d{2})\s*\/\s*(\d{2}|\d{4})$/);
-  if (!match) return null;
-  const month = Number(match[1]);
-  if (!Number.isInteger(month) || month < 1 || month > 12) return null;
-  const rawYear = String(match[2]);
-  const year = rawYear.length === 2 ? Number(`20${rawYear}`) : Number(rawYear);
-  if (!Number.isInteger(year) || year < 2000 || year > 2100) return null;
-  return {
-    expiry_month: String(month).padStart(2, "0"),
-    expiry_year: String(year)
-  };
 }
 
 function normalizeProviderBaseUrl(raw: string) {
@@ -343,36 +326,22 @@ function buildMockPaymentProvider(): PaymentProvider {
     webhookProvider: PAYMENT_WEBHOOK_PROVIDER,
     configured: true,
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
-      const holderName = String(input.holder_name || "").trim();
-      const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
-      const expiry = String(input.expiry || "").trim();
-      const cvv = String(input.cvv || "").trim();
+      const payerName = String(input.payer_name || "").trim();
+      const paymentMethodId = String(input.payment_method_id || "").trim();
 
-      if (!holderName || !cardNumber || !expiry || !cvv) {
+      if (!payerName || !paymentMethodId) {
         return {
           ok: false,
           provider: PAYMENT_PROVIDER,
-          error: "payment_details_required",
-          message: "holder_name, card_number, expiry and cvv are required",
+          error: "hosted_payment_method_required",
+          message: "payer_name and payment_method_id are required",
           statusCode: 400,
           retryable: false,
           mock: true
         };
       }
 
-      if (!/^\d{12,19}$/.test(cardNumber)) {
-        return {
-          ok: false,
-          provider: PAYMENT_PROVIDER,
-          error: "invalid_card_number",
-          message: "card number must contain 12 to 19 digits",
-          statusCode: 400,
-          retryable: false,
-          mock: true
-        };
-      }
-
-      if (cardNumber.endsWith(PAYMENT_AUTH_DECLINE_SUFFIX)) {
+      if (paymentMethodId.endsWith(PAYMENT_AUTH_DECLINE_SUFFIX)) {
         return {
           ok: false,
           provider: PAYMENT_PROVIDER,
@@ -387,8 +356,8 @@ function buildMockPaymentProvider(): PaymentProvider {
       return {
         ok: true,
         provider: PAYMENT_PROVIDER,
-        authorization_id: paymentAuthorizationId(cardNumber),
-        provider_reference: paymentAuthorizationId(cardNumber),
+        authorization_id: paymentAuthorizationId(paymentMethodId),
+        provider_reference: paymentAuthorizationId(paymentMethodId),
         correlation_id: buildAuthorizationCorrelationId(),
         authorization: "authorized",
         hold_message: "Authorization accepted. Final capture happens only if the deal completes successfully.",
@@ -497,33 +466,18 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
     webhookProvider: PAYMENT_WEBHOOK_PROVIDER,
     configured,
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
-      const holderName = String(input.holder_name || "").trim();
-      const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
-      const expiry = String(input.expiry || "").trim();
-      const cvv = String(input.cvv || "").trim();
-      const expiryParts = parseExpiry(expiry);
+      const payerName = String(input.payer_name || "").trim();
+      const paymentMethodId = String(input.payment_method_id || "").trim();
       const amountMinor = Number(input.amount_minor);
       const currency = String(input.currency || "").trim().toUpperCase();
       const correlationId = String(input.correlation_id || "").trim() || buildAuthorizationCorrelationId();
       const requestId = String(input.request_id || "").trim() || correlationId;
 
-      if (!holderName || !cardNumber || !expiry || !cvv) {
+      if (!payerName || !paymentMethodId) {
         return authorizationValidationFailure(
-          "holder_name, card_number, expiry and cvv are required",
-          "payment_details_required"
+          "payer_name and payment_method_id are required",
+          "hosted_payment_method_required"
         );
-      }
-
-      if (!/^\d{12,19}$/.test(cardNumber)) {
-        return authorizationValidationFailure("card number must contain 12 to 19 digits", "invalid_card_number");
-      }
-
-      if (!expiryParts) {
-        return authorizationValidationFailure("expiry must be in MM/YY format", "invalid_expiry");
-      }
-
-      if (!/^\d{3,4}$/.test(cvv)) {
-        return authorizationValidationFailure("cvv must contain 3 or 4 digits", "invalid_cvv");
       }
 
       if (!Number.isInteger(amountMinor) || amountMinor <= 0) {
@@ -561,14 +515,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
             buyer_id: input.buyer_id ? String(input.buyer_id) : undefined,
             deal_id: input.deal_id ? String(input.deal_id) : undefined,
             payment_method: {
-              type: "card",
-              card: {
-                holder_name: holderName,
-                card_number: cardNumber,
-                expiry_month: expiryParts.expiry_month,
-                expiry_year: expiryParts.expiry_year,
-                cvv
-              }
+              type: "hosted",
+              id: paymentMethodId,
+              payer_name: payerName
             }
           }),
           signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
@@ -883,113 +832,17 @@ function buildStripePaymentProvider(): PaymentProvider {
   const configured = PAYMENT_PROVIDER === "stripe" && Boolean(PAYMENT_PROVIDER_API_KEY);
   const providerCode = "stripe";
   const webhookProvider = PAYMENT_WEBHOOK_PROVIDER || "stripe";
-  const rawServerSideCardAllowed = stripeServerSideRawCardAllowed();
-
   async function tokenize(input: TokenizePaymentInput): Promise<PaymentTokenizationResult> {
-    const holderName = String(input.holder_name || "").trim();
-    const cardNumber = String(input.card_number || "").replace(/\s+/g, "");
-    const expiryParts = parseExpiry(String(input.expiry || "").trim());
-    const cvv = String(input.cvv || "").trim();
     const correlationId = String(input.correlation_id || "").trim() || `stripe_tok_${randomUUID().replace(/-/g, "")}`;
-
-    if (!rawServerSideCardAllowed) {
-      return {
-        ok: false,
-        provider: providerCode,
-        error: "server_side_card_tokenization_disabled",
-        message: "Use Stripe.js/Elements to create payment_method_id; raw card tokenization is disabled on this server.",
-        statusCode: 403,
-        retryable: false,
-        mock: false
-      };
-    }
-
-    if (!holderName || !cardNumber || !expiryParts || !/^\d{3,4}$/.test(cvv)) {
-      return {
-        ok: false,
-        provider: providerCode,
-        error: "invalid_payment_method_input",
-        message: "holder_name, valid card number, expiry and cvv are required",
-        statusCode: 400,
-        retryable: false,
-        mock: false
-      };
-    }
-
-    if (!configured) {
-      return {
-        ok: false,
-        provider: providerCode,
-        error: "stripe_not_configured",
-        message: "PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_API_KEY",
-        statusCode: 503,
-        retryable: true,
-        mock: false
-      };
-    }
-
-    try {
-      const { response, payload } = await stripePost("/v1/payment_methods", {
-        type: "card",
-        "card[number]": cardNumber,
-        "card[exp_month]": expiryParts.expiry_month,
-        "card[exp_year]": expiryParts.expiry_year,
-        "card[cvc]": cvv,
-        "billing_details[name]": holderName,
-        "metadata[buyer_id]": input.buyer_id ? String(input.buyer_id) : undefined,
-        "metadata[deal_id]": input.deal_id ? String(input.deal_id) : undefined,
-        "metadata[correlation_id]": correlationId
-      }, correlationId);
-
-      if (!response.ok || payload?.error) {
-        const resultClass = stripeResultClass(response.status, payload);
-        return {
-          ok: false,
-          provider: providerCode,
-          error: String(payload?.error?.code || payload?.error?.type || "stripe_tokenization_failed"),
-          message: stripeErrorMessage(payload, "Stripe rejected payment method tokenization"),
-          statusCode: response.status,
-          retryable: resultClass === "temporary_fail",
-          mock: false
-        };
-      }
-
-      const paymentMethodId = String(payload?.id || "").trim();
-      if (!paymentMethodId) {
-        return {
-          ok: false,
-          provider: providerCode,
-          error: "stripe_tokenization_missing_payment_method",
-          message: "Stripe response did not include payment method id",
-          statusCode: 502,
-          retryable: true,
-          mock: false
-        };
-      }
-
-      return {
-        ok: true,
-        provider: providerCode,
-        payment_method_id: paymentMethodId,
-        provider_reference: paymentMethodId,
-        correlation_id: correlationId,
-        mock: false
-      };
-    } catch (error: any) {
-      const timeout =
-        error?.name === "TimeoutError" ||
-        error?.name === "AbortError" ||
-        String(error?.message || "").toLowerCase().includes("timed out");
-      return {
-        ok: false,
-        provider: providerCode,
-        error: timeout ? "stripe_tokenization_timeout" : "stripe_tokenization_unreachable",
-        message: timeout ? "Stripe tokenization timed out" : "Stripe tokenization could not be reached",
-        statusCode: timeout ? 504 : 503,
-        retryable: true,
-        mock: false
-      };
-    }
+    return {
+      ok: false,
+      provider: providerCode,
+      error: "hosted_payment_required",
+      message: "Use Stripe.js/Elements to create payment_method_id; C-ton server routes do not accept raw payment details.",
+      statusCode: 403,
+      retryable: false,
+      mock: false
+    };
   }
 
   function executionFromStripeFailure(args: {
@@ -1097,17 +950,12 @@ function buildStripePaymentProvider(): PaymentProvider {
 
       let paymentMethodId = String(input.payment_method_id || "").trim();
       if (!paymentMethodId) {
-        if (!rawServerSideCardAllowed) {
-          return authorizationValidationFailure(
-            "payment_method_id is required; raw card authorization is disabled on this server",
-            "payment_method_required",
-            403,
-            false
-          );
-        }
-        const tokenized = await tokenize({ ...input, correlation_id: `tokenize:${correlationId}` });
-        if (!tokenized.ok) return tokenized;
-        paymentMethodId = tokenized.payment_method_id;
+        return authorizationValidationFailure(
+          "payment_method_id is required; use the provider hosted payment component",
+          "payment_method_required",
+          403,
+          false
+        );
       }
 
       try {
@@ -1346,7 +1194,7 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     refund_transport_live: provider.mode !== "mock-backed" && provider.configured,
     webhook_verification_live: provider.mode === "stripe" && provider.configured,
     payment_reconcile_live: provider.mode !== "mock-backed",
-    server_side_raw_card_tokenization_allowed:
+    hosted_payment_required:
       provider.mode === "stripe" ? stripeServerSideRawCardAllowed() : provider.mode !== "mock-backed",
     pci_tokenization_policy:
       provider.mode === "stripe"

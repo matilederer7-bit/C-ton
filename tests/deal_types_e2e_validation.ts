@@ -1,18 +1,18 @@
-// Deal Types E2E Gate — proves physical / voucher / ticket flows work
+﻿// Deal Types E2E Gate ג€” proves physical / voucher / ticket flows work
 // against the real runtime (in-process Fastify + real Postgres demo bootstrap).
 //
 // Scope:
-//   • physical_product regression: default deal_type, delivery options, public page.
-//   • voucher full flow: create → public → buyer join → drive Completed →
+//   ג€¢ physical_product regression: default deal_type, delivery options, public page.
+//   ג€¢ voucher full flow: create ג†’ public ג†’ buyer join ג†’ drive Completed ג†’
 //     fulfillment_units issued only for eligible (ChargedSuccess/RecoveredCharge),
-//     plaintext code never persisted, qty=N → N units, idempotent issuance,
+//     plaintext code never persisted, qty=N ג†’ N units, idempotent issuance,
 //     buyer tracking surfaces last4 only when eligible, voucher-export
 //     Completed-only + eligible-only + CSV-injection-safe, redeem requires
 //     seller ownership + idempotent + no money/state mutation.
-//   • ticket full flow: same shape with event_name / venue / ticket-export.
-//   • failed-deal scenario: deadline_check Failed path issues no fulfillment.
-//   • Mission Control: deal_type_readiness + fulfillment_readiness + trace.
-//   • Refund + JSON boundary regressions remain green.
+//   ג€¢ ticket full flow: same shape with event_name / venue / ticket-export.
+//   ג€¢ failed-deal scenario: deadline_check Failed path issues no fulfillment.
+//   ג€¢ Mission Control: deal_type_readiness + fulfillment_readiness + trace.
+//   ג€¢ Refund + JSON boundary regressions remain green.
 //
 // Out of scope (covered by other suites): full mock charge race coverage
 // (full_e2e_gate), recovery edge matrix (buyer_recovery_flow_validation),
@@ -32,7 +32,7 @@ process.env.MOCK_SEED = "1";
 process.env.PORT = "3498";
 // Set the completion window to a negative value so it's stamped in the past at
 // charge time. The DB trigger forbids updating completion_window_until once
-// set, so we cannot rewind it after the fact — we have to bias the worker's
+// set, so we cannot rewind it after the fact ג€” we have to bias the worker's
 // initial stamp instead. handleFinalizeDealEvent then sees `now() >= window`
 // immediately and proceeds.
 process.env.COMPLETION_WINDOW_MINUTES = "-1";
@@ -120,7 +120,7 @@ async function publishDeal(dealId: string, sellerId: string, suffix: string) {
     method: "POST",
     url: `/deals/${dealId}/publish`,
     headers: reqHeaders(`publish-${suffix}`, sellerId),
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(response.statusCode, 200, response.body);
 }
@@ -225,7 +225,7 @@ async function driveDealToFinalState(dealId: string, sellerId: string, suffix: s
 
   // Process the charge_deal outbox event. The worker (a) hits the mock
   // provider per participant in ChargingAttempt/ChargeAttempt and (b) on
-  // success transitions deal_state Charging → CompletionWindow and enqueues
+  // success transitions deal_state Charging ג†’ CompletionWindow and enqueues
   // a finalize_deal outbox event. Because COMPLETION_WINDOW_MINUTES=-1, the
   // deal's completion_window_until is stamped in the past immediately.
   //
@@ -293,22 +293,22 @@ const VOUCHER_TERMS_BASE = {
   currency: "ILS",
   valid_from: new Date(Date.now() - 86_400_000).toISOString(),
   valid_until: new Date(Date.now() + 90 * 86_400_000).toISOString(),
-  redemption_location: "מסעדת הדגים, רחוב הים 12, תל אביב",
-  redemption_instructions: "להציג את הקוד בקופה לפני התשלום.",
-  terms: "תקף לארוחה אחת לכל סועד. לא ניתן לפצל.",
+  redemption_location: "׳׳¡׳¢׳“׳× ׳”׳“׳’׳™׳, ׳¨׳—׳•׳‘ ׳”׳™׳ 12, ׳×׳ ׳׳‘׳™׳‘",
+  redemption_instructions: "׳׳”׳¦׳™׳’ ׳׳× ׳”׳§׳•׳“ ׳‘׳§׳•׳₪׳” ׳׳₪׳ ׳™ ׳”׳×׳©׳׳•׳.",
+  terms: "׳×׳§׳£ ׳׳׳¨׳•׳—׳” ׳׳—׳× ׳׳›׳ ׳¡׳•׳¢׳“. ׳׳ ׳ ׳™׳×׳ ׳׳₪׳¦׳.",
   is_single_use: true,
   allow_partial_redemption: false,
   voucher_code_mode: "system_generated"
 };
 
 const TICKET_TERMS_BASE = {
-  event_name: "הופעת ג'אז במועדון בלוז",
+  event_name: "׳”׳•׳₪׳¢׳× ׳’'׳׳– ׳‘׳׳•׳¢׳“׳•׳ ׳‘׳׳•׳–",
   event_starts_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
   event_ends_at: new Date(Date.now() + 30 * 86_400_000 + 3 * 60 * 60_000).toISOString(),
-  venue_name: "מועדון הבלוז",
-  venue_address: "רחוב אלנבי 50",
-  venue_city: "תל אביב",
-  entry_instructions: "כניסה מגיל 18 בלבד עם תעודה מזהה.",
+  venue_name: "׳׳•׳¢׳“׳•׳ ׳”׳‘׳׳•׳–",
+  venue_address: "׳¨׳—׳•׳‘ ׳׳׳ ׳‘׳™ 50",
+  venue_city: "׳×׳ ׳׳‘׳™׳‘",
+  entry_instructions: "׳›׳ ׳™׳¡׳” ׳׳’׳™׳ 18 ׳‘׳׳‘׳“ ׳¢׳ ׳×׳¢׳•׳“׳” ׳׳–׳”׳”.",
   ticket_type: "general_admission",
   seat_mode: "general_admission",
   transfer_allowed: false
@@ -323,10 +323,10 @@ let voucherEligibleParticipantId = "";
 let ticketEligibleParticipantId = "";
 
 try {
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // A. Physical Product Regression
-  // ─────────────────────────────────────────────────────────────────────────
-  await run("A1: physical_product default — omitting deal_type still creates a physical deal", async () => {
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+  await run("A1: physical_product default ג€” omitting deal_type still creates a physical deal", async () => {
     physicalSellerId = `seller-dt-physical-${RUN_ID}`;
     await seedSeller(physicalSellerId);
     const created = await createDeal({
@@ -334,7 +334,7 @@ try {
       suffix: "physical-default",
       body: {
         delivery_options: [
-          { option_type: "pickup", label: "איסוף מהחנות", cost: 0, sort_order: 0 }
+          { option_type: "pickup", label: "׳׳™׳¡׳•׳£ ׳׳”׳—׳ ׳•׳×", cost: 0, sort_order: 0 }
         ]
       }
     });
@@ -362,7 +362,7 @@ try {
         min_units: 1,
         max_units: 3,
         delivery_options: [
-          { option_type: "pickup", label: "איסוף מהחנות", cost: 0, sort_order: 0 }
+          { option_type: "pickup", label: "׳׳™׳¡׳•׳£ ׳׳”׳—׳ ׳•׳×", cost: 0, sort_order: 0 }
         ]
       }
     });
@@ -383,10 +383,10 @@ try {
     assert.equal(trackJson.fulfillment.ticket_terms, null);
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // B. Voucher Full Flow
-  // ─────────────────────────────────────────────────────────────────────────
-  await run("B1: voucher create — voucher_terms required, deal_voucher_terms persisted, public exposes terms + copy", async () => {
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+  await run("B1: voucher create ג€” voucher_terms required, deal_voucher_terms persisted, public exposes terms + copy", async () => {
     voucherSellerId = `seller-dt-voucher-${RUN_ID}`;
     await seedSeller(voucherSellerId);
 
@@ -415,7 +415,7 @@ try {
       sellerId: voucherSellerId,
       suffix: "voucher-ok",
       body: {
-        title: "שובר ארוחה זוגית",
+        title: "׳©׳•׳‘׳¨ ׳׳¨׳•׳—׳” ׳–׳•׳’׳™׳×",
         deal_type: "voucher",
         min_units: 2,
         max_units: 12,
@@ -444,14 +444,14 @@ try {
     assert.equal(publicJson.deal.delivery_options.length, 0, "physical delivery options must be suppressed for voucher deals");
     assert.equal(publicJson.deal.voucher_terms.face_value_amount, 100);
     assert.equal(publicJson.deal.ticket_terms, null);
-    assert.match(publicJson.deal.fulfillment_copy.disclaimer, /יונפק רק לאחר/);
-    assert.match(publicJson.deal.fulfillment_copy.headline, /שובר/);
+    assert.match(publicJson.deal.fulfillment_copy.disclaimer, /׳™׳•׳ ׳₪׳§ ׳¨׳§ ׳׳׳—׳¨/);
+    assert.match(publicJson.deal.fulfillment_copy.headline, /׳©׳•׳‘׳¨/);
   });
 
-  await run("B2: voucher buyer flow — no code before Completed, fulfillment issued only for eligible, qty=N → N units, no plaintext code in DB", async () => {
-    // Four buyers with mixed qty so we can verify qty=N → N units across
-    // varied N. min_units=2 → threshold=2, max_units=12. Total 4×2=8 unit
-    // attempts at 75% mock success — probability all fail is ~0.001%, so
+  await run("B2: voucher buyer flow ג€” no code before Completed, fulfillment issued only for eligible, qty=N ג†’ N units, no plaintext code in DB", async () => {
+    // Four buyers with mixed qty so we can verify qty=N ג†’ N units across
+    // varied N. min_units=2 ג†’ threshold=2, max_units=12. Total 4ֳ—2=8 unit
+    // attempts at 75% mock success ג€” probability all fail is ~0.001%, so
     // we can rely on at least one Completed eligible buyer.
     const buyerA = await joinDeal({ dealId: voucherDealId, suffix: "voucher-A", qty: 3 });
     assert.equal(buyerA.response.statusCode, 200, buyerA.response.body);
@@ -474,7 +474,7 @@ try {
     assert.equal(preJson.deal_type, "voucher");
     assert.equal(preJson.fulfillment.eligible, false);
     assert.equal(preJson.fulfillment.units.length, 0);
-    assert.match(preJson.fulfillment.copy.headline, /עדיין לא הונפק/);
+    assert.match(preJson.fulfillment.copy.headline, /׳¢׳“׳™׳™׳ ׳׳ ׳”׳•׳ ׳₪׳§/);
     // Voucher terms surface even pre-completion (they describe the offer).
     assert.equal(preJson.fulfillment.voucher_terms.face_value_amount, 100);
 
@@ -487,7 +487,7 @@ try {
     );
     assert.ok(eligible.length >= 1, "expected at least one eligible participant");
 
-    // Re-issue (idempotency check) — must not duplicate units.
+    // Re-issue (idempotency check) ג€” must not duplicate units.
     await issueFulfillmentForCompletedDeal(voucherDealId);
     await issueFulfillmentForCompletedDeal(voucherDealId);
 
@@ -517,7 +517,7 @@ try {
       }
     }
 
-    // Plaintext codes must not be persisted anywhere — assert no column with
+    // Plaintext codes must not be persisted anywhere ג€” assert no column with
     // 'plaintext' or 'code_text' exists; assert metadata_jsonb is empty.
     const meta = await pool.query(
       `SELECT metadata_jsonb FROM siton.fulfillment_units WHERE deal_id=$1`,
@@ -531,7 +531,7 @@ try {
     }
   });
 
-  await run("B3: voucher tracking — eligible buyer sees last4, ineligible buyer sees nothing", async () => {
+  await run("B3: voucher tracking ג€” eligible buyer sees last4, ineligible buyer sees nothing", async () => {
     const tracking = await app.inject({
       method: "GET",
       url: `/api/participants/${voucherEligibleParticipantId}/tracking`
@@ -556,7 +556,7 @@ try {
     }
   });
 
-  await run("B4: voucher-export — Completed-only, eligible-only, CSV-injection neutralized, no plaintext code", async () => {
+  await run("B4: voucher-export ג€” Completed-only, eligible-only, CSV-injection neutralized, no plaintext code", async () => {
     const exportRes = await app.inject({
       method: "GET",
       url: `/api/seller/deals/${voucherDealId}/voucher-export`,
@@ -580,7 +580,7 @@ try {
       }
     }
 
-    // Wrong type → 409.
+    // Wrong type ג†’ 409.
     const wrongType = await app.inject({
       method: "GET",
       url: `/api/seller/deals/${voucherDealId}/ticket-export`,
@@ -589,7 +589,7 @@ try {
     assert.equal(wrongType.statusCode, 409, wrongType.body);
   });
 
-  await run("B5: voucher redeem — seller ownership enforced + idempotent + does not change money/state", async () => {
+  await run("B5: voucher redeem ג€” seller ownership enforced + idempotent + does not change money/state", async () => {
     const unitRow = await pool.query(
       `SELECT fulfillment_unit_id FROM siton.fulfillment_units
         WHERE deal_id=$1 AND status='Issued'
@@ -650,10 +650,10 @@ try {
     assert.equal(dealStateAfter.rows[0].state, dealStateBefore.rows[0].state);
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // C. Ticket Full Flow
-  // ─────────────────────────────────────────────────────────────────────────
-  await run("C1: ticket create — ticket_terms required, deal_ticket_terms persisted, public exposes event copy", async () => {
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+  await run("C1: ticket create ג€” ticket_terms required, deal_ticket_terms persisted, public exposes event copy", async () => {
     ticketSellerId = `seller-dt-ticket-${RUN_ID}`;
     await seedSeller(ticketSellerId);
 
@@ -682,7 +682,7 @@ try {
       sellerId: ticketSellerId,
       suffix: "ticket-ok",
       body: {
-        title: "כרטיס להופעת ג'אז",
+        title: "׳›׳¨׳˜׳™׳¡ ׳׳”׳•׳₪׳¢׳× ׳’'׳׳–",
         deal_type: "ticket",
         min_units: 2,
         max_units: 12,
@@ -696,7 +696,7 @@ try {
       [ticketDealId]
     );
     assert.equal(tt.rowCount, 1);
-    assert.match(String(tt.rows[0].event_name), /ג'אז/);
+    assert.match(String(tt.rows[0].event_name), /׳’'׳׳–/);
 
     await publishDeal(ticketDealId, ticketSellerId, "ticket");
     const publicDeal = await app.inject({ method: "GET", url: `/api/deals/${ticketDealId}/public` });
@@ -705,13 +705,13 @@ try {
     assert.equal(pj.deal.deal_type, "ticket");
     assert.equal(pj.deal.delivery_options.length, 0);
     assert.equal(pj.deal.voucher_terms, null);
-    assert.match(pj.deal.ticket_terms.event_name, /ג'אז/);
+    assert.match(pj.deal.ticket_terms.event_name, /׳’'׳׳–/);
     assert.equal(pj.deal.ticket_terms.seat_mode, "general_admission");
-    assert.match(pj.deal.fulfillment_copy.disclaimer, /יונפק רק לאחר/);
-    assert.match(pj.deal.fulfillment_copy.headline, /כרטיס/);
+    assert.match(pj.deal.fulfillment_copy.disclaimer, /׳™׳•׳ ׳₪׳§ ׳¨׳§ ׳׳׳—׳¨/);
+    assert.match(pj.deal.fulfillment_copy.headline, /׳›׳¨׳˜׳™׳¡/);
   });
 
-  await run("C2: ticket buyer flow — no code before Completed, qty=N → N tickets, eligibility-gated", async () => {
+  await run("C2: ticket buyer flow ג€” no code before Completed, qty=N ג†’ N tickets, eligibility-gated", async () => {
     // Multiple buyers to dampen mock variance (see B2 reasoning).
     const buyer = await joinDeal({ dealId: ticketDealId, suffix: "ticket-buyer", qty: 2 });
     assert.equal(buyer.response.statusCode, 200, buyer.response.body);
@@ -731,8 +731,8 @@ try {
     assert.equal(pj.deal_type, "ticket");
     assert.equal(pj.fulfillment.eligible, false);
     assert.equal(pj.fulfillment.units.length, 0);
-    assert.match(pj.fulfillment.copy.headline, /הכרטיס עדיין לא הונפק/);
-    assert.match(pj.fulfillment.ticket_terms.event_name, /ג'אז/);
+    assert.match(pj.fulfillment.copy.headline, /׳”׳›׳¨׳˜׳™׳¡ ׳¢׳“׳™׳™׳ ׳׳ ׳”׳•׳ ׳₪׳§/);
+    assert.match(pj.fulfillment.ticket_terms.event_name, /׳’'׳׳–/);
 
     const final = await driveDealToFinalState(ticketDealId, ticketSellerId, "ticket");
     assert.equal(final.dealState, "Completed", `expected Completed, got ${final.dealState}`);
@@ -765,7 +765,7 @@ try {
     }
   });
 
-  await run("C3: ticket-export + ticket check-in — ownership + idempotency + no money mutation", async () => {
+  await run("C3: ticket-export + ticket check-in ג€” ownership + idempotency + no money mutation", async () => {
     const exp = await app.inject({
       method: "GET",
       url: `/api/seller/deals/${ticketDealId}/ticket-export`,
@@ -814,9 +814,9 @@ try {
     assert.equal((again.json() as any).idempotent, true);
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // D. Failed Deal Must Not Issue Fulfillment
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   await run("D1: voucher deal that fails deadline_check issues no fulfillment_units", async () => {
     const failSellerId = `seller-dt-fail-${RUN_ID}`;
     await seedSeller(failSellerId);
@@ -824,7 +824,7 @@ try {
       sellerId: failSellerId,
       suffix: "fail-voucher",
       body: {
-        title: "שובר שיכשל",
+        title: "׳©׳•׳‘׳¨ ׳©׳™׳›׳©׳",
         deal_type: "voucher",
         min_units: 5, // require 5 units, no buyers will join
         max_units: 10,
@@ -836,8 +836,8 @@ try {
     await publishDeal(failDealId, failSellerId, "fail-voucher");
 
     // Process the deadline_check outbox event. handleDeadlineCheck does NOT
-    // compare against the deal's deadline column — it transitions
-    // PendingTarget → Failed whenever total joined < threshold. With 0 buyers
+    // compare against the deal's deadline column ג€” it transitions
+    // PendingTarget ג†’ Failed whenever total joined < threshold. With 0 buyers
     // and threshold=ceil(0.9*5)=5, the deal fails.
     const dl = await pool.query(
       `SELECT event_uuid FROM siton.outbox_events
@@ -859,9 +859,9 @@ try {
     assert.equal(Number(units.rows[0].c), 0, "Failed deal must have ZERO fulfillment units");
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // E. Mission Control
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   await run("E1: Mission Control exposes deal_type_readiness + fulfillment_readiness with no anomalies", async () => {
     const mission = await app.inject({
       method: "GET",
@@ -890,7 +890,7 @@ try {
   await run("E2: deal trace exposes deal_type and surfaces voucher/ticket terms via existing endpoints", async () => {
     // Trace endpoint surfaces audit_log/outbox/payment_attempts; voucher/ticket
     // terms surface via the public/seller endpoints (already verified). Trace
-    // existence is sufficient here — keeps Mission Control coverage tight.
+    // existence is sufficient here ג€” keeps Mission Control coverage tight.
     const trace = await app.inject({
       method: "GET",
       url: `/api/admin/mission-control/deals/${voucherDealId}/trace`,
@@ -901,10 +901,10 @@ try {
     assert.ok(Array.isArray(body.audit_last_events));
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // F. Refund + JSON Boundary Regression Hooks
-  // ─────────────────────────────────────────────────────────────────────────
-  await run("F1: no manual refund route exists for voucher/ticket — admin manual_refund still rejected", async () => {
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
+  await run("F1: no manual refund route exists for voucher/ticket ג€” admin manual_refund still rejected", async () => {
     // Confirm there's no admin/seller refund endpoint reachable for voucher/ticket.
     for (const path of [
       `/api/seller/deals/${voucherDealId}/refund`,
@@ -921,7 +921,7 @@ try {
     }
   });
 
-  await run("F2: fulfillment_units.metadata_jsonb is empty / metadata-only — never used as truth", async () => {
+  await run("F2: fulfillment_units.metadata_jsonb is empty / metadata-only ג€” never used as truth", async () => {
     const rows = await pool.query(
       `SELECT metadata_jsonb FROM siton.fulfillment_units LIMIT 50`
     );
@@ -960,9 +960,9 @@ try {
     }
   });
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   // G. Webhook + recovery boundary
-  // ─────────────────────────────────────────────────────────────────────────
+  // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
   await run("G1: webhook charge_captured replay on Completed voucher participant is ignored idempotently", async () => {
     const eligible = await pool.query(
       `SELECT participant_id FROM siton.participants
@@ -1001,3 +1001,4 @@ try {
   await app.close().catch(() => undefined);
   await pool.end().catch(() => undefined);
 }
+

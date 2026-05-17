@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import pg from "pg";
@@ -56,12 +56,12 @@ async function createDeal(sellerId: string, suffix = randomUUID()) {
       "idempotency-key": `legal-create-${suffix}`
     },
     payload: {
-      title: `עסקת אמון ${suffix}`,
+      title: `׳¢׳¡׳§׳× ׳׳׳•׳ ${suffix}`,
       price_per_unit: 20,
       min_units: 2,
       max_units: 6,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "איסוף עצמי", cost: 0 }]
+      delivery_options: [{ option_type: "pickup", label: "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™", cost: 0 }]
     }
   });
   assert.equal(response.statusCode, 200, response.body);
@@ -77,7 +77,7 @@ async function publishDeal(dealId: string, sellerId: string, suffix = randomUUID
       "x-request-id": `legal-publish-${suffix}`,
       "idempotency-key": `legal-publish-${suffix}`
     },
-    payload: { seller_terms_accepted: true }
+    payload: { seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }
   });
   assert.equal(response.statusCode, 200, response.body);
 }
@@ -229,10 +229,11 @@ await run("public deal footer and UI wording stay trust-safe", async () => {
   const appJs = await app.inject({ method: "GET", url: "/app/assets/app.js" });
   assert.match(appJs.body, /\/app\/terms/);
   assert.match(appJs.body, /\/app\/refunds/);
-  assert.doesNotMatch(appJs.body, /שלם עכשיו/);
-  assert.doesNotMatch(appJs.body, /שילמת/);
-  assert.doesNotMatch(appJs.body, /סיטון תספק את המוצר/);
+  assert.doesNotMatch(appJs.body, /׳©׳׳ ׳¢׳›׳©׳™׳•/);
+  assert.doesNotMatch(appJs.body, /׳©׳™׳׳׳×/);
+  assert.doesNotMatch(appJs.body, /׳¡׳™׳˜׳•׳ ׳×׳¡׳₪׳§ ׳׳× ׳”׳׳•׳¦׳¨/);
 });
 
 await app.close().catch(() => undefined);
 await pool.end();
+

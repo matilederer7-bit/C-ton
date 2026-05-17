@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, rm } from "node:fs/promises";
@@ -150,8 +150,8 @@ async function seedDeliveryOptions(dealId: string) {
     await pool.query(
       `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
        VALUES
-         ($1, 'pickup', 'איסוף עצמי', 0, 0),
-         ($1, 'delivery', 'שליח עד הבית', 18, 1)`,
+         ($1, 'pickup', '׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™', 0, 0),
+         ($1, 'delivery', '׳©׳׳™׳— ׳¢׳“ ׳”׳‘׳™׳×', 18, 1)`,
       [dealId]
     );
   } finally {
@@ -195,7 +195,7 @@ async function publishDeal(dealId: string) {
       "idempotency-key": unique,
       "x-seller-id": "seller-default"
     },
-    body: JSON.stringify({ seller_terms_accepted: true })
+    body: JSON.stringify({ seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })
   });
 
   assert.equal(response.status, 200);
@@ -257,9 +257,9 @@ async function createJoinedParticipant(dealId: string) {
       payment_disclosure_accepted: true,
       otp_token: otpVerify.json?.otp_token,
       otp_challenge_id: otpVerify.json?.challenge_id || otpVerify.json?.otp_session_id,
-      delivery_address: "רחוב הדפדפן 10",
-      delivery_city: "תל אביב",
-      delivery_notes: "קומה 2"
+      delivery_address: "׳¨׳—׳•׳‘ ׳”׳“׳₪׳“׳₪׳ 10",
+      delivery_city: "׳×׳ ׳׳‘׳™׳‘",
+      delivery_notes: "׳§׳•׳׳” 2"
     })
   });
   assert.equal(joinResult.response.status, 200);
@@ -290,7 +290,7 @@ async function main() {
   try {
     await waitForHealth();
 
-    const created = await createDeal("עסקת smoke לדפדפן");
+    const created = await createDeal("׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳");
     await publishDeal(created.deal_id);
     const joined = await createJoinedParticipant(created.deal_id);
 
@@ -298,17 +298,17 @@ async function main() {
       {
         name: "public deal",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "deal-hero-layout", "cta-panel"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "deal-hero-layout", "cta-panel"]
       },
       {
         name: "seller workspace",
         path: "/app/seller",
-        expect: ["עסקת smoke לדפדפן", "workspace-focus-grid", "seller-board-section"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "workspace-focus-grid", "seller-board-section"]
       },
       {
         name: "seller deal",
         path: `/app/seller/deals/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "seller-deal-control-grid", "שליח עד הבית"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "seller-deal-control-grid", "׳©׳׳™׳— ׳¢׳“ ׳”׳‘׳™׳×"]
       },
       {
         name: "buyer tracking",
@@ -318,17 +318,17 @@ async function main() {
       {
         name: "admin dashboard",
         path: "/app/admin",
-        expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid", "חיפוש תפעולי"]
+        expect: ["׳׳¨׳›׳– ׳©׳׳™׳˜׳” ׳×׳₪׳¢׳•׳׳™", "Omnisearch ׳׳“׳׳™׳", "admin-urgency-grid", "׳—׳™׳₪׳•׳© ׳×׳₪׳¢׳•׳׳™"]
       },
       {
         name: "admin deal",
         path: `/app/admin/deals/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "admin-ops-hero-grid", "admin-ops-grid"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "admin-ops-hero-grid", "admin-ops-grid"]
       },
       {
         name: "participant ops",
         path: `/app/admin/participants/${joined.participantId}`,
-        expect: [joined.participantId, "התראות למשתתף", "Outbox רלוונטי"]
+        expect: [joined.participantId, "׳”׳×׳¨׳׳•׳× ׳׳׳©׳×׳×׳£", "Outbox ׳¨׳׳•׳•׳ ׳˜׳™"]
       }
     ];
 
@@ -336,7 +336,7 @@ async function main() {
       {
         name: "public deal mobile",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "cta-panel"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "cta-panel"]
       },
       {
         name: "seller workspace mobile",
@@ -346,7 +346,7 @@ async function main() {
       {
         name: "seller deal mobile",
         path: `/app/seller/deals/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "seller-deal-control-grid"]
+        expect: ["׳¢׳¡׳§׳× smoke ׳׳“׳₪׳“׳₪׳", "seller-deal-control-grid"]
       },
       {
         name: "buyer tracking mobile",
@@ -356,7 +356,7 @@ async function main() {
       {
         name: "admin dashboard mobile",
         path: "/app/admin",
-        expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid"]
+        expect: ["׳׳¨׳›׳– ׳©׳׳™׳˜׳” ׳×׳₪׳¢׳•׳׳™", "Omnisearch ׳׳“׳׳™׳", "admin-urgency-grid"]
       }
     ];
 
@@ -414,3 +414,4 @@ main().catch((error) => {
   console.error(error);
   process.exit(1);
 });
+
