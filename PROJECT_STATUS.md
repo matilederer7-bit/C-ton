@@ -2,6 +2,42 @@
 
 ---
 
+## Current update: 2026-05-17 (UTF-8 Test Expectation Cleanup)
+
+### What was completed
+- Fixed stale mojibake Hebrew expectations in `tests/full_product_surface_validation.ts`.
+- Cleaned related product/frontend surface smoke fixtures in `tests/frontend_browser_smoke_validation.ts`.
+- Cleaned buyer delivery Hebrew fixture data in `tests/buyer_delivery_data_validation.ts`.
+- Kept the product/runtime UTF-8 output unchanged; only tests were updated.
+- Kept legal compliance, payment scan, and hosted/provider payment principles unchanged.
+
+### What was fixed
+- Product core surfaces now expect valid UTF-8 Hebrew labels.
+- Browser smoke test data now uses valid UTF-8 Hebrew for delivery labels, deal title, admin labels, address text, and expected rendered UI text.
+- Buyer delivery data fixtures now use valid UTF-8 Hebrew buyer/address/note values.
+- The browser smoke authorize fixture also uses `payment_method_id` rather than legacy direct card-like fields.
+
+### What was checked
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `node scripts/compliance_payment_scan.cjs` - PASS.
+- `node scripts/legal_compliance_gate.cjs` - PASS.
+- `npm test` - PASS.
+
+### What is open
+- Non-blocking older non-surface fixture files still contain historical mojibake sample text and can be cleaned in a separate broad fixture hygiene pass if desired.
+
+### Progress
+- UTF-8 cleanup for the blocking product/frontend/surface tests: 100%.
+- Full regression suite: 100% passing.
+
+### Next step
+- Continue normal release readiness work; no legal/payment regression blocker remains from this cleanup.
+
+### Verdict
+`FULL_TEST_SUITE_PASS_AFTER_UTF8_CLEANUP`
+
+---
+
 ## Current update: 2026-05-17 (Full Test Contract Cleanup after Legal Compliance Alignment)
 
 ### What was completed

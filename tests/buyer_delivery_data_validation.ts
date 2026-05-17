@@ -132,10 +132,10 @@ await run("shipping with full address saves data", async () => {
       buyer_id: otp.buyer_id,
       qty: 1,
       delivery_option_id: courierOption.option_id,
-      buyer_name: "׳™׳©׳¨׳׳ ׳™׳©׳¨׳׳׳™",
-      delivery_address: "׳¨׳—׳•׳‘ ׳”׳¨׳¦׳ 5",
-      delivery_city: "׳×׳ ׳׳‘׳™׳‘",
-      delivery_notes: "׳§׳•׳׳” 3 ׳“׳׳× ׳©׳׳׳",
+      buyer_name: "ישראל ישראלי",
+      delivery_address: "רחוב הרצל 5",
+      delivery_city: "תל אביב",
+      delivery_notes: "קומה 3 דלת שמאל",
       buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
       otp_token: otp.otp_token,
@@ -150,7 +150,7 @@ await run("shipping with full address saves data", async () => {
 
 await run("delivery_notes over 200 chars is rejected", async () => {
   const otp = await otpVerify(`0504${String(Date.now()).slice(-7)}`);
-  const longNote = "׳".repeat(201);
+  const longNote = "א".repeat(201);
   const r = await app.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
@@ -159,8 +159,8 @@ await run("delivery_notes over 200 chars is rejected", async () => {
       buyer_id: otp.buyer_id,
       qty: 1,
       delivery_option_id: courierOption.option_id,
-      delivery_address: "׳¨׳—׳•׳‘ ׳”׳¨׳¦׳ 5",
-      delivery_city: "׳×׳ ׳׳‘׳™׳‘",
+      delivery_address: "רחוב הרצל 5",
+      delivery_city: "תל אביב",
       delivery_notes: longNote,
       buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
