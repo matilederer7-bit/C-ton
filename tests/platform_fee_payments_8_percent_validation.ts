@@ -152,19 +152,32 @@ await runTest("recovered charge computes the same fixed 8% fee model", async () 
   }
 });
 
-await runTest("VAT is excluded from the 8% fee base and added only on Siton fee", () => {
+await runTest("canonical 1000 gross computes 8% platform fee plus VAT and seller net", () => {
+  const money = calculatePlatformFeeMoney({
+    grossAmount: 1000
+  });
+  assert.equal(money.gross_amount, 1000);
+  assert.equal(money.platform_fee_base_amount, 80);
+  assert.equal(money.platform_fee_vat_rate, 0.18);
+  assert.equal(money.platform_fee_vat_amount, 14.4);
+  assert.equal(money.platform_fee_total_amount, 94.4);
+  assert.equal(money.platform_fee_amount, 94.4);
+  assert.equal(money.seller_net_amount, 905.6);
+});
+
+await runTest("VAT input is tracked but does not reduce the platform fee gross base", () => {
   const money = calculatePlatformFeeMoney({
     grossAmount: 118,
     vatAmount: 18
   });
   assert.equal(money.gross_amount, 118);
   assert.equal(money.vat_amount, 18);
-  assert.equal(money.fee_base_amount, 100);
-  assert.equal(money.platform_fee_base_amount, 8);
-  assert.equal(money.platform_fee_vat_amount, 1.44);
-  assert.equal(money.platform_fee_total_amount, 9.44);
-  assert.equal(money.platform_fee_amount, 9.44);
-  assert.equal(money.seller_net_amount, 108.56);
+  assert.equal(money.fee_base_amount, 118);
+  assert.equal(money.platform_fee_base_amount, 9.44);
+  assert.equal(money.platform_fee_vat_amount, 1.7);
+  assert.equal(money.platform_fee_total_amount, 11.14);
+  assert.equal(money.platform_fee_amount, 11.14);
+  assert.equal(money.seller_net_amount, 106.86);
   assert.ok(!Object.prototype.hasOwnProperty.call(money, "affiliate_fee_amount"));
 });
 

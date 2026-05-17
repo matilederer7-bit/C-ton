@@ -2,6 +2,56 @@
 
 ---
 
+## Current update: 2026-05-17 (Money Tax Invoice Canon Verification)
+
+### What was found already aligned
+- `src/platform_fee_money.ts` already existed as the main platform-fee ledger, with `ChargedSuccess`, `RecoveredCharge`, and refund adjustment event types.
+- Seller analytics and seller Excel export already counted `ChargedSuccess` and `RecoveredCharge`, included delivery in gross, and excluded `Dropped` / `AuthReleased` from collected-money totals.
+- Invoice documents were already gated after `DealCompleted` charge success or `Refunded`, not at authorization hold.
+- Seller payout/settlement already used `platform_fee_money_events` and summed canonical seller-net ledger values.
+- Distributor/affiliate surfaces were already attribution-only with no commission/payout/balance rail.
+
+### What was fixed
+- Aligned canonical fee math so `platform_fee_base = charged_gross_total * 0.08`; buyer/seller VAT input no longer reduces C-ton's platform-fee base.
+- Passed `platformFeeBaseAmount`, `platformFeeVatAmount`, and `platformFeeTotalAmount` into invoice document enqueue paths for charge and refund documents.
+- Removed live hardcoded `0.08` / `0.18` calculations from Mission Control and frontend runtime fallbacks; they now use the canonical fee/VAT constants or `calculatePlatformFeeMoney`.
+- Removed DB bootstrap/migration fee-rate defaults that acted like duplicate source-of-truth values.
+- Added `docs/MONEY_TAX_INVOICE_CANON.md`.
+- Added `scripts/money_tax_invoice_gate.cjs`.
+- Added `tests/money_tax_invoice_canon_validation.ts` and updated the existing platform-fee validation.
+
+### What did not require change
+- The 90% charged-units success model was not changed.
+- Authorization hold remains authorization only; no capture was introduced.
+- No raw card handling was added.
+- No distributor commission/payout was added.
+- No heavy Israel invoice allocation-number system was built; provider dependency is documented.
+
+### What was checked
+- `npx tsc -p tsconfig.test.json` - PASS.
+- `node scripts/compliance_payment_scan.cjs` - PASS.
+- `node scripts/legal_compliance_gate.cjs` - PASS.
+- `node scripts/money_tax_invoice_gate.cjs` - PASS with explicit manual checks for provider-template/legal allocation behavior.
+- `node .tmp_test_dist/tests/money_tax_invoice_canon_validation.js` - PASS.
+- `npm test` - PASS.
+- Diff secret scan - PASS, no secret-looking additions found.
+
+### Remaining provider dependencies
+- Live buyer/seller tax document issuance, credit notes, Israel allocation numbers, and tax-authority reporting depend on the configured invoice provider.
+- Buyer-facing seller document template content must be verified against the live provider before production issuance.
+
+### Progress
+- Money/tax/invoice canon alignment: 100%.
+- External provider completion: pending provider configuration and template validation.
+
+### Next step
+- Connect/validate the invoice provider sandbox for live document issuance, credit-note behavior, and Israel allocation-number requirements.
+
+### Verdict
+`MONEY_TAX_INVOICE_CANON_PASS_WITH_PROVIDER_DEPENDENCIES`
+
+---
+
 ## Current update: 2026-05-17 (UTF-8 Test Expectation Cleanup)
 
 ### What was completed

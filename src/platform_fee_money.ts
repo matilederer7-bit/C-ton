@@ -33,7 +33,7 @@ export function calculatePlatformFeeMoney(args: {
 }): PlatformFeeMoneySnapshot {
   const grossAmount = roundMoney(Number(args.grossAmount || 0));
   const vatAmount = roundMoney(Math.max(0, Number(args.vatAmount || 0)));
-  const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
+  const feeBaseAmount = roundMoney(Math.max(0, grossAmount));
   const platformFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
   const platformFeeVatAmount = roundMoney(platformFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
   const platformFeeTotalAmount = roundMoney(platformFeeBaseAmount + platformFeeVatAmount);
@@ -101,8 +101,8 @@ export async function ensurePlatformFeeMoneyTables(withTx: WithTx) {
         gross_amount NUMERIC(12,2) NOT NULL,
         vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         fee_base_amount NUMERIC(12,2) NOT NULL,
-        platform_fee_rate NUMERIC(6,4) NOT NULL DEFAULT 0.08,
-        platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT 0.18,
+        platform_fee_rate NUMERIC(6,4) NOT NULL DEFAULT ${SITON_PLATFORM_FEE_RATE},
+        platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT ${SITON_PLATFORM_FEE_VAT_RATE},
         platform_fee_base_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         platform_fee_vat_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
         platform_fee_total_amount NUMERIC(12,2) NOT NULL DEFAULT 0,
@@ -115,7 +115,7 @@ export async function ensurePlatformFeeMoneyTables(withTx: WithTx) {
 
     await c.query(`
       ALTER TABLE siton.platform_fee_money_events
-      ADD COLUMN IF NOT EXISTS platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT 0.18
+      ADD COLUMN IF NOT EXISTS platform_fee_vat_rate NUMERIC(6,4) NOT NULL DEFAULT ${SITON_PLATFORM_FEE_VAT_RATE}
     `);
     await c.query(`
       ALTER TABLE siton.platform_fee_money_events

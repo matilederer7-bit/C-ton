@@ -14,7 +14,7 @@ export function isChargedMoneyState(moneyState: string | null | undefined) {
 }
 
 // Siton platform fee base = everything actually collected from the buyer
-// (price × qty + delivery). Excludes VAT. The fee itself is the system
+// (price x qty + delivery). Seller-side buyer VAT is not subtracted here. The fee itself is the system
 // constant SITON_PLATFORM_FEE_RATE = 0.08. Distributors do NOT receive a fee.
 export function summarizeMoney(args: {
   grossAmount: number;
@@ -22,7 +22,7 @@ export function summarizeMoney(args: {
 }) {
   const grossAmount = Number(args.grossAmount || 0);
   const vatAmount = Math.max(0, Number(args.vatAmount || 0));
-  const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
+  const feeBaseAmount = roundMoney(Math.max(0, grossAmount));
   const sitonFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
   const sitonFeeVatAmount = roundMoney(sitonFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
   const sitonFeeTotalAmount = roundMoney(sitonFeeBaseAmount + sitonFeeVatAmount);

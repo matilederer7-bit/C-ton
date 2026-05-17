@@ -7,6 +7,7 @@ import type { PaymentProvider } from "./payment_provider.js";
 import { getPaymentProviderSummary } from "./payment_provider.js";
 import type { PayoutProvider } from "./payout_provider.js";
 import { getPayoutProviderSummary } from "./payout_provider.js";
+import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
 
 type Severity = "info" | "warning" | "critical";
 type Verdict = "green" | "yellow" | "red";
@@ -1989,9 +1990,10 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       )).rows[0] || {}
     : {};
   const grossCharged = Number(business.gross_charged || 0);
-  const platformFeeBase = grossCharged > 0 ? Number((grossCharged * 0.08).toFixed(2)) : null;
-  const platformFeeVat = platformFeeBase != null ? Number((platformFeeBase * 0.18).toFixed(2)) : null;
-  const platformFeeTotal = platformFeeBase != null && platformFeeVat != null ? Number((platformFeeBase + platformFeeVat).toFixed(2)) : null;
+  const missionMoney = grossCharged > 0 ? calculatePlatformFeeMoney({ grossAmount: grossCharged }) : null;
+  const platformFeeBase = missionMoney?.platform_fee_base_amount ?? null;
+  const platformFeeVat = missionMoney?.platform_fee_vat_amount ?? null;
+  const platformFeeTotal = missionMoney?.platform_fee_total_amount ?? null;
 
   const sections = {
     frontend_surface: frontend,

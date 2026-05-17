@@ -1742,7 +1742,7 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
     qty: string; money_state: string; delivery_cost: string;
     title: string; price_per_unit: string;
   };
-  // Siton fee base = actual collected amount (price × qty + delivery). No VAT.
+  // Siton fee base = actual collected gross amount (price x qty + delivery).
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
   const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
@@ -1754,6 +1754,9 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
     qty: Number(r.qty),
     moneyStateAtIssue: String(r.money_state),
     grossAmount: money.gross_amount,
+    platformFeeBaseAmount: money.platform_fee_base_amount,
+    platformFeeVatAmount: money.platform_fee_vat_amount,
+    platformFeeTotalAmount: money.platform_fee_total_amount,
     sitonFeeAmount: money.platform_fee_amount,
     sellerNetAmount: money.seller_net_amount,
     providerCode: invoiceProvider.providerCode
@@ -1779,7 +1782,7 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
     qty: string; delivery_cost: string; title: string;
     price_per_unit: string;
   };
-  // Refund receipt mirrors charge receipt: fee base = price × qty + delivery.
+  // Refund receipt mirrors charge receipt: fee base = price x qty + delivery.
   const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
   const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
   await enqueueInvoiceDocument({
@@ -1791,6 +1794,9 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
     qty: Number(r.qty),
     moneyStateAtIssue: "Refunded",
     grossAmount: money.gross_amount,
+    platformFeeBaseAmount: money.platform_fee_base_amount,
+    platformFeeVatAmount: money.platform_fee_vat_amount,
+    platformFeeTotalAmount: money.platform_fee_total_amount,
     sitonFeeAmount: money.platform_fee_amount,
     sellerNetAmount: money.seller_net_amount,
     providerCode: invoiceProvider.providerCode
