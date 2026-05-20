@@ -16,7 +16,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
-const tsxCliPath = join(repoRoot, "node_modules", "tsx", "dist", "cli.mjs");
+const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
 const baseUrl = `http://127.0.0.1:${smokePort}`;
 const databaseUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
@@ -48,7 +48,7 @@ async function fetchJson(path: string, init?: RequestInit) {
   return { response, json };
 }
 
-async function waitForHealth() {
+async function waitForHealth(getServerLog?: () => string) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     try {
       const response = await fetch(`${baseUrl}/health`);
@@ -56,7 +56,8 @@ async function waitForHealth() {
     } catch {}
     await wait(500);
   }
-  throw new Error("smoke server did not become healthy in time");
+  const log = getServerLog?.();
+  throw new Error(`smoke server did not become healthy in time${log ? `\n${log}` : ""}`);
 }
 
 async function dumpDom(path: string, viewport: { width: number; height: number }, label: string) {
@@ -275,7 +276,9 @@ function escapeRegex(text: string) {
 }
 
 async function main() {
-  const server = spawn(process.execPath, [tsxCliPath, "src/app.ts"], {
+  let serverStdout = "";
+  let serverStderr = "";
+  const server = spawn(process.execPath, [compiledAppPath], {
     cwd: repoRoot,
     env: {
       ...process.env,
@@ -284,11 +287,17 @@ async function main() {
       DISABLE_OUTBOX_WORKER: "1",
       APP_DEPLOYMENT_MODE: "demo-preview"
     },
-    stdio: "ignore"
+    stdio: ["ignore", "pipe", "pipe"]
   });
+  server.stdout?.on("data", (chunk) => { serverStdout += String(chunk); });
+  server.stderr?.on("data", (chunk) => { serverStderr += String(chunk); });
 
   try {
-    await waitForHealth();
+    await waitForHealth(() => [
+      server.exitCode === null ? "server_exit=running" : `server_exit=${server.exitCode}`,
+      serverStdout ? `server_stdout:\n${serverStdout}` : "",
+      serverStderr ? `server_stderr:\n${serverStderr}` : ""
+    ].filter(Boolean).join("\n"));
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
