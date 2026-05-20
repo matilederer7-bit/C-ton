@@ -56,10 +56,11 @@ const SQL_MIGRATIONS = [
   "038_deal_types_voucher_ticket.sql",
 ];
 
-// Tables created only by TypeScript ensure*Tables functions (not in SQL migrations).
-// Inlined here so seed INSERTs succeed even before the app has started for the first time.
-// The app's ensure*Tables calls will add any additional columns on first request.
-const TYPESCRIPT_MANAGED_DDL = `
+// seller_accounts is created by runtime ensure*Tables helpers, but several SQL
+// migrations (017, 021, 028, 033) depend on it. Existing Render demo DBs may
+// have a partial SQL-only schema, so bootstrap must align this table before the
+// migration chain reaches those files.
+const SELLER_ACCOUNTS_PREFLIGHT_DDL = `
 SET search_path TO siton, public;
 
 CREATE TABLE IF NOT EXISTS siton.seller_accounts (
@@ -86,6 +87,15 @@ CREATE TABLE IF NOT EXISTS siton.seller_accounts (
   created_at              TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+`;
+
+// Tables created only by TypeScript ensure*Tables functions (not in SQL migrations).
+// Inlined here so seed INSERTs succeed even before the app has started for the first time.
+// The app's ensure*Tables calls will add any additional columns on first request.
+const TYPESCRIPT_MANAGED_DDL = `
+SET search_path TO siton, public;
+
+${SELLER_ACCOUNTS_PREFLIGHT_DDL}
 
 CREATE TABLE IF NOT EXISTS siton.affiliate_accounts (
   affiliate_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -154,6 +164,7 @@ async function runMigration(client, filename) {
     // Idempotent migrations may produce benign errors on re-runs (e.g. DROP COLUMN
     // on a column already dropped). Log and continue.
     console.warn(`  WARN: ${filename} — ${err.message.split("\n")[0]}`);
+    await client.query("ROLLBACK").catch(() => {});
   }
 }
 
@@ -166,6 +177,11 @@ async function main() {
 
     // Phase 1: Schema via SQL migrations
     console.log("\nPhase 1: SQL migrations...");
+    console.log("  Preflight: ensuring seller_accounts exists before dependent migrations...");
+    await client.query("CREATE EXTENSION IF NOT EXISTS pgcrypto");
+    await client.query("CREATE SCHEMA IF NOT EXISTS siton");
+    await client.query(SELLER_ACCOUNTS_PREFLIGHT_DDL);
+    console.log("  OK: seller_accounts preflight");
     for (const filename of SQL_MIGRATIONS) {
       await runMigration(client, filename);
     }

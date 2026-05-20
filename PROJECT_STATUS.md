@@ -2,6 +2,48 @@
 
 ---
 
+## Current update: 2026-05-20 (Render Demo Bootstrap Existing DB Hardening)
+
+### What was completed
+- Investigated the Render deploy failure in `npm run bootstrap:demo-db`.
+- Confirmed this is no longer a Render env/connectivity failure: the service reached the database.
+- Confirmed SSL connectivity was already fixed on Render by using the External Database URL with `sslmode=require`.
+- Found the blocking schema issue: existing/partial Render DB did not have `siton.seller_accounts` before migration `017_open_production_seller_auth.sql` attempted `ALTER TABLE siton.seller_accounts`.
+- Hardened `scripts/bootstrap_demo_db.cjs` so existing/partial demo databases are aligned before dependent migrations run.
+- No product logic, runtime behavior, money logic, provider integration, or deploy action was changed.
+
+### Root cause
+- `siton.seller_accounts` is runtime/TypeScript-managed DDL in the bootstrap script, but bootstrap previously ran SQL migrations before creating those TypeScript-managed tables.
+- Migration `017_open_production_seller_auth.sql` assumes `siton.seller_accounts` already exists.
+- On a clean enough DB this order mismatch can fail at `017`; on a partial existing Render DB it produced `relation "siton.seller_accounts" does not exist`, followed by `current transaction is aborted`.
+
+### What was fixed
+- Added a preflight DDL phase before the SQL migration loop to create/ensure `siton.seller_accounts` before migrations `017`, `021`, `028`, and `033` can depend on it.
+- Kept the later TypeScript-managed table phase intact for affiliate/notification tables and idempotent rechecks.
+- Added a defensive `ROLLBACK` after a migration warning so one migration failure does not leave the connection in an aborted transaction that obscures the original root cause.
+
+### What was checked
+- `node --check scripts/bootstrap_demo_db.cjs` - PASS.
+- `npx tsc -p tsconfig.json --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json --noEmit` - PASS.
+- `npm run build:demo` - PASS.
+- `npm run test:demo-readiness` - PASS.
+- `npm run test:demo-preview` - PASS.
+- `npm run test:docker-readiness` - PASS; Docker engine unavailable, so container/compose smoke remained static-validation only.
+- `npm run test:frontend-browser-smoke` - PASS.
+- Exploratory `npm run test:deal-types` was run because it reads `scripts/bootstrap_demo_db.cjs`, but it is not a bootstrap test; it failed on an unrelated stale documentation marker expectation (`DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E` vs current `DEAL_TYPES_E2E_PASS_READY_FOR_PROVIDER_SANDBOX`). No change was made for that unrelated test.
+
+### Progress
+- Render demo bootstrap hardening for existing DB: 100%.
+
+### Next step
+- Push the fix, set `EXPECTED_COMMIT_SHA` in Render to the pushed commit, and rerun the Render manual deploy for `siton-demo-preview-atp1`.
+
+### Verdict
+`RENDER_DEMO_BOOTSTRAP_EXISTING_DB_HARDENED_PASS`
+
+---
+
 ## Current update: 2026-05-20 (Render Existing Database Blueprint Alignment)
 
 ### What was completed
