@@ -2,6 +2,46 @@
 
 ---
 
+## Current update: 2026-05-20 (Render Existing Database Blueprint Alignment)
+
+### What was completed
+- Adjusted Render deployment configuration only; no runtime/product logic was changed.
+- Kept Docker deployment, `healthCheckPath: /health`, and `autoDeploy: false`.
+- Disabled Blueprint Postgres creation to avoid Render's free-tier database limit.
+- Changed `DATABASE_URL` in `render.yaml` from `fromDatabase` to manual `sync: false`.
+
+### Root cause
+- Render already has an active free database named `cton-demo-db` in Frankfurt with status `Available`.
+- A fresh Blueprint attempt tried to create another free Postgres database from `render.yaml`.
+- Render rejected the Blueprint with `cannot have more than one active free tier database`.
+- Manual deletion of `cton-demo-db` through the Render UI is not being used as the path forward.
+
+### Deployment contract now
+- The Blueprint should create/update only the demo Web Service.
+- The existing `cton-demo-db` must be reused.
+- `DATABASE_URL` must be set manually in the Render service from the existing `cton-demo-db` Internal Database URL.
+- `EXPECTED_COMMIT_SHA` remains a manual/sync-false env var and must match the deployed commit to catch stale deploys.
+
+### What was checked
+- `npx tsc -p tsconfig.json --noEmit` - PASS.
+- `npx tsc -p tsconfig.test.json --noEmit` - PASS.
+- `npm run build:demo` - PASS.
+- `npm run test:demo-readiness` - PASS.
+- `npm run test:demo-preview` - PASS.
+- `npm run test:docker-readiness` - PASS; Docker engine unavailable, so container/compose smoke remained static-validation only.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### Progress
+- Render free DB limit workaround: 100%.
+
+### Next step
+- In Render, rerun the Blueprint for the Web Service only, set `DATABASE_URL` from `cton-demo-db` Internal Database URL, then set `EXPECTED_COMMIT_SHA` to the pushed commit before deploy.
+
+### Verdict
+`RENDER_BLUEPRINT_DB_CREATION_DISABLED_PASS`
+
+---
+
 ## Current update: 2026-05-20 (Frontend Browser Smoke Readiness Fix)
 
 ### What was completed
