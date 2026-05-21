@@ -1,7 +1,7 @@
 ﻿import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import dotenv from "dotenv";
@@ -15,6 +15,8 @@ const { Pool } = pg;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
+const frontendSource = join(repoRoot, "frontend");
+const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
 const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
@@ -275,9 +277,49 @@ function escapeRegex(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function assertHealthyHebrewDom(dom: string, label: string) {
+  const forbiddenPatterns = [
+    /×|™|Â|ֲ·|ג€”|ג†/u,
+    /(?:׳.){2,}/u
+  ];
+  for (const pattern of forbiddenPatterns) {
+    assert.doesNotMatch(dom, pattern, `${label} contains mojibake-like text`);
+  }
+
+  const hebrewMatches = dom.match(/[\u0590-\u05ff]/gu) || [];
+  assert.ok(hebrewMatches.length >= 20, `${label} should contain rendered Hebrew text`);
+}
+
+async function assertFrontendAssetsHealthy() {
+  const checks = [
+    { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "/app/assets/app.js", "/app/assets/styles.css"] },
+    { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "פתיחת עסקה חדשה", "אזור מוכר"] },
+    { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "direction"] }
+  ];
+
+  for (const check of checks) {
+    const response = await fetch(`${baseUrl}${check.path}`);
+    const text = await response.text();
+    assert.equal(response.status, 200, `${check.path} should load`);
+    assert.match(response.headers.get("content-type") || "", new RegExp(check.contentType));
+    for (const expected of check.expect) {
+      assert.match(`${response.headers.get("content-type") || ""}\n${text}`, new RegExp(escapeRegex(expected)), `${check.path} missing ${expected}`);
+    }
+    if (check.path !== "/app/assets/styles.css") {
+      assertHealthyHebrewDom(text, check.path);
+    }
+  }
+}
+
+async function ensureFrontendAssets() {
+  await mkdir(frontendTarget, { recursive: true });
+  await cp(frontendSource, frontendTarget, { recursive: true, force: true });
+}
+
 async function main() {
   let serverStdout = "";
   let serverStderr = "";
+  await ensureFrontendAssets();
   const server = spawn(process.execPath, [compiledAppPath], {
     cwd: repoRoot,
     env: {
@@ -299,11 +341,18 @@ async function main() {
       serverStderr ? `server_stderr:\n${serverStderr}` : ""
     ].filter(Boolean).join("\n"));
 
+    await run("frontend shell assets load as UTF-8 without mojibake", assertFrontendAssetsHealthy);
+
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
     const joined = await createJoinedParticipant(created.deal_id);
 
     const desktopRoutes: SmokeRoute[] = [
+      {
+        name: "home",
+        path: "/app",
+        expect: ["סיטון", "פתיחת עסקה חדשה", "ניהול העסקאות שלי", "אזור מוכר"]
+      },
       {
         name: "public deal",
         path: `/app/deal/${created.deal_id}`,
@@ -342,6 +391,11 @@ async function main() {
     ];
 
     const mobileRoutes: SmokeRoute[] = [
+      {
+        name: "home mobile",
+        path: "/app",
+        expect: ["סיטון", "פתיחת עסקה חדשה", "ניהול העסקאות שלי"]
+      },
       {
         name: "public deal mobile",
         path: `/app/deal/${created.deal_id}`,
@@ -390,6 +444,7 @@ async function main() {
     await run("desktop smoke routes render hydrated browser DOM", async () => {
       for (const route of desktopRoutes) {
         const dom = await dumpDom(route.path, { width: 1440, height: 1100 }, `desktop-${route.name.replace(/\s+/g, "-")}`);
+        assertHealthyHebrewDom(dom, `desktop ${route.name}`);
         for (const text of route.expect) {
           assert.match(dom, new RegExp(escapeRegex(text)));
         }
@@ -399,6 +454,7 @@ async function main() {
     await run("mobile smoke routes keep core hierarchy and CTA copy visible", async () => {
       for (const route of mobileRoutes) {
         const dom = await dumpDom(route.path, { width: 390, height: 844 }, `mobile-${route.name.replace(/\s+/g, "-")}`);
+        assertHealthyHebrewDom(dom, `mobile ${route.name}`);
         for (const text of route.expect) {
           assert.match(dom, new RegExp(escapeRegex(text)));
         }

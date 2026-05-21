@@ -141,39 +141,39 @@ const UX_REGRESSION_COPY = [
 ];
 
 const DEAL_COPY = {
-  Draft: ["׳”׳¢׳¡׳§׳” ׳¢׳“׳™׳™׳ ׳‘׳˜׳™׳•׳˜׳”", "׳”׳¢׳¡׳§׳” ׳¢׳•׳“ ׳׳ ׳ ׳₪׳×׳—׳” ׳׳§׳•׳ ׳™׳ ׳•׳׳›׳ ׳¢׳“׳™׳™׳ ׳׳™ ׳׳₪׳©׳¨ ׳׳”׳¦׳˜׳¨׳£."],
-  PendingTarget: ["׳₪׳×׳•׳—׳” ׳׳”׳¦׳˜׳¨׳₪׳•׳×", "׳׳₪׳©׳¨ ׳׳”׳¦׳˜׳¨׳£ ׳¢׳›׳©׳™׳•. ׳‘׳©׳׳‘ ׳”׳–׳” ׳ ׳©׳׳¨׳™׳ ׳׳™׳׳•׳×, ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳•׳”׳¨׳©׳׳” ׳׳¢׳¡׳§׳”."],
-  TargetReached: ["׳”׳™׳¢׳“ ׳”׳•׳©׳’", "׳”׳¢׳¡׳§׳” ׳—׳¦׳×׳” ׳׳× ׳”׳™׳¢׳“ ׳•׳¢׳“׳™׳™׳ ׳₪׳×׳•׳—׳” ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳›׳ ׳¢׳•׳“ ׳ ׳©׳׳¨׳” ׳§׳™׳‘׳•׳׳×."],
-  ClosedForJoining: ["׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳¡׳’׳¨", "׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳¢׳‘׳¨׳” ׳׳©׳׳‘ ׳”׳‘׳, ׳•׳׳›׳ ׳׳ ׳ ׳™׳×׳ ׳׳”׳¦׳˜׳¨׳£ ׳׳׳™׳” ׳›׳¢׳×."],
-  ReadyForCharging: ["׳׳•׳›׳ ׳” ׳׳—׳™׳•׳‘", "׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳׳ ׳₪׳×׳•׳—׳” ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳—׳“׳©׳” ׳•׳”׳™׳ ׳ ׳¢׳¨׳›׳× ׳׳©׳׳‘ ׳”׳—׳™׳•׳‘."],
-  Charging: ["׳‘׳—׳™׳•׳‘", "׳”׳׳¢׳¨׳›׳× ׳׳¨׳™׳¦׳” ׳›׳¢׳× ׳—׳™׳•׳‘׳™׳ ׳•׳׳™׳ ׳׳₪׳©׳¨׳•׳× ׳׳”׳¦׳˜׳¨׳£ ׳׳—׳“׳© ׳׳¢׳¡׳§׳”."],
-  CompletionWindow: ["׳‘׳—׳׳•׳ ׳”׳©׳׳׳”", "׳”׳¢׳¡׳§׳” ׳ ׳׳¦׳׳× ׳‘׳¡׳’׳™׳¨׳” ׳×׳₪׳¢׳•׳׳™׳× ׳•׳׳›׳ ׳׳ ׳₪׳×׳•׳—׳” ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳—׳“׳©׳”."],
-  Completed: ["׳”׳•׳©׳׳׳”", "׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳”. ׳׳ ׳”׳©׳×׳×׳₪׳×, ׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳™׳¦׳™׳’ ׳׳× ׳”׳×׳•׳¦׳׳” ׳©׳׳."],
-  Failed: ["׳׳ ׳”׳•׳©׳׳׳”", "׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳” ׳׳׳ ׳”׳©׳׳׳”. ׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳™׳¡׳‘׳™׳¨ ׳׳” ׳§׳¨׳” ׳׳”׳©׳×׳×׳₪׳•׳×."],
-  Cancelled: ["׳‘׳•׳˜׳׳”", "׳”׳¢׳¡׳§׳” ׳‘׳•׳˜׳׳” ׳•׳׳›׳ ׳׳ ׳ ׳™׳×׳ ׳׳”׳¦׳˜׳¨׳£ ׳׳׳™׳”."]
+  Draft: ["העסקה עדיין בטיוטה", "העסקה עוד לא נפתחה לקונים ולכן עדיין אי אפשר להצטרף."],
+  PendingTarget: ["פתוחה להצטרפות", "אפשר להצטרף עכשיו. בשלב הזה נשמרים אימות, תפיסת מסגרת והרשמה לעסקה."],
+  TargetReached: ["היעד הושג", "העסקה חצתה את היעד ועדיין פתוחה להצטרפות כל עוד נשארה קיבולת."],
+  ClosedForJoining: ["חלון ההצטרפות נסגר", "העסקה כבר עברה לשלב הבא, ולכן לא ניתן להצטרף אליה כעת."],
+  ReadyForCharging: ["מוכנה לחיוב", "העסקה כבר לא פתוחה להצטרפות חדשה והיא נערכת לשלב החיוב."],
+  Charging: ["בחיוב", "המערכת מריצה כעת חיובים ואין אפשרות להצטרף מחדש לעסקה."],
+  CompletionWindow: ["בחלון השלמה", "העסקה נמצאת בסגירה תפעולית ולכן לא פתוחה להצטרפות חדשה."],
+  Completed: ["הושלמה", "העסקה הושלמה. אם השתתפת, מסך המעקב יציג את התוצאה שלך."],
+  Failed: ["לא הושלמה", "העסקה נסגרה ללא השלמה. מסך המעקב יסביר מה קרה להשתתפות."],
+  Cancelled: ["בוטלה", "העסקה בוטלה ולכן לא ניתן להצטרף אליה."]
 };
 
 const BUYER_COPY = {
-  JoinedAuthorized: ["׳ ׳¨׳©׳׳× ׳‘׳”׳¦׳׳—׳”", "׳”׳”׳©׳×׳×׳₪׳•׳× ׳ ׳§׳׳˜׳” ׳•׳ ׳©׳׳¨ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×."],
-  LockedIn: ["׳ ׳ ׳¢׳׳× ׳׳¢׳¡׳§׳”", "׳”׳”׳©׳×׳×׳₪׳•׳× ׳©׳׳ ׳›׳‘׳¨ ׳‘׳₪׳ ׳™׳, ׳׳₪׳ ׳™ ׳©׳׳‘ ׳”׳—׳™׳•׳‘."],
-  ChargingAttempt: ["׳׳×׳‘׳¦׳¢ ׳ ׳™׳¡׳™׳•׳ ׳—׳™׳•׳‘", "׳”׳¢׳¡׳§׳” ׳”׳’׳™׳¢׳” ׳׳©׳׳‘ ׳©׳‘׳• ׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳—׳™׳™׳‘."],
-  ChargedSuccess: ["׳”׳—׳™׳•׳‘ ׳”׳¦׳׳™׳—", "׳”׳—׳™׳•׳‘ ׳¢׳‘׳•׳¨ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳©׳׳ ׳¢׳‘׳¨ ׳‘׳”׳¦׳׳—׳”."],
-  ChargeFailedCompletion: ["׳ ׳“׳¨׳© ׳˜׳™׳₪׳•׳ ׳‘׳”׳©׳׳׳”", "׳”׳—׳™׳•׳‘ ׳׳ ׳”׳•׳©׳׳ ׳•׳”׳”׳©׳×׳×׳₪׳•׳× ׳ ׳׳¦׳׳× ׳‘׳—׳׳•׳ ׳”׳©׳׳׳”."],
-  Recovered: ["׳”׳•׳©׳׳׳” ׳‘׳©׳—׳–׳•׳¨", "׳”׳׳¢׳¨׳›׳× ׳”׳©׳׳™׳׳” ׳׳× ׳”׳”׳©׳×׳×׳₪׳•׳× ׳‘׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨."],
-  Dropped: ["׳”׳”׳©׳×׳×׳₪׳•׳× ׳™׳¨׳“׳”", "׳”׳”׳©׳×׳×׳₪׳•׳× ׳©׳׳ ׳׳ ׳”׳•׳©׳׳׳” ׳‘׳×׳•׳ ׳”׳¢׳¡׳§׳”."],
-  DealCompleted: ["׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳” ׳¢׳‘׳•׳¨׳", "׳”׳”׳©׳×׳×׳₪׳•׳× ׳ ׳¡׳’׳¨׳” ׳›׳—׳׳§ ׳׳¢׳¡׳§׳” ׳©׳”׳•׳©׳׳׳”."],
-  DealFailed: ["׳”׳¢׳¡׳§׳” ׳ ׳›׳©׳׳” ׳¢׳‘׳•׳¨׳", "׳”׳”׳©׳×׳×׳₪׳•׳× ׳ ׳¡׳’׳¨׳” ׳›׳—׳׳§ ׳׳¢׳¡׳§׳” ׳©׳׳ ׳”׳•׳©׳׳׳”."]
+  JoinedAuthorized: ["נרשמת בהצלחה", "ההשתתפות נקלטה ונשמר אישור מסגרת."],
+  LockedIn: ["ננעלת לעסקה", "ההשתתפות שלך כבר בפנים, לפני שלב החיוב."],
+  ChargingAttempt: ["מתבצע ניסיון חיוב", "העסקה הגיעה לשלב שבו המערכת מנסה לחייב."],
+  ChargedSuccess: ["החיוב הצליח", "החיוב עבור ההשתתפות שלך עבר בהצלחה."],
+  ChargeFailedCompletion: ["נדרש טיפול בהשלמה", "החיוב לא הושלם וההשתתפות נמצאת בחלון השלמה."],
+  Recovered: ["הושלמה בשחזור", "המערכת השלימה את ההשתתפות במסלול שחזור."],
+  Dropped: ["ההשתתפות ירדה", "ההשתתפות שלך לא הושלמה בתוך העסקה."],
+  DealCompleted: ["העסקה הושלמה עבורך", "ההשתתפות נסגרה כחלק מעסקה שהושלמה."],
+  DealFailed: ["העסקה נכשלה עבורך", "ההשתתפות נסגרה כחלק מעסקה שלא הושלמה."]
 };
 
 const MONEY_COPY = {
-  AuthHeld: ["׳™׳© ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×", "׳‘׳•׳¦׳¢ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳¢׳“׳™׳™׳ ׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳."],
-  AuthLocked: ["׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳× ׳ ׳ ׳¢׳׳”", "׳”׳׳™׳©׳•׳¨ ׳ ׳©׳׳¨ ׳׳§׳¨׳׳× ׳—׳™׳•׳‘ ׳׳₪׳©׳¨׳™."],
-  ChargeAttempt: ["׳׳×׳‘׳¦׳¢ ׳—׳™׳•׳‘", "׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳‘׳¦׳¢ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳."],
-  ChargedSuccess: ["׳—׳•׳™׳‘׳×", "׳”׳—׳™׳•׳‘ ׳”׳•׳©׳׳ ׳‘׳”׳¦׳׳—׳”."],
-  ChargeFailedRecovery: ["׳”׳—׳™׳•׳‘ ׳׳ ׳”׳•׳©׳׳", "׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳¡׳’׳•׳¨ ׳׳× ׳”׳׳¡׳׳•׳ ׳“׳¨׳ ׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨."],
-  RecoveredCharge: ["׳”׳—׳™׳•׳‘ ׳”׳•׳©׳׳ ׳‘׳©׳—׳–׳•׳¨", "׳”׳׳¢׳¨׳›׳× ׳”׳¦׳׳™׳—׳” ׳׳”׳©׳׳™׳ ׳׳× ׳”׳—׳™׳•׳‘ ׳‘׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨."],
-  AuthReleased: ["׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳× ׳©׳•׳—׳¨׳¨׳”", "׳׳ ׳‘׳•׳¦׳¢ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳• ׳©׳”׳×׳₪׳™׳¡׳” ׳‘׳•׳˜׳׳”."],
-  Refunded: ["׳‘׳•׳¦׳¢ ׳–׳™׳›׳•׳™", "׳”׳׳¢׳¨׳›׳× ׳”׳—׳–׳™׳¨׳” ׳׳× ׳”׳¡׳›׳•׳ ׳׳׳—׳¨ ׳—׳™׳•׳‘."]
+  AuthHeld: ["יש תפיסת מסגרת", "בוצע אישור מסגרת בלבד. עדיין אין חיוב בפועל."],
+  AuthLocked: ["תפיסת המסגרת ננעלה", "האישור נשמר לקראת חיוב אפשרי."],
+  ChargeAttempt: ["מתבצע חיוב", "המערכת מנסה לבצע חיוב בפועל."],
+  ChargedSuccess: ["חויבת", "החיוב הושלם בהצלחה."],
+  ChargeFailedRecovery: ["החיוב לא הושלם", "המערכת מנסה לסגור את המסלול דרך מסלול שחזור."],
+  RecoveredCharge: ["החיוב הושלם בשחזור", "המערכת הצליחה להשלים את החיוב במסלול שחזור."],
+  AuthReleased: ["תפיסת המסגרת שוחררה", "לא בוצע חיוב בפועל או שהתפיסה בוטלה."],
+  Refunded: ["בוצע זיכוי", "המערכת החזירה את הסכום לאחר חיוב."]
 };
 
 const ROUTE_LABELS = {
@@ -465,8 +465,8 @@ async function runRoute() {
     if (!flow) {
       state.banner = {
         tone: "warning",
-        title: "׳”׳¡׳©׳ ׳”׳§׳•׳“׳ ׳›׳‘׳¨ ׳׳ ׳–׳׳™׳",
-        message: "׳׳₪׳©׳¨ ׳׳—׳–׳•׳¨ ׳׳“׳£ ׳”׳¢׳¡׳§׳” ׳•׳׳”׳×׳—׳™׳ ׳©׳•׳‘ ׳׳× ׳”׳׳¡׳׳•׳ ׳‘׳¦׳•׳¨׳” ׳׳¡׳•׳“׳¨׳×."
+        title: "הסשן הקודם כבר לא זמין",
+        message: "אפשר לחזור לדף העסקה ולהתחיל שוב את המסלול בצורה מסודרת."
       };
       render();
       return;
@@ -475,8 +475,8 @@ async function runRoute() {
     if (route.name === "payment" && !flow.otpVerified) {
       state.banner = {
         tone: "warning",
-        title: "׳¦׳¨׳™׳ ׳׳”׳©׳׳™׳ ׳§׳•׳“׳ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳",
-        message: "׳”׳›׳׳•׳× ׳ ׳©׳׳¨׳”, ׳׳‘׳ ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳¦׳¨׳™׳ ׳׳”׳©׳׳™׳ ׳׳× ׳׳™׳׳•׳× ׳”׳˜׳׳₪׳•׳."
+        title: "צריך להשלים קודם אימות טלפון",
+        message: "הכמות נשמרה, אבל לפני אישור המסגרת צריך להשלים את אימות הטלפון."
       };
       render();
       return;
@@ -485,8 +485,8 @@ async function runRoute() {
     if (route.name === "confirmation" && !flow.participantId) {
       state.banner = {
         tone: "warning",
-        title: "׳¢׳“׳™׳™׳ ׳׳™׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳¡׳•׳₪׳™׳× ׳׳”׳¦׳’׳”",
-        message: "׳׳₪׳©׳¨ ׳׳—׳–׳•׳¨ ׳׳©׳׳‘ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳•׳׳”׳׳©׳™׳ ׳׳׳™׳₪׳” ׳©׳¢׳¦׳¨׳×."
+        title: "עדיין אין הצטרפות סופית להצגה",
+        message: "אפשר לחזור לשלב אישור המסגרת ולהמשיך מאיפה שעצרת."
       };
       render();
     }
@@ -500,11 +500,11 @@ async function ensureDeal(dealId) {
 }
 
 async function loadDeal(dealId) {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳”...", async () => {
+  await busy("טוען את פרטי העסקה...", async () => {
     state.dealPayload = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
     await loadDealChat(dealId, false);
     state.form.qty = String(getFlow(dealId)?.qty || 1);
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳”׳¢׳¡׳§׳”.");
+  }, "לא הצלחנו לטעון את העסקה.");
 }
 
 async function loadDealChat(dealId, shouldRender = true) {
@@ -520,7 +520,7 @@ async function loadDealChat(dealId, shouldRender = true) {
 }
 
 async function loadTracking(participantId) {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳¡׳˜׳˜׳•׳¡ ׳”׳”׳©׳×׳×׳₪׳•׳×...", async () => {
+  await busy("טוען את סטטוס ההשתתפות...", async () => {
     state.trackingPayload = await api(trackingApiUrl(participantId));
     const tracking = state.trackingPayload?.tracking;
     if (tracking?.deal_id) {
@@ -530,7 +530,7 @@ async function loadTracking(participantId) {
         lastTrackingViewedAt: new Date().toISOString()
       });
     }
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳”׳׳¢׳§׳‘.");
+  }, "לא הצלחנו לטעון את המעקב.");
 }
 
 async function loadRecovery(participantId) {
@@ -595,11 +595,11 @@ async function submitRecoveryRequest(participantId) {
 }
 
 async function loadHome() {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳©׳ ׳¡׳™׳˜׳•׳...", async () => {
+  await busy("טוען את האתר הראשי של סיטון...", async () => {
     state.homePayload = await api("/api/site/home");
     state.sellerAuth = state.homePayload?.site?.seller_auth || state.sellerAuth;
     syncSellerContext(state.homePayload?.site?.seller_context || null);
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳©׳ ׳¡׳™׳˜׳•׳.");
+  }, "לא הצלחנו לטעון את האתר הראשי של סיטון.");
 }
 
 async function loadSeller() {
@@ -721,13 +721,13 @@ async function loadSellerDeal(dealId) {
 }
 
 async function loadAffiliate() {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳©׳•׳×׳₪׳™׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
+  await busy("טוען את מסך השותפים הפנימי...", async () => {
     state.affiliatePayload = await api("/api/affiliate/overview");
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳”׳©׳•׳×׳₪׳™׳ ׳”׳₪׳ ׳™׳׳™.");
+  }, "לא הצלחנו לטעון את מסך השותפים הפנימי.");
 }
 
 async function loadAdmin(query = "") {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™...", async () => {
+  await busy("טוען את מסך הניהול הפנימי...", async () => {
     const [overview, missionControl, launchConsole, systemStatus, notificationsStatus, invoiceStatus, sellerRisk, supportCases, adminActions, demoReadiness] = await Promise.all([
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
@@ -750,7 +750,7 @@ async function loadAdmin(query = "") {
     state.adminSupportCasesPayload = supportCases;
     state.adminActionsPayload = adminActions;
     state.adminDemoReadinessPayload = demoReadiness;
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳׳¡׳ ׳”׳ ׳™׳”׳•׳ ׳”׳₪׳ ׳™׳׳™.");
+  }, "לא הצלחנו לטעון את מסך הניהול הפנימי.");
 }
 
 async function loadAdminSupportCases() {
@@ -771,14 +771,14 @@ async function loadDemoReadiness() {
 
 
 async function loadAdminDeal(dealId) {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™...", async () => {
+  await busy("טוען את פרופיל העסקה הפנימי...", async () => {
     const [profile, opsSummary] = await Promise.all([
       api(`/api/admin/deals/${encodeURIComponent(dealId)}/profile`),
       api(`/api/admin/deals/${encodeURIComponent(dealId)}/ops-summary`)
     ]);
     state.adminDealPayload = profile;
     state.adminDealOpsPayload = opsSummary;
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳¢׳¡׳§׳” ׳”׳₪׳ ׳™׳׳™.");
+  }, "לא הצלחנו לטעון את פרופיל העסקה הפנימי.");
 }
 
 async function loadAdminParticipant(participantId) {
@@ -788,9 +788,9 @@ async function loadAdminParticipant(participantId) {
 }
 
 async function loadAdminUser(buyerId) {
-  await busy("׳˜׳•׳¢׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳׳©׳×׳׳© ׳”׳₪׳ ׳™׳׳™...", async () => {
+  await busy("טוען את פרופיל המשתמש הפנימי...", async () => {
     state.adminUserPayload = await api(`/api/admin/users/${encodeURIComponent(buyerId)}/profile`);
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳₪׳¨׳•׳₪׳™׳ ׳”׳׳©׳×׳׳© ׳”׳₪׳ ׳™׳׳™.");
+  }, "לא הצלחנו לטעון את פרופיל המשתמש הפנימי.");
 }
 
 function syncRoutePolling() {
@@ -873,8 +873,8 @@ async function refreshDealSilently(dealId) {
     if (stateChanged || availabilityChanged || remainingChanged) {
       state.banner = {
         tone: "success",
-        title: "׳”׳¢׳¡׳§׳” ׳¢׳•׳“׳›׳ ׳”",
-        message: "׳¡׳˜׳˜׳•׳¡ ׳”׳¢׳¡׳§׳” ׳׳• ׳”׳§׳™׳‘׳•׳׳× ׳¢׳•׳“׳›׳ ׳• ׳‘׳–׳׳ ׳׳׳×."
+        title: "העסקה עודכנה",
+        message: "סטטוס העסקה או הקיבולת עודכנו בזמן אמת."
       };
       render();
     }
@@ -903,8 +903,8 @@ async function refreshTrackingSilently(participantId) {
     if (stateChanged) {
       state.banner = {
         tone: "success",
-        title: "׳¡׳˜׳˜׳•׳¡ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳¢׳•׳“׳›׳",
-        message: "׳”׳׳¡׳ ׳¨׳¢׳ ׳ ׳׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳” ׳•׳”׳”׳©׳×׳×׳₪׳•׳× ׳‘׳׳™ ׳׳׳‘׳“ ׳׳× ׳¨׳¦׳£ ׳”׳—׳•׳•׳™׳”."
+        title: "סטטוס ההשתתפות עודכן",
+        message: "המסך רענן את מצב העסקה וההשתתפות בלי לאבד את רצף החוויה."
       };
       render();
       return;
@@ -1036,11 +1036,11 @@ function startJoin() {
   if (!payload?.deal) return;
   const qty = Number(state.form.qty);
   const issue = validateQty(payload, qty);
-  if (issue) return fail("׳¦׳¨׳™׳ ׳׳¢׳“׳›׳ ׳׳× ׳”׳›׳׳•׳×", issue);
+  if (issue) return fail("צריך לעדכן את הכמות", issue);
   const deliveryIssue = validateDeliveryChoice(payload, state.form.deliveryOptionId);
-  if (deliveryIssue) return fail("׳¦׳¨׳™׳ ׳׳¢׳“׳›׳ ׳׳× ׳׳•׳₪׳ ׳”׳§׳‘׳׳”", deliveryIssue);
+  if (deliveryIssue) return fail("צריך לעדכן את אופן הקבלה", deliveryIssue);
   const selectedDelivery = getSelectedDeliveryOption(payload, state.form.deliveryOptionId);
-  if (!selectedDelivery) return fail("׳׳ ׳ ׳‘׳—׳¨ ׳׳•׳₪׳ ׳§׳‘׳׳”", "׳™׳© ׳׳‘׳—׳•׳¨ ׳׳•׳₪׳ ׳§׳‘׳׳” ׳׳₪׳ ׳™ ׳”׳”׳׳©׳.");
+  if (!selectedDelivery) return fail("לא נבחר אופן קבלה", "יש לבחור אופן קבלה לפני ההמשך.");
 
   const flow = saveFlow(payload.deal.deal_id, {
     dealId: payload.deal.deal_id,
@@ -1062,9 +1062,9 @@ async function otpStart(form) {
   const route = state.route;
   if (route.name !== "otp") return;
   const phone = String(new FormData(form).get("phone") || "").trim();
-  if (!phone) return fail("׳—׳¡׳¨ ׳׳¡׳₪׳¨ ׳˜׳׳₪׳•׳", "׳™׳© ׳׳”׳–׳™׳ ׳׳¡׳₪׳¨ ׳˜׳׳₪׳•׳ ׳ ׳™׳™׳“ ׳›׳“׳™ ׳׳”׳׳©׳™׳.");
+  if (!phone) return fail("חסר מספר טלפון", "יש להזין מספר טלפון נייד כדי להמשיך.");
 
-  await busy("׳©׳•׳׳— ׳§׳•׳“ ׳׳™׳׳•׳×...", async () => {
+  await busy("שולח קוד אימות...", async () => {
     const response = await api("/api/otp/start", {
       method: "POST",
       body: json({ phone })
@@ -1082,10 +1082,10 @@ async function otpStart(form) {
     state.form.code = "";
     state.banner = {
       tone: "success",
-      title: "׳§׳•׳“ ׳”׳׳™׳׳•׳× ׳ ׳©׳׳—",
-      message: `׳©׳׳—׳ ׳• ׳§׳•׳“ ׳׳˜׳׳₪׳•׳ ${flow.otpMaskedDestination || phone}.`
+      title: "קוד האימות נשלח",
+      message: `שלחנו קוד לטלפון ${flow.otpMaskedDestination || phone}.`
     };
-  }, "׳©׳׳™׳—׳× ׳§׳•׳“ ׳”׳׳™׳׳•׳× ׳ ׳›׳©׳׳”.");
+  }, "שליחת קוד האימות נכשלה.");
 }
 
 async function otpVerify(form) {
@@ -1093,13 +1093,13 @@ async function otpVerify(form) {
   if (route.name !== "otp") return;
   const flow = getFlow(route.dealId);
   if (!flow?.otpSessionId) {
-    return fail("׳׳™׳ ׳¡׳©׳ ׳׳™׳׳•׳× ׳₪׳¢׳™׳", "׳¦׳¨׳™׳ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳׳₪׳ ׳™ ׳׳™׳׳•׳×.");
+    return fail("אין סשן אימות פעיל", "צריך לבקש קוד חדש לפני אימות.");
   }
 
   const code = String(new FormData(form).get("code") || "").trim();
-  if (!code) return fail("׳—׳¡׳¨ ׳§׳•׳“ ׳׳™׳׳•׳×", "׳™׳© ׳׳”׳–׳™׳ ׳׳× ׳§׳•׳“ ׳”׳׳™׳׳•׳× ׳©׳ ׳©׳׳— ׳׳׳™׳.");
+  if (!code) return fail("חסר קוד אימות", "יש להזין את קוד האימות שנשלח אליך.");
 
-  await busy("׳׳׳׳× ׳׳× ׳”׳§׳•׳“...", async () => {
+  await busy("מאמת את הקוד...", async () => {
     const response = await api("/api/otp/verify", {
       method: "POST",
       body: json({ otp_session_id: flow.otpSessionId, code })
@@ -1113,11 +1113,11 @@ async function otpVerify(form) {
     });
     state.banner = {
       tone: "success",
-      title: "׳”׳׳™׳׳•׳× ׳”׳¦׳׳™׳—",
-      message: "׳׳₪׳©׳¨ ׳׳”׳׳©׳™׳ ׳¢׳›׳©׳™׳• ׳׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×."
+      title: "האימות הצליח",
+      message: "אפשר להמשיך עכשיו לאישור המסגרת."
     };
     navigate(`/app/join/${encodeURIComponent(route.dealId)}/payment`);
-  }, "׳׳™׳׳•׳× ׳”׳§׳•׳“ ׳ ׳›׳©׳.");
+  }, "אימות הקוד נכשל.");
 }
 
 function resetOtp() {
@@ -1135,8 +1135,8 @@ function resetOtp() {
   state.form.code = "";
   state.banner = {
     tone: "warning",
-    title: "׳©׳׳‘ ׳׳™׳׳•׳× ׳”׳˜׳׳₪׳•׳ ׳׳•׳₪׳¡",
-    message: "׳׳₪׳©׳¨ ׳׳‘׳§׳© ׳¢׳›׳©׳™׳• ׳§׳•׳“ ׳—׳“׳© ׳•׳׳”׳׳©׳™׳."
+    title: "שלב אימות הטלפון אופס",
+    message: "אפשר לבקש עכשיו קוד חדש ולהמשיך."
   };
   render();
 }
@@ -1148,8 +1148,8 @@ async function payAndJoin(form) {
   if (!flow?.otpVerified || !flow?.buyerId) {
     state.banner = {
       tone: "warning",
-      title: "׳—׳¡׳¨ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳ ׳×׳§׳£",
-      message: "׳¦׳¨׳™׳ ׳׳”׳©׳׳™׳ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳ ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×."
+      title: "חסר אימות טלפון תקף",
+      message: "צריך להשלים אימות טלפון לפני אישור המסגרת."
     };
     render();
     return;
@@ -1185,7 +1185,7 @@ async function payAndJoin(form) {
   const issue = validatePayment(payload);
   if (issue) return fail("חסר אישור מסגרת", issue);
 
-  await busy("׳׳׳©׳¨ ׳׳× ׳”׳׳¡׳’׳¨׳× ׳•׳©׳•׳׳¨ ׳׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳×...", async () => {
+  await busy("מאשר את המסגרת ושומר את ההצטרפות...", async () => {
     const authorization = await paymentService.authorize(payload);
     const join = await buyerFlowService.joinDeal(route.dealId, {
       buyerId: flow.buyerId,
@@ -1219,11 +1219,11 @@ async function payAndJoin(form) {
     });
     state.banner = {
       tone: "success",
-      title: "׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳”",
-      message: "׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳× ׳‘׳•׳¦׳¢׳” ׳•׳ ׳©׳׳¨׳” ׳”׳©׳×׳×׳₪׳•׳× ׳₪׳¢׳™׳׳” ׳׳¢׳¡׳§׳”."
+      title: "ההצטרפות נשמרה",
+      message: "תפיסת המסגרת בוצעה ונשמרה השתתפות פעילה לעסקה."
     };
     navigate(`/app/join/${encodeURIComponent(route.dealId)}/confirmation`);
-  }, "׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳× ׳׳• ׳©׳׳™׳¨׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳›׳©׳׳•.");
+  }, "תפיסת המסגרת או שמירת ההצטרפות נכשלו.");
 }
 
 async function createDeal(form) {
@@ -1232,17 +1232,17 @@ async function createDeal(form) {
   const deadline = String(formData.get("sellerDeadline") || "").trim();
   const finalTerms = formData.get("sellerFinalTerms") === "on";
   const finalConfirm = formData.get("sellerFinalConfirm") === "on";
-  if (!title) return fail("׳—׳¡׳¨׳” ׳›׳•׳×׳¨׳× ׳׳¢׳¡׳§׳”", "׳™׳© ׳׳”׳–׳™׳ ׳›׳•׳×׳¨׳× ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”.");
-  if (!deadline) return fail("׳—׳¡׳¨ ׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”", "׳™׳© ׳׳‘׳—׳•׳¨ ׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳” ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”.");
+  if (!title) return fail("חסרה כותרת לעסקה", "יש להזין כותרת לפני יצירת הטיוטה.");
+  if (!deadline) return fail("חסר מועד סגירה", "יש לבחור מועד סגירה לפני יצירת הטיוטה.");
   if (!finalTerms || !finalConfirm) {
     return fail("חסר אישור סופי", "לפני יצירת הטיוטה צריך לאשר שהשדות הקריטיים סופיים ושאחרי פרסום אין עריכה שקטה שלהם.");
   }
   const deliveryOptions = collectSellerDeliveryOptions(formData);
   if (!deliveryOptions.length) {
-    return fail("׳—׳¡׳¨׳” ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳”", "׳™׳© ׳׳”׳•׳¡׳™׳£ ׳׳₪׳—׳•׳× ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳—׳× ׳׳₪׳ ׳™ ׳™׳¦׳™׳¨׳× ׳”׳¢׳¡׳§׳”.");
+    return fail("חסרה אפשרות קבלה", "יש להוסיף לפחות אפשרות קבלה אחת לפני יצירת העסקה.");
   }
 
-  await busy("׳™׳•׳¦׳¨ ׳˜׳™׳•׳˜׳× ׳¢׳¡׳§׳”...", async () => {
+  await busy("יוצר טיוטת עסקה...", async () => {
     const sellerContext = currentSellerContext();
     const response = await api("/deals", {
       method: "POST",
@@ -1274,11 +1274,11 @@ async function createDeal(form) {
     }
     state.banner = {
       tone: imageUploadWarning ? "warning" : "success",
-      title: imageUploadWarning ? "הטיוטה נשמרה ללא תמונה" : "׳”׳˜׳™׳•׳˜׳” ׳ ׳©׳׳¨׳”",
-      message: imageUploadWarning || "׳˜׳™׳•׳˜׳× ׳”׳¢׳¡׳§׳” ׳ ׳©׳׳¨׳”. ׳¢׳›׳©׳™׳• ׳׳₪׳©׳¨ ׳׳¢׳‘׳•׳¨ ׳¢׳׳™׳”, ׳׳₪׳¨׳¡׳ ׳׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳•׳׳– ׳׳”׳₪׳™׳¥ ׳׳× ׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨."
+      title: imageUploadWarning ? "הטיוטה נשמרה ללא תמונה" : "הטיוטה נשמרה",
+      message: imageUploadWarning || "טיוטת העסקה נשמרה. עכשיו אפשר לעבור עליה, לפרסם את הדף הציבורי, ואז להפיץ את הלינק הישיר."
     };
     navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
-  }, "׳™׳¦׳™׳¨׳× ׳”׳¢׳¡׳§׳” ׳ ׳›׳©׳׳”.");
+  }, "יצירת העסקה נכשלה.");
 }
 
 async function uploadSellerDealImage(dealId, image) {
@@ -1303,7 +1303,7 @@ async function publishDeal(dealId, form) {
       "לפני פרסום עסקה עם כסף אמיתי צריך לאשר שהתנאים הקריטיים סופיים ושכלל 90% ברור ומקובל."
     );
   }
-  await busy("׳׳₪׳¨׳¡׳ ׳׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™...", async () => {
+  await busy("מפרסם את הדף הציבורי...", async () => {
     await api(`/deals/${encodeURIComponent(dealId)}/publish`, {
       method: "POST",
       headers: {
@@ -1318,11 +1318,11 @@ async function publishDeal(dealId, form) {
     });
     state.banner = {
       tone: "success",
-      title: "׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳₪׳•׳¨׳¡׳",
-      message: "׳“׳£ ׳”׳¢׳¡׳§׳” ׳”׳¦׳™׳‘׳•׳¨׳™ ׳›׳‘׳¨ ׳—׳™ ׳•׳׳•׳›׳ ׳׳”׳₪׳¦׳” ׳™׳©׳™׳¨׳” ׳׳§׳•׳ ׳™׳."
+      title: "הדף הציבורי פורסם",
+      message: "דף העסקה הציבורי כבר חי ומוכן להפצה ישירה לקונים."
     };
     await loadSellerDeal(dealId);
-  }, "׳₪׳¨׳¡׳•׳ ׳”׳¢׳¡׳§׳” ׳ ׳›׳©׳.");
+  }, "פרסום העסקה נכשל.");
 }
 
 async function changeSellerStatus(form) {
@@ -1379,10 +1379,10 @@ async function saveSellerContextFromForm(form) {
   const sellerId = String(formData.get("sellerContextId") || "").trim();
   const displayName = String(formData.get("sellerContextName") || "").trim();
   if (!sellerId) {
-    return fail("׳—׳¡׳¨ ׳׳–׳”׳” ׳׳•׳›׳¨", "׳™׳© ׳׳‘׳—׳•׳¨ ׳׳–׳”׳” ׳׳•׳›׳¨ ׳₪׳¢׳™׳ ׳׳₪׳ ׳™ ׳›׳ ׳™׳¡׳” ׳׳׳–׳•׳¨ ׳”׳׳•׳›׳¨.");
+    return fail("חסר מזהה מוכר", "יש לבחור מזהה מוכר פעיל לפני כניסה לאזור המוכר.");
   }
 
-  await busy("׳©׳•׳׳¨ ׳׳× ׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”...", async () => {
+  await busy("שומר את זהות המוכר הפעילה...", async () => {
     const payload = await api("/api/seller/context", {
       method: "POST",
       body: json({
@@ -1393,15 +1393,15 @@ async function saveSellerContextFromForm(form) {
     const sellerContext = syncSellerContext(payload?.seller_context || null);
     state.banner = {
       tone: "success",
-      title: "׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳ ׳©׳׳¨׳”",
-      message: `׳”׳¢׳‘׳•׳“׳” ׳‘׳׳–׳•׳¨ ׳”׳׳•׳›׳¨ ׳×׳×׳‘׳¦׳¢ ׳¢׳›׳©׳™׳• ׳×׳—׳× ${sellerContext.display_name}.`
+      title: "זהות המוכר נשמרה",
+      message: `העבודה באזור המוכר תתבצע עכשיו תחת ${sellerContext.display_name}.`
     };
     if (["home", "seller", "seller-new"].includes(state.route.name)) {
       await runRoute();
     } else {
       render();
     }
-  }, "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳©׳׳•׳¨ ׳׳× ׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”.");
+  }, "לא הצלחנו לשמור את זהות המוכר הפעילה.");
 }
 
 async function loginSellerFromForm(form) {
@@ -1869,7 +1869,7 @@ function renderCurrentRoute() {
   if (route.name === "admin-deal") return renderAdminDealPage();
   if (route.name === "admin-participant") return renderAdminParticipantPage();
   if (route.name === "admin-user") return renderAdminUserPage();
-  return renderEmptyState("׳”׳¢׳׳•׳“ ׳׳ ׳ ׳׳¦׳", "׳”׳§׳™׳©׳•׳¨ ׳”׳–׳” ׳׳ ׳§׳™׳™׳ ׳׳• ׳©׳›׳‘׳¨ ׳׳™׳ ׳• ׳–׳׳™׳.");
+  return renderEmptyState("העמוד לא נמצא", "הקישור הזה לא קיים או שכבר אינו זמין.");
 }
 
 function renderHomeLegacy() {
@@ -1878,37 +1878,37 @@ function renderHomeLegacy() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳©׳ ׳¡׳™׳˜׳•׳</span>
-        <h1>׳₪׳•׳×׳—׳™׳ ׳¢׳¡׳§׳”, ׳׳¢׳׳™׳ ׳“׳£ ׳׳™׳©׳™, ׳•׳׳₪׳™׳¦׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳</h1>
+        <span class="eyebrow">האתר הראשי של סיטון</span>
+        <h1>פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים</h1>
         <p class="muted">
-          ׳¡׳™׳˜׳•׳ ׳”׳™׳ ׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§. ׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳”׳•׳ ׳©׳¢׳¨ ׳”׳¢׳‘׳•׳“׳” ׳׳׳•׳›׳¨: ׳׳›׳׳ ׳₪׳•׳×׳—׳™׳ ׳¢׳¡׳§׳”, ׳׳₪׳¨׳¡׳׳™׳ ׳“׳£ ׳¦׳™׳‘׳•׳¨׳™ ׳׳™׳©׳™, ׳•׳׳₪׳™׳¦׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳©׳“׳¨׳›׳• ׳”׳§׳•׳ ׳™׳ ׳׳¦׳˜׳¨׳₪׳™׳.
+          סיטון היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
         </p>
         <div class="actions">
-          <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”</a>
-          <a class="button secondary" href="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}" data-nav="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}">׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳׳•׳× ׳©׳׳™</a>
+          <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">פתיחת עסקה חדשה</a>
+          <a class="button secondary" href="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}" data-nav="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}">ניהול העסקאות שלי</a>
         </div>
         <div class="summary-item">
-          <span class="muted">׳ ׳§׳•׳“׳× ׳”׳›׳ ׳™׳¡׳” ׳©׳ ׳”׳§׳•׳ ׳”</span>
+          <span class="muted">נקודת הכניסה של הקונה</span>
           <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
           <p class="small muted">${esc(payload?.buyer_entry_note || "הקונה נכנס ישירות לדף העסקה דרך לינק אישי שנשלח אליו.")}</p>
         </div>
         <div class="summary-item">
-          <span class="muted">׳”׳›׳™׳•׳•׳ ׳”׳׳•׳¦׳¨׳™ ׳”׳₪׳¢׳™׳</span>
-          <strong>${esc(payload?.product_direction || "׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§")}</strong>
-          <p class="small muted">${esc(payload?.positioning || "׳׳×׳¨ ׳׳•׳×׳’׳™ ׳—׳–׳§ ׳׳׳•׳›׳¨׳™׳, ׳¢׳ ׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™ ׳•׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳”.")}</p>
+          <span class="muted">הכיוון המוצרי הפעיל</span>
+          <strong>${esc(payload?.product_direction || "עסקאות קבוצתיות מבוססות לינק")}</strong>
+          <p class="small muted">${esc(payload?.positioning || "אתר מותגי חזק למוכרים, עם דף עסקה ציבורי ולינק ישיר לקונה.")}</p>
         </div>
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item summary-spotlight">
-          <span class="muted">׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×</span>
+          <span class="muted">תמונת מצב עדכנית</span>
           <strong>${buyerState[0]}</strong>
-          <p class="small muted">${moneyState[0]} ֲ· ${dealState.label}</p>
+          <p class="small muted">${moneyState[0]} · ${dealState.label}</p>
         </div>
-        <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳ ׳₪׳×׳—׳•</span><strong>${num(payload?.proof_points?.total_deals || 0)}</strong></div>
-        <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳—׳™׳•׳× ׳¢׳›׳©׳™׳•</span><strong>${num(payload?.proof_points?.live_deals || 0)}</strong></div>
-        <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload?.proof_points?.completed_deals || 0)}</strong></div>
-        ${preview?.is_demo_preview ? `<div class="summary-item"><span class="muted">׳׳¦׳‘ ׳”׳¡׳‘׳™׳‘׳”</span><strong>${esc(formatEnvironmentLabel(preview?.deployment_mode || "preview"))}</strong></div>` : `<div class="summary-item"><span class="muted">׳׳•׳₪׳™ ׳”׳׳•׳¦׳¨</span><strong>׳׳¡׳׳•׳ ׳§׳ ׳™׳™׳” ׳‘׳׳™׳ ׳§ ׳™׳©׳™׳¨</strong></div>`}
-        <div class="summary-item"><span class="muted">׳”׳‘׳˜׳—׳× ׳”׳׳¡׳׳•׳</span><strong>׳”׳׳•׳›׳¨ ׳₪׳•׳×׳—, ׳”׳§׳•׳ ׳” ׳׳¦׳˜׳¨׳£ ׳“׳¨׳ ׳׳™׳ ׳§</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות שנפתחו</span><strong>${num(payload?.proof_points?.total_deals || 0)}</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות חיות עכשיו</span><strong>${num(payload?.proof_points?.live_deals || 0)}</strong></div>
+        <div class="summary-item"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload?.proof_points?.completed_deals || 0)}</strong></div>
+        ${preview?.is_demo_preview ? `<div class="summary-item"><span class="muted">מצב הסביבה</span><strong>${esc(formatEnvironmentLabel(preview?.deployment_mode || "preview"))}</strong></div>` : `<div class="summary-item"><span class="muted">אופי המוצר</span><strong>מסלול קנייה בלינק ישיר</strong></div>`}
+        <div class="summary-item"><span class="muted">הבטחת המסלול</span><strong>המוכר פותח, הקונה מצטרף דרך לינק</strong></div>
       </aside>
     </section>
     <section class="card section stack">
@@ -1919,24 +1919,24 @@ function renderHomeLegacy() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳׳¡׳׳•׳ ׳”׳§׳•׳ ׳” ׳©׳ ׳¡׳™׳˜׳•׳</span>
-        <h1>׳—׳•׳•׳™׳™׳× ׳§׳•׳ ׳” ׳׳—׳•׳‘׳¨׳× ׳׳‘׳§׳׳ ׳“ ׳”׳—׳™</h1>
+        <span class="eyebrow">מסלול הקונה של סיטון</span>
+        <h1>חוויית קונה מחוברת לבקאנד החי</h1>
         <p class="muted">
-          ׳”׳›׳ ׳™׳¡׳” ׳׳׳¡׳׳•׳ ׳”׳׳׳™׳×׳™ ׳”׳™׳ ׳“׳¨׳ ׳§׳™׳©׳•׳¨ ׳¢׳¡׳§׳”. ׳׳©׳ ׳׳׳©׳™׳›׳™׳ ׳׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×, ׳׳׳™׳©׳•׳¨ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳•׳׳׳¢׳§׳‘.
+          הכניסה למסלול האמיתי היא דרך קישור עסקה. משם ממשיכים לאימות טלפון, לאישור מסגרת, לאישור ההצטרפות ולמעקב.
         </p>
         <div class="summary-item">
-          <span class="muted">׳₪׳•׳¨׳׳˜ ׳§׳™׳©׳•׳¨ ׳”׳¢׳¡׳§׳”</span>
+          <span class="muted">פורמט קישור העסקה</span>
           <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
         </div>
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item">
-          <span class="muted">׳׳” ׳–׳׳™׳ ׳›׳¨׳’׳¢</span>
-          <strong>׳“׳£ ׳¢׳¡׳§׳”, ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×, ׳׳™׳©׳•׳¨ ׳•׳׳¢׳§׳‘</strong>
+          <span class="muted">מה זמין כרגע</span>
+          <strong>דף עסקה, אימות טלפון, אישור מסגרת, אישור ומעקב</strong>
         </div>
         <div class="summary-item">
-          <span class="muted">׳׳׳™ ׳”׳׳¡׳׳•׳ ׳׳™׳•׳¢׳“</span>
-          <strong>׳׳§׳•׳ ׳” ׳©׳׳§׳‘׳ ׳§׳™׳©׳•׳¨ ׳™׳©׳™׳¨ ׳׳¢׳¡׳§׳”</strong>
+          <span class="muted">למי המסלול מיועד</span>
+          <strong>לקונה שמקבל קישור ישיר לעסקה</strong>
         </div>
       </aside>
     </section>
@@ -1945,7 +1945,7 @@ function renderHomeLegacy() {
 
 function renderDealPage() {
   if (!state.dealPayload && state.loading) return "";
-  if (!state.dealPayload) return renderEmptyState("׳׳™ ׳׳₪׳©׳¨ ׳׳”׳¦׳™׳’ ׳׳× ׳”׳¢׳¡׳§׳”", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳׳× ׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳” ׳©׳‘׳™׳§׳©׳×.");
+  if (!state.dealPayload) return renderEmptyState("אי אפשר להציג את העסקה", "לא הצלחנו לטעון את פרטי העסקה שביקשת.");
 
   const { deal, metrics, availability } = state.dealPayload;
   const dealCopy = getDealCopy(deal.state);
@@ -1963,7 +1963,7 @@ function renderDealPage() {
   return `
     <section class="hero product-hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™׳×</span>
+        <span class="eyebrow">עסקה ציבורית</span>
         <span class="badge ${dealCopy.badgeTone}">${dealCopy.label}</span>
         <div class="deal-hero-layout">
           ${renderDealVisual(deal.title, deliveryOptions, selectedDelivery, getPrimaryDealImage(deal))}
@@ -1973,22 +1973,22 @@ function renderDealPage() {
             ${availabilityBanner}
             <div class="summary-grid deal-story-grid">
               <div class="summary-item summary-spotlight">
-                <span class="muted">׳׳” ׳׳§׳‘׳׳™׳ ׳‘׳¢׳¡׳§׳”</span>
-                <strong>${currency(deal.price_per_unit)} ׳׳™׳—׳™׳“׳”</strong>
-                <p class="small muted">׳“׳£ ׳”׳¢׳¡׳§׳” ׳׳¨׳›׳– ׳׳× ׳”׳₪׳¨׳˜׳™׳, ׳”׳§׳¦׳‘ ׳•׳׳•׳₪׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳‘׳׳™ ׳¢׳•׳׳¡ ׳˜׳›׳ ׳™.</p>
+                <span class="muted">מה מקבלים בעסקה</span>
+                <strong>${currency(deal.price_per_unit)} ליחידה</strong>
+                <p class="small muted">דף העסקה מרכז את הפרטים, הקצב ואופן ההצטרפות בלי עומס טכני.</p>
               </div>
               <div class="summary-item">
-                <span class="muted">׳׳•׳₪׳ ׳™ ׳§׳‘׳׳”</span>
+                <span class="muted">אופני קבלה</span>
                 <strong>${num(deliveryOptions.length)}</strong>
-                <p class="small muted">${selectedDelivery ? esc(selectedDelivery.label) : "׳ ׳™׳×׳ ׳׳‘׳—׳•׳¨ ׳׳•׳₪׳ ׳§׳‘׳׳” ׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×."}</p>
+                <p class="small muted">${selectedDelivery ? esc(selectedDelivery.label) : "ניתן לבחור אופן קבלה בשלב ההצטרפות."}</p>
               </div>
             </div>
           </div>
         </div>
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">׳›׳ ׳™׳¡׳” ׳׳¢׳¡׳§׳”</span><strong>׳¨׳§ ׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨</strong></div>
-          <div class="trust-point"><span class="muted">׳‘׳©׳׳‘ ׳”׳–׳”</span><strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
-          <div class="trust-point"><span class="muted">׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
+          <div class="trust-point"><span class="muted">כניסה לעסקה</span><strong>רק דרך לינק ישיר</strong></div>
+          <div class="trust-point"><span class="muted">בשלב הזה</span><strong>תפיסת מסגרת בלבד</strong></div>
+          <div class="trust-point"><span class="muted">חיוב בפועל</span><strong>רק אם העסקה תושלם</strong></div>
         </div>
         <div class="info-strip trust-box">
           <strong>בהצטרפות תתבצע תפיסת מסגרת בלבד</strong>
@@ -2013,19 +2013,19 @@ function renderDealPage() {
         })()}
         ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
         <div class="metric-grid">
-          <div class="metric"><span class="muted">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</span><strong>${currency(deal.price_per_unit)}</strong></div>
-          <div class="metric"><span class="muted">׳›׳׳•׳× ׳©׳›׳‘׳¨ ׳ ׳¨׳©׳׳”</span><strong>${num(metrics.joined_units)} ׳™׳—'</strong></div>
-          <div class="metric"><span class="muted">׳§׳™׳‘׳•׳׳× ׳©׳ ׳•׳×׳¨׳”</span><strong>${num(metrics.remaining_units)} ׳™׳—'</strong></div>
+          <div class="metric"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
+          <div class="metric"><span class="muted">כמות שכבר נרשמה</span><strong>${num(metrics.joined_units)} יח'</strong></div>
+          <div class="metric"><span class="muted">קיבולת שנותרה</span><strong>${num(metrics.remaining_units)} יח'</strong></div>
         </div>
         <div class="meter"><span style="width:${Math.max(4, metrics.progress_to_capacity_pct)}%"></span></div>
-        <div class="progress-caption"><strong>${num(metrics.progress_to_capacity_pct)}%</strong><span class="muted">׳׳¢׳¡׳§׳” ׳ ׳¢׳ה ׳›׳¨׳’׳¢ ׳‘׳§׳¦׳‘ ׳”׳ ׳•׳›׳—׳™ ׳׳×׳•׳ ׳§׳™׳‘׳•׳׳× ׳›׳•׳׳׳×</span></div>
+        <div class="progress-caption"><strong>${num(metrics.progress_to_capacity_pct)}%</strong><span class="muted">העסקה נעה כרגע בקצב הנוכחי מתוך קיבולת כוללת</span></div>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳™׳¢׳“ ׳‘׳¡׳™׳¡ ׳׳¢׳¡׳§׳”</span><strong>${num(deal.threshold_units)} ׳™׳—'</strong><p class="small muted">העסקה תיחשב מוצלחת אם יחויבו בפועל לפחות 90% מכמות המינימום. אם פחות מכך יחויב בפועל, העסקה תיכשל והכספים יטופלו לפי מדיניות ההחזרים.</p></div>
-          <div class="summary-item"><span class="muted">׳׳§׳¡׳™׳׳•׳ ׳‘׳¢׳¡׳§׳”</span><strong>${num(deal.max_units)} ׳™׳—'</strong></div>
-          <div class="summary-item"><span class="muted">׳¡׳’׳™׳¨׳× ׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>${dt(deal.deadline)}</strong></div>
-          <div class="summary-item"><span class="muted">׳׳¡׳₪׳¨ ׳׳©׳×׳×׳₪׳™׳</span><strong>${num(metrics.participants_count)}</strong></div>
+          <div class="summary-item"><span class="muted">יעד בסיס לעסקה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">העסקה תיחשב מוצלחת אם יחויבו בפועל לפחות 90% מכמות המינימום. אם פחות מכך יחויב בפועל, העסקה תיכשל והכספים יטופלו לפי מדיניות ההחזרים.</p></div>
+          <div class="summary-item"><span class="muted">מקסימום בעסקה</span><strong>${num(deal.max_units)} יח'</strong></div>
+          <div class="summary-item"><span class="muted">סגירת חלון ההצטרפות</span><strong>${dt(deal.deadline)}</strong></div>
+          <div class="summary-item"><span class="muted">מספר משתתפים</span><strong>${num(metrics.participants_count)}</strong></div>
         </div>
-        ${affiliateRef ? `<div class="info-strip tone-info"><strong>׳™׳™׳—׳•׳¡ ׳©׳•׳×׳£ ׳ ׳©׳׳¨ ׳‘׳׳¡׳׳•׳</strong><p class="small">׳§׳•׳“ ׳”׳”׳₪׳ ׳™׳” <span class="mono">${esc(affiliateRef)}</span> ׳™׳™׳©׳׳¨ ׳׳—׳•׳‘׳¨ ׳׳”׳¦׳˜׳¨׳₪׳•׳× ׳”׳–׳׳× ׳•׳™׳•׳₪׳™׳¢ ׳‘׳׳¡׳›׳™׳ ׳”׳₪׳ ׳™׳׳™׳™׳ ׳”׳¨׳׳•׳•׳ ׳˜׳™׳™׳.</p></div>` : ""}
+        ${affiliateRef ? `<div class="info-strip tone-info"><strong>ייחוס שותף נשמר במסלול</strong><p class="small">קוד ההפניה <span class="mono">${esc(affiliateRef)}</span> יישאר מחובר להצטרפות הזאת ויופיע במסכים הפנימיים הרלוונטיים.</p></div>` : ""}
         ${flow ? renderExistingFlow(flow, deal.deal_id) : ""}
         ${renderLegalReferenceStrip("deal")}
       </article>
@@ -2034,69 +2034,69 @@ function renderDealPage() {
         <p class="muted">${nextAction.description}</p>
         <div class="summary-grid">
           <div class="summary-item">
-            <span class="muted">׳׳¦׳‘ ׳”׳¢׳¡׳§׳”</span>
+            <span class="muted">מצב העסקה</span>
             <strong>${dealCopy.label}</strong>
             <p class="small muted">${availability.message || dealCopy.description}</p>
           </div>
           <div class="summary-item">
-            <span class="muted">׳”׳©׳׳‘ ׳”׳‘׳</span>
+            <span class="muted">השלב הבא</span>
             <strong>${nextAction.cta}</strong>
             <p class="small muted">${nextAction.description}</p>
           </div>
         </div>
         <div class="cta-panel">
-          <strong>׳”׳¦׳˜׳¨׳₪׳•׳× ׳׳”׳™׳¨׳” ׳•׳‘׳¨׳•׳¨׳”</strong>
-          <p class="small muted">׳‘׳—׳¨ ׳›׳׳•׳× ׳•׳׳•׳₪׳ ׳§׳‘׳׳”, ׳”׳׳©׳ ׳׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳•׳׳– ׳׳©׳¨ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“.</p>
+          <strong>הצטרפות מהירה וברורה</strong>
+          <p class="small muted">בחר כמות ואופן קבלה, המשך לאימות טלפון, ואז אשר תפיסת מסגרת בלבד.</p>
         </div>
         <form data-action="start-join" class="stack">
           <div class="field">
-            <label for="qty">׳›׳׳” ׳™׳—׳™׳“׳•׳× ׳×׳¨׳¦׳” ׳׳”׳¦׳˜׳¨׳£?</label>
+            <label for="qty">כמה יחידות תרצה להצטרף?</label>
             <input id="qty" name="qty" type="number" min="1" max="${Math.max(1, metrics.remaining_units)}" step="1" value="${qty}" />
           </div>
           <div class="field">
-            <label for="deliveryOptionId">׳׳•׳₪׳ ׳§׳‘׳׳”</label>
+            <label for="deliveryOptionId">אופן קבלה</label>
             ${deliveryOptions.length > 1 ? `
               <select id="deliveryOptionId" name="deliveryOptionId">
-                <option value="">׳‘׳—׳¨ ׳׳•׳₪׳ ׳§׳‘׳׳”</option>
-                ${deliveryOptions.map((option) => `<option value="${esc(option.option_id)}" ${selectedDelivery?.option_id === option.option_id ? "selected" : ""}>${esc(option.label)} ֲ· ${currency(option.cost || 0)}</option>`).join("")}
+                <option value="">בחר אופן קבלה</option>
+                ${deliveryOptions.map((option) => `<option value="${esc(option.option_id)}" ${selectedDelivery?.option_id === option.option_id ? "selected" : ""}>${esc(option.label)} · ${currency(option.cost || 0)}</option>`).join("")}
               </select>
             ` : selectedDelivery ? `
               <div class="info-strip">
                 <strong>${esc(selectedDelivery.label)}</strong>
-                <p class="small muted">${currency(selectedDelivery.cost || 0)} ֲ· ${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))}</p>
+                <p class="small muted">${currency(selectedDelivery.cost || 0)} · ${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))}</p>
               </div>
               <input type="hidden" name="deliveryOptionId" value="${esc(selectedDelivery.option_id)}" />
             ` : `
-              <div class="error-card compact">׳׳ ׳”׳•׳’׳“׳¨׳” ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</div>
+              <div class="error-card compact">לא הוגדרה אפשרות קבלה לעסקה הזאת.</div>
             `}
           </div>
           ${qtyIssue ? `<div class="error-card compact">${esc(qtyIssue)}</div>` : ""}
           ${deliveryIssue ? `<div class="error-card compact">${esc(deliveryIssue)}</div>` : ""}
           ${selectedDelivery ? `
             <div class="summary-item">
-              <span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳” ׳©׳ ׳‘׳—׳¨</span>
+              <span class="muted">אופן קבלה שנבחר</span>
               <strong>${esc(selectedDelivery.label)}</strong>
-              <p class="small muted">${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))} ֲ· ${currency(selectedDelivery.cost || 0)}</p>
+              <p class="small muted">${esc(formatDeliveryTypeLabel(selectedDelivery.option_type))} · ${currency(selectedDelivery.cost || 0)}</p>
             </div>
           ` : ""}
           <div class="summary-item summary-spotlight">
-            <span class="muted">׳¢׳׳•׳× ׳׳©׳•׳¢׳¨׳×</span>
+            <span class="muted">עלות משוערת</span>
             <strong>${currency(holdTotal)}</strong>
             <p class="small muted">${REQUIRED_PAYMENT_NOTICE}</p>
           </div>
           ${selectedDelivery ? `
             <div class="summary-item">
-              <span class="muted">׳₪׳™׳¨׳•׳˜ ׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳×</span>
+              <span class="muted">פירוט תפיסת המסגרת</span>
               <strong>${currency(holdTotal)}</strong>
-              <p class="small muted">${num(Math.max(0, qty))} ׳™׳—' x ${currency(deal.price_per_unit)} + ${currency(selectedDelivery.cost || 0)} ${esc(selectedDelivery.label)}</p>
+              <p class="small muted">${num(Math.max(0, qty))} יח' x ${currency(deal.price_per_unit)} + ${currency(selectedDelivery.cost || 0)} ${esc(selectedDelivery.label)}</p>
             </div>
           ` : ""}
             <div class="info-strip tone-warning trust-box">
-              <strong>׳׳” ׳ ׳©׳׳¨ ׳¢׳›׳©׳™׳•</strong>
+              <strong>מה נשמר עכשיו</strong>
               <p class="small">${REQUIRED_PAYMENT_NOTICE}</p>
             </div>
             <div class="mini-legal-note">
-              <span class="muted">׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳–׳׳™׳ ׳×׳׳™׳“:</span>
+              <span class="muted">המידע המחייב זמין תמיד:</span>
               ${renderLegalLinkRow()}
             </div>
             <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${nextAction.cta}</button>
@@ -2144,9 +2144,9 @@ function renderDealChatSection(deal) {
 }
 
 function getDealChatClosedMessage(dealState) {
-  if (dealState === "Draft") return "הצ׳אט ייפתח אחרי פרסום העסקה";
-  if (["ReadyForCharging", "Charging", "CompletionWindow"].includes(dealState)) return "הצ׳אט נסגר כי העסקה עברה למסלול חיוב";
-  return "הצ׳אט נסגר כי העסקה הסתיימה";
+  if (dealState === "Draft") return "הצאט ייפתח אחרי פרסום העסקה";
+  if (["ReadyForCharging", "Charging", "CompletionWindow"].includes(dealState)) return "הצאט נסגר כי העסקה עברה למסלול חיוב";
+  return "הצאט נסגר כי העסקה הסתיימה";
 }
 
 function renderDealChatMessage(message) {
@@ -2168,18 +2168,18 @@ function renderExistingFlow(flow, dealId) {
       ? `/app/join/${encodeURIComponent(dealId)}/payment`
       : `/app/join/${encodeURIComponent(dealId)}/otp`;
   const continueLabel = flow.participantId
-    ? "׳׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳©׳׳™"
+    ? "למסך המעקב שלי"
     : flow.otpVerified
-      ? "׳׳”׳׳©׳ ׳׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×"
-      : "׳׳”׳׳©׳ ׳׳׳™׳׳•׳× ׳˜׳׳₪׳•׳";
+      ? "להמשך לאישור מסגרת"
+      : "להמשך לאימות טלפון";
 
   return `
     <div class="info-strip">
-      <strong>׳™׳© ׳׳ ׳›׳‘׳¨ ׳׳¡׳׳•׳ ׳₪׳×׳•׳— ׳׳¢׳¡׳§׳” ׳”׳–׳•</strong>
-      <p class="small">׳”׳›׳׳•׳× ׳©׳ ׳©׳׳¨׳”: ${num(flow.qty || 0)} ׳™׳—'. ׳׳₪׳©׳¨ ׳׳”׳׳©׳™׳ ׳׳׳™׳₪׳” ׳©׳¢׳¦׳¨׳× ׳׳• ׳׳”׳×׳—׳™׳ ׳׳—׳“׳©.</p>
+      <strong>יש לך כבר מסלול פתוח לעסקה הזו</strong>
+      <p class="small">הכמות שנשמרה: ${num(flow.qty || 0)} יח'. אפשר להמשיך מאיפה שעצרת או להתחיל מחדש.</p>
       <div class="actions">
         <a class="button secondary" href="${continueHref}" data-nav="${continueHref}">${continueLabel}</a>
-        <button class="secondary" type="button" data-inline-action="restart-flow">׳”׳×׳—׳ ׳׳—׳“׳©</button>
+        <button class="secondary" type="button" data-inline-action="restart-flow">התחל מחדש</button>
       </div>
     </div>
   `;
@@ -2189,8 +2189,8 @@ function renderOtpPage(dealId) {
   const flow = getFlow(dealId);
   if (!flow) {
     return renderRecoveryState(
-      "׳׳™׳ ׳׳¡׳׳•׳ ׳₪׳×׳•׳— ׳׳¢׳¡׳§׳” ׳”׳–׳•",
-      "׳›׳“׳™ ׳׳”׳׳©׳™׳ ׳׳׳™׳׳•׳× ׳˜׳׳₪׳•׳ ׳¦׳¨׳™׳ ׳׳”׳×׳—׳™׳ ׳׳”׳¢׳¡׳§׳” ׳•׳׳‘׳—׳•׳¨ ׳›׳׳•׳× ׳׳”׳¦׳˜׳¨׳₪׳•׳×.",
+      "אין מסלול פתוח לעסקה הזו",
+      "כדי להמשיך לאימות טלפון צריך להתחיל מהעסקה ולבחור כמות להצטרפות.",
       `/app/deal/${encodeURIComponent(dealId)}`
     );
   }
@@ -2201,50 +2201,50 @@ function renderOtpPage(dealId) {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳©׳׳‘ 1 ׳׳×׳•׳ 3</span>
-        <h1>׳׳™׳׳•׳× ׳˜׳׳₪׳•׳ ׳׳₪׳ ׳™ ׳”׳¦׳˜׳¨׳₪׳•׳×</h1>
-        <p class="muted">׳׳ ׳—׳ ׳• ׳׳׳׳×׳™׳ ׳׳× ׳”׳˜׳׳₪׳•׳ ׳›׳“׳™ ׳׳©׳™׳™׳ ׳׳× ׳”׳”׳©׳×׳×׳₪׳•׳× ׳׳§׳•׳ ׳” ׳”׳ ׳›׳•׳ ׳׳₪׳ ׳™ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×.</p>
+        <span class="eyebrow">שלב 1 מתוך 3</span>
+        <h1>אימות טלפון לפני הצטרפות</h1>
+        <p class="muted">אנחנו מאמתים את הטלפון כדי לשייך את ההשתתפות לקונה הנכון לפני תפיסת מסגרת.</p>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳¢׳¡׳§׳”</span><strong>${esc(state.dealPayload?.deal?.title || flow.dealTitle || "׳¢׳¡׳§׳”")}</strong></div>
-          <div class="summary-item"><span class="muted">׳›׳׳•׳× ׳©׳ ׳©׳׳¨׳”</span><strong>${num(flow.qty || 0)} ׳™׳—'</strong></div>
+          <div class="summary-item"><span class="muted">עסקה</span><strong>${esc(state.dealPayload?.deal?.title || flow.dealTitle || "עסקה")}</strong></div>
+          <div class="summary-item"><span class="muted">כמות שנשמרה</span><strong>${num(flow.qty || 0)} יח'</strong></div>
         </div>
         <div class="status-rail">
-          ${renderStep("׳›׳׳•׳× ׳ ׳©׳׳¨׳”", true)}
-          ${renderStep("׳׳™׳׳•׳× ׳˜׳׳₪׳•׳", Boolean(flow.otpSessionId), flow.otpVerified)}
-          ${renderStep("׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳”׳¦׳˜׳¨׳₪׳•׳×", Boolean(flow.otpVerified))}
+          ${renderStep("כמות נשמרה", true)}
+          ${renderStep("אימות טלפון", Boolean(flow.otpSessionId), flow.otpVerified)}
+          ${renderStep("אישור מסגרת והצטרפות", Boolean(flow.otpVerified))}
         </div>
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item">
-          <span class="muted">׳׳¦׳‘ ׳”׳׳¡׳׳•׳</span>
+          <span class="muted">מצב המסלול</span>
           <strong>${flowState.title}</strong>
           <p class="small muted">${flowState.message}</p>
         </div>
         <div class="summary-item">
-          <span class="muted">׳¢׳“׳›׳•׳ ׳׳—׳¨׳•׳ ׳׳׳¡׳׳•׳</span>
+          <span class="muted">עדכון אחרון למסלול</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
-          <p class="small muted">׳׳ ׳׳©׳”׳• ׳׳¨׳’׳™׳© ׳׳ ׳¢׳“׳›׳ ׳™, ׳׳₪׳©׳¨ ׳׳׳₪׳¡ ׳׳× ׳©׳׳‘ ׳׳™׳׳•׳× ׳”׳˜׳׳₪׳•׳ ׳•׳׳”׳׳©׳™׳ ׳׳—׳“׳©.</p>
+          <p class="small muted">אם משהו מרגיש לא עדכני, אפשר לאפס את שלב אימות הטלפון ולהמשיך מחדש.</p>
         </div>
         <form data-action="otp-start" class="stack">
           <div class="field">
-            <label for="phone">׳׳¡׳₪׳¨ ׳˜׳׳₪׳•׳ ׳ ׳™׳™׳“</label>
+            <label for="phone">מספר טלפון נייד</label>
             <input id="phone" name="phone" type="tel" data-dir="ltr" value="${esc(flow.phone || state.form.phone || "")}" placeholder="0501234567" />
           </div>
-          <button class="primary" type="submit">${flow.otpSessionId ? "׳©׳׳— ׳§׳•׳“ ׳—׳“׳©" : "׳©׳׳— ׳§׳•׳“ ׳׳™׳׳•׳×"}</button>
+          <button class="primary" type="submit">${flow.otpSessionId ? "שלח קוד חדש" : "שלח קוד אימות"}</button>
         </form>
         ${flow.otpSessionId ? `
           <div class="info-strip ${expired ? "tone-warning" : ""}">
-            <strong>${expired ? "׳×׳•׳§׳£ ׳”׳§׳•׳“ ׳₪׳’" : `׳©׳׳—׳ ׳• ׳§׳•׳“ ׳-${esc(flow.otpMaskedDestination || flow.phone || "")}`}</strong>
-            <p class="small">${expired ? "׳׳₪׳©׳¨ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳•׳׳”׳׳©׳™׳." : `׳”׳§׳•׳“ ׳‘׳×׳•׳§׳£ ׳¢׳“ ${dt(flow.otpExpiresAt)}.`}</p>
+            <strong>${expired ? "תוקף הקוד פג" : `שלחנו קוד ל-${esc(flow.otpMaskedDestination || flow.phone || "")}`}</strong>
+            <p class="small">${expired ? "אפשר לבקש קוד חדש ולהמשיך." : `הקוד בתוקף עד ${dt(flow.otpExpiresAt)}.`}</p>
           </div>
           <form data-action="otp-verify" class="stack">
             <div class="field">
-              <label for="code">׳§׳•׳“ ׳׳™׳׳•׳×</label>
+              <label for="code">קוד אימות</label>
               <input id="code" name="code" type="text" data-dir="ltr" inputmode="numeric" value="${esc(state.form.code || "")}" placeholder="123456" />
             </div>
             <div class="actions">
-              <button class="primary" type="submit" ${expired ? "disabled" : ""}>׳׳׳× ׳•׳”׳׳©׳</button>
-              <button class="secondary" type="button" data-inline-action="reset-otp">׳׳₪׳¡ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳</button>
+              <button class="primary" type="submit" ${expired ? "disabled" : ""}>אמת והמשך</button>
+              <button class="secondary" type="button" data-inline-action="reset-otp">אפס אימות טלפון</button>
             </div>
           </form>
         ` : ""}
@@ -2257,22 +2257,22 @@ function renderPaymentPage(dealId) {
   const flow = getFlow(dealId);
   if (!flow) {
     return renderRecoveryState(
-      "׳׳™׳ ׳׳¡׳׳•׳ ׳©׳׳•׳¨ ׳׳”׳׳©׳",
-      "׳›׳“׳™ ׳׳”׳’׳™׳¢ ׳׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳¦׳¨׳™׳ ׳׳”׳×׳—׳™׳ ׳׳”׳¢׳¡׳§׳” ׳•׳׳©׳׳•׳¨ ׳§׳•׳“׳ ׳‘׳—׳™׳¨׳× ׳›׳׳•׳×.",
+      "אין מסלול שמור להמשך",
+      "כדי להגיע לאישור מסגרת צריך להתחיל מהעסקה ולשמור קודם בחירת כמות.",
       `/app/deal/${encodeURIComponent(dealId)}`
     );
   }
   if (!flow.otpVerified) {
     return renderRecoveryState(
-      "׳¦׳¨׳™׳ ׳׳”׳©׳׳™׳ ׳§׳•׳“׳ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳",
-      "׳”׳›׳׳•׳× ׳ ׳©׳׳¨׳”, ׳׳‘׳ ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳¦׳¨׳™׳ ׳׳”׳©׳׳™׳ ׳׳× ׳׳™׳׳•׳× ׳”׳˜׳׳₪׳•׳.",
+      "צריך להשלים קודם אימות טלפון",
+      "הכמות נשמרה, אבל לפני אישור המסגרת צריך להשלים את אימות הטלפון.",
       `/app/join/${encodeURIComponent(dealId)}/otp`
     );
   }
 
   const deal = state.dealPayload?.deal;
   const preview = state.previewMeta?.preview;
-  const deliveryLabel = flow.deliveryMethodLabel || "׳׳ ׳ ׳‘׳—׳¨";
+  const deliveryLabel = flow.deliveryMethodLabel || "לא נבחר";
   const deliveryCost = Number(flow.deliveryCost || 0);
   const holdTotal = Number(flow.estimatedTotal || ((flow.qty || 0) * (deal?.price_per_unit || 0) + deliveryCost));
   return `
@@ -2282,9 +2282,9 @@ function renderPaymentPage(dealId) {
         <h1>אישור מסגרת לפני הצטרפות סופית</h1>
         <p class="muted">זהו שלב אישור מסגרת בלבד. אין כאן חיוב מיידי, אלא תפיסת מסגרת לקראת השלמת העסקה.</p>
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">׳׳” ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•</span><strong>׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
-          <div class="trust-point"><span class="muted">׳׳” ׳׳ ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•</span><strong>׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</strong></div>
-          <div class="trust-point"><span class="muted">׳׳×׳™ ׳›׳ ׳™׳—׳•׳™׳‘</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳•׳©׳׳</strong></div>
+          <div class="trust-point"><span class="muted">מה קורה עכשיו</span><strong>אישור מסגרת בלבד</strong></div>
+          <div class="trust-point"><span class="muted">מה לא קורה עכשיו</span><strong>אין חיוב בפועל</strong></div>
+          <div class="trust-point"><span class="muted">מתי כן יחויב</span><strong>רק אם העסקה תושלם</strong></div>
         </div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">עסקה</span><strong>${esc(deal?.title || flow.dealTitle || "")}</strong></div>
@@ -2295,9 +2295,9 @@ function renderPaymentPage(dealId) {
           <div class="summary-item"><span class="muted">סך הכול לתפיסת מסגרת</span><strong>${currency(holdTotal)}</strong></div>
         </div>
           <div class="summary-item">
-            <span class="muted">׳¢׳“׳›׳•׳ ׳׳—׳¨׳•׳ ׳׳׳¡׳׳•׳</span>
+            <span class="muted">עדכון אחרון למסלול</span>
             <strong>${relativeTime(flow.updatedAt)}</strong>
-            <p class="small muted">׳›׳ ׳׳₪׳©׳¨ ׳׳”׳‘׳™׳ ׳׳ ׳׳×׳” ׳׳׳©׳™׳ ׳׳¡׳׳•׳ ׳˜׳¨׳™ ׳׳• ׳—׳•׳–׳¨ ׳׳׳™׳• ׳׳—׳¨׳™ ׳”׳₪׳¡׳§׳”.</p>
+            <p class="small muted">כך אפשר להבין אם אתה ממשיך מסלול טרי או חוזר אליו אחרי הפסקה.</p>
           </div>
           ${renderLegalReferenceStrip("payment")}
           <div class="info-strip trust-box">
@@ -2316,8 +2316,8 @@ function renderPaymentPage(dealId) {
           <p class="small">לא מתבצע חיוב בפועל עכשיו. הסכום יתפוס מסגרת אשראי בלבד, והחיוב יתבצע רק אם העסקה תיסגר בהצלחה.</p>
         </div>
         <div class="cta-panel">
-          <strong>׳©׳§׳˜ ׳•׳‘׳”׳™׳¨ ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨</strong>
-          <p class="small muted">׳–׳” ׳”׳׳¡׳ ׳”׳׳—׳¨׳•׳ ׳׳₪׳ ׳™ ׳©׳׳™׳¨׳× ׳”׳”׳¦׳˜׳¨׳₪׳•׳×. ׳׳—׳¨׳™ ׳”׳׳™׳©׳•׳¨ ׳×׳¢׳‘׳•׳¨ ׳׳™׳“ ׳׳׳¡׳ ׳”׳¦׳׳—׳” ׳•׳׳¢׳§׳‘.</p>
+          <strong>שקט ובהיר לפני אישור</strong>
+          <p class="small muted">זה המסך האחרון לפני שמירת ההצטרפות. אחרי האישור תעבור מיד למסך הצלחה ומעקב.</p>
         </div>
         <form data-action="pay" class="stack">
           ${flow.deliveryMethodType === "shipping" ? `
@@ -2349,15 +2349,15 @@ function renderConfirmationPage(dealId) {
   const flow = getFlow(dealId);
   if (!flow) {
     return renderRecoveryState(
-      "׳׳™׳ ׳¡׳©׳ ׳©׳׳•׳¨ ׳׳׳¡׳ ׳”׳–׳”",
-      "׳׳₪׳©׳¨ ׳׳—׳–׳•׳¨ ׳׳¢׳¡׳§׳” ׳•׳׳”׳×׳—׳™׳ ׳׳¡׳׳•׳ ׳—׳“׳©, ׳׳• ׳׳”׳™׳›׳ ׳¡ ׳™׳©׳™׳¨׳•׳× ׳׳׳¢׳§׳‘ ׳׳ ׳›׳‘׳¨ ׳™׳© ׳׳ ׳׳–׳”׳” ׳”׳©׳×׳×׳₪׳•׳×.",
+      "אין סשן שמור למסך הזה",
+      "אפשר לחזור לעסקה ולהתחיל מסלול חדש, או להיכנס ישירות למעקב אם כבר יש לך מזהה השתתפות.",
       `/app/deal/${encodeURIComponent(dealId)}`
     );
   }
   if (!flow.participantId) {
     return renderRecoveryState(
-      "׳¢׳“׳™׳™׳ ׳׳™׳ ׳׳™׳©׳•׳¨ ׳¡׳•׳₪׳™ ׳׳”׳¦׳’׳”",
-      "׳›׳“׳™ ׳׳”׳’׳™׳¢ ׳׳׳¡׳ ׳”׳׳™׳©׳•׳¨ ׳¦׳¨׳™׳ ׳׳¡׳™׳™׳ ׳§׳•׳“׳ ׳׳× ׳©׳׳‘ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳•׳”׳”׳¦׳˜׳¨׳₪׳•׳×.",
+      "עדיין אין אישור סופי להצגה",
+      "כדי להגיע למסך האישור צריך לסיים קודם את שלב אישור המסגרת וההצטרפות.",
       `/app/join/${encodeURIComponent(dealId)}/payment`
     );
   }
@@ -2366,66 +2366,66 @@ function renderConfirmationPage(dealId) {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis success-surface">
-        <span class="eyebrow">׳©׳׳‘ 3 ׳׳×׳•׳ 3</span>
+        <span class="eyebrow">שלב 3 מתוך 3</span>
         <span class="badge success">${REQUIRED_SUCCESS_HEADLINE}</span>
         <h1>${REQUIRED_SUCCESS_HEADLINE}</h1>
-        <p class="muted">׳”׳©׳׳׳ ׳• ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳”׳¨׳©׳׳” ׳׳¢׳¡׳§׳”. ׳׳›׳׳ ׳¢׳•׳‘׳¨׳™׳ ׳׳׳¢׳§׳‘ ׳¢׳“ ׳׳¡׳’׳™׳¨׳× ׳”׳¢׳¡׳§׳”.</p>
+        <p class="muted">השלמנו אימות טלפון, אישור מסגרת והרשמה לעסקה. מכאן עוברים למעקב עד לסגירת העסקה.</p>
         <div class="tracking-next-panel">
-          <span class="muted">׳׳” ׳§׳¨׳” ׳¢׳“ ׳¢׳›׳©׳™׳•</span>
-          <strong>׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳” ׳•׳ ׳×׳₪׳¡׳” ׳׳¡׳’׳¨׳×</strong>
+          <span class="muted">מה קרה עד עכשיו</span>
+          <strong>הצטרפות נשמרה ונתפסה מסגרת</strong>
           <p class="small muted">הצטרפת לעסקה. המסגרת נתפסה, אך לא בוצע חיוב בפועל. ${REQUIRED_CHARGE_CONDITION}. ${REQUIRED_RELEASE_NOTICE}.</p>
         </div>
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>׳ ׳©׳׳¨׳” ׳‘׳”׳¦׳׳—׳”</strong></div>
-          <div class="trust-point"><span class="muted">׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×</span><strong>׳׳•׳©׳¨׳” ׳•׳ ׳©׳׳¨׳”</strong></div>
-          <div class="trust-point"><span class="muted">׳”׳©׳׳‘ ׳”׳‘׳</span><strong>׳׳¢׳§׳‘ ׳¢׳“ ׳¡׳’׳™׳¨׳× ׳”׳¢׳¡׳§׳”</strong></div>
+          <div class="trust-point"><span class="muted">הצטרפות</span><strong>נשמרה בהצלחה</strong></div>
+          <div class="trust-point"><span class="muted">תפיסת מסגרת</span><strong>אושרה ונשמרה</strong></div>
+          <div class="trust-point"><span class="muted">השלב הבא</span><strong>מעקב עד סגירת העסקה</strong></div>
         </div>
           <div class="summary-grid">
             <div class="summary-item"><span class="muted">סטטוס ההצטרפות</span><strong>שמורה במערכת</strong></div>
             <div class="summary-item"><span class="muted">סטטוס המסגרת</span><strong>תפיסת מסגרת בלבד</strong></div>
-            <div class="summary-item"><span class="muted">׳›׳׳•׳× ׳©׳ ׳¨׳©׳׳”</span><strong>${num(flow.qty || 0)} ׳™׳—'</strong></div>
-            <div class="summary-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(flow.deliveryMethodLabel || "׳׳ ׳–׳׳™׳")}</strong></div>
-            <div class="summary-item"><span class="muted">׳¢׳׳•׳× ׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${currency(flow.deliveryCost || 0)}</strong></div>
-            <div class="summary-item"><span class="muted">׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳›׳•׳׳׳×</span><strong>${currency(flow.estimatedTotal || 0)}</strong></div>
-            <div class="summary-item"><span class="muted">׳׳” ׳ ׳©׳׳¨ ׳¢׳›׳©׳™׳•</span><strong>׳”׳©׳×׳×׳₪׳•׳× ׳₪׳¢׳™׳׳” ׳¢׳ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×</strong></div>
+            <div class="summary-item"><span class="muted">כמות שנרשמה</span><strong>${num(flow.qty || 0)} יח'</strong></div>
+            <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${esc(flow.deliveryMethodLabel || "לא זמין")}</strong></div>
+            <div class="summary-item"><span class="muted">עלות אופן קבלה</span><strong>${currency(flow.deliveryCost || 0)}</strong></div>
+            <div class="summary-item"><span class="muted">תפיסת מסגרת כוללת</span><strong>${currency(flow.estimatedTotal || 0)}</strong></div>
+            <div class="summary-item"><span class="muted">מה נשמר עכשיו</span><strong>השתתפות פעילה עם תפיסת מסגרת</strong></div>
           </div>
           ${renderLegalReferenceStrip("confirmation")}
         </article>
       <aside class="card hero-side stack">
         <div class="info-strip tone-success">
-          <strong>׳׳” ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•?</strong>
-          <p class="small">׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳™׳¨׳׳” ׳׳ ׳›׳¨׳’׳¢ ׳¨׳§ ׳ ׳¨׳©׳׳×, ׳׳ ׳”׳—׳™׳•׳‘ ׳›׳‘׳¨ ׳‘׳•׳¦׳¢, ׳•׳׳ ׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳” ׳׳• ׳ ׳›׳©׳׳”.</p>
+          <strong>מה קורה עכשיו?</strong>
+          <p class="small">מסך המעקב יראה אם כרגע רק נרשמת, אם החיוב כבר בוצע, ואם העסקה הושלמה או נכשלה.</p>
         </div>
         <div class="summary-grid">
           <div class="summary-item">
-            <span class="muted">׳¢׳“׳™׳™׳ ׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span>
-            <strong>׳¨׳§ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×</strong>
-            <p class="small muted">׳׳₪׳ר׳ש ׳ה׳ח׳ש׳ו׳ב ׳ה׳ו׳א ׳ב׳י׳ן ׳ת׳פ׳י׳ס׳ת ׳מ׳ס׳ג׳ר׳ת ׳ל׳ב׳י׳ן ׳ח׳י׳ו׳ב ׳א׳מ׳י׳ת׳י.</p>
+            <span class="muted">עדיין אין חיוב בפועל</span>
+            <strong>רק אישור מסגרת</strong>
+            <p class="small muted">הפרש החשוב הוא בין תפיסת מסגרת לבין חיוב אמיתי.</p>
           </div>
           <div class="summary-item">
-            <span class="muted">׳׳” ׳כ׳ד׳א׳י ׳ל׳ע׳ש׳ו׳ת ׳ע׳כ׳ש׳יו</span>
-            <strong>׳׳ש׳׳•׳¨ ׳׳× ׳׳¡׳ ׳ה׳׳¢׳§׳‘</strong>
-            <p class="small muted">׳א׳ם ׳י׳ש ׳ע׳ר׳ך ׳ל׳ש׳י׳ת׳ו׳ף, ׳כ׳ד׳א׳י ׳ל׳ש׳ל׳ו׳ח ׳א׳× ׳ק׳י׳ש׳ו׳ר ׳ה׳מ׳¢׳ק׳‘ ׳ל׳ע׳צ׳מ׳ך.</p>
+            <span class="muted">מה כדאי לעשות עכשיו</span>
+            <strong>לשמור את מסך המעקב</strong>
+            <p class="small muted">אם יש ערך לשיתוף, כדאי לשלוח את קישור המעקב לעצמך.</p>
           </div>
         </div>
         <div class="cta-panel success-panel">
-          <strong>׳”׳¢׳¡׳§׳” ׳©׳׳ ׳›׳‘׳¨ ׳‘׳×׳•׳ ׳”׳׳¢׳¨׳›׳×</strong>
-          <p class="small muted">׳©׳׳•׳¨ ׳׳× ׳׳¡׳ ׳”׳׳¢׳§׳‘, ׳•׳©׳׳— ׳׳•׳×׳• ׳׳¢׳¦׳׳ ׳׳• ׳׳׳™ ׳©׳¦׳¨׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳¡׳˜׳˜׳•׳¡.</p>
+          <strong>העסקה שלך כבר בתוך המערכת</strong>
+          <p class="small muted">שמור את מסך המעקב, ושלח אותו לעצמך או למי שצריך לעקוב אחרי הסטטוס.</p>
         </div>
         ${flow.authorizationId && flow.authorizationMessage ? `
           <div class="summary-item">
-            <span class="muted">׳”׳•׳“׳¢׳× ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×</span>
+            <span class="muted">הודעת אישור המסגרת</span>
             <p class="small">${esc(flow.authorizationMessage)}</p>
           </div>
         ` : ""}
         ${renderShareActions(trackingHref, flow.dealTitle || "מעקב השתתפות בסיטון")}
         <div class="summary-item">
-          <span class="muted">׳”׳׳¡׳׳•׳ ׳¢׳•׳“׳›׳</span>
+          <span class="muted">המסלול עודכן</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
         </div>
         <div class="actions">
-          <a class="button primary" href="${trackingHref}" data-nav="${trackingHref}">׳׳׳¡׳ ׳”׳׳¢׳§׳‘</a>
-          <a class="button secondary" href="/app/deal/${encodeURIComponent(dealId)}" data-nav="/app/deal/${encodeURIComponent(dealId)}">׳—׳–׳¨׳” ׳׳¢׳¡׳§׳”</a>
+          <a class="button primary" href="${trackingHref}" data-nav="${trackingHref}">למסך המעקב</a>
+          <a class="button secondary" href="/app/deal/${encodeURIComponent(dealId)}" data-nav="/app/deal/${encodeURIComponent(dealId)}">חזרה לעסקה</a>
         </div>
       </aside>
     </section>
@@ -2435,7 +2435,7 @@ function renderConfirmationPage(dealId) {
 function renderTrackingPage() {
   if (!state.trackingPayload && state.loading) return "";
   if (!state.trackingPayload) {
-    return renderEmptyState("׳׳ ׳׳¦׳׳ ׳• ׳׳× ׳”׳”׳©׳×׳×׳₪׳•׳×", "׳›׳“׳׳™ ׳׳‘׳“׳•׳§ ׳׳× ׳”׳§׳™׳©׳•׳¨, ׳׳• ׳׳—׳–׳•׳¨ ׳׳¢׳¡׳§׳” ׳•׳׳”׳×׳—׳™׳ ׳׳¡׳׳•׳ ׳—׳“׳©.");
+    return renderEmptyState("לא מצאנו את ההשתתפות", "כדאי לבדוק את הקישור, או לחזור לעסקה ולהתחיל מסלול חדש.");
   }
 
   const tracking = state.trackingPayload.tracking;
@@ -2557,34 +2557,34 @@ function renderTrackingPage() {
           `).join("")}
         </div>
         <div class="status-grid">
-          <div class="status-item"><span class="muted">׳׳¦׳‘ ׳”׳¢׳¡׳§׳”</span><strong>${dealState.label}</strong><p class="small muted">${dealState.description}</p></div>
-          <div class="status-item"><span class="muted">׳׳¦׳‘ ׳”׳”׳©׳×׳×׳₪׳•׳×</span><strong>${buyerState[0]}</strong><p class="small muted">${buyerState[1]}</p></div>
-          <div class="status-item"><span class="muted">׳׳¦׳‘ ׳›׳¡׳₪׳™</span><strong>${moneyState[0]}</strong><p class="small muted">${moneyState[1]}</p></div>
-          <div class="status-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(tracking.delivery_method_label || "׳׳ ׳–׳׳™׳")}</strong><p class="small muted">${esc(formatDeliveryTypeLabel(tracking.delivery_method_type || ""))}</p></div>
-          <div class="status-item"><span class="muted">׳¢׳׳•׳× ׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${currency(tracking.delivery_cost || 0)}</strong><p class="small muted">׳ ׳©׳׳¨׳” ׳¢׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</p></div>
-          <div class="status-item"><span class="muted">׳¢׳׳•׳× ׳׳©׳•׳¢׳¨׳×</span><strong>${currency(tracking.estimated_total)}</strong><p class="small muted">${num(tracking.qty)} ׳™׳—' x ${currency(tracking.price_per_unit)} + ${currency(tracking.delivery_cost || 0)}</p></div>
+          <div class="status-item"><span class="muted">מצב העסקה</span><strong>${dealState.label}</strong><p class="small muted">${dealState.description}</p></div>
+          <div class="status-item"><span class="muted">מצב ההשתתפות</span><strong>${buyerState[0]}</strong><p class="small muted">${buyerState[1]}</p></div>
+          <div class="status-item"><span class="muted">מצב כספי</span><strong>${moneyState[0]}</strong><p class="small muted">${moneyState[1]}</p></div>
+          <div class="status-item"><span class="muted">אופן קבלה</span><strong>${esc(tracking.delivery_method_label || "לא זמין")}</strong><p class="small muted">${esc(formatDeliveryTypeLabel(tracking.delivery_method_type || ""))}</p></div>
+          <div class="status-item"><span class="muted">עלות אופן קבלה</span><strong>${currency(tracking.delivery_cost || 0)}</strong><p class="small muted">נשמרה עם ההצטרפות</p></div>
+          <div class="status-item"><span class="muted">עלות משוערת</span><strong>${currency(tracking.estimated_total)}</strong><p class="small muted">${num(tracking.qty)} יח' x ${currency(tracking.price_per_unit)} + ${currency(tracking.delivery_cost || 0)}</p></div>
         </div>
           <div class="stack section compact-section">
-            <h3>׳׳™׳₪׳” ׳”׳׳¡׳׳•׳ ׳©׳׳ ׳¢׳•׳׳“?</h3>
+            <h3>איפה המסלול שלך עומד?</h3>
             <div class="status-rail tracking-rail">
               ${journey.map((step) => renderStep(step.title, step.done, step.current)).join("")}
             </div>
             <div class="info-strip">
-              <strong>׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳”׳•׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳©׳׳</strong>
-              <p class="small muted">׳›׳׳ ׳¨׳•׳׳™׳ ׳™׳—׳“ ׳׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳”, ׳׳¦׳‘ ׳”׳”׳©׳×׳×׳₪׳•׳×, ׳•׳׳¦׳‘ ׳”׳›׳¡׳£, ׳‘׳׳™ ׳׳¢׳‘׳•׳¨ ׳‘׳™׳ ׳׳¡׳›׳™׳ ׳ ׳•׳¡׳₪׳™׳.</p>
+              <strong>מסך המעקב הוא מקור האמת שלך</strong>
+              <p class="small muted">כאן רואים יחד את מצב העסקה, מצב ההשתתפות, ומצב הכסף, בלי לעבור בין מסכים נוספים.</p>
             </div>
             <div class="table-panel">
               <div class="table-toolbar">
                 <div>
-                  <strong>׳׳” ׳§׳¨׳” ׳¢׳‘׳•׳¨׳ ׳¢׳“ ׳¢׳›׳©׳™׳•</strong>
-                  <p class="small muted">׳¦׳™׳¨ ׳–׳׳ ׳§׳¦׳¨ ׳•׳‘׳¨׳•׳¨ ׳©׳׳¡׳‘׳™׳¨ ׳׳× ׳”׳׳¦׳‘ ׳׳׳ ׳–׳¨׳’׳•׳.</p>
+                  <strong>מה קרה עבורך עד עכשיו</strong>
+                  <p class="small muted">ציר זמן קצר וברור שמסביר את המצב ללא זרגון.</p>
                 </div>
               </div>
               <div class="table-like">
                 ${timeline.map((row) => `
                   <div class="table-row">
                     <div class="table-cell"><span class="table-cell-label">${esc(row.label)}</span><span class="table-cell-value">${esc(row.value)}</span></div>
-                    <div class="table-cell"><span class="table-cell-label">׳₪׳™׳¨׳•׳˜</span><span class="table-cell-value">${esc(row.detail)}</span></div>
+                    <div class="table-cell"><span class="table-cell-label">פירוט</span><span class="table-cell-value">${esc(row.detail)}</span></div>
                   </div>
                 `).join("")}
               </div>
@@ -2613,32 +2613,32 @@ function renderTrackingPage() {
           <p class="small muted">${progress.remaining_to_minimum > 0 ? `${num(progress.remaining_to_minimum)} יחידות למינימום` : "המינימום הושג"}</p>
         </div>
         <div class="summary-item summary-spotlight">
-          <span class="muted">׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×</span>
+          <span class="muted">תמונת מצב עדכנית</span>
           <strong>${buyerState[0]}</strong>
-          <p class="small muted">${moneyState[0]} ֲ· ${dealState.label}</p>
+          <p class="small muted">${moneyState[0]} · ${dealState.label}</p>
         </div>
         <div class="summary-item"><span class="muted">קישור המעקב</span><strong>פרטי וזמין מהדף הזה</strong></div>
         <div class="summary-item"><span class="muted">זיהוי קונה</span><strong>מאומת ומוסתר לצורך פרטיות</strong></div>
-        <div class="summary-item"><span class="muted">׳׳•׳₪׳ ׳§׳‘׳׳”</span><strong>${esc(tracking.delivery_method_label || "׳׳ ׳–׳׳™׳")}</strong></div>
-        ${linkedFlow?.lastTrackingViewedAt ? `<div class="summary-item"><span class="muted">׳¦׳₪׳™׳™׳” ׳׳—׳¨׳•׳ ׳” ׳‘׳׳¡׳׳•׳</span><strong>${dt(linkedFlow.lastTrackingViewedAt)}</strong></div>` : ""}
-        ${linkedFlow?.updatedAt ? `<div class="summary-item"><span class="muted">׳¡׳©׳ ׳”-flow ׳¢׳•׳“׳›׳</span><strong>${relativeTime(linkedFlow.updatedAt)}</strong></div>` : ""}
-        <div class="summary-item"><span class="muted">׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>${dt(tracking.deadline)}</strong></div>
-        ${tracking.completion_window_until ? `<div class="summary-item"><span class="muted">׳¡׳™׳•׳ ׳—׳׳•׳ ׳”׳©׳׳׳”</span><strong>${dt(tracking.completion_window_until)}</strong></div>` : ""}
+        <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${esc(tracking.delivery_method_label || "לא זמין")}</strong></div>
+        ${linkedFlow?.lastTrackingViewedAt ? `<div class="summary-item"><span class="muted">צפייה אחרונה במסלול</span><strong>${dt(linkedFlow.lastTrackingViewedAt)}</strong></div>` : ""}
+        ${linkedFlow?.updatedAt ? `<div class="summary-item"><span class="muted">סשן ה-flow עודכן</span><strong>${relativeTime(linkedFlow.updatedAt)}</strong></div>` : ""}
+        <div class="summary-item"><span class="muted">חלון ההצטרפות</span><strong>${dt(tracking.deadline)}</strong></div>
+        ${tracking.completion_window_until ? `<div class="summary-item"><span class="muted">סיום חלון השלמה</span><strong>${dt(tracking.completion_window_until)}</strong></div>` : ""}
         <div class="summary-item">
           <span class="muted">${esc("\u05de\u05e1\u05de\u05da \u05dc\u05e7\u05d5\u05e0\u05d4")}</span>
           <strong>${esc(documentVisibility.shortLabel)}</strong>
           <p class="small muted">${esc(documentVisibility.shortDetail)}</p>
         </div>
         <div class="info-strip ${tone}">
-          <strong>׳”׳׳ ׳ ׳“׳¨׳© ׳׳׳ ׳׳©׳”׳•?</strong>
-          <p class="small">${tracking.buyer_state === "ChargeFailedCompletion" ? "׳׳ ׳™׳ª׳ו׳ס׳£ ׳¦׳¢׳“ ׳ ׳“׳¨׳©, ׳ה׳מ׳ס׳ך ׳ה׳ז׳ה ׳י׳¦׳™׳’ ׳א׳ו׳ת׳ו ׳ב׳ב׳ה׳י׳¨׳ו׳ת." : "׳›׳¨׳’׳¢ ׳׳™׳ ׳¦׳•׳¨׳ ׳‘׳₪׳¢׳•׳׳” ׳™׳–׳•׳׳” ׳׳¦׳“׳."}</p>
+          <strong>האם נדרש ממך משהו?</strong>
+          <p class="small">${tracking.buyer_state === "ChargeFailedCompletion" ? "אם יתוסף צעד נדרש, המסך הזה יציג אותו בבהירות." : "כרגע אין צורך בפעולה יזומה מצדך."}</p>
         </div>
         <div class="surface-note">
-          <strong>׳”׳׳¢׳§׳‘ ׳”׳–׳” ׳”׳•׳ ׳”׳׳§׳•׳¨ ׳”׳§׳•׳‘׳¢</strong>
+          <strong>המעקב הזה הוא המקור הקובע</strong>
           <p class="small muted">${esc(supportNote)}</p>
         </div>
         ${renderShareActions(`/app/track/${encodeURIComponent(tracking.participant_id)}`, tracking.deal_title || "מעקב השתתפות בסיטון")}
-        <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">׳—׳–׳¨׳” ׳׳¢׳¡׳§׳”</a></div>
+        <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">חזרה לעסקה</a></div>
       </aside>
     </section>
   `;
@@ -2735,33 +2735,33 @@ function renderHome() {
   return `
     <section class="hero">
       <article class="card hero-main stack">
-        <span class="eyebrow">׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳©׳ ׳¡׳™׳˜׳•׳</span>
-        <h1>׳₪׳•׳×׳—׳™׳ ׳¢׳¡׳§׳”, ׳׳¢׳׳™׳ ׳“׳£ ׳׳™׳©׳™, ׳•׳׳₪׳™׳¦׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳</h1>
+        <span class="eyebrow">האתר הראשי של סיטון</span>
+        <h1>פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים</h1>
         <p class="muted">
-          ׳¡׳™׳˜׳•׳ ׳”׳™׳ ׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§. ׳”׳׳×׳¨ ׳”׳¨׳׳©׳™ ׳”׳•׳ ׳©׳¢׳¨ ׳”׳¢׳‘׳•׳“׳” ׳׳׳•׳›׳¨: ׳׳›׳׳ ׳₪׳•׳×׳—׳™׳ ׳¢׳¡׳§׳”, ׳׳₪׳¨׳¡׳׳™׳ ׳“׳£ ׳¦׳™׳‘׳•׳¨׳™ ׳׳™׳©׳™, ׳•׳׳₪׳™׳¦׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳©׳“׳¨׳›׳• ׳”׳§׳•׳ ׳™׳ ׳׳¦׳˜׳¨׳₪׳™׳.
+          סיטון היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
         </p>
         <div class="actions">
-          <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”</a>
-          <a class="button secondary" href="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}" data-nav="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}">׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳׳•׳× ׳©׳׳™</a>
+          <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">פתיחת עסקה חדשה</a>
+          <a class="button secondary" href="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}" data-nav="${esc(payload?.seller_entry?.manage_deals_url || "/app/seller")}">ניהול העסקאות שלי</a>
         </div>
         <div class="summary-item">
-          <span class="muted">׳ ׳§׳•׳“׳× ׳”׳›׳ ׳™׳¡׳” ׳©׳ ׳”׳§׳•׳ ׳”</span>
+          <span class="muted">נקודת הכניסה של הקונה</span>
           <strong class="mono">/app/deal/&lt;dealId&gt;</strong>
           <p class="small muted">${esc(payload?.buyer_entry_note || "הקונה נכנס ישירות לדף העסקה דרך לינק אישי שנשלח אליו.")}</p>
         </div>
         <div class="summary-item">
-          <span class="muted">׳”׳›׳™׳•׳•׳ ׳”׳׳•׳¦׳¨׳™ ׳”׳₪׳¢׳™׳</span>
-          <strong>${esc(payload?.product_direction || "׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§")}</strong>
-          <p class="small muted">${esc(payload?.positioning || "׳׳×׳¨ ׳׳•׳×׳’׳™ ׳—׳–׳§ ׳׳׳•׳›׳¨׳™׳, ׳¢׳ ׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™ ׳•׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳”.")}</p>
+          <span class="muted">הכיוון המוצרי הפעיל</span>
+          <strong>${esc(payload?.product_direction || "עסקאות קבוצתיות מבוססות לינק")}</strong>
+          <p class="small muted">${esc(payload?.positioning || "אתר מותגי חזק למוכרים, עם דף עסקה ציבורי ולינק ישיר לקונה.")}</p>
         </div>
       </article>
         <aside class="card hero-side stack">
-          <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳ ׳₪׳×׳—׳•</span><strong>${num(payload?.proof_points?.total_deals || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳—׳™׳•׳× ׳¢׳›׳©׳™׳•</span><strong>${num(payload?.proof_points?.live_deals || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload?.proof_points?.completed_deals || 0)}</strong></div>
-          ${preview?.is_demo_preview ? `<div class="summary-item"><span class="muted">׳׳¦׳‘ ׳”׳¡׳‘׳™׳‘׳”</span><strong>${esc(formatEnvironmentLabel(preview?.deployment_mode || "preview"))}</strong></div>` : `<div class="summary-item"><span class="muted">׳׳¦׳‘ ׳¡׳‘׳™׳‘׳× ׳”׳¢׳‘׳•׳“׳”</span><strong>׳׳¡׳׳•׳ ׳׳•׳›׳¨ ׳₪׳¢׳™׳</strong></div>`}
-          <div class="summary-item"><span class="muted">׳”׳‘׳˜׳—׳× ׳”׳׳¡׳׳•׳</span><strong>׳”׳׳•׳›׳¨ ׳₪׳•׳×׳—, ׳”׳§׳•׳ ׳” ׳׳¦׳˜׳¨׳£ ׳“׳¨׳ ׳׳™׳ ׳§</strong></div>
-          <div class="summary-item summary-spotlight"><span class="muted">׳׳¢׳˜׳₪׳× ׳׳׳•׳ ׳¦׳™׳‘׳•׳¨׳™׳×</span><strong>׳×׳ ׳׳™ ׳©׳™׳׳•׳©, ׳₪׳¨׳˜׳™׳•׳×, ׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳</strong><p class="small muted">׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳–׳׳™׳ ׳׳”׳׳©׳˜׳—׳™׳ ׳”׳¦׳™׳‘׳•׳¨׳™׳™׳ ׳›׳“׳™ ׳©׳”׳׳•׳¦׳¨ ׳™׳™׳¨׳׳” ׳¡׳’׳•׳¨, ׳׳—׳¨׳׳™ ׳•׳‘׳¨׳•׳¨ ׳’׳ ׳׳₪׳ ׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×.</p></div>
+          <div class="summary-item"><span class="muted">עסקאות שנפתחו</span><strong>${num(payload?.proof_points?.total_deals || 0)}</strong></div>
+          <div class="summary-item"><span class="muted">עסקאות חיות עכשיו</span><strong>${num(payload?.proof_points?.live_deals || 0)}</strong></div>
+          <div class="summary-item"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload?.proof_points?.completed_deals || 0)}</strong></div>
+          ${preview?.is_demo_preview ? `<div class="summary-item"><span class="muted">מצב הסביבה</span><strong>${esc(formatEnvironmentLabel(preview?.deployment_mode || "preview"))}</strong></div>` : `<div class="summary-item"><span class="muted">מצב סביבת העבודה</span><strong>מסלול מוכר פעיל</strong></div>`}
+          <div class="summary-item"><span class="muted">הבטחת המסלול</span><strong>המוכר פותח, הקונה מצטרף דרך לינק</strong></div>
+          <div class="summary-item summary-spotlight"><span class="muted">מעטפת אמון ציבורית</span><strong>תנאי שימוש, פרטיות, ביטולים והחזרים</strong><p class="small muted">המידע המחייב זמין מהמשטחים הציבוריים כדי שהמוצר ייראה סגור, אחראי וברור גם לפני ההצטרפות.</p></div>
         </aside>
       </section>
     <section class="card section stack">
@@ -2841,7 +2841,7 @@ function renderSellerPage() {
   }
   const payload = state.sellerPayload?.seller_surface;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("׳׳–׳•׳¨ ׳”׳׳•׳›׳¨ ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳׳–׳•׳¨ ׳”׳׳•׳›׳¨.");
+  if (!payload) return renderEmptyState("אזור המוכר לא זמין", "לא הצלחנו לטעון עכשיו את אזור המוכר.");
   const sellerProfile = payload.seller_profile || currentSellerContext();
   const sellerDisplayName = normalizeSellerDisplayName(sellerProfile.seller_id, sellerProfile.display_name);
   const sellerStatus = sellerProfile.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
@@ -2859,85 +2859,84 @@ function renderSellerPage() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳׳–׳•׳¨ ׳”׳׳•׳›׳¨</span>
-        <h1>׳₪׳•׳×׳—׳™׳, ׳׳₪׳¨׳¡׳׳™׳ ׳•׳׳ ׳”׳׳™׳ ׳›׳ ׳¢׳¡׳§׳” ׳׳׳§׳•׳ ׳׳—׳“</h1>
-        <p class="muted">׳–׳”׳• ׳©׳¢׳¨ ׳”׳¢׳‘׳•׳“׳” ׳”׳¨׳׳©׳™ ׳׳׳•׳›׳¨: ׳₪׳•׳×׳—׳™׳ ׳˜׳™׳•׳˜׳”, ׳׳₪׳¨׳¡׳׳™׳ ׳“׳£ ׳¢׳¡׳§׳” ׳—׳™, ׳׳¢׳×׳™׳§׳™׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳, ׳•׳¢׳•׳§׳‘׳™׳ ׳׳—׳¨׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳‘׳׳™ ׳׳”׳™׳©׳¢׳ ׳¢׳ ׳—׳™׳₪׳•׳© ׳¦׳™׳‘׳•׳¨׳™.</p>
+        <span class="eyebrow">אזור המוכר</span>
+        <h1>פותחים, מפרסמים ומנהלים כל עסקה ממקום אחד</h1>
+        <p class="muted">זהו שער העבודה הראשי למוכר: פותחים טיוטה, מפרסמים דף עסקה חי, מעתיקים לינק ישיר לקונים, ועוקבים אחרי ההצטרפויות בלי להישען על חיפוש ציבורי.</p>
         <div class="ops-band">
-          <div class="ops-point"><span class="muted">׳–׳”׳•׳× ׳₪׳¢׳™׳׳”</span><strong>${esc(sellerDisplayName)}</strong></div>
-          <div class="ops-point"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳—׳™׳•׳×</span><strong>${num(payload.totals.live_deals)}</strong></div>
-          <div class="ops-point"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload.totals.completed_deals)}</strong></div>
+          <div class="ops-point"><span class="muted">זהות פעילה</span><strong>${esc(sellerDisplayName)}</strong></div>
+          <div class="ops-point"><span class="muted">עסקאות חיות</span><strong>${num(payload.totals.live_deals)}</strong></div>
+          <div class="ops-point"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload.totals.completed_deals)}</strong></div>
         </div>
         <div class="metric-grid">
-          <div class="metric"><span class="muted">׳›׳ ׳”׳¢׳¡׳§׳׳•׳× ׳©׳׳™</span><strong>${num(payload.totals.total_deals)}</strong></div>
-          <div class="metric"><span class="muted">׳“׳₪׳™ ׳¢׳¡׳§׳” ׳—׳™׳™׳</span><strong>${num(payload.totals.live_deals)}</strong></div>
-          <div class="metric"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload.totals.completed_deals)}</strong></div>
+          <div class="metric"><span class="muted">כל העסקאות שלי</span><strong>${num(payload.totals.total_deals)}</strong></div>
+          <div class="metric"><span class="muted">דפי עסקה חיים</span><strong>${num(payload.totals.live_deals)}</strong></div>
+          <div class="metric"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload.totals.completed_deals)}</strong></div>
         </div>
         ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
         <div class="actions">
-          ${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳—׳“׳©׳”</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}
+          ${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">פתיחת עסקה חדשה</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}
         </div>
         <div class="kpi-strip">
-          <div class="kpi-card strong"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳₪׳¢׳™׳׳•׳× ׳¢׳›׳©׳™׳•</span><strong>${num(payload.totals.live_deals)}</strong><p class="small muted">׳”׳׳¡׳›׳™׳ ׳©׳“׳•׳¨׳©׳™׳ ׳¢׳›׳©׳™׳• ׳”׳₪׳¦׳”, ׳׳¢׳§׳‘ ׳׳• ׳‘׳§׳¨׳”.</p></div>
-          <div class="kpi-card warning"><span class="muted">׳˜׳™׳•׳˜׳•׳× ׳©׳׳—׳›׳•׳× ׳׳₪׳¨׳¡׳•׳</span><strong>${num(draftDeals)}</strong><p class="small muted">׳˜׳™׳•׳˜׳•׳× ׳©׳¢׳“׳™׳™׳ ׳׳₪׳©׳¨ ׳׳“׳™׳™׳§ ׳׳₪׳ ׳™ ׳™׳¦׳™׳׳” ׳׳׳™׳ ׳§ ׳—׳™.</p></div>
-          <div class="kpi-card success"><span class="muted">׳¢׳¡׳§׳׳•׳× ׳©׳”׳•׳©׳׳׳•</span><strong>${num(payload.totals.completed_deals)}</strong><p class="small muted">׳¢׳¡׳§׳׳•׳× ׳©׳›׳‘׳¨ ׳¢׳‘׳¨׳• ׳׳× ׳”׳׳¡׳׳•׳ ׳”׳׳׳ ׳‘׳”׳¦׳׳—׳”.</p></div>
-          <div class="kpi-card danger"><span class="muted">׳ ׳¡׳’׳¨׳• ׳׳׳ ׳”׳©׳׳׳”</span><strong>${num(payload.totals.failed_or_cancelled)}</strong><p class="small muted">׳׳§׳•׳ ׳˜׳•׳‘ ׳׳–׳”׳•׳× ׳׳”׳¨ ׳׳™׳₪׳” ׳¦׳¨׳™׳ ׳׳׳ ׳•׳¢ ׳—׳–׳¨׳” ׳¢׳ ׳׳•׳×׳• ׳“׳₪׳•׳¡.</p></div>
+          <div class="kpi-card strong"><span class="muted">עסקאות פעילות עכשיו</span><strong>${num(payload.totals.live_deals)}</strong><p class="small muted">המסכים שדורשים עכשיו הפצה, מעקב או בקרה.</p></div>
+          <div class="kpi-card warning"><span class="muted">טיוטות שמחכות לפרסום</span><strong>${num(draftDeals)}</strong><p class="small muted">טיוטות שעדיין אפשר לדייק לפני יציאה ללינק חי.</p></div>
+          <div class="kpi-card success"><span class="muted">עסקאות שהושלמו</span><strong>${num(payload.totals.completed_deals)}</strong><p class="small muted">עסקאות שכבר עברו את המסלול המלא בהצלחה.</p></div>
+          <div class="kpi-card danger"><span class="muted">נסגרו ללא השלמה</span><strong>${num(payload.totals.failed_or_cancelled)}</strong><p class="small muted">מקום טוב לזהות מהר איפה צריך למנוע חזרה על אותו דפוס.</p></div>
         </div>
         <div class="workspace-focus-grid">
           <div class="summary-item summary-spotlight">
-            <span class="muted">׳׳” ׳“׳•׳¨׳© ׳§׳©׳‘ ׳¢׳›׳©׳™׳•</span>
-            <strong>${num(sellerBoard.attention.length)} ׳¢׳¡׳§׳׳•׳×</strong>
-            <p class="small muted">׳¢׳¡׳§׳׳•׳× ׳—׳™׳•׳×, ׳—׳׳•׳ ׳•׳× ׳¨׳’׳™׳©׳™׳, ׳•׳׳¦׳‘׳™׳ ׳©׳¦׳¨׳™׳›׳™׳ ׳¢׳™׳ ׳׳•׳›׳¨ ׳¢׳›׳©׳™׳•.</p>
+            <span class="muted">מה דורש קשב עכשיו</span>
+            <strong>${num(sellerBoard.attention.length)} עסקאות</strong>
+            <p class="small muted">עסקאות חיות, חלונות רגישים, ומצבים שצריכים עין מוכר עכשיו.</p>
           </div>
           <div class="summary-item">
-            <span class="muted">׳׳›׳ ׳¡׳” ׳׳ ׳™׳”׳•׳</span>
-            <strong>׳”׳¨׳©׳™׳׳” ׳׳×׳—׳׳§׳× ׳׳“׳—׳™׳£, ׳˜׳™׳•׳˜׳•׳× ׳•׳¡׳’׳•׳¨</strong>
-            <p class="small muted">׳›׳š ׳‡׳¤׳©׳¨ ׳׳”׳‘׳™׳ ׳׳™׳“ ׳׳™׳₪׳” ׳׳§׳“׳, ׳׳” ׳׳₪׳¨׳¡׳, ׳•׳׳™׳¤׳” ׳׳‘׳§׳•׳¨ ׳ª׳•׳¦׳׳•׳ª.</p>
+            <span class="muted">הכנסה לניהול</span>
+            <strong>הרשימה מתחלקת לדחיף, טיוטות וסגור</strong>
+            <p class="small muted">כך אפשר להבין מיד איפה לקדם, מה לפרסם, ואיפה לבקר תוצאות.</p>
           </div>
         </div>
       </article>
       <aside class="card hero-side stack">
         ${renderSellerContextPanel(sellerProfile)}
-        <div class="summary-item summary-spotlight"><span class="muted">׳×׳׳•׳ ׳× ׳©׳׳™׳˜׳”</span><strong>${num(payload.totals.total_deals)} ׳¢׳¡׳§׳׳•׳×</strong><p class="small muted">${num(payload.totals.live_deals)} ׳—׳™׳•׳× ֲ· ${num(payload.totals.failed_or_cancelled)} ׳ ׳¡׳’׳¨׳• ׳׳׳ ׳”׳©׳׳׳”</p></div>
+        <div class="summary-item summary-spotlight"><span class="muted">תמונת שליטה</span><strong>${num(payload.totals.total_deals)} עסקאות</strong><p class="small muted">${num(payload.totals.live_deals)} חיות · ${num(payload.totals.failed_or_cancelled)} נסגרו ללא השלמה</p></div>
         <div class="cta-panel">
           <strong>${esc(focus.title)}</strong>
           <p class="small muted">${esc(focus.detail)}</p>
         </div>
         <div class="surface-note">
-          <strong>׳׳” ׳׳¨׳׳•׳× ׳§׳•׳“׳</strong>
-          <p class="small muted">׳¢׳¡׳§׳” ׳—׳™׳” ׳¢׳ ׳—׳׳•׳ ׳§׳¦׳¨ ׳׳• ׳§׳¦׳‘ ׳—׳׳© ׳¦׳¨׳™׳›׳” ׳׳‘׳׳•׳˜ ׳׳™׳“. ׳˜׳™׳•׳˜׳” ׳©׳׳ ׳₪׳•׳¨׳¡׳׳” ׳¢׳“׳™׳™׳ ׳׳ ׳׳™׳™׳¦׳¨׳× ׳›׳¡׳£, ׳•׳׳›׳ ׳¢׳“׳™׳£ ׳׳¡׳’׳•׳¨ ׳׳•׳×׳” ׳׳”׳¨ ׳׳• ׳׳§׳“׳ ׳׳•׳×׳” ׳׳׳™׳ ׳§ ׳—׳™.</p>
+          <strong>מה לראות קודם</strong>
+          <p class="small muted">עסקה חיה עם חלון קצר או קצב חלש צריכה לבלוט מיד. טיוטה שלא פורסמה עדיין לא מייצרת כסף, ולכן עדיף לסגור אותה מהר או לקדם אותה ללינק חי.</p>
         </div>
-        <div class="summary-item"><span class="muted">׳›׳׳ ׳”׳¢׳¨׳™׳›׳”</span><strong>׳¢׳¨׳™׳›׳” ׳׳׳׳” ׳¨׳§ ׳‘׳˜׳™׳•׳˜׳”</strong><p class="small muted">׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳, ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨ ׳”׳•׳₪׳›׳™׳ ׳׳׳§׳•׳¨ ׳”׳׳׳× ׳”׳₪׳¢׳™׳ ׳©׳ ׳”׳¢׳¡׳§׳”.</p></div>
+        <div class="summary-item"><span class="muted">כלל העריכה</span><strong>עריכה מלאה רק בטיוטה</strong><p class="small muted">אחרי פרסום, הדף הציבורי והלינק הישיר הופכים למקור האמת הפעיל של העסקה.</p></div>
       </aside>
     </section>
     ${renderSellerAnalyticsSection()}
     <section class="card section stack">
       <div class="section-header">
         <div class="stack compact compact-section">
-          <h2>׳¤׳•׳ ׳ ׳”׳¢׳¡׳§׳׳•׳×</h2>
-          <p class="muted section-intro">׳ה׳¨׳©׳™׳׳” ׳׳׳•׳¨׳’׳ ׳ת ׳׳₪׳™ ׳׳—׳™׳¤׳•׳×, ׳˜׳™׳•׳˜׳•׳ª ׳•׳¢׳¡׳§׳׳•׳ת ׳©׳›׳‘׳¨ ׳ ׳¡׳’׳¨׳•.</p>
+          <h2>פונל העסקאות</h2>
+          <p class="muted section-intro">הרשימה מאורגנת לפי דחיפות, טיוטות ועסקאות שכבר נסגרו.</p>
         </div>
         <div class="pill-row">
-          <span class="stat-pill"><span>׳—׳™׳•׳×</span><strong>${num(payload.totals.live_deals)}</strong></span>
-          <span class="stat-pill"><span>׳˜׳™׳•׳˜׳•׳×</span><strong>${num(draftDeals)}</strong></span>
-          <span class="stat-pill"><span>׳¡׳”"׳›</span><strong>${num(payload.totals.total_deals)}</strong></span>
+          <span class="stat-pill"><span>חיות</span><strong>${num(payload.totals.live_deals)}</strong></span>
+          <span class="stat-pill"><span>טיוטות</span><strong>${num(draftDeals)}</strong></span>
+          <span class="stat-pill"><span>סה"כ</span><strong>${num(payload.totals.total_deals)}</strong></span>
         </div>
       </div>
       ${payload.deals.length ? `
-        ${renderSellerBoardSection("׳“׳•׳¨׳©׳•׳ª ׳§׳©׳‘ ׳׳™׳©׳™", "׳›׳׳ ׳ ׳כ׳ ׳¡׳•׳ª ׳¢׳¡׳§׳׳•׳ª ׳—׳™׳•׳× ׳׳• ׳׳¡׳׳•׳׳™׳ ׳¨׳’׳™׳©׳™׳.", sellerBoard.attention, "׳׳™׳ ׳׳¨׳’׳¢ ׳¢׳¡׳§׳׳•׳ª ׳׳—׳•׳¤׳•׳ª", "׳–׳” ׳–׳׳ ׳˜׳•׳‘ ׳׳¤׳ª׳•׳— ׳¢׳¡׳§׳” ׳—׳“׳©׳” ׳׳• ׳׳׳׳•׳§ ׳׳™׳•׳˜׳•׳ת.")} 
-        ${renderSellerBoardSection("׳˜׳™׳•׳˜׳•׳ª ׳׳¤׳¨׳¡׳•׳ם", "׳׳™׳•׳˜׳•׳ת ׳ש׳ע׳ד׳™׳™׳ן ׳נ׳י׳ת׳ן ׳׳ד׳™׳י׳ק ׳ו׳ל׳ק׳ד׳ם ׳ל׳ל׳י׳נ׳ק ׳—׳™.", sellerBoard.draft, "׳׳™׳ן ׳׳™׳•׳˜׳•׳ת ׳׳¤׳¨׳¡׳•׳ם", "׳׳ ׳ה׳¢׳¡׳§׳׳•׳ת ׳ש׳׳ ׳כ׳ב׳ר ׳׳¦׳ו׳™׳•׳ת ׳ב׳מ׳צ׳ב ׳ח׳י ׳א׳ו ׳ס׳ג׳ו׳¨.")} 
-        ${renderSellerBoardSection("׳¢׳¡׳§׳׳•׳ת ׳©׳ ׳¡׳’׳¨׳•", "׳₪׳׳ן ׳ר׳ו׳א׳י׳ם ׳ת׳ו׳צ׳א׳ו׳ת, ׳ס׳י׳כ׳ו׳מ׳י׳ם ׳ו׳ה׳מ׳ש׳ך ׳ת׳פ׳ע׳ו׳ ׳א׳ם ׳נ׳ד׳ר׳ש.", sellerBoard.closed, "׳׳™׳ן ׳¢׳¡׳§׳׳•׳ת ׳ס׳ג׳ו׳ר׳ו׳ת", "׳כ׳ש׳ע׳ס׳ק׳ה ׳ת׳ס׳ת׳י׳י׳ם, ׳ה׳י׳א ׳ת׳ע׳ב׳ו׳ר ׳ל׳כ׳א׳ן ׳ע׳ם ׳ת׳מ׳ו׳נ׳ת ׳מ׳צ׳ב ׳מ׳ל׳א׳ה.")} 
+        ${renderSellerBoardSection("דורשות קשב אישי", "כאן נכנסות עסקאות חיות או מסלולים רגישים.", sellerBoard.attention, "אין כרגע עסקאות דחופות", "זה זמן טוב לפתוח עסקה חדשה או לבדוק טיוטות.")}
+        ${renderSellerBoardSection("טיוטות לפרסום", "טיוטות שעדיין ניתן לדייק ולקדם ללינק חי.", sellerBoard.draft, "אין טיוטות לפרסום", "כל העסקאות שלך כבר מצויות במצב חי או סגור.")}
+        ${renderSellerBoardSection("עסקאות שנסגרו", "כאן רואים תוצאות, סיכומים והמשך תפעול אם נדרש.", sellerBoard.closed, "אין עסקאות סגורות", "כשעסקה תסתיים, היא תעבור לכאן עם תמונת מצב מלאה.")}
       ` : `
         <div class="empty-surface stack">
-          <strong>׳¢׳“׳™׳™׳ ׳׳ ׳ ׳₪׳×׳—׳” ׳׳£ ׳¢׳¡׳§׳” ׳×׳—׳× ׳”׳–׳”׳•׳× ׳”׳–׳•</strong>
-          <p class="small muted">׳›׳“׳׳™ ׳׳”׳×׳—׳™׳ ׳׳˜׳™׳•׳˜׳” ׳׳—׳× ׳—׳“׳”, ׳׳₪׳¨׳¡׳ ׳׳•׳×׳”, ׳•׳׳”׳₪׳™׳¥ ׳׳™׳ ׳§ ׳׳™׳©׳™ ׳¨׳׳©׳•׳ ׳׳§׳•׳ ׳™׳.</p>
-          <div class="actions">${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳¨׳׳©׳•׳ ׳”</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}</div>
+          <strong>עדיין לא נפתחה אף עסקה תחת הזהות הזו</strong>
+          <p class="small muted">כדאי להתחיל מטיוטה אחת חדה, לפרסם אותה, ולהפיץ לינק אישי ראשון לקונים.</p>
+          <div class="actions">${canOpenNewDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">פתיחת עסקה ראשונה</a>` : `<button class="primary" type="button" disabled>פתיחת עסקה חדשה חסומה</button>`}</div>
         </div>
       `}
     </section>
     ${renderSellerProfileSection()}
   `;
 }
-
 function renderSellerAnalyticsSection() {
   const analytics = state.sellerAnalyticsPayload;
   const period = state.sellerAnalyticsPeriod || analytics?.period || "all";
@@ -3150,22 +3149,22 @@ function renderSellerDealCard(item) {
       <div class="seller-card-head">
         ${primaryImage?.url ? `<img class="seller-card-thumb" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(item.title)}" />` : `<div class="seller-card-thumb placeholder" aria-hidden="true">${esc(([...String(item.title || "")][0] || "ס"))}</div>`}
         <div class="seller-card-meta">
-          <span class="muted">׳¢׳¡׳§׳” ${esc(getDealCopy(item.state).label)}</span>
+          <span class="muted">עסקה ${esc(getDealCopy(item.state).label)}</span>
           <h3>${esc(item.title)}</h3>
           <div class="pill-row">
-            <span class="stat-pill"><span>׳׳©׳×׳×׳₪׳™׳</span><strong>${num(item.metrics.participants_count)}</strong></span>
-            <span class="stat-pill"><span>׳™׳¢׳“</span><strong>${num(item.threshold_units)}</strong></span>
+            <span class="stat-pill"><span>משתתפים</span><strong>${num(item.metrics.participants_count)}</strong></span>
+            <span class="stat-pill"><span>יעד</span><strong>${num(item.threshold_units)}</strong></span>
           </div>
         </div>
         <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span>
       </div>
       <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
-      <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">׳׳×׳§׳¨׳× ׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳ ׳¡׳’׳¨׳”</span></div>
+      <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">מתקרת העסקה כבר נסגרה</span></div>
       <div class="summary-grid">
-        <div class="summary-item"><span class="muted">׳™׳—׳™׳“׳•׳× ׳©׳ ׳¨׳©׳׳•</span><strong>${num(item.metrics.joined_units)}</strong></div>
-        <div class="summary-item"><span class="muted">׳™׳×׳¨׳” ׳₪׳ ׳•׳™׳”</span><strong>${num(item.metrics.remaining_units)}</strong></div>
+        <div class="summary-item"><span class="muted">יחידות שנרשמו</span><strong>${num(item.metrics.joined_units)}</strong></div>
+        <div class="summary-item"><span class="muted">יתרה פנויה</span><strong>${num(item.metrics.remaining_units)}</strong></div>
         <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
-        <div class="summary-item"><span class="muted">׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”</span><strong>${dt(item.deadline)}</strong></div>
+        <div class="summary-item"><span class="muted">מועד סגירה</span><strong>${dt(item.deadline)}</strong></div>
       </div>
       <div class="urgency-panel ${urgency.tone}">
         <strong>${esc(urgency.title)}</strong>
@@ -3173,12 +3172,12 @@ function renderSellerDealCard(item) {
       </div>
       <div class="seller-card-footer">
         <div class="surface-note">
-          <strong>׳”׳₪׳¢׳•׳׳” ׳”׳‘׳׳”</strong>
-          <p class="small muted">${esc(urgency.tone === "danger" ? "׳›׳“׳׳™ ׳׳‘׳“׳•׳§ ׳¢׳›׳©׳™׳• ׳׳ ׳”׳¢׳¡׳§׳” ׳¦׳¨׳™׳›׳” ׳“׳—׳™׳₪׳” ׳׳—׳¨׳•׳ ׳” ׳׳• ׳׳¢׳‘׳¨ ׳׳‘׳§׳¨׳” ׳×׳₪׳¢׳•׳׳™׳×." : urgency.tone === "warning" ? "׳”׳¢׳¡׳§׳” ׳ ׳›׳ ׳¡׳× ׳׳—׳׳•׳ ׳¨׳’׳™׳©. ׳©׳•׳•׳” ׳׳•׳•׳“׳ ׳©׳”׳׳™׳ ׳§ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳—׳“ ׳•׳‘׳¨׳•׳¨." : "׳”׳¢׳¡׳§׳” ׳₪׳×׳•׳—׳” ׳•׳×׳—׳× ׳©׳׳™׳˜׳”. ׳׳₪׳©׳¨ ׳׳”׳׳©׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳§׳¦׳‘ ׳•׳”׳§׳™׳‘׳•׳׳×.")}</p>
+          <strong>הפעולה הבאה</strong>
+          <p class="small muted">${esc(urgency.tone === "danger" ? "כדאי לבדוק עכשיו אם העסקה צריכה דחיפה אחרונה או מעבר לבקרה תפעולית." : urgency.tone === "warning" ? "העסקה נכנסת לחלון רגיש. שווה לוודא שהלינק הציבורי חד וברור." : "העסקה פתוחה ותחת שליטה. אפשר להמשיך לעקוב אחרי הקצב והקיבולת.")}</p>
         </div>
         <div class="actions seller-card-actions">
-          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”</a>
-          <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
+          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">ניהול העסקה</a>
+          <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">פתיחת הדף הציבורי</a>
           <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>
           ${["Completed", "Failed", "Cancelled"].includes(item.state) ? `<button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(item.deal_id)}">צור עסקה דומה</button>` : ""}
         </div>
@@ -3214,13 +3213,13 @@ function renderSellerNewPage() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳”</span>
-        <h1>׳™׳•׳¦׳¨׳™׳ ׳׳× ׳“׳£ ׳”׳¢׳¡׳§׳” ׳©׳‘׳׳׳× ׳™׳™׳©׳׳— ׳׳§׳•׳ ׳™׳</h1>
-        <p class="muted">׳₪׳•׳×׳—׳™׳ ׳˜׳™׳•׳˜׳”, ׳׳’׳“׳™׳¨׳™׳ ׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳”, ׳•׳׳₪׳¨׳¡׳׳™׳ ׳¨׳§ ׳›׳©׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳׳•׳›׳ ׳׳”׳₪׳¦׳” ׳‘׳׳™׳ ׳§ ׳™׳©׳™׳¨.</p>
+        <span class="eyebrow">פתיחת עסקה</span>
+        <h1>יוצרים את דף העסקה שבאמת יישלח לקונים</h1>
+        <p class="muted">פותחים טיוטה, מגדירים אפשרויות קבלה, ומפרסמים רק כשהדף הציבורי מוכן להפצה בלינק ישיר.</p>
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">׳©׳׳‘ ׳¨׳׳©׳•׳</span><strong>׳©׳•׳׳¨׳™׳ ׳˜׳™׳•׳˜׳” ׳‘׳¨׳•׳¨׳”</strong></div>
-          <div class="trust-point"><span class="muted">׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳</span><strong>׳ ׳•׳¦׳¨ ׳“׳£ ׳¦׳™׳‘׳•׳¨׳™ ׳—׳™</strong></div>
-          <div class="trust-point"><span class="muted">׳”׳₪׳¦׳” ׳׳§׳•׳ ׳™׳</span><strong>׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳‘׳׳‘׳“</strong></div>
+          <div class="trust-point"><span class="muted">שלב ראשון</span><strong>שומרים טיוטה ברורה</strong></div>
+          <div class="trust-point"><span class="muted">אחרי פרסום</span><strong>נוצר דף ציבורי חי</strong></div>
+          <div class="trust-point"><span class="muted">הפצה לקונים</span><strong>דרך לינק ישיר בלבד</strong></div>
         </div>
         <div class="wizard-steps" aria-label="שלבי יצירת עסקה">
           <span>1. פרטי מוצר</span>
@@ -3232,10 +3231,10 @@ function renderSellerNewPage() {
         <form data-action="seller-create" class="form-shell">
           <section class="form-section-card stack">
             <div class="form-section-header">
-              <h3>׳‘׳¡׳™׳¡ ׳”׳¢׳¡׳§׳”</h3>
-              <p class="small muted">׳׳›׳׳ ׳ ׳§׳‘׳¢ ׳׳™׳ ׳”׳¢׳¡׳§׳” ׳×׳™׳×׳₪׳¡ ׳‘׳¢׳™׳ ׳™ ׳”׳§׳•׳ ׳”: ׳׳” ׳ ׳׳›׳¨, ׳‘׳›׳׳”, ׳•׳׳” ׳”׳׳¨׳•׳•׳— ׳©׳ ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”.</p>
+              <h3>בסיס העסקה</h3>
+              <p class="small muted">מכאן נקבע איך העסקה תיתפס בעיני הקונה: מה נמכר, בכמה, ומה המרווח של הפלטפורמה.</p>
             </div>
-            <div class="field"><label for="sellerTitle">׳›׳•׳×׳¨׳× ׳”׳¢׳¡׳§׳”</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
+            <div class="field"><label for="sellerTitle">כותרת העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
             <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
             <div class="product-image-uploader">
               <div class="product-image-preview ${state.form.sellerImageDataUrl ? "has-image" : ""}">
@@ -3248,52 +3247,52 @@ function renderSellerNewPage() {
               </div>
             </div>
             <div class="inline-fields">
-              <div class="field"><label for="sellerPrice">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
+              <div class="field"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
               <div class="summary-item"><span class="muted">עמלת סיטון הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
             </div>
             <div class="form-preview-grid">
-              <div class="summary-item"><span class="muted">׳׳—׳–׳•׳¨ ׳׳™׳ ׳™׳׳׳™ ׳׳©׳•׳¢׳¨</span><strong>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} ׳™׳—' ׳׳₪׳™ ׳”׳׳—׳™׳¨ ׳”׳ ׳•׳›׳—׳™.</p></div>
-              <div class="summary-item"><span class="muted">׳׳—׳–׳•׳¨ ׳׳§׳¡׳™׳׳׳™ ׳׳©׳•׳¢׳¨</span><strong>${currency(price * maxUnits)}</strong><p class="small muted">${num(maxUnits)} ׳™׳—' ׳׳ ׳›׳ ׳”׳§׳™׳‘׳•׳׳× ׳ ׳¡׳’׳¨׳×.</p></div>
+              <div class="summary-item"><span class="muted">מחזור מינימלי משוער</span><strong>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} יח' לפי המחיר הנוכחי.</p></div>
+              <div class="summary-item"><span class="muted">מחזור מקסימלי משוער</span><strong>${currency(price * maxUnits)}</strong><p class="small muted">${num(maxUnits)} יח' אם כל הקיבולת נסגרת.</p></div>
             </div>
           </section>
           <section class="form-section-card stack">
             <div class="form-section-header">
-              <h3>׳™׳¢׳“, ׳§׳™׳‘׳•׳׳× ׳•׳¡׳’׳™׳¨׳”</h3>
-              <p class="small muted">׳”׳—׳׳§ ׳”׳–׳” ׳§׳•׳‘׳¢ ׳׳× ׳×׳—׳•׳©׳× ׳”׳“׳—׳™׳₪׳•׳× ׳•׳”׳׳¡׳’׳¨׳× ׳”׳¢׳¡׳§׳™׳× ׳©׳”׳§׳•׳ ׳” ׳™׳¨׳׳” ׳¢׳ ׳”׳“׳£.</p>
+              <h3>יעד, קיבולת וסגירה</h3>
+              <p class="small muted">החלק הזה קובע את תחושת הדחיפות והמסגרת העסקית שהקונה יראה על הדף.</p>
             </div>
             <div class="inline-fields">
-              <div class="field"><label for="sellerMinUnits">׳׳™׳ ׳™׳׳•׳ ׳™׳—׳™׳“׳•׳×</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" /></div>
-              <div class="field"><label for="sellerMaxUnits">׳׳§׳¡׳™׳׳•׳ ׳™׳—׳™׳“׳•׳×</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" /></div>
+              <div class="field"><label for="sellerMinUnits">מינימום יחידות</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" /></div>
+              <div class="field"><label for="sellerMaxUnits">מקסימום יחידות</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" /></div>
             </div>
-            <div class="field"><label for="sellerDeadline">׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳× ׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" /></div>
+            <div class="field"><label for="sellerDeadline">מועד סגירת חלון ההצטרפות</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" /></div>
             <div class="surface-note">
-              <strong>׳‘׳“׳™׳§׳× ׳©׳₪׳™׳•׳× ׳׳”׳™׳¨׳”</strong>
-              <p class="small muted">׳›׳“׳׳™ ׳©׳”׳׳™׳ ׳™׳׳•׳ ׳™׳”׳™׳” ׳™׳¢׳“ ׳©׳׳₪׳©׳¨ ׳׳”׳’׳™׳¢ ׳׳׳™׳•, ׳©׳”׳׳§׳¡׳™׳׳•׳ ׳׳ ׳™׳¨׳’׳™׳© ׳׳ ׳•׳×׳§ ׳׳”׳”׳₪׳¦׳”, ׳•׳©׳”׳“׳“׳׳™׳™׳ ׳™׳™׳¦׳•׳¨ ׳“׳—׳™׳₪׳•׳× ׳‘׳׳™ ׳׳‘׳׳‘׳ ׳׳× ׳”׳§׳•׳ ׳”.</p>
+              <strong>בדיקת שפיות מהירה</strong>
+              <p class="small muted">כדאי שהמינימום יהיה יעד שאפשר להגיע אליו, שהמקסימום לא ירגיש מנותק מההפצה, ושהדדליין ייצור דחיפות בלי לבלבל את הקונה.</p>
             </div>
           </section>
           <section class="form-section-card stack">
             <div class="form-section-header">
-              <h3>׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳”</h3>
-              <p class="small muted">׳׳₪׳©׳¨׳•׳™׳•׳× ׳”׳§׳‘׳׳” ׳¦׳¨׳™׳›׳•׳× ׳׳”׳™׳•׳× ׳§׳¦׳¨׳•׳×, ׳׳•׳‘׳ ׳•׳×, ׳•׳§׳׳•׳× ׳׳”׳©׳•׳•׳׳” ׳›׳‘׳¨ ׳‘׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™.</p>
+              <h3>אפשרויות קבלה</h3>
+              <p class="small muted">אפשרויות הקבלה צריכות להיות קצרות, מובנות, וקלות להשוואה כבר בדף הציבורי.</p>
             </div>
-            <p class="small muted">׳׳•׳¡׳™׳₪׳™׳ ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳—׳× ׳׳• ׳™׳•׳×׳¨. ׳”׳‘׳—׳™׳¨׳” ׳©׳ ׳”׳§׳•׳ ׳” ׳ ׳©׳׳¨׳× ׳¢׳ ׳›׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳•׳ ׳›׳ ׳¡׳× ׳’׳ ׳׳¡׳™׳›׳•׳ ׳×׳₪׳™׳¡׳× ׳”׳׳¡׳’׳¨׳×.</p>
+            <p class="small muted">מוסיפים אפשרות קבלה אחת או יותר. הבחירה של הקונה נשמרת על כל הצטרפות ונכנסת גם לסיכום תפיסת המסגרת.</p>
             ${[1, 2, 3].map((slot) => `
               <div class="form-option-card stack">
                 <div class="inline-fields">
                   <div class="field">
-                    <label for="sellerDeliveryType${slot}">׳¡׳•׳’</label>
+                    <label for="sellerDeliveryType${slot}">סוג</label>
                     <select id="sellerDeliveryType${slot}" name="sellerDeliveryType${slot}">
                       ${["pickup", "delivery", "distribution_point"].map((option) => `<option value="${option}" ${state.form[`sellerDeliveryType${slot}`] === option ? "selected" : ""}>${formatDeliveryTypeLabel(option)}</option>`).join("")}
                     </select>
                   </div>
                   <div class="field">
-                    <label for="sellerDeliveryCost${slot}">׳¢׳׳•׳×</label>
+                    <label for="sellerDeliveryCost${slot}">עלות</label>
                     <input id="sellerDeliveryCost${slot}" name="sellerDeliveryCost${slot}" type="number" step="0.01" min="0" value="${esc(state.form[`sellerDeliveryCost${slot}`])}" />
                   </div>
                 </div>
                 <div class="field">
-                  <label for="sellerDeliveryLabel${slot}">׳×׳•׳•׳™׳× ׳׳§׳•׳ ׳”</label>
-                  <input id="sellerDeliveryLabel${slot}" name="sellerDeliveryLabel${slot}" type="text" value="${esc(state.form[`sellerDeliveryLabel${slot}`])}" placeholder="${slot === 1 ? "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™" : "׳×׳•׳•׳™׳× ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳”"}" />
+                  <label for="sellerDeliveryLabel${slot}">תווית לקונה</label>
+                  <input id="sellerDeliveryLabel${slot}" name="sellerDeliveryLabel${slot}" type="text" value="${esc(state.form[`sellerDeliveryLabel${slot}`])}" placeholder="${slot === 1 ? "איסוף עצמי" : "תווית אפשרות קבלה"}" />
                 </div>
               </div>
             `).join("")}
@@ -3313,8 +3312,8 @@ function renderSellerNewPage() {
             <label class="check-row"><input type="checkbox" name="sellerFinalConfirm" /> <span>אני מאשר שהתנאים סופיים.</span></label>
           </section>
           <div class="actions">
-            <button class="primary" type="submit">׳™׳¦׳™׳¨׳× ׳˜׳™׳•׳˜׳”</button>
-            <a class="button secondary" href="/app/seller" data-nav="/app/seller">׳—׳–׳¨׳” ׳׳׳–׳•׳¨ ׳”׳׳•׳›׳¨</a>
+            <button class="primary" type="submit">יצירת טיוטה</button>
+            <a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לאזור המוכר</a>
           </div>
         </form>
       </article>
@@ -3331,28 +3330,28 @@ function renderSellerNewPage() {
             '</a></p></div>';
         })()}
         
-        <div class="summary-item summary-spotlight"><span class="muted">׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">׳׳–׳”׳” ׳׳•׳›׳¨: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
+        <div class="summary-item summary-spotlight"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">מזהה מוכר: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳׳—׳™׳¨ ׳ ׳•׳›׳—׳™</span><strong>${currency(price)}</strong></div>
+          <div class="summary-item"><span class="muted">מחיר נוכחי</span><strong>${currency(price)}</strong></div>
           <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong><p class="small muted">קבועה לפי המודל הקנוני, כולל משלוח וללא מע"מ.</p></div>
-          <div class="summary-item"><span class="muted">׳™׳¢׳“ ׳₪׳×׳™׳—׳”</span><strong>${num(minUnits)} ׳™׳—'</strong></div>
-          <div class="summary-item"><span class="muted">׳§׳™׳‘׳•׳׳×</span><strong>${num(maxUnits)} ׳™׳—'</strong></div>
+          <div class="summary-item"><span class="muted">יעד פתיחה</span><strong>${num(minUnits)} יח'</strong></div>
+          <div class="summary-item"><span class="muted">קיבולת</span><strong>${num(maxUnits)} יח'</strong></div>
         </div>
         <div class="cta-panel">
-          <strong>׳׳” ׳™׳§׳¨׳” ׳׳—׳¨׳™ ׳©׳׳™׳¨׳× ׳”׳˜׳™׳•׳˜׳”</strong>
-          <p class="small muted">׳”׳˜׳™׳•׳˜׳” ׳×׳™׳›׳ ׳¡ ׳™׳©׳¨ ׳׳׳–׳•׳¨ ׳”׳׳•׳›׳¨, ׳•׳׳©׳ ׳׳₪׳©׳¨ ׳׳₪׳¨׳¡׳ ׳“׳£ ׳¦׳™׳‘׳•׳¨׳™ ׳—׳™, ׳׳₪׳×׳•׳— ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳•׳׳”׳×׳—׳™׳ ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳×.</p>
+          <strong>מה יקרה אחרי שמירת הטיוטה</strong>
+          <p class="small muted">הטיוטה תיכנס ישר לאזור המוכר, ומשם אפשר לפרסם דף ציבורי חי, לפתוח לינק ישיר ולהתחיל לעקוב אחרי הצטרפויות.</p>
         </div>
         <div class="form-checklist">
-          <div class="summary-item"><span class="muted">׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳” ׳׳•׳›׳ ׳•׳×</span><strong>${num(deliveryOptionsCount || 1)}</strong><p class="small muted">׳׳₪׳—׳•׳× ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳—׳× ׳¦׳¨׳™׳›׳” ׳׳”׳™׳¨׳׳•׳× ׳›׳׳• ׳‘׳—׳™׳¨׳” ׳׳׳™׳×׳™׳× ׳׳§׳•׳ ׳”.</p></div>
-          <div class="summary-item"><span class="muted">׳׳” ׳‘׳•׳“׳§׳™׳ ׳׳₪׳ ׳™ ׳₪׳¨׳¡׳•׳</span><strong>׳›׳•׳×׳¨׳×, ׳™׳¢׳“ ׳•׳“׳“׳׳™׳™׳</strong><p class="small muted">׳׳׳” ׳©׳׳•׳©׳× ׳”׳׳§׳•׳׳•׳× ׳©׳”׳›׳™ ׳׳©׳₪׳™׳¢׳™׳ ׳¢׳ ׳‘׳”׳™׳¨׳•׳×, ׳׳׳•׳ ׳•׳“׳—׳™׳₪׳•׳× ׳‘׳׳¡׳ ׳”׳¦׳™׳‘׳•׳¨׳™.</p></div>
+          <div class="summary-item"><span class="muted">אפשרויות קבלה מוכנות</span><strong>${num(deliveryOptionsCount || 1)}</strong><p class="small muted">לפחות אפשרות קבלה אחת צריכה להיראות כמו בחירה אמיתית לקונה.</p></div>
+          <div class="summary-item"><span class="muted">מה בודקים לפני פרסום</span><strong>כותרת, יעד ודדליין</strong><p class="small muted">אלה שלושת המקומות שהכי משפיעים על בהירות, אמון ודחיפות במסך הציבורי.</p></div>
         </div>
         <div class="info-strip trust-box">
-          <strong>׳›׳׳ ׳”׳¢׳‘׳•׳“׳” ׳‘׳׳¡׳ ׳”׳–׳”</strong>
-          <p class="small">׳›׳׳ ׳׳’׳“׳™׳¨׳™׳ ׳₪׳¢׳ ׳׳—׳× ׳׳× ׳”׳׳¡׳’׳¨׳× ׳”׳¢׳¡׳§׳™׳×: ׳׳—׳™׳¨, ׳™׳¢׳“, ׳—׳׳•׳ ׳–׳׳ ׳•׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳”. ׳¨׳§ ׳׳—׳¨׳™ ׳©׳˜׳™׳•׳˜׳” ׳ ׳¨׳׳™׳× ׳—׳“׳”, ׳׳₪׳¨׳¡׳׳™׳ ׳׳•׳×׳” ׳׳“׳£ ׳—׳™.</p>
+          <strong>כלל העבודה במסך הזה</strong>
+          <p class="small">כאן מגדירים פעם אחת את המסגרת העסקית: מחיר, יעד, חלון זמן ואפשרויות קבלה. רק אחרי שטיוטה נראית חדה, מפרסמים אותה לדף חי.</p>
         </div>
         <div class="surface-note">
-          <strong>׳׳¢׳˜׳₪׳× trust ׳‘׳₪׳¨׳¡׳•׳</strong>
-          <p class="small muted">׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳, ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳”׳׳¡׳›׳™׳ ׳©׳׳—׳¨׳™׳• ׳׳¦׳™׳’׳™׳ footer ׳׳©׳₪׳˜׳™ ׳§׳‘׳•׳¢ ׳•׳§׳™׳©׳•׳¨׳™׳ ׳‘׳¨׳•׳¨׳™׳ ׳׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘. ׳׳ ׳ ׳•׳¡׳£ ׳›׳׳ ׳׳™׳©׳•׳¨ ׳׳©׳₪׳˜׳™ ׳׳—׳™׳™׳‘ ׳‘׳×׳•׳ ׳”׳˜׳•׳₪׳¡ ׳›׳“׳™ ׳׳ ׳׳₪׳×׳•׳— ׳׳•׳’׳™׳§׳” ׳—׳“׳©׳” ׳׳• state ׳—׳“׳©.</p>
+          <strong>מעטפת trust בפרסום</strong>
+          <p class="small muted">אחרי פרסום, הדף הציבורי והמסכים שאחריו מציגים footer משפטי קבוע וקישורים ברורים למידע המחייב. לא נוסף כאן אישור משפטי מחייב בתוך הטופס כדי לא לפתוח לוגיקה חדשה או state חדש.</p>
         </div>
       </aside>
     </section>
@@ -3454,7 +3453,7 @@ function renderSellerDealPage() {
   }
   const payload = state.sellerDealPayload;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳–׳׳™׳", "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳˜׳¢׳•׳ ׳¢׳›׳©׳™׳• ׳׳× ׳׳¡׳ ׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳”.");
+  if (!payload) return renderEmptyState("ניהול העסקה לא זמין", "לא הצלחנו לטעון עכשיו את מסך ניהול העסקה.");
   const deal = payload.deal;
   const receipts = payload.receipts_surface;
   const progressPct = sellerDealProgressPct(deal.metrics, deal.max_units);
@@ -3475,95 +3474,95 @@ function renderSellerDealPage() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳”</span>
+        <span class="eyebrow">ניהול עסקה</span>
         <span class="badge ${DEAL_TONE[deal.state] || "warning"}">${esc(getDealCopy(deal.state).label)}</span>
         ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : ""}
         <h1>${esc(deal.title)}</h1>
-        <p class="muted">׳–׳”׳• ׳—׳“׳¨ ׳”׳‘׳§׳¨׳” ׳©׳ ׳”׳׳•׳›׳¨ ׳׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨ ׳׳§׳•׳ ׳™׳, ׳׳¨׳©׳™׳׳× ׳”׳׳©׳×׳×׳₪׳™׳ ׳•׳׳¢׳“׳›׳•׳ ׳™ ׳”׳§׳‘׳׳” ׳•׳”׳׳¡׳™׳¨׳”.</p>
+        <p class="muted">זהו חדר הבקרה של המוכר לדף הציבורי, ללינק הישיר לקונים, לרשימת המשתתפים ולעדכוני הקבלה והמסירה.</p>
         ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">׳׳¦׳‘ ׳¢׳¨׳™׳›׳”</span><strong>${payload.seller_actions.edit_locked ? "׳ ׳¢׳•׳ ׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳" : "׳¢׳“׳™׳™׳ ׳‘׳˜׳™׳•׳˜׳”"}</strong></div>
-          <div class="trust-point"><span class="muted">׳“׳£ ׳¦׳™׳‘׳•׳¨׳™</span><strong>${payload.seller_actions.can_publish ? "׳׳•׳›׳ ׳׳₪׳¨׳¡׳•׳" : "׳›׳‘׳¨ ׳₪׳•׳¨׳¡׳ ׳׳• ׳ ׳¡׳’׳¨"}</strong></div>
-          <div class="trust-point"><span class="muted">׳§׳™׳©׳•׳¨ ׳§׳•׳ ׳”</span><strong>׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳—׳“ ׳׳¢׳¡׳§׳”</strong></div>
+          <div class="trust-point"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "עדיין בטיוטה"}</strong></div>
+          <div class="trust-point"><span class="muted">דף ציבורי</span><strong>${payload.seller_actions.can_publish ? "מוכן לפרסום" : "כבר פורסם או נסגר"}</strong></div>
+          <div class="trust-point"><span class="muted">קישור קונה</span><strong>לינק ישיר אחד לעסקה</strong></div>
         </div>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”</span><strong>${currency(deal.price_per_unit)}</strong></div>
-          <div class="summary-item"><span class="muted">׳™׳—׳™׳“׳•׳× ׳©׳ ׳¨׳©׳׳•</span><strong>${num(deal.metrics.joined_units)}</strong></div>
-          <div class="summary-item"><span class="muted">׳׳©׳×׳×׳₪׳™׳</span><strong>${num(deal.metrics.participants_count)}</strong></div>
+          <div class="summary-item"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
+          <div class="summary-item"><span class="muted">יחידות שנרשמו</span><strong>${num(deal.metrics.joined_units)}</strong></div>
+          <div class="summary-item"><span class="muted">משתתפים</span><strong>${num(deal.metrics.participants_count)}</strong></div>
         <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
         </div>
         <div class="live-summary-grid">
-          <div class="summary-item summary-spotlight"><span class="muted">׳ ׳•׳×׳¨ ׳׳׳׳</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} ׳™׳—'</strong><p class="small muted">׳׳×׳•׳ ׳§׳™׳‘׳•׳׳× ׳›׳•׳׳׳× ׳©׳ ${num(deal.max_units)} ׳™׳—'.</p></div>
-          <div class="summary-item"><span class="muted">׳¡׳£ ׳₪׳×׳™׳—׳”</span><strong>${num(deal.threshold_units)} ׳™׳—'</strong><p class="small muted">׳™׳¢׳“ ׳”׳‘׳¡׳™׳¡ ׳׳₪׳ ׳™ ׳¡׳’׳™׳¨׳× ׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×.</p></div>
-          <div class="summary-item"><span class="muted">׳”׳§׳™׳©׳•׳¨ ׳”׳₪׳¢׳™׳</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong><p class="small muted">׳–׳”׳• ׳”׳׳™׳ ׳§ ׳©׳”׳§׳•׳ ׳™׳ ׳¦׳¨׳™׳›׳™׳ ׳׳¨׳׳•׳× ׳•׳׳”׳‘׳™׳ ׳‘׳׳”׳™׳¨׳•׳×.</p></div>
+          <div class="summary-item summary-spotlight"><span class="muted">נותר למלא</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} יח'</strong><p class="small muted">מתוך קיבולת כוללת של ${num(deal.max_units)} יח'.</p></div>
+          <div class="summary-item"><span class="muted">סף פתיחה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">יעד הבסיס לפני סגירת חלון ההצטרפות.</p></div>
+          <div class="summary-item"><span class="muted">הקישור הפעיל</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong><p class="small muted">זהו הלינק שהקונים צריכים לראות ולהבין במהירות.</p></div>
         </div>
         <div class="seller-deal-control-grid">
           <div class="summary-item summary-spotlight">
-            <span class="muted">׳—׳•׳™׳‘׳• ׳‘׳”׳¦׳׳—׳”</span>
+            <span class="muted">חויבו בהצלחה</span>
             <strong>${num(participantSnapshot.charged)}</strong>
-            <p class="small muted">׳׳©׳×׳×׳₪׳™׳ ׳©׳”׳׳¢׳¨׳›׳× ׳׳‘׳¨ ׳¡׳™׳׳ ׳” ׳›׳׳•׳©׳׳׳™ ׳—׳™׳•׳‘.</p>
+            <p class="small muted">משתתפים שהמערכת כבר סימנה כמושלמי חיוב.</p>
           </div>
           <div class="summary-item">
-            <span class="muted">׳‘׳”׳׳×׳ ׳” ׳׳”׳©׳׳׳”</span>
+            <span class="muted">בהמתנה להשלמה</span>
             <strong>${num(participantSnapshot.pending)}</strong>
-            <p class="small muted">׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳©׳¢׳•׳“ ׳ ׳׳ª׳ ׳׳ע׳§׳ו׳ב ׳׳—׳¨׳׳”׳ ׳‘׳׳¡׳׳•׳ ׳׳׳¢׳¨׳׳ª.</p>
+            <p class="small muted">הצטרפויות שעוד ניתן לעקוב אחריהן במסלול המערכת.</p>
           </div>
           <div class="summary-item">
-            <span class="muted">׳“׳•׳¨׳© ׳׳§׳¨׳”</span>
+            <span class="muted">דורש בקרה</span>
             <strong>${num(participantSnapshot.unresolved)}</strong>
-            <p class="small muted">׳׳¡׳¤׳¨ ׳׳©׳×׳×׳₪׳™׳ ׳©׳ ׳©׳׳¨׳• ׳‘׳׳¦׳‘ ׳׳ ׳¡׳’׳•׳¨ ׳׳׳™׳ש ׳׳‘׳¨׳¨ ׳¢׳‘׳•׳¨׳.</p>
+            <p class="small muted">מספר משתתפים שנשארו במצב לא סגור וייש לברר עבורם.</p>
           </div>
         </div>
         <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
-        <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">׳ת׳מ׳ו׳ ׳ת ׳ה׳§׳¦׳‘ ׳מ׳ו׳ ׳ה׳ק׳י׳ב׳ו׳׳× ׳ה׳כ׳ו׳ל׳׳ת</span></div>
+        <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">תמונת הקצב מול הקיבולת הכוללת</span></div>
         <div class="actions">
           ${payload.seller_actions.can_publish && !publishBlockedByStatus ? `
             <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">
               <label class="check-row"><input type="checkbox" name="sellerPublishCriticalTermsAccepted" required /> <span>אני מאשר שהתנאים הקריטיים של העסקה סופיים ולא ניתנים לשינוי לאחר פרסום.</span></label>
               <label class="check-row"><input type="checkbox" name="sellerPublishThresholdAccepted" required /> <span>אני מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום, לפי מנגנון C-ton.</span></label>
               <div class="legal-link-row"><a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a></div>
-              <button class="primary" type="submit">׳₪׳¨׳¡׳•׳ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</button>
+              <button class="primary" type="submit">פרסום הדף הציבורי</button>
             </form>
           ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
           <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
-          <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">׳₪׳×׳™׳—׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™</a>
+          <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">פתיחת הדף הציבורי</a>
         </div>
         <div class="info-strip">
-          <strong>׳׳” ׳ ׳—׳©׳£ ׳׳¦׳™׳‘׳•׳¨ ׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳</strong>
-          <p class="small">׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳”׳׳¡׳›׳™׳ ׳©׳׳—׳¨׳™׳• ׳׳¦׳™׳’׳™׳ ׳›׳¢׳× footer ׳׳©׳₪׳˜׳™ ׳§׳‘׳•׳¢, ׳׳¡׳¨׳™ trust ׳¡׳‘׳™׳‘ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“, ׳•׳’׳™׳©׳” ׳‘׳¨׳•׳¨׳” ׳׳™׳¦׳™׳¨׳× ׳§׳©׳¨ ׳•׳׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘.</p>
+          <strong>מה נחשף לציבור אחרי פרסום</strong>
+          <p class="small">הדף הציבורי והמסכים שאחריו מציגים כעת footer משפטי קבוע, מסרי trust סביב תפיסת מסגרת בלבד, וגישה ברורה ליצירת קשר ולמידע המחייב.</p>
         </div>
       </article>
       <aside class="card hero-side stack">
-        <div class="summary-item summary-spotlight"><span class="muted">׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳¢׳“׳›׳ ׳™׳×</span><strong>${esc(getDealCopy(deal.state).label)}</strong><p class="small muted">${num(deal.metrics.joined_units)} ׳™׳—' ׳׳×׳•׳ ${num(deal.max_units)} ֲ· ${num(progressPct)}% ׳¡׳’׳™׳¨׳”</p></div>
+        <div class="summary-item summary-spotlight"><span class="muted">תמונת מצב עדכנית</span><strong>${esc(getDealCopy(deal.state).label)}</strong><p class="small muted">${num(deal.metrics.joined_units)} יח' מתוך ${num(deal.max_units)} · ${num(progressPct)}% סגירה</p></div>
         <div class="urgency-panel ${urgency.tone}">
           <strong>${esc(urgency.title)}</strong>
           <p class="small muted">${esc(urgency.detail)}</p>
         </div>
-        <div class="countdown-chip"><span>׳“׳“׳׳™׳™׳</span><strong>${dt(deal.deadline)}</strong></div>
+        <div class="countdown-chip"><span>דדליין</span><strong>${dt(deal.deadline)}</strong></div>
         <div class="cta-panel">
           <strong>${esc(focus.title)}</strong>
           <p class="small muted">${esc(focus.detail)}</p>
         </div>
         <div class="surface-note">
-          <strong>׳׳” ׳—׳©׳•׳‘ ׳¢׳›׳©׳™׳•</strong>
-          <p class="small muted">${esc(payload.seller_actions.can_publish ? "׳׳ ׳”׳˜׳™׳•׳˜׳” ׳ ׳¨׳׳™׳× ׳—׳“׳”, ׳–׳” ׳”׳׳§׳•׳ ׳׳₪׳¨׳¡׳ ׳•׳׳ ׳׳”׳©׳׳™׳¨ ׳׳× ׳”׳¢׳¡׳§׳” ׳‘׳׳™ ׳“׳£ ׳—׳™." : urgency.tone === "danger" ? "׳–׳” ׳—׳׳•׳ ׳©׳¦׳¨׳™׳ ׳‘׳§׳¨׳” ׳׳”׳™׳¨׳”: ׳§׳¦׳‘, ׳§׳™׳©׳•׳¨ ׳¦׳™׳‘׳•׳¨׳™, ׳•׳׳©׳×׳×׳₪׳™׳ ׳©׳›׳‘׳¨ ׳‘׳₪׳ ׳™׳." : "׳”׳׳¡׳ ׳”׳–׳” ׳ ׳•׳¢׳“ ׳׳”׳—׳–׳™׳§ ׳×׳׳•׳ ׳× ׳׳¦׳‘ ׳×׳₪׳¢׳•׳׳™׳× ׳׳—׳×, ׳‘׳׳™ ׳׳—׳₪׳© ׳׳™׳“׳¢ ׳‘׳›׳׳” ׳׳§׳•׳׳•׳×.")}</p>
+          <strong>מה חשוב עכשיו</strong>
+          <p class="small muted">${esc(payload.seller_actions.can_publish ? "אם הטיוטה נראית חדה, זה המקום לפרסם ולא להשאיר את העסקה בלי דף חי." : urgency.tone === "danger" ? "זה חלון שצריך בקרה מהירה: קצב, קישור ציבורי, ומשתתפים שכבר בפנים." : "המסך הזה נועד להחזיק תמונת מצב תפעולית אחת, בלי לחפש מידע בכמה מקומות.")}</p>
         </div>
-        <div class="summary-item"><span class="muted">׳׳¦׳‘ ׳¢׳¨׳™׳›׳”</span><strong>${payload.seller_actions.edit_locked ? "׳ ׳¢׳•׳ ׳׳—׳¨׳™ ׳₪׳¨׳¡׳•׳" : "׳˜׳™׳•׳˜׳” ׳ ׳™׳×׳ ׳× ׳׳¢׳¨׳™׳›׳”"}</strong></div>
-        <div class="summary-item"><span class="muted">׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”</span><strong>${esc(activeSellerDisplayName)}</strong><p class="small muted"><span class="mono">${esc(activeSellerId)}</span></p></div>
-        <div class="summary-item"><span class="muted">׳”׳׳™׳ ׳§ ׳”׳™׳©׳™׳¨</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong></div>
-        <div class="summary-item"><span class="muted">׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳”</span><strong>${num((payload.delivery_options || []).length)}</strong></div>
-        <div class="summary-item"><span class="muted">׳ ׳•׳¦׳¨׳” ׳‘-</span><strong>${dt(deal.created_at)}</strong></div>
-        <div class="summary-item"><span class="muted">׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”</span><strong>${dt(deal.deadline)}</strong></div>
+        <div class="summary-item"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "טיוטה ניתנת לעריכה"}</strong></div>
+        <div class="summary-item"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(activeSellerDisplayName)}</strong><p class="small muted"><span class="mono">${esc(activeSellerId)}</span></p></div>
+        <div class="summary-item"><span class="muted">הלינק הישיר</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong></div>
+        <div class="summary-item"><span class="muted">אפשרויות קבלה</span><strong>${num((payload.delivery_options || []).length)}</strong></div>
+        <div class="summary-item"><span class="muted">נוצרה ב-</span><strong>${dt(deal.created_at)}</strong></div>
+        <div class="summary-item"><span class="muted">מועד סגירה</span><strong>${dt(deal.deadline)}</strong></div>
       </aside>
     </section>
     <section class="card section stack">
       <div class="section-header">
         <div class="stack compact compact-section">
-          <h2>׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳”</h2>
-          <p class="muted section-intro">׳׳׳” ׳”׳׳₪׳©׳¨׳•׳™׳•׳× ׳©׳™׳¨׳׳• ׳׳§׳•׳ ׳” ׳‘׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳©׳™׳™׳©׳׳¨׳• ׳¢׳ ׳›׳ ׳”׳¦׳˜׳¨׳₪׳•׳×.</p>
+          <h2>אפשרויות קבלה</h2>
+          <p class="muted section-intro">אלה האפשרויות שיראו לקונה בדף הציבורי ושיישמרו על כל הצטרפות.</p>
         </div>
         <div class="pill-row">
-          <span class="stat-pill"><span>׳׳₪׳©׳¨׳•׳™׳•׳×</span><strong>${num((payload.delivery_options || []).length)}</strong></span>
+          <span class="stat-pill"><span>אפשרויות</span><strong>${num((payload.delivery_options || []).length)}</strong></span>
         </div>
       </div>
       ${payload.delivery_options?.length ? `
@@ -3578,41 +3577,41 @@ function renderSellerDealPage() {
             </article>
           `).join("")}
         </div>
-      ` : `<p class="muted">׳׳ ׳”׳•׳’׳“׳¨׳• ׳¢׳“׳™׳™׳ ׳׳₪׳©׳¨׳•׳™׳•׳× ׳§׳‘׳׳” ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p>`}
+      ` : `<p class="muted">לא הוגדרו עדיין אפשרויות קבלה לעסקה הזאת.</p>`}
     </section>
     <section class="card section stack">
       <div class="section-header">
         <div class="stack compact compact-section">
-          <h2>׳׳©׳×׳×׳₪׳™׳</h2>
-          <p class="muted section-intro">׳›׳׳ ׳¨׳•׳׳™׳ ׳׳™ ׳›׳‘׳¨ ׳ ׳¨׳©׳, ׳׳™׳–׳” ׳׳•׳₪׳ ׳§׳‘׳׳” ׳ ׳‘׳—׳¨, ׳•׳׳” ׳׳¦׳‘ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳•׳”׳×׳₪׳™׳¡׳” ׳”׳›׳¡׳₪׳™׳×.</p>
+          <h2>משתתפים</h2>
+          <p class="muted section-intro">כאן רואים מי כבר נרשם, איזה אופן קבלה נבחר, ומה מצב ההשתתפות והתפיסה הכספית.</p>
         </div>
         <div class="pill-row">
-          <span class="stat-pill"><span>׳׳©׳×׳×׳₪׳™׳</span><strong>${num(payload.participants.length)}</strong></span>
+          <span class="stat-pill"><span>משתתפים</span><strong>${num(payload.participants.length)}</strong></span>
         </div>
       </div>
-      ${payload.participants.length ? renderTablePanel("׳¨׳©׳™׳׳× ׳׳©׳×׳×׳₪׳™׳", "׳–׳” ׳”׳׳§׳•׳ ׳׳–׳”׳•׳× ׳׳”׳¨ ׳׳™ ׳‘׳₪׳ ׳™׳, ׳‘׳׳™׳–׳” ׳¡׳˜׳˜׳•׳¡, ׳•׳׳™׳₪׳” ׳™׳© ׳—׳¨׳™׳’׳•׳× ׳©׳¦׳¨׳™׳ ׳׳”׳¡׳‘׳™׳¨.", payload.participants, ["participant_id", "buyer_id", "qty", "delivery_method_label", "delivery_cost", "buyer_state", "money_state", "created_at"]) : `<div class="empty-surface"><p class="muted">׳¢׳“׳™׳™׳ ׳׳™׳ ׳׳¦׳˜׳¨׳₪׳™׳ ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p></div>`}
+      ${payload.participants.length ? renderTablePanel("רשימת משתתפים", "זה המקום לזהות מהר מי בפנים, באיזה סטטוס, ואיפה יש חריגות שצריך להסביר.", payload.participants, ["participant_id", "buyer_id", "qty", "delivery_method_label", "delivery_cost", "buyer_state", "money_state", "created_at"]) : `<div class="empty-surface"><p class="muted">עדיין אין מצטרפים לעסקה הזאת.</p></div>`}
     </section>
     <section class="card section stack">
       <div class="section-header">
         <div class="stack compact compact-section">
-          <h2>׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳—׳™׳•׳‘</h2>
-          <p class="muted section-intro">׳”׳׳–׳•׳¨ ׳”׳–׳” ׳ ׳›׳ ׳¡ ׳׳₪׳¢׳•׳׳” ׳›׳©׳”׳¢׳¡׳§׳” ׳׳’׳™׳¢׳” ׳׳©׳׳‘ ׳”׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳• ׳׳׳¡׳׳•׳ ׳”׳©׳׳׳”.</p>
+          <h2>ניסיונות חיוב</h2>
+          <p class="muted section-intro">האזור הזה נכנס לפעולה כשהעסקה מגיעה לשלב החיוב בפועל או למסלול השלמה.</p>
         </div>
         <div class="pill-row">
-          <span class="stat-pill"><span>׳ ׳™׳¡׳™׳•׳ ׳•׳×</span><strong>${num(payload.payment_attempts.length)}</strong></span>
+          <span class="stat-pill"><span>ניסיונות</span><strong>${num(payload.payment_attempts.length)}</strong></span>
         </div>
       </div>
-      ${payload.payment_attempts.length ? renderTablePanel("׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳—׳™׳•׳‘ ׳׳—׳¨׳•׳ ׳™׳", "׳›׳׳ ׳‘׳•׳“׳§׳™׳ ׳׳ ׳™׳© ׳׳¢׳‘׳¨ ׳×׳§׳™׳ ׳‘׳™׳ ׳ ׳™׳¡׳™׳•׳, ׳×׳•׳¦׳׳”, ׳•׳–׳׳ ׳”׳₪׳¢׳•׳׳” ׳”׳׳—׳¨׳•׳.", payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<div class="empty-surface"><p class="muted">׳¢׳“׳™׳™׳ ׳׳ ׳ ׳¨׳©׳׳• ׳ ׳™׳¡׳™׳•׳ ׳•׳× ׳—׳™׳•׳‘.</p></div>`}
+      ${payload.payment_attempts.length ? renderTablePanel("ניסיונות חיוב אחרונים", "כאן בודקים אם יש מעבר תקין בין ניסיון, תוצאה, וזמן הפעולה האחרון.", payload.payment_attempts, ["attempt_type", "correlation_id", "result_class", "created_at"]) : `<div class="empty-surface"><p class="muted">עדיין לא נרשמו ניסיונות חיוב.</p></div>`}
     </section>
     <section class="card section stack">
-      <h2>׳§׳‘׳׳•׳× ׳•׳¡׳™׳›׳•׳ ׳¢׳¡׳§׳” ׳©׳”׳•׳©׳׳׳”</h2>
+      <h2>קבלות וסיכום עסקה שהושלמה</h2>
       <p class="muted">${esc(receiptsNote)}</p>
       <div class="summary-grid">
-        <div class="summary-item"><span class="muted">׳׳¦׳‘ ׳׳¡׳׳›׳™׳</span><strong>${esc(receipts.status)}</strong></div>
-        <div class="summary-item"><span class="muted">׳‘׳¨׳•׳˜׳•</span><strong>${currency(receipts.summary.gross_amount)}</strong></div>
-        <div class="summary-item"><span class="muted">׳¢׳׳׳× ׳¡׳™׳˜׳•׳</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
-        <div class="summary-item summary-spotlight"><span class="muted">׳ ׳˜׳• ׳׳׳•׳›׳¨</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
-        <div class="summary-item"><span class="muted">׳׳¡׳׳›׳™׳</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
+        <div class="summary-item"><span class="muted">מצב מסמכים</span><strong>${esc(receipts.status)}</strong></div>
+        <div class="summary-item"><span class="muted">ברוטו</span><strong>${currency(receipts.summary.gross_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
+        <div class="summary-item summary-spotlight"><span class="muted">נטו למוכר</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">מסמכים</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
       </div>
       ${deal.state === "Completed" ? `
         <div class="summary-item stack">
@@ -3625,8 +3624,8 @@ function renderSellerDealPage() {
           </div>
         </div>
       ` : ""}
-      ${receipts.documents.length ? renderTablePanel("מסמכי עסקה לפי רישום אמיתי", "הטבלה נשענת רק על רשומות invoice_documents אמיתיות. אם עדיין לא נוצרה רשומה, יוצג במפורש שאין מסמך מונפק.", receipts.documents, ["document_id", "document_status", "issued_at", "participant_id", "buyer_id", "qty", "gross_amount", "share_code", "affiliate_name"]) : `<div class="empty-surface"><p class="muted">׳¢׳“׳™׳™׳ ׳׳™׳ ׳¨׳©׳•׳׳•׳× ׳׳¡׳׳ ׳׳׳™׳×׳™׳•׳× ׳׳¢׳¡׳§׳” ׳”׳–׳׳×.</p></div>`}
-      <p class="small muted">׳–׳”׳• ׳׳©׳˜׳— ׳₪׳ ׳™׳׳™ ׳׳׳•׳›׳ ׳•׳× ׳—׳©׳‘׳•׳ ׳׳™׳×, ׳׳ ׳׳¡׳׳ ׳—׳™׳¦׳•׳ ׳™ ׳©׳”׳•׳₪׳§ ׳‘׳₪׳•׳¢׳.</p>
+      ${receipts.documents.length ? renderTablePanel("מסמכי עסקה לפי רישום אמיתי", "הטבלה נשענת רק על רשומות invoice_documents אמיתיות. אם עדיין לא נוצרה רשומה, יוצג במפורש שאין מסמך מונפק.", receipts.documents, ["document_id", "document_status", "issued_at", "participant_id", "buyer_id", "qty", "gross_amount", "share_code", "affiliate_name"]) : `<div class="empty-surface"><p class="muted">עדיין אין רשומות מסמך אמיתיות לעסקה הזאת.</p></div>`}
+      <p class="small muted">זהו משטח פנימי למוכנות חשבונאית, לא מסמך חיצוני שהופק בפועל.</p>
     </section>
     ${deal.state === "Completed" ? renderDeliveryHandoffSection(deal.deal_id) : ""}
   `;
@@ -5074,55 +5073,55 @@ function renderAdminUserJoinCards(rows) {
 }
 
 const INTERNAL_TABLE_HEADER_LABELS = {
-  entity_type: "׳¡׳•׳’ ׳™׳©׳•׳×",
-  entity_id: "׳׳–׳”׳” ׳™׳©׳•׳×",
-  headline: "׳›׳•׳×׳¨׳×",
-  state: "׳׳¦׳‘",
-  detail: "׳₪׳™׳¨׳•׳˜",
-  deal_id: "׳׳–׳”׳” ׳¢׳¡׳§׳”",
-  price_per_unit: "׳׳—׳™׳¨ ׳׳™׳—׳™׳“׳”",
-  min_units: "׳׳™׳ ׳™׳׳•׳ ׳™׳—׳™׳“׳•׳×",
-  max_units: "׳׳§׳¡׳™׳׳•׳ ׳™׳—׳™׳“׳•׳×",
-  threshold_units: "׳™׳¢׳“ ׳‘׳¡׳™׳¡",
-  deadline: "׳׳•׳¢׳“ ׳¡׳’׳™׳¨׳”",
+  entity_type: "סוג ישות",
+  entity_id: "מזהה ישות",
+  headline: "כותרת",
+  state: "מצב",
+  detail: "פירוט",
+  deal_id: "מזהה עסקה",
+  price_per_unit: "מחיר ליחידה",
+  min_units: "מינימום יחידות",
+  max_units: "מקסימום יחידות",
+  threshold_units: "יעד בסיס",
+  deadline: "מועד סגירה",
   platform_fee_rate: "עמלת סיטון",
-  participant_id: "׳׳–׳”׳” ׳׳©׳×׳×׳£",
-  buyer_id: "׳׳–׳”׳” ׳§׳•׳ ׳”",
-  qty: "׳›׳׳•׳×",
-  buyer_state: "׳׳¦׳‘ ׳׳©׳×׳×׳£",
-  money_state: "׳׳¦׳‘ ׳›׳¡׳₪׳™",
-  created_at: "׳ ׳•׳¦׳¨ ׳‘-",
-  event_type: "׳¡׳•׳’ ׳׳™׳¨׳•׳¢",
-  status: "׳¡׳˜׳˜׳•׳¡",
-  available_at: "׳–׳׳™׳ ׳-",
-  attempt_type: "׳¡׳•׳’ ׳ ׳™׳¡׳™׳•׳",
-  correlation_id: "׳׳–׳”׳” ׳§׳•׳¨׳׳¦׳™׳”",
-  result_class: "׳¡׳™׳•׳•׳’ ׳×׳•׳¦׳׳”",
-  delivery_method_label: "׳׳•׳₪׳ ׳§׳‘׳׳”",
-  delivery_cost: "׳¢׳׳•׳× ׳§׳‘׳׳”",
-  receipt_id: "׳׳–׳”׳” ׳§׳‘׳׳”",
-  document_id: "׳׳–׳”׳” ׳׳¡׳׳",
-  document_status: "׳׳¦׳‘ ׳׳¡׳׳",
+  participant_id: "מזהה משתתף",
+  buyer_id: "מזהה קונה",
+  qty: "כמות",
+  buyer_state: "מצב משתתף",
+  money_state: "מצב כספי",
+  created_at: "נוצר ב-",
+  event_type: "סוג אירוע",
+  status: "סטטוס",
+  available_at: "זמין מ-",
+  attempt_type: "סוג ניסיון",
+  correlation_id: "מזהה קורלציה",
+  result_class: "סיווג תוצאה",
+  delivery_method_label: "אופן קבלה",
+  delivery_cost: "עלות קבלה",
+  receipt_id: "מזהה קבלה",
+  document_id: "מזהה מסמך",
+  document_status: "מצב מסמך",
   notification_status: "סטטוס התראה",
   outbox_status: "סטטוס תור",
   support_status: "סטטוס פנייה",
-  provider_document_id: "׳׳–׳”׳” ׳¡׳₪׳§",
-  share_code: "׳§׳•׳“ ׳©׳™׳×׳•׳£",
-  display_name: "׳©׳ ׳×׳¦׳•׳’׳”",
-  issue_note: "׳”׳¢׳¨׳× ׳×׳§׳׳”",
-  updated_at: "׳¢׳•׳“׳›׳ ׳‘-",
-  ticket_id: "׳׳–׳”׳” ׳₪׳ ׳™׳™׳”",
-  scope_type: "׳¡׳•׳’ ׳™׳©׳•׳×",
-  scope_key: "׳׳–׳”׳” ׳™׳©׳•׳×",
-  title: "׳›׳•׳×׳¨׳×",
-  priority: "׳¢׳“׳™׳₪׳•׳×",
-  state_type: "׳¡׳•׳’ ׳׳¦׳‘",
-  from_state: "׳׳׳¦׳‘",
-  to_state: "׳׳׳¦׳‘",
-  action_name: "׳₪׳¢׳•׳׳”",
-  deal_state: "׳׳¦׳‘ ׳¢׳¡׳§׳”",
-  gross_amount: "׳¡׳›׳•׳ ׳‘׳¨׳•׳˜׳•",
-  affiliate_name: "׳©׳ ׳©׳•׳×׳£"
+  provider_document_id: "מזהה ספק",
+  share_code: "קוד שיתוף",
+  display_name: "שם תצוגה",
+  issue_note: "הערת תקלה",
+  updated_at: "עודכן ב-",
+  ticket_id: "מזהה פנייה",
+  scope_type: "סוג ישות",
+  scope_key: "מזהה ישות",
+  title: "כותרת",
+  priority: "עדיפות",
+  state_type: "סוג מצב",
+  from_state: "ממצב",
+  to_state: "למצב",
+  action_name: "פעולה",
+  deal_state: "מצב עסקה",
+  gross_amount: "סכום ברוטו",
+  affiliate_name: "שם שותף"
 };
 
 function formatInternalTableHeader(column) {
@@ -5141,9 +5140,9 @@ function formatEnvironmentLabel(value) {
   const normalized = String(value || "").trim().toLowerCase();
   if (!normalized) return "מצב הצגה";
   if (normalized === "preview" || normalized === "demo" || normalized === "demo-preview") return "מצב הצגה";
-  if (normalized === "internal" || normalized === "internal-runtime") return "׳¡׳‘׳™׳‘׳× ׳¢׳‘׳•׳“׳” ׳₪׳ ׳™׳׳™׳×";
-  if (normalized === "production") return "׳¡׳‘׳™׳‘׳× ׳™׳™׳¦׳•׳¨";
-  if (normalized === "staging") return "׳¡׳‘׳™׳‘׳× ׳‘׳“׳™׳§׳•׳×";
+  if (normalized === "internal" || normalized === "internal-runtime") return "סביבת עבודה פנימית";
+  if (normalized === "production") return "סביבת ייצור";
+  if (normalized === "staging") return "סביבת בדיקות";
   return String(value);
 }
 
@@ -5233,38 +5232,38 @@ function sellerDealProgressPct(metrics, maxUnits) {
 function sellerDeadlineSignal(deadline, stateName) {
   const diff = new Date(deadline).getTime() - Date.now();
   if (!Number.isFinite(diff)) {
-    return { tone: "warning", title: "׳׳•׳¢׳“ ׳”׳¡׳’׳™׳¨׳” ׳׳ ׳–׳׳™׳", detail: "׳›׳“׳׳™ ׳׳‘׳“׳•׳§ ׳©׳”׳¢׳¡׳§׳” ׳ ׳©׳׳¨׳” ׳¢׳ ׳—׳׳•׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳×׳§׳™׳." };
+    return { tone: "warning", title: "מועד הסגירה לא זמין", detail: "כדאי לבדוק שהעסקה נשמרה עם חלון הצטרפות תקין." };
   }
   if (["Completed", "Failed", "Cancelled"].includes(String(stateName || ""))) {
-    return { tone: stateName === "Completed" ? "success" : "danger", title: stateName === "Completed" ? "׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳ ׳¡׳’׳¨׳” ׳‘׳”׳¦׳׳—׳”" : "׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳” ׳׳׳ ׳”׳׳©׳", detail: "׳׳™׳ ׳¢׳•׳“ ׳—׳׳•׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳₪׳×׳•׳—, ׳•׳”׳׳¡׳ ׳ ׳©׳׳¨ ׳›׳›׳׳™ ׳‘׳§׳¨׳” ׳•׳׳¢׳§׳‘." };
+    return { tone: stateName === "Completed" ? "success" : "danger", title: stateName === "Completed" ? "העסקה כבר נסגרה בהצלחה" : "העסקה נסגרה ללא המשך", detail: "אין עוד חלון הצטרפות פתוח, והמסך נשאר ככלי בקרה ומעקב." };
   }
   if (diff <= 0) {
-    return { tone: "danger", title: "׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳›׳‘׳¨ ׳ ׳¡׳’׳¨", detail: "׳›׳“׳׳™ ׳׳”׳×׳׳§׳“ ׳¢׳›׳©׳™׳• ׳¨׳§ ׳‘׳׳¢׳§׳‘, ׳‘׳—׳™׳•׳‘ ׳׳• ׳‘׳¡׳’׳™׳¨׳” ׳”׳×׳₪׳¢׳•׳׳™׳× ׳©׳ ׳”׳¢׳¡׳§׳”." };
+    return { tone: "danger", title: "חלון ההצטרפות כבר נסגר", detail: "כדאי להתמקד עכשיו רק במעקב, בחיוב או בסגירה התפעולית של העסקה." };
   }
   const hours = diff / 3_600_000;
   if (hours <= 6) {
-    return { tone: "danger", title: "׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳§׳¨׳•׳‘ ׳׳¡׳™׳•׳", detail: `׳ ׳•׳×׳¨׳• ׳‘׳¢׳¨׳ ${Math.max(1, Math.round(hours))} ׳©׳¢׳•׳× ׳׳¡׳’׳™׳¨׳× ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™.` };
+    return { tone: "danger", title: "חלון ההצטרפות קרוב לסיום", detail: `נותרו בערך ${Math.max(1, Math.round(hours))} שעות לסגירת הדף הציבורי.` };
   }
   if (hours <= 24) {
-    return { tone: "warning", title: "׳”׳¢׳¡׳§׳” ׳ ׳›׳ ׳¡׳× ׳׳™׳•׳ ׳”׳׳—׳¨׳•׳ ׳©׳׳”", detail: "׳–׳” ׳”׳–׳׳ ׳׳—׳–׳§ ׳”׳₪׳¦׳”, ׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳§׳¦׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳•׳׳•׳•׳“׳ ׳©׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳—׳“ ׳•׳‘׳¨׳•׳¨." };
+    return { tone: "warning", title: "העסקה נכנסת ליום האחרון שלה", detail: "זה הזמן לחזק הפצה, לעקוב אחרי קצב ההצטרפות ולוודא שהדף הציבורי חד וברור." };
   }
-  return { tone: "success", title: "׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳¢׳“׳™׳™׳ ׳₪׳×׳•׳—", detail: "׳™׳© ׳¢׳“׳™׳™׳ ׳–׳׳ ׳׳”׳₪׳¦׳” ׳•׳׳¦׳‘׳™׳¨׳× ׳”׳¦׳˜׳¨׳₪׳•׳™׳•׳× ׳׳₪׳ ׳™ ׳”׳¡׳’׳™׳¨׳”." };
+  return { tone: "success", title: "חלון ההצטרפות עדיין פתוח", detail: "יש עדיין זמן להפצה ולצבירת הצטרפויות לפני הסגירה." };
 }
 
 function sellerNextFocus(deal, totals) {
   if (deal?.state === "Draft") {
-    return { title: "׳׳”׳©׳׳™׳ ׳˜׳™׳•׳˜׳” ׳•׳׳₪׳¨׳¡׳ ׳“׳£ ׳—׳™", detail: "׳׳₪׳ ׳™ ׳₪׳¨׳¡׳•׳ ׳›׳“׳׳™ ׳׳¢׳‘׳•׳¨ ׳©׳•׳‘ ׳¢׳ ׳׳—׳™׳¨, ׳“׳“׳׳™׳™׳ ׳•׳׳₪׳©׳¨׳•׳™׳•׳× ׳”׳§׳‘׳׳”, ׳•׳׳– ׳׳”׳•׳¦׳™׳ ׳׳™׳ ׳§ ׳׳™׳©׳™ ׳׳”׳₪׳¦׳”." };
+    return { title: "להשלים טיוטה ולפרסם דף חי", detail: "לפני פרסום כדאי לעבור שוב על מחיר, דדליין ואפשרויות הקבלה, ואז להוציא לינק אישי להפצה." };
   }
   if (deal?.state === "PendingTarget" || deal?.state === "TargetReached") {
-    return { title: "׳׳”׳׳©׳™׳ ׳”׳₪׳¦׳” ׳•׳׳¢׳§׳•׳‘ ׳׳—׳¨׳™ ׳”׳§׳¦׳‘", detail: "׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳›׳‘׳¨ ׳—׳™. ׳¢׳›׳©׳™׳• ׳—׳©׳•׳‘ ׳׳¨׳׳•׳× ׳§׳¦׳‘ ׳”׳¦׳˜׳¨׳₪׳•׳×, ׳—׳׳•׳ ׳–׳׳ ׳•׳§׳™׳‘׳•׳׳× ׳©׳ ׳•׳×׳¨׳”." };
+    return { title: "להמשיך הפצה ולעקוב אחרי הקצב", detail: "הדף הציבורי כבר חי. עכשיו חשוב לראות קצב הצטרפות, חלון זמן וקיבולת שנותרה." };
   }
   if (deal?.state === "ReadyForCharging" || deal?.state === "Charging" || deal?.state === "CompletionWindow") {
-    return { title: "׳׳”׳×׳׳§׳“ ׳‘׳‘׳§׳¨׳” ׳×׳₪׳¢׳•׳׳™׳×", detail: "׳›׳׳ ׳‘׳•׳“׳§׳™׳ ׳—׳™׳•׳‘׳™׳, ׳׳¡׳׳›׳™׳ ׳•׳׳¡׳™׳¨׳”, ׳•׳׳ ׳₪׳•׳×׳—׳™׳ ׳¢׳•׳“ ׳¢׳¨׳™׳›׳” ׳¢׳ ׳”׳¢׳¡׳§׳” ׳¢׳¦׳׳”." };
+    return { title: "להתמקד בבקרה תפעולית", detail: "כאן בודקים חיובים, מסמכים ומסירה, ולא פותחים עוד עריכה על העסקה עצמה." };
   }
   if ((totals?.live_deals || 0) > 0) {
-    return { title: "׳™׳© ׳›׳‘׳¨ ׳¢׳¡׳§׳׳•׳× ׳—׳™׳•׳× ׳©׳“׳•׳¨׳©׳•׳× ׳×׳©׳•׳׳× ׳׳‘", detail: "׳”׳“׳©׳‘׳•׳¨׳“ ׳ ׳•׳¢׳“ ׳׳¢׳–׳•׳¨ ׳׳ ׳׳–׳”׳•׳× ׳׳” ׳“׳•׳¨׳© ׳”׳₪׳¦׳”, ׳׳” ׳׳×׳§׳“׳, ׳•׳׳” ׳›׳‘׳¨ ׳ ׳¡׳’׳¨." };
+    return { title: "יש כבר עסקאות חיות שדורשות תשומת לב", detail: "הדשבורד נועד לעזור לך לזהות מה דורש הפצה, מה מתקדם, ומה כבר נסגר." };
   }
-  return { title: "׳׳‘׳ ׳•׳× ׳׳× ׳”׳“׳£ ׳”׳¨׳׳©׳•׳ ׳©׳׳ ׳‘׳¦׳•׳¨׳” ׳—׳“׳”", detail: "׳₪׳×׳™׳—׳× ׳¢׳¡׳§׳” ׳˜׳•׳‘׳” ׳׳×׳—׳™׳׳” ׳‘׳›׳•׳×׳¨׳× ׳‘׳¨׳•׳¨׳”, ׳׳—׳™׳¨ ׳׳“׳•׳™׳§, ׳—׳׳•׳ ׳–׳׳ ׳ ׳›׳•׳ ׳•׳׳•׳₪׳ ׳§׳‘׳׳” ׳₪׳©׳•׳˜ ׳׳”׳‘׳ ׳”." };
+  return { title: "לבנות את הדף הראשון שלך בצורה חדה", detail: "פתיחת עסקה טובה מתחילה בכותרת ברורה, מחיר מדויק, חלון זמן נכון ואופן קבלה פשוט להבנה." };
 }
 
 function normalizeSurfaceNote(note, kind) {
@@ -5272,21 +5271,21 @@ function normalizeSurfaceNote(note, kind) {
   if (!value) return "";
   if (kind === "receipts") {
     if (value.includes("Receipt visibility relies on actual invoice_documents rows")) {
-      return "׳׳¡׳׳›׳™ ׳¢׳¡׳§׳” ׳׳•׳¦׳’׳™׳ ׳¨׳§ ׳׳ ׳§׳™׳™׳׳× ׳¨׳©׳•׳׳” ׳׳׳™׳×׳™׳× ׳‘-invoice_documents. ׳׳©׳׳™׳ ׳¢׳“׳™׳™׳ ׳¨׳©׳•׳׳” ׳›׳–׳׳×, ׳׳•׳¦׳’ ׳‘׳׳₪׳•׳¨׳© ׳©׳˜׳¨׳ ׳”׳•׳ ׳₪׳§ ׳׳¡׳׳.";
+      return "מסמכי עסקה מוצגים רק אם קיימת רשומה אמיתית ב-invoice_documents. כשאין עדיין רשומה כזאת, מוצג במפורש שטרם הונפק מסמך.";
     }
     if (value.includes("Receipts are generated only")) {
-      return "׳§׳‘׳׳•׳× ׳ ׳•׳¦׳¨׳•׳× ׳¨׳§ ׳¢׳‘׳•׳¨ ׳׳©׳×׳×׳₪׳™׳ ׳©׳—׳•׳™׳‘׳• ׳‘׳”׳¦׳׳—׳” ׳׳• ׳”׳•׳©׳׳׳• ׳‘׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨, ׳•׳¨׳§ ׳׳—׳¨׳™ ׳©׳”׳¢׳¡׳§׳” ׳׳’׳™׳¢׳” ׳׳”׳©׳׳׳” ׳׳׳׳”.";
+      return "קבלות נוצרות רק עבור משתתפים שחויבו בהצלחה או הושלמו במסלול שחזור, ורק אחרי שהעסקה מגיעה להשלמה מלאה.";
     }
     if (value.includes("Receipts stay blocked until")) {
-      return "׳§׳‘׳׳•׳× ׳ ׳©׳׳¨׳•׳× ׳—׳¡׳•׳׳•׳× ׳¢׳“ ׳©׳”׳¢׳¡׳§׳” ׳׳’׳™׳¢׳” ׳׳׳¦׳‘ ׳”׳•׳©׳׳׳”. ׳¢׳¡׳§׳׳•׳× ׳©׳ ׳›׳©׳׳• ׳׳• ׳‘׳•׳˜׳׳• ׳׳™׳ ׳ ׳׳™׳™׳¦׳¨׳•׳× ׳׳¡׳׳›׳™ ׳׳•׳›׳¨.";
+      return "קבלות נשארות חסומות עד שהעסקה מגיעה למצב הושלמה. עסקאות שנכשלו או בוטלו אינן מייצרות מסמכי מוכר.";
     }
   }
   if (kind === "delivery") {
     if (value.includes("Only successfully charged or recovered buyers")) {
-      return "׳ ׳™׳”׳•׳ ׳׳¡׳™׳¨׳” ׳ ׳₪׳×׳— ׳¨׳§ ׳׳§׳•׳ ׳™׳ ׳©׳—׳•׳™׳‘׳• ׳‘׳”׳¦׳׳—׳” ׳׳• ׳”׳•׳©׳׳׳• ׳‘׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨. ׳‘׳¡׳‘׳™׳‘׳× ׳”׳“׳’׳׳” ׳–׳”׳• ׳׳©׳˜׳— ׳‘׳§׳¨׳” ׳₪׳ ׳™׳׳™ ׳•׳׳ ׳—׳™׳‘׳•׳¨ ׳—׳™ ׳׳—׳‘׳¨׳× ׳©׳™׳׳•׳—.";
+      return "ניהול מסירה נפתח רק לקונים שחויבו בהצלחה או הושלמו במסלול שחזור. בסביבת הדגמה זהו משטח בקרה פנימי ולא חיבור חי לחברת שילוח.";
     }
     if (value.includes("Delivery operations become active only")) {
-      return "׳ ׳™׳”׳•׳ ׳”׳׳¡׳™׳¨׳” ׳”׳•׳₪׳ ׳׳₪׳¢׳™׳ ׳¨׳§ ׳׳—׳¨׳™ ׳©׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳” ׳‘׳”׳¦׳׳—׳”.";
+      return "ניהול המסירה הופך לפעיל רק אחרי שהעסקה הושלמה בהצלחה.";
     }
   }
   return value;
@@ -5294,7 +5293,7 @@ function normalizeSurfaceNote(note, kind) {
 
 function presentDeliveryOptionLabel(label, type) {
   const value = String(label || "").trim();
-  if (!value || /^\?+$/.test(value.replace(/\s+/g, "")) || value.includes("???")) {
+  if (!value || /^\?+$/.test(value.replace(/\s+/g, "")) || value.includes("??")) {
     return formatDeliveryTypeLabel(String(type || ""));
   }
   return value;
@@ -5308,7 +5307,7 @@ function renderTablePanel(title, detail, rows, columns) {
           <strong>${esc(title)}</strong>
           <p class="small muted">${esc(detail)}</p>
         </div>
-        <span class="badge">${num(rows.length)} ׳©׳•׳¨׳•׳×</span>
+        <span class="badge">${num(rows.length)} שורות</span>
       </div>
       ${renderRowsTable(rows, columns)}
     </div>
@@ -5318,14 +5317,14 @@ function renderTablePanel(title, detail, rows, columns) {
 function renderRowsTable(rows, columns) {
   return `
     <div class="table-like">
-      <div class="table-row table-head">${columns.map((column) => `<div class="table-cell"><span class="table-cell-label">׳©׳“׳”</span><span class="table-cell-value">${esc(formatInternalTableHeader(column))}</span></div>`).join("")}</div>
+      <div class="table-row table-head">${columns.map((column) => `<div class="table-cell"><span class="table-cell-label">שדה</span><span class="table-cell-value">${esc(formatInternalTableHeader(column))}</span></div>`).join("")}</div>
       ${rows.map((row) => `<div class="table-row">${columns.map((column) => `<div class="table-cell"><span class="table-cell-label">${esc(formatInternalTableHeader(column))}</span><span class="table-cell-value">${esc(formatCell(row[column], column))}</span></div>`).join("")}</div>`).join("")}
     </div>
   `;
 }
 
 function formatCell(value, column = "") {
-  if (value === null || value === undefined || value === "") return "׳׳ ׳–׳׳™׳";
+  if (value === null || value === undefined || value === "") return "לא זמין";
   if (column === "deal_state" || (column === "state" && typeof value === "string" && DEAL_COPY[value])) return getDealCopy(String(value)).label;
   if (column === "buyer_state") return formatVisibleBuyerState(value);
   if (column === "money_state") return formatVisibleMoneyState(value);
@@ -5357,11 +5356,11 @@ function inferStatusColumn(column, value) {
 
 function formatDocumentStatus(status) {
   const map = {
-    pending: "׳׳׳×׳™׳ ׳׳”׳ ׳₪׳§׳”",
-    processing: "׳‘׳¢׳™׳‘׳•׳“",
-    issued: "׳”׳•׳ ׳₪׳§",
-    failed: "׳ ׳›׳©׳",
-    skipped: "׳ ׳“׳׳’"
+    pending: "ממתין להנפקה",
+    processing: "בעיבוד",
+    issued: "הונפק",
+    failed: "נכשל",
+    skipped: "נדלג"
   };
   return map[status] || status;
 }
@@ -5404,8 +5403,8 @@ function renderRecoveryState(title, message, href) {
       <h2>${esc(title)}</h2>
       <p class="muted">${esc(message)}</p>
       <div class="actions">
-        <a class="button primary" href="${href}" data-nav="${href}">׳—׳–׳¨׳” ׳׳׳¡׳׳•׳ ׳”׳ ׳›׳•׳</a>
-        <a class="button secondary" href="/app" data-nav="/app">׳׳¢׳׳•׳“ ׳”׳‘׳™׳×</a>
+        <a class="button primary" href="${href}" data-nav="${href}">חזרה למסלול הנכון</a>
+        <a class="button secondary" href="/app" data-nav="/app">לעמוד הבית</a>
       </div>
     </section>
   `;
@@ -5417,7 +5416,7 @@ function renderEmptyState(title, message) {
       <h2>${esc(title)}</h2>
       <p class="muted">${esc(message)}</p>
       <div class="actions">
-        <a class="button secondary" href="/app" data-nav="/app">׳—׳–׳¨׳” ׳׳׳¡׳ ׳”׳‘׳™׳×</a>
+        <a class="button secondary" href="/app" data-nav="/app">חזרה למסך הבית</a>
       </div>
     </section>
   `;
@@ -5432,10 +5431,10 @@ function renderNavLegacy() {
           <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
           <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
         </div>
-      ${!isInternalSurface ? `<div class="route-chip">׳׳•׳›׳¨ ׳₪׳¢׳™׳: ${esc(sellerContext.display_name)}</div>` : ""}
-      ${isInternalSurface ? `<div class="route-chip">׳׳¡׳ ׳₪׳ ׳™׳׳™</div>` : ""}
-      <a href="/app" data-nav="/app" class="button secondary">׳¡׳™׳˜׳•׳</a>
-      <div class="route-chip">${ROUTE_LABELS[state.route.name] || "׳׳¡׳׳•׳ ׳§׳•׳ ׳”"}</div>
+      ${!isInternalSurface ? `<div class="route-chip">מוכר פעיל: ${esc(sellerContext.display_name)}</div>` : ""}
+      ${isInternalSurface ? `<div class="route-chip">מסך פנימי</div>` : ""}
+      <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+      <div class="route-chip">${ROUTE_LABELS[state.route.name] || "מסלול קונה"}</div>
     </nav>
   `;
 }
@@ -5455,15 +5454,15 @@ function renderPublicTrustFooter() {
     <footer class="trust-footer card section stack">
       <div class="trust-footer-grid">
         <div class="stack compact-section">
-          <span class="eyebrow">׳׳¢׳˜׳₪׳× ׳׳׳•׳ ׳¦׳™׳‘׳•׳¨׳™׳×</span>
-          <h2>׳׳™׳“׳¢ ׳׳—׳™׳™׳‘ ׳‘׳¨׳•׳¨, ׳‘׳׳™ ׳׳”׳¢׳׳™׳¡ ׳¢׳ ׳”׳׳¡׳׳•׳</h2>
-          <p class="muted">׳‘׳¡׳™׳˜׳•׳ ׳”׳§׳•׳ ׳” ׳׳×׳§׳“׳ ׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳¢׳¡׳§׳”. ׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“, ׳•׳”׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳×׳‘׳¦׳¢ ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳× ׳‘׳”׳¦׳׳—׳”. ׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳ ׳¡׳’׳¨׳×, ׳”׳׳¡׳’׳¨׳× ׳׳©׳×׳—׳¨׳¨׳×, ׳׳×׳‘׳˜׳׳× ׳׳• ׳׳ ׳”׳•׳₪׳›׳× ׳׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳₪׳™ ׳׳¦׳‘ ׳”׳¢׳¡׳§׳”.</p>
+          <span class="eyebrow">מעטפת אמון ציבורית</span>
+          <h2>מידע מחייב ברור, בלי להעמיס על המסלול</h2>
+          <p class="muted">בסיטון הקונה מתקדם דרך לינק ישיר לעסקה. בשלב ההצטרפות נשמרת תפיסת מסגרת בלבד, והחיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת, מתבטלת או לא הופכת לחיוב בפועל לפי מצב העסקה.</p>
         </div>
         <div class="trust-footer-panel">
           <div class="summary-item summary-spotlight">
-            <span class="muted">׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘</span>
-            <strong>׳×׳ ׳׳™ ׳©׳™׳׳•׳©, ׳₪׳¨׳˜׳™׳•׳×, ׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳, ׳™׳¦׳™׳¨׳× ׳§׳©׳¨</strong>
-            <p class="small muted">׳”׳¢׳׳•׳“׳™׳ ׳”׳׳׳” ׳–׳׳™׳ ׳™׳ ׳׳›׳ ׳׳©׳˜׳— ׳¦׳™׳‘׳•׳¨׳™ ׳¨׳׳•׳•׳ ׳˜׳™ ׳›׳“׳™ ׳©׳׳ ׳™׳”׳™׳” ׳₪׳¢׳¨ ׳‘׳™׳ ׳”׳”׳‘׳˜׳—׳” ׳׳‘׳™׳ ׳׳” ׳©׳”׳§׳•׳ ׳” ׳¨׳•׳׳” ׳‘׳₪׳•׳¢׳.</p>
+            <span class="muted">המידע המחייב</span>
+            <strong>תנאי שימוש, פרטיות, ביטולים והחזרים, יצירת קשר</strong>
+            <p class="small muted">העמודים האלה זמינים מכל משטח ציבורי רלוונטי כדי שלא יהיה פער בין ההבטחה לבין מה שהקונה רואה בפועל.</p>
           </div>
           <div class="mini-legal-note">
             ${renderLegalLinkRow()}
@@ -5477,28 +5476,28 @@ function renderPublicTrustFooter() {
 function renderLegalLinkRow() {
   return `
     <div class="legal-link-row">
-      <a href="/app/terms" data-nav="/app/terms">׳×׳ ׳׳™ ׳©׳™׳׳•׳©</a>
-      <a href="/app/privacy" data-nav="/app/privacy">׳׳“׳™׳ ׳™׳•׳× ׳₪׳¨׳˜׳™׳•׳×</a>
-      <a href="/app/refunds" data-nav="/app/refunds">׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳</a>
+      <a href="/app/terms" data-nav="/app/terms">תנאי שימוש</a>
+      <a href="/app/privacy" data-nav="/app/privacy">מדיניות פרטיות</a>
+      <a href="/app/refunds" data-nav="/app/refunds">ביטולים והחזרים</a>
       <a href="/app/accessibility" data-nav="/app/accessibility">הצהרת נגישות</a>
       <a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a>
       <a href="/app/distributor-terms" data-nav="/app/distributor-terms">תנאי מפיץ</a>
-      <a href="/app/contact" data-nav="/app/contact">׳™׳¦׳™׳¨׳× ׳§׳©׳¨</a>
+      <a href="/app/contact" data-nav="/app/contact">יצירת קשר</a>
     </div>
   `;
 }
 
 function renderLegalReferenceStrip(context) {
   const detail = context === "payment"
-    ? "׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳׳₪׳©׳¨ ׳׳¨׳׳•׳× ׳›׳׳ ׳‘׳“׳™׳•׳§ ׳׳” ׳׳—׳™׳™׳‘, ׳׳™׳ ׳ ׳©׳׳¨׳× ׳”׳₪׳¨׳˜׳™׳•׳×, ׳•׳׳” ׳§׳•׳¨׳” ׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳ ׳¡׳’׳¨׳×."
+    ? "לפני אישור המסגרת אפשר לראות כאן בדיוק מה מחייב, איך נשמרת הפרטיות, ומה קורה אם העסקה לא נסגרת."
     : context === "tracking"
-      ? "׳’׳ ׳׳—׳¨׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳ ׳©׳׳¨ ׳–׳׳™׳, ׳›׳•׳׳ ׳׳™׳ ׳₪׳•׳ ׳™׳ ׳•׳׳™׳₪׳” ׳¨׳•׳׳™׳ ׳׳” ׳§׳•׳¨׳” ׳¢׳ ׳”׳׳¡׳’׳¨׳×."
+      ? "גם אחרי ההצטרפות המידע המחייב נשאר זמין, כולל איך פונים ואיפה רואים מה קורה עם המסגרת."
       : context === "confirmation"
-        ? "׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳”, ׳׳‘׳ ׳’׳ ׳›׳׳ ׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳ ׳©׳׳¨ ׳ ׳’׳™׳© ׳•׳‘׳¨׳•׳¨."
-        : "׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳ ׳’׳™׳© ׳›׳‘׳¨ ׳׳©׳׳‘ ׳”׳“׳£ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳›׳“׳™ ׳׳™׳¦׳•׳¨ ׳׳׳•׳ ׳¢׳•׳“ ׳׳₪׳ ׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×.";
+        ? "ההצטרפות נשמרה, אבל גם כאן המידע המחייב נשאר נגיש וברור."
+        : "המידע המחייב נגיש כבר משלב הדף הציבורי כדי ליצור אמון עוד לפני ההצטרפות.";
   return `
     <div class="info-strip legal-strip">
-      <strong>׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳•׳”׳§׳©׳¨</strong>
+      <strong>המידע המחייב והקשר</strong>
       <p class="small">${detail}</p>
       ${renderLegalLinkRow()}
     </div>
@@ -5513,17 +5512,17 @@ function renderLegalPage(title, eyebrow, intro, sections) {
         <h1>${esc(title)}</h1>
         <p class="muted">${esc(intro)}</p>
         <div class="summary-grid">
-          <div class="summary-item"><span class="muted">׳›׳ ׳™׳¡׳” ׳׳׳¡׳׳•׳</span><strong>׳“׳¨׳ ׳׳™׳ ׳§ ׳™׳©׳™׳¨ ׳׳¢׳¡׳§׳”</strong></div>
-          <div class="summary-item"><span class="muted">׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×</span><strong>׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“</strong></div>
-          <div class="summary-item"><span class="muted">׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳</span><strong>׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳× ׳‘׳”׳¦׳׳—׳”</strong></div>
-          <div class="summary-item"><span class="muted">׳׳™׳₪׳” ׳¨׳•׳׳™׳ ׳”׳›׳•׳</span><strong>׳‘׳“׳£ ׳”׳¢׳¡׳§׳”, ׳‘׳׳¢׳§׳‘ ׳•׳‘׳¢׳׳•׳“׳™׳ ׳”׳׳׳”</strong></div>
+          <div class="summary-item"><span class="muted">כניסה למסלול</span><strong>דרך לינק ישיר לעסקה</strong></div>
+          <div class="summary-item"><span class="muted">בשלב ההצטרפות</span><strong>תפיסת מסגרת בלבד</strong></div>
+          <div class="summary-item"><span class="muted">חיוב בפועל</span><strong>רק אם העסקה נסגרת בהצלחה</strong></div>
+          <div class="summary-item"><span class="muted">איפה רואים הכול</span><strong>בדף העסקה, במעקב ובעמודים האלה</strong></div>
         </div>
       </article>
       <aside class="card hero-side stack legal-side">
         <div class="summary-item summary-spotlight">
-          <span class="muted">׳ ׳™׳•׳•׳˜ ׳׳”׳™׳¨</span>
-          <strong>׳¢׳׳•׳“׳™ trust ׳¦׳™׳‘׳•׳¨׳™׳™׳</strong>
-          <p class="small muted">׳”׳¢׳׳•׳“׳™׳ ׳”׳׳׳” ׳”׳ ׳©׳›׳‘׳× ׳”׳׳׳•׳ ׳”׳‘׳¡׳™׳¡׳™׳× ׳©׳ ׳”׳׳•׳¦׳¨ ׳”׳¦׳™׳‘׳•׳¨׳™, ׳•׳׳ placeholder ׳₪׳ ׳™׳׳™.</p>
+          <span class="muted">ניווט מהיר</span>
+          <strong>עמודי trust ציבוריים</strong>
+          <p class="small muted">העמודים האלה הם שכבת האמון הבסיסית של המוצר הציבורי, ולא placeholder פנימי.</p>
         </div>
         <div class="mini-legal-note">
           ${renderLegalLinkRow()}
@@ -5543,51 +5542,51 @@ function renderLegalPage(title, eyebrow, intro, sections) {
 
 function renderTermsPage() {
   return renderLegalPage(
-    "׳×׳ ׳׳™ ׳©׳™׳׳•׳©",
-    "׳©׳™׳׳•׳© ׳‘׳₪׳׳˜׳₪׳•׳¨׳׳”",
-    "׳×׳ ׳׳™ ׳”׳©׳™׳׳•׳© ׳׳’׳“׳™׳¨׳™׳ ׳׳™׳ ׳׳©׳×׳׳©׳™׳ ׳‘׳׳©׳˜׳—׳™׳ ׳”׳¦׳™׳‘׳•׳¨׳™׳™׳ ׳©׳ ׳¡׳™׳˜׳•׳, ׳׳”׳• ׳׳•׳₪׳™ ׳”׳¢׳¡׳§׳” ׳”׳§׳‘׳•׳¦׳×׳™׳×, ׳•׳׳™׳₪׳” ׳¢׳•׳‘׳¨׳× ׳”׳׳—׳¨׳™׳•׳× ׳‘׳™׳ ׳”׳₪׳׳˜׳₪׳•׳¨׳׳”, ׳”׳׳•׳›׳¨ ׳•׳”׳§׳•׳ ׳”.",
+    "תנאי שימוש",
+    "שימוש בפלטפורמה",
+    "תנאי השימוש מגדירים איך משתמשים במשטחים הציבוריים של סיטון, מהו אופי העסקה הקבוצתית, ואיפה עוברת האחריות בין הפלטפורמה, המוכר והקונה.",
     [
-      { title: "׳׳”׳• ׳”׳©׳™׳¨׳•׳×", body: "׳¡׳™׳˜׳•׳ ׳”׳™׳ ׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳ ׳™׳”׳•׳ ׳¢׳¡׳§׳׳•׳× ׳§׳‘׳•׳¦׳×׳™׳•׳× ׳׳‘׳•׳¡׳¡׳•׳× ׳׳™׳ ׳§. ׳”׳׳•׳›׳¨ ׳₪׳•׳×׳— ׳¢׳¡׳§׳”, ׳׳₪׳¨׳¡׳ ׳“׳£ ׳¢׳¡׳§׳” ׳¦׳™׳‘׳•׳¨׳™, ׳•׳”׳§׳•׳ ׳” ׳׳¦׳˜׳¨׳£ ׳“׳¨׳ ׳§׳™׳©׳•׳¨ ׳™׳©׳™׳¨ ׳•׳׳ ׳“׳¨׳ ׳§׳˜׳׳•׳’ ׳¦׳™׳‘׳•׳¨׳™ ׳₪׳×׳•׳—." },
-      { title: "׳׳” ׳§׳•׳¨׳” ׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×", body: "׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳™׳ ׳₪׳¨׳˜׳™ ׳”׳׳¡׳׳•׳, ׳›׳•׳׳ ׳›׳׳•׳×, ׳׳•׳₪׳ ׳§׳‘׳׳” ׳•׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×. ׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳¨׳§ ׳׳¢׳¦׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×. ׳”׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳׳×׳‘׳¦׳¢ ׳¨׳§ ׳׳ ׳”׳¢׳¡׳§׳” ׳ ׳¡׳’׳¨׳× ׳‘׳”׳¦׳׳—׳” ׳•׳‘׳”׳×׳׳ ׳׳׳¦׳‘ ׳”׳¢׳¡׳§׳”." },
-      { title: "׳׳—׳¨׳™׳•׳× ׳”׳׳•׳›׳¨", body: "׳”׳׳•׳›׳¨ ׳׳—׳¨׳׳™ ׳׳ ׳›׳•׳ ׳•׳× ׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳”, ׳׳׳—׳™׳¨, ׳׳—׳׳•׳ ׳”׳–׳׳ ׳™׳, ׳׳׳₪׳©׳¨׳•׳™׳•׳× ׳”׳§׳‘׳׳”, ׳•׳׳×׳§׳©׳•׳¨׳× ׳”׳™׳©׳™׳¨׳” ׳”׳ ׳“׳¨׳©׳× ׳׳•׳ ׳”׳§׳•׳ ׳™׳ ׳‘׳׳¡׳’׳¨׳× ׳”׳¢׳¡׳§׳” ׳©׳₪׳¨׳¡׳." },
+      { title: "מהו השירות", body: "סיטון היא פלטפורמה לניהול עסקאות קבוצתיות מבוססות לינק. המוכר פותח עסקה, מפרסם דף עסקה ציבורי, והקונה מצטרף דרך קישור ישיר ולא דרך קטלוג ציבורי פתוח." },
+      { title: "מה קורה בשלב ההצטרפות", body: "בשלב ההצטרפות נשמרים פרטי המסלול, כולל כמות, אופן קבלה ואישור מסגרת. אין חיוב בפועל רק מעצם ההצטרפות. החיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה ובהתאם למצב העסקה." },
+      { title: "אחריות המוכר", body: "המוכר אחראי לנכונות פרטי העסקה, למחיר, לחלון הזמנים, לאפשרויות הקבלה, ולתקשורת הישירה הנדרשת מול הקונים במסגרת העסקה שפרסם." },
       { title: "אחריות סיטון והמוכר", body: "המוצר והאספקה באחריות המוכר. סיטון מספקת את מערכת העסקה, התיעוד, ניהול ההתחייבויות והעברת נתוני הזכאים למוכר; סיטון אינה מספקת את המוצר בעצמה." },
       { title: "כלל 90%", body: "עסקה תיחשב מוצלחת רק אם חויבו בפועל לפחות 90% מהמינימום שהוגדר. אם פחות מכך חויב בפועל, העסקה נכשלת לפי מנגנון המערכת." },
       { title: "לינקי הפצה", body: "לינקי הפצה הם ייחוס ומדידה בלבד. סיטון אינה מחשבת עמלה למפיצים ואינה משלמת למפיצים; כל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ למערכת." },
-      { title: "׳׳—׳¨׳™׳•׳× ׳”׳§׳•׳ ׳”", body: "׳”׳§׳•׳ ׳” ׳׳—׳¨׳׳™ ׳׳׳¡׳•׳¨ ׳₪׳¨׳˜׳™׳ ׳ ׳›׳•׳ ׳™׳, ׳׳¢׳§׳•׳‘ ׳׳—׳¨ ׳׳¦׳‘ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳‘׳׳¡׳ ׳”׳׳¢׳§׳‘, ׳•׳׳•׳•׳“׳ ׳©׳”׳›׳׳•׳× ׳•׳׳•׳₪׳ ׳”׳§׳‘׳׳” ׳©׳ ׳©׳׳¨׳• ׳׳›׳ ׳×׳•׳׳׳™׳ ׳׳× ׳¨׳¦׳•׳ ׳• ׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×." },
-      { title: "׳”׳™׳§׳£ ׳”׳©׳™׳¨׳•׳×", body: "׳”׳₪׳׳˜׳₪׳•׳¨׳׳” ׳׳¡׳₪׳§׳× ׳׳× ׳׳©׳˜׳—׳™ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳”׳׳™׳©׳•׳¨ ׳•׳”׳׳¢׳§׳‘. ׳”׳™׳ ׳׳™׳ ׳” ׳׳¨׳—׳™׳‘׳” ׳›׳׳ ׳׳× ׳”׳”׳×׳—׳™׳™׳‘׳•׳™׳•׳× ׳׳¢׳‘׳¨ ׳׳׳” ׳©׳׳•׳₪׳™׳¢ ׳‘׳׳₪׳•׳¨׳© ׳‘׳׳¡׳׳•׳ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳‘׳׳¦׳‘׳™ ׳”׳¢׳¡׳§׳” ׳‘׳₪׳•׳¢׳." }
+      { title: "אחריות הקונה", body: "הקונה אחראי למסור פרטים נכונים, לעקוב אחר מצב ההשתתפות במסך המעקב, ולוודא שהכמות ואופן הקבלה שנשמרו אכן תואמים את רצונו לפני אישור המסגרת." },
+      { title: "היקף השירות", body: "הפלטפורמה מספקת את משטחי ההצטרפות, האישור והמעקב. היא אינה מרחיבה כאן את ההתחייבויות מעבר למה שמופיע במפורש במסלול הציבורי ובמצבי העסקה בפועל." }
     ]
   );
 }
 
 function renderPrivacyPage() {
   return renderLegalPage(
-    "׳׳“׳™׳ ׳™׳•׳× ׳₪׳¨׳˜׳™׳•׳×",
-    "׳₪׳¨׳˜׳™׳•׳× ׳•׳©׳׳™׳¨׳× ׳׳™׳“׳¢",
-    "׳”׳׳“׳™׳ ׳™׳•׳× ׳”׳–׳• ׳׳¡׳‘׳™׳¨׳” ׳׳™׳–׳” ׳׳™׳“׳¢ ׳ ׳©׳׳¨ ׳׳׳•׳¨׳ ׳׳¡׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳׳׳” ׳”׳•׳ ׳ ׳©׳׳¨, ׳•׳׳™׳ ׳”׳§׳•׳ ׳” ׳¨׳•׳׳” ׳׳× ׳”׳׳™׳“׳¢ ׳”׳׳—׳™׳™׳‘ ׳‘׳׳™ ׳׳”׳¨׳’׳™׳© ׳©׳”׳•׳ ׳ ׳›׳ ׳¡ ׳׳׳¡׳׳•׳ ׳¢׳׳•׳.",
+    "מדיניות פרטיות",
+    "פרטיות ושמירת מידע",
+    "המדיניות הזו מסבירה איזה מידע נשמר לאורך מסלול ההצטרפות, למה הוא נשמר, ואיך הקונה רואה את המידע המחייב בלי להרגיש שהוא נכנס למסלול עמום.",
     [
-      { title: "׳׳™׳–׳” ׳׳™׳“׳¢ ׳ ׳׳¡׳£", body: "׳‘׳׳”׳׳ ׳”׳©׳™׳׳•׳© ׳‘׳׳¡׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳™׳ ׳₪׳¨׳˜׳™׳ ׳×׳₪׳¢׳•׳׳™׳™׳ ׳›׳׳• ׳›׳׳•׳×, ׳‘׳—׳™׳¨׳× ׳׳•׳₪׳ ׳§׳‘׳׳”, ׳׳¡׳₪׳¨ ׳˜׳׳₪׳•׳ ׳׳¦׳•׳¨׳ ׳׳™׳׳•׳×, ׳•׳׳–׳”׳™ ׳”׳©׳×׳×׳₪׳•׳× ׳”׳ ׳“׳¨׳©׳™׳ ׳׳”׳¦׳’׳× ׳¡׳˜׳˜׳•׳¡ ׳•׳׳¢׳§׳‘." },
-      { title: "׳׳׳” ׳©׳•׳׳¨׳™׳ ׳׳× ׳”׳׳™׳“׳¢", body: "׳”׳׳™׳“׳¢ ׳ ׳©׳׳¨ ׳›׳“׳™ ׳׳׳׳× ׳׳× ׳”׳§׳•׳ ׳”, ׳׳™׳™׳¦׳‘ ׳׳× ׳׳¡׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳׳”׳¦׳™׳’ ׳׳¦׳‘ ׳¢׳¡׳§׳” ׳¢׳“׳›׳ ׳™, ׳•׳׳׳₪׳©׳¨ ׳”׳׳©׳ ׳׳׳¡׳ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳•׳׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳©׳ ׳”׳”׳©׳×׳×׳₪׳•׳×." },
-      { title: "׳׳™׳“׳¢ ׳×׳©׳׳•׳׳™", body: "׳‘׳©׳׳‘ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳”׳׳×׳•׳׳¨ ׳›׳׳ ׳ ׳©׳׳¨׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“. ׳”׳׳¢׳¨׳›׳× ׳׳™׳ ׳” ׳׳¦׳™׳’׳” ׳–׳׳× ׳›׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳•׳”׳׳™׳“׳¢ ׳”׳×׳₪׳¢׳•׳׳™ ׳׳©׳׳© ׳׳× ׳׳¡׳׳•׳ ׳”׳׳™׳©׳•׳¨ ׳‘׳”׳×׳׳ ׳׳׳¦׳‘ ׳”׳¢׳¡׳§׳”." },
-      { title: "׳©׳™׳×׳•׳£ ׳׳™׳“׳¢", body: "׳”׳׳™׳“׳¢ ׳׳•׳¦׳’ ׳‘׳׳©׳˜׳—׳™׳ ׳”׳ ׳“׳¨׳©׳™׳ ׳׳×׳₪׳¢׳•׳ ׳”׳¢׳¡׳§׳” ׳•׳׳ ׳™׳”׳•׳ ׳”׳׳•׳›׳¨, ׳‘׳׳™׳“׳” ׳”׳“׳¨׳•׳©׳” ׳׳׳¡׳׳•׳ ׳¢׳¦׳׳•. ׳׳™׳ ׳›׳׳ ׳”׳×׳—׳™׳™׳‘׳•׳× ׳׳©׳™׳׳•׳©׳™׳ ׳—׳™׳¦׳•׳ ׳™׳™׳ ׳©׳׳ ׳”׳•׳¦׳’׳• ׳׳׳©׳×׳׳© ׳‘׳׳₪׳•׳¨׳©." },
-      { title: "׳©׳׳™׳˜׳” ׳•׳ ׳’׳™׳©׳•׳×", body: "׳”׳§׳•׳ ׳” ׳™׳›׳•׳ ׳׳—׳–׳•׳¨ ׳׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳“׳¨׳ ׳”׳§׳™׳©׳•׳¨ ׳”׳™׳™׳¢׳•׳“׳™ ׳©׳ ׳©׳׳¨ ׳׳•, ׳•׳”׳׳•׳›׳¨ ׳¨׳•׳׳” ׳׳× ׳”׳׳™׳“׳¢ ׳”׳ ׳—׳•׳¥ ׳׳ ׳™׳”׳•׳ ׳”׳¢׳¡׳§׳” ׳׳×׳•׳ ׳׳©׳˜׳—׳™ ׳”׳׳•׳›׳¨ ׳”׳¨׳׳•׳•׳ ׳˜׳™׳™׳." }
+      { title: "איזה מידע נאסף", body: "במהלך השימוש במסלול ההצטרפות נשמרים פרטים תפעוליים כמו כמות, בחירת אופן קבלה, מספר טלפון לצורך אימות, ומזהי השתתפות הנדרשים להצגת סטטוס ומעקב." },
+      { title: "למה שומרים את המידע", body: "המידע נשמר כדי לאמת את הקונה, לייצב את מסלול ההצטרפות, להציג מצב עסקה עדכני, ולאפשר המשך למסך אישור המסגרת ולמסך המעקב של ההשתתפות." },
+      { title: "מידע תשלומי", body: "בשלב הציבורי המתואר כאן נשמרת תפיסת מסגרת בלבד. המערכת אינה מציגה זאת כחיוב בפועל, והמידע התפעולי משמש את מסלול האישור בהתאם למצב העסקה." },
+      { title: "שיתוף מידע", body: "המידע מוצג במשטחים הנדרשים לתפעול העסקה ולניהול המוכר, במידה הדרושה למסלול עצמו. אין כאן התחייבות לשימושים חיצוניים שלא הוצגו למשתמש במפורש." },
+      { title: "שליטה ונגישות", body: "הקונה יכול לחזור למסך המעקב דרך הקישור הייעודי שנשמר לו, והמוכר רואה את המידע הנחוץ לניהול העסקה מתוך משטחי המוכר הרלוונטיים." }
     ]
   );
 }
 
 function renderRefundsPage() {
   return renderLegalPage(
-    "׳׳“׳™׳ ׳™׳•׳× ׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳—׳–׳¨׳™׳",
-    "׳‘׳™׳˜׳•׳׳™׳, ׳©׳—׳¨׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳”׳—׳–׳¨׳™׳",
-    "׳”׳¢׳׳•׳“ ׳”׳–׳” ׳׳‘׳”׳™׳¨ ׳׳× ׳”׳ ׳§׳•׳“׳” ׳”׳›׳™ ׳¨׳’׳™׳©׳” ׳‘׳׳¡׳׳•׳: ׳׳” ׳”׳”׳‘׳“׳ ׳‘׳™׳ ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳׳‘׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳•׳׳” ׳§׳•׳¨׳” ׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳׳’׳™׳¢׳” ׳׳¡׳’׳™׳¨׳” ׳׳•׳¦׳׳—׳×.",
+    "מדיניות ביטולים והחזרים",
+    "ביטולים, שחרור מסגרת והחזרים",
+    "העמוד הזה מבהיר את הנקודה הכי רגישה במסלול: מה ההבדל בין תפיסת מסגרת לבין חיוב בפועל, ומה קורה אם העסקה לא מגיעה לסגירה מוצלחת.",
     [
-      { title: "׳׳₪׳ ׳™ ׳¡׳’׳™׳¨׳× ׳¢׳¡׳§׳”", body: "׳‘׳©׳׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳•׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳׳ ׳ ׳•׳¦׳¨ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳¨׳§ ׳׳¢׳¦׳ ׳”׳›׳ ׳™׳¡׳” ׳׳׳¡׳׳•׳. ׳”׳׳¢׳¨׳›׳× ׳©׳•׳׳¨׳× ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳× ׳‘׳׳‘׳“ ׳¢׳“ ׳׳”׳›׳¨׳¢׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳”." },
+      { title: "לפני סגירת עסקה", body: "בשלב ההצטרפות ואישור המסגרת לא נוצר חיוב בפועל רק מעצם הכניסה למסלול. המערכת שומרת תפיסת מסגרת בלבד עד להכרעת מצב העסקה." },
       { title: "תפיסת מסגרת מול חיוב", body: "בזמן הצטרפות לא מתבצע חיוב בפועל. הסכום יתפוס מסגרת אשראי בלבד, והחיוב יתבצע רק אם העסקה תיסגר בהצלחה. אם העסקה לא תיסגר, המסגרת תשוחרר לפי כללי ספק האשראי." },
       { title: "ביטול לפני ואחרי נעילה", body: "לפני נעילת העסקה, ביטול אפשרי רק אם מצב העסקה והמערכת מאפשרים זאת. אחרי שלבי ReadyForCharging או נעילה תפעולית, אין ביטול מצד קונה מתוך המערכת." },
       { title: "עסקה שהושלמה", body: "לאחר עסקה Completed, בקשות שירות, אספקה או תיאום המשך הן מול המוכר, לפי פרטי הקשר ותנאי העסקה שהוצגו." },
-      { title: "׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳ ׳¡׳’׳¨׳×", body: "׳׳ ׳”׳¢׳¡׳§׳” ׳׳ ׳׳’׳™׳¢׳” ׳׳”׳©׳׳׳”, ׳”׳׳¡׳’׳¨׳× ׳׳׳•׳¨׳” ׳׳”׳©׳×׳—׳¨׳¨, ׳׳”׳×׳‘׳˜׳ ׳׳• ׳׳ ׳׳”׳₪׳•׳ ׳׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳‘׳”׳×׳׳ ׳׳׳¦׳‘ ׳”׳¡׳•׳₪׳™ ׳©׳ ׳”׳¢׳¡׳§׳” ׳•׳׳©׳›׳‘׳× ׳”׳׳™׳©׳•׳¨ ׳”׳¨׳׳•׳•׳ ׳˜׳™׳×." },
-      { title: "׳׳ ׳‘׳•׳¦׳¢ ׳—׳™׳•׳‘ ׳•׳”׳¢׳¡׳§׳” ׳©׳•׳ ׳×׳” ׳׳׳—׳¨ ׳׳›׳", body: "׳‘׳׳§׳¨׳” ׳©׳‘׳• ׳”׳•׳©׳׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳ ׳•׳‘׳”׳׳©׳ ׳ ׳“׳¨׳© ׳‘׳™׳˜׳•׳ ׳׳• ׳”׳—׳–׳¨, ׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳•׳”׳¡׳˜׳˜׳•׳¡׳™׳ ׳‘׳׳¢׳¨׳›׳× ׳”׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳׳’׳‘׳™ ׳”׳׳¦׳‘ ׳”׳×׳₪׳¢׳•׳׳™ ׳©׳”׳§׳•׳ ׳” ׳¨׳•׳׳”." },
-      { title: "׳׳—׳¨׳™׳•׳× ׳׳”׳¡׳‘׳¨ ׳׳§׳•׳ ׳”", body: "׳”׳׳•׳›׳¨ ׳ ׳“׳¨׳© ׳׳”׳¦׳™׳’ ׳¢׳¡׳§׳” ׳‘׳¨׳•׳¨׳” ׳•׳׳”׳™׳׳ ׳¢ ׳׳™׳¦׳™׳¨׳× ׳₪׳¢׳¨ ׳‘׳™׳ ׳׳” ׳©׳”׳§׳•׳ ׳” ׳׳‘׳™׳ ׳‘׳“׳£ ׳”׳¢׳¡׳§׳” ׳׳‘׳™׳ ׳”׳”׳×׳ ׳”׳’׳•׳× ׳”׳×׳₪׳¢׳•׳׳™׳× ׳©׳ ׳”׳¢׳¡׳§׳” ׳‘׳₪׳•׳¢׳." },
-      { title: "׳׳™׳₪׳” ׳¨׳•׳׳™׳ ׳¡׳˜׳˜׳•׳¡", body: "׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳ ׳©׳׳¨ ׳”׳ ׳§׳•׳“׳” ׳”׳₪׳¢׳™׳׳” ׳‘׳™׳•׳×׳¨ ׳׳§׳•׳ ׳” ׳׳—׳¨׳™ ׳”׳¦׳˜׳¨׳₪׳•׳×, ׳•׳‘׳• ׳¨׳•׳׳™׳ ׳”׳׳ ׳ ׳©׳׳¨׳” ׳׳¡׳’׳¨׳×, ׳”׳׳ ׳©׳•׳—׳¨׳¨׳”, ׳•׳”׳׳ ׳—׳ ׳©׳™׳ ׳•׳™ ׳©׳׳¦׳¨׳™׳ ׳׳¢׳§׳‘ ׳ ׳•׳¡׳£." }
+      { title: "אם העסקה לא נסגרת", body: "אם העסקה לא מגיעה להשלמה, המסגרת אמורה להשתחרר, להתבטל או לא להפוך לחיוב בפועל, בהתאם למצב הסופי של העסקה ולשכבת האישור הרלוונטית." },
+      { title: "אם בוצע חיוב והעסקה שונתה לאחר מכן", body: "במקרה שבו הושלם חיוב בפועל ובהמשך נדרש ביטול או החזר, מסך המעקב והסטטוסים במערכת הם מקור האמת לגבי המצב התפעולי שהקונה רואה." },
+      { title: "אחריות להסבר לקונה", body: "המוכר נדרש להציג עסקה ברורה ולהימנע מיצירת פער בין מה שהקונה מבין בדף העסקה לבין ההתנהגות התפעולית של העסקה בפועל." },
+      { title: "איפה רואים סטטוס", body: "מסך המעקב נשאר הנקודה הפעילה ביותר לקונה אחרי הצטרפות, ובו רואים האם נשמרה מסגרת, האם שוחררה, והאם חל שינוי שמצריך מעקב נוסף." }
     ]
   );
 }
@@ -5637,14 +5636,14 @@ function renderDistributorTermsPage() {
 
 function renderContactPage() {
   return renderLegalPage(
-    "׳™׳¦׳™׳¨׳× ׳§׳©׳¨",
-    "׳§׳©׳¨ ׳•׳×׳׳™׳›׳”",
-    "׳™׳¦׳™׳¨׳× ׳”׳§׳©׳¨ ׳‘׳¡׳™׳˜׳•׳ ׳‘׳ ׳•׳™׳” ׳¡׳‘׳™׳‘ ׳”׳¢׳¡׳§׳” ׳¢׳¦׳׳”: ׳”׳™׳›׳ ׳”׳§׳•׳ ׳” ׳ ׳׳¦׳ ׳‘׳׳¡׳׳•׳, ׳׳” ׳”׳׳•׳›׳¨ ׳₪׳¨׳¡׳, ׳•׳׳”׳• ׳”׳׳¡׳ ׳©׳׳׳ ׳• ׳‘׳¨׳•׳¨ ׳‘׳™׳•׳×׳¨ ׳׳”׳׳©׳™׳ ׳˜׳™׳₪׳•׳.",
+    "יצירת קשר",
+    "קשר ותמיכה",
+    "יצירת הקשר בסיטון בנויה סביב העסקה עצמה: היכן הקונה נמצא במסלול, מה המוכר פרסם, ומהו המסך שממנו ברור ביותר להמשיך טיפול.",
     [
-      { title: "׳₪׳ ׳™׳™׳” ׳׳’׳‘׳™ ׳¢׳¡׳§׳” ׳₪׳¢׳™׳׳”", body: "׳‘׳׳§׳¨׳” ׳©׳ ׳©׳׳׳” ׳¢׳ ׳¢׳¡׳§׳”, ׳›׳׳•׳×, ׳׳•׳₪׳ ׳§׳‘׳׳” ׳׳• ׳׳¦׳‘ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳™׳© ׳׳₪׳¢׳•׳ ׳“׳¨׳ ׳“׳£ ׳”׳¢׳¡׳§׳” ׳”׳¦׳™׳‘׳•׳¨׳™ ׳•׳”׳׳™׳“׳¢ ׳©׳׳•׳₪׳™׳¢ ׳‘׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳©׳ ׳׳•׳×׳” ׳”׳©׳×׳×׳₪׳•׳×." },
-      { title: "׳₪׳ ׳™׳™׳” ׳׳׳•׳›׳¨", body: "׳”׳׳•׳›׳¨ ׳”׳•׳ ׳”׳’׳•׳¨׳ ׳”׳¨׳׳©׳•׳ ׳©׳׳—׳¨׳׳™ ׳׳₪׳¨׳˜׳™ ׳”׳¢׳¡׳§׳” ׳©׳₪׳•׳¨׳¡׳׳”, ׳׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳×, ׳׳׳₪׳©׳¨׳•׳™׳•׳× ׳”׳§׳‘׳׳” ׳•׳׳׳™׳“׳¢ ׳”׳׳¡׳—׳¨׳™ ׳©׳ ׳—׳©׳£ ׳׳§׳•׳ ׳™׳." },
-      { title: "׳׳™׳“׳¢ ׳׳—׳™׳™׳‘ ׳׳₪׳ ׳™ ׳₪׳¢׳•׳׳”", body: "׳׳₪׳ ׳™ ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳׳• ׳”׳׳©׳ ׳‘׳׳¡׳׳•׳, ׳›׳“׳׳™ ׳׳¢׳‘׳•׳¨ ׳¢׳ ׳×׳ ׳׳™ ׳”׳©׳™׳׳•׳©, ׳׳“׳™׳ ׳™׳•׳× ׳”׳₪׳¨׳˜׳™׳•׳× ׳•׳׳“׳™׳ ׳™׳•׳× ׳”׳‘׳™׳˜׳•׳׳™׳ ׳•׳”׳”׳—׳–׳¨׳™׳ ׳›׳“׳™ ׳׳”׳‘׳™׳ ׳׳× ׳׳‘׳ ׳” ׳”׳׳—׳¨׳™׳•׳× ׳•׳׳× ׳׳•׳₪׳™ ׳”׳¢׳¡׳§׳”." },
-      { title: "׳׳” ׳׳™׳ ׳‘׳©׳׳‘ ׳”׳–׳”", body: "׳‘׳©׳׳‘ ׳”׳¦׳™׳‘׳•׳¨׳™ ׳”׳ ׳•׳›׳—׳™ ׳׳ ׳ ׳₪׳×׳— ׳›׳׳ ׳׳•׳§׳“ ׳—׳“׳© ׳׳• ׳׳•׳’׳™׳§׳× ׳₪׳ ׳™׳™׳” ׳׳¢׳¨׳›׳×׳™׳× ׳—׳“׳©׳”. ׳©׳›׳‘׳× ׳”׳§׳©׳¨ ׳ ׳©׳׳¨׳× ׳׳™׳ ׳™׳׳׳™׳×, ׳‘׳¨׳•׳¨׳”, ׳•׳׳‘׳•׳¡׳¡׳× ׳¢׳ ׳”׳׳©׳˜׳—׳™׳ ׳©׳›׳‘׳¨ ׳§׳™׳™׳׳™׳ ׳‘׳׳•׳¦׳¨." }
+      { title: "פנייה לגבי עסקה פעילה", body: "במקרה של שאלה על עסקה, כמות, אופן קבלה או מצב ההצטרפות, יש לפעול דרך דף העסקה הציבורי והמידע שמופיע במסך המעקב של אותה השתתפות." },
+      { title: "פנייה למוכר", body: "המוכר הוא הגורם הראשון שאחראי לפרטי העסקה שפורסמה, לחלון ההצטרפות, לאפשרויות הקבלה ולמידע המסחרי שנחשף לקונים." },
+      { title: "מידע מחייב לפני פעולה", body: "לפני אישור מסגרת או המשך במסלול, כדאי לעבור על תנאי השימוש, מדיניות הפרטיות ומדיניות הביטולים וההחזרים כדי להבין את מבנה האחריות ואת אופי העסקה." },
+      { title: "מה אין בשלב הזה", body: "בשלב הציבורי הנוכחי לא נפתח כאן מוקד חדש או לוגיקת פנייה מערכתית חדשה. שכבת הקשר נשארת מינימלית, ברורה, ומבוססת על המשטחים שכבר קיימים במוצר." }
     ]
   );
 }
@@ -5785,39 +5784,39 @@ function buildTrackingFocusCards(tracking) {
   const cards = [];
   if (tracking?.money_state === "AuthHeld" || tracking?.money_state === "AuthLocked") {
     cards.push({
-      title: "׳׳” ׳§׳¨׳” ׳¢׳“ ׳¢׳›׳©׳™׳•",
-      value: "׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳ ׳©׳׳¨׳” ׳•׳ ׳×׳₪׳¡׳” ׳׳¡׳’׳¨׳×",
-      detail: "׳¢׳“׳™׳™׳ ׳׳ ׳‘׳•׳¦׳¢ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳. ׳”׳׳¡׳ ׳”׳–׳” ׳™׳¢׳“׳›׳ ׳׳ ׳”׳¢׳¡׳§׳” ׳×׳¢׳‘׳•׳¨ ׳׳—׳™׳•׳‘."
+      title: "מה קרה עד עכשיו",
+      value: "ההצטרפות נשמרה ונתפסה מסגרת",
+      detail: "עדיין לא בוצע חיוב בפועל. המסך הזה יעדכן אם העסקה תעבור לחיוב."
     });
   }
   if (tracking?.buyer_state === "ChargeFailedCompletion" || tracking?.money_state === "ChargeFailedRecovery") {
     cards.push({
-      title: "׳ ׳“׳¨׳© ׳©׳™׳ ׳׳‘",
-      value: "׳”׳׳¢׳¨׳›׳× ׳׳˜׳₪׳׳× ׳‘׳׳©׳׳׳×",
+      title: "נדרש שים לב",
+      value: "המערכת מטפלת בהשלמת",
       detail: tracking?.completion_window_until
-        ? `׳™׳© ׳—׳׳•׳ ׳”׳©׳׳׳” ׳¢׳“ ${dt(tracking.completion_window_until)}. ׳׳ ׳™׳¢׳“׳›׳ ׳¤׳¢׳•׳׳” ׳ ׳•׳¡׳₪׳×, ׳”׳”׳•׳“׳¢׳” ׳×׳•׳₪׳™׳¢ ׳›׳׳.`
-        : "׳׳© ׳כ׳©׳ ׳©׳ ׳ד׳¨׳© ׳ל׳׳¤׳, ׳׳ה׳׳¢׳¨׳כ׳ת ׳ע׳ד׳™׳™׳ן ׳מ׳נ׳ס׳ה ׳ל׳ס׳ג׳•׳ר ׳א׳ת ׳ה׳׳ס׳ל׳ו׳ל."
+        ? `יש חלון השלמה עד ${dt(tracking.completion_window_until)}. אם יעדכן פעולה נוספת, ההודעה תופיע כאן.`
+        : "יש כשל שנדרש לטפל, והמערכת עדיין מנסה לסגור את המסלול."
     });
   }
   if (tracking?.deal_state === "Completed") {
     cards.push({
-      title: "׳ª׳•׳¦׳׳” ׳¡׳•׳₪׳™׳×",
-      value: "׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳”",
-      detail: "׳׳׳£׳ק׳ח ׳ה׳ע׳י׳ק׳¨׳י ׳ע׳כ׳ש׳יו ׳ה׳•׳א ׳מ׳¢׳ק׳ב ׳א׳ח׳ר ׳א׳ס׳פ׳ק׳ה ׳א׳ו ׳א׳י׳©׳•׳ר ׳ס׳ו׳פ׳י, ׳א׳ם ׳ה׳ם ׳ר׳ל׳ו׳ו׳נ׳ט׳י׳י׳ם."
+      title: "תוצאה סופית",
+      value: "העסקה הושלמה",
+      detail: "המףקח העיקרי עכשיו הוא מעקב אחר אספקה או אישור סופי, אם הם רלוונטיים."
     });
   }
   if (tracking?.deal_state === "Failed" || tracking?.deal_state === "Cancelled") {
     cards.push({
-      title: "׳ª׳•׳¦׳׳” ׳¡׳•׳₪׳™׳×",
-      value: tracking.deal_state === "Cancelled" ? "׳”׳¢׳¡׳§׳” ׳‘׳•׳˜׳׳”" : "׳”׳¢׳¡׳§׳” ׳׳ ׳”׳•׳©׳׳׳”",
-      detail: "׳׳׳¡׳ ׳מ׳ר׳כ׳– ׳א׳ת ׳ה׳ת׳ו׳צ׳א׳ה ׳ה׳ס׳ו׳פ׳י׳ת ׳ל׳ק׳ו׳נ׳ה, ׳ו׳א׳י׳ן ׳צ׳ו׳ר׳ך ׳ל׳ח׳פ׳ש ׳מ׳י׳ד׳ע ׳ב׳מ׳ס׳כ׳י׳ם ׳א׳ח׳ר׳י׳ם."
+      title: "תוצאה סופית",
+      value: tracking.deal_state === "Cancelled" ? "העסקה בוטלה" : "העסקה לא הושלמה",
+      detail: "המסך מרכז את התוצאה הסופית לקונה, ואין צורך לחפש מידע במסכים אחרים."
     });
   }
   if (!cards.length) {
     cards.push({
-      title: "׳׳” ׳§׳•׳¨׳” ׳¢׳›׳©׳™׳•",
-      value: "׳”׳׳¡׳׳•׳ ׳‘׳ª׳ ׳•׳ע׳”",
-      detail: "׳׳¡׳ ׳”׳׳¢׳§׳‘ ׳י׳מ׳ש׳י׳ך ׳ל׳ה׳ת׳ע׳ד׳כ׳ן ׳ע׳ם ׳כ׳ל ׳ש׳י׳נ׳ו׳י ׳ב׳מ׳¦׳ב ׳ה׳ע׳ס׳ק׳” ׳ו׳ה׳ה׳ש׳ת׳ת׳₪׳•׳ת."
+      title: "מה קורה עכשיו",
+      value: "המסלול בתנועה",
+      detail: "מסך המעקב ימשיך להתעדכן עם כל שינוי במצב העסקה וההשתתפות."
     });
   }
   return cards;
@@ -5826,25 +5825,25 @@ function buildTrackingFocusCards(tracking) {
 function buildTrackingTimeline(tracking) {
   const rows = [];
   rows.push({
-    label: "׳׳¦׳׳¨׳₪׳•׳×",
-    value: "׳ ׳§׳׳˜׳” ׳‘׳”׳¦׳׳—׳”",
-    detail: `${num(tracking.qty)} ׳™׳—' ֲ· ${dt(tracking.created_at)}`
+    label: "הצטרפות",
+    value: "נקלטה בהצלחה",
+    detail: `${num(tracking.qty)} יח' · ${dt(tracking.created_at)}`
   });
   rows.push({
-    label: "׳׳¦׳‘ ׳¢׳¡׳§׳”",
+    label: "מצב עסקה",
     value: getDealCopy(tracking.deal_state).label,
     detail: getDealCopy(tracking.deal_state).description
   });
   rows.push({
-    label: "׳׳¦׳‘ ׳›׳¡׳£",
+    label: "מצב כסף",
     value: getLabel(MONEY_COPY, tracking.money_state)[0],
     detail: getLabel(MONEY_COPY, tracking.money_state)[1]
   });
   if (tracking.completion_window_until) {
     rows.push({
-      label: "׳—׳׳•׳ ׳”׳©׳׳׳”",
+      label: "חלון השלמה",
       value: dt(tracking.completion_window_until),
-      detail: "׳׳ ׳™׳”׳™׳” ׳¦׳•׳¨׳ ׳‘׳₪׳¢׳•׳׳” ׳ ׳•׳¡׳₪׳×, ׳ה׳י׳א ׳ת׳ו׳פ׳™׳ע ׳ב׳מ׳¡׳ ׳ה׳–׳ה."
+      detail: "אם יהיה צורך בפעולה נוספת, היא תופיע במסך הזה."
     });
   }
   const documentVisibility = buildTrackingDocumentVisibility(tracking);
@@ -5858,12 +5857,12 @@ function buildTrackingTimeline(tracking) {
 
 function buildTrackingSupportNote(tracking) {
   if (["Completed"].includes(String(tracking?.deal_state || ""))) {
-    return "׳ל׳ש׳א׳ל׳ו׳ת ׳ע׳ל ׳א׳ס׳פ׳ק׳ה ׳א׳ו ׳ס׳ט׳ט׳ו׳ס ׳ס׳ו׳פ׳י, ׳כ׳ד׳א׳י ׳ל׳ה׳ת׳י׳ח׳ס ׳ל׳מ׳¡׳ך ׳ה׳מ׳¢׳ק׳‘ ׳כ׳מ׳ק׳ו׳¨ ׳ה׳א׳מ׳ת.";
+    return "לשאלות על אספקה או סטטוס סופי, כדאי להתיחס למסך המעקב כמקור האמת.";
   }
   if (["Failed", "Cancelled"].includes(String(tracking?.deal_state || ""))) {
-    return "׳א׳ם ׳נ׳ד׳ר׳ש ׳ב׳י׳ר׳ו׳ר, ׳מ׳ס׳ך ׳ה׳מ׳¢׳ק׳‘ ׳ה׳ז׳ה ׳ה׳ו׳א ׳ה׳מ׳ק׳ו׳ם ׳ה׳נ׳כ׳ו׳ן ׳ל׳ה׳ב׳נ׳ת ׳ה׳ת׳ו׳צ׳א׳ה.";
+    return "אם נדרש בירור, מסך המעקב הזה הוא המקום הנכון להבנת התוצאה.";
   }
-  return "׳כ׳ל ׳ע׳ד׳כ׳ו׳ן ׳מ׳ש׳מ׳ע׳ו׳ת׳י ׳י׳ו׳פ׳™׳ע ׳כ׳א׳ן. ׳ה׳ו׳ד׳ע׳ו׳ת ׳א׳ח׳ר׳ו׳ת ׳ה׳ן ׳ת׳ו׳מ׳כ׳ו׳ת ׳ב׳ל׳ב׳ד.";
+  return "כל עדכון משמעותי יופיע כאן. הודעות אחרות הן תומכות בלבד.";
 }
 
 function buildTrackingDocumentVisibility(tracking) {
@@ -6011,8 +6010,8 @@ function renderTrackingActivityFeed(items) {
 function renderErrorCard(error) {
   return `
     <section class="error-card" role="alert">
-      <strong>${esc(error.title || "׳׳™׳¨׳¢׳” ׳©׳’׳™׳׳”")}</strong>
-      <p>${esc(error.message || "׳ ׳¡׳” ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳¨׳’׳¢.")}</p>
+      <strong>${esc(error.title || "אירעה שגיאה")}</strong>
+      <p>${esc(error.message || "נסה שוב בעוד רגע.")}</p>
     </section>
   `;
 }
@@ -6137,16 +6136,16 @@ function friendlyError(error, fallback) {
   const status = Number(error?.status || 0);
 
   if (status === 404 && lower.includes("deal not found")) {
-    return { title: "׳”׳¢׳¡׳§׳” ׳׳ ׳ ׳׳¦׳׳”", message: "׳”׳§׳™׳©׳•׳¨ ׳”׳–׳” ׳׳ ׳׳¦׳‘׳™׳¢ ׳׳¢׳¡׳§׳” ׳§׳™׳™׳׳×. ׳›׳“׳׳™ ׳׳•׳•׳“׳ ׳©׳§׳™׳‘׳׳× ׳׳–׳”׳” ׳¢׳¡׳§׳” ׳×׳§׳™׳." };
+    return { title: "העסקה לא נמצאה", message: "הקישור הזה לא מצביע לעסקה קיימת. כדאי לוודא שקיבלת מזהה עסקה תקין." };
   }
   if (status === 404 && lower.includes("participant not found")) {
-    return { title: "׳׳ ׳׳¦׳׳ ׳• ׳׳× ׳”׳”׳©׳×׳×׳₪׳•׳×", message: "׳§׳™׳©׳•׳¨ ׳”׳׳¢׳§׳‘ ׳”׳–׳” ׳›׳‘׳¨ ׳׳ ׳×׳§׳™׳ ׳׳• ׳©׳׳™׳ ׳• ׳©׳™׳™׳ ׳׳”׳©׳×׳×׳₪׳•׳× ׳§׳™׳™׳׳×." };
+    return { title: "לא מצאנו את ההשתתפות", message: "קישור המעקב הזה כבר לא תקין או שאינו שייך להשתתפות קיימת." };
   }
   if (status === 401 && lower.includes("seller session is required")) {
     return { title: "נדרשת כניסת מוכר", message: "המשך העבודה באזור המוכר מחייב כניסה מחדש עם פרטי הגישה של המוכר." };
   }
   if (status === 401 && lower.includes("seller id or access code is invalid")) {
-    return { title: "׳₪׳¨׳˜׳™ ׳”׳’׳™׳©׳” ׳׳ ׳ ׳›׳•׳ ׳™׳", message: "׳׳–׳”׳” ׳”׳׳•׳›׳¨ ׳׳• ׳§׳•׳“ ׳”׳’׳™׳©׳” ׳׳ ׳×׳•׳׳׳™׳ ׳׳¨׳©׳™׳׳× ׳”׳׳•׳›׳¨׳™׳ ׳”׳׳•׳¨׳©׳™׳ ׳©׳ ׳¡׳‘׳™׳‘׳× ׳”-launch." };
+    return { title: "פרטי הגישה לא נכונים", message: "מזהה המוכר או קוד הגישה לא תואמים לרשימת המוכרים המורשים של סביבת ה-launch." };
   }
   if (status === 403 && lower.includes("manual seller context switching is disabled")) {
     return { title: "החלפת זהות ידנית חסומה", message: "בסביבה הזו זהות המוכר נקבעת דרך מנגנון הכניסה הפעיל, ולכן אי אפשר להחליף אותה ידנית מתוך הטופס." };
@@ -6155,32 +6154,32 @@ function friendlyError(error, fallback) {
     return { title: "גישה למוכר עדיין לא הוגדרה", message: "סביבת העבודה עדיין לא קיבלה את כל פרטי הגישה למוכר, ולכן האזור נשאר חסום עד להשלמת ההגדרה." };
   }
   if (lower.includes("join not allowed")) {
-    return { title: "׳—׳׳•׳ ׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳›׳‘׳¨ ׳¡׳’׳•׳¨", message: "׳׳™ ׳׳₪׳©׳¨ ׳׳”׳¦׳˜׳¨׳£ ׳׳¢׳¡׳§׳” ׳‘׳׳¦׳‘ ׳”׳ ׳•׳›׳—׳™ ׳©׳׳”. ׳׳ ׳›׳‘׳¨ ׳ ׳¨׳©׳׳×, ׳׳₪׳©׳¨ ׳׳¢׳‘׳•׳¨ ׳׳׳¢׳§׳‘." };
+    return { title: "חלון ההצטרפות כבר סגור", message: "אי אפשר להצטרף לעסקה במצב הנוכחי שלה. אם כבר נרשמת, אפשר לעבור למעקב." };
   }
   if (lower.includes("max_units exceeded")) {
-    return { title: "׳׳™׳ ׳׳¡׳₪׳™׳§ ׳§׳™׳‘׳•׳׳× ׳₪׳ ׳•׳™׳”", message: "׳”׳›׳׳•׳× ׳©׳‘׳™׳§׳©׳× ׳›׳‘׳¨ ׳׳ ׳–׳׳™׳ ׳”. ׳›׳“׳׳™ ׳׳—׳–׳•׳¨ ׳׳“׳£ ׳”׳¢׳¡׳§׳” ׳•׳׳¢׳“׳›׳ ׳׳× ׳”׳›׳׳•׳×." };
+    return { title: "אין מספיק קיבולת פנויה", message: "הכמות שביקשת כבר לא זמינה. כדאי לחזור לדף העסקה ולעדכן את הכמות." };
   }
   if (lower.includes("invalid otp")) {
-    return { title: "׳§׳•׳“ ׳”׳׳™׳׳•׳× ׳©׳’׳•׳™", message: "׳”׳§׳•׳“ ׳׳ ׳×׳•׳׳ ׳׳¡׳©׳ ׳”׳₪׳¢׳™׳. ׳׳₪׳©׳¨ ׳׳ ׳¡׳•׳× ׳©׳•׳‘ ׳׳• ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳©." };
+    return { title: "קוד האימות שגוי", message: "הקוד לא תואם לסשן הפעיל. אפשר לנסות שוב או לבקש קוד חדש." };
   }
   if (lower.includes("otp expired")) {
-    return { title: "׳×׳•׳§׳£ ׳”׳§׳•׳“ ׳₪׳’", message: "׳¦׳¨׳™׳ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳›׳“׳™ ׳׳”׳׳©׳™׳ ׳‘׳׳¡׳׳•׳." };
+    return { title: "תוקף הקוד פג", message: "צריך לבקש קוד חדש כדי להמשיך במסלול." };
   }
   if (lower.includes("otp session not found")) {
-    return { title: "׳׳™׳ ׳¡׳©׳ ׳׳™׳׳•׳× ׳₪׳¢׳™׳", message: "׳ ׳¨׳׳” ׳©׳”׳¡׳©׳ ׳”׳§׳•׳“׳ ׳›׳‘׳¨ ׳׳ ׳–׳׳™׳. ׳׳₪׳©׳¨ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳•׳׳—׳“׳© ׳׳× ׳”׳–׳¨׳™׳׳”." };
+    return { title: "אין סשן אימות פעיל", message: "נראה שהסשן הקודם כבר לא זמין. אפשר לבקש קוד חדש ולחדש את הזרימה." };
   }
   if (lower.includes("authorization failed")) {
-    return { title: "׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳ ׳›׳©׳", message: "׳׳׳¦׳¢׳™ ׳”׳×׳©׳׳•׳ ׳ ׳“׳—׳” ׳¢׳ ׳™׳“׳™ ׳©׳›׳‘׳× ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳× ׳”׳§׳™׳™׳׳×. ׳׳₪׳©׳¨ ׳׳ ׳¡׳•׳× ׳׳׳¦׳¢׳™ ׳׳—׳¨." };
+    return { title: "אישור המסגרת נכשל", message: "אמצעי התשלום נדחה על ידי שכבת אישור המסגרת הקיימת. אפשר לנסות אמצעי אחר." };
   }
   if (status >= 500) {
-    return { title: "׳”׳׳¢׳¨׳›׳× ׳›׳¨׳’׳¢ ׳׳ ׳–׳׳™׳ ׳”", message: "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳”׳©׳׳™׳ ׳׳× ׳”׳₪׳¢׳•׳׳” ׳‘׳’׳׳ ׳‘׳¢׳™׳™׳× ׳©׳¨׳×. ׳›׳“׳׳™ ׳׳ ׳¡׳•׳× ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳¨׳’׳¢." };
+    return { title: "המערכת כרגע לא זמינה", message: "לא הצלחנו להשלים את הפעולה בגלל בעיית שרת. כדאי לנסות שוב בעוד רגע." };
   }
   if (lower.includes("networkerror") || lower.includes("failed to fetch") || lower.includes("load failed")) {
-    return { title: "׳‘׳¢׳™׳™׳× ׳—׳™׳‘׳•׳¨", message: "׳׳ ׳”׳¦׳׳—׳ ׳• ׳׳”׳’׳™׳¢ ׳׳©׳¨׳×. ׳‘׳“׳•׳§ ׳׳× ׳”׳—׳™׳‘׳•׳¨ ׳׳׳™׳ ׳˜׳¨׳ ׳˜ ׳•׳ ׳¡׳” ׳©׳•׳‘." };
+    return { title: "בעיית חיבור", message: "לא הצלחנו להגיע לשרת. בדוק את החיבור לאינטרנט ונסה שוב." };
   }
   return {
-    title: "׳׳™׳¨׳¢׳” ׳©׳’׳™׳׳”",
-    message: fallback || message || "׳ ׳¡׳” ׳©׳•׳‘ ׳‘׳¢׳•׳“ ׳¨׳’׳¢."
+    title: "אירעה שגיאה",
+    message: fallback || message || "נסה שוב בעוד רגע."
   };
 }
 
@@ -6193,9 +6192,9 @@ function fallbackStatus(status) {
 }
 
 function validateQty(payload, qty) {
-  if (!Number.isInteger(qty) || qty < 1) return "׳™׳© ׳׳”׳–׳™׳ ׳›׳׳•׳× ׳©׳׳׳” ׳•׳—׳™׳•׳‘׳™׳×.";
+  if (!Number.isInteger(qty) || qty < 1) return "יש להזין כמות שלמה וחיובית.";
   const left = Number(payload?.metrics?.remaining_units ?? 0);
-  if (qty > left) return `׳›׳¨׳’׳¢ ׳ ׳•׳×׳¨׳• ׳¨׳§ ${left} ׳™׳—׳™׳“׳•׳× ׳₪׳ ׳•׳™׳•׳× ׳׳¢׳¡׳§׳” ׳”׳–׳•.`;
+  if (qty > left) return `כרגע נותרו רק ${left} יחידות פנויות לעסקה הזו.`;
   return "";
 }
 
@@ -6204,10 +6203,10 @@ function getDeliveryOptions(payload) {
 }
 
 function formatDeliveryTypeLabel(type) {
-  if (type === "pickup") return "׳׳™׳¡׳•׳£ ׳¢׳¦׳׳™";
-  if (type === "delivery") return "׳׳©׳׳•׳—";
-  if (type === "distribution_point") return "׳ ׳§׳•׳“׳× ׳—׳׳•׳§׳”";
-  return type || "׳׳ ׳¦׳•׳™׳";
+  if (type === "pickup") return "איסוף עצמי";
+  if (type === "delivery") return "משלוח";
+  if (type === "distribution_point") return "נקודת חלוקה";
+  return type || "לא צוין";
 }
 
 function getSelectedDeliveryOption(payload, selectedId) {
@@ -6219,9 +6218,9 @@ function getSelectedDeliveryOption(payload, selectedId) {
 
 function validateDeliveryChoice(payload, selectedId) {
   const options = getDeliveryOptions(payload);
-  if (!options.length) return "׳׳ ׳”׳•׳’׳“׳¨׳” ׳׳₪׳©׳¨׳•׳× ׳§׳‘׳׳” ׳׳¢׳¡׳§׳” ׳”׳–׳•.";
+  if (!options.length) return "לא הוגדרה אפשרות קבלה לעסקה הזו.";
   if (options.length === 1) return "";
-  return getSelectedDeliveryOption(payload, selectedId) ? "" : "׳¦׳¨׳™׳ ׳׳‘׳—׳•׳¨ ׳׳•׳₪׳ ׳§׳‘׳׳” ׳׳₪׳ ׳™ ׳”׳”׳׳©׳.";
+  return getSelectedDeliveryOption(payload, selectedId) ? "" : "צריך לבחור אופן קבלה לפני ההמשך.";
 }
 
 function calcHoldTotal(payload, qty, selectedOption) {
@@ -6323,7 +6322,7 @@ function readFlow() {
 function defaultSellerContext() {
   return {
     seller_id: "seller-default",
-    display_name: "׳׳–׳•׳¨ ׳׳•׳›׳¨ ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳",
+    display_name: "אזור מוכר ברירת מחדל",
     verification_status: "approved",
     settlement_status: "active",
     is_default_context: true,
@@ -6334,7 +6333,7 @@ function defaultSellerContext() {
 function lockedSellerContext() {
   return {
     seller_id: "",
-    display_name: "׳ ׳“׳¨׳©׳× ׳”׳×׳—׳‘׳¨׳•׳× ׳׳•׳›׳¨",
+    display_name: "נדרשת התחברות מוכר",
     verification_status: "pending",
     settlement_status: "review",
     is_default_context: false,
@@ -6393,7 +6392,7 @@ function normalizeSellerDisplayName(sellerId, displayName) {
     sellerId === "seller-default" &&
     (!displayName || displayName === "Default Seller Workspace")
   ) {
-    return "׳׳–׳•׳¨ ׳׳•׳›׳¨ ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳";
+    return "אזור מוכר ברירת מחדל";
   }
   return displayName || "";
 }
@@ -6404,7 +6403,7 @@ function syncSellerContext(next) {
     normalized.seller_id === "seller-default" &&
     (!normalized.display_name || normalized.display_name === "Default Seller Workspace")
   ) {
-    normalized.display_name = "׳׳–׳•׳¨ ׳׳•׳›׳¨ ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳";
+    normalized.display_name = "אזור מוכר ברירת מחדל";
   }
   normalized.display_name = normalizeSellerDisplayName(normalized.seller_id, normalized.display_name);
   state.sellerContext = normalized;
@@ -6442,7 +6441,7 @@ function renderSellerAuthGate() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">׳׳–׳•׳¨ ׳”׳׳•׳›׳¨</span>
+        <span class="eyebrow">אזור המוכר</span>
         <h1>${configured ? "נדרשת כניסת מוכר" : "אזור המוכר עדיין לא זמין בסביבה הזו"}</h1>
         <p class="muted">${configured ? "כדי לפתוח, לפרסם ולנהל עסקאות צריך להיכנס עם פרטי הגישה של המוכר שהוגדרו לסביבה הזו. בלי כניסה תקינה משטח המוכר נשאר חסום." : "בסביבה הנוכחית עדיין לא הוגדרו פרטי גישה מלאים למוכר. החסימה נשארת מכוונת כדי לא ליצור מצג שווא של גישה פעילה."}</p>
         <div class="trust-band">
@@ -6482,11 +6481,11 @@ function renderSellerContextPanel(context) {
           <form data-action="seller-login" class="stack">
             <div class="inline-fields">
               <div class="field">
-                <label for="sellerContextId">׳׳–׳”׳” ׳׳•׳›׳¨</label>
+                <label for="sellerContextId">מזהה מוכר</label>
                 <input id="sellerContextId" name="sellerContextId" type="text" data-dir="ltr" autocomplete="username" value="${esc(state.form.sellerContextId || "")}" placeholder="seller-north" />
               </div>
               <div class="field">
-                <label for="sellerAccessCode">׳§׳•׳“ ׳’׳™׳©׳”</label>
+                <label for="sellerAccessCode">קוד גישה</label>
                 <input id="sellerAccessCode" name="sellerAccessCode" type="password" data-dir="ltr" autocomplete="current-password" value="${esc(state.form.sellerAccessCode || "")}" placeholder="קוד גישה" />
               </div>
             </div>
@@ -6502,33 +6501,33 @@ function renderSellerContextPanel(context) {
     sellerContext.seller_id === "seller-default" &&
     (!sellerContext.display_name || sellerContext.display_name === "Default Seller Workspace")
   ) {
-    sellerContext.display_name = "׳׳–׳•׳¨ ׳׳•׳›׳¨ ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳";
+    sellerContext.display_name = "אזור מוכר ברירת מחדל";
   }
   sellerContext.display_name = normalizeSellerDisplayName(sellerContext.seller_id, sellerContext.display_name);
   return `
     <section class="summary-item stack">
       <div class="actions spread">
         <div>
-          <span class="muted">׳–׳”׳•׳× ׳”׳׳•׳›׳¨ ׳”׳₪׳¢׳™׳׳”</span>
+          <span class="muted">זהות המוכר הפעילה</span>
           <strong>${esc(sellerContext.display_name)}</strong>
         </div>
-        <span class="badge ${sellerContext.is_default_context ? "warning" : "success"}">${sellerContext.is_default_context ? "׳‘׳¨׳™׳¨׳× ׳׳—׳“׳ ׳₪׳ ׳™׳׳™׳×" : "׳׳•׳›׳¨ ׳₪׳¢׳™׳"}</span>
+        <span class="badge ${sellerContext.is_default_context ? "warning" : "success"}">${sellerContext.is_default_context ? "ברירת מחדל פנימית" : "מוכר פעיל"}</span>
       </div>
-      <p class="small muted">׳›׳ ׳¢׳¡׳§׳” ׳—׳“׳©׳” ׳×׳™׳•׳•׳¦׳¨ ׳×׳—׳× <span class="mono">${esc(sellerContext.seller_id)}</span>. ׳׳–׳•׳¨ ׳”׳׳•׳›׳¨ ׳׳¦׳™׳’ ׳¨׳§ ׳׳× ׳”׳¢׳¡׳§׳׳•׳× ׳©׳ ׳”׳–׳”׳•׳× ׳”׳₪׳¢׳™׳׳”.</p>
-      ${sellerContext.is_default_context ? `<p class="small muted">׳›׳“׳׳™ ׳׳©׳׳•׳¨ ׳׳–׳”׳” ׳׳•׳›׳¨ ׳‘׳¨׳•׳¨ ׳›׳“׳™ ׳׳ ׳׳¢׳‘׳•׳“ ׳×׳—׳× ׳‘׳¨׳™׳¨׳× ׳׳—׳“׳ ׳¢׳׳•׳׳”.</p>` : ""}
+      <p class="small muted">כל עסקה חדשה תיווצר תחת <span class="mono">${esc(sellerContext.seller_id)}</span>. אזור המוכר מציג רק את העסקאות של הזהות הפעילה.</p>
+      ${sellerContext.is_default_context ? `<p class="small muted">כדאי לשמור מזהה מוכר ברור כדי לא לעבוד תחת ברירת מחדל עמומה.</p>` : ""}
       <form data-action="seller-context" class="stack">
         <div class="inline-fields">
           <div class="field">
-            <label for="sellerContextId">׳׳–׳”׳” ׳׳•׳›׳¨</label>
+            <label for="sellerContextId">מזהה מוכר</label>
             <input id="sellerContextId" name="sellerContextId" type="text" data-dir="ltr" value="${esc(state.form.sellerContextId || sellerContext.seller_id)}" placeholder="seller-north" />
           </div>
           <div class="field">
-            <label for="sellerContextName">׳©׳ ׳׳•׳›׳¨ ׳׳×׳¦׳•׳’׳”</label>
-            <input id="sellerContextName" name="sellerContextName" type="text" data-dir="rtl" value="${esc(state.form.sellerContextName || sellerContext.display_name)}" placeholder="׳¡׳™׳˜׳•׳ ׳¦׳₪׳•׳" />
+            <label for="sellerContextName">שם מוכר לתצוגה</label>
+            <input id="sellerContextName" name="sellerContextName" type="text" data-dir="rtl" value="${esc(state.form.sellerContextName || sellerContext.display_name)}" placeholder="סיטון צפון" />
           </div>
         </div>
         <div class="actions">
-          <button class="secondary" type="submit">׳©׳׳™׳¨׳× ׳–׳”׳•׳× ׳׳•׳›׳¨ ׳₪׳¢׳™׳׳”</button>
+          <button class="secondary" type="submit">שמירת זהות מוכר פעילה</button>
         </div>
       </form>
     </section>
@@ -6537,39 +6536,39 @@ function renderSellerContextPanel(context) {
 
 function getFlowStatus(flow) {
   if (!flow.otpSessionId) {
-    return { title: "׳¢׳“׳™׳™׳ ׳׳ ׳ ׳©׳׳— ׳§׳•׳“ ׳׳™׳׳•׳×", message: "׳”׳©׳׳‘ ׳”׳‘׳ ׳”׳•׳ ׳©׳׳™׳—׳× ׳§׳•׳“ ׳׳˜׳׳₪׳•׳ ׳©׳ ׳”׳§׳•׳ ׳”." };
+    return { title: "עדיין לא נשלח קוד אימות", message: "השלב הבא הוא שליחת קוד לטלפון של הקונה." };
   }
   if (flow.otpVerified) {
-    return { title: "׳”׳˜׳׳₪׳•׳ ׳›׳‘׳¨ ׳׳•׳׳×", message: "׳׳₪׳©׳¨ ׳׳¢׳‘׳•׳¨ ׳™׳©׳™׳¨׳•׳× ׳׳©׳׳‘ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×." };
+    return { title: "הטלפון כבר אומת", message: "אפשר לעבור ישירות לשלב אישור המסגרת." };
   }
   if (flow.otpExpiresAt && Date.now() > new Date(flow.otpExpiresAt).getTime()) {
-    return { title: "׳§׳•׳“ ׳”׳׳™׳׳•׳× ׳₪׳’", message: "׳¦׳¨׳™׳ ׳׳‘׳§׳© ׳§׳•׳“ ׳—׳“׳© ׳›׳“׳™ ׳׳”׳׳©׳™׳." };
+    return { title: "קוד האימות פג", message: "צריך לבקש קוד חדש כדי להמשיך." };
   }
-  return { title: "׳׳׳×׳™׳ ׳׳”׳–׳ ׳× ׳”׳§׳•׳“", message: "׳”׳§׳•׳“ ׳ ׳©׳׳—. ׳׳” ׳©׳ ׳©׳׳¨ ׳”׳•׳ ׳׳”׳–׳™׳ ׳׳•׳×׳• ׳•׳׳”׳׳©׳™׳." };
+  return { title: "ממתין להזנת הקוד", message: "הקוד נשלח. מה שנשאר הוא להזין אותו ולהמשיך." };
 }
 
 function getDealCopy(stateName) {
   const item = DEAL_COPY[stateName];
   if (!item) {
-    return { label: stateName, title: "׳׳¦׳‘ ׳¢׳¡׳§׳” ׳׳ ׳׳׳•׳₪׳”", description: "׳ ׳׳¦׳ ׳¡׳˜׳˜׳•׳¡ ׳¢׳¡׳§׳” ׳©׳׳ ׳§׳™׳‘׳ ׳ ׳™׳¡׳•׳— ׳™׳™׳¢׳•׳“׳™.", badgeTone: "warning" };
+    return { label: stateName, title: "מצב עסקה לא ממופה", description: "נמצא סטטוס עסקה שלא קיבל ניסוח ייעודי.", badgeTone: "warning" };
   }
   return { label: item[0], title: item[0], description: item[1], badgeTone: stateName === "PendingTarget" || stateName === "TargetReached" || stateName === "Completed" ? "success" : stateName === "Failed" || stateName === "Cancelled" ? "danger" : "warning" };
 }
 
 function getLabel(map, key) {
-  return map[key] || [key, "׳ ׳׳¦׳ ׳׳¦׳‘ ׳©׳׳ ׳§׳™׳‘׳ ׳ ׳™׳¡׳•׳— ׳™׳™׳¢׳•׳“׳™."];
+  return map[key] || [key, "נמצא מצב שלא קיבל ניסוח ייעודי."];
 }
 
 function nextDealAction(stateName, canJoin) {
   if (canJoin) {
     return {
       cta: stateName === "TargetReached" ? "הצטרפו ליחידות האחרונות" : "הצטרפו לעסקה",
-      description: "׳”׳׳¡׳׳•׳ ׳™׳™׳§׳— ׳׳•׳×׳ ׳“׳¨׳ ׳׳™׳׳•׳× ׳˜׳׳₪׳•׳, ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳× ׳•׳©׳׳™׳¨׳× ׳”׳”׳©׳×׳×׳₪׳•׳×."
+      description: "המסלול ייקח אותך דרך אימות טלפון, אישור מסגרת ושמירת ההשתתפות."
     };
   }
-  if (stateName === "Draft") return { cta: "׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳¢׳“׳™׳™׳ ׳׳ ׳–׳׳™׳ ׳”", description: "׳׳₪׳©׳¨ ׳׳©׳׳•׳¨ ׳׳× ׳”׳§׳™׳©׳•׳¨ ׳•׳׳—׳–׳•׳¨ ׳׳׳•׳—׳¨ ׳™׳•׳×׳¨." };
-  if (stateName === "Cancelled" || stateName === "Failed") return { cta: "׳”׳¢׳¡׳§׳” ׳›׳‘׳¨ ׳¡׳’׳•׳¨׳”", description: "׳›׳׳ ׳›׳‘׳¨ ׳׳™ ׳׳₪׳©׳¨ ׳׳”׳¦׳˜׳¨׳£. ׳׳ ׳”׳©׳×׳×׳₪׳×, ׳”׳©׳×׳׳© ׳‘׳׳¡׳ ׳”׳׳¢׳§׳‘." };
-  return { cta: "׳”׳”׳¦׳˜׳¨׳₪׳•׳× ׳¡׳’׳•׳¨׳”", description: "׳׳™׳ ׳›׳¨׳’׳¢ ׳׳¡׳׳•׳ ׳”׳¦׳˜׳¨׳₪׳•׳× ׳₪׳¢׳™׳ ׳׳¢׳¡׳§׳” ׳”׳–׳•." };
+  if (stateName === "Draft") return { cta: "ההצטרפות עדיין לא זמינה", description: "אפשר לשמור את הקישור ולחזור מאוחר יותר." };
+  if (stateName === "Cancelled" || stateName === "Failed") return { cta: "העסקה כבר סגורה", description: "כאן כבר אי אפשר להצטרף. אם השתתפת, השתמש במסך המעקב." };
+  return { cta: "ההצטרפות סגורה", description: "אין כרגע מסלול הצטרפות פעיל לעסקה הזו." };
 }
 
 function buildJourney(tracking) {
@@ -6577,53 +6576,53 @@ function buildJourney(tracking) {
   const chargingDone = ["Charging", "CompletionWindow", "Completed", "Failed"].includes(tracking.deal_state) || ["ChargeAttempt", "ChargedSuccess", "RecoveredCharge"].includes(tracking.money_state);
   const finalDone = ["Completed", "Failed", "Cancelled"].includes(tracking.deal_state) || ["DealCompleted", "DealFailed", "Dropped", "Recovered"].includes(tracking.buyer_state);
   return [
-    { title: "׳ ׳¨׳©׳׳× ׳׳¢׳¡׳§׳”", done: true, current: tracking.buyer_state === "JoinedAuthorized" },
-    { title: "׳™׳© ׳׳™׳©׳•׳¨ ׳׳¡׳’׳¨׳×", done: authorizationDone, current: tracking.money_state === "AuthHeld" || tracking.money_state === "AuthLocked" },
-    { title: "׳”׳¢׳¡׳§׳” ׳”׳×׳§׳“׳׳” ׳׳—׳™׳•׳‘", done: chargingDone, current: tracking.money_state === "ChargeAttempt" || tracking.buyer_state === "ChargingAttempt" },
-    { title: "׳ ׳¡׳’׳¨׳” ׳×׳•׳¦׳׳” ׳¡׳•׳₪׳™׳×", done: finalDone, current: !finalDone && tracking.deal_state === "CompletionWindow" }
+    { title: "נרשמת לעסקה", done: true, current: tracking.buyer_state === "JoinedAuthorized" },
+    { title: "יש אישור מסגרת", done: authorizationDone, current: tracking.money_state === "AuthHeld" || tracking.money_state === "AuthLocked" },
+    { title: "העסקה התקדמה לחיוב", done: chargingDone, current: tracking.money_state === "ChargeAttempt" || tracking.buyer_state === "ChargingAttempt" },
+    { title: "נסגרה תוצאה סופית", done: finalDone, current: !finalDone && tracking.deal_state === "CompletionWindow" }
   ];
 }
 
 function nextTrackingStep(tracking) {
   if (tracking.deal_state === "Completed") {
     return {
-      title: "׳׳™׳ ׳¢׳•׳“ ׳₪׳¢׳•׳׳” ׳ ׳“׳¨׳©׳× ׳׳׳",
-      detail: "׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳” ׳•׳”׳׳¡׳ ׳ ׳©׳׳¨ ׳›׳׳¡׳ ׳׳™׳“׳¢ ׳•׳׳¢׳§׳‘ ׳‘׳׳‘׳“.",
-      summary: "׳”׳¢׳¡׳§׳” ׳”׳•׳©׳׳׳” ׳•׳”׳”׳©׳×׳×׳₪׳•׳× ׳©׳׳ ׳ ׳¡׳’׳¨׳” ׳‘׳”׳¦׳׳—׳”."
+      title: "אין עוד פעולה נדרשת ממך",
+      detail: "העסקה הושלמה והמסך נשאר כמסך מידע ומעקב בלבד.",
+      summary: "העסקה הושלמה וההשתתפות שלך נסגרה בהצלחה."
     };
   }
   if (tracking.deal_state === "Failed" || tracking.deal_state === "Cancelled") {
     return {
-      title: "׳”׳׳¡׳׳•׳ ׳”׳–׳” ׳ ׳¡׳’׳¨",
-      detail: "׳”׳¢׳¡׳§׳” ׳׳ ׳”׳•׳©׳׳׳”. ׳”׳׳¡׳ ׳׳¦׳™׳’ ׳׳× ׳”׳×׳•׳¦׳׳” ׳”׳¡׳•׳₪׳™׳× ׳©׳ ׳”׳”׳©׳×׳×׳₪׳•׳× ׳•׳”׳׳©׳׳¢׳•׳× ׳”׳›׳¡׳₪׳™׳× ׳©׳׳”.",
-      summary: "׳”׳¢׳¡׳§׳” ׳׳ ׳”׳•׳©׳׳׳” ׳•׳׳›׳ ׳׳™׳ ׳©׳׳‘ ׳”׳׳©׳ ׳׳׳¡׳׳•׳ ׳”׳–׳”."
+      title: "המסלול הזה נסגר",
+      detail: "העסקה לא הושלמה. המסך מציג את התוצאה הסופית של ההשתתפות והמשמעות הכספית שלה.",
+      summary: "העסקה לא הושלמה ולכן אין שלב המשך למסלול הזה."
     };
   }
   if (tracking.money_state === "AuthHeld" && tracking.buyer_state === "JoinedAuthorized") {
     return {
-      title: "׳›׳¨׳’׳¢ ׳׳׳×׳™׳ ׳™׳ ׳׳”׳×׳§׳“׳׳•׳× ׳”׳¢׳¡׳§׳”",
-      detail: "׳ ׳¨׳©׳׳× ׳‘׳”׳¦׳׳—׳”, ׳‘׳•׳¦׳¢׳” ׳×׳₪׳™׳¡׳× ׳׳¡׳’׳¨׳×, ׳•׳¢׳›׳©׳™׳• ׳׳׳×׳™׳ ׳™׳ ׳׳©׳׳‘ ׳”׳‘׳ ׳‘׳¢׳¡׳§׳” ׳¢׳¦׳׳”.",
-      summary: "׳”׳©׳×׳×׳₪׳× ׳‘׳”׳¦׳׳—׳”. ׳¢׳“׳™׳™׳ ׳׳™׳ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳, ׳•׳¨׳§ ׳ ׳©׳׳¨ ׳׳™׳©׳•׳¨ ׳”׳׳¡׳’׳¨׳×."
+      title: "כרגע ממתינים להתקדמות העסקה",
+      detail: "נרשמת בהצלחה, בוצעה תפיסת מסגרת, ועכשיו ממתינים לשלב הבא בעסקה עצמה.",
+      summary: "השתתפת בהצלחה. עדיין אין חיוב בפועל, ורק נשמר אישור המסגרת."
     };
   }
   if (tracking.money_state === "ChargeAttempt" || tracking.buyer_state === "ChargingAttempt") {
     return {
-      title: "׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳—׳™׳™׳‘ ׳›׳¨׳’׳¢",
-      detail: "׳–׳”׳• ׳©׳׳‘ ׳×׳₪׳¢׳•׳׳™. ׳׳™׳ ׳¦׳•׳¨׳ ׳‘׳₪׳¢׳•׳׳” ׳׳¦׳“ ׳”׳§׳•׳ ׳” ׳›׳¨׳’׳¢.",
-      summary: "׳”׳¢׳¡׳§׳” ׳”׳’׳™׳¢׳” ׳׳©׳׳‘ ׳”׳—׳™׳•׳‘ ׳•׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳‘׳¦׳¢ ׳—׳™׳•׳‘ ׳‘׳₪׳•׳¢׳."
+      title: "המערכת מנסה לחייב כרגע",
+      detail: "זהו שלב תפעולי. אין צורך בפעולה מצד הקונה כרגע.",
+      summary: "העסקה הגיעה לשלב החיוב והמערכת מנסה לבצע חיוב בפועל."
     };
   }
   if (tracking.buyer_state === "ChargeFailedCompletion" || tracking.money_state === "ChargeFailedRecovery") {
     return {
-      title: "׳”׳׳¢׳¨׳›׳× ׳׳ ׳¡׳” ׳׳”׳©׳׳™׳ ׳׳× ׳”׳”׳©׳×׳×׳₪׳•׳×",
-      detail: "׳›׳¨׳’׳¢ ׳׳™׳ ׳¦׳¢׳“ ׳™׳“׳ ׳™ ׳ ׳•׳¡׳£ ׳‘׳׳¡׳ ׳”׳–׳”. ׳”׳×׳•׳¦׳׳” ׳×׳×׳¢׳“׳›׳ ׳׳₪׳™ ׳׳¡׳׳•׳ ׳©׳—׳–׳•׳¨ ׳׳• ׳¡׳’׳™׳¨׳”.",
-      summary: "׳ ׳“׳¨׳© ׳׳¡׳׳•׳ ׳”׳©׳׳׳” ׳‘׳¢׳§׳‘׳•׳× ׳›׳©׳ ׳—׳™׳•׳‘, ׳•׳”׳׳¢׳¨׳›׳× ׳¢׳“׳™׳™׳ ׳׳¡׳™׳™׳׳× ׳׳× ׳”׳¡׳’׳™׳¨׳”."
+      title: "המערכת מנסה להשלים את ההשתתפות",
+      detail: "כרגע אין צעד ידני נוסף במסך הזה. התוצאה תתעדכן לפי מסלול שחזור או סגירה.",
+      summary: "נדרש מסלול השלמה בעקבות כשל חיוב, והמערכת עדיין מסיימת את הסגירה."
     };
   }
   return {
-    title: "׳›׳“׳׳™ ׳׳”׳׳©׳™׳ ׳׳¢׳§׳•׳‘ ׳׳”׳׳¡׳ ׳”׳–׳”",
-    detail: "׳”׳׳¡׳ ׳™׳¦׳™׳’ ׳׳× ׳׳¦׳‘ ׳”׳¢׳¡׳§׳” ׳•׳”׳”׳©׳×׳×׳₪׳•׳× ׳›׳›׳ ׳©׳”׳‘׳§׳׳ ׳“ ׳™׳×׳§׳“׳ ׳‘׳©׳׳‘׳™׳.",
-    summary: "׳”׳”׳©׳×׳×׳₪׳•׳× ׳©׳׳ ׳§׳™׳™׳׳× ׳‘׳׳¢׳¨׳›׳×, ׳•׳”׳׳¡׳ ׳”׳–׳” ׳”׳•׳ ׳׳§׳•׳¨ ׳”׳׳׳× ׳©׳׳”."
+    title: "כדאי להמשיך לעקוב מהמסך הזה",
+    detail: "המסך יציג את מצב העסקה וההשתתפות ככל שהבקאנד יתקדם בשלבים.",
+    summary: "ההשתתפות שלך קיימת במערכת, והמסך הזה הוא מקור האמת שלה."
   };
 }
 
@@ -6644,19 +6643,19 @@ function percent(value) {
 }
 
 function dt(value) {
-  return value ? new Intl.DateTimeFormat("he-IL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "׳׳ ׳–׳׳™׳";
+  return value ? new Intl.DateTimeFormat("he-IL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "לא זמין";
 }
 
 function relativeTime(value) {
-  if (!value) return "׳׳ ׳–׳׳™׳";
+  if (!value) return "לא זמין";
   const diffMs = Date.now() - new Date(value).getTime();
   const minutes = Math.max(0, Math.round(diffMs / 60000));
-  if (minutes < 1) return "׳׳׳© ׳¢׳›׳©׳™׳•";
-  if (minutes < 60) return `׳׳₪׳ ׳™ ${minutes} ׳“׳§׳•׳×`;
+  if (minutes < 1) return "ממש עכשיו";
+  if (minutes < 60) return `לפני ${minutes} דקות`;
   const hours = Math.round(minutes / 60);
-  if (hours < 24) return `׳׳₪׳ ׳™ ${hours} ׳©׳¢׳•׳×`;
+  if (hours < 24) return `לפני ${hours} שעות`;
   const days = Math.round(hours / 24);
-  return `׳׳₪׳ ׳™ ${days} ׳™׳׳™׳`;
+  return `לפני ${days} ימים`;
 }
 
 function toDatetimeLocal(value) {
@@ -6702,5 +6701,3 @@ function esc(value) {
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 }
-
-

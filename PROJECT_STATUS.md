@@ -4011,3 +4011,16 @@ Scanned and either cleaned or stamped: `src/**`, `scripts/**`, `tests/**`, `docs
 ### Next step
 
 Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly marked deeper refactors (`frontend_runtime.ts`/`app.ts`/`frontend/app.js` split, tracking-token validation helper, provider error/correlation centralisation) as "consider only after the Provider Sandbox gate is green". This pass keeps the system ready for that gate without perturbing any proven contract.
+
+## Current update: 2026-05-21 (Render Demo Hebrew UI Recovery)
+
+- Render deploy is live at `https://siton-demo-preview-atp1.onrender.com/app` on commit `39cf749`, and Render infrastructure/database connectivity is no longer the blocker.
+- Blocking issue found: `/app` loaded, but the frontend bundle contained cp1255/UTF-8 mojibake in hard-coded Hebrew UI copy. The live HTML/JS/CSS response headers already included UTF-8 charset, so the root cause was the bundled frontend source text, not Render headers or DATABASE_URL.
+- Fixed: restored Hebrew UI copy in `frontend/app.js` so first-screen routes and core seller/buyer/admin surfaces render readable Hebrew in the existing RTL shell.
+- Fixed test harness: `test:frontend-browser-smoke` now syncs current frontend assets into `.tmp_test_dist/frontend` before starting the compiled smoke server, preventing stale test assets from hiding or fabricating UI failures.
+- Strengthened smoke: the browser smoke now verifies `/app`, `/app/assets/app.js`, and `/app/assets/styles.css` load with UTF-8 content types, rejects common mojibake markers, requires rendered Hebrew, and covers the `/app` home route on desktop and mobile.
+- Tests passed: `npx tsc -p tsconfig.json --noEmit`; `npx tsc -p tsconfig.test.json --noEmit`; `npm run build:demo`; `npm run test:demo-readiness`; `npm run test:demo-preview`; `npm run test:integrations`; `npm run test:docker-readiness`; `npm run test:frontend-browser-smoke`.
+- Still open: Render has not been redeployed from this workspace in this pass. The live service must be manually redeployed after push, with `EXPECTED_COMMIT_SHA` updated to the new commit.
+- Verdict: frontend/encoding/runtime demo blocker fixed locally; ready for Render manual redeploy after the commit is live on `origin/master`.
+- Progress: `93%`.
+- Next step: update `EXPECTED_COMMIT_SHA` in Render to the new commit, trigger manual deploy for the existing `siton-demo-preview-atp1` service, then verify `/app` live renders Hebrew correctly and the central demo buttons navigate/respond.
