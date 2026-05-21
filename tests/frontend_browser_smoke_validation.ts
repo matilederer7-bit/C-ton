@@ -5,12 +5,9 @@ import { cp, mkdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import dotenv from "dotenv";
-import pg from "pg";
 import { fileURLToPath } from "node:url";
 
 dotenv.config();
-
-const { Pool } = pg;
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -21,7 +18,6 @@ const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.
 const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
 const baseUrl = `http://127.0.0.1:${smokePort}`;
-const databaseUrl = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 
 type SmokeRoute = {
   name: string;
@@ -147,21 +143,6 @@ function randomSuffix(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-async function seedDeliveryOptions(dealId: string) {
-  const pool = new Pool({ connectionString: databaseUrl });
-  try {
-    await pool.query(
-      `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
-       VALUES
-         ($1, 'pickup', 'איסוף עצמי', 0, 0),
-         ($1, 'delivery', 'שליח עד הבית', 18, 1)`,
-      [dealId]
-    );
-  } finally {
-    await pool.end();
-  }
-}
-
 async function createDeal(title: string) {
   const unique = randomSuffix("browser-smoke-create");
   const { response, json } = await fetchJson("/deals", {
@@ -177,15 +158,23 @@ async function createDeal(title: string) {
       price_per_unit: 36,
       min_units: 8,
       max_units: 24,
-      deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString()
+      deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
+      delivery_options: [
+        { option_type: "pickup", label: "איסוף עצמי", cost: 0, sort_order: 0 },
+        { option_type: "delivery", label: "שליח עד הבית", cost: 18, sort_order: 1 },
+        {
+          option_type: "distribution_point",
+          label: "נקודת חלוקה מרכז העיר · רחוב הרצל 10, תל אביב · הוראות: ליד שער B · קישור מיקום: https://maps.google.com/?q=Herzl+10+Tel+Aviv",
+          cost: 0,
+          sort_order: 2
+        }
+      ]
     })
   });
 
   assert.equal(response.status, 200);
   assert.ok(json?.deal_id);
-  const deal = json as { deal_id: string };
-  await seedDeliveryOptions(deal.deal_id);
-  return deal;
+  return json as { deal_id: string };
 }
 
 async function publishDeal(dealId: string) {
@@ -311,6 +300,17 @@ async function assertFrontendAssetsHealthy() {
   }
 }
 
+async function assertSellerCreateUxContract() {
+  const source = await readFile(join(frontendSource, "app.js"), "utf8");
+  assert.match(source, /sellerDeliveryPointName5/, "seller create form should support five distribution point slots");
+  assert.match(source, /sellerImagesJson/, "seller create form should keep up to five images in state");
+  assert.match(source, /validation-summary/, "form validation errors should render a visible summary");
+  assert.match(source, /תקנון השימוש למוכרים/, "terms approval should include an inline clickable seller terms link");
+  assert.match(source, /מדיניות הביטולים וההחזרים/, "terms approval should include an inline refunds link");
+  assert.match(source, /קישור מיקום/, "distribution point copy should carry location links");
+  assert.match(source, /finalTerms.*state\.form\.sellerFinalTerms/s, "terms checkbox state should be preserved across validation errors");
+}
+
 async function ensureFrontendAssets() {
   await mkdir(frontendTarget, { recursive: true });
   await cp(frontendSource, frontendTarget, { recursive: true, force: true });
@@ -342,6 +342,7 @@ async function main() {
     ].filter(Boolean).join("\n"));
 
     await run("frontend shell assets load as UTF-8 without mojibake", assertFrontendAssetsHealthy);
+    await run("seller create UX contract covers validation, terms, images and distribution points", assertSellerCreateUxContract);
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
@@ -356,12 +357,17 @@ async function main() {
       {
         name: "public deal",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "deal-hero-layout", "cta-panel"]
+        expect: ["עסקת smoke לדפדפן", "deal-hero-layout", "cta-panel", "נקודת חלוקה מרכז העיר", "פתיחת קישור מיקום"]
       },
       {
         name: "seller workspace",
         path: "/app/seller",
         expect: ["עסקת smoke לדפדפן", "workspace-focus-grid", "seller-board-section"]
+      },
+      {
+        name: "seller create",
+        path: "/app/seller/new",
+        expect: ["עסקת קבוצה שנראית מוכנה להפצה", "תמונות מוצר, עד 5", "שם נקודת חלוקה", "תקנון השימוש למוכרים"]
       },
       {
         name: "seller deal",
@@ -399,12 +405,17 @@ async function main() {
       {
         name: "public deal mobile",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "cta-panel"]
+        expect: ["עסקת smoke לדפדפן", "cta-panel", "נקודת חלוקה מרכז העיר"]
       },
       {
         name: "seller workspace mobile",
         path: "/app/seller",
         expect: ["workspace-focus-grid", "seller-board-section"]
+      },
+      {
+        name: "seller create mobile",
+        path: "/app/seller/new",
+        expect: ["עסקת קבוצה שנראית מוכנה להפצה", "תמונות מוצר, עד 5", "שם נקודת חלוקה"]
       },
       {
         name: "seller deal mobile",

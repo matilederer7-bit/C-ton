@@ -4024,3 +4024,17 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
 - Verdict: frontend/encoding/runtime demo blocker fixed locally; ready for Render manual redeploy after the commit is live on `origin/master`.
 - Progress: `93%`.
 - Next step: update `EXPECTED_COMMIT_SHA` in Render to the new commit, trigger manual deploy for the existing `siton-demo-preview-atp1` service, then verify `/app` live renders Hebrew correctly and the central demo buttons navigate/respond.
+
+## Current update: 2026-05-21 (Demo Deal Creation UX Upgrade)
+
+- Fixed: rebuilt the seller deal-creation experience so it feels like a live product flow rather than a test form: stronger visual hierarchy, clearer FOMO/group-buying framing, brighter multi-color palette, prominent CTAs, richer seller side panel, and less empty-state friction.
+- Fixed: seller creation now supports up to 5 product images in the demo flow, with preview tiles, primary-image selection, per-image removal, clear-all, file type checks, and 2MB per-image size validation. If no image is uploaded, the public/seller surfaces keep a clean placeholder.
+- Fixed: distribution points now require real location information before creating a draft: point name, full address, city, optional instructions, and optional `http/https` location link. Up to 5 pickup/distribution/delivery options can be configured. Buyer-facing deal pages show the location details before join and require selection when more than one option exists.
+- Fixed: seller terms approval now includes inline links to seller terms and refunds/cancellation policy, and the checkbox state remains preserved after validation errors in the same browser flow.
+- Fixed: deal creation validation now renders a visible summary with all form errors together: missing title, invalid price, invalid min/max, invalid deadline, missing distribution point details, missing delivery option, missing terms, and missing final confirmation. API failures now surface a user-facing message plus a clear status/code.
+- Checked: automated smoke creates a demo deal with delivery, pickup, and distribution point options; publishes it; opens the buyer deal link; joins a buyer; and verifies Hebrew/RTL DOM on seller, buyer, admin, desktop, and mobile routes.
+- Tests passed: `npx tsc -p tsconfig.json --noEmit`; `npx tsc -p tsconfig.test.json --noEmit`; `npm run build:demo`; `npm run test:demo-readiness`; `npm run test:demo-preview`; `npm run test:integrations`; `npm run test:docker-readiness`; `npm run test:frontend-browser-smoke`; `npm run test:frontend`; `npm run test:product-surfaces-refinement`.
+- Still open: no Render deploy was performed from this workspace. Live Render must be manually redeployed from the pushed commit and then smoke-tested visually in the browser.
+- Verdict: demo is ready for another Render validation pass focused on live UX and seller-created deal quality.
+- Progress: `96%`.
+- Next step: push this commit, update `EXPECTED_COMMIT_SHA` in Render to the new commit, manually redeploy `siton-demo-preview-atp1`, then create one real demo deal from `/app/seller/new` in the live service and open its public buyer link.
