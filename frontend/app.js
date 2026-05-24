@@ -247,11 +247,11 @@ const PUBLIC_TRUST_ROUTES = new Set(["home", "deal", "otp", "payment", "confirma
 
 const DEAL_TONE = {
   Draft: "warning",
-  PendingTarget: "success",
+  PendingTarget: "pending",
   TargetReached: "success",
-  ClosedForJoining: "warning",
+  ClosedForJoining: "closed",
   ReadyForCharging: "warning",
-  Charging: "warning",
+  Charging: "charging",
   CompletionWindow: "warning",
   Completed: "success",
   Failed: "danger",
@@ -1901,7 +1901,7 @@ function render() {
       <header class="app-shell-header">
         <section class="shell-surface shell-header-bar" aria-label="כותרת האפליקציה">
           <div class="shell-brand">
-            <strong>סיטון</strong>
+            <strong>C-ton</strong>
             <p>${esc(routeSummary)}</p>
           </div>
           <div class="shell-meta">
@@ -1931,7 +1931,7 @@ function syncDocumentFrame() {
   document.documentElement.setAttribute("lang", "he");
   document.documentElement.setAttribute("dir", "rtl");
   document.body.setAttribute("dir", "rtl");
-  document.title = `סיטון | ${getRouteLabel()}`;
+  document.title = `C-ton | ${getRouteLabel()}`;
 }
 
 function getRouteLabel() {
@@ -2083,6 +2083,12 @@ function renderDealPage() {
   const qty = Number(state.form.qty || 1);
   const qtyIssue = validateQty(state.dealPayload, qty);
   const nextAction = nextDealAction(deal.state, availability.canJoin);
+  const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
+  if (availability.canJoin && remainingToTarget > 0) {
+    nextAction.cta = `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד`;
+  } else if (availability.canJoin && deal.state === "TargetReached") {
+    nextAction.cta = "הצטרפו עכשיו – העסקה יוצאת לפועל";
+  }
   const flow = getFlow(deal.deal_id);
   const affiliateRef = currentAffiliateRef() || flow?.affiliateRef || "";
   const deliveryOptions = getDeliveryOptions(state.dealPayload);
@@ -2148,8 +2154,12 @@ function renderDealPage() {
           <div class="metric"><span class="muted">כמות שכבר נרשמה</span><strong>${num(metrics.joined_units)} יח'</strong></div>
           <div class="metric"><span class="muted">קיבולת שנותרה</span><strong>${num(metrics.remaining_units)} יח'</strong></div>
         </div>
-        <div class="meter"><span style="width:${Math.max(4, metrics.progress_to_capacity_pct)}%"></span></div>
-        <div class="progress-caption"><strong>${num(metrics.progress_to_capacity_pct)}%</strong><span class="muted">העסקה נעה כרגע בקצב הנוכחי מתוך קיבולת כוללת</span></div>
+        ${renderProgressBlock({
+          stateName: deal.state,
+          currentUnits: metrics.joined_units,
+          targetUnits: deal.threshold_units,
+          percentValue: metrics.progress_to_minimum_pct ?? ((Number(metrics.joined_units || 0) / Math.max(1, Number(deal.threshold_units || 1))) * 100)
+        })}
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">יעד בסיס לעסקה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">העסקה תיחשב מוצלחת אם יחויבו בפועל לפחות 90% מכמות המינימום. אם פחות מכך יחויב בפועל, העסקה תיכשל והכספים יטופלו לפי מדיניות ההחזרים.</p></div>
           <div class="summary-item"><span class="muted">מקסימום בעסקה</span><strong>${num(deal.max_units)} יח'</strong></div>
@@ -2253,6 +2263,44 @@ function renderDealPage() {
   `;
 }
 
+function progressToneClass(stateName, currentUnits, targetUnits) {
+  if (stateName === "CompletionWindow") return "completion-window";
+  if (["TargetReached", "Completed"].includes(stateName) || Number(currentUnits || 0) >= Number(targetUnits || 0)) return "target-reached";
+  return "pending-target";
+}
+
+function buildProgressStatus({ stateName, currentUnits, targetUnits, atRiskUnits }) {
+  const current = Math.max(0, Number(currentUnits || 0));
+  const target = Math.max(1, Number(targetUnits || 1));
+  const remaining = Math.max(0, target - current);
+  if (stateName === "CompletionWindow") {
+    return `חלון השלמה פתוח, ${num(atRiskUnits || remaining)} יחידות עדיין בסיכון`;
+  }
+  if (remaining <= 0 || ["TargetReached", "Completed"].includes(stateName)) {
+    return "היעד הושג, העסקה יוצאת לפועל";
+  }
+  return `עוד ${num(remaining)} יחידות והעסקה יוצאת לפועל`;
+}
+
+function renderProgressBlock({ stateName, currentUnits, targetUnits, percentValue, atRiskUnits, label = "התקדמות העסקה" }) {
+  const current = Math.max(0, Number(currentUnits || 0));
+  const target = Math.max(1, Number(targetUnits || 1));
+  const pct = Math.max(0, Math.min(100, Number(percentValue ?? ((current / target) * 100))));
+  const tone = progressToneClass(stateName, current, target);
+  return `
+    <div class="progress-block">
+      <div class="progress-headline">
+        <strong>${num(current)} / ${num(target)} יחידות</strong>
+        <strong>${percent(pct)}</strong>
+      </div>
+      <div class="meter ${tone}" aria-label="${esc(label)}">
+        <span style="width:${Math.max(2, pct)}%"></span>
+      </div>
+      <p class="progress-status">${buildProgressStatus({ stateName, currentUnits: current, targetUnits: target, atRiskUnits })}</p>
+    </div>
+  `;
+}
+
 function renderDealChatSection(deal) {
   const messages = Array.isArray(state.dealChatPayload?.messages) ? state.dealChatPayload.messages : [];
   const dealState = String(deal?.state || "");
@@ -2290,9 +2338,9 @@ function renderDealChatSection(deal) {
 }
 
 function getDealChatClosedMessage(dealState) {
-  if (dealState === "Draft") return "הצאט ייפתח אחרי פרסום העסקה";
-  if (["ReadyForCharging", "Charging", "CompletionWindow"].includes(dealState)) return "הצאט נסגר כי העסקה עברה למסלול חיוב";
-  return "הצאט נסגר כי העסקה הסתיימה";
+  if (dealState === "Draft") return "הצ׳אט ייפתח אחרי פרסום העסקה";
+  if (["ReadyForCharging", "Charging", "CompletionWindow"].includes(dealState)) return "הצ׳אט נסגר כי העסקה עברה למסלול חיוב";
+  return "הצ׳אט נסגר כי העסקה הסתיימה";
 }
 
 function renderDealChatMessage(message) {
@@ -2422,11 +2470,15 @@ function renderPaymentPage(dealId) {
   const deliveryCost = Number(flow.deliveryCost || 0);
   const holdTotal = Number(flow.estimatedTotal || ((flow.qty || 0) * (deal?.price_per_unit || 0) + deliveryCost));
   return `
-    <section class="hero">
+    <section class="payment-screen">
       <article class="card hero-main stack hero-emphasis">
         <span class="eyebrow">שלב 2 מתוך 3</span>
-        <h1>אישור מסגרת לפני הצטרפות סופית</h1>
-        <p class="muted">זהו שלב אישור מסגרת בלבד. אין כאן חיוב מיידי, אלא תפיסת מסגרת לקראת השלמת העסקה.</p>
+        <h1>אישור הצטרפות לעסקה</h1>
+        <div class="actions">
+          <strong class="big-money">${currency(holdTotal)}</strong>
+          <span class="badge pending">תפיסת מסגרת בלבד</span>
+        </div>
+        <p class="muted">לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה. אם העסקה לא תיסגר, מסגרת האשראי משתחררת אוטומטית ללא חיוב.</p>
         <div class="trust-band">
           <div class="trust-point"><span class="muted">מה קורה עכשיו</span><strong>אישור מסגרת בלבד</strong></div>
           <div class="trust-point"><span class="muted">מה לא קורה עכשיו</span><strong>אין חיוב בפועל</strong></div>
@@ -2465,7 +2517,7 @@ function renderPaymentPage(dealId) {
           <strong>שקט ובהיר לפני אישור</strong>
           <p class="small muted">זה המסך האחרון לפני שמירת ההצטרפות. אחרי האישור תעבור מיד למסך הצלחה ומעקב.</p>
         </div>
-        <form data-action="pay" class="stack">
+        <form data-action="pay" class="credit-card-box">
           ${flow.deliveryMethodType === "shipping" ? `
             <div class="info-strip"><strong>פרטי משלוח</strong><p class="small">הפרטים ישמרו ויועברו למוכר לאחר השלמת העסקה. האספקה באחריות המוכר.</p></div>
             <div class="field"><label for="buyerName">שם מקבל</label><input id="buyerName" name="buyerName" type="text" data-dir="rtl" autocomplete="name" /></div>
@@ -2510,12 +2562,13 @@ function renderConfirmationPage(dealId) {
 
   const trackingHref = flow.trackingUrl || `/app/track/${encodeURIComponent(flow.participantId)}`;
   return `
-    <section class="hero">
+    <section class="success-screen">
       <article class="card hero-main stack hero-emphasis success-surface">
         <span class="eyebrow">שלב 3 מתוך 3</span>
+        <span class="success-icon" aria-hidden="true">✓</span>
         <span class="badge success">${REQUIRED_SUCCESS_HEADLINE}</span>
         <h1>${REQUIRED_SUCCESS_HEADLINE}</h1>
-        <p class="muted">השלמנו אימות טלפון, אישור מסגרת והרשמה לעסקה. מכאן עוברים למעקב עד לסגירת העסקה.</p>
+        <p class="muted">המסגרת נתפסה. לא בוצע חיוב בפועל. החיוב יתבצע רק אם העסקה תיסגר בהצלחה.</p>
         <div class="tracking-next-panel">
           <span class="muted">מה קרה עד עכשיו</span>
           <strong>הצטרפות נשמרה ונתפסה מסגרת</strong>
@@ -2564,7 +2617,11 @@ function renderConfirmationPage(dealId) {
             <p class="small">${esc(flow.authorizationMessage)}</p>
           </div>
         ` : ""}
-        ${renderShareActions(trackingHref, flow.dealTitle || "מעקב השתתפות בסיטון")}
+        <div class="info-strip trust-box stack">
+          <strong>עזרת לעסקה להתקדם</strong>
+          <p class="small muted">שתפו עם חברים כדי שנגיע ליעד ביחד.</p>
+          ${renderShareActions(trackingHref, flow.dealTitle || "מעקב השתתפות ב-C-ton")}
+        </div>
         <div class="summary-item">
           <span class="muted">המסלול עודכן</span>
           <strong>${relativeTime(flow.updatedAt)}</strong>
@@ -2630,16 +2687,14 @@ function renderTrackingPage() {
           <span class="muted">${esc(liveCopy)} · עודכן ${relativeTime(tracking.live?.generated_at || state.trackingPayload.generated_at)}</span>
         </div>
         <div class="tracking-progress-panel">
-          <div class="tracking-progress-head">
-            <div>
-              <span class="muted">התקדמות למינימום</span>
-              <strong>${percent(progressPct)}</strong>
-            </div>
-            <p class="small muted">${progress.remaining_to_minimum > 0 ? `חסרות עוד ${num(progress.remaining_to_minimum)} יחידות למינימום` : "המינימום הושג"}</p>
-          </div>
-          <div class="meter tracking-meter" aria-label="התקדמות העסקה למינימום">
-            <span style="width:${Math.max(4, progressPct)}%"></span>
-          </div>
+          ${renderProgressBlock({
+            stateName: tracking.deal_state,
+            currentUnits: progress.current_units || 0,
+            targetUnits: progress.target_units || tracking.threshold_units || 1,
+            percentValue: progressPct,
+            atRiskUnits: progress.remaining_to_minimum || 0,
+            label: "התקדמות העסקה למינימום"
+          })}
           <div class="tracking-counter-grid">
             <div class="summary-item summary-spotlight"><span class="muted">יחידות כרגע</span><strong>${num(progress.current_units || 0)}</strong><p class="small muted">מתוך יעד בסיס של ${num(progress.target_units || tracking.threshold_units || 0)}</p></div>
             <div class="summary-item"><span class="muted">משתתפים</span><strong>${num(progress.participants_count || 0)}</strong><p class="small muted">אנונימי, ללא שמות או פרטים אישיים</p></div>
@@ -3287,30 +3342,40 @@ function analyticsReadinessLabel(issue) {
 }
 
 function renderSellerDealCard(item) {
-  const progressPct = sellerDealProgressPct(item.metrics, item.max_units);
+  const progressPct = sellerDealProgressPct(item.metrics, item.threshold_units);
   const urgency = sellerDeadlineSignal(item.deadline, item.state);
   const primaryImage = getPrimaryDealImage(item);
+  const chargedUnits = Number(item.metrics?.charged_units ?? item.charged_units ?? 0);
+  const pendingUnits = Number(item.metrics?.pending_units ?? item.pending_units ?? Math.max(0, Number(item.metrics?.joined_units || 0) - chargedUnits));
+  const notChargedUnits = Number(item.metrics?.not_charged_units ?? item.not_charged_units ?? 0);
+  const dealVolume = Number(item.metrics?.gross_potential ?? item.gross_potential ?? Number(item.metrics?.joined_units || 0) * Number(item.price_per_unit || 0));
   return `
-    <article class="summary-item">
+    <article class="summary-item seller-card ${item.state === "CompletionWindow" ? "completion-window" : ""} ${item.state === "Failed" ? "failed" : ""}">
       <div class="seller-card-head">
         ${primaryImage?.url ? `<img class="seller-card-thumb" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(item.title)}" />` : `<div class="seller-card-thumb placeholder" aria-hidden="true">${esc(([...String(item.title || "")][0] || "ס"))}</div>`}
         <div class="seller-card-meta">
-          <span class="muted">עסקה ${esc(getDealCopy(item.state).label)}</span>
           <h3>${esc(item.title)}</h3>
+          <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span>
+          <strong class="deal-volume">${currency(dealVolume)}</strong>
+          ${item.state === "Failed" ? `<p class="small muted">זה הכסף שלא נכנס</p>` : ""}
           <div class="pill-row">
-            <span class="stat-pill"><span>משתתפים</span><strong>${num(item.metrics.participants_count)}</strong></span>
-            <span class="stat-pill"><span>יעד</span><strong>${num(item.threshold_units)}</strong></span>
+            <span class="stat-pill text-success"><span>מחויב</span><strong>${num(chargedUnits)}</strong></span>
+            <span class="stat-pill text-warning"><span>בהמתנה</span><strong>${num(pendingUnits)}</strong></span>
+            <span class="stat-pill text-muted"><span>לא חויב</span><strong>${num(notChargedUnits)}</strong></span>
           </div>
         </div>
-        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span>
       </div>
-      <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
-      <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">מתקרת העסקה כבר נסגרה</span></div>
+      ${renderProgressBlock({
+        stateName: item.state,
+        currentUnits: item.metrics.joined_units,
+        targetUnits: item.threshold_units,
+        percentValue: progressPct,
+        atRiskUnits: pendingUnits
+      })}
+      ${item.state === "CompletionWindow" ? `<strong class="text-warning">${num(pendingUnits)} יחידות בסיכון</strong>` : ""}
       <div class="summary-grid">
-        <div class="summary-item"><span class="muted">יחידות שנרשמו</span><strong>${num(item.metrics.joined_units)}</strong></div>
-        <div class="summary-item"><span class="muted">יתרה פנויה</span><strong>${num(item.metrics.remaining_units)}</strong></div>
-        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
-        <div class="summary-item"><span class="muted">מועד סגירה</span><strong>${dt(item.deadline)}</strong></div>
+        <div class="summary-item"><span class="muted">יחידות</span><strong>${num(item.metrics.joined_units)} / ${num(item.threshold_units)}</strong></div>
+        <div class="summary-item"><span class="muted">זמן</span><strong>${esc(urgency.title)}</strong></div>
       </div>
       <div class="urgency-panel ${urgency.tone}">
         <strong>${esc(urgency.title)}</strong>
@@ -3322,8 +3387,7 @@ function renderSellerDealCard(item) {
           <p class="small muted">${esc(urgency.tone === "danger" ? "כדאי לבדוק עכשיו אם העסקה צריכה דחיפה אחרונה או מעבר לבקרה תפעולית." : urgency.tone === "warning" ? "העסקה נכנסת לחלון רגיש. שווה לוודא שהלינק הציבורי חד וברור." : "העסקה פתוחה ותחת שליטה. אפשר להמשיך לעקוב אחרי הקצב והקיבולת.")}</p>
         </div>
         <div class="actions seller-card-actions">
-          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">ניהול העסקה</a>
-          <a class="button secondary" href="/app/deal/${encodeURIComponent(item.deal_id)}" data-nav="/app/deal/${encodeURIComponent(item.deal_id)}">פתיחת הדף הציבורי</a>
+          <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">כניסה לעסקה</a>
           <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>
           ${["Completed", "Failed", "Cancelled"].includes(item.state) ? `<button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(item.deal_id)}">צור עסקה דומה</button>` : ""}
         </div>
@@ -3627,7 +3691,7 @@ function renderSellerDealPage() {
   if (!payload) return renderEmptyState("ניהול העסקה לא זמין", "לא הצלחנו לטעון עכשיו את מסך ניהול העסקה.");
   const deal = payload.deal;
   const receipts = payload.receipts_surface;
-  const progressPct = sellerDealProgressPct(deal.metrics, deal.max_units);
+  const progressPct = sellerDealProgressPct(deal.metrics, deal.threshold_units);
   const urgency = sellerDeadlineSignal(deal.deadline, deal.state);
   const focus = sellerNextFocus(deal, null);
   const receiptsNote = normalizeSurfaceNote(receipts.note, "receipts");
@@ -3684,10 +3748,19 @@ function renderSellerDealPage() {
             <p class="small muted">מספר משתתפים שנשארו במצב לא סגור וייש לברר עבורם.</p>
           </div>
         </div>
-        <div class="meter"><span style="width:${Math.max(4, progressPct)}%"></span></div>
-        <div class="progress-caption"><strong>${num(progressPct)}%</strong><span class="muted">תמונת הקצב מול הקיבולת הכוללת</span></div>
+        ${renderProgressBlock({
+          stateName: deal.state,
+          currentUnits: deal.metrics.joined_units,
+          targetUnits: deal.threshold_units,
+          percentValue: progressPct,
+          atRiskUnits: participantSnapshot.pending
+        })}
+        <div class="surface-note">
+          <strong>אם זה יסתיים עכשיו</strong>
+          <p class="small muted">${Number(deal.metrics.joined_units || 0) >= Number(deal.threshold_units || 0) ? "העסקה תיסגר בהצלחה" : "העסקה תיכשל"}</p>
+        </div>
         <div class="actions">
-          ${payload.seller_actions.can_publish && !publishBlockedByStatus ? `
+          ${["Charging", "CompletionWindow"].includes(deal.state) ? `<div class="info-strip tone-warning"><strong>העסקה נעולה לצפייה בלבד.</strong><p class="small">כל הפעולות מתבצעות אוטומטית.</p></div>` : payload.seller_actions.can_publish && !publishBlockedByStatus ? `
             <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">
               <label class="check-row"><input type="checkbox" name="sellerPublishCriticalTermsAccepted" required /> <span>אני מאשר שהתנאים הקריטיים של העסקה סופיים ולא ניתנים לשינוי לאחר פרסום.</span></label>
               <label class="check-row"><input type="checkbox" name="sellerPublishThresholdAccepted" required /> <span>אני מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום, לפי מנגנון C-ton.</span></label>
@@ -3695,6 +3768,7 @@ function renderSellerDealPage() {
               <button class="primary" type="submit">פרסום הדף הציבורי</button>
             </form>
           ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
+          ${["PendingTarget", "TargetReached"].includes(deal.state) ? `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>` : ""}
           <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
           <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">פתיחת הדף הציבורי</a>
         </div>
@@ -5866,11 +5940,12 @@ function renderDealVisual(title, deliveryOptions, selectedDelivery, image = null
 
 function renderShareActions(url, title) {
   const shareUrl = absoluteUrl(url);
-  const text = encodeURIComponent(title || "עסקה בסיטון");
+  const text = encodeURIComponent(title || "עסקה ב-C-ton");
   const encodedUrl = encodeURIComponent(shareUrl);
   return `
-    <div class="share-panel" aria-label="שיתוף לינק">
-      <button class="secondary share-native" type="button" data-inline-action="share-link" data-share-url="${esc(shareUrl)}" data-share-title="${esc(title || "עסקה בסיטון")}">שיתוף</button>
+    <div class="share-panel" aria-label="עזרו לעסקה לקרות">
+      <strong>עזרו לעסקה לקרות</strong>
+      <button class="secondary share-native" type="button" data-inline-action="share-link" data-share-url="${esc(shareUrl)}" data-share-title="${esc(title || "עסקה ב-C-ton")}">שיתוף</button>
       <a class="button secondary" href="https://wa.me/?text=${text}%20${encodedUrl}" target="_blank" rel="noopener">WhatsApp</a>
       <a class="button secondary" href="https://t.me/share/url?url=${encodedUrl}&text=${text}" target="_blank" rel="noopener">Telegram</a>
       <a class="button secondary" href="https://www.facebook.com/sharer/sharer.php?u=${encodedUrl}" target="_blank" rel="noopener">Facebook</a>
@@ -6793,7 +6868,7 @@ function getDealCopy(stateName) {
   if (!item) {
     return { label: stateName, title: "מצב עסקה לא ממופה", description: "נמצא סטטוס עסקה שלא קיבל ניסוח ייעודי.", badgeTone: "warning" };
   }
-  return { label: item[0], title: item[0], description: item[1], badgeTone: stateName === "PendingTarget" || stateName === "TargetReached" || stateName === "Completed" ? "success" : stateName === "Failed" || stateName === "Cancelled" ? "danger" : "warning" };
+  return { label: item[0], title: item[0], description: item[1], badgeTone: DEAL_TONE[stateName] || "warning" };
 }
 
 function getLabel(map, key) {

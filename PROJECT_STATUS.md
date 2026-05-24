@@ -4038,3 +4038,21 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
 - Verdict: demo is ready for another Render validation pass focused on live UX and seller-created deal quality.
 - Progress: `96%`.
 - Next step: push this commit, update `EXPECTED_COMMIT_SHA` in Render to the new commit, manually redeploy `siton-demo-preview-atp1`, then create one real demo deal from `/app/seller/new` in the live service and open its public buyer link.
+
+## Current update: 2026-05-24 (C-ton Visual System Redesign)
+
+- Fixed: replaced the frontend visual layer with the required C-ton design system: Heebo typography, RTL body baseline, warm app background, white cards, orange primary actions, success/warning/danger status colors, constrained shadows, 18px card radius, responsive container spacing, and form focus states.
+- Fixed: redesigned the critical progress presentation so public deal, buyer tracking, seller dashboard cards, and seller live deal views show `current / target units`, percentage, and a clear state sentence. Fill colors now map to pending target, target reached, and completion window.
+- Fixed: public deal join copy now uses the required joining language, including remaining-units-to-target and target-reached variants. The trust box repeats that only credit frame is held and no actual charge happens until successful closing.
+- Fixed: credit authorization screen is now a quieter centered card with large authorization amount, "תפיסת מסגרת בלבד" badge, clear non-charge copy, and the required "אשרו תפיסת מסגרת" action.
+- Fixed: confirmation screen now states "הצטרפת בהצלחה", explains the frame was held without actual charge, and includes a prominent sharing block.
+- Fixed: seller dashboard cards now present image, status badge, deal volume, progress, committed/pending/not-charged counters, copy-link entry, completion-window emphasis, and failed-volume strike-through treatment.
+- Fixed: seller live deal view now includes a deterministic "אם זה יסתיים עכשיו" outcome and locks actions visually during charging/completion window.
+- Checked: `npx tsc --noEmit` PASS.
+- Checked: `npm test` PASS.
+- Checked: `npm run test:frontend-browser-smoke` PASS. Covered public deal, seller dashboard, seller create, seller live deal, buyer tracking, admin dashboard, admin deal, missing/fallback routes on desktop and mobile 390px smoke view. CSS breakpoints include the required 768px mobile breakpoint and legacy 900/901 guards.
+- Not checked: no live Render/browser manual click-through was performed outside the automated Edge DOM smoke; payment provider UI remains mocked/adapter-bound as before.
+- Open: visual screenshots were not committed as artifacts; live Render must still be redeployed from the pushed commit before production-like review.
+- Risk review: no backend state machine, money authority, payment capture/refund/void action, DB schema, provider integration, or admin money mutation was changed.
+- Progress: `97%`.
+- Next step: after push, redeploy the demo service and visually review `/app/deal/:id`, `/app/join/:id/payment`, `/app/join/:id/confirmation`, `/app/track/:participantId`, `/app/seller`, `/app/seller/deals/:id`, and `/app/admin` in a real browser.
