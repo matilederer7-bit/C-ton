@@ -747,6 +747,31 @@ const DEAL_CHAT_WRITE_ALLOWED_STATES = new Set<DealState>([
   "ClosedForJoining"
 ]);
 
+function runtimeCommitSha() {
+  return (process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || process.env.GIT_COMMIT || "").trim() || "unknown";
+}
+
+function deployFreshness() {
+  const runtimeCommit = runtimeCommitSha();
+  const expectedCommit = (process.env.EXPECTED_COMMIT_SHA || "").trim();
+  const isStale = Boolean(expectedCommit && runtimeCommit !== "unknown" && runtimeCommit !== expectedCommit);
+  const evidence = expectedCommit
+    ? runtimeCommit === "unknown"
+      ? "commit SHA not available in environment"
+      : isStale
+        ? "runtime=" + runtimeCommit + " expected=" + expectedCommit
+        : "commit " + runtimeCommit + " matches expected"
+    : runtimeCommit === "unknown"
+      ? "EXPECTED_COMMIT_SHA not set and runtime commit SHA is unknown"
+      : "runtime commit " + runtimeCommit + "; EXPECTED_COMMIT_SHA not set";
+  return {
+    expected_commit_sha: expectedCommit || null,
+    runtime_commit_sha: runtimeCommit,
+    is_stale: isStale,
+    evidence
+  };
+}
+
 function normalizeDealChatText(value: unknown, maxLength: number, fallback = "") {
   const raw = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[<>]/g, "").trim();
   const normalized = raw.replace(/\s+/g, " ");
@@ -1497,6 +1522,7 @@ export function registerFrontendExperience(
     preview: {
       deployment_mode: deps.deploymentMode,
       is_demo_preview: deps.isDemoPreview,
+      deployment: deployFreshness(),
       public_label: deps.isDemoPreview ? "Demo / Preview" : "Configured runtime",
       guardrails: {
         payment_is_real: false,
@@ -7248,9 +7274,9 @@ export function registerFrontendExperience(
   app.get("/api/admin/demo-readiness", async (req: any, reply: any) => {
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
 
-    const runtimeCommit =
-      (process.env.RENDER_GIT_COMMIT || process.env.COMMIT_SHA || process.env.GIT_COMMIT || "").trim() || "unknown";
-    const expectedCommit = (process.env.EXPECTED_COMMIT_SHA || "").trim();
+    const freshness = deployFreshness();
+    const runtimeCommit = freshness.runtime_commit_sha;
+    const expectedCommit = freshness.expected_commit_sha || "";
 
     const blockers: string[] = [];
     const warnings: string[] = [];
@@ -7265,13 +7291,13 @@ export function registerFrontendExperience(
         deployFreshnessEvidence = "runtime=" + runtimeCommit + " expected=" + expectedCommit;
       } else if (runtimeCommit === "unknown") {
         warnings.push("runtime commit SHA is unknown");
-        deployFreshnessEvidence = "commit SHA not available in environment";
+        deployFreshnessEvidence = freshness.evidence;
       } else {
         deployFreshnessEvidence = "commit " + runtimeCommit + " matches expected";
       }
     } else {
       warnings.push("expected commit is not configured");
-      deployFreshnessEvidence = "EXPECTED_COMMIT_SHA not set";
+      deployFreshnessEvidence = freshness.evidence;
       if (runtimeCommit === "unknown") warnings.push("runtime commit SHA is unknown");
     }
 
@@ -7400,9 +7426,9 @@ export function registerFrontendExperience(
         runtime_started_at: _demoReadinessStartedAt
       },
       deploy_freshness: {
-        expected_commit_sha: expectedCommit || null,
-        runtime_commit_sha:  runtimeCommit,
-        is_stale:            isStale,
+        expected_commit_sha: freshness.expected_commit_sha,
+        runtime_commit_sha:  freshness.runtime_commit_sha,
+        is_stale:            freshness.is_stale,
         evidence:            deployFreshnessEvidence
       },
       database: {

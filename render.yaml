@@ -4,7 +4,7 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    autoDeploy: false
+    autoDeploy: true
     healthCheckPath: /health
     envVars:
       - key: APP_DEPLOYMENT_MODE

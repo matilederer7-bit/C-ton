@@ -2,6 +2,56 @@
 
 ---
 
+## Current update: 2026-05-24 (Live Demo Stale Assets Fix)
+
+### What failed
+- Live QA on `https://siton-demo-preview-atp1.onrender.com/app` returned `LIVE_QA_FAIL_STALE_ASSETS`.
+- `origin/master` was already at `16580ee design: apply C-ton visual system`, but the live service still served old `/app` assets.
+- Live CSS was missing the C-ton visual tokens (`#C65A1E`, `#1F7A4D`, `#FAF7F2`, `Heebo`) and still exposed old styling markers (`Gisha`, `#0f766e`).
+- Live JS still exposed old bundle markers (`siton_flow_v2`, `PendingTarget: "success"`) and did not include the new progress helper.
+- `/api/preview/meta` did not expose live commit/freshness evidence, so the deployed revision could not be identified from the public preview endpoint.
+
+### What was fixed
+- Re-enabled Render `autoDeploy` for the demo preview service so pushes to `master` can trigger a fresh deployment.
+- Added build-time cache busting for `/app/assets/styles.css` and `/app/assets/app.js` in the demo bundle shell.
+- Added deployment freshness metadata to `/api/preview/meta`, including runtime commit, expected commit, stale flag, and evidence.
+- Updated the app shell metadata from the old external title to `C-ton`.
+- Updated the frontend shell test expectation to the C-ton app shell metadata.
+- No state machine, DB, money, capture, refund, void, fee, or product UX logic was changed.
+
+### What was checked
+- Local repo on `master`, clean before work, with `HEAD=16580ee`.
+- `origin/master` pointed to `16580ee203793847299764bce26ca816eca4b857`.
+- `render.yaml`, `Dockerfile`, `scripts/build_demo_bundle.cjs`, `package.json`, `src/frontend_runtime.ts`, and `/app` asset routing were reviewed.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### What passed
+- Demo build regenerates `.demo_dist/frontend/index.html` with C-ton metadata and cache-busted CSS/JS URLs.
+- Preview metadata now has a public deployment freshness object.
+- Existing frontend smoke surfaces still hydrate on desktop and mobile.
+
+### What is open
+- The fix was pushed, but the live Render service still serves the old assets after repeated checks.
+- A manual Render redeploy or Blueprint sync is still required for `siton-demo-preview-atp1`; the service appears not to have auto-deployed from the push yet.
+- Re-run live QA after Render serves the new image/assets.
+
+### Progress
+- Stale asset fix implementation: 100%.
+- Push to `origin/master`: 100%.
+- Live post-redeploy QA: blocked on Render redeploy.
+- Overall progress: 88%.
+
+### Next step
+- In Render, manually redeploy or sync Blueprint for `siton-demo-preview-atp1`, then verify the live `/app` assets and `/api/preview/meta`.
+
+### Verdict
+`FIX_PUSHED_RENDER_MANUAL_REDEPLOY_REQUIRED`
+
+---
+
 ## Current update: 2026-05-20 (Render Demo Bootstrap Existing DB Hardening)
 
 ### What was completed

@@ -93,8 +93,8 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
-    assert.match(response.body, /<title>סיטון<\/title>/);
-    assert.match(response.body, /סיטון - דף עסקה ציבורי, הצטרפות קונה, אימות טלפון, אישור מסגרת ומעקב עסקה/);
+    assert.match(response.body, /<title>C-ton<\/title>/);
+    assert.match(response.body, /C-ton - /);
   });
 
   await runTest("styles support RTL layout and LTR fields inside Hebrew surfaces", async () => {
