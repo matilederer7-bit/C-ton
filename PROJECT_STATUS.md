@@ -2,6 +2,54 @@
 
 ---
 
+## Current update: 2026-05-24 (C-ton Visual Experience Rebuild)
+
+### What failed
+- The previous C-ton design implementation loaded technically, but visually still felt like the old UI with orange accents.
+- `/app` did not feel like a real product entry point, the public deal page did not make the live group-deal progress central enough, and seller surfaces still read too much like dry operational lists.
+
+### What was fixed
+- Rebuilt `/app` into a product home with a large C-ton hero, trust points, live demo deal card, product cards, and "how it works" flow.
+- Rebuilt the public deal page into a two-column live deal layout with product visual, prominent progress card, sticky join card, quantity stepper, delivery cards, authorization-hold summary, trust box, and sharing.
+- Rebuilt OTP, authorization-hold, confirmation, and buyer tracking surfaces around clear trust language: authorization hold only, no real charge before success.
+- Rebuilt the seller dashboard into a warm command center with KPI cards, attention area, and wide deal cards instead of a table-first surface.
+- Rebuilt the seller live deal view with six KPI cards, large progress card, deterministic "if this ends now" outcome, and controlled actions only.
+- Updated visual smoke/refinement assertions to protect the new C-ton layout, tokens, progress helper, Heebo, no Gisha, no old teal, and mobile smoke routes.
+- Fixed a clear mobile usability break: 390px header/hero/deal title overflow and clipped text.
+
+### What was checked
+- Visual browser screenshots were taken locally for `/app`, public deal, seller dashboard, seller live deal, 390px mobile, and 768px tablet.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### What passed
+- Desktop `/app` now presents C-ton as a real live group-deal product, not a link list.
+- Public deal page shows large progress numbers and a status sentence, with a strong join card and authorization-hold trust copy.
+- Seller dashboard shows KPI cards and deal cards, not a table-first admin panel.
+- Seller live deal page shows metrics, progress, and a clear outcome card.
+- 390px and 768px layouts render one-column without obvious horizontal clipping in the checked surfaces.
+
+### What is open
+- Live Render redeploy and live QA still need to run after this push.
+- Some deeper legacy internal/legal/admin copy still keeps historical "Siton" naming in backend/docs/tests where it describes fee/model internals; external user-facing shell and rebuilt surfaces now use C-ton.
+
+### Progress
+- Visual rebuild implementation: 100%.
+- Local visual QA: 100%.
+- Required local tests: 100%.
+- Live post-deploy QA: pending.
+- Overall progress: 94%.
+
+### Next step
+- Push this commit, let Render redeploy, then run live QA on `https://siton-demo-preview-atp1.onrender.com/app`.
+
+### Verdict
+`DESIGN_REBUILD_READY_FOR_LIVE_QA`
+
+---
+
 ## Current update: 2026-05-24 (Live Demo Stale Assets Fix)
 
 ### What failed

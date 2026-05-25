@@ -281,9 +281,9 @@ function assertHealthyHebrewDom(dom: string, label: string) {
 
 async function assertFrontendAssetsHealthy() {
   const checks = [
-    { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "/app/assets/app.js", "/app/assets/styles.css"] },
-    { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "פתיחת עסקה חדשה", "אזור מוכר"] },
-    { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "direction"] }
+    { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "<title>C-ton</title>", "/app/assets/app.js", "/app/assets/styles.css"] },
+    { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "renderProgressBlock", "פתחו עסקה חדשה", "C-ton"] },
+    { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "Heebo", "#C65A1E", "#FAF7F2"] }
   ];
 
   for (const check of checks) {
@@ -293,6 +293,10 @@ async function assertFrontendAssetsHealthy() {
     assert.match(response.headers.get("content-type") || "", new RegExp(check.contentType));
     for (const expected of check.expect) {
       assert.match(`${response.headers.get("content-type") || ""}\n${text}`, new RegExp(escapeRegex(expected)), `${check.path} missing ${expected}`);
+    }
+    if (check.path === "/app/assets/styles.css") {
+      assert.doesNotMatch(text, /Gisha/);
+      assert.doesNotMatch(text, /#0f766e/i);
     }
     if (check.path !== "/app/assets/styles.css") {
       assertHealthyHebrewDom(text, check.path);
@@ -352,17 +356,17 @@ async function main() {
       {
         name: "home",
         path: "/app",
-        expect: ["סיטון", "פתיחת עסקה חדשה", "ניהול העסקאות שלי", "אזור מוכר"]
+        expect: ["C-ton", "קונים יחד. משלמים רק כשזה קורה.", "פתחו עסקה חדשה", "צפו בדמו חי"]
       },
       {
         name: "public deal",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "deal-hero-layout", "cta-panel", "נקודת חלוקה מרכז העיר", "פתיחת קישור מיקום"]
+        expect: ["עסקת smoke לדפדפן", "cton-deal-page", "cton-join-card", "נקודת חלוקה מרכז העיר", "פתיחת קישור מיקום"]
       },
       {
         name: "seller workspace",
         path: "/app/seller",
-        expect: ["עסקת smoke לדפדפן", "workspace-focus-grid", "seller-board-section"]
+        expect: ["עסקת smoke לדפדפן", "cton-seller-dashboard", "cton-all-deals"]
       },
       {
         name: "seller create",
@@ -372,12 +376,12 @@ async function main() {
       {
         name: "seller deal",
         path: `/app/seller/deals/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "seller-deal-control-grid", "שליח עד הבית"]
+        expect: ["עסקת smoke לדפדפן", "cton-seller-live", "אם זה יסתיים עכשיו"]
       },
       {
         name: "buyer tracking",
         path: `/app/track/${joined.participantId}`,
-        expect: [joined.participantId, "tracking-focus-grid", "journey-step"]
+        expect: ["cton-tracking-page", "ההצטרפות שלך", "לא בוצע חיוב בפועל"]
       },
       {
         name: "admin dashboard",
@@ -400,17 +404,17 @@ async function main() {
       {
         name: "home mobile",
         path: "/app",
-        expect: ["סיטון", "פתיחת עסקה חדשה", "ניהול העסקאות שלי"]
+        expect: ["C-ton", "קונים יחד. משלמים רק כשזה קורה.", "פתחו עסקה חדשה"]
       },
       {
         name: "public deal mobile",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "cta-panel", "נקודת חלוקה מרכז העיר"]
+        expect: ["עסקת smoke לדפדפן", "cton-join-card", "נקודת חלוקה מרכז העיר"]
       },
       {
         name: "seller workspace mobile",
         path: "/app/seller",
-        expect: ["workspace-focus-grid", "seller-board-section"]
+        expect: ["cton-seller-dashboard", "cton-all-deals"]
       },
       {
         name: "seller create mobile",
@@ -420,12 +424,12 @@ async function main() {
       {
         name: "seller deal mobile",
         path: `/app/seller/deals/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "seller-deal-control-grid"]
+        expect: ["עסקת smoke לדפדפן", "cton-seller-live"]
       },
       {
         name: "buyer tracking mobile",
         path: `/app/track/${joined.participantId}`,
-        expect: [joined.participantId, "tracking-focus-grid"]
+        expect: ["cton-tracking-page", "ההצטרפות שלך"]
       },
       {
         name: "admin dashboard mobile",

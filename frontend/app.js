@@ -146,7 +146,7 @@ const UX_REGRESSION_COPY = [
   "עריכה מלאה רק בטיוטה",
   "אישור מסגרת בלבד",
   "גישה תפעולית",
-  "מרכז התפעול של סיטון",
+  "C-ton Admin",
   "מרכז הפצה למדידה, ייחוס ושיתוף לינקים",
   "מרכז הפצה",
   "מזהה ישות",
@@ -276,6 +276,7 @@ document.addEventListener("click", (event) => {
   if (actionTarget) {
     event.preventDefault();
     const action = actionTarget.getAttribute("data-inline-action");
+    if (action === "qty-step") adjustJoinQty(actionTarget.dataset.delta);
     if (action === "restart-flow") restartFlow();
     if (action === "reset-otp") resetOtp();
     if (action === "seller-clone") void cloneSellerDeal(actionTarget.dataset.dealId);
@@ -341,6 +342,10 @@ document.addEventListener("change", (event) => {
   if (target.name === "sellerImage") void handleSellerImageSelection(target);
   if (target.name in state.form && target.type === "checkbox") {
     state.form[target.name] = target.checked ? "on" : "";
+  }
+  if (target.name in state.form && target.type === "radio" && target.checked) {
+    state.form[target.name] = target.value;
+    render();
   }
 });
 
@@ -631,11 +636,11 @@ async function submitRecoveryRequest(participantId) {
 }
 
 async function loadHome() {
-  await busy("טוען את האתר הראשי של סיטון...", async () => {
+  await busy("טוען את האתר הראשי של C-ton...", async () => {
     state.homePayload = await api("/api/site/home");
     state.sellerAuth = state.homePayload?.site?.seller_auth || state.sellerAuth;
     syncSellerContext(state.homePayload?.site?.seller_context || null);
-  }, "לא הצלחנו לטעון את האתר הראשי של סיטון.");
+  }, "לא הצלחנו לטעון את האתר הראשי של C-ton.");
 }
 
 async function loadSeller() {
@@ -1636,7 +1641,7 @@ function clearSellerProductImage() {
 
 async function shareLink(url, title) {
   const shareUrl = absoluteUrl(url || location.pathname);
-  const shareTitle = title || "עסקה בסיטון";
+  const shareTitle = title || "עסקה ב-C-ton";
   if (navigator.share) {
     try {
       await navigator.share({ title: shareTitle, url: shareUrl });
@@ -1940,7 +1945,7 @@ function getRouteLabel() {
 
 function getRouteSummary() {
   const summaries = {
-    home: "שער העבודה הראשי למוכר, לקונה דרך לינק ישיר, ולמשטחי התפעול.",
+    home: "עסקה קבוצתית חיה, חמה ושקופה.",
     deal: "דף עסקה ציבורי עם בחירת כמות, מצב עסקה והצטרפות מסודרת.",
     otp: "אימות טלפון לפני המשך למסלול ההצטרפות.",
     payment: "שמירת ההצטרפות והמשך למסלול אישור המסגרת.",
@@ -1956,12 +1961,12 @@ function getRouteSummary() {
     "admin-deal": "פרופיל עסקה לתפעול, בקרה ותמיכה.",
     "admin-participant": "פרופיל משתתף לתפעול, תמיכה ואבחון חוצה מערכות.",
     "admin-user": "פרופיל משתמש לתפעול, תמיכה וחקירה.",
-    terms: "תנאי השימוש של סיטון.",
-    privacy: "מדיניות הפרטיות של סיטון.",
-    refunds: "מדיניות ביטולים והחזרים של סיטון.",
+    terms: "תנאי השימוש של C-ton.",
+    privacy: "מדיניות הפרטיות של C-ton.",
+    refunds: "מדיניות ביטולים והחזרים של C-ton.",
     contact: "פרטי יצירת קשר ושכבת אמון ציבורית."
   };
-  return summaries[state.route.name] || "ממשק סיטון מיושר ל-RTL, מובייל ונגישות כברירת מחדל.";
+  return summaries[state.route.name] || "ממשק C-ton מיושר ל-RTL, מובייל ונגישות כברירת מחדל.";
 }
 
 function renderPreviewStrip() {
@@ -1977,12 +1982,12 @@ function renderPreviewStrip() {
 
 function renderCurrentRoute() {
   const route = state.route;
-  if (route.name === "home") return renderHome();
-  if (route.name === "deal") return renderDealPage();
-  if (route.name === "otp") return renderOtpPage(route.dealId);
-  if (route.name === "payment") return renderPaymentPage(route.dealId);
-  if (route.name === "confirmation") return renderConfirmationPage(route.dealId);
-  if (route.name === "tracking") return renderTrackingPage();
+  if (route.name === "home") return renderCtonHome();
+  if (route.name === "deal") return renderCtonDealPage();
+  if (route.name === "otp") return renderCtonOtpPage(route.dealId);
+  if (route.name === "payment") return renderCtonPaymentPage(route.dealId);
+  if (route.name === "confirmation") return renderCtonConfirmationPage(route.dealId);
+  if (route.name === "tracking") return renderCtonTrackingPage();
   if (route.name === "recovery") return renderRecoveryPage();
   if (route.name === "terms") return renderTermsPage();
   if (route.name === "privacy") return renderPrivacyPage();
@@ -1991,9 +1996,9 @@ function renderCurrentRoute() {
   if (route.name === "seller-terms") return renderSellerTermsPage();
   if (route.name === "distributor-terms") return renderDistributorTermsPage();
   if (route.name === "contact") return renderContactPage();
-  if (route.name === "seller") return renderSellerPage();
+  if (route.name === "seller") return renderCtonSellerPage();
   if (route.name === "seller-new") return renderSellerNewPage();
-  if (route.name === "seller-deal") return renderSellerDealPage();
+  if (route.name === "seller-deal") return renderCtonSellerDealPage();
   if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
   if (route.name === "admin-support") return renderAdminSupportPage();
@@ -2003,16 +2008,462 @@ function renderCurrentRoute() {
   return renderEmptyState("העמוד לא נמצא", "הקישור הזה לא קיים או שכבר אינו זמין.");
 }
 
+function icon(name) {
+  const icons = {
+    users: "U",
+    trend: "↗",
+    clock: "◷",
+    shield: "✓",
+    card: "▣",
+    package: "▤",
+    share: "↗",
+    check: "✓",
+    alert: "!",
+    lock: "▣"
+  };
+  return `<span class="cton-icon" aria-hidden="true">${icons[name] || "•"}</span>`;
+}
+
+function progressStatusSentence(stateName, currentUnits, targetUnits, atRiskUnits) {
+  return buildProgressStatus({ stateName, currentUnits, targetUnits, atRiskUnits });
+}
+
+function renderCtonProgressCard({ title = "העסקה מתקדמת", stateName, currentUnits, targetUnits, maxUnits, deadline, percentValue, atRiskUnits }) {
+  const current = Math.max(0, Number(currentUnits || 0));
+  const target = Math.max(1, Number(targetUnits || 1));
+  const pct = Math.max(0, Math.min(100, Number(percentValue ?? ((current / target) * 100))));
+  const remainingToTarget = Math.max(0, target - current);
+  const remainingCapacity = Math.max(0, Number(maxUnits || target) - current);
+  return `
+    <section class="cton-card cton-progress-card">
+      <div class="cton-section-head">
+        <h2>${esc(title)}</h2>
+        <span class="cton-live-dot">${icon("trend")} בזמן אמת</span>
+      </div>
+      <div class="cton-progress-numbers">
+        <strong>${num(current)} / ${num(target)} יחידות</strong>
+        <span>${percent(pct)}</span>
+      </div>
+      ${renderProgressBlock({ stateName, currentUnits: current, targetUnits: target, percentValue: pct, atRiskUnits })}
+      <p class="cton-progress-sentence">${progressStatusSentence(stateName, current, target, atRiskUnits)}</p>
+      <div class="cton-progress-facts">
+        <span>מינימום: ${num(target)}</span>
+        <span>מקסימום: ${num(maxUnits || target)}</span>
+        <span>נותרו: ${num(remainingCapacity)}</span>
+        <span>${deadline ? `דדליין: ${dt(deadline)}` : `ליעד: ${num(remainingToTarget)}`}</span>
+      </div>
+    </section>
+  `;
+}
+
+function renderCtonHome() {
+  return `
+    <section class="cton-home-hero">
+      <div class="cton-hero-copy">
+        <h1>C-ton</h1>
+        <h2>קונים יחד. משלמים רק כשזה קורה.</h2>
+        <p>הופכים ביקוש מפוזר לעסקה אמיתית, בלי לחייב אף אחד לפני שהקבוצה מצליחה.</p>
+        <div class="cton-trust-list">
+          <span>${icon("users")} מצטרפים לעסקה</span>
+          <span>${icon("trend")} רואים את ההתקדמות בזמן אמת</span>
+          <span>${icon("shield")} החיוב מתבצע רק אם העסקה מצליחה</span>
+        </div>
+        <div class="cton-actions">
+          <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">פתחו עסקה חדשה</a>
+          <a class="button secondary" href="/app/seller" data-nav="/app/seller">צפו בדמו חי</a>
+        </div>
+      </div>
+      <aside class="cton-live-demo-card">
+        <span class="badge pending">עסקה חיה</span>
+        <h3>מארז קפה שכונתי</h3>
+        <div class="cton-demo-price">₪79</div>
+        ${renderProgressBlock({ stateName: "PendingTarget", currentUnits: 37, targetUnits: 50, percentValue: 74 })}
+        <p class="cton-progress-sentence">עוד 13 יחידות והעסקה יוצאת לפועל</p>
+        <div class="cton-activity-line">${icon("users")} 3 הצטרפו בשעה האחרונה</div>
+        <a class="button primary" href="/app/seller" data-nav="/app/seller">הצטרפו לעסקה</a>
+      </aside>
+    </section>
+    <section class="cton-home-cards">
+      <article class="cton-card"><h2>לא קונים לבד</h2><p>העסקה מתקדמת רק כשמספיק אנשים מצטרפים.</p></article>
+      <article class="cton-card"><h2>לא מחויבים לפני הזמן</h2><p>מתבצעת תפיסת מסגרת בלבד עד שהעסקה מצליחה.</p></article>
+      <article class="cton-card"><h2>הכול גלוי</h2><p>היעד, הכמות, הזמן והסטטוס מוצגים בכל רגע.</p></article>
+    </section>
+    <section class="cton-card cton-how">
+      <h2>איך זה עובד</h2>
+      <div class="cton-steps">
+        <article><span>1</span>${icon("package")}<strong>יוצרים לינק לעסקה</strong></article>
+        <article><span>2</span>${icon("users")}<strong>אנשים מצטרפים ומשתפים</strong></article>
+        <article><span>3</span>${icon("check")}<strong>אם היעד מושג, העסקה יוצאת לפועל</strong></article>
+      </div>
+    </section>
+    <footer class="cton-mini-footer">
+      <strong>C-ton</strong>
+      <a href="/app/terms" data-nav="/app/terms">תקנון</a>
+      <a href="/app/privacy" data-nav="/app/privacy">מדיניות פרטיות</a>
+      <a href="/app/terms" data-nav="/app/terms">תנאי שימוש</a>
+    </footer>
+  `;
+}
+
+function renderCtonDealPage() {
+  if (!state.dealPayload && state.loading) return "";
+  if (!state.dealPayload) return renderEmptyState("אי אפשר להציג את העסקה", "לא הצלחנו לטעון את פרטי העסקה שביקשת.");
+  const { deal, metrics, availability } = state.dealPayload;
+  const dealCopy = getDealCopy(deal.state);
+  const qty = Math.max(1, Number(state.form.qty || 1));
+  const deliveryOptions = getDeliveryOptions(state.dealPayload);
+  const selectedDelivery = getSelectedDeliveryOption(state.dealPayload, state.form.deliveryOptionId);
+  const holdTotal = calcHoldTotal(state.dealPayload, qty, selectedDelivery);
+  const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
+  const cta = availability.canJoin
+    ? remainingToTarget > 0 ? `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד` : "הצטרפו עכשיו – העסקה יוצאת לפועל"
+    : "העסקה כבר סגורה";
+  return `
+    <section class="cton-deal-page">
+      <article class="cton-deal-main">
+        <div class="cton-product-image">
+          ${getPrimaryDealImage(deal)?.url ? `<img src="${esc(getPrimaryDealImage(deal).url)}" alt="${esc(deal.title)}" />` : `<div>${icon("package")}<strong>תמונת מוצר</strong></div>`}
+        </div>
+        <section class="cton-card cton-deal-intro">
+          <span class="badge ${dealCopy.badgeTone}">${esc(dealCopy.label)}</span>
+          <h1>${esc(deal.title)}</h1>
+          <p class="muted">${esc(availability.message || dealCopy.description)}</p>
+          <div class="cton-meta-row">
+            <span>${icon("users")} ${esc(deal.seller?.business_name || "מוכר C-ton")}</span>
+            <span>${icon("clock")} ${dt(deal.deadline)}</span>
+          </div>
+        </section>
+        ${renderCtonProgressCard({
+          stateName: deal.state,
+          currentUnits: metrics.joined_units,
+          targetUnits: deal.threshold_units,
+          maxUnits: deal.max_units,
+          deadline: deal.deadline,
+          percentValue: metrics.progress_to_minimum_pct ?? ((Number(metrics.joined_units || 0) / Math.max(1, Number(deal.threshold_units || 1))) * 100)
+        })}
+        <section class="cton-card">
+          <h2>מה מקבלים</h2>
+          <p>${esc(deal.description || "דף העסקה מרכז את הפרטים, הכמות, קצב ההצטרפות ואופן הקבלה במקום אחד ברור.")}</p>
+        </section>
+        <section class="cton-card cton-share-box">
+          ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
+        </section>
+      </article>
+      <aside class="cton-join-card">
+        <h2>הצטרפות לעסקה</h2>
+        <div class="cton-unit-price"><strong>${currency(deal.price_per_unit)}</strong><span>ליחידה</span></div>
+        <form data-action="start-join" class="stack">
+          <div class="cton-stepper" aria-label="בחירת כמות">
+            <button type="button" data-inline-action="qty-step" data-delta="-1">−</button>
+            <input id="qty" name="qty" type="number" min="1" max="${Math.max(1, metrics.remaining_units)}" value="${qty}" />
+            <button type="button" data-inline-action="qty-step" data-delta="1">+</button>
+          </div>
+          <div class="cton-delivery-options">
+            ${deliveryOptions.map((option) => `
+              <label class="cton-delivery-option ${selectedDelivery?.option_id === option.option_id ? "selected" : ""}">
+                <input type="radio" name="deliveryOptionId" value="${esc(option.option_id)}" ${selectedDelivery?.option_id === option.option_id ? "checked" : ""} />
+                <strong>${esc(formatDeliveryTypeLabel(option.option_type))}</strong>
+                <span>${esc(option.label)} · ${currency(option.cost || 0)}</span>
+                ${renderDeliveryOptionDetails(option)}
+              </label>
+            `).join("")}
+          </div>
+          <div class="cton-price-summary">
+            <span>מחיר יחידה <strong>${currency(deal.price_per_unit)}</strong></span>
+            <span>כמות <strong>${num(qty)}</strong></span>
+            <span>משלוח <strong>${currency(selectedDelivery?.cost || 0)}</strong></span>
+            <span class="total">סך הכול לתפיסת מסגרת <strong>${currency(holdTotal)}</strong></span>
+          </div>
+          <div class="cton-trust-box">
+            ${icon("shield")}
+            <p>הסכום יתפוס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד שהעסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.</p>
+          </div>
+          <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${cta}</button>
+        </form>
+        ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
+      </aside>
+    </section>
+    ${renderDealChatSection(deal)}
+  `;
+}
+
+function renderCtonOtpPage(dealId) {
+  const flow = getFlow(dealId);
+  if (!flow) return renderRecoveryState("אין מסלול פתוח לעסקה הזו", "כדי להמשיך לאימות קצר צריך להתחיל מדף העסקה.", `/app/deal/${encodeURIComponent(dealId)}`);
+  const expired = flow.otpExpiresAt && Date.now() > new Date(flow.otpExpiresAt).getTime();
+  return `
+    <section class="cton-center-screen">
+      <article class="cton-card cton-auth-card">
+        <div class="cton-icon-circle">${icon("lock")}</div>
+        <h1>${flow.otpSessionId ? "הזינו את הקוד שקיבלתם" : "אימות קצר כדי להצטרף"}</h1>
+        <p>נשלח לך קוד חד־פעמי כדי לשייך את ההצטרפות לעסקה.</p>
+        <form data-action="otp-start" class="stack">
+          <div class="field"><label for="phone">טלפון או אימייל</label><input id="phone" name="phone" type="tel" data-dir="ltr" value="${esc(flow.phone || state.form.phone || "")}" placeholder="0501234567" /></div>
+          <button class="primary" type="submit">שלחו לי קוד</button>
+        </form>
+        ${flow.otpSessionId ? `
+          <form data-action="otp-verify" class="stack">
+            <div class="field"><label for="code">קוד אימות</label><input class="cton-code-input" id="code" name="code" type="text" data-dir="ltr" inputmode="numeric" value="${esc(state.form.code || "")}" placeholder="123456" /></div>
+            <p class="small muted">הקוד משמש רק לאימות ההצטרפות. אין צורך בסיסמה.</p>
+            ${expired ? `<div class="error-card">תוקף הקוד פג, בקשו קוד חדש.</div>` : ""}
+            <button class="primary" type="submit" ${expired ? "disabled" : ""}>אמת והמשך</button>
+          </form>
+        ` : ""}
+      </article>
+    </section>
+  `;
+}
+
+function renderCtonPaymentPage(dealId) {
+  const flow = getFlow(dealId);
+  if (!flow) return renderRecoveryState("אין מסלול שמור להמשך", "כדי להגיע לאישור מסגרת צריך להתחיל מדף העסקה.", `/app/deal/${encodeURIComponent(dealId)}`);
+  if (!flow.otpVerified) return renderRecoveryState("צריך להשלים קודם אימות קצר", "הכמות נשמרה, אבל לפני אישור המסגרת צריך להשלים את האימות.", `/app/join/${encodeURIComponent(dealId)}/otp`);
+  const deal = state.dealPayload?.deal;
+  const deliveryCost = Number(flow.deliveryCost || 0);
+  const holdTotal = Number(flow.estimatedTotal || ((flow.qty || 0) * (deal?.price_per_unit || flow.unitPrice || 0) + deliveryCost));
+  return `
+    <section class="cton-center-screen">
+      <article class="cton-card cton-payment-card">
+        <span class="eyebrow">הצטרפות לעסקה</span>
+        <h1>אישור הצטרפות לעסקה</h1>
+        <div class="cton-payment-summary">
+          <h2>${esc(deal?.title || flow.dealTitle || "עסקה")}</h2>
+          <div class="summary-grid">
+            <div><span>כמות</span><strong>${num(flow.qty || 0)} יח'</strong></div>
+            <div><span>אופן קבלה</span><strong>${esc(flow.deliveryMethodLabel || "לא נבחר")}</strong></div>
+            <div><span>משלוח</span><strong>${currency(deliveryCost)}</strong></div>
+          </div>
+          <div class="cton-hold-total"><strong>${currency(holdTotal)}</strong><span class="badge pending">תפיסת מסגרת בלבד</span></div>
+        </div>
+        <div class="cton-trust-box">${icon("shield")}<p>לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה. אם העסקה לא תיסגר, מסגרת האשראי משתחררת אוטומטית ללא חיוב.</p></div>
+        <form data-action="pay" class="stack">
+          <div class="cton-card-frame">פרטי האשראי מוזנים ברכיב המאובטח של ספק הסליקה</div>
+          <div class="field"><label for="payerName">שם למשלם/ת</label><input id="payerName" name="payerName" type="text" data-dir="rtl" value="${esc(state.form.payerName)}" autocomplete="name" /></div>
+          <input type="hidden" id="providerPaymentMethodId" name="providerPaymentMethodId" value="" />
+          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר תפיסת מסגרת בלבד.</span></label>
+          <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
+          <p class="small muted">פרטי האשראי אינם נשמרים ב־C-ton.</p>
+        </form>
+      </article>
+    </section>
+  `;
+}
+
+function renderCtonConfirmationPage(dealId) {
+  const flow = getFlow(dealId);
+  if (!flow) return renderRecoveryState("אין סשן שמור למסך הזה", "אפשר לחזור לעסקה ולהתחיל מסלול חדש.", `/app/deal/${encodeURIComponent(dealId)}`);
+  if (!flow.participantId) return renderRecoveryState("עדיין אין אישור סופי להצגה", "כדי להגיע למסך האישור צריך לסיים קודם את אישור המסגרת.", `/app/join/${encodeURIComponent(dealId)}/payment`);
+  const trackingHref = flow.trackingUrl || `/app/track/${encodeURIComponent(flow.participantId)}`;
+  const current = Number(state.dealPayload?.metrics?.joined_units || flow.currentUnits || 37);
+  const target = Number(state.dealPayload?.deal?.threshold_units || flow.targetUnits || 50);
+  return `
+    <section class="cton-center-screen">
+      <article class="cton-card cton-success-card">
+        <div class="cton-success-icon">${icon("check")}</div>
+        <h1>הצטרפת בהצלחה</h1>
+        <p>המסגרת נתפסה. לא בוצע חיוב בפועל. החיוב יתבצע רק אם העסקה תיסגר בהצלחה.</p>
+        ${renderCtonProgressCard({ title: "העסקה ממשיכה לזוז", stateName: "PendingTarget", currentUnits: current, targetUnits: target, percentValue: (current / Math.max(1, target)) * 100 })}
+        <div class="cton-share-highlight">
+          <h2>עזרת לעסקה להתקדם</h2>
+          <p>שתפו עם חברים כדי שנגיע ליעד ביחד.</p>
+          ${renderShareActions(trackingHref, flow.dealTitle || "מעקב השתתפות ב-C-ton")}
+        </div>
+        <a class="button secondary" href="${trackingHref}" data-nav="${trackingHref}">מעבר למסך המעקב שלי</a>
+      </article>
+    </section>
+  `;
+}
+
+function renderCtonTrackingPage() {
+  if (!state.trackingPayload && state.loading) return "";
+  if (!state.trackingPayload) return renderEmptyState("לא מצאנו את ההשתתפות", "כדאי לבדוק את הקישור או לחזור לעסקה.");
+  const tracking = state.trackingPayload.tracking;
+  const dealCopy = getDealCopy(tracking.deal_state);
+  const money = getLabel(MONEY_COPY, tracking.money_state);
+  const progress = tracking.progress || {};
+  const next = nextTrackingStep(tracking);
+  const isCompleted = tracking.deal_state === "Completed";
+  const isFailed = ["Failed", "Cancelled"].includes(tracking.deal_state);
+  const moneyBadge = isCompleted ? "חויב בהצלחה" : isFailed ? "העסקה נכשלה" : "מסגרת נתפסה";
+  const moneyText = isCompleted
+    ? "העסקה הושלמה בהצלחה. בוצע חיוב בפועל."
+    : isFailed
+      ? "לא בוצע חיוב. המסגרת שוחררה."
+      : "לא בוצע חיוב בפועל.";
+  return `
+    <section class="cton-tracking-page">
+      <header class="cton-card cton-tracking-header">
+        <div>
+          <span class="badge ${dealCopy.badgeTone}">${esc(dealCopy.label)}</span>
+          <h1>${esc(tracking.deal_title)}</h1>
+          <p class="muted">מעודכן ${relativeTime(tracking.live?.generated_at || state.trackingPayload.generated_at)}</p>
+        </div>
+      </header>
+      <section class="cton-card cton-status-hero">
+        <h2>${esc(next.title)}</h2>
+        <p>${esc(next.summary || next.detail)}</p>
+        ${renderCtonProgressCard({
+          title: "סטטוס העסקה",
+          stateName: tracking.deal_state,
+          currentUnits: progress.current_units || 0,
+          targetUnits: progress.target_units || tracking.threshold_units || 1,
+          maxUnits: progress.max_units || tracking.max_units,
+          deadline: tracking.deadline,
+          percentValue: progress.progress_to_minimum_pct || 0
+        })}
+      </section>
+      <section class="cton-card cton-personal-card">
+        <h2>ההצטרפות שלך</h2>
+        <div class="cton-data-grid">
+          <div><span>כמות</span><strong>${num(tracking.qty)} יח'</strong></div>
+          <div><span>אופן קבלה</span><strong>${esc(tracking.delivery_method_label || "לא זמין")}</strong></div>
+          <div><span>סכום לתפיסת מסגרת</span><strong>${currency(tracking.estimated_total)}</strong></div>
+          <div><span>מצב כספי</span><strong>${esc(money[0])}</strong></div>
+        </div>
+        <div class="cton-trust-box ${isCompleted ? "success" : isFailed ? "danger" : ""}">
+          <span class="badge ${isCompleted ? "success" : isFailed ? "danger" : "pending"}">${moneyBadge}</span>
+          <p>${moneyText}</p>
+        </div>
+      </section>
+      <section class="cton-card cton-next-actions">
+        <h2>מה אפשר לעשות עכשיו</h2>
+        ${tracking.deal_state === "Charging" ? `<p>אין צורך לעשות דבר. המערכת מבצעת את התהליך.</p>` : isCompleted ? `<p>פרטי אספקה וקבלה יופיעו כאן.</p>` : isFailed ? `<p>אין המשך פעולה. לא חויבת.</p>` : `<p>שתפו כדי לעזור לעסקה לצאת לפועל.</p>${renderShareActions(`/app/deal/${tracking.deal_id}`, tracking.deal_title)}`}
+      </section>
+    </section>
+  `;
+}
+
+function renderCtonSellerPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) return renderSellerAuthGate();
+  const payload = state.sellerPayload?.seller_surface;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("אזור המוכר לא זמין", "לא הצלחנו לטעון עכשיו את אזור המוכר.");
+  const profile = payload.seller_profile || currentSellerContext();
+  const deals = Array.isArray(payload.deals) ? payload.deals : [];
+  const activeDeals = deals.filter((d) => ["PendingTarget", "TargetReached", "Charging", "CompletionWindow"].includes(d.state));
+  const riskDeals = deals.filter((d) => ["CompletionWindow", "Charging"].includes(d.state));
+  const totalUnits = deals.reduce((sum, d) => sum + Number(d.metrics?.joined_units || 0), 0);
+  const potentialGross = deals.reduce((sum, d) => sum + Number(d.price_per_unit || 0) * Number(d.metrics?.joined_units || 0), 0);
+  return `
+    <section class="cton-seller-dashboard">
+      <header class="cton-seller-header">
+        <div>
+          <span class="eyebrow">Command Center</span>
+          <h1>${esc(normalizeSellerDisplayName(profile.seller_id, profile.display_name))}</h1>
+          <p class="muted">תמונת מצב עסקית חמה וברורה, בלי טבלאות יבשות.</p>
+        </div>
+        <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">צור עסקה חדשה</a>
+      </header>
+      <section class="cton-kpi-grid">
+        <article class="cton-kpi">${icon("package")}<span>עסקאות פעילות</span><strong>${num(activeDeals.length)}</strong></article>
+        <article class="cton-kpi">${icon("users")}<span>יחידות בהצטרפות</span><strong>${num(totalUnits)}</strong></article>
+        <article class="cton-kpi">${icon("trend")}<span>ברוטו פוטנציאלי</span><strong>${currency(potentialGross)}</strong></article>
+        <article class="cton-kpi warning">${icon("alert")}<span>עסקאות בסיכון</span><strong>${num(riskDeals.length)}</strong></article>
+      </section>
+      ${riskDeals.length ? `<section class="cton-card cton-attention"><h2>דורש תשומת לב</h2>${riskDeals.map(renderCtonSellerDealCard).join("")}</section>` : ""}
+      <section class="cton-card cton-all-deals">
+        <h2>כל העסקאות</h2>
+        <div class="cton-deal-list">${deals.length ? deals.map(renderCtonSellerDealCard).join("") : `<div class="empty-surface">אין עדיין עסקאות להצגה.</div>`}</div>
+      </section>
+    </section>
+  `;
+}
+
+function renderCtonSellerDealCard(item) {
+  const progressPct = sellerDealProgressPct(item.metrics, item.threshold_units);
+  const chargedUnits = Number(item.metrics?.charged_units ?? item.charged_units ?? 0);
+  const pendingUnits = Number(item.metrics?.pending_units ?? item.pending_units ?? Math.max(0, Number(item.metrics?.joined_units || 0) - chargedUnits));
+  const notChargedUnits = Number(item.metrics?.not_charged_units ?? item.not_charged_units ?? 0);
+  const volume = Number(item.price_per_unit || 0) * Number(item.metrics?.joined_units || 0);
+  const image = getPrimaryDealImage(item);
+  return `
+    <article class="cton-seller-deal-card ${item.state === "CompletionWindow" ? "warning" : ""} ${item.state === "Failed" ? "failed" : ""}">
+      ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(item.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
+      <div class="cton-seller-deal-main">
+        <h3>${esc(item.title)}</h3>
+        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span>
+        ${renderProgressBlock({ stateName: item.state, currentUnits: item.metrics?.joined_units || 0, targetUnits: item.threshold_units, percentValue: progressPct, atRiskUnits: pendingUnits })}
+      </div>
+      <div class="cton-seller-money">
+        <strong>${currency(volume)}</strong>
+        ${item.state === "Failed" ? `<p>זה הכסף שלא נכנס</p>` : ""}
+        <div class="cton-unit-states">
+          <span class="text-success">מחויב: ${num(chargedUnits)}</span>
+          <span class="text-warning">בהמתנה: ${num(pendingUnits)}</span>
+          <span class="text-muted">לא חויב: ${num(notChargedUnits)}</span>
+        </div>
+        <div class="cton-actions compact">
+          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">כניסה לעסקה</a>
+          <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתק לינק</button>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+function renderCtonSellerDealPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) return renderSellerAuthGate();
+  const payload = state.sellerDealPayload;
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("ניהול העסקה לא זמין", "לא הצלחנו לטעון עכשיו את מסך ניהול העסקה.");
+  const deal = payload.deal;
+  const copy = getDealCopy(deal.state);
+  const snapshot = summarizeSellerParticipants(payload.participants);
+  const volume = Number(deal.price_per_unit || 0) * Number(deal.metrics?.joined_units || 0);
+  const progressPct = sellerDealProgressPct(deal.metrics, deal.threshold_units);
+  const willSucceed = Number(deal.metrics?.joined_units || 0) >= Number(deal.threshold_units || 0);
+  const outcomeTone = willSucceed ? "success" : "danger";
+  const image = getPrimaryDealImage(deal);
+  return `
+    <section class="cton-seller-live">
+      <header class="cton-card cton-live-header">
+        ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(deal.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
+        <div><h1>${esc(deal.title)}</h1><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><p class="muted">מעודכן לפני רגע</p></div>
+      </header>
+      <section class="cton-kpi-grid six">
+        <article class="cton-kpi"><span>כמות נוכחית</span><strong>${num(deal.metrics?.joined_units || 0)}</strong></article>
+        <article class="cton-kpi"><span>מינימום</span><strong>${num(deal.threshold_units)}</strong></article>
+        <article class="cton-kpi success"><span>מחויב סופית</span><strong>${num(snapshot.charged)}</strong></article>
+        <article class="cton-kpi warning"><span>בהמתנה</span><strong>${num(snapshot.pending)}</strong></article>
+        <article class="cton-kpi"><span>לא חויב</span><strong>${num(snapshot.unresolved)}</strong></article>
+        <article class="cton-kpi"><span>נפח עסקה</span><strong>${currency(volume)}</strong></article>
+      </section>
+      ${renderCtonProgressCard({ title: "התקדמות העסקה", stateName: deal.state, currentUnits: deal.metrics?.joined_units || 0, targetUnits: deal.threshold_units, maxUnits: deal.max_units, deadline: deal.deadline, percentValue: progressPct, atRiskUnits: snapshot.pending })}
+      <section class="cton-card cton-outcome ${outcomeTone}">
+        <h2>אם זה יסתיים עכשיו</h2>
+        <strong>${willSucceed ? "העסקה תיסגר בהצלחה" : "העסקה תיכשל"}</strong>
+      </section>
+      <section class="cton-card cton-actions-panel">
+        ${["Charging", "CompletionWindow"].includes(deal.state)
+          ? `<p>העסקה נעולה לצפייה בלבד. כל הפעולות מתבצעות אוטומטית.</p>`
+          : `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>`}
+      </section>
+      <section class="cton-card cton-timeline"><h2>Timeline</h2><div><span>פורסמה</span><span>יעד הושג</span><span>נסגרה להצטרפות</span><span>חיובים</span><span>השלמה</span><span>סיום</span></div></section>
+    </section>
+  `;
+}
+
+function adjustJoinQty(delta) {
+  const current = Number(state.form.qty || 1);
+  const next = Math.max(1, current + Number(delta || 0));
+  state.form.qty = String(next);
+  const input = document.querySelector('input[name="qty"]');
+  if (input) input.value = state.form.qty;
+  render();
+}
+
 function renderHomeLegacy() {
   const payload = state.homePayload?.site;
   const preview = state.previewMeta?.preview;
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">האתר הראשי של סיטון</span>
+        <span class="eyebrow">האתר הראשי של C-ton</span>
         <h1>פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים</h1>
         <p class="muted">
-          סיטון היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
+          C-ton היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
         </p>
         <div class="actions">
           <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">פתיחת עסקה חדשה</a>
@@ -2050,7 +2501,7 @@ function renderHomeLegacy() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">מסלול הקונה של סיטון</span>
+        <span class="eyebrow">מסלול הקונה של C-ton</span>
         <h1>חוויית קונה מחוברת לבקאנד החי</h1>
         <p class="muted">
           הכניסה למסלול האמיתי היא דרך קישור עסקה. משם ממשיכים לאימות טלפון, לאישור מסגרת, לאישור ההצטרפות ולמעקב.
@@ -2838,7 +3289,7 @@ function renderTrackingPage() {
           <strong>המעקב הזה הוא המקור הקובע</strong>
           <p class="small muted">${esc(supportNote)}</p>
         </div>
-        ${renderShareActions(`/app/track/${encodeURIComponent(tracking.participant_id)}`, tracking.deal_title || "מעקב השתתפות בסיטון")}
+        ${renderShareActions(`/app/track/${encodeURIComponent(tracking.participant_id)}`, tracking.deal_title || "מעקב השתתפות ב-C-ton")}
         <div class="actions"><a class="button secondary" href="/app/deal/${encodeURIComponent(tracking.deal_id)}" data-nav="/app/deal/${encodeURIComponent(tracking.deal_id)}">חזרה לעסקה</a></div>
       </aside>
     </section>
@@ -2936,10 +3387,10 @@ function renderHome() {
   return `
     <section class="hero">
       <article class="card hero-main stack">
-        <span class="eyebrow">האתר הראשי של סיטון</span>
+        <span class="eyebrow">האתר הראשי של C-ton</span>
         <h1>פותחים עסקה, מעלים דף אישי, ומפיצים לינק ישיר לקונים</h1>
         <p class="muted">
-          סיטון היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
+          C-ton היא פלטפורמה לעסקאות קבוצתיות מבוססות לינק. האתר הראשי הוא שער העבודה למוכר: מכאן פותחים עסקה, מפרסמים דף ציבורי אישי, ומפיצים לינק ישיר שדרכו הקונים מצטרפים.
         </p>
         <div class="actions">
           <a class="button primary" href="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}" data-nav="${esc(payload?.seller_entry?.create_deal_url || "/app/seller/new")}">פתיחת עסקה חדשה</a>
@@ -3216,7 +3667,7 @@ function renderSellerAnalyticsSection() {
         <h3>תמונת כסף</h3>
         <div class="table-like">
           <div class="table-row"><div class="table-cell"><span class="muted">ברוטו צפוי</span><strong>${analyticsValue(overview.gross_expected_amount, currency)}</strong></div><div class="table-cell"><span class="muted">ברוטו שנגבה</span><strong>${analyticsValue(overview.gross_collected_amount, currency)}</strong></div></div>
-          <div class="table-row"><div class="table-cell"><span class="muted">עמלת סיטון</span><strong>${analyticsValue(overview.platform_fee_total_amount, currency)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${analyticsValue(overview.seller_net_amount, currency)}</strong></div></div>
+          <div class="table-row"><div class="table-cell"><span class="muted">עמלת C-ton</span><strong>${analyticsValue(overview.platform_fee_total_amount, currency)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${analyticsValue(overview.seller_net_amount, currency)}</strong></div></div>
         </div>
       </article>
       <article class="summary-item">
@@ -3474,7 +3925,7 @@ function renderSellerNewPage() {
             </div>
             <div class="inline-fields">
               <div class="field"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
-              <div class="summary-item"><span class="muted">עמלת סיטון הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
+              <div class="summary-item"><span class="muted">עמלת C-ton הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
             </div>
             <div class="form-preview-grid">
               <div class="summary-item"><span class="muted">מחזור מינימלי משוער</span><strong>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} יח' לפי המחיר הנוכחי.</p></div>
@@ -3568,7 +4019,7 @@ function renderSellerNewPage() {
         <div class="summary-item summary-spotlight"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">מזהה מוכר: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">מחיר נוכחי</span><strong>${currency(price)}</strong></div>
-          <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong><p class="small muted">קבועה לפי המודל הקנוני, כולל משלוח וללא מע"מ.</p></div>
+          <div class="summary-item"><span class="muted">עמלת C-ton</span><strong>8%</strong><p class="small muted">קבועה לפי המודל הקנוני, כולל משלוח וללא מע"מ.</p></div>
           <div class="summary-item"><span class="muted">יעד פתיחה</span><strong>${num(minUnits)} יח'</strong></div>
           <div class="summary-item"><span class="muted">קיבולת</span><strong>${num(maxUnits)} יח'</strong></div>
         </div>
@@ -3613,7 +4064,7 @@ function renderDeliveryHandoffSection(dealId) {
       <div class="section-header">
         <div class="stack compact compact-section">
           <h2>נתוני אספקה לקונים</h2>
-          <p class="muted section-intro">סיטון מציגה כאן את פרטי הקונים שחויבו וזכאים למוצר. <strong>האספקה עצמה מתבצעת באחריות המוכר ומחוץ למערכת.</strong></p>
+          <p class="muted section-intro">C-ton מציגה כאן את פרטי הקונים שחויבו וזכאים למוצר. <strong>האספקה עצמה מתבצעת באחריות המוכר ומחוץ למערכת.</strong></p>
         </div>
         <div class="pill-row">
           <span class="stat-pill"><span>זכאים</span><strong>${num(buyers.length)}</strong></span>
@@ -3650,7 +4101,7 @@ function renderDeliveryHandoffSection(dealId) {
       ` : `<div class="empty-surface"><p class="muted">אין קונים זכאים למוצר בעסקה זו.</p></div>`}
       <div class="info-strip">
         <strong>מדיניות מסירת נתונים</strong>
-        <p class="small">${esc(handoff.disclaimer || "האספקה מתבצעת באחריות המוכר ומחוץ למערכת סיטון.")}</p>
+        <p class="small">${esc(handoff.disclaimer || "האספקה מתבצעת באחריות המוכר ומחוץ למערכת C-ton.")}</p>
       </div>
     </section>
   `;
@@ -3724,7 +4175,7 @@ function renderSellerDealPage() {
           <div class="summary-item"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
           <div class="summary-item"><span class="muted">יחידות שנרשמו</span><strong>${num(deal.metrics.joined_units)}</strong></div>
           <div class="summary-item"><span class="muted">משתתפים</span><strong>${num(deal.metrics.participants_count)}</strong></div>
-        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>8%</strong></div>
+        <div class="summary-item"><span class="muted">עמלת C-ton</span><strong>8%</strong></div>
         </div>
         <div class="live-summary-grid">
           <div class="summary-item summary-spotlight"><span class="muted">נותר למלא</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} יח'</strong><p class="small muted">מתוך קיבולת כוללת של ${num(deal.max_units)} יח'.</p></div>
@@ -3854,7 +4305,7 @@ function renderSellerDealPage() {
       <div class="summary-grid">
         <div class="summary-item"><span class="muted">מצב מסמכים</span><strong>${esc(receipts.status)}</strong></div>
         <div class="summary-item"><span class="muted">ברוטו</span><strong>${currency(receipts.summary.gross_amount)}</strong></div>
-        <div class="summary-item"><span class="muted">עמלת סיטון</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
+        <div class="summary-item"><span class="muted">עמלת C-ton</span><strong>${currency(receipts.summary.siton_fee_amount)}</strong></div>
         <div class="summary-item summary-spotlight"><span class="muted">נטו למוכר</span><strong>${currency(receipts.summary.seller_net_amount)}</strong></div>
         <div class="summary-item"><span class="muted">מסמכים</span><strong>${num(receipts.summary.receipt_document_count)}</strong></div>
       </div>
@@ -3863,7 +4314,7 @@ function renderSellerDealPage() {
           <div class="actions spread">
             <div>
               <strong>ייצוא עסקה</strong>
-              <p class="small muted">כולל קונים זכאים, פרטי אספקה, כמויות, גבייה, עמלת סיטון ונטו למוכר.</p>
+              <p class="small muted">כולל קונים זכאים, פרטי אספקה, כמויות, גבייה, עמלת C-ton ונטו למוכר.</p>
             </div>
             <button class="primary" type="button" data-inline-action="seller-excel-export" data-deal-id="${esc(deal.deal_id)}">הורד Excel עסקה</button>
           </div>
@@ -4080,7 +4531,7 @@ function renderAdminPage() {
       <article class="card hero-main stack">
         <span class="badge warning">גישה תפעולית</span>
         <span class="eyebrow">ניהול, תמיכה ובקרה</span>
-        <h1>מרכז התפעול של סיטון</h1>
+        <h1>C-ton Admin</h1>
         <p class="muted">כאן רואים תוך שניות מה תקין, מה דורש טיפול, ואיפה צריך לצלול לפרופיל עסקה, משתתף או משתמש. כל המשטח נשען על truth קנוני, בלי להבטיח פעולות חיצוניות שלא הופעלו.</p>
         <form class="stack" data-action="admin-search">
           <div class="field">
@@ -4930,7 +5381,7 @@ function renderAdminSafeActionModal() {
           </div>
           <label class="check-row">
             <input type="checkbox" name="safe_action_confirm" required />
-            <span>אני מבין שהפעולה אינה משנה state ידנית ואינה עוקפת את חוקת סיטון.</span>
+            <span>אני מבין שהפעולה אינה משנה state ידנית ואינה עוקפת את חוקת C-ton.</span>
           </label>
           ${["freeze_payouts", "unfreeze_payouts", "pause_charging_emergency"].includes(draft.action_type) ? `<span class="badge warning">דורש אישור מנהל נוסף</span>` : ""}
           <div class="actions">
@@ -5329,7 +5780,7 @@ const INTERNAL_TABLE_HEADER_LABELS = {
   max_units: "מקסימום יחידות",
   threshold_units: "יעד בסיס",
   deadline: "מועד סגירה",
-  platform_fee_rate: "עמלת סיטון",
+  platform_fee_rate: "עמלת C-ton",
   participant_id: "מזהה משתתף",
   buyer_id: "מזהה קונה",
   qty: "כמות",
@@ -5673,12 +6124,12 @@ function renderNavLegacy() {
   return `
       <nav class="page-nav">
         <div class="actions">
-          <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+          <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
           <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
         </div>
       ${!isInternalSurface ? `<div class="route-chip">מוכר פעיל: ${esc(sellerContext.display_name)}</div>` : ""}
       ${isInternalSurface ? `<div class="route-chip">מסך פנימי</div>` : ""}
-      <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+      <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
       <div class="route-chip">${ROUTE_LABELS[state.route.name] || "מסלול קונה"}</div>
     </nav>
   `;
@@ -5701,7 +6152,7 @@ function renderPublicTrustFooter() {
         <div class="stack compact-section">
           <span class="eyebrow">מעטפת אמון ציבורית</span>
           <h2>מידע מחייב ברור, בלי להעמיס על המסלול</h2>
-          <p class="muted">בסיטון הקונה מתקדם דרך לינק ישיר לעסקה. בשלב ההצטרפות נשמרת תפיסת מסגרת בלבד, והחיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת, מתבטלת או לא הופכת לחיוב בפועל לפי מצב העסקה.</p>
+          <p class="muted">ב-C-ton הקונה מתקדם דרך לינק ישיר לעסקה. בשלב ההצטרפות נשמרת תפיסת מסגרת בלבד, והחיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת, מתבטלת או לא הופכת לחיוב בפועל לפי מצב העסקה.</p>
         </div>
         <div class="trust-footer-panel">
           <div class="summary-item summary-spotlight">
@@ -5789,14 +6240,14 @@ function renderTermsPage() {
   return renderLegalPage(
     "תנאי שימוש",
     "שימוש בפלטפורמה",
-    "תנאי השימוש מגדירים איך משתמשים במשטחים הציבוריים של סיטון, מהו אופי העסקה הקבוצתית, ואיפה עוברת האחריות בין הפלטפורמה, המוכר והקונה.",
+    "תנאי השימוש מגדירים איך משתמשים במשטחים הציבוריים של C-ton, מהו אופי העסקה הקבוצתית, ואיפה עוברת האחריות בין הפלטפורמה, המוכר והקונה.",
     [
-      { title: "מהו השירות", body: "סיטון היא פלטפורמה לניהול עסקאות קבוצתיות מבוססות לינק. המוכר פותח עסקה, מפרסם דף עסקה ציבורי, והקונה מצטרף דרך קישור ישיר ולא דרך קטלוג ציבורי פתוח." },
+      { title: "מהו השירות", body: "C-ton היא פלטפורמה לניהול עסקאות קבוצתיות מבוססות לינק. המוכר פותח עסקה, מפרסם דף עסקה ציבורי, והקונה מצטרף דרך קישור ישיר ולא דרך קטלוג ציבורי פתוח." },
       { title: "מה קורה בשלב ההצטרפות", body: "בשלב ההצטרפות נשמרים פרטי המסלול, כולל כמות, אופן קבלה ואישור מסגרת. אין חיוב בפועל רק מעצם ההצטרפות. החיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה ובהתאם למצב העסקה." },
       { title: "אחריות המוכר", body: "המוכר אחראי לנכונות פרטי העסקה, למחיר, לחלון הזמנים, לאפשרויות הקבלה, ולתקשורת הישירה הנדרשת מול הקונים במסגרת העסקה שפרסם." },
-      { title: "אחריות סיטון והמוכר", body: "המוצר והאספקה באחריות המוכר. סיטון מספקת את מערכת העסקה, התיעוד, ניהול ההתחייבויות והעברת נתוני הזכאים למוכר; סיטון אינה מספקת את המוצר בעצמה." },
+      { title: "אחריות C-ton והמוכר", body: "המוצר והאספקה באחריות המוכר. C-ton מספקת את מערכת העסקה, התיעוד, ניהול ההתחייבויות והעברת נתוני הזכאים למוכר; C-ton אינה מספקת את המוצר בעצמה." },
       { title: "כלל 90%", body: "עסקה תיחשב מוצלחת רק אם חויבו בפועל לפחות 90% מהמינימום שהוגדר. אם פחות מכך חויב בפועל, העסקה נכשלת לפי מנגנון המערכת." },
-      { title: "לינקי הפצה", body: "לינקי הפצה הם ייחוס ומדידה בלבד. סיטון אינה מחשבת עמלה למפיצים ואינה משלמת למפיצים; כל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ למערכת." },
+      { title: "לינקי הפצה", body: "לינקי הפצה הם ייחוס ומדידה בלבד. C-ton אינה מחשבת עמלה למפיצים ואינה משלמת למפיצים; כל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ למערכת." },
       { title: "אחריות הקונה", body: "הקונה אחראי למסור פרטים נכונים, לעקוב אחר מצב ההשתתפות במסך המעקב, ולוודא שהכמות ואופן הקבלה שנשמרו אכן תואמים את רצונו לפני אישור המסגרת." },
       { title: "היקף השירות", body: "הפלטפורמה מספקת את משטחי ההצטרפות, האישור והמעקב. היא אינה מרחיבה כאן את ההתחייבויות מעבר למה שמופיע במפורש במסלול הציבורי ובמצבי העסקה בפועל." }
     ]
@@ -5883,7 +6334,7 @@ function renderContactPage() {
   return renderLegalPage(
     "יצירת קשר",
     "קשר ותמיכה",
-    "יצירת הקשר בסיטון בנויה סביב העסקה עצמה: היכן הקונה נמצא במסלול, מה המוכר פרסם, ומהו המסך שממנו ברור ביותר להמשיך טיפול.",
+    "יצירת הקשר ב-C-ton בנויה סביב העסקה עצמה: היכן הקונה נמצא במסלול, מה המוכר פרסם, ומהו המסך שממנו ברור ביותר להמשיך טיפול.",
     [
       { title: "פנייה לגבי עסקה פעילה", body: "במקרה של שאלה על עסקה, כמות, אופן קבלה או מצב ההצטרפות, יש לפעול דרך דף העסקה הציבורי והמידע שמופיע במסך המעקב של אותה השתתפות." },
       { title: "פנייה למוכר", body: "המוכר הוא הגורם הראשון שאחראי לפרטי העסקה שפורסמה, לחלון ההצטרפות, לאפשרויות הקבלה ולמידע המסחרי שנחשף לקונים." },
@@ -5898,7 +6349,7 @@ function renderNav() {
   return `
       <nav class="shell-surface page-nav" aria-label="ניווט ראשי">
         <div class="actions">
-          <a href="/app" data-nav="/app" class="button secondary">סיטון</a>
+          <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
           <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
         </div>
         <div class="shell-meta">
@@ -6839,7 +7290,7 @@ function renderSellerContextPanel(context) {
           </div>
           <div class="field">
             <label for="sellerContextName">שם מוכר לתצוגה</label>
-            <input id="sellerContextName" name="sellerContextName" type="text" data-dir="rtl" value="${esc(state.form.sellerContextName || sellerContext.display_name)}" placeholder="סיטון צפון" />
+            <input id="sellerContextName" name="sellerContextName" type="text" data-dir="rtl" value="${esc(state.form.sellerContextName || sellerContext.display_name)}" placeholder="C-ton צפון" />
           </div>
         </div>
         <div class="actions">

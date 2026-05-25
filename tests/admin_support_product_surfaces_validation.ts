@@ -44,7 +44,7 @@ await run("operator wording is Hebrew and avoids obvious support english leaks",
   assert.doesNotMatch(appJs, /Creating support ticket/i);
   assert.doesNotMatch(appJs, /Updating support ticket/i);
   assert.match(appJs, /פניית התמיכה נפתחה/);
-  assert.match(appJs, /מרכז התפעול של סיטון/);
+  assert.match(appJs, /C-ton Admin/);
 });
 
 await run("operator surfaces keep truth aligned document and notification buckets", async () => {

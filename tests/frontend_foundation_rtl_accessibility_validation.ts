@@ -46,6 +46,6 @@ await run("critical seller admin affiliate copy is no longer visibly internal or
   assert.doesNotMatch(appJs, /מסך פנימי לייחוס/);
   assert.doesNotMatch(appJs, /מסך הניהול הפנימי/);
   assert.match(appJs, /מרכז הפצה/);
-  assert.match(appJs, /מרכז התפעול של סיטון/);
+  assert.match(appJs, /C-ton Admin/);
   assert.match(appJs, /כניסה לאזור המוכר/);
 });

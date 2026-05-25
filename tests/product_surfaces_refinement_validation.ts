@@ -16,27 +16,35 @@ const [appJs, stylesCss] = await Promise.all([
   readFile("frontend/styles.css", "utf8")
 ]);
 
-await run("public deal page keeps product hierarchy and core purchase frame", async () => {
-  assert.match(appJs, /function renderDealPage\(\)/);
-  assert.match(appJs, /deal-hero-layout/);
-  assert.match(appJs, /renderDealVisual/);
-  assert.match(appJs, /deal-story-grid/);
-  assert.match(appJs, /availabilityBanner/);
+await run("C-ton home renders a real product hero instead of a link list", async () => {
+  assert.match(appJs, /function renderCtonHome\(\)/);
+  assert.match(appJs, /cton-home-hero/);
+  assert.match(appJs, /קונים יחד\. משלמים רק כשזה קורה\./);
+  assert.match(appJs, /מארז קפה שכונתי/);
 });
 
-await run("seller workspace is grouped around urgency, drafts, and closed deals", async () => {
-  assert.match(appJs, /function renderSellerPage\(\)/);
-  assert.match(appJs, /workspace-focus-grid/);
-  assert.match(appJs, /classifySellerDeals/);
-  assert.match(appJs, /renderSellerBoardSection/);
-  assert.match(appJs, /seller-board-section/);
+await run("public deal page keeps live deal hierarchy and core join frame", async () => {
+  assert.match(appJs, /function renderCtonDealPage\(\)/);
+  assert.match(appJs, /cton-deal-page/);
+  assert.match(appJs, /cton-product-image/);
+  assert.match(appJs, /cton-join-card/);
+  assert.match(appJs, /cton-progress-card/);
+  assert.match(appJs, /הסכום יתפוס מסגרת אשראי בלבד/);
+});
+
+await run("seller workspace is a warm command center rather than a table", async () => {
+  assert.match(appJs, /function renderCtonSellerPage\(\)/);
+  assert.match(appJs, /cton-seller-dashboard/);
+  assert.match(appJs, /cton-kpi-grid/);
+  assert.match(appJs, /cton-attention/);
+  assert.match(appJs, /cton-all-deals/);
 });
 
 await run("seller analytics dashboard surface is present and constitution-safe", async () => {
   assert.match(appJs, /function renderSellerAnalyticsSection\(\)/);
   assert.match(appJs, /ביצועי המוכר/);
   assert.match(appJs, /נטו למוכר/);
-  assert.match(appJs, /עמלת סיטון/);
+  assert.match(appJs, /עמלת C-ton/);
   assert.match(appJs, /נתוני ייחוס בלבד/);
   assert.match(appJs, /טוען את ביצועי המוכר/);
   assert.match(appJs, /לא הצלחנו לטעון את ביצועי המוכר כרגע/);
@@ -55,13 +63,15 @@ await run("seller analytics dashboard surface is present and constitution-safe",
   assert.doesNotMatch(analyticsSection, /commission|payout|withdrawal|balance|revenue share/i);
 });
 
-await run("seller deal page exposes a clearer operational control summary", async () => {
-  assert.match(appJs, /function renderSellerDealPage\(\)/);
+await run("seller live deal page exposes operational summary and deterministic outcome", async () => {
+  assert.match(appJs, /function renderCtonSellerDealPage\(\)/);
   assert.match(appJs, /summarizeSellerParticipants/);
-  assert.match(appJs, /seller-deal-control-grid/);
-  assert.match(appJs, /participantSnapshot\.charged/);
-  assert.match(appJs, /participantSnapshot\.pending/);
-  assert.match(appJs, /participantSnapshot\.unresolved/);
+  assert.match(appJs, /cton-seller-live/);
+  assert.match(appJs, /cton-outcome/);
+  assert.match(appJs, /אם זה יסתיים עכשיו/);
+  assert.match(appJs, /snapshot\.charged/);
+  assert.match(appJs, /snapshot\.pending/);
+  assert.match(appJs, /snapshot\.unresolved/);
 });
 
 await run("seller completed deal surface exposes Excel export only after completion", async () => {
@@ -70,14 +80,16 @@ await run("seller completed deal surface exposes Excel export only after complet
   assert.match(appJs, /\/api\/seller\/deals\/\$\{encodeURIComponent\(dealId\)\}\/export\.xlsx/);
 });
 
-await run("mobile-first responsive support exists for the refined product surfaces", async () => {
-  assert.match(stylesCss, /\.deal-hero-layout/);
-  assert.match(stylesCss, /\.workspace-focus-grid/);
-  assert.match(stylesCss, /\.seller-deal-control-grid/);
+await run("mobile-first responsive support exists for the rebuilt product surfaces", async () => {
+  assert.match(stylesCss, /\.cton-home-hero/);
+  assert.match(stylesCss, /\.cton-deal-page/);
+  assert.match(stylesCss, /\.cton-seller-dashboard/);
+  assert.match(stylesCss, /\.cton-seller-live/);
   assert.match(stylesCss, /\.share-panel/);
   assert.match(stylesCss, /\.wizard-steps/);
   assert.match(stylesCss, /\.product-image-uploader/);
   assert.match(stylesCss, /@media \(max-width: 900px\)/);
+  assert.match(stylesCss, /@media \(max-width: 768px\)/);
 });
 
 await run("deal sharing and seller creation guardrails stay frontend-only and constitution-safe", async () => {

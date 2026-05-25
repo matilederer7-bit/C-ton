@@ -152,7 +152,7 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /גישה תפעולית/);
-    assert.match(response.body, /מרכז התפעול של סיטון/);
+    assert.match(response.body, /C-ton Admin/);
     assert.match(response.body, /מרכז הפצה למדידה, ייחוס ושיתוף לינקים/);
     assert.doesNotMatch(response.body, /Internal surface/);
   });
@@ -165,7 +165,7 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /מרכז הפצה/);
-    assert.match(response.body, /מרכז התפעול של סיטון/);
+    assert.match(response.body, /C-ton Admin/);
     assert.doesNotMatch(response.body, /Affiliate totals/);
     assert.doesNotMatch(response.body, /Campaigns surfaced/);
     assert.doesNotMatch(response.body, /App health/);

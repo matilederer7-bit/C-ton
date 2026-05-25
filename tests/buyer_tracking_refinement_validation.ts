@@ -17,22 +17,20 @@ const [appJs, stylesCss] = await Promise.all([
 ]);
 
 await run("confirmation keeps authorization versus real charge narrative clear", async () => {
-  assert.match(appJs, /function renderConfirmationPage/);
-  assert.match(appJs, /tracking-next-panel/);
-  assert.match(appJs, /flow\.authorizationMessage/);
-  assert.match(appJs, /flow\.authorizationId/);
-  assert.match(appJs, /flow\.estimatedTotal \|\| 0/);
-  assert.match(appJs, /summary-grid/);
+  assert.match(appJs, /function renderCtonConfirmationPage/);
+  assert.match(appJs, /cton-success-card/);
+  assert.match(appJs, /המסגרת נתפסה/);
+  assert.match(appJs, /לא בוצע חיוב בפועל/);
+  assert.match(appJs, /cton-share-highlight/);
 });
 
 await run("buyer tracking exposes next-step, source-of-truth, and timeline blocks", async () => {
-  assert.match(appJs, /function renderTrackingPage/);
-  assert.match(appJs, /buildTrackingFocusCards/);
-  assert.match(appJs, /buildTrackingTimeline/);
-  assert.match(appJs, /buildTrackingSupportNote/);
-  assert.match(appJs, /tracking-focus-grid/);
-  assert.match(appJs, /table-panel/);
-  assert.match(appJs, /supportNote/);
+  assert.match(appJs, /function renderCtonTrackingPage/);
+  assert.match(appJs, /cton-tracking-page/);
+  assert.match(appJs, /cton-status-hero/);
+  assert.match(appJs, /cton-personal-card/);
+  assert.match(appJs, /cton-next-actions/);
+  assert.match(appJs, /ההצטרפות שלך/);
 });
 
 await run("action required and completion-window semantics are represented", async () => {
@@ -46,13 +44,13 @@ await run("action required and completion-window semantics are represented", asy
 await run("terminal buyer states keep distinct product narratives", async () => {
   assert.match(appJs, /deal_state === "Completed"/);
   assert.match(appJs, /deal_state === "Failed" \|\| tracking\.deal_state === "Cancelled"/);
-  assert.match(appJs, /buildTrackingSupportNote/);
-  assert.match(appJs, /buildTrackingTimeline/);
+  assert.match(appJs, /העסקה הושלמה בהצלחה\. בוצע חיוב בפועל/);
+  assert.match(appJs, /לא בוצע חיוב\. המסגרת שוחררה/);
 });
 
 await run("mobile layout preserves the main tracking summary areas", async () => {
-  assert.match(stylesCss, /\.tracking-focus-grid/);
-  assert.match(stylesCss, /\.tracking-next-panel\.tone-success/);
-  assert.match(stylesCss, /\.tracking-next-panel\.tone-warning/);
+  assert.match(stylesCss, /\.cton-tracking-page/);
+  assert.match(stylesCss, /\.cton-status-hero/);
+  assert.match(stylesCss, /\.cton-data-grid/);
   assert.match(stylesCss, /@media \(max-width: 900px\)/);
 });

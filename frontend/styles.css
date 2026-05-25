@@ -18,16 +18,18 @@
   --surface: #FFFFFF;
   --dark: #111827;
   --disabled: #D8DEE6;
-  --info-soft: #EEF4FF;
-  --info: #1D4ED8;
-  --closed-soft: #F1F3F5;
+  --info-soft: #EAF7F0;
+  --info: #1F7A4D;
+  --closed-soft: #FAF7F2;
   --shadow: 0 12px 30px rgba(17, 24, 39, 0.08);
 }
 
 * { box-sizing: border-box; }
-html { direction: rtl; }
+html { direction: rtl; width: 100%; max-width: 100%; overflow-x: hidden; }
 body {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
   min-height: 100vh;
   background: var(--bg);
   color: var(--text);
@@ -37,9 +39,10 @@ body {
   font-size: 16px;
   font-weight: 400;
   line-height: 1.6;
+  overflow-x: hidden;
 }
 
-#app { min-height: 100vh; }
+#app { min-height: 100vh; width: 100%; max-width: 100%; overflow-x: hidden; }
 a { color: var(--primary); font-weight: 700; text-decoration-thickness: 1px; text-underline-offset: 3px; }
 p, h1, h2, h3 { margin: 0; }
 h1 { color: var(--text); font-size: 32px; font-weight: 800; line-height: 1.2; letter-spacing: 0; }
@@ -62,13 +65,16 @@ strong { font-weight: 800; }
 .skip-link:focus-visible { transform: translateY(0); }
 
 .shell {
+  width: min(100%, 1180px);
   max-width: 1180px;
   margin: 0 auto;
   padding: 32px;
 }
 .app-shell, .app-shell-header, .shell-live-region, .stack, .status-rail, .form-shell, .action-cluster, .seller-board, .seller-analytics-section, .form-checklist, .tracking-chart-wrap, .tracking-activity-feed, .deal-chat-list { display: grid; gap: 16px; }
-.shell-main { outline: none; }
+.shell-main { outline: none; min-width: 0; }
 .shell-surface {
+  min-width: 0;
+  max-width: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -337,7 +343,44 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 }
 
 @media (max-width: 768px) {
-  .shell { padding: 16px; }
+  .shell {
+    width: 100vw;
+    max-width: 100vw;
+    margin: 0;
+    padding: 16px;
+    overflow-x: hidden;
+  }
+  .shell-surface { padding: 16px; }
+  .shell-header-bar, .page-nav {
+    display: grid;
+    grid-template-columns: 1fr;
+    justify-items: stretch;
+  }
+  .shell-brand, .shell-meta, .page-nav .actions {
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+  }
+  .shell-meta, .page-nav .actions {
+    justify-content: center;
+  }
+  .page-nav .button {
+    flex: 1 1 132px;
+    min-width: 0;
+  }
+  .shell-brand strong, .shell-brand p, .route-chip {
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .shell-brand {
+    justify-items: center;
+    text-align: center;
+  }
+  .shell-brand strong {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: center;
+  }
   .hero, .deal-hero-layout, .tracking-live-layout, .product-image-uploader, .multi-image-uploader, .trust-footer-grid, .metric-grid, .summary-grid, .status-grid, .choice-grid, .trust-band, .ops-band, .kpi-strip, .live-summary-grid, .seller-deal-control-grid, .tracking-counter-grid, .tracking-counter-grid.compact-counters, .tracking-focus-grid, .form-preview-grid, .admin-urgency-grid, .admin-search-grid, .admin-ops-grid, .admin-ops-hero-grid, .workspace-focus-grid, .tracking-hero-top, .seller-analytics-kpis, .seller-analytics-grid, .inline-fields, .card-list, .wizard-steps, .deal-chat-form {
     grid-template-columns: 1fr;
   }
@@ -347,4 +390,210 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .shell-header-bar, .page-nav, .section-header, .seller-card-head, .seller-card-footer, .table-toolbar, .tracking-progress-head { align-items: stretch; }
   .share-panel .button, .share-panel button { width: 100%; }
   h1 { font-size: 30px; }
+}
+
+/* C-ton rebuilt visual experience */
+.cton-card {
+  min-width: 0;
+  max-width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+.cton-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 800;
+}
+.cton-home-hero {
+  min-width: 0;
+  max-width: 100%;
+  min-height: 520px;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(360px, 0.95fr);
+  gap: 32px;
+  align-items: center;
+  padding: 48px;
+  border: 1px solid var(--border);
+  border-radius: 28px;
+  background: linear-gradient(135deg, #FFF1E8 0%, #FFFFFF 55%, #EAF7F0 100%);
+  box-shadow: var(--shadow);
+}
+.cton-hero-copy { display: grid; gap: 24px; max-width: 620px; min-width: 0; }
+.cton-hero-copy h1 { font-size: 72px; line-height: 0.95; }
+.cton-hero-copy h2 { font-size: 34px; font-weight: 800; }
+.cton-hero-copy p { font-size: 19px; color: var(--muted); max-width: 560px; }
+.cton-trust-list { display: grid; gap: 12px; }
+.cton-trust-list span { display: flex; align-items: center; gap: 10px; font-size: 18px; font-weight: 700; }
+.cton-actions, .cton-meta-row, .cton-progress-facts, .cton-unit-states { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.cton-live-demo-card {
+  min-width: 0;
+  max-width: 100%;
+  display: grid;
+  gap: 18px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  background: var(--surface);
+  box-shadow: 0 18px 42px rgba(17, 24, 39, 0.12);
+}
+.cton-live-demo-card h3 { font-size: 28px; }
+.cton-demo-price, .cton-unit-price strong, .cton-hold-total strong { font-size: 42px; font-weight: 800; line-height: 1; }
+.cton-activity-line { padding: 12px 14px; border-radius: 14px; background: var(--success-soft); color: var(--success); font-weight: 800; }
+.cton-home-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin-top: 24px; }
+.cton-how { margin-top: 24px; }
+.cton-steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 18px; }
+.cton-steps article { position: relative; display: grid; gap: 10px; justify-items: start; padding: 20px; border-radius: 18px; background: var(--primary-soft); }
+.cton-steps article > span:first-child { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 999px; background: var(--primary); color: var(--surface); font-weight: 800; }
+.cton-mini-footer { display: flex; gap: 18px; flex-wrap: wrap; align-items: center; margin-top: 24px; padding: 16px 0; color: var(--muted); }
+
+.cton-deal-page { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 24px; align-items: start; }
+.cton-deal-main { display: grid; gap: 24px; }
+.cton-join-card { position: sticky; top: 24px; display: grid; gap: 18px; background: var(--surface); border: 1px solid var(--border); border-top: 5px solid var(--primary); border-radius: 20px; box-shadow: var(--shadow); padding: 24px; }
+.cton-product-image { min-height: 340px; border-radius: 22px; overflow: hidden; background: var(--primary-soft); border: 1px solid rgba(198, 90, 30, 0.22); display: grid; place-items: center; }
+.cton-product-image img { width: 100%; height: 100%; aspect-ratio: 16 / 9; object-fit: cover; }
+.cton-product-image div { display: grid; gap: 12px; justify-items: center; color: var(--primary); font-size: 22px; font-weight: 800; }
+.cton-deal-intro h1 { font-size: 36px; }
+.cton-meta-row span { color: var(--muted); font-weight: 700; }
+.cton-progress-card { display: grid; gap: 16px; }
+.cton-section-head { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; align-items: center; }
+.cton-live-dot { display: inline-flex; align-items: center; gap: 8px; color: var(--success); font-weight: 800; }
+.cton-progress-numbers { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.cton-progress-numbers strong { font-size: 36px; }
+.cton-progress-numbers span { font-size: 24px; font-weight: 800; color: var(--primary); }
+.cton-progress-card .meter { height: 18px; }
+.cton-progress-sentence { font-size: 18px; font-weight: 800; color: var(--text); }
+.cton-progress-facts span { padding: 8px 12px; border-radius: 999px; background: var(--closed-soft); color: var(--muted); font-weight: 700; }
+.cton-stepper { height: 56px; display: grid; grid-template-columns: 56px 1fr 56px; border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+.cton-stepper button { border-radius: 0; min-height: 56px; box-shadow: none; }
+.cton-stepper input { border: 0; text-align: center; font-size: 24px; font-weight: 800; }
+.cton-delivery-options { display: grid; gap: 10px; }
+.cton-delivery-option { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: center; padding: 14px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface); cursor: pointer; }
+.cton-delivery-option.selected { border-color: rgba(198,90,30,0.45); background: var(--primary-soft); }
+.cton-delivery-option span { grid-column: 2; color: var(--muted); }
+.cton-price-summary { display: grid; gap: 10px; padding: 16px; border-radius: 16px; background: var(--closed-soft); }
+.cton-price-summary span { display: flex; justify-content: space-between; gap: 10px; }
+.cton-price-summary .total { padding-top: 10px; border-top: 1px solid var(--border); font-size: 18px; }
+.cton-price-summary .total strong { font-size: 28px; }
+.cton-trust-box { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 14px; background: var(--primary-soft); border: 1px solid rgba(198,90,30,0.22); }
+.cton-trust-box.success { background: var(--success-soft); border-color: rgba(31,122,77,0.22); }
+.cton-trust-box.danger { background: var(--danger-soft); border-color: rgba(180,35,24,0.28); }
+.cton-share-box .share-panel { border: 0; padding: 0; }
+
+.cton-center-screen { min-height: 68vh; display: grid; place-items: center; padding: 24px 0; }
+.cton-auth-card, .cton-payment-card, .cton-success-card { width: min(760px, 100%); display: grid; gap: 20px; }
+.cton-auth-card { max-width: 520px; padding: 32px; }
+.cton-icon-circle, .cton-success-icon { width: 64px; height: 64px; display: grid; place-items: center; border-radius: 999px; background: var(--primary-soft); }
+.cton-code-input { min-height: 64px; text-align: center !important; font-size: 28px !important; font-weight: 800 !important; letter-spacing: 0.12em; }
+.cton-payment-summary { display: grid; gap: 16px; padding: 20px; border-radius: 18px; background: var(--closed-soft); }
+.cton-hold-total { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; justify-content: space-between; }
+.cton-card-frame { min-height: 120px; display: grid; place-items: center; padding: 18px; border: 1px dashed var(--border); border-radius: 14px; background: #FFFFFF; color: var(--muted); font-weight: 700; text-align: center; }
+.cton-success-card { text-align: center; }
+.cton-success-icon { margin-inline: auto; background: var(--success-soft); color: var(--success); font-size: 28px; font-weight: 800; }
+.cton-share-highlight { display: grid; gap: 14px; padding: 24px; border-radius: 18px; background: var(--primary-soft); }
+
+.cton-tracking-page, .cton-seller-dashboard, .cton-seller-live { display: grid; gap: 24px; }
+.cton-tracking-header, .cton-live-header, .cton-seller-header { display: flex; justify-content: space-between; gap: 18px; align-items: center; }
+.cton-status-hero { display: grid; gap: 18px; }
+.cton-data-grid, .cton-kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+.cton-data-grid div, .cton-kpi { padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.cton-data-grid span, .cton-kpi span { color: var(--muted); }
+.cton-data-grid strong, .cton-kpi strong { display: block; font-size: 28px; font-weight: 800; }
+.cton-kpi { display: grid; gap: 8px; }
+.cton-kpi.warning { background: var(--warning-soft); border-color: rgba(217,138,22,0.35); }
+.cton-kpi.success { background: var(--success-soft); border-color: rgba(31,122,77,0.22); }
+.cton-kpi-grid.six { grid-template-columns: repeat(6, 1fr); }
+.cton-deal-list { display: grid; gap: 16px; }
+.cton-seller-deal-card { display: grid; grid-template-columns: 72px minmax(0,1fr) 260px; gap: 18px; align-items: center; padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.cton-seller-deal-card.warning { background: var(--warning-soft); border-color: rgba(217,138,22,0.35); }
+.cton-seller-deal-card.failed .cton-seller-money > strong { text-decoration: line-through; color: var(--muted); }
+.cton-seller-deal-card img, .cton-live-header img, .cton-thumb { width: 72px; height: 72px; border-radius: 14px; object-fit: cover; border: 1px solid var(--border); background: var(--primary-soft); display: grid; place-items: center; }
+.cton-seller-deal-main { display: grid; gap: 10px; }
+.cton-seller-money { display: grid; gap: 10px; }
+.cton-seller-money > strong { font-size: 28px; font-weight: 800; }
+.cton-actions.compact .button, .cton-actions.compact button { min-height: 42px; padding: 8px 12px; font-size: 14px; }
+.cton-outcome.success { background: var(--success-soft); border-color: rgba(31,122,77,0.22); }
+.cton-outcome.danger { background: var(--danger-soft); border-color: rgba(180,35,24,0.28); }
+.cton-outcome strong { font-size: 28px; }
+.cton-timeline div { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.cton-timeline span { padding: 10px; border-radius: 999px; text-align: center; background: var(--closed-soft); color: var(--muted); font-weight: 700; }
+
+@media (max-width: 900px) {
+  .cton-home-hero, .cton-deal-page, .cton-home-cards, .cton-steps, .cton-data-grid, .cton-kpi-grid, .cton-kpi-grid.six, .cton-seller-deal-card, .cton-timeline div {
+    grid-template-columns: 1fr;
+  }
+  .cton-home-hero { min-height: 620px; padding: 28px 20px; }
+  .cton-hero-copy h1 { font-size: 52px; overflow-wrap: anywhere; }
+  .cton-hero-copy h2 { font-size: 28px; }
+  .cton-join-card { position: static; }
+  .cton-progress-numbers { align-items: flex-start; }
+  .cton-progress-numbers strong { font-size: 28px; }
+}
+
+@media (max-width: 768px) {
+  .cton-card, .cton-join-card, .cton-live-demo-card { padding: 16px; }
+  .cton-home-hero {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-height: 620px;
+    border-radius: 20px;
+    padding: 24px 20px;
+    overflow: hidden;
+  }
+  .cton-hero-copy, .cton-live-demo-card {
+    width: 100%;
+    max-width: 100%;
+  }
+  .cton-hero-copy {
+    justify-items: center;
+    text-align: center;
+  }
+  .cton-live-demo-card { margin-top: 24px; }
+  .cton-hero-copy h1 {
+    direction: ltr;
+    unicode-bidi: isolate;
+    text-align: center;
+    font-size: 48px;
+  }
+  .cton-hero-copy h2,
+  .cton-hero-copy p {
+    max-width: 300px;
+    text-align: center;
+    overflow-wrap: anywhere;
+  }
+  .cton-hero-copy h2 { font-size: 22px; line-height: 1.35; }
+  .cton-trust-list span {
+    justify-content: center;
+    font-size: 16px;
+  }
+  .cton-product-image { min-height: 220px; }
+  .cton-deal-intro {
+    text-align: center;
+  }
+  .cton-deal-intro h1 {
+    max-width: 300px;
+    margin-inline: auto;
+    font-size: 24px;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+  }
+  .cton-deal-intro p {
+    max-width: 300px;
+    margin-inline: auto;
+  }
+  .cton-deal-intro .cton-meta-row,
+  .cton-deal-intro .badge {
+    justify-content: center;
+    margin-inline: auto;
+  }
+  .cton-actions .button, .cton-actions button, .cton-join-card .primary, .cton-payment-card .primary { width: 100%; }
 }
