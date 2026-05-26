@@ -2,6 +2,45 @@
 
 ---
 
+## Current update: 2026-05-26 (Live UX and Visual QA Fix)
+
+### What failed
+- Live QA verdict was `LIVE_UX_AND_VISUAL_QA_FAIL`.
+- The create-deal screen was still too pale and form-like, failed draft creation did not focus the seller on the error area, pickup/distribution locations were too eager, and legal copy was too thin for the trust layer.
+
+### What was fixed
+- Strengthened the create-deal surface with warmer C-ton orange, soft trust backgrounds, a stronger stepper, visible product cards, larger CTA/progress treatment, and a live deal preview beside the form.
+- Added create-deal validation summary inside the form, automatic scroll/focus to the alert, local required-title blocking, Hebrew title error copy, and field-level red borders/messages.
+- Changed fulfillment setup to three explicit choices: delivery, pickup, distribution point. Delivery creates one delivery option; pickup/distribution create no locations until "הוסף מיקום איסוף" is clicked. Each location card has name, address, city, optional instructions, optional location link, and remove.
+- Hardened image preview UX with a fixed 16:9 frame, object-fit cover, loading/success/failure messages, and a styled placeholder reading "תמונת העסקה תופיע כאן".
+- Expanded terms/seller terms copy for platform role, seller responsibility, authorization-hold behavior, completion conditions, frame release timing, no guaranteed completion/product availability, locked critical terms, distributor measurement-only role, tracking screen as source of truth, technical failures, and demo limitations.
+- Removed visible "אזור מוכר" wording and replaced it with "יצירת עסקה חדשה" / "ניהול העסקאות שלי" copy.
+
+### Performance notes
+- Safe fix shipped: first render no longer waits for `/api/preview/meta` and `/api/seller/session`; those now load after the initial shell render.
+- Safe fix shipped: `/app/seller/new` no longer registers a polling interval that wakes every 12 seconds without doing useful work.
+- Local frontend assets are still simple static assets: `frontend/app.js` is about 446 KB and `frontend/styles.css` about 34 KB before demo packaging. No large local demo images were found in `uploads`; existing local image files are effectively empty placeholders.
+- Live HEAD for `https://siton-demo-preview-atp1.onrender.com/app` returned `200 OK`, `Cache-Control: no-store`, Cloudflare dynamic, Render origin. Full browser timing still needs post-deploy live QA.
+
+### Legal note
+- Terms copy is product/demo wording only. Requires legal review before production.
+
+### What was checked so far
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### Local QA notes
+- Browser smoke covered hydrated desktop `/app`, public deal, seller dashboard, seller create, seller deal, tracking, admin dashboard, admin deal, participant ops, plus mobile routes including `/app` and `/app/seller/new`.
+- Create-deal source contract now covers validation summary, clickable seller terms/refunds links, image state, and optional distribution/pickup location support.
+
+### Verdict
+`LIVE_UX_AND_VISUAL_QA_FIX_READY`
+
+---
+
 ## Current update: 2026-05-24 (C-ton Visual Experience Rebuild)
 
 ### What failed

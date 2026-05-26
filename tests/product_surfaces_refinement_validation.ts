@@ -106,7 +106,7 @@ await run("deal sharing and seller creation guardrails stay frontend-only and co
 
 await run("core product surfaces keep Hebrew-facing copy and avoid obvious internal english leaks", async () => {
   assert.match(appJs, /פתיחת עסקה חדשה/);
-  assert.match(appJs, /אזור המוכר/);
+  assert.match(appJs, /ניהול העסקאות/);
   assert.doesNotMatch(appJs, /Open a deal/i);
   assert.doesNotMatch(appJs, /debug page/i);
   assert.doesNotMatch(appJs, /internal tool/i);

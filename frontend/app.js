@@ -54,6 +54,7 @@ const state = {
   adminSafeActionDraft: null,
   error: null,
   banner: null,
+  createDealFieldErrors: {},
   form: {
     adminQuery: "",
     adminCaseStatus: "",
@@ -76,8 +77,9 @@ const state = {
     sellerMinUnits: "10",
     sellerMaxUnits: "20",
     sellerDeadline: "",
+    sellerFulfillmentType: "delivery",
     sellerDeliveryType1: "pickup",
-    sellerDeliveryLabel1: "איסוף עצמי",
+    sellerDeliveryLabel1: "",
     sellerDeliveryCost1: "0",
     sellerDeliveryPointName1: "",
     sellerDeliveryAddress1: "",
@@ -211,8 +213,8 @@ const MONEY_COPY = {
 };
 
 const ROUTE_LABELS = {
-  seller: "אזור מוכר",
-  "seller-new": "פתיחת עסקה",
+  seller: "ניהול העסקאות שלי",
+  "seller-new": "יצירת עסקה חדשה",
   "seller-deal": "ניהול עסקה",
   affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
@@ -316,6 +318,8 @@ document.addEventListener("click", (event) => {
     if (action === "clear-product-image") clearSellerProductImage();
     if (action === "remove-product-image") removeSellerImage(actionTarget.dataset.imageIndex);
     if (action === "make-product-image-primary") makeSellerImagePrimary(actionTarget.dataset.imageIndex);
+    if (action === "add-pickup-location") addSellerPickupLocation();
+    if (action === "remove-pickup-location") removeSellerPickupLocation(actionTarget.dataset.slot);
   }
 });
 
@@ -334,16 +338,24 @@ document.addEventListener("input", (event) => {
   }
   if (!(target.name in state.form)) return;
   state.form[target.name] = target.value;
+  if (target.closest("[data-action='seller-create']")) {
+    clearCreateDealErrorForField(target.name);
+    if (["sellerTitle", "sellerPrice", "sellerMinUnits", "sellerMaxUnits", "sellerDeadline"].includes(target.name)) render();
+  }
 });
 
 document.addEventListener("change", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLInputElement)) return;
-  if (target.name === "sellerImage") void handleSellerImageSelection(target);
+  if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (target instanceof HTMLInputElement && target.name === "sellerImage") void handleSellerImageSelection(target);
   if (target.name in state.form && target.type === "checkbox") {
     state.form[target.name] = target.checked ? "on" : "";
   }
   if (target.name in state.form && target.type === "radio" && target.checked) {
+    state.form[target.name] = target.value;
+    render();
+  }
+  if (target.name === "sellerFulfillmentType" || /^sellerDeliveryType\d+$/.test(target.name)) {
     state.form[target.name] = target.value;
     render();
   }
@@ -363,10 +375,15 @@ boot();
 async function boot() {
   consumeQaSeedFromHash();
   state.route = parseRoute(location.pathname);
-  await loadPreviewMeta();
   hydrateSellerContext();
   hydrateForm();
-  await loadSellerSession();
+  render();
+  await loadPreviewMeta();
+  hydrateSellerContext();
+  if (!usesDemoSellerContext()) {
+    await loadSellerSession();
+  }
+  hydrateForm();
   render();
   await runRoute();
 }
@@ -644,7 +661,7 @@ async function loadHome() {
 }
 
 async function loadSeller() {
-  await busy('טוען את אזור המוכר...', async () => {
+  await busy('טוען את ניהול העסקאות...', async () => {
     state.sellerPayload = await api('/api/seller/deals');
     state.sellerAuth = state.sellerPayload?.seller_surface?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerPayload?.seller_surface?.seller_profile || null);
@@ -662,7 +679,7 @@ async function loadSeller() {
       }
     } catch (_) { /* profile fetch failure is non-fatal */ }
     await loadSellerAnalytics(state.sellerAnalyticsPeriod || "all", false);
-  }, 'לא הצלחנו לטעון את אזור המוכר.');
+  }, 'לא הצלחנו לטעון את ניהול העסקאות.');
 }
 
 async function loadSellerAnalytics(period = "all", shouldRender = true) {
@@ -861,7 +878,7 @@ function currentPollKey() {
   if (route.name === "tracking") return `tracking:${route.participantId}`;
   if (route.name === "recovery") return `recovery:${route.participantId}`;
   if (route.name === "seller") return "seller";
-  if (route.name === "seller-new") return `seller-new:${currentSellerContext().seller_id}`;
+  if (route.name === "seller-new") return "";
   if (route.name === "seller-deal") return `seller-deal:${route.dealId}:${currentSellerContext().seller_id}`;
   if (route.name === "admin") return "admin";
   if (route.name === "admin-support") return "admin-support";
@@ -1279,25 +1296,54 @@ async function createDeal(form) {
   const finalConfirm = formData.get("sellerFinalConfirm") === "on";
   const deliveryResult = collectSellerDeliveryOptions(formData);
   const validationErrors = [];
-  if (!title) validationErrors.push("כותרת חסרה: יש להזין שם עסקה קצר וברור.");
-  if (!Number.isFinite(price) || price <= 0) validationErrors.push("מחיר לא תקין: יש להזין מחיר חיובי ליחידה.");
-  if (!Number.isInteger(minUnits) || minUnits < 1) validationErrors.push("מינימום לא תקין: יש להזין מספר יחידות שלם וחיובי.");
-  if (!Number.isInteger(maxUnits) || maxUnits < minUnits) validationErrors.push("מקסימום לא תקין: המקסימום חייב להיות גדול או שווה למינימום.");
+  const fieldErrors = {};
+  if (!title) {
+    fieldErrors.sellerTitle = "חסר שם לעסקה. אנא הזן שם קצר וברור לעסקה.";
+    validationErrors.push("שם העסקה");
+  }
+  if (!Number.isFinite(price) || price <= 0) {
+    fieldErrors.sellerPrice = "יש להזין מחיר חיובי ליחידה.";
+    validationErrors.push("מחיר");
+  }
+  if (!Number.isInteger(minUnits) || minUnits < 1) {
+    fieldErrors.sellerMinUnits = "יש להזין כמות מינימום שלמה וחיובית.";
+    validationErrors.push("כמות מינימום");
+  }
+  if (!Number.isInteger(maxUnits) || maxUnits < minUnits) {
+    fieldErrors.sellerMaxUnits = "המקסימום חייב להיות גדול או שווה למינימום.";
+    validationErrors.push("כמות מקסימום תקינה");
+  }
   if (!deadline) {
-    validationErrors.push("דדליין חסר: יש לבחור מועד סגירת הצטרפות.");
+    fieldErrors.sellerDeadline = "יש לבחור מועד סגירת הצטרפות.";
+    validationErrors.push("דדליין");
   } else {
     const deadlineMs = new Date(deadline).getTime();
-    if (!Number.isFinite(deadlineMs)) validationErrors.push("דדליין לא תקין: יש לבחור תאריך ושעה תקינים.");
-    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() < 2 * 60 * 60 * 1000) validationErrors.push("דדליין קרוב מדי: חלון ההצטרפות חייב להיות לפחות שעתיים קדימה.");
-    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 7 * 24 * 60 * 60 * 1000) validationErrors.push("דדליין רחוק מדי: בדמו אפשר לפתוח עסקה עד 7 ימים קדימה.");
+    if (!Number.isFinite(deadlineMs)) {
+      fieldErrors.sellerDeadline = "יש לבחור תאריך ושעה תקינים.";
+      validationErrors.push("דדליין תקין");
+    }
+    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() < 2 * 60 * 60 * 1000) {
+      fieldErrors.sellerDeadline = "חלון ההצטרפות חייב להיות לפחות שעתיים קדימה.";
+      validationErrors.push("דדליין של לפחות שעתיים קדימה");
+    }
+    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 7 * 24 * 60 * 60 * 1000) {
+      fieldErrors.sellerDeadline = "בדמו אפשר לפתוח עסקה עד 7 ימים קדימה.";
+      validationErrors.push("דדליין עד 7 ימים קדימה");
+    }
   }
+  Object.assign(fieldErrors, deliveryResult.fieldErrors || {});
   validationErrors.push(...deliveryResult.errors);
-  if (!deliveryResult.options.length) validationErrors.push("חסרה אפשרות קבלה: יש להגדיר משלוח, איסוף או נקודת חלוקה אחת לפחות.");
-  if (!finalTerms) validationErrors.push("חסר אישור תקנון: יש לאשר את תקנון השימוש ומדיניות הביטולים לפני יצירת טיוטה.");
-  if (!finalConfirm) validationErrors.push("חסר אישור סופי: צריך לאשר שהתנאים הקריטיים סופיים לפני יצירת טיוטה.");
+  if (!deliveryResult.options.length) validationErrors.push("אופן קבלה");
+  if (!finalTerms) validationErrors.push("אישור תקנון ותנאי שימוש");
+  if (!finalConfirm) validationErrors.push("אישור שהתנאים הקריטיים סופיים");
   if (validationErrors.length) {
-    return failValidation("לא ניתן ליצור את הטיוטה עדיין", validationErrors);
+    state.createDealFieldErrors = fieldErrors;
+    return failValidation(
+      "לא ניתן ליצור את העסקה עדיין.",
+      ["חסרים הפרטים הבאים:", ...validationErrors]
+    );
   }
+  state.createDealFieldErrors = {};
   const deliveryOptions = deliveryResult.options;
   const sellerImages = readSellerImages();
 
@@ -1337,6 +1383,19 @@ async function createDeal(form) {
     };
     navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
   }, "יצירת העסקה נכשלה.");
+  if (state.error) {
+    const code = friendlyApiCode(state.error);
+    if (code === "title_required" || /title is required/i.test(String(state.error.message || ""))) {
+      state.error = {
+        title: "חסר שם לעסקה.",
+        message: "אנא הזן שם קצר וברור לעסקה. הטיוטה לא נשלחה שוב עד שיהיה שם תקין.",
+        items: ["שם העסקה"]
+      };
+      state.createDealFieldErrors = { sellerTitle: "חסר שם לעסקה. אנא הזן שם קצר וברור לעסקה." };
+      render();
+    }
+    focusCreateDealError();
+  }
 }
 
 async function uploadSellerDealImage(dealId, image) {
@@ -1437,7 +1496,7 @@ async function saveSellerContextFromForm(form) {
   const sellerId = String(formData.get("sellerContextId") || "").trim();
   const displayName = String(formData.get("sellerContextName") || "").trim();
   if (!sellerId) {
-    return fail("חסר מזהה מוכר", "יש לבחור מזהה מוכר פעיל לפני כניסה לאזור המוכר.");
+    return fail("חסר מזהה מוכר", "יש לבחור מזהה מוכר פעיל לפני כניסה לניהול העסקאות.");
   }
 
   await busy("שומר את זהות המוכר הפעילה...", async () => {
@@ -1452,7 +1511,7 @@ async function saveSellerContextFromForm(form) {
     state.banner = {
       tone: "success",
       title: "זהות המוכר נשמרה",
-      message: `העבודה באזור המוכר תתבצע עכשיו תחת ${sellerContext.display_name}.`
+      message: `העבודה בניהול העסקאות תתבצע עכשיו תחת ${sellerContext.display_name}.`
     };
     if (["home", "seller", "seller-new"].includes(state.route.name)) {
       await runRoute();
@@ -1467,10 +1526,10 @@ async function loginSellerFromForm(form) {
   const sellerId = String(formData.get("sellerContextId") || "").trim();
   const accessCode = String(formData.get("sellerAccessCode") || "").trim();
   if (!sellerId || !accessCode) {
-    return fail("חסרים פרטי כניסה", "יש להזין מזהה מוכר וקוד גישה כדי להיכנס לאזור המוכר.");
+    return fail("חסרים פרטי כניסה", "יש להזין מזהה מוכר וקוד גישה כדי להיכנס לניהול העסקאות.");
   }
 
-  await busy("פותח את אזור המוכר...", async () => {
+  await busy("פותח את ניהול העסקאות...", async () => {
     const payload = await api("/api/seller/session/login", {
       method: "POST",
       body: json({
@@ -1483,15 +1542,15 @@ async function loginSellerFromForm(form) {
     state.form.sellerAccessCode = "";
     state.banner = {
       tone: "success",
-      title: "אזור המוכר נפתח",
-      message: `העבודה באזור המוכר מתבצעת עכשיו תחת ${state.sellerAuth?.seller_context?.display_name || sellerId}.`
+      title: "ניהול העסקאות נפתח",
+      message: `העבודה בניהול העסקאות מתבצעת עכשיו תחת ${state.sellerAuth?.seller_context?.display_name || sellerId}.`
     };
     await runRoute();
-  }, "הכניסה לאזור המוכר נכשלה.");
+  }, "הכניסה לניהול העסקאות נכשלה.");
 }
 
 async function logoutSeller() {
-  await busy("סוגר את אזור המוכר...", async () => {
+  await busy("סוגר את ניהול העסקאות...", async () => {
     const payload = await api("/api/seller/session/logout", {
       method: "POST"
     });
@@ -1502,10 +1561,10 @@ async function logoutSeller() {
     state.banner = {
       tone: "success",
       title: "הגישה של המוכר נסגרה",
-      message: "אזור המוכר חזר למצב נעול עד לכניסה מחודשת."
+      message: "ניהול העסקאות חזר למצב נעול עד לכניסה מחודשת."
     };
     await runRoute();
-  }, "היציאה מאזור המוכר נכשלה.");
+  }, "היציאה מניהול העסקאות נכשלה.");
 }
 
 async function cloneSellerDeal(dealId) {
@@ -1543,6 +1602,12 @@ async function handleSellerImageSelection(input) {
       return fail("התמונה גדולה מדי", "בשלב הזה כל תמונת תצוגה מוגבלת ל-2MB כדי לא להכביד על הדפדפן.");
     }
   }
+  state.banner = {
+    tone: "info",
+    title: "טוען תמונות",
+    message: "מכינים תצוגה מקדימה במסגרת קבועה. זה אמור לקחת רגע קצר."
+  };
+  render();
   const images = await Promise.all(nextFiles.map((file) => readImageFile(file)));
   const merged = existing.concat(images).slice(0, 5);
   state.form.sellerImagesJson = JSON.stringify(merged);
@@ -1637,6 +1702,63 @@ function clearSellerProductImage() {
     message: "דף העסקה יחזור לתצוגת ברירת המחדל עד שתבחר תמונות מוצר חדשות."
   };
   render();
+}
+
+function sellerPickupLocationHasData(slot) {
+  return ["Label", "PointName", "Address", "City", "Instructions", "LocationUrl"].some((suffix) =>
+    String(state.form[`sellerDelivery${suffix}${slot}`] || "").trim()
+  );
+}
+
+function activeSellerPickupSlots() {
+  return [1, 2, 3, 4, 5].filter((slot) => sellerPickupLocationHasData(slot));
+}
+
+function addSellerPickupLocation() {
+  const slot = [1, 2, 3, 4, 5].find((item) => !sellerPickupLocationHasData(item));
+  if (!slot) return fail("מגבלת מיקומים", "אפשר להגדיר עד 5 מיקומי איסוף או נקודות חלוקה לעסקה אחת.");
+  const type = state.form.sellerFulfillmentType === "distribution_point" ? "distribution_point" : "pickup";
+  state.form[`sellerDeliveryType${slot}`] = type;
+  state.form[`sellerDeliveryCost${slot}`] = state.form[`sellerDeliveryCost${slot}`] || "0";
+  state.form[`sellerDeliveryLabel${slot}`] = type === "distribution_point" ? `נקודת חלוקה ${slot}` : `איסוף עצמי ${slot}`;
+  state.createDealFieldErrors = {};
+  render();
+  setTimeout(() => {
+    const input = document.getElementById(`sellerDeliveryPointName${slot}`);
+    if (input) input.focus();
+  }, 0);
+}
+
+function removeSellerPickupLocation(slot) {
+  const index = Number(slot || 0);
+  if (!index || index < 1 || index > 5) return;
+  for (const suffix of ["Label", "PointName", "Address", "City", "Instructions", "LocationUrl"]) {
+    state.form[`sellerDelivery${suffix}${index}`] = "";
+  }
+  state.form[`sellerDeliveryCost${index}`] = "0";
+  delete state.createDealFieldErrors[`sellerDeliveryLabel${index}`];
+  delete state.createDealFieldErrors[`sellerDeliveryPointName${index}`];
+  delete state.createDealFieldErrors[`sellerDeliveryAddress${index}`];
+  delete state.createDealFieldErrors[`sellerDeliveryCity${index}`];
+  delete state.createDealFieldErrors[`sellerDeliveryLocationUrl${index}`];
+  render();
+}
+
+function clearCreateDealErrorForField(fieldName) {
+  if (!state.createDealFieldErrors?.[fieldName]) return;
+  const next = { ...state.createDealFieldErrors };
+  delete next[fieldName];
+  state.createDealFieldErrors = next;
+}
+
+function focusCreateDealError() {
+  setTimeout(() => {
+    const target = document.querySelector("[data-create-deal-alert]") || document.querySelector("[data-testid='seller-create-error-summary']") || document.querySelector(".seller-create-hero");
+    if (!target) return;
+    target.scrollIntoView({ behavior: "smooth", block: "start" });
+    if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    target.focus({ preventScroll: true });
+  }, 0);
 }
 
 async function shareLink(url, title) {
@@ -1862,21 +1984,41 @@ function restartFlow() {
     sellerDescription: state.form.sellerDescription,
     sellerImageDataUrl: state.form.sellerImageDataUrl,
     sellerImageName: state.form.sellerImageName,
+    sellerImagesJson: state.form.sellerImagesJson,
     sellerContextId: state.form.sellerContextId,
     sellerContextName: state.form.sellerContextName,
+    sellerAccessCode: state.form.sellerAccessCode,
     sellerPrice: state.form.sellerPrice,
     sellerMinUnits: state.form.sellerMinUnits,
     sellerMaxUnits: state.form.sellerMaxUnits,
     sellerDeadline: state.form.sellerDeadline,
+    sellerFulfillmentType: state.form.sellerFulfillmentType,
     sellerDeliveryType1: state.form.sellerDeliveryType1,
     sellerDeliveryLabel1: state.form.sellerDeliveryLabel1,
     sellerDeliveryCost1: state.form.sellerDeliveryCost1,
+    sellerDeliveryPointName1: state.form.sellerDeliveryPointName1,
+    sellerDeliveryAddress1: state.form.sellerDeliveryAddress1,
+    sellerDeliveryCity1: state.form.sellerDeliveryCity1,
+    sellerDeliveryInstructions1: state.form.sellerDeliveryInstructions1,
+    sellerDeliveryLocationUrl1: state.form.sellerDeliveryLocationUrl1,
     sellerDeliveryType2: state.form.sellerDeliveryType2,
     sellerDeliveryLabel2: state.form.sellerDeliveryLabel2,
     sellerDeliveryCost2: state.form.sellerDeliveryCost2,
+    sellerDeliveryPointName2: state.form.sellerDeliveryPointName2,
+    sellerDeliveryAddress2: state.form.sellerDeliveryAddress2,
+    sellerDeliveryCity2: state.form.sellerDeliveryCity2,
+    sellerDeliveryInstructions2: state.form.sellerDeliveryInstructions2,
+    sellerDeliveryLocationUrl2: state.form.sellerDeliveryLocationUrl2,
     sellerDeliveryType3: state.form.sellerDeliveryType3,
     sellerDeliveryLabel3: state.form.sellerDeliveryLabel3,
-    sellerDeliveryCost3: state.form.sellerDeliveryCost3
+    sellerDeliveryCost3: state.form.sellerDeliveryCost3,
+    sellerDeliveryPointName3: state.form.sellerDeliveryPointName3,
+    sellerDeliveryAddress3: state.form.sellerDeliveryAddress3,
+    sellerDeliveryCity3: state.form.sellerDeliveryCity3,
+    sellerDeliveryInstructions3: state.form.sellerDeliveryInstructions3,
+    sellerDeliveryLocationUrl3: state.form.sellerDeliveryLocationUrl3,
+    sellerFinalTerms: state.form.sellerFinalTerms,
+    sellerFinalConfirm: state.form.sellerFinalConfirm
   };
   navigate(`/app/deal/${encodeURIComponent(dealId)}`);
 }
@@ -2338,7 +2480,7 @@ function renderCtonSellerPage() {
   if (!usesDemoSellerContext() && !auth.authenticated) return renderSellerAuthGate();
   const payload = state.sellerPayload?.seller_surface;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("אזור המוכר לא זמין", "לא הצלחנו לטעון עכשיו את אזור המוכר.");
+  if (!payload) return renderEmptyState("ניהול העסקאות שלי לא זמין", "לא הצלחנו לטעון עכשיו את ניהול העסקאות.");
   const profile = payload.seller_profile || currentSellerContext();
   const deals = Array.isArray(payload.deals) ? payload.deals : [];
   const activeDeals = deals.filter((d) => ["PendingTarget", "TargetReached", "Charging", "CompletionWindow"].includes(d.state));
@@ -3493,7 +3635,7 @@ function renderSellerPage() {
   }
   const payload = state.sellerPayload?.seller_surface;
   if (!payload && state.loading) return "";
-  if (!payload) return renderEmptyState("אזור המוכר לא זמין", "לא הצלחנו לטעון עכשיו את אזור המוכר.");
+  if (!payload) return renderEmptyState("ניהול העסקאות שלי לא זמין", "לא הצלחנו לטעון עכשיו את ניהול העסקאות.");
   const sellerProfile = payload.seller_profile || currentSellerContext();
   const sellerDisplayName = normalizeSellerDisplayName(sellerProfile.seller_id, sellerProfile.display_name);
   const sellerStatus = sellerProfile.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active";
@@ -3511,7 +3653,7 @@ function renderSellerPage() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">אזור המוכר</span>
+        <span class="eyebrow">ניהול העסקאות שלי</span>
         <h1>פותחים, מפרסמים ומנהלים כל עסקה ממקום אחד</h1>
         <p class="muted">זהו שער העבודה הראשי למוכר: פותחים טיוטה, מפרסמים דף עסקה חי, מעתיקים לינק ישיר לקונים, ועוקבים אחרי ההצטרפויות בלי להישען על חיפוש ציבורי.</p>
         <div class="ops-band">
@@ -3862,7 +4004,7 @@ function renderSellerNewPage() {
           <span class="eyebrow">פתיחת עסקה</span>
           <h1>פתיחת עסקה חדשה אינה זמינה כרגע</h1>
           <div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>
-          <div class="actions"><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לאזור המוכר</a></div>
+          <div class="actions"><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לניהול העסקאות שלי</a></div>
         </article>
       </section>
     `;
@@ -3871,26 +4013,35 @@ function renderSellerNewPage() {
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
   const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
   const sellerImages = readSellerImages();
-  const deliveryOptionsCount = [1, 2, 3, 4, 5].filter((slot) =>
-    String(state.form[`sellerDeliveryLabel${slot}`] || state.form[`sellerDeliveryPointName${slot}`] || "").trim()
-  ).length;
+  const fulfillmentType = state.form.sellerFulfillmentType || "delivery";
+  const pickupSlots = activeSellerPickupSlots();
+  const deliveryOptionsCount = fulfillmentType === "delivery" ? 1 : pickupSlots.length;
+  const fieldErrors = state.createDealFieldErrors || {};
+  const fieldClass = (name) => fieldErrors[name] ? "field has-error" : "field";
+  const fieldError = (name) => fieldErrors[name] ? `<small class="field-error">${esc(fieldErrors[name])}</small>` : "";
+  const previewProgress = minUnits ? Math.min(72, Math.max(18, Math.round((Math.max(1, Math.floor(minUnits * 0.46)) / minUnits) * 100))) : 34;
   return `
     <section class="hero seller-create-hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">פתיחת עסקה</span>
-        <h1>עסקת קבוצה שנראית מוכנה להפצה</h1>
-        <p class="muted">בונים דף מכירה חי עם תמונות, יעד ברור, דדליין שמייצר FOMO ונקודות קבלה שהקונה מבין לפני שהוא מצטרף.</p>
+        <span class="eyebrow">C-ton למוכרים</span>
+        <h1>יצירת עסקה חדשה</h1>
+        <p class="muted">בנו עסקה קבוצתית, שתפו לינק, ותנו לקונים להצטרף רק אם הקבוצה מצליחה.</p>
+        ${state.error ? `<section class="error-card validation-summary create-deal-alert" role="alert" tabindex="-1" data-create-deal-alert>
+          <strong>${esc(state.error.title || "לא ניתן ליצור את העסקה עדיין.")}</strong>
+          <p>${esc(state.error.message || "חסרים פרטים בטופס.")}</p>
+          ${Array.isArray(state.error.items) && state.error.items.length ? `<ul>${state.error.items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
+        </section>` : ""}
         <div class="trust-band">
-          <div class="trust-point"><span class="muted">שלב ראשון</span><strong>שומרים טיוטה ברורה</strong></div>
-          <div class="trust-point"><span class="muted">אחרי פרסום</span><strong>נוצר דף ציבורי חי</strong></div>
-          <div class="trust-point"><span class="muted">הפצה לקונים</span><strong>דרך לינק ישיר בלבד</strong></div>
+          <div class="trust-point"><span class="muted">טיוטה</span><strong>מסגרת אמון קשיחה</strong></div>
+          <div class="trust-point"><span class="muted">פרסום</span><strong>דף ציבורי חי</strong></div>
+          <div class="trust-point"><span class="muted">הפצה</span><strong>לינק ישיר לקונים</strong></div>
         </div>
         <div class="wizard-steps" aria-label="שלבי יצירת עסקה">
-          <span>1. פרטי מוצר</span>
+          <span>1. מוצר</span>
           <span>2. כמויות</span>
           <span>3. אספקה</span>
           <span>4. תנאים</span>
-          <span>5. אישור סופי</span>
+          <span>5. סיכום ופרסום</span>
         </div>
         <form data-action="seller-create" class="form-shell seller-create-form">
           <section class="form-section-card stack">
@@ -3898,11 +4049,11 @@ function renderSellerNewPage() {
               <h3>בסיס העסקה</h3>
               <p class="small muted">מכאן נקבע איך העסקה תיתפס בעיני הקונה: מה נמכר, בכמה, ומה המרווח של הפלטפורמה.</p>
             </div>
-            <div class="field"><label for="sellerTitle">כותרת העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" /></div>
+            <div class="${fieldClass("sellerTitle")}"><label for="sellerTitle">שם העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" aria-invalid="${fieldErrors.sellerTitle ? "true" : "false"}" />${fieldError("sellerTitle")}</div>
             <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
             <div class="product-image-uploader multi-image-uploader">
               <div class="product-image-preview ${sellerImages.length ? "has-image" : ""}">
-                ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת מוצר ראשית</strong><span>אם לא תעלה תמונות, יוצג placeholder נקי במקום מסך שבור.</span></div>`}
+                ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
               </div>
               <div class="stack compact-section">
                 <div class="field"><label for="sellerImage">תמונות מוצר, עד 5</label><input id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" multiple /></div>
@@ -3924,7 +4075,7 @@ function renderSellerNewPage() {
               </div>
             </div>
             <div class="inline-fields">
-              <div class="field"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" /></div>
+              <div class="${fieldClass("sellerPrice")}"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" aria-invalid="${fieldErrors.sellerPrice ? "true" : "false"}" />${fieldError("sellerPrice")}</div>
               <div class="summary-item"><span class="muted">עמלת C-ton הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
             </div>
             <div class="form-preview-grid">
@@ -3938,10 +4089,10 @@ function renderSellerNewPage() {
               <p class="small muted">החלק הזה קובע את תחושת הדחיפות והמסגרת העסקית שהקונה יראה על הדף.</p>
             </div>
             <div class="inline-fields">
-              <div class="field"><label for="sellerMinUnits">מינימום יחידות</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" /></div>
-              <div class="field"><label for="sellerMaxUnits">מקסימום יחידות</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" /></div>
+              <div class="${fieldClass("sellerMinUnits")}"><label for="sellerMinUnits">מינימום יחידות</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" aria-invalid="${fieldErrors.sellerMinUnits ? "true" : "false"}" />${fieldError("sellerMinUnits")}</div>
+              <div class="${fieldClass("sellerMaxUnits")}"><label for="sellerMaxUnits">מקסימום יחידות</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" aria-invalid="${fieldErrors.sellerMaxUnits ? "true" : "false"}" />${fieldError("sellerMaxUnits")}</div>
             </div>
-            <div class="field"><label for="sellerDeadline">מועד סגירת חלון ההצטרפות</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" /></div>
+            <div class="${fieldClass("sellerDeadline")}"><label for="sellerDeadline">מועד סגירת חלון ההצטרפות</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" aria-invalid="${fieldErrors.sellerDeadline ? "true" : "false"}" />${fieldError("sellerDeadline")}</div>
             <div class="surface-note">
               <strong>בדיקת שפיות מהירה</strong>
               <p class="small muted">כדאי שהמינימום יהיה יעד שאפשר להגיע אליו, שהמקסימום לא ירגיש מנותק מההפצה, ושהדדליין ייצור דחיפות בלי לבלבל את הקונה.</p>
@@ -3950,38 +4101,50 @@ function renderSellerNewPage() {
           <section class="form-section-card stack">
             <div class="form-section-header">
               <h3>אפשרויות קבלה</h3>
-              <p class="small muted">אפשרויות הקבלה צריכות להיות קצרות, מובנות, וקלות להשוואה כבר בדף הציבורי.</p>
+              <p class="small muted">בחרו איך הקונים יקבלו את המוצר. מיקומי איסוף ונקודות חלוקה נוצרים רק בלחיצה מפורשת.</p>
             </div>
-            <p class="small muted">מוסיפים אפשרות קבלה אחת או יותר. הבחירה של הקונה נשמרת על כל הצטרפות ונכנסת גם לסיכום תפיסת המסגרת.</p>
-            ${[1, 2, 3, 4, 5].map((slot) => `
-              <div class="form-option-card stack">
-                <div class="inline-fields">
-                  <div class="field">
-                    <label for="sellerDeliveryType${slot}">סוג</label>
-                    <select id="sellerDeliveryType${slot}" name="sellerDeliveryType${slot}">
-                      ${["pickup", "delivery", "distribution_point"].map((option) => `<option value="${option}" ${state.form[`sellerDeliveryType${slot}`] === option ? "selected" : ""}>${formatDeliveryTypeLabel(option)}</option>`).join("")}
-                    </select>
-                  </div>
-                  <div class="field">
-                    <label for="sellerDeliveryCost${slot}">עלות</label>
-                    <input id="sellerDeliveryCost${slot}" name="sellerDeliveryCost${slot}" type="number" step="0.01" min="0" value="${esc(state.form[`sellerDeliveryCost${slot}`])}" />
-                  </div>
+            <div class="${fieldClass("sellerFulfillmentType")} fulfillment-choice-grid" role="radiogroup" aria-label="אופן קבלה">
+              ${["delivery", "pickup", "distribution_point"].map((option) => `
+                <label class="choice fulfillment-choice ${fulfillmentType === option ? "selected" : ""}">
+                  <input type="radio" name="sellerFulfillmentType" value="${option}" ${fulfillmentType === option ? "checked" : ""} />
+                  <span class="badge ${fulfillmentType === option ? "pending" : "closed"}">${esc(formatDeliveryTypeLabel(option))}</span>
+                  <strong>${esc(option === "delivery" ? "משלוח" : option === "pickup" ? "איסוף עצמי" : "נקודת חלוקה")}</strong>
+                  <small>${esc(option === "delivery" ? "אפשרות משלוח אחת תוצג לקונה בלי לפתוח שדות מיקום." : "מיקום יתווסף רק אחרי לחיצה על הוספת מיקום איסוף.")}</small>
+                </label>
+              `).join("")}
+              ${fieldError("sellerFulfillmentType")}
+            </div>
+            ${fulfillmentType === "delivery" ? `
+              <div class="info-strip tone-success"><strong>משלוח נבחר</strong><p class="small">לא נפתחו נקודות חלוקה אוטומטיות. הקונה יראה אפשרות משלוח ברורה בדף העסקה.</p></div>
+            ` : `
+              <div class="actions spread">
+                <div>
+                  <strong>${fulfillmentType === "distribution_point" ? "נקודות חלוקה" : "מיקומי איסוף עצמי"}</strong>
+                  <p class="small muted">אין מיקום ברירת מחדל. מוסיפים רק את מה שהמוכר בוחר לפרסם.</p>
                 </div>
-                <div class="field">
-                  <label for="sellerDeliveryLabel${slot}">תווית לקונה</label>
-                  <input id="sellerDeliveryLabel${slot}" name="sellerDeliveryLabel${slot}" type="text" value="${esc(state.form[`sellerDeliveryLabel${slot}`])}" placeholder="${slot === 1 ? "איסוף עצמי" : "תווית אפשרות קבלה"}" />
-                </div>
-                <div class="distribution-fields">
-                  <div class="field"><label for="sellerDeliveryPointName${slot}">שם נקודת חלוקה</label><input id="sellerDeliveryPointName${slot}" name="sellerDeliveryPointName${slot}" type="text" value="${esc(state.form[`sellerDeliveryPointName${slot}`])}" placeholder="למשל: מחסן צפוני / קניון העיר" /></div>
-                  <div class="inline-fields">
-                    <div class="field"><label for="sellerDeliveryAddress${slot}">כתובת מלאה</label><input id="sellerDeliveryAddress${slot}" name="sellerDeliveryAddress${slot}" type="text" value="${esc(state.form[`sellerDeliveryAddress${slot}`])}" placeholder="רחוב ומספר" /></div>
-                    <div class="field"><label for="sellerDeliveryCity${slot}">עיר</label><input id="sellerDeliveryCity${slot}" name="sellerDeliveryCity${slot}" type="text" value="${esc(state.form[`sellerDeliveryCity${slot}`])}" placeholder="עיר" /></div>
-                  </div>
-                  <div class="field"><label for="sellerDeliveryInstructions${slot}">הוראות הגעה קצרות</label><input id="sellerDeliveryInstructions${slot}" name="sellerDeliveryInstructions${slot}" type="text" value="${esc(state.form[`sellerDeliveryInstructions${slot}`])}" placeholder="כניסה מהחניון, קומה 1, ליד שער B" /></div>
-                  <div class="field"><label for="sellerDeliveryLocationUrl${slot}">קישור מיקום אופציונלי</label><input id="sellerDeliveryLocationUrl${slot}" name="sellerDeliveryLocationUrl${slot}" type="url" data-dir="ltr" value="${esc(state.form[`sellerDeliveryLocationUrl${slot}`])}" placeholder="https://maps.google.com/..." /></div>
-                </div>
+                <button class="primary" type="button" data-inline-action="add-pickup-location">הוסף מיקום איסוף</button>
               </div>
-            `).join("")}
+              ${pickupSlots.length ? pickupSlots.map((slot) => `
+                <div class="form-option-card pickup-location-card stack">
+                  <div class="actions spread">
+                    <span class="badge">${fulfillmentType === "distribution_point" ? "נקודת חלוקה" : "איסוף עצמי"} ${slot}</span>
+                    <button class="secondary tiny-button" type="button" data-inline-action="remove-pickup-location" data-slot="${slot}">הסר מיקום</button>
+                  </div>
+                  <input type="hidden" name="sellerDeliveryType${slot}" value="${fulfillmentType === "distribution_point" ? "distribution_point" : "pickup"}" />
+                  <div class="${fieldClass(`sellerDeliveryPointName${slot}`)}"><label for="sellerDeliveryPointName${slot}">שם המקום</label><input id="sellerDeliveryPointName${slot}" name="sellerDeliveryPointName${slot}" type="text" value="${esc(state.form[`sellerDeliveryPointName${slot}`])}" placeholder="למשל: מחסן צפוני / קניון העיר" />${fieldError(`sellerDeliveryPointName${slot}`)}</div>
+                  <div class="inline-fields">
+                    <div class="${fieldClass(`sellerDeliveryAddress${slot}`)}"><label for="sellerDeliveryAddress${slot}">כתובת</label><input id="sellerDeliveryAddress${slot}" name="sellerDeliveryAddress${slot}" type="text" value="${esc(state.form[`sellerDeliveryAddress${slot}`])}" placeholder="רחוב ומספר" />${fieldError(`sellerDeliveryAddress${slot}`)}</div>
+                    <div class="${fieldClass(`sellerDeliveryCity${slot}`)}"><label for="sellerDeliveryCity${slot}">עיר</label><input id="sellerDeliveryCity${slot}" name="sellerDeliveryCity${slot}" type="text" value="${esc(state.form[`sellerDeliveryCity${slot}`])}" placeholder="עיר" />${fieldError(`sellerDeliveryCity${slot}`)}</div>
+                  </div>
+                  <div class="inline-fields">
+                    <div class="field"><label for="sellerDeliveryInstructions${slot}">הוראות הגעה, אופציונלי</label><input id="sellerDeliveryInstructions${slot}" name="sellerDeliveryInstructions${slot}" type="text" value="${esc(state.form[`sellerDeliveryInstructions${slot}`])}" placeholder="כניסה מהחניון, קומה 1, ליד שער B" /></div>
+                    <div class="${fieldClass(`sellerDeliveryLocationUrl${slot}`)}"><label for="sellerDeliveryLocationUrl${slot}">קישור מיקום, אופציונלי</label><input id="sellerDeliveryLocationUrl${slot}" name="sellerDeliveryLocationUrl${slot}" type="url" data-dir="ltr" value="${esc(state.form[`sellerDeliveryLocationUrl${slot}`])}" placeholder="https://maps.google.com/..." />${fieldError(`sellerDeliveryLocationUrl${slot}`)}</div>
+                  </div>
+                  <input type="hidden" name="sellerDeliveryLabel${slot}" value="${esc(state.form[`sellerDeliveryLabel${slot}`] || (fulfillmentType === "distribution_point" ? `נקודת חלוקה ${slot}` : `איסוף עצמי ${slot}`))}" />
+                  <input type="hidden" name="sellerDeliveryCost${slot}" value="${esc(state.form[`sellerDeliveryCost${slot}`] || "0")}" />
+                </div>
+              `).join("") : `<div class="empty-surface"><strong>עדיין אין מיקומי איסוף</strong><p class="small muted">לחיצה על "הוסף מיקום איסוף" תפתח כרטיס מיקום אחד בלבד.</p></div>`}
+            `}
           </section>
           <section class="form-section-card stack">
             <div class="form-section-header">
@@ -3999,7 +4162,7 @@ function renderSellerNewPage() {
           </section>
           <div class="actions">
             <button class="primary" type="submit">יצירת טיוטה</button>
-            <a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לאזור המוכר</a>
+            <a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לניהול העסקאות שלי</a>
           </div>
         </form>
       </article>
@@ -4016,6 +4179,23 @@ function renderSellerNewPage() {
             '</a></p></div>';
         })()}
         
+        <div class="seller-live-preview">
+          <span class="eyebrow">Preview חי</span>
+          <div class="product-image-preview compact-preview ${sellerImages.length ? "has-image" : ""}">
+            ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תצוגה מקדימה של תמונת העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
+          </div>
+          <h2>${esc(state.form.sellerTitle || "שם העסקה יופיע כאן")}</h2>
+          <div class="preview-price">${currency(price)}</div>
+          <div class="progress-block">
+            <div class="progress-caption"><strong>${num(Math.max(1, Math.floor(minUnits * 0.46)))} מצטרפים בדמו</strong><span>${percent(previewProgress)}</span></div>
+            <div class="meter"><span style="width:${previewProgress}%"></span></div>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-item"><span class="muted">יעד</span><strong>${num(minUnits)} יח'</strong></div>
+            <div class="summary-item"><span class="muted">סכום יעד</span><strong>${currency(price * minUnits)}</strong></div>
+          </div>
+          <button class="primary" type="button" disabled>הצטרפות demo</button>
+        </div>
         <div class="summary-item summary-spotlight"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">מזהה מוכר: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">מחיר נוכחי</span><strong>${currency(price)}</strong></div>
@@ -4025,7 +4205,7 @@ function renderSellerNewPage() {
         </div>
         <div class="cta-panel">
           <strong>מה יקרה אחרי שמירת הטיוטה</strong>
-          <p class="small muted">הטיוטה תיכנס ישר לאזור המוכר, ומשם אפשר לפרסם דף ציבורי חי, לפתוח לינק ישיר ולהתחיל לעקוב אחרי הצטרפויות.</p>
+          <p class="small muted">הטיוטה תיכנס ישר לניהול העסקאות, ומשם אפשר לפרסם דף ציבורי חי, לפתוח לינק ישיר ולהתחיל לעקוב אחרי הצטרפויות.</p>
         </div>
         <div class="form-checklist">
           <div class="summary-item"><span class="muted">אפשרויות קבלה מוכנות</span><strong>${num(deliveryOptionsCount || 1)}</strong><p class="small muted">לפחות אפשרות קבלה אחת צריכה להיראות כמו בחירה אמיתית לקונה.</p></div>
@@ -6125,7 +6305,7 @@ function renderNavLegacy() {
       <nav class="page-nav">
         <div class="actions">
           <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
+          <a href="/app/seller" data-nav="/app/seller" class="button secondary">ניהול העסקאות שלי</a>
         </div>
       ${!isInternalSurface ? `<div class="route-chip">מוכר פעיל: ${esc(sellerContext.display_name)}</div>` : ""}
       ${isInternalSurface ? `<div class="route-chip">מסך פנימי</div>` : ""}
@@ -6242,14 +6422,18 @@ function renderTermsPage() {
     "שימוש בפלטפורמה",
     "תנאי השימוש מגדירים איך משתמשים במשטחים הציבוריים של C-ton, מהו אופי העסקה הקבוצתית, ואיפה עוברת האחריות בין הפלטפורמה, המוכר והקונה.",
     [
-      { title: "מהו השירות", body: "C-ton היא פלטפורמה לניהול עסקאות קבוצתיות מבוססות לינק. המוכר פותח עסקה, מפרסם דף עסקה ציבורי, והקונה מצטרף דרך קישור ישיר ולא דרך קטלוג ציבורי פתוח." },
-      { title: "מה קורה בשלב ההצטרפות", body: "בשלב ההצטרפות נשמרים פרטי המסלול, כולל כמות, אופן קבלה ואישור מסגרת. אין חיוב בפועל רק מעצם ההצטרפות. החיוב בפועל מתבצע רק אם העסקה נסגרת בהצלחה ובהתאם למצב העסקה." },
-      { title: "אחריות המוכר", body: "המוכר אחראי לנכונות פרטי העסקה, למחיר, לחלון הזמנים, לאפשרויות הקבלה, ולתקשורת הישירה הנדרשת מול הקונים במסגרת העסקה שפרסם." },
-      { title: "אחריות C-ton והמוכר", body: "המוצר והאספקה באחריות המוכר. C-ton מספקת את מערכת העסקה, התיעוד, ניהול ההתחייבויות והעברת נתוני הזכאים למוכר; C-ton אינה מספקת את המוצר בעצמה." },
+      { title: "מהו השירות", body: "C-ton היא פלטפורמה טכנולוגית לעסקאות קבוצתיות מבוססות לינק. המוכר פותח עסקה, מפרסם דף ציבורי, והקונה מצטרף דרך קישור ישיר ולא דרך קטלוג ציבורי פתוח." },
+      { title: "C-ton אינה המוכר", body: "C-ton מספקת את מערכת העסקה, התיעוד, מסכי ההצטרפות והמעקב, אך אינה המוכר של המוצר או השירות. האחריות למוצר, איכות, מלאי, אספקה, שירות ואחריות צרכנית היא של המוכר, בכפוף לדין החל ולתנאי העסקה שפורסמו." },
+      { title: "הצטרפות ותפיסת מסגרת", body: "הצטרפות לעסקה אינה חיוב בפועל. בשלב ההצטרפות נשמרים פרטי המסלול ותפיסת מסגרת בלבד עד להצלחת העסקה. חיוב יתבצע רק אם העסקה עומדת בתנאים ובמצב המערכת מאפשר חיוב." },
+      { title: "אם העסקה לא תושלם", body: "אם העסקה לא תושלם, המסגרת תשוחרר, תתבטל או יבוצע טיפול כספי לפי המסלול האוטומטי הרלוונטי. זמני שחרור מסגרת תלויים גם בחברת האשראי, בבנק או בספק הסליקה, ולכן אינם תמיד מיידיים." },
+      { title: "אין התחייבות להשלמת העסקה", body: "אין התחייבות שהעסקה תצא לפועל, ואין התחייבות לזמינות מוצר עד השלמת העסקה. העסקה יכולה להיכשל אם לא מתקיימים תנאי הסף, אם חל כשל סליקה, או אם מנגנוני המערכת מסמנים מצב שאינו מאפשר השלמה." },
+      { title: "תנאים קריטיים לאחר פרסום", body: "מחיר, מינימום, מקסימום, דדליין, אופן קבלה ותנאים קריטיים נוספים אינם משתנים לאחר פרסום העסקה. לאחר נעילה לפי חוקת העסקה אין ביטול מתוך המערכת אלא אם מצב העסקה והמנגנונים הקיימים מאפשרים זאת." },
       { title: "כלל 90%", body: "עסקה תיחשב מוצלחת רק אם חויבו בפועל לפחות 90% מהמינימום שהוגדר. אם פחות מכך חויב בפועל, העסקה נכשלת לפי מנגנון המערכת." },
-      { title: "לינקי הפצה", body: "לינקי הפצה הם ייחוס ומדידה בלבד. C-ton אינה מחשבת עמלה למפיצים ואינה משלמת למפיצים; כל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ למערכת." },
-      { title: "אחריות הקונה", body: "הקונה אחראי למסור פרטים נכונים, לעקוב אחר מצב ההשתתפות במסך המעקב, ולוודא שהכמות ואופן הקבלה שנשמרו אכן תואמים את רצונו לפני אישור המסגרת." },
-      { title: "היקף השירות", body: "הפלטפורמה מספקת את משטחי ההצטרפות, האישור והמעקב. היא אינה מרחיבה כאן את ההתחייבויות מעבר למה שמופיע במפורש במסלול הציבורי ובמצבי העסקה בפועל." }
+      { title: "לינקי הפצה ומפיצים", body: "מפיצים הם ערוץ מדידה ושיתוף בלבד. אין במערכת עמלה, יתרה, payout או תשלום למפיץ, וכל הסכמה אחרת בין מוכר למפיץ נמצאת מחוץ ל-C-ton." },
+      { title: "הודעות ומקור אמת", body: "SMS, Email או הודעות אחרות הם כלי עזר בלבד. מסך המעקב של ההשתתפות והסטטוסים שמוצגים במערכת הם מקור האמת לגבי מצב העסקה, תפיסת המסגרת וההשתתפות." },
+      { title: "כשלים טכניים ועיכובים", body: "שגיאות טכניות, כשלי רשת, כשלי סליקה או עיכובים יטופלו לפי מנגנוני המערכת והסטטוסים הקיימים. ייתכנו עיכובים שאינם בשליטת C-ton, למשל אצל ספק סליקה או חברת אשראי." },
+      { title: "אחריות הקונה", body: "הקונה אחראי למסור פרטים נכונים, לעקוב אחר מצב ההשתתפות במסך המעקב, ולוודא שהכמות ואופן הקבלה שנשמרו תואמים את רצונו לפני אישור המסגרת." },
+      { title: "סביבת דמו", body: "הדמו אינו סביבת תשלום אמיתית, ואין להסתמך על נתוני דמו כמסחר אמיתי. התוכן כאן הוא ניסוח מוצרי לתצוגת דמו ודורש בדיקה משפטית לפני שימוש בפרודקשן." }
     ]
   );
 }
@@ -6308,9 +6492,12 @@ function renderSellerTermsPage() {
     "תנאים אלה חלים על מוכר שפותח או מפרסם עסקה ב-C-ton. המוכר אחראי לפרטי העסקה, למוצר, לאספקה, לאחריות ולשירות.",
     [
       { title: "אחריות לפרטי העסקה", body: "המוכר אחראי לכך שכל פרטי העסקה נכונים, מלאים ואינם מטעים: מחיר, מינימום, מקסימום, דדליין, אפשרויות אספקה, חלון השלמה וכל תנאי מהותי אחר." },
+      { title: "אחריות מוצר ושירות", body: "המוכר אחראי למוצר, לאיכות, למלאי, לאספקה, לשירות לאחר השלמת העסקה, לאחריות צרכנית ולכל תיאום מול קונים זכאים. C-ton אינה מחליפה את המוכר ואינה מתחייבת לזמינות מוצר." },
       { title: "תנאים קריטיים", body: "לאחר פרסום אין שינוי שקט של תנאים קריטיים. מחיר, מינימום, מקסימום, דדליין, משלוח, חלון השלמה ועמלות חייבים להיות סופיים לפני פרסום." },
+      { title: "נעילה וביטול", body: "לאחר נעילת העסקה לפי חוקת העסקה אין ביטול מתוך המערכת, אלא אם מצב העסקה והמנגנונים האוטומטיים הקיימים מאפשרים זאת. מסך המעקב הוא מקור האמת לקונה." },
       { title: "כלל 90%", body: "המוכר מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום לפי יחידות. לכן ייתכן שהעסקה תושלם גם אם לא כל ההתחייבויות חויבו בפועל." },
       { title: "עמלת C-ton", body: "C-ton גובה 8% כולל הכל מהכל, כולל משלוח, למעט מעמ. אין עמלת מפיצים במערכת וכל הסדר עם מפיץ הוא מחוץ למערכת בלבד." },
+      { title: "דמו ובדיקה משפטית", body: "סביבת הדמו אינה סביבת תשלום אמיתית ואין להסתמך על נתוני דמו כמסחר אמיתי. נוסח זה דורש בדיקה משפטית לפני שימוש בפרודקשן." },
       { title: "KYC והקפאה", body: "מוכר נדרש לאישור KYC בסיסי לפני פעילות אמיתית. C-ton רשאית להקפיא פעילות במקרה של חשד להונאה, תלונה מהותית, בעיית אספקה או סיכון משפטי." }
     ]
   );
@@ -6350,7 +6537,7 @@ function renderNav() {
       <nav class="shell-surface page-nav" aria-label="ניווט ראשי">
         <div class="actions">
           <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">אזור מוכר</a>
+          <a href="/app/seller" data-nav="/app/seller" class="button secondary">ניהול העסקאות שלי</a>
         </div>
         <div class="shell-meta">
           ${isInternalSurface ? `<div class="route-chip">גישה פנימית</div>` : `<div class="route-chip">פתוח להצגה</div>`}
@@ -6706,7 +6893,7 @@ function renderTrackingActivityFeed(items) {
 
 function renderErrorCard(error) {
   return `
-    <section class="error-card validation-summary" role="alert" data-testid="seller-create-error-summary">
+    <section class="error-card validation-summary" role="alert" tabindex="-1" data-testid="seller-create-error-summary">
       <strong>${esc(error.title || "אירעה שגיאה")}</strong>
       <p>${esc(error.message || "נסה שוב בעוד רגע.")}</p>
       ${Array.isArray(error.items) && error.items.length ? `<ul>${error.items.map((item) => `<li>${esc(item)}</li>`).join("")}</ul>` : ""}
@@ -6842,7 +7029,7 @@ function friendlyError(error, fallback) {
     return { title: "לא מצאנו את ההשתתפות", message: "קישור המעקב הזה כבר לא תקין או שאינו שייך להשתתפות קיימת." };
   }
   if (status === 401 && lower.includes("seller session is required")) {
-    return { title: "נדרשת כניסת מוכר", message: "המשך העבודה באזור המוכר מחייב כניסה מחדש עם פרטי הגישה של המוכר." };
+    return { title: "נדרשת כניסת מוכר", message: "המשך העבודה בניהול העסקאות מחייב כניסה מחדש עם פרטי הגישה של המוכר." };
   }
   if (status === 401 && lower.includes("seller id or access code is invalid")) {
     return { title: "פרטי הגישה לא נכונים", message: "מזהה המוכר או קוד הגישה לא תואמים לרשימת המוכרים המורשים של סביבת ה-launch." };
@@ -6870,6 +7057,9 @@ function friendlyError(error, fallback) {
   }
   if (lower.includes("authorization failed")) {
     return { title: "אישור המסגרת נכשל", message: "אמצעי התשלום נדחה על ידי שכבת אישור המסגרת הקיימת. אפשר לנסות אמצעי אחר." };
+  }
+  if (lower.includes("title is required") || String(error?.code || "") === "title_required") {
+    return { title: "חסר שם לעסקה.", message: "אנא הזן שם קצר וברור לעסקה. לא נשלח request תקין בלי שם עסקה." };
   }
   if (status >= 500) {
     return { title: "המערכת כרגע לא זמינה", message: `לא הצלחנו להשלים את הפעולה בגלל בעיית שרת. קוד: ${friendlyApiCode(error)}. כדאי לנסות שוב בעוד רגע.` };
@@ -6945,8 +7135,19 @@ function calcHoldTotal(payload, qty, selectedOption) {
 function collectSellerDeliveryOptions(formData) {
   const options = [];
   const errors = [];
+  const fieldErrors = {};
+  const fulfillmentType = String(formData.get("sellerFulfillmentType") || state.form.sellerFulfillmentType || "delivery").trim();
+  if (fulfillmentType === "delivery") {
+    options.push({
+      option_type: "delivery",
+      label: "משלוח",
+      cost: 0,
+      sort_order: 0
+    });
+    return { options, errors, fieldErrors };
+  }
   for (let index = 1; index <= 5; index += 1) {
-    const type = String(formData.get(`sellerDeliveryType${index}`) || "").trim();
+    const type = fulfillmentType === "distribution_point" ? "distribution_point" : "pickup";
     const label = String(formData.get(`sellerDeliveryLabel${index}`) || "").trim();
     const rawCost = String(formData.get(`sellerDeliveryCost${index}`) || "").trim();
     const pointName = String(formData.get(`sellerDeliveryPointName${index}`) || "").trim();
@@ -6954,18 +7155,32 @@ function collectSellerDeliveryOptions(formData) {
     const city = String(formData.get(`sellerDeliveryCity${index}`) || "").trim();
     const instructions = String(formData.get(`sellerDeliveryInstructions${index}`) || "").trim();
     const locationUrl = String(formData.get(`sellerDeliveryLocationUrl${index}`) || "").trim();
-    if (!type && !label && !rawCost && !pointName && !address && !city && !instructions && !locationUrl) continue;
+    if (!label && !rawCost && !pointName && !address && !city && !instructions && !locationUrl) continue;
     const cost = Number(rawCost || 0);
     if (!Number.isFinite(cost) || cost < 0) {
       errors.push(`אפשרות קבלה ${index}: עלות לא תקינה.`);
+      fieldErrors[`sellerDeliveryCost${index}`] = "עלות המיקום חייבת להיות מספר לא שלילי.";
       continue;
     }
     let finalLabel = label;
-    if (type === "distribution_point") {
-      if (!pointName) errors.push(`נקודת חלוקה ${index}: חסר שם נקודת חלוקה.`);
-      if (!address) errors.push(`נקודת חלוקה ${index}: חסרה כתובת מלאה.`);
-      if (!city) errors.push(`נקודת חלוקה ${index}: חסרה עיר.`);
-      if (locationUrl && !/^https?:\/\//i.test(locationUrl)) errors.push(`נקודת חלוקה ${index}: קישור המיקום חייב להתחיל ב-http או https.`);
+    if (type === "distribution_point" || type === "pickup") {
+      const locationKind = type === "distribution_point" ? "נקודת חלוקה" : "מיקום איסוף";
+      if (!pointName) {
+        errors.push(`${locationKind} ${index}: חסר שם המקום.`);
+        fieldErrors[`sellerDeliveryPointName${index}`] = "יש להזין שם מקום.";
+      }
+      if (!address) {
+        errors.push(`${locationKind} ${index}: חסרה כתובת.`);
+        fieldErrors[`sellerDeliveryAddress${index}`] = "יש להזין כתובת.";
+      }
+      if (!city) {
+        errors.push(`${locationKind} ${index}: חסרה עיר.`);
+        fieldErrors[`sellerDeliveryCity${index}`] = "יש להזין עיר.";
+      }
+      if (locationUrl && !/^https?:\/\//i.test(locationUrl)) {
+        errors.push(`${locationKind} ${index}: קישור המיקום חייב להתחיל ב-http או https.`);
+        fieldErrors[`sellerDeliveryLocationUrl${index}`] = "קישור מיקום חייב להתחיל ב-http או https.";
+      }
       finalLabel = buildDistributionPointLabel({
         label,
         pointName,
@@ -6977,6 +7192,7 @@ function collectSellerDeliveryOptions(formData) {
     }
     if (!finalLabel) {
       errors.push(`אפשרות קבלה ${index}: חסרה תווית ברורה לקונה.`);
+      fieldErrors[`sellerDeliveryLabel${index}`] = "יש להזין תווית קצרה לקונה.";
       continue;
     }
     options.push({
@@ -6986,7 +7202,11 @@ function collectSellerDeliveryOptions(formData) {
       sort_order: options.length
     });
   }
-  return { options, errors };
+  if ((fulfillmentType === "pickup" || fulfillmentType === "distribution_point") && !options.length && !errors.length) {
+    errors.push("בחרת איסוף עצמי או נקודת חלוקה. יש להוסיף לפחות מיקום אחד.");
+    fieldErrors.sellerFulfillmentType = "בחרת איסוף עצמי או נקודת חלוקה. יש להוסיף לפחות מיקום אחד.";
+  }
+  return { options, errors, fieldErrors };
 }
 
 function buildDistributionPointLabel({ label, pointName, address, city, instructions, locationUrl }) {
@@ -7089,7 +7309,7 @@ function readFlow() {
 function defaultSellerContext() {
   return {
     seller_id: "seller-default",
-    display_name: "אזור מוכר ברירת מחדל",
+    display_name: "מוכר דמו ברירת מחדל",
     verification_status: "approved",
     settlement_status: "active",
     is_default_context: true,
@@ -7159,7 +7379,7 @@ function normalizeSellerDisplayName(sellerId, displayName) {
     sellerId === "seller-default" &&
     (!displayName || displayName === "Default Seller Workspace")
   ) {
-    return "אזור מוכר ברירת מחדל";
+    return "מוכר דמו ברירת מחדל";
   }
   return displayName || "";
 }
@@ -7170,7 +7390,7 @@ function syncSellerContext(next) {
     normalized.seller_id === "seller-default" &&
     (!normalized.display_name || normalized.display_name === "Default Seller Workspace")
   ) {
-    normalized.display_name = "אזור מוכר ברירת מחדל";
+    normalized.display_name = "מוכר דמו ברירת מחדל";
   }
   normalized.display_name = normalizeSellerDisplayName(normalized.seller_id, normalized.display_name);
   state.sellerContext = normalized;
@@ -7208,8 +7428,8 @@ function renderSellerAuthGate() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
-        <span class="eyebrow">אזור המוכר</span>
-        <h1>${configured ? "נדרשת כניסת מוכר" : "אזור המוכר עדיין לא זמין בסביבה הזו"}</h1>
+        <span class="eyebrow">ניהול העסקאות שלי</span>
+        <h1>${configured ? "נדרשת כניסת מוכר" : "ניהול העסקאות עדיין לא זמין בסביבה הזו"}</h1>
         <p class="muted">${configured ? "כדי לפתוח, לפרסם ולנהל עסקאות צריך להיכנס עם פרטי הגישה של המוכר שהוגדרו לסביבה הזו. בלי כניסה תקינה משטח המוכר נשאר חסום." : "בסביבה הנוכחית עדיין לא הוגדרו פרטי גישה מלאים למוכר. החסימה נשארת מכוונת כדי לא ליצור מצג שווא של גישה פעילה."}</p>
         <div class="trust-band">
           <div class="trust-point"><span class="muted">מקור הזיהוי</span><strong>כניסת מוכר דרך השרת</strong></div>
@@ -7237,11 +7457,11 @@ function renderSellerContextPanel(context) {
           </div>
           <span class="badge ${auth.authenticated ? "success" : auth.configured === false ? "danger" : "warning"}">${auth.authenticated ? "גישה פעילה" : auth.configured === false ? "לא הוגדר" : "נעול"}</span>
         </div>
-        <p class="small muted">${auth.authenticated ? `הגישה של המוכר מזוהה כעת כ-<span class="mono">${esc(sellerContext.seller_id)}</span>, וכל העסקאות שמוצגות כאן שייכות לזהות הזו.` : auth.configured === false ? "הסביבה הזו עדיין לא קיבלה את כל פרטי הגישה הנדרשים למוכר, ולכן המשטח נשאר חסום בצורה מכוונת." : "כדי להיכנס לאזור המוכר צריך להזין מזהה מוכר וקוד גישה שהוגדרו מראש לסביבת העבודה."}</p>
+        <p class="small muted">${auth.authenticated ? `הגישה של המוכר מזוהה כעת כ-<span class="mono">${esc(sellerContext.seller_id)}</span>, וכל העסקאות שמוצגות כאן שייכות לזהות הזו.` : auth.configured === false ? "הסביבה הזו עדיין לא קיבלה את כל פרטי הגישה הנדרשים למוכר, ולכן המשטח נשאר חסום בצורה מכוונת." : "כדי להיכנס לניהול העסקאות צריך להזין מזהה מוכר וקוד גישה שהוגדרו מראש לסביבת העבודה."}</p>
         ${auth.authenticated ? `
           <form data-action="seller-logout" class="stack">
             <div class="actions">
-              <button class="secondary" type="submit">יציאה מאזור המוכר</button>
+              <button class="secondary" type="submit">יציאה מניהול העסקאות</button>
             </div>
           </form>
         ` : auth.configured === false ? "" : `
@@ -7257,7 +7477,7 @@ function renderSellerContextPanel(context) {
               </div>
             </div>
             <div class="actions">
-              <button class="primary" type="submit">כניסה לאזור המוכר</button>
+              <button class="primary" type="submit">כניסה לניהול העסקאות</button>
             </div>
           </form>
         `}
@@ -7268,7 +7488,7 @@ function renderSellerContextPanel(context) {
     sellerContext.seller_id === "seller-default" &&
     (!sellerContext.display_name || sellerContext.display_name === "Default Seller Workspace")
   ) {
-    sellerContext.display_name = "אזור מוכר ברירת מחדל";
+    sellerContext.display_name = "מוכר דמו ברירת מחדל";
   }
   sellerContext.display_name = normalizeSellerDisplayName(sellerContext.seller_id, sellerContext.display_name);
   return `
@@ -7280,7 +7500,7 @@ function renderSellerContextPanel(context) {
         </div>
         <span class="badge ${sellerContext.is_default_context ? "warning" : "success"}">${sellerContext.is_default_context ? "ברירת מחדל פנימית" : "מוכר פעיל"}</span>
       </div>
-      <p class="small muted">כל עסקה חדשה תיווצר תחת <span class="mono">${esc(sellerContext.seller_id)}</span>. אזור המוכר מציג רק את העסקאות של הזהות הפעילה.</p>
+      <p class="small muted">כל עסקה חדשה תיווצר תחת <span class="mono">${esc(sellerContext.seller_id)}</span>. ניהול העסקאות מציג רק את העסקאות של הזהות הפעילה.</p>
       ${sellerContext.is_default_context ? `<p class="small muted">כדאי לשמור מזהה מוכר ברור כדי לא לעבוד תחת ברירת מחדל עמומה.</p>` : ""}
       <form data-action="seller-context" class="stack">
         <div class="inline-fields">
@@ -7467,6 +7687,7 @@ function failValidation(title, items) {
     items
   };
   render();
+  if (state.route.name === "seller-new") focusCreateDealError();
 }
 
 function esc(value) {

@@ -371,7 +371,7 @@ async function main() {
       {
         name: "seller create",
         path: "/app/seller/new",
-        expect: ["עסקת קבוצה שנראית מוכנה להפצה", "תמונות מוצר, עד 5", "שם נקודת חלוקה", "תקנון השימוש למוכרים"]
+        expect: ["יצירת עסקה חדשה", "תמונות מוצר, עד 5", "משלוח נבחר", "תקנון השימוש למוכרים"]
       },
       {
         name: "seller deal",
@@ -419,7 +419,7 @@ async function main() {
       {
         name: "seller create mobile",
         path: "/app/seller/new",
-        expect: ["עסקת קבוצה שנראית מוכנה להפצה", "תמונות מוצר, עד 5", "שם נקודת חלוקה"]
+        expect: ["יצירת עסקה חדשה", "תמונות מוצר, עד 5", "משלוח נבחר"]
       },
       {
         name: "seller deal mobile",
