@@ -116,7 +116,7 @@ async function main() {
     });
 
     assert.equal(response.statusCode, 200);
-    assert.match(response.body, /href="\/app\/seller" data-nav="\/app\/seller" class="button secondary">ניהול העסקאות שלי/);
+    assert.match(response.body, /href="\/app\/seller\/new" data-nav="\/app\/seller\/new" class="button secondary">יצירת עסקה/);
     assert.doesNotMatch(response.body, /href="\/app\/affiliate" data-nav="\/app\/affiliate" class="button secondary">Affiliate</);
     assert.doesNotMatch(response.body, /href="\/app\/admin" data-nav="\/app\/admin" class="button secondary">Admin</);
     assert.doesNotMatch(response.body, /Operations view/);

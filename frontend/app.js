@@ -6305,7 +6305,7 @@ function renderNavLegacy() {
       <nav class="page-nav">
         <div class="actions">
           <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">ניהול העסקאות שלי</a>
+          <a href="/app/seller/new" data-nav="/app/seller/new" class="button secondary">יצירת עסקה</a>
         </div>
       ${!isInternalSurface ? `<div class="route-chip">מוכר פעיל: ${esc(sellerContext.display_name)}</div>` : ""}
       ${isInternalSurface ? `<div class="route-chip">מסך פנימי</div>` : ""}
@@ -6537,7 +6537,7 @@ function renderNav() {
       <nav class="shell-surface page-nav" aria-label="ניווט ראשי">
         <div class="actions">
           <a href="/app" data-nav="/app" class="button secondary">C-ton</a>
-          <a href="/app/seller" data-nav="/app/seller" class="button secondary">ניהול העסקאות שלי</a>
+          <a href="/app/seller/new" data-nav="/app/seller/new" class="button secondary">יצירת עסקה</a>
         </div>
         <div class="shell-meta">
           ${isInternalSurface ? `<div class="route-chip">גישה פנימית</div>` : `<div class="route-chip">פתוח להצגה</div>`}
