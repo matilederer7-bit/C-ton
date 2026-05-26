@@ -2,6 +2,42 @@
 
 ---
 
+## Current update: 2026-05-26 (Create Deal Visual and Scroll QA Repair)
+
+### What was broken
+- The create-deal image upload area could break inside the form: the raw file input, large image preview, and small thumbnail preview competed for the same space.
+- The create-deal page could scroll/focus back to the top while typing after a validation error because route render still triggered create-deal error focus.
+- The create-deal visual treatment was still too pale for the requested premium product feel.
+
+### What was fixed
+- Rebuilt the image uploader into one controlled 16:9 upload card with hidden file input, styled "בחרו תמונה" / "החלפת תמונה" labels, object-fit cover image rendering, loading overlay, and inline upload failure alert.
+- Removed the broken secondary thumbnail grid from the create-deal form so the selected image appears once in the uploader and once in the separate live preview card only.
+- Kept scroll/focus behavior only on failed submit paths: `failValidation` and failed create submission can call `focusCreateDealError`; input/change handling only updates state and clears field errors.
+- Changed the global app background to a deep grey `linear-gradient(135deg, #2F3237 0%, #25282D 100%)`, with white/off-white cards for contrast.
+- Strengthened the create-deal layout: desktop two-column form plus sticky live preview, 32px gap, 22px form cards, stronger shadows, white header text on the dark background, orange stepper pills, and a polished draft preview card.
+
+### What was checked
+- Desktop/browser coverage: `npm run test:frontend-browser-smoke` hydrated `/app/seller/new` in Edge as part of the desktop route set.
+- Mobile 390px/browser coverage: `npm run test:frontend-browser-smoke` hydrated `/app/seller/new` in Edge as part of the mobile route set.
+- Tablet 768px/layout coverage: responsive CSS now collapses the create-deal grid and disables sticky preview below 900px; no additional 768px live session completed because Edge headless/CDP launch hung locally and was stopped.
+- Technical checks passed: `node --check frontend/app.js`, `npm run build:demo`, `npx tsc --noEmit`, `npm test`, `npm run test:frontend`, `npm run test:frontend-browser-smoke`.
+
+### What is open
+- Post-deploy live QA on the real Render URL is still required after push, including manual image upload and scroll typing checks in a normal browser session.
+
+### Progress
+- Create-deal visual/scroll repair: 100% local implementation.
+- Local automated test gate: 100%.
+- Local manual browser QA: partially covered by Edge smoke; interactive CDP/manual upload run did not complete due local Edge headless launch hang.
+
+### Next step
+- post-deploy live QA
+
+### Verdict
+`CREATE_DEAL_SCREEN_VISUAL_AND_SCROLL_FIX_READY_FOR_POST_DEPLOY_QA`
+
+---
+
 ## Current update: 2026-05-26 (Live UX and Visual QA Fix)
 
 ### What failed

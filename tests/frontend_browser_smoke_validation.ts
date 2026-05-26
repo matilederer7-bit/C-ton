@@ -307,7 +307,7 @@ async function assertFrontendAssetsHealthy() {
 async function assertSellerCreateUxContract() {
   const source = await readFile(join(frontendSource, "app.js"), "utf8");
   assert.match(source, /sellerDeliveryPointName5/, "seller create form should support five distribution point slots");
-  assert.match(source, /sellerImagesJson/, "seller create form should keep up to five images in state");
+  assert.match(source, /sellerImagesJson/, "seller create form should keep image state for deal previews");
   assert.match(source, /validation-summary/, "form validation errors should render a visible summary");
   assert.match(source, /תקנון השימוש למוכרים/, "terms approval should include an inline clickable seller terms link");
   assert.match(source, /מדיניות הביטולים וההחזרים/, "terms approval should include an inline refunds link");
@@ -371,7 +371,7 @@ async function main() {
       {
         name: "seller create",
         path: "/app/seller/new",
-        expect: ["יצירת עסקה חדשה", "תמונות מוצר, עד 5", "משלוח נבחר", "תקנון השימוש למוכרים"]
+        expect: ["יצירת עסקה חדשה", "תמונת העסקה", "משלוח נבחר", "תקנון השימוש למוכרים"]
       },
       {
         name: "seller deal",
@@ -419,7 +419,7 @@ async function main() {
       {
         name: "seller create mobile",
         path: "/app/seller/new",
-        expect: ["יצירת עסקה חדשה", "תמונות מוצר, עד 5", "משלוח נבחר"]
+        expect: ["יצירת עסקה חדשה", "תמונת העסקה", "משלוח נבחר"]
       },
       {
         name: "seller deal mobile",

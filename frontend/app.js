@@ -54,6 +54,8 @@ const state = {
   adminSafeActionDraft: null,
   error: null,
   banner: null,
+  sellerImageUploadStatus: "idle",
+  sellerImageUploadError: "",
   createDealFieldErrors: {},
   form: {
     adminQuery: "",
@@ -1586,40 +1588,40 @@ async function cloneSellerDeal(dealId) {
 async function handleSellerImageSelection(input) {
   const files = Array.from(input.files || []);
   if (!files.length) return;
-  const existing = readSellerImages();
-  const nextFiles = files.slice(0, Math.max(0, 5 - existing.length));
-  if (!nextFiles.length) {
-    input.value = "";
-    return fail("מגבלת תמונות", "אפשר להעלות עד 5 תמונות לעסקה בדמו הזה.");
-  }
+  const nextFiles = files.slice(0, 1);
   for (const file of nextFiles) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       input.value = "";
-      return fail("סוג תמונה לא נתמך", "אפשר להעלות תמונות JPG, PNG או WebP בלבד.");
+      state.sellerImageUploadStatus = "error";
+      state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
+      render();
+      return;
     }
     if (file.size > 2 * 1024 * 1024) {
       input.value = "";
-      return fail("התמונה גדולה מדי", "בשלב הזה כל תמונת תצוגה מוגבלת ל-2MB כדי לא להכביד על הדפדפן.");
+      state.sellerImageUploadStatus = "error";
+      state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
+      render();
+      return;
     }
   }
-  state.banner = {
-    tone: "info",
-    title: "טוען תמונות",
-    message: "מכינים תצוגה מקדימה במסגרת קבועה. זה אמור לקחת רגע קצר."
-  };
+  state.sellerImageUploadStatus = "loading";
+  state.sellerImageUploadError = "";
   render();
-  const images = await Promise.all(nextFiles.map((file) => readImageFile(file)));
-  const merged = existing.concat(images).slice(0, 5);
-  state.form.sellerImagesJson = JSON.stringify(merged);
-  state.form.sellerImageDataUrl = merged[0]?.dataUrl || "";
-  state.form.sellerImageName = merged[0]?.filename || "";
-  input.value = "";
-  state.banner = {
-    tone: "success",
-    title: "התמונות נוספו לתצוגה מקדימה",
-    message: `${num(merged.length)} תמונות זמינות עכשיו לטיוטה. הראשונה היא התמונה הראשית בדמו.`
-  };
-  render();
+  try {
+    const images = await Promise.all(nextFiles.map((file) => readImageFile(file)));
+    const normalized = images.slice(0, 1);
+    state.form.sellerImagesJson = JSON.stringify(normalized);
+    state.form.sellerImageDataUrl = normalized[0]?.dataUrl || "";
+    state.form.sellerImageName = normalized[0]?.filename || "";
+    state.sellerImageUploadStatus = "idle";
+  } catch {
+    state.sellerImageUploadStatus = "error";
+    state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
+  } finally {
+    input.value = "";
+    render();
+  }
 }
 
 function readImageFile(file) {
@@ -1696,11 +1698,8 @@ function makeSellerImagePrimary(index) {
 
 function clearSellerProductImage() {
   setSellerImages([]);
-  state.banner = {
-    tone: "warning",
-    title: "התמונות הוסרו מהתצוגה",
-    message: "דף העסקה יחזור לתצוגת ברירת המחדל עד שתבחר תמונות מוצר חדשות."
-  };
+  state.sellerImageUploadStatus = "idle";
+  state.sellerImageUploadError = "";
   render();
 }
 
@@ -4019,7 +4018,7 @@ function renderSellerNewPage() {
   const fieldErrors = state.createDealFieldErrors || {};
   const fieldClass = (name) => fieldErrors[name] ? "field has-error" : "field";
   const fieldError = (name) => fieldErrors[name] ? `<small class="field-error">${esc(fieldErrors[name])}</small>` : "";
-  const previewProgress = minUnits ? Math.min(72, Math.max(18, Math.round((Math.max(1, Math.floor(minUnits * 0.46)) / minUnits) * 100))) : 34;
+  const previewTarget = minUnits || 8;
   return `
     <section class="hero seller-create-hero">
       <article class="card hero-main stack hero-emphasis">
@@ -4046,33 +4045,29 @@ function renderSellerNewPage() {
         <form data-action="seller-create" class="form-shell seller-create-form">
           <section class="form-section-card stack">
             <div class="form-section-header">
-              <h3>בסיס העסקה</h3>
+              <h3>מוצר</h3>
               <p class="small muted">מכאן נקבע איך העסקה תיתפס בעיני הקונה: מה נמכר, בכמה, ומה המרווח של הפלטפורמה.</p>
             </div>
             <div class="${fieldClass("sellerTitle")}"><label for="sellerTitle">שם העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" aria-invalid="${fieldErrors.sellerTitle ? "true" : "false"}" />${fieldError("sellerTitle")}</div>
             <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
-            <div class="product-image-uploader multi-image-uploader">
-              <div class="product-image-preview ${sellerImages.length ? "has-image" : ""}">
-                ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
+            <div class="deal-image-field">
+              <div>
+                <h3>תמונת העסקה</h3>
+                <p class="small muted">העלו תמונה ברורה של המוצר. מומלץ יחס 16:9.</p>
               </div>
-              <div class="stack compact-section">
-                <div class="field"><label for="sellerImage">תמונות מוצר, עד 5</label><input id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" multiple /></div>
-                <p class="small muted">בחרו תמונת מוצר שתופיע בתצוגת העסקה לפני הפרסום. אפשר להעלות עד 5 תמונות JPG, PNG או WebP עד 2MB לכל תמונה; הראשונה היא הראשית.</p>
-                <div class="image-preview-grid" data-testid="seller-image-preview-grid">
-                  ${sellerImages.length ? sellerImages.map((image, index) => `
-                    <div class="image-preview-tile ${index === 0 ? "primary-image" : ""}">
-                      <img src="${esc(image.dataUrl)}" alt="תמונה ${index + 1} לעסקה" />
-                      <strong>${index === 0 ? "ראשית" : `תמונה ${index + 1}`}</strong>
-                      <span class="small muted">${esc(image.filename)}</span>
-                      <div class="actions">
-                        ${index === 0 ? "" : `<button class="secondary tiny-button" type="button" data-inline-action="make-product-image-primary" data-image-index="${index}">הפוך לראשית</button>`}
-                        <button class="secondary tiny-button" type="button" data-inline-action="remove-product-image" data-image-index="${index}">הסר</button>
-                      </div>
-                    </div>
-                  `).join("") : `<div class="image-preview-tile empty"><strong>עדיין אין תמונות</strong><span class="small muted">הדמו יציג placeholder יפה וברור.</span></div>`}
-                </div>
-                ${sellerImages.length ? `<div class="actions"><span class="stat-pill"><span>תמונות</span><strong>${num(sellerImages.length)} / 5</strong></span><button class="secondary" type="button" data-inline-action="clear-product-image">הסרת כל התמונות</button></div>` : ""}
+              <input class="visually-hidden-file" id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" />
+              <div class="product-image-upload-card ${sellerImages[0]?.dataUrl ? "has-image" : ""}">
+                ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `
+                  <div class="product-image-placeholder">
+                    <span class="package-icon" aria-hidden="true">□</span>
+                    <strong>תמונת העסקה תופיע כאן</strong>
+                    <label class="button primary image-upload-button" for="sellerImage">בחרו תמונה</label>
+                  </div>
+                `}
+                ${sellerImages[0]?.dataUrl ? `<label class="button secondary image-replace-button" for="sellerImage">החלפת תמונה</label>` : ""}
+                ${state.sellerImageUploadStatus === "loading" ? `<div class="image-upload-overlay">מעלה תמונה...</div>` : ""}
               </div>
+              ${state.sellerImageUploadStatus === "error" ? `<div class="image-upload-error" role="alert">${esc(state.sellerImageUploadError || "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.")}</div>` : ""}
             </div>
             <div class="inline-fields">
               <div class="${fieldClass("sellerPrice")}"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" aria-invalid="${fieldErrors.sellerPrice ? "true" : "false"}" />${fieldError("sellerPrice")}</div>
@@ -4180,21 +4175,22 @@ function renderSellerNewPage() {
         })()}
         
         <div class="seller-live-preview">
-          <span class="eyebrow">Preview חי</span>
+          <span class="badge warning">טיוטת עסקה</span>
           <div class="product-image-preview compact-preview ${sellerImages.length ? "has-image" : ""}">
             ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תצוגה מקדימה של תמונת העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
           </div>
           <h2>${esc(state.form.sellerTitle || "שם העסקה יופיע כאן")}</h2>
           <div class="preview-price">${currency(price)}</div>
           <div class="progress-block">
-            <div class="progress-caption"><strong>${num(Math.max(1, Math.floor(minUnits * 0.46)))} מצטרפים בדמו</strong><span>${percent(previewProgress)}</span></div>
-            <div class="meter"><span style="width:${previewProgress}%"></span></div>
+            <div class="progress-caption"><strong>0 / ${num(previewTarget)} יחידות</strong><span>0%</span></div>
+            <div class="meter"><span style="width:0%"></span></div>
+            <p class="progress-status">עוד ${num(previewTarget)} יחידות והעסקה יוצאת לפועל</p>
           </div>
           <div class="summary-grid">
             <div class="summary-item"><span class="muted">יעד</span><strong>${num(minUnits)} יח'</strong></div>
             <div class="summary-item"><span class="muted">סכום יעד</span><strong>${currency(price * minUnits)}</strong></div>
           </div>
-          <button class="primary" type="button" disabled>הצטרפות demo</button>
+          <button class="primary" type="button" disabled>תצוגה מקדימה בלבד</button>
         </div>
         <div class="summary-item summary-spotlight"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(sellerContext.display_name)}</strong><p class="small muted">מזהה מוכר: <span class="mono">${esc(sellerContext.seller_id)}</span></p></div>
         <div class="summary-grid">
