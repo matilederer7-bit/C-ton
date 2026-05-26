@@ -2,6 +2,38 @@
 
 ---
 
+## Current update: 2026-05-26 (Root Route Redirect Fix)
+
+### What was broken
+- `GET /` returned Fastify's default 404 JSON instead of sending users into the live demo frontend.
+
+### What was fixed
+- Added a root route redirect: `GET /` now returns `302` with `Location: /app`.
+- Kept the existing `/app` shell routes, `/api/*`, `/health`, and `/api/preview/meta` behavior unchanged.
+- Added a backend sanity assertion that `GET /` is not 404 and redirects to `/app`, while the existing `/health` check still passes.
+
+### What was checked
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS, including `root route redirects to app shell`.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### What remains open
+- Post-deploy live QA should verify the production/demo URL root redirects to `/app` after Render redeploy.
+
+### Progress
+- Root route fix: 100%.
+- Local test gate: 100%.
+
+### Next step
+- post-deploy live QA
+
+### Verdict
+`ROOT_ROUTE_FIXED_PASS`
+
+---
+
 ## Current update: 2026-05-26 (Create Deal Visual and Scroll QA Repair)
 
 ### What was broken

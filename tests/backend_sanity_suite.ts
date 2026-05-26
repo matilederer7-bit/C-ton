@@ -34,6 +34,17 @@ async function main() {
     assert.deepEqual(response.json(), { ok: true });
   });
 
+  await runTest("root route redirects to app shell", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: "/"
+    });
+
+    assert.notEqual(response.statusCode, 404);
+    assert.equal(response.statusCode, 302);
+    assert.equal(response.headers.location, "/app");
+  });
+
   await runTest("canonical state transitions stay intact", async () => {
     assert.ok(DEAL_TRANSITIONS.PendingTarget?.includes("TargetReached"));
     assert.ok(!DEAL_TRANSITIONS.PendingTarget?.includes("Completed"));

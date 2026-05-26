@@ -7500,6 +7500,7 @@ export function registerFrontendExperience(
   const sendShell = async (_req: any, reply: FastifyReply) =>
     sendFrontendFile(reply, "index.html", "text/html; charset=utf-8");
 
+  app.get("/", async (_req, reply) => reply.redirect("/app", 302));
   app.get("/app", sendShell);
   app.get("/app/", sendShell);
   app.get("/app/terms", sendShell);
