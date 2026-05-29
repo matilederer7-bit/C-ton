@@ -17,6 +17,7 @@ const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
 const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
+const cdpPort = 3311;
 const baseUrl = `http://127.0.0.1:${smokePort}`;
 
 type SmokeRoute = {
@@ -137,6 +138,87 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
     rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
   }
   return output;
+}
+
+async function openCdpPage(path: string) {
+  if (!existsSync(edgePath)) {
+    throw new Error(`Edge executable not found at ${edgePath}`);
+  }
+  const profileDir = join(tmpdir(), `siton-cdp-smoke-${Date.now()}`);
+  await mkdir(profileDir, { recursive: true });
+  const browser = spawn(edgePath, [
+    "--headless=new",
+    "--disable-gpu",
+    "--no-first-run",
+    "--no-default-browser-check",
+    `--remote-debugging-port=${cdpPort}`,
+    `--user-data-dir=${profileDir}`,
+    `${baseUrl}${path}`
+  ], { stdio: ["ignore", "ignore", "ignore"], windowsHide: true });
+
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    try {
+      const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+      const pages = await response.json() as Array<{ url?: string; webSocketDebuggerUrl?: string }>;
+      const page = pages.find((item) => item.url?.includes(path)) || pages[0];
+      if (page?.webSocketDebuggerUrl) {
+        return { browser, profileDir, wsUrl: page.webSocketDebuggerUrl };
+      }
+    } catch {}
+    await wait(250);
+  }
+  browser.kill("SIGKILL");
+  rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+  throw new Error("Edge CDP page did not become available");
+}
+
+async function withCdp(path: string, fn: (cdp: { evaluate: (expression: string) => Promise<any> }) => Promise<void>) {
+  const page = await openCdpPage(path);
+  const ws = new WebSocket(page.wsUrl);
+  let seq = 0;
+  const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
+  ws.addEventListener("message", (event) => {
+    const message = JSON.parse(String(event.data));
+    if (!message.id || !pending.has(message.id)) return;
+    const handlers = pending.get(message.id)!;
+    pending.delete(message.id);
+    if (message.error) handlers.reject(new Error(JSON.stringify(message.error)));
+    else handlers.resolve(message.result);
+  });
+  const send = (method: string, params: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
+    const id = ++seq;
+    pending.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ id, method, params }));
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error("CDP websocket did not open")), 10_000);
+      ws.addEventListener("open", () => {
+        clearTimeout(timer);
+        resolve();
+      }, { once: true });
+      ws.addEventListener("error", () => {
+        clearTimeout(timer);
+        reject(new Error("CDP websocket failed"));
+      }, { once: true });
+    });
+    await send("Runtime.enable");
+    await send("Page.enable");
+    const evaluate = async (expression: string) => {
+      const result = await send("Runtime.evaluate", {
+        expression,
+        awaitPromise: true,
+        returnByValue: true
+      });
+      if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
+      return result.result?.value;
+    };
+    await fn({ evaluate });
+  } finally {
+    ws.close();
+    page.browser.kill("SIGKILL");
+    rm(page.profileDir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 function randomSuffix(prefix: string) {
@@ -329,10 +411,16 @@ async function assertSellerCreateUxContract() {
 
   assert.match(source, /const CREATE_DEAL_TITLE_FIELDS = \["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"\]/, "create deal should define one canonical title field contract");
   assert.match(source, /const title = readCreateDealTitle\(formData\)/, "create deal submit should read title through the canonical contract");
+  assert.match(source, /body: json\(buildCreateDealPayload/, "create deal submit should use one canonical payload builder");
   assert.match(source, /name="sellerTitle"/, "visible seller title input should remain the connected user-facing field");
-  assert.match(source, /title,\s*price_per_unit/s, "trimmed seller title must be sent to backend payload");
+  assert.match(source, /title: String\(title \|\| ""\)\.trim\(\)[\s\S]*price_per_unit/s, "trimmed seller title must be sent to backend payload");
+  assert.match(source, /name="sellerImage"[^>]+multiple/, "seller create should allow selecting multiple images");
+  assert.match(source, /isPrimary/, "seller create image state should track the primary image");
+  assert.match(source, /is_primary: Boolean\(image\.isPrimary\)/, "seller image upload payload should send primary image selection");
   assert.match(source, /יש להזין מינימום יחידות/, "minimum units required error should be short Hebrew copy");
   assert.match(source, /יש להזין מקסימום יחידות/, "maximum units required error should be short Hebrew copy");
+  assert.match(source, /id="sellerMinUnits" name="sellerMinUnits"/, "minimum units input must have its own id/name");
+  assert.match(source, /id="sellerMaxUnits" name="sellerMaxUnits"/, "maximum units input must have its own id/name");
 
   assert.match(styles, /\[data-nav\].*cursor:\s*pointer/s, "clickable elements should show pointer cursor");
   assert.match(styles, /:focus-visible[\s\S]*outline:/, "focus-visible should remain visible");
@@ -415,6 +503,95 @@ async function assertSellerCreateTitleSubmissionContract() {
   assert.match(JSON.stringify(blank.json), /title_required|title is required/);
 }
 
+async function assertSellerCreateDomFlowContract() {
+  await withCdp("/app/seller/new", async ({ evaluate }) => {
+    await wait(1500);
+    const setup = await evaluate(`(() => {
+      const forms = document.querySelectorAll('form[data-action="seller-create"]').length;
+      const submitButtons = document.querySelectorAll('form[data-action="seller-create"] button[type="submit"]').length;
+      window.__createDealRequests = [];
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init = {}) => {
+        const url = typeof input === "string" ? input : String(input && input.url || "");
+        const method = String(init.method || "GET").toUpperCase();
+        if ((url === "/deals" || url.endsWith("/deals") || url.includes("/api/seller/deals/")) && method === "POST") {
+          let body = init.body || "";
+          try { body = JSON.parse(String(body)); } catch {}
+          window.__createDealRequests.push({ url, method, body });
+        }
+        return originalFetch(input, init);
+      };
+      return { forms, submitButtons };
+    })()`);
+    assert.equal(setup.forms, 1, "seller create should have one real submit form");
+    assert.equal(setup.submitButtons, 1, "seller create should have one real submit button");
+
+    await evaluate(`(() => {
+      const input = document.querySelector("#sellerImage");
+      const files = new DataTransfer();
+      files.items.add(new File([new Uint8Array([1,2,3,4,5,6])], "primary.png", { type: "image/png" }));
+      files.items.add(new File([new Uint8Array([7,8,9,10,11,12])], "secondary.png", { type: "image/png" }));
+      input.files = files.files;
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+      return true;
+    })()`);
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await wait(250);
+      const imageCount = await evaluate(`document.querySelectorAll(".seller-image-thumb").length`);
+      if (imageCount === 2) break;
+    }
+
+    await evaluate(`(() => {
+      const setField = (selector, value) => {
+        const el = document.querySelector(selector);
+        if (!el) throw new Error("missing field " + selector);
+        el.value = value;
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      setField("#sellerTitle", "עסקת DOM מלאה");
+      setField("#sellerDescription", "תיאור בעברית דרך המסך");
+      setField("#sellerPrice", "42");
+      setField("#sellerMinUnits", "3");
+      setField("#sellerMaxUnits", "7");
+      const terms = document.querySelector('input[name="sellerFinalTerms"]');
+      const confirm = document.querySelector('input[name="sellerFinalConfirm"]');
+      terms.checked = true;
+      confirm.checked = true;
+      terms.dispatchEvent(new Event("change", { bubbles: true }));
+      confirm.dispatchEvent(new Event("change", { bubbles: true }));
+      const deadline = new Date(Date.now() + 4 * 60 * 60 * 1000);
+      const pad = (value) => String(value).padStart(2, "0");
+      setField("#sellerDeadline", deadline.getFullYear() + "-" + pad(deadline.getMonth() + 1) + "-" + pad(deadline.getDate()) + "T" + pad(deadline.getHours()) + ":" + pad(deadline.getMinutes()));
+      document.querySelector('form[data-action="seller-create"] button[type="submit"]').click();
+      return true;
+    })()`);
+
+    let result: any = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(500);
+      result = await evaluate(`(() => ({
+        path: location.pathname,
+        bodyText: document.body.innerText,
+        requests: window.__createDealRequests || []
+      }))()`);
+      if (String(result.path).includes("/app/seller/deals/") || String(result.bodyText).includes("חסר שם לעסקה")) break;
+    }
+    const requests = result?.requests || [];
+    const createRequest = requests.find((request: any) => request.url === "/deals" || String(request.url).endsWith("/deals"));
+    assert.ok(createRequest, `DOM submit did not send /deals request: ${JSON.stringify(result)}`);
+    assert.equal(createRequest.body.title, "עסקת DOM מלאה");
+    assert.equal(createRequest.body.min_units, 3);
+    assert.equal(createRequest.body.max_units, 7);
+    assert.notEqual(createRequest.body.min_units, createRequest.body.max_units);
+    assert.doesNotMatch(String(result.bodyText), /title_required|חסר שם לעסקה|צריך שם לעסקה/);
+    assert.match(String(result.path), /\/app\/seller\/deals\//, `DOM submit did not create a deal: ${JSON.stringify(result)}`);
+    const imageRequests = requests.filter((request: any) => String(request.url).includes("/api/seller/deals/") && String(request.url).endsWith("/images"));
+    assert.equal(imageRequests.length, 2, `expected two image uploads, got ${JSON.stringify(imageRequests)}`);
+    assert.equal(imageRequests[0].body.is_primary, true);
+    assert.equal(imageRequests[1].body.is_primary, false);
+  });
+}
+
 async function ensureFrontendAssets() {
   await mkdir(frontendTarget, { recursive: true });
   await cp(frontendSource, frontendTarget, { recursive: true, force: true });
@@ -448,6 +625,7 @@ async function main() {
     await run("frontend shell assets load as UTF-8 without mojibake", assertFrontendAssetsHealthy);
     await run("seller create UX contract covers validation, terms, images and distribution points", assertSellerCreateUxContract);
     await run("seller create accepts filled title and description without title-required error", assertSellerCreateTitleSubmissionContract);
+    await run("CREATE_DEAL_TITLE_FIELD_CONTRACT submits real DOM flow with title, units and primary image", assertSellerCreateDomFlowContract);
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);

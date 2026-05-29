@@ -202,6 +202,45 @@ await run("D8 image upload is blocked after publish", async () => {
   assert.equal(res.json().code, "deal_already_published");
 });
 
+await run("D9 draft deal supports up to five images with one primary image", async () => {
+  const sellerId = `seller-img-gallery-${randomUUID().slice(0, 8)}`;
+  const dealId = await insertDraftDeal(sellerId);
+  for (let index = 0; index < 5; index += 1) {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/seller/deals/${dealId}/images`,
+      headers: { "x-seller-id": sellerId },
+      payload: imagePayload({
+        original_filename: `product-${index}.png`,
+        is_primary: index === 2,
+        sort_order: index
+      })
+    });
+    assert.equal(res.statusCode, 201, `upload ${index} failed: ${res.body}`);
+  }
+
+  const rows = await pool.query(
+    `SELECT COUNT(*)::int AS count,
+            SUM(CASE WHEN is_primary THEN 1 ELSE 0 END)::int AS primary_count,
+            MIN(CASE WHEN is_primary THEN sort_order ELSE NULL END)::int AS primary_sort_order
+     FROM siton.deal_images
+     WHERE deal_id=$1`,
+    [dealId]
+  );
+  assert.equal(Number(rows.rows[0].count), 5);
+  assert.equal(Number(rows.rows[0].primary_count), 1);
+  assert.equal(Number(rows.rows[0].primary_sort_order), 2);
+
+  const sixth = await app.inject({
+    method: "POST",
+    url: `/api/seller/deals/${dealId}/images`,
+    headers: { "x-seller-id": sellerId },
+    payload: imagePayload({ original_filename: "product-6.png" })
+  });
+  assert.equal(sixth.statusCode, 400, `expected 400 for sixth image, got ${sixth.statusCode}: ${sixth.body}`);
+  assert.equal(sixth.json().code, "deal_image_limit");
+});
+
 await pool.end();
 await app.close();
 console.log("All deal image tests passed.");

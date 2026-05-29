@@ -2,6 +2,51 @@
 
 ---
 
+## Current update: 2026-05-29 (Create Deal Live Blocker Fix)
+
+### Why the previous PASS was not enough
+- The earlier title-contract PASS proved API/static coverage, but it did not exercise the exact live browser submit path with the real `api()` helper and the real create-deal submit button.
+- Live still failed because the real submit path added custom request headers, and the frontend `api()` helper accidentally let those headers replace the default JSON and seller-context headers.
+
+### Root cause
+- `api()` built default headers (`content-type: application/json` and demo `x-seller-id`) and then spread `...options` afterward.
+- Create-deal passes `options.headers` for `x-request-id` and `idempotency-key`; that overwrote the default headers object.
+- The browser payload contained a title, but the backend request arrived without the JSON content type, so `/deals` parsed no usable `title` and returned `title_required`.
+
+### What was fixed
+- Fixed `api()` header merge order so custom headers are added on top of the default JSON/demo seller headers instead of replacing them.
+- Kept create-deal on one canonical payload builder: `buildCreateDealPayload`, fed by `readCreateDealTitle`.
+- Rebuilt create-deal images into a real gallery flow: select up to 5 images, track exactly one primary image, auto-primary for the first image, choose another primary, and remove images before submit.
+- Updated the backend image upload endpoint to preserve multiple images, accept `is_primary` and `sort_order`, enforce a maximum of 5 images per deal, and keep exactly one primary image.
+- Separated min/max UI more clearly with labels `כמות מינימום` and `כמות מקסימום`, dedicated `sellerMinUnits` / `sellerMaxUnits` ids and names, stable input sizing, and distinct `min_units` / `max_units` payload fields.
+
+### Tests added or strengthened
+- Added `CREATE_DEAL_TITLE_FIELD_CONTRACT` browser smoke: launches `/app/seller/new` in Edge, fills the actual DOM, selects two image files through the file input, clicks the real submit button, captures the real `fetch` calls, verifies `title`, separate `min_units` / `max_units`, primary image upload, and confirms navigation to a created seller deal.
+- Strengthened image API validation with a 5-image gallery test: 5 images are accepted, exactly one is primary, and the sixth upload is rejected with `deal_image_limit`.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS, including real DOM create-deal flow.
+- `node .tmp_test_dist/tests/deal_images_validation.js` - PASS, including 5-image primary-image contract.
+
+### What remains open
+- Live Render still needs post-deploy QA after this commit is deployed: verify runtime/expected commit, `is_stale=false`, create a deal from `/app/seller/new`, upload/select up to 5 images, and confirm no `title_required`.
+
+### Progress
+- Create-deal screen readiness after local exact-flow validation: 100%.
+
+### Next step
+- Deploy this commit and run post-deploy live QA on `/app/seller/new`.
+
+### Verdict
+`CREATE_DEAL_LIVE_BLOCKER_FIX_PASS`
+
+---
+
 ## Current update: 2026-05-29 (Create Deal Title Contract Fix)
 
 ### What was broken

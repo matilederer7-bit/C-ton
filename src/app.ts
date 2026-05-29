@@ -2685,6 +2685,19 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       err.code = "deal_already_published";
       throw err;
     }
+    const existingImages = await c.query(
+      `SELECT image_id, is_primary FROM siton.deal_images WHERE deal_id=$1 ORDER BY sort_order ASC, created_at ASC`,
+      [dealId]
+    );
+    if (existingImages.rowCount >= 5) {
+      const err: any = new Error("deal can have up to 5 images");
+      err.statusCode = 400;
+      err.code = "deal_image_limit";
+      throw err;
+    }
+    const requestedPrimary = isAccepted(body.is_primary) || existingImages.rowCount === 0 || !existingImages.rows.some((row: any) => Boolean(row.is_primary));
+    const sortOrderRaw = Number(body.sort_order);
+    const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, 4) : existingImages.rowCount;
 
     const saved = await saveDealImage({
       dealId,
@@ -2695,11 +2708,13 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
 
     let inserted;
     try {
-      await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
+      if (requestedPrimary) {
+        await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
+      }
       inserted = await c.query(
         `INSERT INTO siton.deal_images
            (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, sort_order, is_primary)
-         VALUES ($1,$2,$3,$4,$5,$6,0,true)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
          RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
         [
           dealId,
@@ -2707,7 +2722,9 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
           saved.storage_key,
           saved.original_filename,
           saved.mime_type,
-          saved.size_bytes
+          saved.size_bytes,
+          sortOrder,
+          requestedPrimary
         ]
       );
     } catch (error) {

@@ -1365,22 +1365,21 @@ async function createDeal(form) {
         "x-request-id": `seller:${Date.now()}`,
         "idempotency-key": `seller-create:${Date.now()}`
       },
-      body: json({
+      body: json(buildCreateDealPayload({
         title,
-        price_per_unit: price,
-        min_units: minUnits,
-        max_units: maxUnits,
-        deadline: new Date(deadline).toISOString(),
-        seller_id: sellerContext.seller_id,
-        seller_display_name: sellerContext.display_name,
-        delivery_options: deliveryOptions
-      })
+        price,
+        minUnits,
+        maxUnits,
+        deadline,
+        sellerContext,
+        deliveryOptions
+      }))
     });
     let imageUploadWarning = "";
     if (sellerImages.length) {
       try {
-        for (const image of [...sellerImages].reverse()) {
-          await uploadSellerDealImage(response.deal_id, image);
+        for (const [index, image] of sellerImages.entries()) {
+          await uploadSellerDealImage(response.deal_id, { ...image, sortOrder: index });
         }
       } catch (error) {
         imageUploadWarning = `העסקה נשמרה, אבל העלאת אחת התמונות לא הושלמה (${friendlyApiCode(error)}). אפשר להמשיך לפרסום עם התמונות שנשמרו או תצוגת ברירת המחדל.`;
@@ -1408,6 +1407,19 @@ async function createDeal(form) {
   }
 }
 
+function buildCreateDealPayload({ title, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions }) {
+  return {
+    title: String(title || "").trim(),
+    price_per_unit: price,
+    min_units: minUnits,
+    max_units: maxUnits,
+    deadline: new Date(deadline).toISOString(),
+    seller_id: sellerContext.seller_id,
+    seller_display_name: sellerContext.display_name,
+    delivery_options: deliveryOptions
+  };
+}
+
 const CREATE_DEAL_TITLE_FIELDS = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
 
 function readCreateDealTitle(formData) {
@@ -1424,7 +1436,9 @@ async function uploadSellerDealImage(dealId, image) {
     method: "POST",
     body: json({
       image_data_url: image.dataUrl,
-      original_filename: image.filename || ""
+      original_filename: image.filename || "",
+      is_primary: Boolean(image.isPrimary),
+      sort_order: Number.isFinite(Number(image.sortOrder)) ? Number(image.sortOrder) : 0
     })
   });
 }
@@ -1606,7 +1620,16 @@ async function cloneSellerDeal(dealId) {
 async function handleSellerImageSelection(input) {
   const files = Array.from(input.files || []);
   if (!files.length) return;
-  const nextFiles = files.slice(0, 1);
+  const existingImages = readSellerImages();
+  const remainingSlots = Math.max(0, 5 - existingImages.length);
+  const nextFiles = files.slice(0, remainingSlots);
+  if (!nextFiles.length) {
+    input.value = "";
+    state.sellerImageUploadStatus = "error";
+    state.sellerImageUploadError = "אפשר להעלות עד 5 תמונות לעסקה.";
+    render();
+    return;
+  }
   for (const file of nextFiles) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
       input.value = "";
@@ -1628,10 +1651,8 @@ async function handleSellerImageSelection(input) {
   render();
   try {
     const images = await Promise.all(nextFiles.map((file) => readImageFile(file)));
-    const normalized = images.slice(0, 1);
-    state.form.sellerImagesJson = JSON.stringify(normalized);
-    state.form.sellerImageDataUrl = normalized[0]?.dataUrl || "";
-    state.form.sellerImageName = normalized[0]?.filename || "";
+    const normalized = normalizeSellerImages([...existingImages, ...images]);
+    setSellerImages(normalized);
     state.sellerImageUploadStatus = "idle";
   } catch {
     state.sellerImageUploadStatus = "error";
@@ -1666,27 +1687,49 @@ function readSellerImages() {
   try {
     const parsed = JSON.parse(state.form.sellerImagesJson || "[]");
     if (!Array.isArray(parsed)) return [];
-    return parsed
+    return normalizeSellerImages(parsed
       .filter((image) => image && typeof image === "object" && image.dataUrl)
       .slice(0, 5)
       .map((image) => ({
         dataUrl: String(image.dataUrl || ""),
         filename: String(image.filename || image.name || "product-image"),
         mimeType: String(image.mimeType || ""),
-        size: Number(image.size || 0)
-      }));
+        size: Number(image.size || 0),
+        isPrimary: Boolean(image.isPrimary || image.is_primary)
+      })));
   } catch {
     return state.form.sellerImageDataUrl
-      ? [{ dataUrl: state.form.sellerImageDataUrl, filename: state.form.sellerImageName || "product-image" }]
+      ? [{ dataUrl: state.form.sellerImageDataUrl, filename: state.form.sellerImageName || "product-image", isPrimary: true }]
       : [];
   }
 }
 
+function normalizeSellerImages(images) {
+  const normalized = (Array.isArray(images) ? images : [])
+    .filter((image) => image && image.dataUrl)
+    .slice(0, 5)
+    .map((image, index) => ({
+      dataUrl: String(image.dataUrl || ""),
+      filename: String(image.filename || image.name || "product-image"),
+      mimeType: String(image.mimeType || ""),
+      size: Number(image.size || 0),
+      isPrimary: Boolean(image.isPrimary || image.is_primary || index === 0)
+    }));
+  const primaryIndex = normalized.findIndex((image) => image.isPrimary);
+  normalized.forEach((image, index) => { image.isPrimary = index === (primaryIndex >= 0 ? primaryIndex : 0); });
+  return normalized;
+}
+
 function setSellerImages(images) {
-  const normalized = (Array.isArray(images) ? images : []).slice(0, 5);
+  const normalized = normalizeSellerImages(images);
   state.form.sellerImagesJson = JSON.stringify(normalized);
-  state.form.sellerImageDataUrl = normalized[0]?.dataUrl || "";
-  state.form.sellerImageName = normalized[0]?.filename || "";
+  const primary = getSellerPrimaryImage(normalized);
+  state.form.sellerImageDataUrl = primary?.dataUrl || "";
+  state.form.sellerImageName = primary?.filename || "";
+}
+
+function getSellerPrimaryImage(images = readSellerImages()) {
+  return images.find((image) => image.isPrimary) || images[0] || null;
 }
 
 function removeSellerImage(index) {
@@ -1703,13 +1746,14 @@ function removeSellerImage(index) {
 
 function makeSellerImagePrimary(index) {
   const images = readSellerImages();
-  const selected = images.splice(Number(index || 0), 1)[0];
+  const selectedIndex = Number(index || 0);
+  const selected = images[selectedIndex];
   if (!selected) return;
-  setSellerImages([selected, ...images]);
+  setSellerImages(images.map((image, currentIndex) => ({ ...image, isPrimary: currentIndex === selectedIndex })));
   state.banner = {
     tone: "success",
     title: "התמונה הראשית עודכנה",
-    message: "התמונה שנבחרה תופיע ראשונה בתצוגת העסקה."
+    message: "התמונה שנבחרה תופיע כתמונה הראשית בתצוגת העסקה."
   };
   render();
 }
@@ -1772,7 +1816,7 @@ function updateSellerCreatePreviewFromState() {
   if (state.route.name !== "seller-new") return;
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
-  const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
+  const maxUnits = Math.max(0, Number(state.form.sellerMaxUnits || 0));
   const previewTarget = minUnits || 8;
   const setText = (selector, value) => {
     const target = document.querySelector(selector);
@@ -4051,8 +4095,9 @@ function renderSellerNewPage() {
   }
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
-  const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
+  const maxUnits = Math.max(0, Number(state.form.sellerMaxUnits || 0));
   const sellerImages = readSellerImages();
+  const primarySellerImage = getSellerPrimaryImage(sellerImages);
   const fulfillmentType = state.form.sellerFulfillmentType || "delivery";
   const pickupSlots = activeSellerPickupSlots();
   const deliveryOptionsCount = fulfillmentType === "delivery" ? 1 : pickupSlots.length;
@@ -4096,18 +4141,33 @@ function renderSellerNewPage() {
                 <h3>תמונת העסקה</h3>
                 <p class="small muted">העלו תמונה ברורה של המוצר. מומלץ יחס 16:9.</p>
               </div>
-              <input class="visually-hidden-file" id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" />
-              <div class="product-image-upload-card ${sellerImages[0]?.dataUrl ? "has-image" : ""}">
-                ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `
+              <input class="visually-hidden-file" id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" multiple />
+              <div class="product-image-upload-card ${primarySellerImage?.dataUrl ? "has-image" : ""}">
+                ${primarySellerImage?.dataUrl ? `<img src="${esc(primarySellerImage.dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `
                   <div class="product-image-placeholder">
                     <span class="package-icon" aria-hidden="true">□</span>
                     <strong>תמונת העסקה תופיע כאן</strong>
-                    <label class="button primary image-upload-button" for="sellerImage">בחרו תמונה</label>
+                    <span class="small muted">אפשר להעלות עד 5 תמונות. תמונה אחת תסומן כראשית.</span>
+                    <label class="button primary image-upload-button" for="sellerImage">בחרו תמונות</label>
                   </div>
                 `}
-                ${sellerImages[0]?.dataUrl ? `<label class="button secondary image-replace-button" for="sellerImage">החלפת תמונה</label>` : ""}
+                ${primarySellerImage?.dataUrl && sellerImages.length < 5 ? `<label class="button secondary image-replace-button" for="sellerImage">הוספת תמונות</label>` : ""}
                 ${state.sellerImageUploadStatus === "loading" ? `<div class="image-upload-overlay">מעלה תמונה...</div>` : ""}
               </div>
+              ${sellerImages.length ? `
+                <div class="seller-image-gallery" aria-label="תמונות העסקה">
+                  ${sellerImages.map((image, index) => `
+                    <article class="seller-image-thumb ${image.isPrimary ? "is-primary" : ""}">
+                      <img src="${esc(image.dataUrl)}" alt="תמונה ${index + 1} לעסקה" />
+                      <div class="seller-image-thumb-actions">
+                        <span class="badge ${image.isPrimary ? "pending" : ""}">${image.isPrimary ? "תמונה ראשית" : `תמונה ${index + 1}`}</span>
+                        ${image.isPrimary ? "" : `<button class="secondary tiny-button" type="button" data-inline-action="make-product-image-primary" data-image-index="${index}">הגדר כראשית</button>`}
+                        <button class="secondary tiny-button" type="button" data-inline-action="remove-product-image" data-image-index="${index}">מחיקה</button>
+                      </div>
+                    </article>
+                  `).join("")}
+                </div>
+              ` : ""}
               ${state.sellerImageUploadStatus === "error" ? `<div class="image-upload-error" role="alert">${esc(state.sellerImageUploadError || "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.")}</div>` : ""}
             </div>
             <div class="inline-fields">
@@ -4125,8 +4185,8 @@ function renderSellerNewPage() {
               <p class="small muted">החלק הזה קובע את תחושת הדחיפות והמסגרת העסקית שהקונה יראה על הדף.</p>
             </div>
             <div class="inline-fields">
-              <div class="${fieldClass("sellerMinUnits")}"><label for="sellerMinUnits">מינימום יחידות</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" step="1" value="${esc(state.form.sellerMinUnits)}" aria-invalid="${fieldErrors.sellerMinUnits ? "true" : "false"}" />${fieldError("sellerMinUnits")}</div>
-              <div class="${fieldClass("sellerMaxUnits")}"><label for="sellerMaxUnits">מקסימום יחידות</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" step="1" value="${esc(state.form.sellerMaxUnits)}" aria-invalid="${fieldErrors.sellerMaxUnits ? "true" : "false"}" />${fieldError("sellerMaxUnits")}</div>
+              <div class="${fieldClass("sellerMinUnits")} unit-field"><label for="sellerMinUnits">כמות מינימום</label><input id="sellerMinUnits" name="sellerMinUnits" type="number" min="1" step="1" value="${esc(state.form.sellerMinUnits)}" aria-invalid="${fieldErrors.sellerMinUnits ? "true" : "false"}" />${fieldError("sellerMinUnits")}</div>
+              <div class="${fieldClass("sellerMaxUnits")} unit-field"><label for="sellerMaxUnits">כמות מקסימום</label><input id="sellerMaxUnits" name="sellerMaxUnits" type="number" min="1" step="1" value="${esc(state.form.sellerMaxUnits)}" aria-invalid="${fieldErrors.sellerMaxUnits ? "true" : "false"}" />${fieldError("sellerMaxUnits")}</div>
             </div>
             <div class="${fieldClass("sellerDeadline")}"><label for="sellerDeadline">מועד סגירת חלון ההצטרפות</label><input id="sellerDeadline" name="sellerDeadline" type="datetime-local" value="${esc(state.form.sellerDeadline)}" aria-invalid="${fieldErrors.sellerDeadline ? "true" : "false"}" />${fieldError("sellerDeadline")}</div>
             <div class="surface-note">
@@ -4218,7 +4278,7 @@ function renderSellerNewPage() {
         <div class="seller-live-preview">
           <span class="badge warning">טיוטת עסקה</span>
           <div class="product-image-preview compact-preview ${sellerImages.length ? "has-image" : ""}">
-            ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תצוגה מקדימה של תמונת העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
+            ${primarySellerImage?.dataUrl ? `<img src="${esc(primarySellerImage.dataUrl)}" alt="תצוגה מקדימה של תמונת העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
           </div>
           <h2 data-create-preview-title>${esc(state.form.sellerTitle || "שם העסקה יופיע כאן")}</h2>
           <div class="preview-price" data-create-preview-price>${currency(price)}</div>
@@ -6959,14 +7019,15 @@ async function api(url, options = {}) {
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
   let response;
   try {
+    const headers = {
+      "content-type": "application/json",
+      ...(usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}),
+      ...(options.headers || {})
+    };
     response = await fetch(url, {
+      ...options,
       signal: controller.signal,
-      headers: {
-        "content-type": "application/json",
-        ...(usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}),
-        ...(options.headers || {})
-      },
-      ...options
+      headers
     });
   } catch (fetchErr) {
     if (fetchErr && fetchErr.name === "AbortError") {
