@@ -76,8 +76,8 @@ const state = {
     sellerContextName: "",
     sellerAccessCode: "",
     sellerPrice: "10",
-    sellerMinUnits: "10",
-    sellerMaxUnits: "20",
+    sellerMinUnits: "",
+    sellerMaxUnits: "",
     sellerDeadline: "",
     sellerFulfillmentType: "delivery",
     sellerDeliveryType1: "pickup",
@@ -342,7 +342,7 @@ document.addEventListener("input", (event) => {
   state.form[target.name] = target.value;
   if (target.closest("[data-action='seller-create']")) {
     clearCreateDealErrorForField(target.name);
-    if (["sellerTitle", "sellerPrice", "sellerMinUnits", "sellerMaxUnits", "sellerDeadline"].includes(target.name)) render();
+    updateSellerCreatePreviewFromState();
   }
 });
 
@@ -1291,8 +1291,10 @@ async function createDeal(form) {
   rememberSellerCreateForm(formData);
   const title = String(formData.get("sellerTitle") || "").trim();
   const price = Number(formData.get("sellerPrice") || 0);
-  const minUnits = Number(formData.get("sellerMinUnits") || 0);
-  const maxUnits = Number(formData.get("sellerMaxUnits") || 0);
+  const minUnitsRaw = String(formData.get("sellerMinUnits") || "").trim();
+  const maxUnitsRaw = String(formData.get("sellerMaxUnits") || "").trim();
+  const minUnits = Number(minUnitsRaw);
+  const maxUnits = Number(maxUnitsRaw);
   const deadline = String(formData.get("sellerDeadline") || "").trim();
   const finalTerms = formData.get("sellerFinalTerms") === "on";
   const finalConfirm = formData.get("sellerFinalConfirm") === "on";
@@ -1307,12 +1309,18 @@ async function createDeal(form) {
     fieldErrors.sellerPrice = "יש להזין מחיר חיובי ליחידה.";
     validationErrors.push("מחיר");
   }
-  if (!Number.isInteger(minUnits) || minUnits < 1) {
-    fieldErrors.sellerMinUnits = "יש להזין כמות מינימום שלמה וחיובית.";
+  if (!minUnitsRaw) {
+    fieldErrors.sellerMinUnits = "יש להזין מינימום יחידות.";
     validationErrors.push("כמות מינימום");
+  } else if (!Number.isInteger(minUnits) || minUnits < 1) {
+    fieldErrors.sellerMinUnits = "המינימום חייב להיות 1 ומעלה.";
+    validationErrors.push("כמות מינימום תקינה");
   }
-  if (!Number.isInteger(maxUnits) || maxUnits < minUnits) {
-    fieldErrors.sellerMaxUnits = "המקסימום חייב להיות גדול או שווה למינימום.";
+  if (!maxUnitsRaw) {
+    fieldErrors.sellerMaxUnits = "יש להזין מקסימום יחידות.";
+    validationErrors.push("כמות מקסימום");
+  } else if (!Number.isInteger(maxUnits) || maxUnits < 1 || (Number.isInteger(minUnits) && minUnits >= 1 && maxUnits < minUnits)) {
+    fieldErrors.sellerMaxUnits = "המקסימום חייב להיות לפחות המינימום.";
     validationErrors.push("כמות מקסימום תקינה");
   }
   if (!deadline) {
@@ -1748,6 +1756,29 @@ function clearCreateDealErrorForField(fieldName) {
   const next = { ...state.createDealFieldErrors };
   delete next[fieldName];
   state.createDealFieldErrors = next;
+}
+
+function updateSellerCreatePreviewFromState() {
+  if (state.route.name !== "seller-new") return;
+  const price = Math.max(0, Number(state.form.sellerPrice || 0));
+  const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
+  const maxUnits = Math.max(minUnits, Number(state.form.sellerMaxUnits || 0));
+  const previewTarget = minUnits || 8;
+  const setText = (selector, value) => {
+    const target = document.querySelector(selector);
+    if (target) target.textContent = value;
+  };
+  setText("[data-create-preview-title]", state.form.sellerTitle || "שם העסקה יופיע כאן");
+  setText("[data-create-preview-price]", currency(price));
+  setText("[data-create-preview-progress]", `0 / ${num(previewTarget)} יחידות`);
+  setText("[data-create-preview-status]", `עוד ${num(previewTarget)} יחידות והעסקה יוצאת לפועל`);
+  setText("[data-create-preview-goal]", `${num(minUnits)} יח'`);
+  setText("[data-create-preview-goal-sum]", currency(price * minUnits));
+  setText("[data-create-summary-min-volume]", currency(price * minUnits));
+  setText("[data-create-summary-max-volume]", currency(price * maxUnits));
+  setText("[data-create-summary-title]", state.form.sellerTitle || "עדיין חסרה");
+  setText("[data-create-summary-price]", currency(price));
+  setText("[data-create-summary-units]", `${num(minUnits)} / ${num(maxUnits)}`);
 }
 
 function focusCreateDealError() {
@@ -4074,8 +4105,8 @@ function renderSellerNewPage() {
               <div class="summary-item"><span class="muted">עמלת C-ton הקבועה</span><strong>8% מהגבייה בפועל לא כולל מע"מ</strong><p class="small muted">העמלה כוללת משלוח, סליקה ותפעול. אין עמלה נוספת מעבר לכך.</p></div>
             </div>
             <div class="form-preview-grid">
-              <div class="summary-item"><span class="muted">מחזור מינימלי משוער</span><strong>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} יח' לפי המחיר הנוכחי.</p></div>
-              <div class="summary-item"><span class="muted">מחזור מקסימלי משוער</span><strong>${currency(price * maxUnits)}</strong><p class="small muted">${num(maxUnits)} יח' אם כל הקיבולת נסגרת.</p></div>
+              <div class="summary-item"><span class="muted">מחזור מינימלי משוער</span><strong data-create-summary-min-volume>${currency(price * minUnits)}</strong><p class="small muted">${num(minUnits)} יח' לפי המחיר הנוכחי.</p></div>
+              <div class="summary-item"><span class="muted">מחזור מקסימלי משוער</span><strong data-create-summary-max-volume>${currency(price * maxUnits)}</strong><p class="small muted">${num(maxUnits)} יח' אם כל הקיבולת נסגרת.</p></div>
             </div>
           </section>
           <section class="form-section-card stack">
@@ -4147,9 +4178,9 @@ function renderSellerNewPage() {
               <p class="small muted">לפני יצירת הטיוטה מאשרים שהפרטים הקריטיים נבדקו. אחרי פרסום אין עריכה שקטה של מחיר, כמויות, דדליין או תנאי אספקה.</p>
             </div>
             <div class="form-preview-grid">
-              <div class="summary-item"><span class="muted">כותרת</span><strong>${esc(state.form.sellerTitle || "עדיין חסרה")}</strong></div>
-              <div class="summary-item"><span class="muted">מחיר</span><strong>${currency(price)}</strong></div>
-              <div class="summary-item"><span class="muted">מינימום / מקסימום</span><strong>${num(minUnits)} / ${num(maxUnits)}</strong></div>
+              <div class="summary-item"><span class="muted">כותרת</span><strong data-create-summary-title>${esc(state.form.sellerTitle || "עדיין חסרה")}</strong></div>
+              <div class="summary-item"><span class="muted">מחיר</span><strong data-create-summary-price>${currency(price)}</strong></div>
+              <div class="summary-item"><span class="muted">מינימום / מקסימום</span><strong data-create-summary-units>${num(minUnits)} / ${num(maxUnits)}</strong></div>
               <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${num(deliveryOptionsCount || 1)} אפשרויות</strong></div>
             </div>
             <label class="check-row"><input type="checkbox" name="sellerFinalTerms" ${state.form.sellerFinalTerms === "on" ? "checked" : ""} /> <span>קראתי ואישרתי את <a href="/app/seller-terms" data-nav="/app/seller-terms">תקנון השימוש למוכרים</a> ואת <a href="/app/refunds" data-nav="/app/refunds">מדיניות הביטולים וההחזרים</a>, כולל אחריותי לתיאור המוצר, אספקתו ושירות לאחר השלמת העסקה.</span></label>
@@ -4179,16 +4210,16 @@ function renderSellerNewPage() {
           <div class="product-image-preview compact-preview ${sellerImages.length ? "has-image" : ""}">
             ${sellerImages[0]?.dataUrl ? `<img src="${esc(sellerImages[0].dataUrl)}" alt="תצוגה מקדימה של תמונת העסקה" />` : `<div class="product-image-placeholder"><strong>תמונת העסקה תופיע כאן</strong><span class="package-icon" aria-hidden="true">□</span></div>`}
           </div>
-          <h2>${esc(state.form.sellerTitle || "שם העסקה יופיע כאן")}</h2>
-          <div class="preview-price">${currency(price)}</div>
+          <h2 data-create-preview-title>${esc(state.form.sellerTitle || "שם העסקה יופיע כאן")}</h2>
+          <div class="preview-price" data-create-preview-price>${currency(price)}</div>
           <div class="progress-block">
-            <div class="progress-caption"><strong>0 / ${num(previewTarget)} יחידות</strong><span>0%</span></div>
+            <div class="progress-caption"><strong data-create-preview-progress>0 / ${num(previewTarget)} יחידות</strong><span>0%</span></div>
             <div class="meter"><span style="width:0%"></span></div>
-            <p class="progress-status">עוד ${num(previewTarget)} יחידות והעסקה יוצאת לפועל</p>
+            <p class="progress-status" data-create-preview-status>עוד ${num(previewTarget)} יחידות והעסקה יוצאת לפועל</p>
           </div>
           <div class="summary-grid">
-            <div class="summary-item"><span class="muted">יעד</span><strong>${num(minUnits)} יח'</strong></div>
-            <div class="summary-item"><span class="muted">סכום יעד</span><strong>${currency(price * minUnits)}</strong></div>
+            <div class="summary-item"><span class="muted">יעד</span><strong data-create-preview-goal>${num(minUnits)} יח'</strong></div>
+            <div class="summary-item"><span class="muted">סכום יעד</span><strong data-create-preview-goal-sum>${currency(price * minUnits)}</strong></div>
           </div>
           <button class="primary" type="button" disabled>תצוגה מקדימה בלבד</button>
         </div>

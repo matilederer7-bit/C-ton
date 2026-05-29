@@ -2,6 +2,41 @@
 
 ---
 
+## Current update: 2026-05-29 (Create Deal UX Bugfix)
+
+### What was fixed
+- Stopped create-deal typing from performing a full page render. Seller title, description, price, min/max units, and deadline now update state without automatic scroll/focus; the live preview is updated in-place instead.
+- Kept create-deal scroll/focus reserved for failed submit paths only.
+- Removed business defaults from create-deal min/max units. Both fields now open empty and validate as required seller input.
+- Tightened min/max validation copy in Hebrew: missing minimum, missing maximum, minimum must be 1+, and maximum must be at least the minimum.
+- Strengthened button affordance with pointer cursor, hover, focus-visible, active, and disabled states; disabled buttons also stop pointer interaction.
+- Locked product upload/preview images to stable rendering with `transform: none` and `animation: none` to prevent zoom-like jumps.
+- Added smoke coverage that confirms filled title + description can create a deal without `title_required`.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- Browser smoke was expanded for create-deal contracts: min/max start empty, typing path has no scroll/focus/full-render call, title validation uses `sellerTitle`, upload/preview images have no zoom animation, buttons have clickable/disabled affordance CSS, and a filled title+description create request does not return a title-required error.
+
+### What remains open
+- Post-deploy live QA should repeat the exact manual seller-create flow in a normal browser: long description typing mid-page, image upload visual stability, and successful draft creation from the live Render environment.
+
+### Progress
+- Create-deal UX bugfix: 100%.
+- Local automated test gate: 100%.
+
+### Next step
+- post-deploy live QA on `/app/seller/new`
+
+### Verdict
+`CREATE_DEAL_UX_BUGFIX_PASS`
+
+---
+
 ## Current update: 2026-05-26 (Root Route Redirect Fix)
 
 ### What was broken

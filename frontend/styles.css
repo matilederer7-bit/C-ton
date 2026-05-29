@@ -181,6 +181,7 @@ strong { font-weight: 800; }
   text-decoration: none;
   transition: background 160ms ease, border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease;
 }
+[data-nav], [data-inline-action], label[for], .choice, .check-row { cursor: pointer; }
 .button.primary, button.primary {
   background: var(--primary);
   color: var(--surface);
@@ -190,6 +191,7 @@ strong { font-weight: 800; }
   box-shadow: 0 12px 24px rgba(198, 90, 30, 0.28);
 }
 .button.primary:hover, button.primary:hover { background: var(--primary-hover); transform: translateY(-1px); }
+.button.primary:active, button.primary:active { transform: translateY(0); box-shadow: 0 6px 14px rgba(198, 90, 30, 0.22); }
 .button.secondary, button.secondary, .share-panel .button, .share-panel button, .legal-link-row a {
   background: var(--surface);
   color: var(--text);
@@ -197,12 +199,15 @@ strong { font-weight: 800; }
   box-shadow: none;
 }
 .button.secondary:hover, button.secondary:hover, .legal-link-row a:hover { border-color: rgba(198, 90, 30, 0.45); color: var(--primary); }
+.button.secondary:active, button.secondary:active, .legal-link-row a:active { background: var(--primary-soft); transform: translateY(0); }
 .button.success, button.success { background: var(--success); color: var(--surface); }
 .button.danger, button.danger { background: var(--danger); color: var(--surface); }
 .button:disabled, button:disabled {
   background: var(--disabled);
   color: var(--muted-light);
   cursor: not-allowed;
+  opacity: 0.72;
+  pointer-events: none;
   box-shadow: none;
   transform: none;
 }
@@ -400,6 +405,8 @@ strong { font-weight: 800; }
   height: 100%;
   object-fit: cover;
   display: block;
+  transform: none;
+  animation: none;
 }
 .image-upload-button,
 .image-replace-button {
@@ -444,6 +451,8 @@ strong { font-weight: 800; }
   height: 100%;
   object-fit: cover;
   display: block;
+  transform: none;
+  animation: none;
 }
 .product-image-placeholder {
   width: 100%;

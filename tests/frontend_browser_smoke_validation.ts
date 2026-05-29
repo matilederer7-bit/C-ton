@@ -306,6 +306,7 @@ async function assertFrontendAssetsHealthy() {
 
 async function assertSellerCreateUxContract() {
   const source = await readFile(join(frontendSource, "app.js"), "utf8");
+  const styles = await readFile(join(frontendSource, "styles.css"), "utf8");
   assert.match(source, /sellerDeliveryPointName5/, "seller create form should support five distribution point slots");
   assert.match(source, /sellerImagesJson/, "seller create form should keep image state for deal previews");
   assert.match(source, /validation-summary/, "form validation errors should render a visible summary");
@@ -313,6 +314,58 @@ async function assertSellerCreateUxContract() {
   assert.match(source, /מדיניות הביטולים וההחזרים/, "terms approval should include an inline refunds link");
   assert.match(source, /קישור מיקום/, "distribution point copy should carry location links");
   assert.match(source, /finalTerms.*state\.form\.sellerFinalTerms/s, "terms checkbox state should be preserved across validation errors");
+  assert.match(source, /sellerMinUnits:\s*""/, "seller create minimum units must start empty");
+  assert.match(source, /sellerMaxUnits:\s*""/, "seller create maximum units must start empty");
+  assert.doesNotMatch(source, /sellerMinUnits:\s*"10"/, "seller create must not default minimum units to 10");
+  assert.doesNotMatch(source, /sellerMaxUnits:\s*"20"/, "seller create must not default maximum units to 20");
+
+  const inputHandler = source.slice(
+    source.indexOf('document.addEventListener("input"'),
+    source.indexOf('document.addEventListener("change"')
+  );
+  assert.doesNotMatch(inputHandler, /focusCreateDealError|scrollIntoView|window\.scrollTo/, "typing in create deal must not trigger scroll/focus");
+  assert.doesNotMatch(inputHandler, /render\(\)/, "typing in create deal must not full-render and reset scroll");
+  assert.match(inputHandler, /updateSellerCreatePreviewFromState/, "typing should update only the create preview without a full render");
+
+  assert.match(source, /const title = String\(formData\.get\("sellerTitle"\).*\.trim\(\)/, "visible sellerTitle field must feed validation and payload");
+  assert.match(source, /title,\s*price_per_unit/s, "trimmed seller title must be sent to backend payload");
+  assert.match(source, /יש להזין מינימום יחידות/, "minimum units required error should be short Hebrew copy");
+  assert.match(source, /יש להזין מקסימום יחידות/, "maximum units required error should be short Hebrew copy");
+
+  assert.match(styles, /\[data-nav\].*cursor:\s*pointer/s, "clickable elements should show pointer cursor");
+  assert.match(styles, /:focus-visible[\s\S]*outline:/, "focus-visible should remain visible");
+  assert.match(styles, /:active/, "buttons should have an active state");
+  assert.match(styles, /:disabled[\s\S]*pointer-events:\s*none/, "disabled buttons should not be clickable");
+  assert.match(styles, /product-image-upload-card img[\s\S]*transform:\s*none[\s\S]*animation:\s*none/, "upload image should not zoom or animate");
+  assert.match(styles, /product-image-preview img[\s\S]*transform:\s*none[\s\S]*animation:\s*none/, "preview image should not zoom or animate");
+}
+
+async function assertSellerCreateTitleSubmissionContract() {
+  const unique = randomSuffix("seller-create-title-contract");
+  const { response, json } = await fetchJson("/deals", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-request-id": unique,
+      "idempotency-key": unique,
+      "x-seller-id": "seller-default"
+    },
+    body: JSON.stringify({
+      title: "עסקה עם שם תקין",
+      description: "תיאור תקין לבדיקת smoke",
+      price_per_unit: 42,
+      min_units: 3,
+      max_units: 6,
+      deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
+      delivery_options: [
+        { option_type: "delivery", label: "משלוח", cost: 0, sort_order: 0 }
+      ]
+    })
+  });
+
+  assert.equal(response.status, 200, `seller create with a title should pass title validation: ${JSON.stringify(json)}`);
+  assert.ok(json?.deal_id);
+  assert.doesNotMatch(JSON.stringify(json), /title_required|צריך שם|חסר שם|שם לעסקה/);
 }
 
 async function ensureFrontendAssets() {
@@ -347,6 +400,7 @@ async function main() {
 
     await run("frontend shell assets load as UTF-8 without mojibake", assertFrontendAssetsHealthy);
     await run("seller create UX contract covers validation, terms, images and distribution points", assertSellerCreateUxContract);
+    await run("seller create accepts filled title and description without title-required error", assertSellerCreateTitleSubmissionContract);
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
