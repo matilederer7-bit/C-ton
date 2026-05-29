@@ -1289,7 +1289,7 @@ async function payAndJoin(form) {
 async function createDeal(form) {
   const formData = new FormData(form);
   rememberSellerCreateForm(formData);
-  const title = String(formData.get("sellerTitle") || "").trim();
+  const title = readCreateDealTitle(formData);
   const price = Number(formData.get("sellerPrice") || 0);
   const minUnitsRaw = String(formData.get("sellerMinUnits") || "").trim();
   const maxUnitsRaw = String(formData.get("sellerMaxUnits") || "").trim();
@@ -1406,6 +1406,16 @@ async function createDeal(form) {
     }
     focusCreateDealError();
   }
+}
+
+const CREATE_DEAL_TITLE_FIELDS = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
+
+function readCreateDealTitle(formData) {
+  for (const field of CREATE_DEAL_TITLE_FIELDS) {
+    const value = String(formData.get(field) || "").trim();
+    if (value) return value;
+  }
+  return "";
 }
 
 async function uploadSellerDealImage(dealId, image) {

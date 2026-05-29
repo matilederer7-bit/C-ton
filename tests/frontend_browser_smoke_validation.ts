@@ -327,7 +327,9 @@ async function assertSellerCreateUxContract() {
   assert.doesNotMatch(inputHandler, /render\(\)/, "typing in create deal must not full-render and reset scroll");
   assert.match(inputHandler, /updateSellerCreatePreviewFromState/, "typing should update only the create preview without a full render");
 
-  assert.match(source, /const title = String\(formData\.get\("sellerTitle"\).*\.trim\(\)/, "visible sellerTitle field must feed validation and payload");
+  assert.match(source, /const CREATE_DEAL_TITLE_FIELDS = \["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"\]/, "create deal should define one canonical title field contract");
+  assert.match(source, /const title = readCreateDealTitle\(formData\)/, "create deal submit should read title through the canonical contract");
+  assert.match(source, /name="sellerTitle"/, "visible seller title input should remain the connected user-facing field");
   assert.match(source, /title,\s*price_per_unit/s, "trimmed seller title must be sent to backend payload");
   assert.match(source, /יש להזין מינימום יחידות/, "minimum units required error should be short Hebrew copy");
   assert.match(source, /יש להזין מקסימום יחידות/, "maximum units required error should be short Hebrew copy");
@@ -342,6 +344,7 @@ async function assertSellerCreateUxContract() {
 
 async function assertSellerCreateTitleSubmissionContract() {
   const unique = randomSuffix("seller-create-title-contract");
+  const requestedTitle = "עסקה עם שם תקין";
   const { response, json } = await fetchJson("/deals", {
     method: "POST",
     headers: {
@@ -351,7 +354,7 @@ async function assertSellerCreateTitleSubmissionContract() {
       "x-seller-id": "seller-default"
     },
     body: JSON.stringify({
-      title: "עסקה עם שם תקין",
+      title: requestedTitle,
       description: "תיאור תקין לבדיקת smoke",
       price_per_unit: 42,
       min_units: 3,
@@ -366,6 +369,50 @@ async function assertSellerCreateTitleSubmissionContract() {
   assert.equal(response.status, 200, `seller create with a title should pass title validation: ${JSON.stringify(json)}`);
   assert.ok(json?.deal_id);
   assert.doesNotMatch(JSON.stringify(json), /title_required|צריך שם|חסר שם|שם לעסקה/);
+
+  const legacyUnique = randomSuffix("seller-create-seller-title-contract");
+  const legacy = await fetchJson("/deals", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-request-id": legacyUnique,
+      "idempotency-key": legacyUnique,
+      "x-seller-id": "seller-default"
+    },
+    body: JSON.stringify({
+      sellerTitle: "עסקה משדה גלוי",
+      description: "תיאור תקין לבדיקת חוזה",
+      price_per_unit: 43,
+      min_units: 2,
+      max_units: 5,
+      deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
+      delivery_options: [
+        { option_type: "delivery", label: "משלוח", cost: 0, sort_order: 0 }
+      ]
+    })
+  });
+  assert.equal(legacy.response.status, 200, `sellerTitle fallback should map to backend title: ${JSON.stringify(legacy.json)}`);
+  assert.ok(legacy.json?.deal_id);
+
+  const blankUnique = randomSuffix("seller-create-blank-title-contract");
+  const blank = await fetchJson("/deals", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-request-id": blankUnique,
+      "idempotency-key": blankUnique,
+      "x-seller-id": "seller-default"
+    },
+    body: JSON.stringify({
+      title: "   ",
+      price_per_unit: 42,
+      min_units: 3,
+      max_units: 6,
+      deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString()
+    })
+  });
+  assert.equal(blank.response.status, 400);
+  assert.match(JSON.stringify(blank.json), /title_required|title is required/);
 }
 
 async function ensureFrontendAssets() {

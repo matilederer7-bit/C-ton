@@ -136,6 +136,55 @@ async function main() {
     assert.match(String(body.error || ""), /deadline must be a valid ISO date/i);
   });
 
+  await runTest("deal creation accepts Hebrew title and rejects empty title contract", async () => {
+    const valid = await app.inject({
+      method: "POST",
+      url: "/deals",
+      headers: {
+        "x-request-id": `title-contract-valid-${Date.now()}`,
+        "idempotency-key": `title-contract-valid-${Date.now()}`
+      },
+      payload: {
+        title: "עסקה בעברית תקינה",
+        description: "תיאור בעברית",
+        price_per_unit: 10,
+        min_units: 2,
+        max_units: 4,
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
+        delivery_options: [{ option_type: "delivery", label: "משלוח", cost: 0, sort_order: 0 }]
+      }
+    });
+    assert.equal(valid.statusCode, 200);
+    assert.ok((valid.json() as any).deal_id);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        price_per_unit: 10,
+        min_units: 2,
+        max_units: 4,
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
+      }
+    });
+    assert.equal(missing.statusCode, 400);
+    assert.match(JSON.stringify(missing.json()), /title_required|title is required/);
+
+    const blank = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        title: "   ",
+        price_per_unit: 10,
+        min_units: 2,
+        max_units: 4,
+        deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString()
+      }
+    });
+    assert.equal(blank.statusCode, 400);
+    assert.match(JSON.stringify(blank.json()), /title_required|title is required/);
+  });
+
   await runTest("outbox retry helper increments attempts on temporary failures", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const helpers = buildOutboxWorkerHelpers({

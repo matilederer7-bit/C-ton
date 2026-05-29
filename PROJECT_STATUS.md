@@ -2,6 +2,45 @@
 
 ---
 
+## Current update: 2026-05-29 (Create Deal Title Contract Fix)
+
+### What was broken
+- Create-deal used a split title contract: the visible UI field was `sellerTitle`, while the backend only accepted `title`.
+- The main frontend submit path mapped `sellerTitle` into `title`, but there was no single canonical title reader and no backend compatibility for legacy/visible field names. Any stale or alternate submit path that reached `/deals` with `sellerTitle`/`name` instead of `title` could be rejected as `title_required`.
+- The backend title-required error did not include a stable `title_required` code, so the frontend had to infer it from the message text.
+
+### What was fixed
+- Added a canonical frontend create-deal title reader that accepts `title`, `sellerTitle`, `dealTitle`, `productName`, `name`, and `deal_name`, then sends a non-empty trimmed `title` payload.
+- Added the same canonical title reader on the `/deals` backend route, preserving `title` as the canonical field while accepting the visible/legacy names as compatibility input.
+- Added stable backend error code `title_required` when no non-empty title is supplied.
+- Hebrew titles that are non-empty after `trim()` now pass both frontend payload construction and backend validation.
+
+### Tests added or strengthened
+- Backend sanity now verifies: Hebrew `title` is accepted, missing `title` is rejected, and whitespace-only `title` is rejected.
+- Frontend browser smoke now verifies the canonical title field contract, the visible `sellerTitle` input remains connected, the payload sends `title`, valid Hebrew title+description creation does not return `title_required`, and `sellerTitle` fallback is accepted.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+
+### What remains open
+- Post-deploy live QA should create a draft deal from `/app/seller/new` on Render after the new commit is deployed and confirm no `title_required` appears.
+
+### Progress
+- Create-deal title contract readiness: 100%.
+
+### Next step
+- post-deploy live QA for create-deal draft creation.
+
+### Verdict
+`CREATE_DEAL_TITLE_CONTRACT_FIX_PASS`
+
+---
+
 ## Current update: 2026-05-29 (Create Deal UX Bugfix)
 
 ### What was fixed

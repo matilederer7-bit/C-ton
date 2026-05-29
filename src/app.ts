@@ -2464,10 +2464,11 @@ app.post("/deals", async (req: any) => {
     err.code = "ticket_terms_required";
     throw err;
   }
-  const title = String(body.title || "").trim();
+  const title = readCreateDealTitle(body);
   if (!title) {
     const err: any = new Error("title is required");
     err.statusCode = 400;
+    err.code = "title_required";
     throw err;
   }
   if (title.length > 200) {
@@ -2566,6 +2567,14 @@ app.post("/deals", async (req: any) => {
   });
   return r;
 });
+
+function readCreateDealTitle(body: Record<string, any>) {
+  for (const field of ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"]) {
+    const value = String(body?.[field] || "").trim();
+    if (value) return value;
+  }
+  return "";
+}
 
 app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
