@@ -2,6 +2,57 @@
 
 ---
 
+## Current update: 2026-05-31 (Legal UX And Draft Images Follow-up)
+
+### What regressed after the previous PASS
+- `LEGAL_PAGES_AND_CONSENTS_PASS` proved the routes and consent gates technically worked, but user QA exposed visible internal UX copy in Legal/Main surfaces.
+- The UI still showed unclear copy such as `פתוח להצגה`, and older Legal app pages still carried internal explanatory text such as `ניווט מהיר`, `עמודי trust ציבוריים`, and `placeholder פנימי`.
+- Draft image behavior was not strict enough: the create flow could continue after image upload failure, and primary-image normalization always made the first image primary even after the seller selected another primary image.
+
+### What was removed or cleaned
+- Removed the unclear `פתוח להצגה` route chip from the normal app shell.
+- Removed the `ניווט מהיר` / `עמודי trust ציבוריים` / `placeholder פנימי` explanatory panel from Legal pages.
+- Removed visible `trust` wording from the seller create side panel and replaced it with plain Hebrew product copy.
+- Standalone Legal pages now use a simple `חזרה לאתר` link.
+
+### Icons
+- Replaced the generic home-step `▤` package glyph with a link-oriented icon for creating a deal link.
+- Replaced the generic `U` people glyph with a people/group icon.
+- Kept the approval/check icon for the third step.
+
+### Draft image root cause and fix
+- Root cause: `normalizeSellerImages` defaulted `index === 0` to primary on every normalization, so selecting another primary image could be overwritten.
+- The create-draft path also treated image upload failure as a warning and navigated onward, which could leave the seller on a draft screen without the expected persisted images.
+- Fixed normalization so the first image becomes primary only when no explicit primary selection exists.
+- After creating a draft, uploaded images are now posted to `/api/seller/deals/:id/images`, then the seller deal API is reloaded and image count is verified before navigating to the draft screen.
+- If uploaded images do not persist, the flow fails visibly instead of presenting a clean saved-draft success state without images.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run test:legal-trust` - PASS.
+- `node .tmp_test_dist/tests/legal_trust_layer_validation.js` - PASS.
+- Browser/CDP now verifies: create deal, upload two images, choose the second as primary, save draft, open draft, reload draft, confirm images still render and draft has no share actions, approve publish terms, publish, confirm share link appears, open public deal, and confirm persisted images render there.
+
+### What remains open
+- Post-deploy live QA should verify this exact flow on Render after the new commit is deployed.
+
+### Progress
+- Create deal draft/publish/image persistence readiness: 100% locally.
+- Legal/Main UX cleanup readiness: 100% locally.
+
+### Next step
+- Deploy and run post-deploy live QA for `/app`, `/legal/terms`, `/app/seller/new`, draft reload, publish, and public deal image display.
+
+### Verdict
+`LEGAL_UX_AND_DRAFT_IMAGES_FIX_PASS`
+
+---
+
 ## Current update: 2026-05-31 (Legal Pages And Consent Gates)
 
 ### What was added

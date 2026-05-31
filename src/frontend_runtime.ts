@@ -296,7 +296,7 @@ function renderLegalHtmlPage(slug: LegalPageSlug) {
 <body>
   <div class="shell">
     <header>
-      <div class="brand"><strong>C-ton</strong><a href="/app">חזרה למערכת</a></div>
+      <div class="brand"><strong>C-ton</strong><a href="/app">חזרה לאתר</a></div>
       <nav aria-label="ניווט משפטי">${nav}</nav>
     </header>
     <main>

@@ -397,6 +397,10 @@ async function assertSellerCreateUxContract() {
   assert.match(source, /\/legal\/terms/, "legal terms page should be linked from frontend surfaces");
   assert.match(source, /\/legal\/privacy/, "legal privacy page should be linked from frontend surfaces");
   assert.match(source, /\/legal\/refunds/, "legal refunds page should be linked from frontend surfaces");
+  assert.doesNotMatch(source, /ניווט מהיר|עמודי trust ציבוריים|placeholder פנימי|פתוח להצגה/, "regular legal/main UI must not show internal legal/navigation wording");
+  assert.doesNotMatch(source, /package:\s*"▤"|users:\s*"U"/, "home explanation icons must not use generic placeholder glyphs");
+  assert.match(source, /link:\s*"🔗"/, "step 1 should use a link-oriented icon");
+  assert.match(source, /users:\s*"👥"/, "step 2 should use a people-oriented icon");
   assert.match(source, /תקנון השימוש למוכרים/, "terms approval should include an inline clickable seller terms link");
   assert.match(source, /מדיניות הביטולים וההחזרים/, "terms approval should include an inline refunds link");
   assert.match(source, /קישור מיקום/, "distribution point copy should carry location links");
@@ -545,6 +549,12 @@ async function assertSellerCreateDomFlowContract() {
       const imageCount = await evaluate(`document.querySelectorAll(".seller-image-thumb").length`);
       if (imageCount === 2) break;
     }
+    await evaluate(`(() => {
+      const makePrimary = document.querySelector('[data-inline-action="make-product-image-primary"][data-image-index="1"]');
+      if (!makePrimary) throw new Error("missing secondary make-primary button");
+      makePrimary.click();
+      return true;
+    })()`);
 
     await evaluate(`(() => {
       const setField = (selector, value) => {
@@ -592,8 +602,8 @@ async function assertSellerCreateDomFlowContract() {
     assert.match(String(result.path), /\/app\/seller\/deals\//, `DOM submit did not create a deal: ${JSON.stringify(result)}`);
     const imageRequests = requests.filter((request: any) => String(request.url).includes("/api/seller/deals/") && String(request.url).endsWith("/images"));
     assert.equal(imageRequests.length, 2, `expected two image uploads, got ${JSON.stringify(imageRequests)}`);
-    assert.equal(imageRequests[0].body.is_primary, true);
-    assert.equal(imageRequests[1].body.is_primary, false);
+    assert.equal(imageRequests[0].body.is_primary, false);
+    assert.equal(imageRequests[1].body.is_primary, true);
 
     const draftState = await evaluate(`(() => ({
       text: document.body.innerText,
@@ -608,6 +618,41 @@ async function assertSellerCreateDomFlowContract() {
     assert.equal(draftState.copyButtons, 0, "draft seller screen must not render public copy-link buttons");
     assert.ok(draftState.publishButtons >= 1, "draft seller screen must show a publish CTA");
     assert.ok(draftState.images >= 2, `draft seller screen should show uploaded images: ${JSON.stringify(draftState)}`);
+
+    await evaluate(`location.reload()`);
+    let reloadedDraft: any = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(500);
+      reloadedDraft = await evaluate(`(() => ({
+        path: location.pathname,
+        text: document.body.innerText,
+        images: document.querySelectorAll(".deal-image-gallery img, .seller-deal-hero-image").length,
+        sharePanels: document.querySelectorAll(".share-panel").length,
+        copyButtons: document.querySelectorAll('[data-inline-action="copy-link"][data-share-url*="/app/deal/"]').length,
+        publishButtons: [...document.querySelectorAll('button')].filter((button) => button.textContent.includes("פרסם עסקה")).length
+      }))()`);
+      if (reloadedDraft.images >= 2 && reloadedDraft.publishButtons >= 1) break;
+    }
+    assert.match(String(reloadedDraft.text), /העסקה נשמרה כטיוטה|עדיין בטיוטה/);
+    assert.equal(reloadedDraft.sharePanels, 0, "reloaded draft must not render share panel");
+    assert.equal(reloadedDraft.copyButtons, 0, "reloaded draft must not render public copy-link buttons");
+    assert.ok(reloadedDraft.images >= 2, `uploaded images must survive draft navigation/reload: ${JSON.stringify(reloadedDraft)}`);
+
+    await evaluate(`(() => {
+      window.__createDealRequests = [];
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init = {}) => {
+        const url = typeof input === "string" ? input : String(input && input.url || "");
+        const method = String(init.method || "GET").toUpperCase();
+        if ((/\\/deals\\/[^/]+\\/publish$/.test(url) || url.includes("/api/seller/deals/")) && method === "POST") {
+          let body = init.body || "";
+          try { body = JSON.parse(String(body)); } catch {}
+          window.__createDealRequests.push({ url, method, body });
+        }
+        return originalFetch(input, init);
+      };
+      return true;
+    })()`);
 
     await evaluate(`(() => {
       const acceptance = document.querySelector('input[name="sellerPublishLegalAccepted"]');
@@ -649,6 +694,27 @@ async function assertSellerCreateDomFlowContract() {
     assert.equal(published.primaryCount, 1);
     assert.match(String(published.text), /העסקה פורסמה|פתוחה להצטרפות|לינק ציבורי/);
     assert.ok((published.requests || []).some((request: any) => /\/deals\/[^/]+\/publish$/.test(String(request.url))), "real flow should call publish endpoint");
+
+    const publicDeal = await evaluate(`(async () => {
+      const publicLink = [...document.querySelectorAll('a[href*="/app/deal/"]')].map((link) => link.getAttribute("href")).find(Boolean);
+      if (!publicLink) throw new Error("missing public deal link after publish");
+      history.pushState({}, "", publicLink);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const images = document.querySelectorAll(".cton-product-image img, .deal-image-gallery img").length;
+        if (location.pathname.includes("/app/deal/") && images >= 2) break;
+      }
+      return {
+        path: location.pathname,
+        text: document.body.innerText,
+        images: document.querySelectorAll(".cton-product-image img, .deal-image-gallery img").length,
+        primaryAlt: document.querySelector(".cton-product-image img")?.getAttribute("alt") || ""
+      };
+    })()`);
+    assert.match(String(publicDeal.path), /\/app\/deal\//, `public deal route did not open: ${JSON.stringify(publicDeal)}`);
+    assert.ok(publicDeal.images >= 2, `public deal should display persisted images after publish: ${JSON.stringify(publicDeal)}`);
+    assert.match(String(publicDeal.text), /תקנון|מדיניות פרטיות|ביטולים והחזרים/);
   });
 }
 

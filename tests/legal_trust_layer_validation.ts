@@ -112,6 +112,7 @@ await run("legal pages and payment disclosure text are available", async () => {
   assert.equal(payments.statusCode, 200);
   assert.match(terms.body, /תקנון שימוש ותנאי שירות C-ton/);
   assert.match(refunds.body, /מדיניות ביטולים, החזרים ושחרור מסגרת/);
+  assert.doesNotMatch(`${terms.body}\n${refunds.body}\n${privacy.body}`, /ניווט מהיר|עמודי trust ציבוריים|placeholder פנימי|פתוח להצגה/);
   assert.match(appJs, /\/legal\/terms/);
   assert.match(appJs, /\/legal\/refunds/);
   assert.match(appJs, /sellerPublishLegalAccepted/);
@@ -242,6 +243,7 @@ await run("public deal footer and UI wording stay trust-safe", async () => {
   assert.match(appJs.body, /\/legal\/terms/);
   assert.match(appJs.body, /\/legal\/refunds/);
   assert.match(appJs.body, /\/legal\/privacy/);
+  assert.doesNotMatch(appJs.body, /ניווט מהיר|עמודי trust ציבוריים|placeholder פנימי|פתוח להצגה/);
   assert.doesNotMatch(appJs.body, /שלם עכשיו/);
   assert.doesNotMatch(appJs.body, /שילמת/);
   assert.doesNotMatch(appJs.body, /סיטון תספק את המוצר/);

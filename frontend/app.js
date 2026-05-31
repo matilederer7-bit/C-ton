@@ -1381,20 +1381,31 @@ async function createDeal(form) {
         deliveryOptions
       }))
     });
-    let imageUploadWarning = "";
     if (sellerImages.length) {
       try {
         for (const [index, image] of sellerImages.entries()) {
           await uploadSellerDealImage(response.deal_id, { ...image, sortOrder: index });
         }
       } catch (error) {
-        imageUploadWarning = `העסקה נשמרה, אבל העלאת אחת התמונות לא הושלמה (${friendlyApiCode(error)}). אפשר להמשיך לפרסום עם התמונות שנשמרו או תצוגת ברירת המחדל.`;
+        const err = new Error(`שמירת הטיוטה הצליחה, אבל שמירת התמונות נכשלה (${friendlyApiCode(error)}). נסו להעלות JPG, PNG או WebP עד 2MB ולשמור שוב.`);
+        err.statusCode = error?.statusCode || error?.status || 400;
+        err.code = "draft_images_not_persisted";
+        throw err;
       }
+      const persisted = await api(`/api/seller/deals/${encodeURIComponent(response.deal_id)}`);
+      const persistedImages = Array.isArray(persisted?.deal?.images) ? persisted.deal.images : [];
+      if (persistedImages.length < sellerImages.length) {
+        const err = new Error("שמירת הטיוטה הצליחה, אבל לא כל התמונות נשמרו. נסו לשמור שוב לפני פרסום.");
+        err.statusCode = 409;
+        err.code = "draft_images_not_persisted";
+        throw err;
+      }
+      state.sellerDealPayload = persisted;
     }
     state.banner = {
-      tone: imageUploadWarning ? "warning" : "success",
-      title: imageUploadWarning ? "הטיוטה נשמרה ללא תמונה" : "הטיוטה נשמרה",
-      message: imageUploadWarning || "טיוטת העסקה נשמרה. עכשיו אפשר לעבור עליה, לפרסם את הדף הציבורי, ואז להפיץ את הלינק הישיר."
+      tone: "success",
+      title: "הטיוטה נשמרה",
+      message: "טיוטת העסקה נשמרה. עכשיו אפשר לעבור עליה, לפרסם את הדף הציבורי, ואז להפיץ את הלינק הישיר."
     };
     navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
   }, "יצירת העסקה נכשלה.");
@@ -1712,15 +1723,16 @@ function readSellerImages() {
 }
 
 function normalizeSellerImages(images) {
-  const normalized = (Array.isArray(images) ? images : [])
+  const source = (Array.isArray(images) ? images : [])
     .filter((image) => image && image.dataUrl)
-    .slice(0, 5)
-    .map((image, index) => ({
+    .slice(0, 5);
+  const hasExplicitPrimary = source.some((image) => Boolean(image.isPrimary || image.is_primary));
+  const normalized = source.map((image, index) => ({
       dataUrl: String(image.dataUrl || ""),
       filename: String(image.filename || image.name || "product-image"),
       mimeType: String(image.mimeType || ""),
       size: Number(image.size || 0),
-      isPrimary: Boolean(image.isPrimary || image.is_primary || index === 0)
+      isPrimary: hasExplicitPrimary ? Boolean(image.isPrimary || image.is_primary) : index === 0
     }));
   const primaryIndex = normalized.findIndex((image) => image.isPrimary);
   normalized.forEach((image, index) => { image.isPrimary = index === (primaryIndex >= 0 ? primaryIndex : 0); });
@@ -2243,16 +2255,17 @@ function renderCurrentRoute() {
 
 function icon(name) {
   const icons = {
-    users: "U",
+    users: "👥",
     trend: "↗",
     clock: "◷",
     shield: "✓",
     card: "▣",
-    package: "▤",
+    package: "🏷",
     share: "↗",
     check: "✓",
     alert: "!",
-    lock: "▣"
+    lock: "▣",
+    link: "🔗"
   };
   return `<span class="cton-icon" aria-hidden="true">${icons[name] || "•"}</span>`;
 }
@@ -2324,7 +2337,7 @@ function renderCtonHome() {
     <section class="cton-card cton-how">
       <h2>איך זה עובד</h2>
       <div class="cton-steps">
-        <article><span>1</span>${icon("package")}<strong>יוצרים לינק לעסקה</strong></article>
+        <article><span>1</span>${icon("link")}<strong>יוצרים לינק לעסקה</strong></article>
         <article><span>2</span>${icon("users")}<strong>אנשים מצטרפים ומשתפים</strong></article>
         <article><span>3</span>${icon("check")}<strong>אם היעד מושג, העסקה יוצאת לפועל</strong></article>
       </div>
@@ -4334,8 +4347,8 @@ function renderSellerNewPage() {
           <p class="small">כאן מגדירים פעם אחת את המסגרת העסקית: מחיר, יעד, חלון זמן ואפשרויות קבלה. רק אחרי שטיוטה נראית חדה, מפרסמים אותה לדף חי.</p>
         </div>
         <div class="surface-note">
-          <strong>מעטפת trust בפרסום</strong>
-          <p class="small muted">אחרי פרסום, הדף הציבורי והמסכים שאחריו מציגים footer משפטי קבוע וקישורים ברורים למידע המחייב. לא נוסף כאן אישור משפטי מחייב בתוך הטופס כדי לא לפתוח לוגיקה חדשה או state חדש.</p>
+          <strong>בדיקה לפני פרסום</strong>
+          <p class="small muted">לפני פרסום תתבקשו לאשר את תנאי המוכרים, התקנון ומדיניות C-ton. טיוטה נשמרת בלי אישור פרסום.</p>
         </div>
       </aside>
     </section>
@@ -6538,11 +6551,6 @@ function renderLegalPage(title, eyebrow, intro, sections) {
         </div>
       </article>
       <aside class="card hero-side stack legal-side">
-        <div class="summary-item summary-spotlight">
-          <span class="muted">ניווט מהיר</span>
-          <strong>עמודי trust ציבוריים</strong>
-          <p class="small muted">העמודים האלה הם שכבת האמון הבסיסית של המוצר הציבורי, ולא placeholder פנימי.</p>
-        </div>
         <div class="mini-legal-note">
           ${renderLegalLinkRow()}
         </div>
@@ -6683,7 +6691,7 @@ function renderNav() {
           <a href="/app/seller/new" data-nav="/app/seller/new" class="button secondary">יצירת עסקה</a>
         </div>
         <div class="shell-meta">
-          ${isInternalSurface ? `<div class="route-chip">גישה פנימית</div>` : `<div class="route-chip">פתוח להצגה</div>`}
+          ${isInternalSurface ? `<div class="route-chip">גישה פנימית</div>` : ""}
           <div class="route-chip">${getRouteLabel()}</div>
         </div>
     </nav>
