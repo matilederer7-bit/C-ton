@@ -40,9 +40,11 @@ await run("legal_distributor_no_commission_copy_validation", async () => {
 });
 
 await run("legal_footer_links_validation", async () => {
-  assert.match(runtime, /\/app\/terms/);
-  assert.match(runtime, /\/app\/privacy/);
-  assert.match(runtime, /\/app\/refunds/);
+  assert.match(runtime, /\/legal\/terms/);
+  assert.match(runtime, /\/legal\/privacy/);
+  assert.match(runtime, /\/legal\/refunds/);
+  assert.match(runtime, /\/legal\/sellers/);
+  assert.match(runtime, /\/legal\/affiliates/);
   assert.match(runtime, /\/app\/contact/);
 });
 

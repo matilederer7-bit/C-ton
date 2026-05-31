@@ -392,6 +392,11 @@ async function assertSellerCreateUxContract() {
   assert.match(source, /sellerDeliveryPointName5/, "seller create form should support five distribution point slots");
   assert.match(source, /sellerImagesJson/, "seller create form should keep image state for deal previews");
   assert.match(source, /validation-summary/, "form validation errors should render a visible summary");
+  assert.match(source, /sellerPublishLegalAccepted/, "seller publish should require the combined legal acceptance checkbox");
+  assert.match(source, /buyerPaymentDisclosureAcceptance/, "buyer payment should require legal and payment disclosure acceptance");
+  assert.match(source, /\/legal\/terms/, "legal terms page should be linked from frontend surfaces");
+  assert.match(source, /\/legal\/privacy/, "legal privacy page should be linked from frontend surfaces");
+  assert.match(source, /\/legal\/refunds/, "legal refunds page should be linked from frontend surfaces");
   assert.match(source, /תקנון השימוש למוכרים/, "terms approval should include an inline clickable seller terms link");
   assert.match(source, /מדיניות הביטולים וההחזרים/, "terms approval should include an inline refunds link");
   assert.match(source, /קישור מיקום/, "distribution point copy should carry location links");
@@ -605,6 +610,10 @@ async function assertSellerCreateDomFlowContract() {
     assert.ok(draftState.images >= 2, `draft seller screen should show uploaded images: ${JSON.stringify(draftState)}`);
 
     await evaluate(`(() => {
+      const acceptance = document.querySelector('input[name="sellerPublishLegalAccepted"]');
+      if (!acceptance) throw new Error("missing seller publish legal acceptance");
+      acceptance.checked = true;
+      acceptance.dispatchEvent(new Event("change", { bubbles: true }));
       const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent.includes("פרסם עסקה"));
       if (!button) throw new Error("missing publish button");
       button.click();
@@ -691,7 +700,22 @@ async function main() {
       {
         name: "public deal",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "cton-deal-page", "cton-join-card", "נקודת חלוקה מרכז העיר", "פתיחת קישור מיקום"]
+        expect: ["עסקת smoke לדפדפן", "cton-deal-page", "cton-join-card", "נקודת חלוקה מרכז העיר", "תקנון", "מדיניות פרטיות", "ביטולים והחזרים"]
+      },
+      {
+        name: "legal terms",
+        path: "/legal/terms",
+        expect: ["תקנון שימוש ותנאי שירות C-ton", "טיוטה אינה ציבורית", "כלל 90 אחוז"]
+      },
+      {
+        name: "legal privacy",
+        path: "/legal/privacy",
+        expect: ["מדיניות פרטיות C-ton", "C-ton אינה שומרת פרטי אשראי גולמיים"]
+      },
+      {
+        name: "legal refunds",
+        path: "/legal/refunds",
+        expect: ["מדיניות ביטולים, החזרים ושחרור מסגרת", "כל זכויות הצרכן לפי חוק נשמרות"]
       },
       {
         name: "seller workspace",
@@ -739,7 +763,12 @@ async function main() {
       {
         name: "public deal mobile",
         path: `/app/deal/${created.deal_id}`,
-        expect: ["עסקת smoke לדפדפן", "cton-join-card", "נקודת חלוקה מרכז העיר"]
+        expect: ["עסקת smoke לדפדפן", "cton-join-card", "נקודת חלוקה מרכז העיר", "תקנון"]
+      },
+      {
+        name: "legal terms mobile",
+        path: "/legal/terms",
+        expect: ["תקנון שימוש ותנאי שירות C-ton", "מדיניות פרטיות", "ביטולים והחזרים"]
       },
       {
         name: "seller workspace mobile",

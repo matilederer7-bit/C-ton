@@ -95,13 +95,27 @@ async function cleanupDeal(dealId: string, sellerId: string) {
 }
 
 await run("legal pages and payment disclosure text are available", async () => {
-  const terms = await app.inject({ method: "GET", url: "/app/terms" });
-  const refunds = await app.inject({ method: "GET", url: "/app/refunds" });
+  const terms = await app.inject({ method: "GET", url: "/legal/terms" });
+  const refunds = await app.inject({ method: "GET", url: "/legal/refunds" });
+  const privacy = await app.inject({ method: "GET", url: "/legal/privacy" });
+  const sellers = await app.inject({ method: "GET", url: "/legal/sellers" });
+  const affiliates = await app.inject({ method: "GET", url: "/legal/affiliates" });
+  const demo = await app.inject({ method: "GET", url: "/legal/demo" });
+  const payments = await app.inject({ method: "GET", url: "/legal/payments" });
   const appJs = await readFile("frontend/app.js", "utf8");
   assert.equal(terms.statusCode, 200);
   assert.equal(refunds.statusCode, 200);
-  assert.match(appJs, /\/app\/terms/);
-  assert.match(appJs, /\/app\/refunds/);
+  assert.equal(privacy.statusCode, 200);
+  assert.equal(sellers.statusCode, 200);
+  assert.equal(affiliates.statusCode, 200);
+  assert.equal(demo.statusCode, 200);
+  assert.equal(payments.statusCode, 200);
+  assert.match(terms.body, /תקנון שימוש ותנאי שירות C-ton/);
+  assert.match(refunds.body, /מדיניות ביטולים, החזרים ושחרור מסגרת/);
+  assert.match(appJs, /\/legal\/terms/);
+  assert.match(appJs, /\/legal\/refunds/);
+  assert.match(appJs, /sellerPublishLegalAccepted/);
+  assert.match(appJs, /buyerPaymentDisclosureAcceptance/);
   assert.match(appJs, /90%/);
 });
 
@@ -225,8 +239,9 @@ await run("buyer join persists payment disclosure acceptance idempotently", asyn
 
 await run("public deal footer and UI wording stay trust-safe", async () => {
   const appJs = await app.inject({ method: "GET", url: "/app/assets/app.js" });
-  assert.match(appJs.body, /\/app\/terms/);
-  assert.match(appJs.body, /\/app\/refunds/);
+  assert.match(appJs.body, /\/legal\/terms/);
+  assert.match(appJs.body, /\/legal\/refunds/);
+  assert.match(appJs.body, /\/legal\/privacy/);
   assert.doesNotMatch(appJs.body, /שלם עכשיו/);
   assert.doesNotMatch(appJs.body, /שילמת/);
   assert.doesNotMatch(appJs.body, /סיטון תספק את המוצר/);

@@ -149,6 +149,7 @@ import {
   csvSafeCell,
   type DealType
 } from "./deal_types.js";
+import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -245,6 +246,73 @@ function requestClientIp(req: any) {
 
 function requestUserAgent(req: any) {
   return String(req.headers?.["user-agent"] || "").trim().slice(0, 240);
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function renderLegalMarkdown(markdown: string) {
+  return markdown
+    .split(/\n{2,}/)
+    .map((block) => {
+      const trimmed = block.trim();
+      if (!trimmed) return "";
+      if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
+      if (trimmed.startsWith("## ")) return `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
+      return `<p>${escapeHtml(trimmed).replace(/\n/g, "<br>")}</p>`;
+    })
+    .join("\n");
+}
+
+function renderLegalHtmlPage(slug: LegalPageSlug) {
+  const page = LEGAL_PAGES[slug];
+  const nav = LEGAL_PAGE_ORDER.map((item) => {
+    const target = LEGAL_PAGES[item];
+    return `<a href="/legal/${target.slug}"${target.slug === slug ? ` aria-current="page"` : ""}>${escapeHtml(target.navLabel)}</a>`;
+  }).join("");
+  return `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>C-ton | ${escapeHtml(page.title)}</title>
+  <style>
+    :root{color-scheme:light;--bg:#2F3237;--card:#fff;--text:#1F2933;--muted:#56616f;--brand:#C65A1E}
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,"Noto Sans Hebrew",sans-serif;background:linear-gradient(135deg,#2F3237 0%,#25282D 100%);color:var(--text);line-height:1.75}
+    .shell{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:32px 0 56px}
+    header{color:#fff;margin-bottom:22px}header a{color:#fff}.brand{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}.brand strong{font-size:1.5rem}
+    nav{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}nav a{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 13px;text-decoration:none;background:rgba(255,255,255,.08)}nav a[aria-current=page]{background:var(--brand);border-color:var(--brand)}
+    main{background:var(--card);border-radius:24px;padding:clamp(22px,4vw,42px);box-shadow:0 24px 60px rgba(0,0,0,.24);border:1px solid rgba(255,255,255,.18)}
+    h1{font-size:clamp(1.8rem,4vw,3rem);line-height:1.15;margin:0 0 18px}h2{font-size:1.35rem;margin:34px 0 8px;color:#111827}p{margin:0 0 14px;color:var(--text)}.notice{margin:0 0 24px;padding:14px 16px;border-radius:16px;background:#FFF1E8;border:1px solid rgba(198,90,30,.28);color:#53311f}
+    footer{color:#D1D5DB;margin-top:22px;display:flex;gap:14px;flex-wrap:wrap}footer a{color:#fff}
+    @media(max-width:520px){.shell{width:min(100% - 20px,1060px);padding-top:18px}main{border-radius:18px;padding:18px}nav a{width:calc(50% - 5px);text-align:center}}
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <header>
+      <div class="brand"><strong>C-ton</strong><a href="/app">חזרה למערכת</a></div>
+      <nav aria-label="ניווט משפטי">${nav}</nav>
+    </header>
+    <main>
+      <div class="notice">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div>
+      ${renderLegalMarkdown(page.body)}
+    </main>
+    <footer>
+      <a href="/legal/terms">תקנון</a>
+      <a href="/legal/privacy">מדיניות פרטיות</a>
+      <a href="/legal/refunds">ביטולים והחזרים</a>
+      <a href="/legal/sellers">תנאי מוכרים</a>
+      <a href="/legal/affiliates">תנאי מפיצים</a>
+    </footer>
+  </div>
+</body>
+</html>`;
 }
 
 function mapSellerProfile(profile: any, contextSource: string) {
@@ -7515,6 +7583,13 @@ export function registerFrontendExperience(
     sendFrontendFile(reply, "index.html", "text/html; charset=utf-8");
 
   app.get("/", async (_req, reply) => reply.redirect("/app", 302));
+  app.get("/legal/:slug", async (req: any, reply) => {
+    const slug = String(req.params.slug || "") as LegalPageSlug;
+    if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {
+      return reply.code(404).send({ ok: false, error: "legal page not found" });
+    }
+    return reply.type("text/html; charset=utf-8").send(renderLegalHtmlPage(slug));
+  });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);
   app.get("/app/terms", sendShell);

@@ -2,6 +2,48 @@
 
 ---
 
+## Current update: 2026-05-31 (Legal Pages And Consent Gates)
+
+### What was added
+- Added the required Legal pages under `/legal/terms`, `/legal/refunds`, `/legal/privacy`, `/legal/sellers`, `/legal/affiliates`, `/legal/demo`, and `/legal/payments`.
+- The supplied MVP legal text is stored as dedicated legal page source and rendered as Hebrew RTL legal pages without rewriting product/legal meaning.
+
+### Where links were added
+- Footer/legal link rows now point to the canonical `/legal/...` pages.
+- Public deal surfaces show links to the terms, privacy policy, and refunds/cancellations policy.
+- Home footer links now include terms, privacy, refunds, seller terms, and affiliate terms.
+
+### Required checkboxes
+- Seller publish now requires a checkbox: `קראתי ואני מאשר את תנאי המוכרים, התקנון ומדיניות C-ton`.
+- Saving a draft remains allowed without that publish acceptance.
+- Buyer payment/authorization now requires a checkbox for deal terms, terms, refunds, and privacy before continuing to the credit-frame authorization flow.
+- The buyer payment screen also shows the required short explanation that joining is not an immediate charge and only a credit-frame hold is performed first.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS, including desktop and 390px legal page/browser routes.
+- `npm run test:legal-trust` - PASS.
+- `node .tmp_test_dist/tests/legal_trust_layer_validation.js` - PASS, including all `/legal/...` pages, seller publish blocking without acceptance, buyer join blocking without disclosure, and persisted legal acceptance records.
+
+### What remains open
+- Post-deploy live QA should verify the same `/legal/...` pages and consent gates on Render after deployment.
+- Legal wording is still MVP wording and requires attorney review before commercial use, as stated in the provided source.
+
+### Progress
+- Legal pages and consent gate readiness: 100% locally.
+
+### Next step
+- Deploy and run post-deploy live QA for Legal pages, seller publish consent, and buyer payment consent.
+
+### Verdict
+`LEGAL_PAGES_AND_CONSENTS_PASS`
+
+---
+
 ## Current update: 2026-05-31 (Create Deal Draft/Publish Flow)
 
 ### What was broken

@@ -254,6 +254,8 @@ strong { font-weight: 800; }
   background: var(--surface);
 }
 .check-row input { width: 20px; height: 20px; margin-top: 3px; accent-color: var(--primary); }
+.legal-consent-row a { color: var(--primary); font-weight: 800; }
+.legal-payment-consent { background: #FFF1E8; border: 1px solid rgba(198, 90, 30, 0.22); border-radius: 16px; padding: 14px; }
 
 .meter, .progress-meter {
   height: 16px;

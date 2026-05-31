@@ -1216,6 +1216,12 @@ async function payAndJoin(form) {
   }
 
   const formData = new FormData(form);
+  if (formData.get("buyerPaymentDisclosureAcceptance") !== "on") {
+    return fail(
+      "נדרש אישור תנאים",
+      "כדי להמשיך לתפיסת מסגרת צריך לאשר את תנאי העסקה, התקנון, מדיניות הביטולים ומדיניות הפרטיות."
+    );
+  }
   const buyerName = String(formData.get("buyerName") || "").trim();
   const deliveryAddress = String(formData.get("deliveryAddress") || "").trim();
   const deliveryCity = String(formData.get("deliveryCity") || "").trim();
@@ -1446,13 +1452,13 @@ async function uploadSellerDealImage(dealId, image) {
 async function publishDeal(dealId, form) {
   if (!dealId) return;
   const formData = form ? new FormData(form) : null;
-  const hasExplicitApprovals = formData ? (formData.has("sellerPublishCriticalTermsAccepted") || formData.has("sellerPublishThresholdAccepted")) : false;
-  const criticalTerms = hasExplicitApprovals ? formData.get("sellerPublishCriticalTermsAccepted") === "on" : true;
-  const thresholdRule = hasExplicitApprovals ? formData.get("sellerPublishThresholdAccepted") === "on" : true;
-  if (!criticalTerms || !thresholdRule) {
+  const legalAccepted = formData?.get("sellerPublishLegalAccepted") === "on";
+  const criticalTerms = legalAccepted || formData?.get("sellerPublishCriticalTermsAccepted") === "on";
+  const thresholdRule = legalAccepted || formData?.get("sellerPublishThresholdAccepted") === "on";
+  if (!legalAccepted) {
     return fail(
       "חסרים אישורי פרסום",
-      "לפני פרסום עסקה עם כסף אמיתי צריך לאשר שהתנאים הקריטיים סופיים ושכלל 90% ברור ומקובל."
+      "לפני פרסום עסקה צריך לאשר את תנאי המוכרים, התקנון ומדיניות C-ton."
     );
   }
   await busy("מפרסם את הדף הציבורי...", async () => {
@@ -1463,7 +1469,7 @@ async function publishDeal(dealId, form) {
         "idempotency-key": `seller-publish:${dealId}`
       },
       body: json({
-        seller_terms_accepted: true,
+        seller_terms_accepted: legalAccepted,
         seller_critical_terms_accepted: criticalTerms,
         seller_threshold_90_accepted: thresholdRule
       })
@@ -2325,9 +2331,11 @@ function renderCtonHome() {
     </section>
     <footer class="cton-mini-footer">
       <strong>C-ton</strong>
-      <a href="/app/terms" data-nav="/app/terms">תקנון</a>
-      <a href="/app/privacy" data-nav="/app/privacy">מדיניות פרטיות</a>
-      <a href="/app/terms" data-nav="/app/terms">תנאי שימוש</a>
+      <a href="/legal/terms">תקנון</a>
+      <a href="/legal/privacy">מדיניות פרטיות</a>
+      <a href="/legal/refunds">ביטולים והחזרים</a>
+      <a href="/legal/sellers">תנאי מוכרים</a>
+      <a href="/legal/affiliates">תנאי מפיצים</a>
     </footer>
   `;
 }
@@ -2411,6 +2419,7 @@ function renderCtonDealPage() {
         ${isShareable ? renderShareActions(`/app/deal/${deal.deal_id}`, deal.title) : `<div class="info-strip tone-warning"><strong>אין שיתוף בטיוטה</strong><p class="small">העסקה עדיין פנימית ולא פתוחה לקונים.</p></div>`}
       </aside>
     </section>
+    ${renderLegalReferenceStrip("deal")}
     ${renderDealChatSection(deal)}
   `;
 }
@@ -2468,7 +2477,7 @@ function renderCtonPaymentPage(dealId) {
           <div class="cton-card-frame">פרטי האשראי מוזנים ברכיב המאובטח של ספק הסליקה</div>
           <div class="field"><label for="payerName">שם למשלם/ת</label><input id="payerName" name="payerName" type="text" data-dir="rtl" value="${esc(state.form.payerName)}" autocomplete="name" /></div>
           <input type="hidden" id="providerPaymentMethodId" name="providerPaymentMethodId" value="" />
-          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר תפיסת מסגרת בלבד.</span></label>
+          ${renderBuyerPaymentLegalAcceptance()}
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
           <p class="small muted">פרטי האשראי אינם נשמרים ב־C-ton.</p>
         </form>
@@ -2656,7 +2665,7 @@ function renderCtonSellerDealPage() {
         <div><h1>${esc(deal.title)}</h1><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><p class="muted">${isDraft ? "טיוטה פנימית - עדיין לא פתוחה לקונים" : "מעודכן לפני רגע"}</p></div>
       </header>
       ${renderDealImageGallery(deal)}
-      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack"><button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel tone-success"><h2>העסקה פורסמה והיא פתוחה להצטרפות</h2><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
+      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">${renderSellerPublishLegalAcceptance()}<button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel tone-success"><h2>העסקה פורסמה והיא פתוחה להצטרפות</h2><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
       <section class="cton-kpi-grid six">
         <article class="cton-kpi"><span>כמות נוכחית</span><strong>${num(deal.metrics?.joined_units || 0)}</strong></article>
         <article class="cton-kpi"><span>מינימום</span><strong>${num(deal.threshold_units)}</strong></article>
@@ -3223,7 +3232,7 @@ function renderPaymentPage(dealId) {
           </div>
           <div class="field"><label for="payerName">שם למשלם/ת</label><input id="payerName" name="payerName" type="text" data-dir="rtl" value="${esc(state.form.payerName)}" autocomplete="name" /></div>
           <input type="hidden" id="providerPaymentMethodId" name="providerPaymentMethodId" value="" />
-          <label class="check-row"><input type="checkbox" name="buyerPaymentDisclosureAcceptance" checked required /> <span>אני מאשר תפיסת מסגרת בלבד. ידוע לי שלא מתבצע חיוב בפועל כעת, ושהחיוב יתבצע רק אם העסקה תיסגר בהצלחה.</span></label>
+          ${renderBuyerPaymentLegalAcceptance()}
           <button class="primary" type="submit">אשרו תפיסת מסגרת</button>
         </form>
       </aside>
@@ -4510,7 +4519,7 @@ function renderSellerDealPage() {
             <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack draft-publish-panel">
               <strong>מוכן לצאת ללינק חי?</strong>
               <p class="small muted">בלחיצה על פרסום העסקה תעבור ממצב טיוטה ל-PendingTarget ותיפתח להצטרפות קונים.</p>
-              <div class="legal-link-row"><a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a></div>
+              ${renderSellerPublishLegalAcceptance()}
               <button class="primary" type="submit">פרסם עסקה</button>
             </form>
           ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
@@ -6464,12 +6473,13 @@ function renderPublicTrustFooter() {
 function renderLegalLinkRow() {
   return `
     <div class="legal-link-row">
-      <a href="/app/terms" data-nav="/app/terms">תנאי שימוש</a>
-      <a href="/app/privacy" data-nav="/app/privacy">מדיניות פרטיות</a>
-      <a href="/app/refunds" data-nav="/app/refunds">ביטולים והחזרים</a>
+      <a href="/legal/terms">תקנון</a>
+      <a href="/legal/privacy">מדיניות פרטיות</a>
+      <a href="/legal/refunds">ביטולים והחזרים</a>
       <a href="/app/accessibility" data-nav="/app/accessibility">הצהרת נגישות</a>
-      <a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a>
-      <a href="/app/distributor-terms" data-nav="/app/distributor-terms">תנאי מפיץ</a>
+      <a href="/legal/sellers">תנאי מוכרים</a>
+      <a href="/legal/affiliates">תנאי מפיצים</a>
+      <a href="/legal/payments">מדיניות תשלומים</a>
       <a href="/app/contact" data-nav="/app/contact">יצירת קשר</a>
     </div>
   `;
@@ -6488,6 +6498,27 @@ function renderLegalReferenceStrip(context) {
       <strong>המידע המחייב והקשר</strong>
       <p class="small">${detail}</p>
       ${renderLegalLinkRow()}
+    </div>
+  `;
+}
+
+function renderSellerPublishLegalAcceptance() {
+  return `
+    <label class="check-row legal-consent-row">
+      <input type="checkbox" name="sellerPublishLegalAccepted" required />
+      <span>קראתי ואני מאשר את <a href="/legal/sellers">תנאי המוכרים</a>, <a href="/legal/terms">התקנון</a> ומדיניות C-ton</span>
+    </label>
+  `;
+}
+
+function renderBuyerPaymentLegalAcceptance() {
+  return `
+    <div class="legal-payment-consent stack compact-section">
+      <label class="check-row legal-consent-row">
+        <input type="checkbox" name="buyerPaymentDisclosureAcceptance" required />
+        <span>אני מאשר את תנאי העסקה, <a href="/legal/terms">התקנון</a>, <a href="/legal/refunds">מדיניות הביטולים</a> ו<a href="/legal/privacy">מדיניות הפרטיות</a></span>
+      </label>
+      <p class="small muted">ההצטרפות לעסקה אינה חיוב מיידי. בשלב הראשון מתבצעת תפיסת מסגרת אשראי בלבד. חיוב בפועל יתבצע רק אם העסקה תיסגר בהצלחה.</p>
     </div>
   `;
 }
