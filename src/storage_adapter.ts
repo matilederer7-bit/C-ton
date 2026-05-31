@@ -95,9 +95,25 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   async put(key: string, content: Buffer): Promise<StoredObject> {
     const final = this.resolveSafe(key);
-    await mkdir(dirname(final), { recursive: true });
-    await writeFile(final, content);
+    try {
+      await mkdir(dirname(final), { recursive: true });
+      await writeFile(final, content);
+    } catch (error) {
+      throw this.wrapFilesystemWriteError(error);
+    }
     return { storage_provider: this.providerCode, storage_key: key, size_bytes: content.length };
+  }
+
+  private wrapFilesystemWriteError(error: unknown) {
+    const code = String((error as NodeJS.ErrnoException)?.code || "");
+    if (["EACCES", "EPERM", "EROFS", "ENOTDIR"].includes(code)) {
+      const err: any = new Error("image upload storage is not writable");
+      err.statusCode = 500;
+      err.code = "upload_storage_unwritable";
+      err.cause = error;
+      return err;
+    }
+    return error;
   }
 
   async get(key: string): Promise<Buffer> {
@@ -179,7 +195,7 @@ export function buildStorageAdapter(env: NodeJS.ProcessEnv = process.env): Stora
     // local filesystem and surface the mismatch as a readiness blocker.
     // Activating object storage is a separate provider gate.
   }
-  const root = resolve(env.DEAL_IMAGE_UPLOAD_DIR || join(process.cwd(), "uploads", "deal-images"));
+  const root = resolve(env.DEAL_IMAGE_UPLOAD_DIR || env.UPLOAD_DIR || join(process.cwd(), "uploads", "deal-images"));
   cachedAdapter = new LocalStorageAdapter(root);
   return cachedAdapter;
 }

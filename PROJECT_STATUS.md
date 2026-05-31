@@ -2,6 +2,49 @@
 
 ---
 
+## Current update: 2026-05-31 (Render Upload Directory Fix)
+
+### What failed in live QA
+- Post-deploy Live QA returned `DRAFT_IMAGES_LIVE_QA_FAIL`.
+- The live Render service accepted the new runtime commit, but image upload failed at `POST /api/seller/deals/:dealId/images`.
+- Exact live error: `EACCES: permission denied, mkdir '/app/uploads'`.
+
+### Root cause
+- The local filesystem image adapter used its default upload root under the app working directory when no upload env var was present.
+- In the Render Docker runtime that resolved inside `/app`, which is not a writable upload location for runtime files.
+
+### What was fixed
+- Added `UPLOAD_DIR` support as the canonical deploy-friendly upload root while preserving the existing `DEAL_IMAGE_UPLOAD_DIR` test/backward-compatible override.
+- Updated Render configuration to set `UPLOAD_DIR=/tmp/uploads`.
+- Wrapped local filesystem permission failures with a clearer `upload_storage_unwritable` error instead of leaking a raw EACCES path.
+- Extended the deal image regression test to prove `UPLOAD_DIR` is honored, no `/app/uploads` fallback exists, a file is written to the configured directory, and the API returns a public image URL.
+- Added `npm run test:deal-images` and included `deal_images_validation` in `npm test`.
+
+### Demo upload directory
+- Render/demo: `/tmp/uploads`.
+- Local default remains `uploads/deal-images` unless `UPLOAD_DIR` or `DEAL_IMAGE_UPLOAD_DIR` is set.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm run test:deal-images` - PASS.
+- `npm test` - PASS, including `deal_images_validation`.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- `npm run test:legal-trust` - PASS.
+
+### What remains open
+- After deploy, update/verify `EXPECTED_COMMIT_SHA` in Render for the new commit and rerun live QA for draft image upload, draft reload, publish, and public deal rendering.
+
+### Progress
+- Demo image upload storage readiness: 100% locally.
+
+### Next step
+- Run the required local tests, commit, push, let Render redeploy, then run post-deploy image live QA against `/app/seller/new`.
+
+---
+
 ## Current update: 2026-05-31 (Legal UX And Draft Images Follow-up)
 
 ### What regressed after the previous PASS

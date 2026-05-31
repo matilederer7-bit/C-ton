@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { randomUUID } from "node:crypto";
-import { mkdtemp } from "node:fs/promises";
+import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
@@ -9,7 +9,9 @@ const { Pool } = pg;
 process.env.PORT = String(process.env.PORT || "3426");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
-process.env.DEAL_IMAGE_UPLOAD_DIR = await mkdtemp(join(tmpdir(), "siton-deal-images-"));
+const uploadDir = await mkdtemp(join(tmpdir(), "siton-deal-images-"));
+delete process.env.DEAL_IMAGE_UPLOAD_DIR;
+process.env.UPLOAD_DIR = uploadDir;
 
 const { app } = await import("../src/app.js");
 
@@ -61,6 +63,15 @@ function imagePayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+await run("D0 upload dir is configurable through UPLOAD_DIR and never hardcodes /app/uploads", async () => {
+  const adapter = await readFile("src/storage_adapter.ts", "utf8");
+  const renderConfig = await readFile("render.yaml", "utf8");
+  assert.equal(process.env.UPLOAD_DIR, uploadDir);
+  assert.match(adapter, /env\.UPLOAD_DIR/);
+  assert.doesNotMatch(adapter, /\/app\/uploads/);
+  assert.match(renderConfig, /key:\s*UPLOAD_DIR[\s\S]*value:\s*\/tmp\/uploads/);
+});
+
 await run("D1 seller can upload valid product image before publish and public payload includes URL", async () => {
   const sellerId = `seller-img-${randomUUID().slice(0, 8)}`;
   const dealId = await insertDraftDeal(sellerId);
@@ -80,10 +91,12 @@ await run("D1 seller can upload valid product image before publish and public pa
   assert.equal(body.image.is_primary, true);
 
   const row = await pool.query(
-    `SELECT image_id FROM siton.deal_images WHERE deal_id=$1`,
+    `SELECT image_id, storage_key FROM siton.deal_images WHERE deal_id=$1`,
     [dealId]
   );
   assert.equal(row.rowCount, 1, "image row was not persisted");
+  const savedFile = await stat(join(uploadDir, String(row.rows[0].storage_key)));
+  assert.equal(savedFile.isFile(), true, "uploaded image file was not written to UPLOAD_DIR");
 
   const publicDeal = await app.inject({
     method: "GET",

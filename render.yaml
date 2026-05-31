@@ -23,6 +23,8 @@ services:
         value: "0"
       - key: DEBUG_JOIN_LOGGING
         value: "0"
+      - key: UPLOAD_DIR
+        value: /tmp/uploads
       - key: PAYMENT_PROVIDER
         value: mockpay
       - key: PAYMENT_PROVIDER_MODE
