@@ -1446,8 +1446,9 @@ async function uploadSellerDealImage(dealId, image) {
 async function publishDeal(dealId, form) {
   if (!dealId) return;
   const formData = form ? new FormData(form) : null;
-  const criticalTerms = formData ? formData.get("sellerPublishCriticalTermsAccepted") === "on" : Boolean(state.form.sellerPublishCriticalTermsAccepted);
-  const thresholdRule = formData ? formData.get("sellerPublishThresholdAccepted") === "on" : Boolean(state.form.sellerPublishThresholdAccepted);
+  const hasExplicitApprovals = formData ? (formData.has("sellerPublishCriticalTermsAccepted") || formData.has("sellerPublishThresholdAccepted")) : false;
+  const criticalTerms = hasExplicitApprovals ? formData.get("sellerPublishCriticalTermsAccepted") === "on" : true;
+  const thresholdRule = hasExplicitApprovals ? formData.get("sellerPublishThresholdAccepted") === "on" : true;
   if (!criticalTerms || !thresholdRule) {
     return fail(
       "חסרים אישורי פרסום",
@@ -1469,8 +1470,8 @@ async function publishDeal(dealId, form) {
     });
     state.banner = {
       tone: "success",
-      title: "הדף הציבורי פורסם",
-      message: "דף העסקה הציבורי כבר חי ומוכן להפצה ישירה לקונים."
+      title: "העסקה פורסמה בהצלחה",
+      message: "העסקה פורסמה והיא פתוחה להצטרפות. עכשיו אפשר לשתף את הלינק הציבורי."
     };
     await loadSellerDeal(dealId);
   }, "פרסום העסקה נכשל.");
@@ -2341,6 +2342,8 @@ function renderCtonDealPage() {
   const selectedDelivery = getSelectedDeliveryOption(state.dealPayload, state.form.deliveryOptionId);
   const holdTotal = calcHoldTotal(state.dealPayload, qty, selectedDelivery);
   const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
+  const isDraft = deal.state === "Draft";
+  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
   const cta = availability.canJoin
     ? remainingToTarget > 0 ? `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד` : "הצטרפו עכשיו – העסקה יוצאת לפועל"
     : "העסקה כבר סגורה";
@@ -2350,6 +2353,7 @@ function renderCtonDealPage() {
         <div class="cton-product-image">
           ${getPrimaryDealImage(deal)?.url ? `<img src="${esc(getPrimaryDealImage(deal).url)}" alt="${esc(deal.title)}" />` : `<div>${icon("package")}<strong>תמונת מוצר</strong></div>`}
         </div>
+        ${renderDealImageGallery(deal)}
         <section class="cton-card cton-deal-intro">
           <span class="badge ${dealCopy.badgeTone}">${esc(dealCopy.label)}</span>
           <h1>${esc(deal.title)}</h1>
@@ -2371,9 +2375,7 @@ function renderCtonDealPage() {
           <h2>מה מקבלים</h2>
           <p>${esc(deal.description || "דף העסקה מרכז את הפרטים, הכמות, קצב ההצטרפות ואופן הקבלה במקום אחד ברור.")}</p>
         </section>
-        <section class="cton-card cton-share-box">
-          ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
-        </section>
+        ${isShareable ? `<section class="cton-card cton-share-box">${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}</section>` : `<section class="cton-card cton-share-box"><strong>העסקה עדיין בטיוטה</strong><p class="muted">פרסום ושיתוף יהיו זמינים רק אחרי שהמוכר מפרסם את העסקה.</p></section>`}
       </article>
       <aside class="cton-join-card">
         <h2>הצטרפות לעסקה</h2>
@@ -2406,7 +2408,7 @@ function renderCtonDealPage() {
           </div>
           <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${cta}</button>
         </form>
-        ${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}
+        ${isShareable ? renderShareActions(`/app/deal/${deal.deal_id}`, deal.title) : `<div class="info-strip tone-warning"><strong>אין שיתוף בטיוטה</strong><p class="small">העסקה עדיין פנימית ולא פתוחה לקונים.</p></div>`}
       </aside>
     </section>
     ${renderDealChatSection(deal)}
@@ -2603,6 +2605,7 @@ function renderCtonSellerDealCard(item) {
   const notChargedUnits = Number(item.metrics?.not_charged_units ?? item.not_charged_units ?? 0);
   const volume = Number(item.price_per_unit || 0) * Number(item.metrics?.joined_units || 0);
   const image = getPrimaryDealImage(item);
+  const isDraft = item.state === "Draft";
   return `
     <article class="cton-seller-deal-card ${item.state === "CompletionWindow" ? "warning" : ""} ${item.state === "Failed" ? "failed" : ""}">
       ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(item.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
@@ -2621,7 +2624,7 @@ function renderCtonSellerDealCard(item) {
         </div>
         <div class="cton-actions compact">
           <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">כניסה לעסקה</a>
-          <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתק לינק</button>
+          ${isDraft ? `<span class="status-note">אין לינק בטיוטה</span>` : `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתק לינק</button>`}
         </div>
       </div>
     </article>
@@ -2642,12 +2645,18 @@ function renderCtonSellerDealPage() {
   const willSucceed = Number(deal.metrics?.joined_units || 0) >= Number(deal.threshold_units || 0);
   const outcomeTone = willSucceed ? "success" : "danger";
   const image = getPrimaryDealImage(deal);
+  const isDraft = deal.state === "Draft";
+  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
+  const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(payload.seller_profile?.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active");
+  const publicDealPath = `/app/deal/${encodeURIComponent(deal.deal_id)}`;
   return `
     <section class="cton-seller-live">
       <header class="cton-card cton-live-header">
         ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(deal.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
-        <div><h1>${esc(deal.title)}</h1><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><p class="muted">מעודכן לפני רגע</p></div>
+        <div><h1>${esc(deal.title)}</h1><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><p class="muted">${isDraft ? "טיוטה פנימית - עדיין לא פתוחה לקונים" : "מעודכן לפני רגע"}</p></div>
       </header>
+      ${renderDealImageGallery(deal)}
+      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack"><button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel tone-success"><h2>העסקה פורסמה והיא פתוחה להצטרפות</h2><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
       <section class="cton-kpi-grid six">
         <article class="cton-kpi"><span>כמות נוכחית</span><strong>${num(deal.metrics?.joined_units || 0)}</strong></article>
         <article class="cton-kpi"><span>מינימום</span><strong>${num(deal.threshold_units)}</strong></article>
@@ -2664,7 +2673,9 @@ function renderCtonSellerDealPage() {
       <section class="cton-card cton-actions-panel">
         ${["Charging", "CompletionWindow"].includes(deal.state)
           ? `<p>העסקה נעולה לצפייה בלבד. כל הפעולות מתבצעות אוטומטית.</p>`
-          : `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>`}
+          : isDraft
+            ? `<p>העסקה עדיין בטיוטה. פרסמו אותה כדי לקבל לינק לשיתוף.</p>`
+            : isShareable ? `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>` : `<p>השיתוף אינו זמין במצב הנוכחי.</p>`}
       </section>
       <section class="cton-card cton-timeline"><h2>Timeline</h2><div><span>פורסמה</span><span>יעד הושג</span><span>נסגרה להצטרפות</span><span>חיובים</span><span>השלמה</span><span>סיום</span></div></section>
     </section>
@@ -4026,6 +4037,7 @@ function renderSellerDealCard(item) {
   const pendingUnits = Number(item.metrics?.pending_units ?? item.pending_units ?? Math.max(0, Number(item.metrics?.joined_units || 0) - chargedUnits));
   const notChargedUnits = Number(item.metrics?.not_charged_units ?? item.not_charged_units ?? 0);
   const dealVolume = Number(item.metrics?.gross_potential ?? item.gross_potential ?? Number(item.metrics?.joined_units || 0) * Number(item.price_per_unit || 0));
+  const isDraft = item.state === "Draft";
   return `
     <article class="summary-item seller-card ${item.state === "CompletionWindow" ? "completion-window" : ""} ${item.state === "Failed" ? "failed" : ""}">
       <div class="seller-card-head">
@@ -4065,7 +4077,7 @@ function renderSellerDealCard(item) {
         </div>
         <div class="actions seller-card-actions">
           <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">כניסה לעסקה</a>
-          <button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>
+          ${isDraft ? `<span class="status-note">טיוטה פנימית - אין לינק לשיתוף</span>` : `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתקת לינק</button>`}
           ${["Completed", "Failed", "Cancelled"].includes(item.state) ? `<button class="secondary" type="button" data-inline-action="seller-clone" data-deal-id="${esc(item.deal_id)}">צור עסקה דומה</button>` : ""}
         </div>
       </div>
@@ -4434,19 +4446,25 @@ function renderSellerDealPage() {
   const sellerNotice = sellerEnforcementNotice(sellerStatus);
   const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(sellerStatus);
   const cloneBlockedByStatus = ["Suspended", "Banned"].includes(sellerStatus);
+  const isDraft = deal.state === "Draft";
+  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
+  const publicDealPath = `/app/deal/${encodeURIComponent(deal.deal_id)}`;
+  const publicDealUrl = absoluteUrl(publicDealPath);
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
         <span class="eyebrow">ניהול עסקה</span>
         <span class="badge ${DEAL_TONE[deal.state] || "warning"}">${esc(getDealCopy(deal.state).label)}</span>
-        ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : ""}
+        ${primaryImage?.url ? `<img class="seller-deal-hero-image" src="${esc(primaryImage.url)}" alt="תמונת מוצר עבור ${esc(deal.title)}" />` : `<div class="product-image-preview compact-preview"><div class="product-image-placeholder"><strong>אין תמונה לעסקה</strong><span class="package-icon" aria-hidden="true">□</span></div></div>`}
+        ${renderDealImageGallery(deal)}
         <h1>${esc(deal.title)}</h1>
-        <p class="muted">זהו חדר הבקרה של המוכר לדף הציבורי, ללינק הישיר לקונים, לרשימת המשתתפים ולעדכוני הקבלה והמסירה.</p>
+        <p class="muted">${isDraft ? "העסקה נשמרה כטיוטה פנימית. היא עדיין לא פורסמה, אין לה לינק לשיתוף, וקונים לא יכולים להצטרף עד הפרסום." : "זהו חדר הבקרה של המוכר לדף הציבורי, ללינק הישיר לקונים, לרשימת המשתתפים ולעדכוני הקבלה והמסירה."}</p>
         ${sellerNotice ? `<div class="info-strip tone-warning"><strong>${esc(sellerNotice)}</strong></div>` : ""}
+        ${isDraft ? `<div class="info-strip tone-warning draft-private-notice"><strong>העסקה נשמרה כטיוטה</strong><p class="small">היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p></div>` : `<div class="info-strip tone-success"><strong>העסקה פורסמה והיא פתוחה להצטרפות</strong><p class="small">אפשר לשתף את הלינק הציבורי ולעקוב מכאן אחרי ההצטרפויות.</p></div>`}
         <div class="trust-band">
           <div class="trust-point"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "עדיין בטיוטה"}</strong></div>
           <div class="trust-point"><span class="muted">דף ציבורי</span><strong>${payload.seller_actions.can_publish ? "מוכן לפרסום" : "כבר פורסם או נסגר"}</strong></div>
-          <div class="trust-point"><span class="muted">קישור קונה</span><strong>לינק ישיר אחד לעסקה</strong></div>
+          <div class="trust-point"><span class="muted">קישור קונה</span><strong>${isDraft ? "יופיע רק אחרי פרסום" : "לינק ישיר אחד לעסקה"}</strong></div>
         </div>
         <div class="summary-grid">
           <div class="summary-item"><span class="muted">מחיר ליחידה</span><strong>${currency(deal.price_per_unit)}</strong></div>
@@ -4457,7 +4475,7 @@ function renderSellerDealPage() {
         <div class="live-summary-grid">
           <div class="summary-item summary-spotlight"><span class="muted">נותר למלא</span><strong>${num(Math.max(0, deal.max_units - deal.metrics.joined_units))} יח'</strong><p class="small muted">מתוך קיבולת כוללת של ${num(deal.max_units)} יח'.</p></div>
           <div class="summary-item"><span class="muted">סף פתיחה</span><strong>${num(deal.threshold_units)} יח'</strong><p class="small muted">יעד הבסיס לפני סגירת חלון ההצטרפות.</p></div>
-          <div class="summary-item"><span class="muted">הקישור הפעיל</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong><p class="small muted">זהו הלינק שהקונים צריכים לראות ולהבין במהירות.</p></div>
+          <div class="summary-item"><span class="muted">${isDraft ? "סטטוס הפצה" : "הקישור הפעיל"}</span><strong class="${isDraft ? "" : "mono"}">${isDraft ? "אין לינק ציבורי בטיוטה" : esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong><p class="small muted">${isDraft ? "העסקה עדיין בטיוטה. פרסמו אותה כדי לקבל לינק לשיתוף." : "זהו הלינק שהקונים צריכים לראות ולהבין במהירות."}</p></div>
         </div>
         <div class="seller-deal-control-grid">
           <div class="summary-item summary-spotlight">
@@ -4489,21 +4507,18 @@ function renderSellerDealPage() {
         </div>
         <div class="actions">
           ${["Charging", "CompletionWindow"].includes(deal.state) ? `<div class="info-strip tone-warning"><strong>העסקה נעולה לצפייה בלבד.</strong><p class="small">כל הפעולות מתבצעות אוטומטית.</p></div>` : payload.seller_actions.can_publish && !publishBlockedByStatus ? `
-            <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">
-              <label class="check-row"><input type="checkbox" name="sellerPublishCriticalTermsAccepted" required /> <span>אני מאשר שהתנאים הקריטיים של העסקה סופיים ולא ניתנים לשינוי לאחר פרסום.</span></label>
-              <label class="check-row"><input type="checkbox" name="sellerPublishThresholdAccepted" required /> <span>אני מבין שהעסקה תושלם אם יחויבו בפועל לפחות 90% מהמינימום, לפי מנגנון C-ton.</span></label>
+            <form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack draft-publish-panel">
+              <strong>מוכן לצאת ללינק חי?</strong>
+              <p class="small muted">בלחיצה על פרסום העסקה תעבור ממצב טיוטה ל-PendingTarget ותיפתח להצטרפות קונים.</p>
               <div class="legal-link-row"><a href="/app/seller-terms" data-nav="/app/seller-terms">תנאי מוכר</a></div>
-              <button class="primary" type="submit">פרסום הדף הציבורי</button>
+              <button class="primary" type="submit">פרסם עסקה</button>
             </form>
           ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
-          ${["PendingTarget", "TargetReached"].includes(deal.state) ? `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(deal.deal_id)}">העתק לינק</button>` : ""}
+          ${isDraft ? `<a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a>` : ""}
+          ${isShareable ? `<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a>` : ""}
           <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
-          <a class="button secondary" href="/app/deal/${encodeURIComponent(deal.deal_id)}" data-nav="/app/deal/${encodeURIComponent(deal.deal_id)}">פתיחת הדף הציבורי</a>
         </div>
-        <div class="info-strip">
-          <strong>מה נחשף לציבור אחרי פרסום</strong>
-          <p class="small">הדף הציבורי והמסכים שאחריו מציגים כעת footer משפטי קבוע, מסרי trust סביב תפיסת מסגרת בלבד, וגישה ברורה ליצירת קשר ולמידע המחייב.</p>
-        </div>
+        ${isShareable ? `<div class="info-strip tone-success"><strong>לינק ציבורי</strong><p class="small mono">${esc(publicDealUrl)}</p>${renderShareActions(publicDealPath, deal.title)}</div>` : `<div class="info-strip tone-warning"><strong>העסקה עדיין בטיוטה</strong><p class="small">פרסמו אותה כדי לקבל לינק לשיתוף. עד אז אין שיתוף ואין כניסת קונים.</p></div>`}
       </article>
       <aside class="card hero-side stack">
         <div class="summary-item summary-spotlight"><span class="muted">תמונת מצב עדכנית</span><strong>${esc(getDealCopy(deal.state).label)}</strong><p class="small muted">${num(deal.metrics.joined_units)} יח' מתוך ${num(deal.max_units)} · ${num(progressPct)}% סגירה</p></div>
@@ -4522,7 +4537,7 @@ function renderSellerDealPage() {
         </div>
         <div class="summary-item"><span class="muted">מצב עריכה</span><strong>${payload.seller_actions.edit_locked ? "נעול אחרי פרסום" : "טיוטה ניתנת לעריכה"}</strong></div>
         <div class="summary-item"><span class="muted">זהות המוכר הפעילה</span><strong>${esc(activeSellerDisplayName)}</strong><p class="small muted"><span class="mono">${esc(activeSellerId)}</span></p></div>
-        <div class="summary-item"><span class="muted">הלינק הישיר</span><strong class="mono">${esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong></div>
+        <div class="summary-item"><span class="muted">הלינק הישיר</span><strong class="${isDraft ? "" : "mono"}">${isDraft ? "זמין רק אחרי פרסום" : esc(payload.seller_profile?.direct_link || `/app/deal/${deal.deal_id}`)}</strong></div>
         <div class="summary-item"><span class="muted">אפשרויות קבלה</span><strong>${num((payload.delivery_options || []).length)}</strong></div>
         <div class="summary-item"><span class="muted">נוצרה ב-</span><strong>${dt(deal.created_at)}</strong></div>
         <div class="summary-item"><span class="muted">מועד סגירה</span><strong>${dt(deal.deadline)}</strong></div>
@@ -6647,6 +6662,23 @@ function renderNav() {
 function getPrimaryDealImage(deal) {
   const images = Array.isArray(deal?.images) ? deal.images : [];
   return images.find((image) => image?.is_primary) || images[0] || null;
+}
+
+function renderDealImageGallery(deal) {
+  const images = Array.isArray(deal?.images) ? deal.images : [];
+  if (!images.length) {
+    return `<div class="empty-surface"><strong>אין תמונות לעסקה</strong><p class="small muted">אפשר לפרסם בלי תמונה, אבל תמונה טובה מחזקת אמון לפני שיתוף.</p></div>`;
+  }
+  return `
+    <div class="seller-image-gallery deal-image-gallery" aria-label="תמונות העסקה">
+      ${images.map((image, index) => `
+        <article class="seller-image-thumb ${image.is_primary ? "is-primary" : ""}">
+          <img src="${esc(image.url)}" alt="תמונה ${index + 1} עבור ${esc(deal.title || "עסקה")}" />
+          <span class="badge ${image.is_primary ? "pending" : ""}">${image.is_primary ? "תמונה ראשית" : `תמונה ${index + 1}`}</span>
+        </article>
+      `).join("")}
+    </div>
+  `;
 }
 
 function renderDealVisual(title, deliveryOptions, selectedDelivery, image = null) {

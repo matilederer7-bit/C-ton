@@ -2408,6 +2408,20 @@ export function registerFrontendExperience(
       );
 
       const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
+      const dealImages = await c.query(
+        `SELECT image_id, mime_type, is_primary, sort_order
+         FROM siton.deal_images
+         WHERE deal_id=$1
+         ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+        [dealId]
+      );
+      deal.images = dealImages.rows.map((row: any) => ({
+        image_id: row.image_id,
+        url: getDealImagePublicUrl(row),
+        is_primary: Boolean(row.is_primary),
+        sort_order: Number(row.sort_order || 0),
+        mime_type: row.mime_type
+      }));
       const attributionByParticipant = new Map(
         attributions.rows.map((row: any) => [String(row.participant_id), row])
       );

@@ -2,6 +2,45 @@
 
 ---
 
+## Current update: 2026-05-31 (Create Deal Draft/Publish Flow)
+
+### What was broken
+- After creating a draft, the live seller flow did not clearly explain that the deal was internal-only.
+- Draft screens still exposed public-link language or copy-link actions in some seller surfaces.
+- The actual C-ton seller deal renderer did not show a clear `פרסם עסקה` CTA for Draft deals.
+- Seller deal detail returned only the primary image in its view model, so uploaded galleries did not reliably appear after creation.
+- Published seller screens did not consistently show a working public link plus a working `ניהול עסקה` route.
+
+### What was fixed
+- Draft is now treated as internal-only in seller cards, seller deal screens, and public deal rendering: no share panel, no public copy-link CTA, and explicit copy that buyers cannot join until publish.
+- Added a clear `פרסם עסקה` CTA to the actual C-ton seller deal screen used after creation. It calls the existing `/deals/:id/publish` endpoint and moves the deal to `PendingTarget`.
+- After publish, seller screens show success copy, public link, share actions, and a working `ניהול עסקה` link to `/app/seller/deals/:id`.
+- Seller detail API now returns the full image gallery ordered by primary/sort order, not only the primary image.
+- Seller and public deal views render uploaded images with the primary image highlighted first; empty states show a clear placeholder.
+
+### What was checked
+- `node --check frontend/app.js` - PASS.
+- `npm run build:demo` - PASS.
+- `npx tsc --noEmit` - PASS.
+- `npm test` - PASS.
+- `npm run test:frontend` - PASS.
+- `npm run test:frontend-browser-smoke` - PASS.
+- Browser/CDP flow now verifies: create deal from `/app/seller/new`, upload two images, create Draft, no share/copy-link in Draft, click `פרסם עסקה`, state becomes `PendingTarget`, share/public link appears, images return from API, and `ניהול עסקה` points to the seller deal route.
+
+### What remains open
+- Post-deploy live QA on Render after this commit is deployed: repeat the same create draft → publish → share flow against the live URL and verify runtime commit freshness.
+
+### Progress
+- Create-deal draft-to-publish flow readiness: 100% locally with live-like browser flow.
+
+### Next step
+- Deploy and run post-deploy live QA for `/app/seller/new` through published deal sharing.
+
+### Verdict
+`CREATE_DEAL_DRAFT_PUBLISH_FLOW_PASS`
+
+---
+
 ## Current update: 2026-05-29 (Create Deal Live Blocker Fix)
 
 ### Why the previous PASS was not enough

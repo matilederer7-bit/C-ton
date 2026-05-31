@@ -514,7 +514,7 @@ async function assertSellerCreateDomFlowContract() {
       window.fetch = async (input, init = {}) => {
         const url = typeof input === "string" ? input : String(input && input.url || "");
         const method = String(init.method || "GET").toUpperCase();
-        if ((url === "/deals" || url.endsWith("/deals") || url.includes("/api/seller/deals/")) && method === "POST") {
+        if ((url === "/deals" || url.endsWith("/deals") || /\\/deals\\/[^/]+\\/publish$/.test(url) || url.includes("/api/seller/deals/")) && method === "POST") {
           let body = init.body || "";
           try { body = JSON.parse(String(body)); } catch {}
           window.__createDealRequests.push({ url, method, body });
@@ -589,6 +589,57 @@ async function assertSellerCreateDomFlowContract() {
     assert.equal(imageRequests.length, 2, `expected two image uploads, got ${JSON.stringify(imageRequests)}`);
     assert.equal(imageRequests[0].body.is_primary, true);
     assert.equal(imageRequests[1].body.is_primary, false);
+
+    const draftState = await evaluate(`(() => ({
+      text: document.body.innerText,
+      sharePanels: document.querySelectorAll(".share-panel").length,
+      copyButtons: document.querySelectorAll('[data-inline-action="copy-link"][data-share-url*="/app/deal/"]').length,
+      publishButtons: [...document.querySelectorAll('button')].filter((button) => button.textContent.includes("פרסם עסקה")).length,
+      images: document.querySelectorAll(".deal-image-gallery img, .seller-deal-hero-image").length,
+      manageLinks: [...document.querySelectorAll('a')].filter((link) => link.textContent.includes("ניהול עסקה")).map((link) => link.getAttribute("href"))
+    }))()`);
+    assert.match(String(draftState.text), /העסקה נשמרה כטיוטה|עדיין בטיוטה/);
+    assert.equal(draftState.sharePanels, 0, "draft seller screen must not render share panel");
+    assert.equal(draftState.copyButtons, 0, "draft seller screen must not render public copy-link buttons");
+    assert.ok(draftState.publishButtons >= 1, "draft seller screen must show a publish CTA");
+    assert.ok(draftState.images >= 2, `draft seller screen should show uploaded images: ${JSON.stringify(draftState)}`);
+
+    await evaluate(`(() => {
+      const button = [...document.querySelectorAll('button')].find((candidate) => candidate.textContent.includes("פרסם עסקה"));
+      if (!button) throw new Error("missing publish button");
+      button.click();
+      return true;
+    })()`);
+
+    let published: any = null;
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(500);
+      published = await evaluate(`(async () => {
+        const dealId = location.pathname.split("/").pop();
+        const apiResponse = await fetch("/api/seller/deals/" + encodeURIComponent(dealId));
+        const json = await apiResponse.json();
+        return {
+          path: location.pathname,
+          state: json.deal && json.deal.state,
+          imageCount: (json.deal && json.deal.images || []).length,
+          primaryCount: (json.deal && json.deal.images || []).filter((image) => image.is_primary).length,
+          text: document.body.innerText,
+          sharePanels: document.querySelectorAll(".share-panel").length,
+          publicLinks: [...document.querySelectorAll('a[href*="/app/deal/"]')].map((link) => link.getAttribute("href")),
+          manageLinks: [...document.querySelectorAll('a')].filter((link) => link.textContent.includes("ניהול עסקה")).map((link) => link.getAttribute("href")),
+          requests: window.__createDealRequests || []
+        };
+      })()`);
+      if (published.state === "PendingTarget") break;
+    }
+    assert.equal(published.state, "PendingTarget", `publish CTA did not move deal to PendingTarget: ${JSON.stringify(published)}`);
+    assert.ok(published.sharePanels >= 1, "published seller screen should render sharing actions");
+    assert.ok(published.publicLinks.some((href: string) => /\/app\/deal\//.test(String(href))), "published seller screen should expose public link");
+    assert.ok(published.manageLinks.some((href: string) => /\/app\/seller\/deals\//.test(String(href))), "manage deal link must point to seller deal route");
+    assert.equal(published.imageCount, 2);
+    assert.equal(published.primaryCount, 1);
+    assert.match(String(published.text), /העסקה פורסמה|פתוחה להצטרפות|לינק ציבורי/);
+    assert.ok((published.requests || []).some((request: any) => /\/deals\/[^/]+\/publish$/.test(String(request.url))), "real flow should call publish endpoint");
   });
 }
 
