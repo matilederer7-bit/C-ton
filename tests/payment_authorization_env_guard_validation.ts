@@ -55,10 +55,8 @@ await run("provider-ready without required env fails closed instead of silently 
       method: "POST",
       url: "/api/payments/authorize",
       payload: {
-        holder_name: "Config Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123",
+        payer_name: "Config Buyer",
+        payment_method_id: "pm_config_buyer",
         amount_minor: 9900,
         currency: "ILS",
         buyer_id: "buyer-live-3"

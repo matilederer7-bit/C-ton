@@ -100,7 +100,8 @@ await run("deal sharing and seller creation guardrails stay frontend-only and co
   assert.match(appJs, /sellerFinalTerms/);
   assert.match(appJs, /sellerFinalConfirm/);
   assert.match(appJs, /handleSellerImageSelection/);
-  assert.match(appJs, /בחרו תמונת מוצר שתופיע בתצוגת העסקה לפני הפרסום/);
+  assert.match(appJs, /העלו תמונה ברורה של המוצר/);
+  assert.match(appJs, /אפשר להעלות עד 5 תמונות\. תמונה אחת תסומן כראשית/);
   assert.doesNotMatch(appJs, /commissionPct/);
 });
 

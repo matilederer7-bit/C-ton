@@ -123,7 +123,9 @@ await run("non-demo authorization hits the real provider transport and legacy al
     assert.equal(headers.authorization, "Bearer live-provider-key");
     assert.ok(headers["idempotency-key"]);
     assert.equal(body.capture, false);
-    if (body.payment_method.card.holder_name === "Live Buyer") {
+    assert.equal(body.payment_method.type, "hosted");
+    if (body.payment_method.payer_name === "Live Buyer") {
+      assert.equal(body.payment_method.id, "pm_live_buyer");
       assert.equal(body.amount_minor, 14100);
       assert.equal(body.currency, "ILS");
       assert.equal(body.buyer_id, "buyer-live-1");
@@ -168,10 +170,8 @@ await run("non-demo authorization hits the real provider transport and legacy al
         "x-request-id": "payment-real-success"
       },
       payload: {
-        holder_name: "Live Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123",
+        payer_name: "Live Buyer",
+        payment_method_id: "pm_live_buyer",
         amount_minor: 14100,
         currency: "ILS",
         buyer_id: "buyer-live-1"
@@ -190,10 +190,8 @@ await run("non-demo authorization hits the real provider transport and legacy al
       method: "POST",
       url: "/api/payments/authorize-mock",
       payload: {
-        holder_name: "Declined Buyer",
-        card_number: "4111111111111111",
-        expiry: "12/28",
-        cvv: "123",
+        payer_name: "Declined Buyer",
+        payment_method_id: "pm_declined_buyer",
         amount_minor: 4200,
         currency: "ILS",
         buyer_id: "buyer-live-2"

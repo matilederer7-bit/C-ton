@@ -4409,12 +4409,12 @@ export function registerFrontendExperience(
         ),
         q
           ? c.query(
-              `SELECT 'deal' AS entity_type, d.deal_id::text AS entity_id, d.title AS headline, d.state AS status,
+              `SELECT 'deal' AS entity_type, d.deal_id::text AS entity_id, d.title AS headline, d.state::text AS status,
                       'admin_deal_profile' AS result_kind, '/app/admin/deals/' || d.deal_id::text AS route
                FROM siton.deals d
                WHERE d.deal_id::text ILIKE '%' || $1 || '%' OR d.title ILIKE '%' || $1 || '%'
                UNION ALL
-               SELECT 'participant' AS entity_type, p.participant_id::text AS entity_id, d.title AS headline, p.buyer_state AS status,
+               SELECT 'participant' AS entity_type, p.participant_id::text AS entity_id, d.title AS headline, p.buyer_state::text AS status,
                       'admin_participant_profile' AS result_kind, '/app/admin/participants/' || p.participant_id::text AS route
                FROM siton.participants p
                JOIN siton.deals d ON d.deal_id=p.deal_id
@@ -4424,7 +4424,7 @@ export function registerFrontendExperience(
                   OR COALESCE(p.buyer_email,'') ILIKE '%' || $1 || '%'
                UNION ALL
                SELECT 'seller' AS entity_type, sa.seller_id AS entity_id, COALESCE(sa.business_name, sa.display_name, sa.seller_id) AS headline,
-                      sa.verification_status AS status, 'admin_seller_kyc' AS result_kind, '/app/admin' AS route
+                      sa.verification_status::text AS status, 'admin_seller_kyc' AS result_kind, '/app/admin' AS route
                FROM siton.seller_accounts sa
                WHERE sa.seller_id ILIKE '%' || $1 || '%'
                   OR COALESCE(sa.business_name,'') ILIKE '%' || $1 || '%'

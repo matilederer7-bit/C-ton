@@ -12,15 +12,9 @@ async function startStripeStub() {
       const call = { method: String(req.method || ""), url: String(req.url || ""), headers: req.headers, form };
       calls.push(call);
       res.setHeader("content-type", "application/json");
-      if (call.url === "/v1/payment_methods") {
+      if (call.url === "/v1/payment_intents") {
         assert.equal(call.method, "POST");
         assert.equal(call.headers.authorization, "Bearer sk_test_adapter");
-        assert.equal(form.get("type"), "card");
-        assert.equal(form.get("card[number]"), "4242424242424242");
-        res.end(JSON.stringify({ id: "pm_siton_adapter_1" }));
-        return;
-      }
-      if (call.url === "/v1/payment_intents") {
         assert.equal(form.get("payment_method"), "pm_siton_adapter_1");
         assert.equal(form.get("capture_method"), "manual");
         assert.equal(form.get("confirm"), "true");
@@ -72,7 +66,7 @@ async function runTest(name: string, fn: () => Promise<void>) {
   console.log(`PASS ${name}`);
 }
 
-await runTest("Stripe adapter tokenizes, authorizes manual capture, captures, refunds, verifies webhook and normalizes event", async () => {
+await runTest("Stripe adapter requires hosted tokenization, authorizes manual capture, captures, refunds, verifies webhook and normalizes event", async () => {
   const stripe = await startStripeStub();
   try {
     Object.assign(process.env, {
@@ -94,22 +88,17 @@ await runTest("Stripe adapter tokenizes, authorizes manual capture, captures, re
     assert.equal(summary.authorization_transport_live, true);
 
     const tokenized = await provider.tokenize!({
-      holder_name: "Siton Buyer",
-      card_number: "4242424242424242",
-      expiry: "12/30",
-      cvv: "123",
+      payer_name: "Siton Buyer",
       buyer_id: "buyer-stripe",
       deal_id: "deal-stripe",
       correlation_id: "tok-corr"
     });
-    assert.equal(tokenized.ok, true);
-    assert.equal(tokenized.ok ? tokenized.payment_method_id : "", "pm_siton_adapter_1");
+    assert.equal(tokenized.ok, false);
+    assert.equal(tokenized.ok ? "" : tokenized.error, "hosted_payment_required");
 
     const authorized = await provider.authorize({
-      holder_name: "Siton Buyer",
-      card_number: "4242424242424242",
-      expiry: "12/30",
-      cvv: "123",
+      payer_name: "Siton Buyer",
+      payment_method_id: "pm_siton_adapter_1",
       amount_minor: 11800,
       currency: "ILS",
       buyer_id: "buyer-stripe",

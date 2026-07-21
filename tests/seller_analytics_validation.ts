@@ -75,9 +75,9 @@ async function seedDeal(args: {
     `INSERT INTO siton.deals
        (deal_id, seller_id, title, state, threshold_units, min_units, max_units,
         price_per_unit, deadline, published_at, completion_window_until, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,
+     VALUES ($1,$2,$3,$4::siton.deal_state,$5,$6,$7,$8,
              $10,
-             CASE WHEN $4='Draft' THEN NULL ELSE $9::timestamptz END,
+             CASE WHEN $4::text='Draft' THEN NULL ELSE $9::timestamptz END,
              $11,
              $9,$9)`,
     [

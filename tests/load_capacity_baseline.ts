@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import "dotenv/config";
 import pg from "pg";
 
@@ -600,7 +602,9 @@ ${results.some((r) => r.verdict === "FAIL") ? "- יש תרחיש FAIL בטבלה
 
 ${operationalRecommendation}
 `;
-  await writeFile("docs/LOAD_CAPACITY_BASELINE_REPORT.md", report, "utf8");
+  const reportPath = join(tmpdir(), `siton-load-capacity-${process.pid}.md`);
+  await writeFile(reportPath, report, "utf8");
+  return reportPath;
 }
 
 let fatalError: unknown = null;
@@ -656,8 +660,8 @@ try {
 }
 
 const activeHandles = (process as any)._getActiveHandles ? (process as any)._getActiveHandles().length : -1;
-await writeReport(activeHandles);
-console.log(`LOAD_BASELINE_REPORT=docs/LOAD_CAPACITY_BASELINE_REPORT.md`);
+const reportPath = await writeReport(activeHandles);
+console.log(`LOAD_BASELINE_REPORT=${reportPath}`);
 console.log(`NODE_OPEN_HANDLES_AFTER_CLOSE=${activeHandles}`);
 if (fatalError) {
   throw fatalError;

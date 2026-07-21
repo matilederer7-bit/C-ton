@@ -207,6 +207,19 @@ async function main() {
 
     const alphaDeal = await createDeal("Alpha Owned Deal", "seller-alpha", sellerAlpha);
     const betaDeal = await createDeal("Beta Owned Deal", "seller-beta", sellerBeta);
+    const alphaProfile = await app.inject({
+      method: "PUT",
+      url: "/api/seller/profile",
+      headers: {
+        "x-seller-id": sellerAlpha.seller_id,
+        "x-seller-display-name": sellerAlpha.display_name
+      },
+      payload: {
+        business_name: "Seller Alpha",
+        support_email: "alpha@example.test"
+      }
+    });
+    assert.equal(alphaProfile.statusCode, 200, alphaProfile.body);
     await publishDeal(alphaDeal.deal_id, "seller-alpha", sellerAlpha);
 
     const alphaWorkspace = await app.inject({

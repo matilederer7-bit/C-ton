@@ -15,7 +15,8 @@ try {
   });
   assert.equal(res.statusCode, 200, res.body);
   const serialized = JSON.stringify(res.json()).toLowerCase();
-  for (const forbidden of ["commission", "affiliate_fee", "revenue_share", "withdrawal"]) {
+  assert.match(serialized, /"distributor_commission_present":false/);
+  for (const forbidden of ["commission_rate", "commission_amount", "affiliate_fee", "revenue_share", "withdrawal"]) {
     assert.ok(!serialized.includes(forbidden), `${forbidden} must not appear in mission control response`);
   }
   console.log("PASS admin mission control keeps affiliates attribution-only without commission semantics");

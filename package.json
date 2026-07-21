@@ -14,7 +14,7 @@
     "admin:create-user": "node scripts/create_admin_user.cjs",
     "build:demo": "node scripts/build_demo_bundle.cjs",
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",
-    "test": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/backend_sanity_suite.js && node .tmp_test_dist/tests/deal_chat_validation.js && node .tmp_test_dist/tests/buyer_tracking_command_center_validation.js && node .tmp_test_dist/tests/buyer_recovery_flow_validation.js && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js && node .tmp_test_dist/tests/real_integrations_validation.js && node .tmp_test_dist/tests/full_system_qa_validation.js && node .tmp_test_dist/tests/adversarial_hardening_validation.js && node .tmp_test_dist/tests/preprod_torture_validation.js && node .tmp_test_dist/tests/full_product_surface_validation.js && node .tmp_test_dist/tests/deal_images_validation.js && node .tmp_test_dist/tests/remaining_product_surfaces_validation.js && node .tmp_test_dist/tests/ultimate_prelive_qa_rc_validation.js && node .tmp_test_dist/tests/master_product_depth_validation.js && node .tmp_test_dist/tests/demo_preview_deployment_validation.js && node .tmp_test_dist/tests/platform_fee_payments_8_percent_validation.js && node .tmp_test_dist/tests/demo_readiness_validation.js && node .tmp_test_dist/tests/admin_support_cases_validation.js",
+    "test": "npm run test:all",
     "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:frontend-foundation": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:product-surfaces-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/product_surfaces_refinement_validation.js",
@@ -66,7 +66,21 @@
     "test:refund-policy": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/refund_policy_validation.js",
     "test:server-side-money-authority": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/server_side_money_authority_validation.js",
     "test:deal-types": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_validation.js",
-    "test:deal-types-e2e": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_e2e_validation.js"
+    "test:deal-types-e2e": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_e2e_validation.js",
+    "test:unit": "node scripts/run_test_group.cjs unit",
+    "test:integration": "node scripts/run_test_group.cjs integration",
+    "test:db": "node scripts/run_test_group.cjs db",
+    "test:api": "node scripts/run_test_group.cjs api",
+    "test:workers": "node scripts/run_test_group.cjs workers",
+    "test:payments": "node scripts/run_test_group.cjs payments",
+    "test:security": "node scripts/run_test_group.cjs security",
+    "test:concurrency": "node scripts/run_test_group.cjs concurrency",
+    "test:failure": "node scripts/run_test_group.cjs failure",
+    "test:e2e": "node scripts/run_test_group.cjs e2e",
+    "test:all": "node scripts/run_test_group.cjs all",
+    "lint": "node scripts/backend_enforcement_scan.cjs",
+    "scan:payment": "node scripts/compliance_payment_scan.cjs",
+    "scan:backend": "node scripts/backend_enforcement_scan.cjs"
   },
   "engines": {
     "node": ">=22.0.0"

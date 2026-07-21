@@ -218,7 +218,7 @@ await runTest("full_e2e_deal_type_smoke_validation", async () => {
   // Deal-types script is wired in package.json.
   assert.match(packageJson, /"test:deal-types"/);
   // Canonical doc enumerates the verdict markers.
-  assert.match(dealTypeDoc, /DEAL_TYPE_EXPANSION_PASS_READY_FOR_E2E/);
+  assert.match(dealTypeDoc, /DEAL_TYPES_E2E_PASS_READY_FOR_PROVIDER_SANDBOX/);
 });
 
 await runTest("issuance_runs_only_after_completion_pipeline_validation", async () => {

@@ -1,89 +1,79 @@
 # Load & Capacity Baseline Report
 
-Generated: 2026-05-12
+Generated: 2026-07-21T12:28:40.406Z
 
 ## Verdict
 
 LOAD_BASELINE_PASS_FOR_SMALL_PILOT
 
-## Verdict Reason
+## Summary
 
-The load harness now loads `.env` before reading `DATABASE_URL`, so it uses the same local DB path as the rest of the runtime instead of falling back to `postgres/postgres`. Preflight passed, schema was accessible, the public-route warmup prevented first-request pool starvation, outbox worker stayed disabled, and all providers stayed mock/internal/log-only.
+נבדקו קריאות public deal, tracking/polling, הצטרפות מקבילה לאותה עסקה, הצטרפות מפוזרת על הרבה עסקאות, outbox worker ללא provider חיצוני, ו-export לעסקה גדולה.
 
-Stage 1 and stage 2 completed. There were no DB errors, no timeouts, no oversell, no detected double money effect, and no detected state corruption. This is a local baseline, not a production capacity proof.
+לא נבדקו CDN/cache, staging אמיתי, latency רשת אמיתית, provider חיצוני אמיתי, תשלום אמיתי, או עומס production. הבדיקה רצה מקומית מול `demo-preview`, עם `DISABLE_OUTBOX_WORKER=1`, providers mock/log/internal בלבד, ועם rate limit מוגבה כדי למדוד capacity של הקוד וה-DB ולא של ההגנה הפרימיטיבית.
 
-## Test Environment
+מה כבר קיים: יש scripts רבים ב-`package.json`, כולל build/test gates; יש `tests/concurrency_proof.ts` שמוכיח no-oversell/idempotency; יש בדיקות server-side money authority ו-state engine atomicity; יש outbox worker עם claim, retry, DLQ ו-stuck reclaim; יש endpoints ל-`/health`, `/health/integrations`, public deal, join, tracking, seller export, ו-admin outbox status; frontend polling הוא 12s למסכים כלליים ו-6s ל-tracking.
 
-- Local Windows workspace: `c:\Users\Lenovo\Documents\C-ton`
-- Runtime mode: `demo-preview`
-- DB: local/test `DATABASE_URL` loaded from environment; value not printed
-- Providers: `mockpay`, `internal-ledger`, `log-only`, internal invoice mode
-- Outbox worker: disabled with `DISABLE_OUTBOX_WORKER=1`
-- Real money: not used
-- External providers: not used
-- Docker: not available on this machine
+מה היה חסר: harness מספרי שמודד latency percentiles, memory, timeout count, outbox pending age, והרצה רחבה של read/join/export תחת concurrency.
 
-## Test Limits
+## Results
 
-- Local in-process Fastify `app.inject`, not real network traffic.
-- No CDN/cache/staging/managed Postgres proof.
-- Existing local outbox backlog remained present: 109 pending events, oldest about 21.6 hours.
-- Node open handles after close: 4.
-- Stage 3 was not run.
+| scenario | total | concurrency | success | failures | error rate | avg ms | p50 ms | p95 ms | p99 ms | max ms | verdict |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
+| A1 public deal reads | 100 | 10 | 100 | 0 | 0.00% | 77.3 | 37.6 | 420.7 | 431.8 | 447.9 | PASS |
+| B1 tracking reads | 100 | 10 | 100 | 0 | 0.00% | 147.8 | 59 | 875.6 | 949.8 | 975.1 | PASS |
+| C1 joins same deal max=100 attempts=100 c=20 | 100 | 20 | 100 | 0 | 0.00% | 412 | 313.3 | 930.3 | 945.6 | 954.4 | PASS |
+| C2 joins oversubscribe max=100 attempts=200 c=50 | 200 | 50 | 100 | 100 | 50.00% | 563.6 | 228.6 | 1237.3 | 1262.9 | 1273.6 | PASS |
+| D1 10 deals x 10 buyers | 100 | 20 | 100 | 0 | 0.00% | 275.6 | 223.7 | 827.5 | 848.1 | 849.2 | PASS |
+| F export completed deal 100 participants | 1 | 1 | 1 | 0 | 0.00% | 328.9 | 328.9 | 328.9 | 328.9 | 328.9 | PASS |
+| A2 public deal reads | 500 | 25 | 500 | 0 | 0.00% | 65.9 | 53.7 | 133.7 | 311.7 | 432.2 | PASS |
+| B2 tracking reads | 1000 | 50 | 1000 | 0 | 0.00% | 199.3 | 194.3 | 277.8 | 319 | 324.2 | PASS |
+| C3 joins same deal max=500 attempts=1000 c=100 | 1000 | 100 | 500 | 500 | 50.00% | 1188.8 | 673.6 | 2297.6 | 2751.9 | 3823.3 | PASS |
+| D2 50 deals x 20 buyers | 1000 | 50 | 1000 | 0 | 0.00% | 506.6 | 454.4 | 937.9 | 999.9 | 1088.9 | PASS |
+| F export completed deal 500 participants | 1 | 1 | 1 | 0 | 0.00% | 514.7 | 514.7 | 514.7 | 514.7 | 514.7 | PASS |
 
-## Numeric Results
+## Additional Metrics
 
-| Scenario | Total | Concurrency | Success | Failure | Error rate | Avg ms | p50 ms | p95 ms | p99 ms | Max ms | Timeouts | DB errors | Verdict |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
-| A1 public deal reads | 100 | 10 | 100 | 0 | 0% | 19.1 | 4.7 | 164.9 | 223.3 | 252.7 | 0 | 0 | PASS |
-| B1 tracking reads | 100 | 10 | 100 | 0 | 0% | 19.0 | 18.6 | 28.1 | 30.1 | 30.9 | 0 | 0 | PASS |
-| C1 same deal joins, max 100 | 100 | 20 | 100 | 0 | 0% | 141.0 | 119.4 | 270.3 | 276.2 | 278.4 | 0 | 0 | PASS |
-| C2 oversubscribe, max 100 / 200 attempts | 200 | 50 | 100 | 100 expected rejects | 50% expected | 201.1 | 117.3 | 318.3 | 498.4 | 510.3 | 0 | 0 | PASS |
-| D1 10 deals x 10 buyers | 100 | 20 | 100 | 0 | 0% | 81.7 | 78.7 | 98.7 | 133.7 | 134.1 | 0 | 0 | PASS |
-| F export 100 participants | 1 | 1 | 1 | 0 | 0% | 134.8 | 134.8 | 134.8 | 134.8 | 134.8 | 0 | 0 | PASS |
-| A2 public deal reads | 500 | 25 | 500 | 0 | 0% | 21.0 | 21.0 | 25.1 | 26.7 | 29.1 | 0 | 0 | PASS |
-| B2 tracking reads | 1,000 | 50 | 1,000 | 0 | 0% | 78.8 | 79.3 | 90.4 | 96.9 | 98.4 | 0 | 0 | PASS |
-| C3 same deal joins, max 500 / 1,000 attempts | 1,000 | 100 | 500 | 500 expected rejects | 50% expected | 391.5 | 288.6 | 618.9 | 798.0 | 965.1 | 0 | 0 | PASS |
-| D2 50 deals x 20 buyers | 1,000 | 50 | 1,000 | 0 | 0% | 186.7 | 182.2 | 229.1 | 242.2 | 283.3 | 0 | 0 | PASS |
-| F export 500 participants | 1 | 1 | 1 | 0 | 0% | 264.8 | 264.8 | 264.8 | 264.8 | 264.8 | 0 | 0 | PASS |
+- A1 public deal reads: DB errors=0, timeouts=0, memory 84MB -> 94.8MB, outbox pending 0 -> 0, oldest pending n/as -> n/as
+- B1 tracking reads: DB errors=0, timeouts=0, memory 97.9MB -> 112.9MB, outbox pending 0 -> 0, oldest pending n/as -> n/as
+- C1 joins same deal max=100 attempts=100 c=20: DB errors=0, timeouts=0, memory 112MB -> 131.7MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"participants":100,"units":100,"maxUnits":100}
+- C2 joins oversubscribe max=100 attempts=200 c=50: DB errors=0, timeouts=0, memory 131MB -> 153.7MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"participants":100,"units":100,"maxUnits":100}
+- D1 10 deals x 10 buyers: DB errors=0, timeouts=0, memory 153.5MB -> 156.2MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"creation_ms":15.6,"deals":10,"oversold_deals":0}
+- F export completed deal 100 participants: DB errors=0, timeouts=0, memory 157.1MB -> 178.3MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"participants":100,"export_bytes":34720}
+- A2 public deal reads: DB errors=0, timeouts=0, memory 190.6MB -> 216.5MB, outbox pending 0 -> 0, oldest pending n/as -> n/as
+- B2 tracking reads: DB errors=0, timeouts=0, memory 217.4MB -> 238.3MB, outbox pending 0 -> 0, oldest pending n/as -> n/as
+- C3 joins same deal max=500 attempts=1000 c=100: DB errors=0, timeouts=0, memory 238.4MB -> 252MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"participants":500,"units":500,"maxUnits":500}
+- D2 50 deals x 20 buyers: DB errors=0, timeouts=0, memory 253.2MB -> 261.1MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"creation_ms":129.7,"deals":50,"oversold_deals":0}
+- F export completed deal 500 participants: DB errors=0, timeouts=0, memory 261.2MB -> 290.2MB, outbox pending 0 -> 0, oldest pending n/as -> n/as, extra={"participants":500,"export_bytes":126509}
 
-## Business Checks
-
-- No oversell: PASS. C1/C2/C3 all ended at exactly `max_units`.
-- Max units not breached: PASS.
-- Duplicate money effect: no duplicate participant reservation observed in these scenarios.
-- Rejected count: expected in oversubscribe scenarios; 100/200 and 500/1000 were rejected.
-- State corruption: not observed.
-- Unhandled DB deadlock: not observed.
-
-## First Bottleneck
-
-The first visible bottleneck is concurrent joining at stage 2: C3 p95 was 618.9 ms and p99 was 798.0 ms. Reads and exports were lower.
+Node open handles after close: 3
 
 ## Business Interpretation
 
-- 10 deals per week: looks easy for the current local monolith baseline.
-- 10 deals per day: looks realistic locally, assuming staging DB is comparable or stronger.
-- 100 deals per day: not proven for production; stage 2 is encouraging but needs staging with real observability.
-- 500 buyers in one deal: locally passed with max 500 / 1,000 join attempts.
-- 1,000 buyers in one deal: not proven; requires stage 3 or a dedicated larger run.
+- 10 עסקאות בשבוע: נראה קל למערכת מקומית לפי baseline זה.
+- 10 עסקאות ביום: נראה ריאלי במונולית הנוכחי, בהנחה שסביבת ה-DB דומה או חזקה יותר מהבדיקה המקומית.
+- 100 עסקאות ביום: לא הוכח production-ready. D3 נותן אינדיקציה טובה מקומית, אבל צריך staging/load חוזר עם DB מנוהל ו-observability.
+- דיל ויראלי של 500-1,000 קונים: אפשרי כ-baseline מקומי אם C3 ו-export 1,000 עברו, אבל tracking polling ו-export הם המקומות הראשונים שדורשים tuning לפני קמפיין רחב.
+- bottleneck ראשון שזוהה: C3 joins same deal max=500 attempts=1000 c=100 לפי p95=2297.6ms.
 
 ## P0
 
-- None found in this baseline. No oversell, no DB errors, no timeouts, no detected corruption.
+- לא זוהה P0 מקומי: אין oversell, אין corruption ידוע, ואין double money effect בבדיקות אלה.
 
 ## P1
 
-- Run the same baseline in staging with managed Postgres metrics.
-- Investigate stale outbox backlog before any public pilot.
-- Tune concurrent join path if staging p95 approaches or exceeds 1 second.
+- להריץ baseline חוזר ב-staging עם DB מנוהל ונתוני CPU/connection pool.
+- לבחון polling: tracking endpoint מחשב aggregate ו-activity בכל קריאה, וב-100 משתמשים כל 6 שניות זה נהיה עומס קבוע.
+- להוסיף אינדקסים/EXPLAIN על `participants(deal_id, created_at)`, `participants(participant_id)`, `outbox_events(status, available_at, created_at)` אם staging מראה p95 גבוה.
+- לשקול הפרדת worker לתהליך עצמאי לפני pilot רחב, גם אם המונולית מספיק כרגע.
 
 ## P2
 
-- Add optional stage selector for faster repeated runs.
-- Add cache/ETag strategy for public deal and tracking reads if polling grows.
-- Consider export streaming/queueing before exports above 1,000 participants.
+- cache קצר ל-public deal ו-tracking aggregate.
+- CDN לנכסים ותמונות.
+- דוחות capacity תקופתיים עם trend לאורך commits.
+- export streaming/queue אם Excel של אלפי משתתפים הופך כבד.
 
 ## Operational Recommendation
 
-Proceed with a small pilot from a capacity perspective, after staging repeats this baseline and the stale outbox backlog is cleaned or explained. Do not claim 100 deals/day production readiness or 1,000-buyer viral deal readiness yet.
+אפשר להישאר במונולית כרגע עבור small pilot. ההמלצה היא tuning בלבד בשלב זה: להפחית/לרכך polling אם staging מאשר עומס, לוודא indexes לפי EXPLAIN, ולהריץ בדיקת עומס חוזרת ב-staging לפני pilot רחב. הפרדת worker אינה חובה מיידית לפי baseline מקומי, אבל היא היעד הראשון אם outbox backlog או latency גדלים.

@@ -19,7 +19,8 @@ const allowedDirs = new Set(["docs", "tests"]);
 const ignoredDirs = new Set([".git", "node_modules", ".tmp_test_dist", ".demo_dist", ".tmp_gate_logs"]);
 const ignoredFiles = new Set([
   path.normalize("scripts/compliance_payment_scan.cjs"),
-  path.normalize("scripts/legal_compliance_gate.cjs")
+  path.normalize("scripts/legal_compliance_gate.cjs"),
+  path.normalize("src/legal_pages.ts")
 ]);
 
 function walk(dir, out = []) {

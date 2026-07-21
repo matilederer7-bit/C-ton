@@ -1,6 +1,8 @@
 import Fastify from "fastify";
 import pg from "pg"; const { Pool } = pg; type PoolClient = any;
 import { createHash, randomUUID } from "crypto";
+import { resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
@@ -182,7 +184,10 @@ async function recordLegalAcceptance(args: {
 }
 const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
 
-const pool = new Pool({ connectionString: DATABASE_URL });
+const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ...(process.env.NODE_ENV === "test" ? { idleTimeoutMillis: 100 } : {})
+});
 
 function debugSurfaceAccessKey() {
   return String(process.env.DEBUG_SURFACES_ACCESS_KEY || "").trim();
@@ -2661,7 +2666,7 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   const parsed = parseImageUploadBody(body);
   const originalFilename = String(body.original_filename || body.filename || "").trim() || null;
 
-  return withTx(async (c) => {
+  const response = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
     const dealResult = await c.query(
@@ -2732,7 +2737,7 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       throw error;
     }
     const image = inserted.rows[0];
-    return reply.code(201).send({
+    return {
       ok: true,
       image: {
         image_id: image.image_id,
@@ -2744,8 +2749,11 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
         is_primary: Boolean(image.is_primary),
         sort_order: Number(image.sort_order || 0)
       }
-    });
+    };
   });
+
+  // A successful write must not be visible to the client before COMMIT.
+  return reply.code(201).send(response);
 });
 
 app.post("/deals/:id/publish", async (req: any) => {
@@ -2794,6 +2802,17 @@ app.post("/deals/:id/publish", async (req: any) => {
       );
       err.statusCode = 409;
       err.code = "seller_profile_incomplete";
+      throw err;
+    }
+    const isProductionLike =
+      process.env.NODE_ENV === "production" ||
+      process.env.APP_ENV === "production" ||
+      process.env.RENDER === "true" ||
+      Boolean(process.env.RENDER_EXTERNAL_URL);
+    if (isProductionLike && String(prof.verification_status || "pending") !== "approved") {
+      const err: any = new Error("seller KYC is not approved");
+      err.statusCode = 409;
+      err.code = "seller_kyc_not_approved";
       throw err;
     }
   });
@@ -3069,6 +3088,19 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       ]
     );
     const pid = ins.rows[0].participant_id as string;
+
+    const affiliateRef = String(body.affiliate_ref || "").trim().slice(0, 120);
+    if (affiliateRef) {
+      await c.query(
+        `INSERT INTO siton.affiliate_attributions
+           (affiliate_id, deal_id, participant_id, share_code)
+         SELECT affiliate_id, $1, $2, $3
+         FROM siton.affiliate_accounts
+         WHERE affiliate_code=$3
+         ON CONFLICT (participant_id) DO NOTHING`,
+        [dealId, pid, affiliateRef]
+      );
+    }
 
     const authorizationPayload = authorizationId
       ? {
@@ -3473,7 +3505,7 @@ registerFrontendExperience(app, {
 
 let workerRunning = false;
 
-(async () => {
+export async function startApplication() {
   await ensurePlatformFeeMoneyTables(withTx);
   await ensureRemainingProductSurfaceTables(withTx);
   await ensurePayoutRailTables(withTx);
@@ -3498,7 +3530,7 @@ let workerRunning = false;
     1 cleanup outbox old rows: delete sent after X days, move failed after X to dlq
     2 refund_issue per participant outbox for isolation
   */
-})();
+}
 
 async function gracefulShutdown(signal: string) {
   app.log.info({ signal }, "graceful shutdown initiated");
@@ -3523,8 +3555,15 @@ async function gracefulShutdown(signal: string) {
   process.exit(0);
 }
 
-process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+const entryPath = process.argv[1] ? pathToFileURL(resolve(process.argv[1])).href : "";
+if (entryPath === import.meta.url) {
+  process.once("SIGTERM", () => gracefulShutdown("SIGTERM"));
+  process.once("SIGINT", () => gracefulShutdown("SIGINT"));
+  startApplication().catch((error) => {
+    app.log.error({ err: error }, "application startup failed");
+    process.exitCode = 1;
+  });
+}
 
 
 

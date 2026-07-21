@@ -2,6 +2,68 @@
 
 ---
 
+## Current update: 2026-07-21 (Backend Hardening Milestone 1 — Complete Test Suite)
+
+### What was completed
+- Inventoried all 110 TypeScript test files and assigned every file to exactly one executable group: Unit 9, Integration 5, Database 3, API 35, Workers 6, Payments 21, Security 13, Concurrency 3, Failure 3, and End-to-end 12.
+- Replaced the partial default test entry point, which ran only 19 explicitly listed files, with a complete runner. Both `npm test` and `npm run test:all` now collect all 110 files.
+- Added `test:unit`, `test:integration`, `test:db`, `test:api`, `test:workers`, `test:payments`, `test:security`, `test:concurrency`, `test:failure`, `test:e2e`, and `test:all`.
+- Each test file now runs in its own child process and against its own disposable PostgreSQL database cloned from a clean bootstrapped template. The runner continues after failures and reports every failed file.
+- Test children no longer inherit Render/production host markers. The application can be imported without starting a listener or signal handlers, and test pools release idle connections promptly.
+- The load-capacity test now writes its generated report to the OS temporary directory instead of mutating a tracked repository document.
+- Added backend enforcement scans for direct `.state =`, `.buyer_state =`, and `.money_state =` assignments, Payment SDK imports outside `src/payment_provider.ts`, and high-confidence committed secrets.
+
+### Failures found, root causes, and fixes
+- Deal image D5: the HTTP success response was sent before the transaction commit completed. The existing fix was retained; the route now replies only after `withTx` resolves. `deal_images_validation` passes inside both complete-suite runs.
+- Application imports hung or collided on ports: importing `src/app.ts` also started the server and process signal handlers. Startup is now explicit and guarded to the executable entry point.
+- Cross-test database pollution and order dependence: tests shared a long-lived database, including stale worker/outbox rows. Every file now gets a clean disposable database; no test consumes another file's leftovers.
+- Production host leakage: local tests inherited Render markers and triggered production-only KYC behavior. The runner now scrubs host markers while tests remain free to opt into production explicitly.
+- Payment tests used the retired raw-card contract. They now exercise hosted `payment_method_id`, provider configuration failures, manual capture, refund, webhook verification, and explicit server-side tokenization rejection.
+- Affiliate attribution was not persisted from `affiliate_ref`. Join now records attribution in the participant transaction when the affiliate code exists.
+- Admin omnisearch UNION combined incompatible PostgreSQL enum types. Status columns are explicitly cast to text.
+- Deal duplicate and seller analytics fixtures reused one parameter as both enum and text. Fixtures now cast explicitly and work on a clean canonical schema.
+- Several static assertions had drifted from current canonical markers, current UI ownership, or valid Hebrew copy. Assertions were aligned to the actual contract without weakening expected behavior.
+- Isolated seller fixtures relied on a previously populated profile. The fixture now creates its own publish-ready seller profile.
+- The payment compliance scan treated a static legal disclosure mentioning CVV as runtime card handling. The legal copy file is narrowly excluded; runtime payment code remains scanned.
+
+### Verification
+- Unit: 9/9 PASS.
+- Integration: 5/5 PASS.
+- Database: 3/3 PASS.
+- API: 35/35 PASS.
+- Workers: 6/6 PASS.
+- Payments: 21/21 PASS.
+- Security: 13/13 PASS.
+- Concurrency: 3/3 PASS.
+- Failure: 3/3 PASS.
+- End-to-end: 12/12 PASS, including the real headless-browser smoke.
+- `test:all` run 1: 110/110 PASS, exit 0, 426.2 seconds.
+- `test:all` run 2: 110/110 PASS, exit 0, 472.0 seconds.
+- `deal_images_validation`: PASS in both full-suite runs.
+- `npx tsc --noEmit`: PASS.
+- `npm run lint`: PASS.
+- `npm run scan:payment`: PASS after the narrow legal-copy false-positive correction.
+- `git diff --check`: PASS.
+- Direct state mutation scan: PASS.
+- Payment SDK boundary scan: PASS; provider-specific Stripe transport remains in `src/payment_provider.ts`.
+- Secret scan: PASS.
+- No `.skip`, `test.skip`, `describe.skip`, or `it.skip` exists. Docker build/compose smoke remains an environment-dependent, non-critical runtime probe when Docker is unavailable; its static contract validation runs and passes.
+
+### What remains open
+- Milestone 1 is complete. No migration consolidation, worker separation, CI creation, real payment processing, UX redesign, or secret introduction was performed.
+- The existing migration-order bootstrap warning for `020_drop_affiliate_legacy_columns.sql` remains for Milestone 2; bootstrap subsequently creates the canonical attribution table and all tests pass.
+
+### Overall hardening progress
+- Backend hardening task: 50% complete (Milestone 1 of 2 complete).
+
+### Next step
+- Database consolidation.
+
+### Verdict
+`BACKEND_HARDENING_MILESTONE_1_COMPLETE`
+
+---
+
 ## Current update: 2026-05-31 (Render Upload Directory Fix)
 
 ### What failed in live QA

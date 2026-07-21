@@ -43,9 +43,9 @@ async function seedDeal(sellerId: string, state = "Completed") {
     `INSERT INTO siton.deals
        (deal_id, seller_id, title, state, threshold_units, min_units, max_units,
         price_per_unit, deadline, published_at, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,2,2,20,88.00,
+     VALUES ($1,$2,$3,$4::siton.deal_state,2,2,20,88.00,
              now()+interval '7 days',
-             CASE WHEN $4='Draft' THEN NULL ELSE now() END,
+             CASE WHEN $4::text='Draft' THEN NULL ELSE now() END,
              now(),now())`,
     [dealId, sellerId, `Duplicate Source ${dealId.slice(0, 8)}`, state]
   );

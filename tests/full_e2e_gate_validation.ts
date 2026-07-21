@@ -141,17 +141,14 @@ async function authorizePayment(suffix: string) {
     method: "POST",
     url: "/api/payments/authorize-mock",
     payload: {
-      holder_name: `Buyer ${suffix}`,
-      card_number: "4111111111111111",
-      expiry: "12/28",
-      cvv: "123"
+      payer_name: `Buyer ${suffix}`,
+      payment_method_id: `pm_full_e2e_${suffix}`
     }
   });
   assert.equal(response.statusCode, 200, response.body);
   const body = response.json() as any;
   assert.equal(body.authorization, "authorized");
-  assert.ok(!response.body.includes("4111111111111111"));
-  assert.ok(!response.body.includes("123"));
+  assert.ok(!response.body.includes(`pm_full_e2e_${suffix}`));
   return body;
 }
 

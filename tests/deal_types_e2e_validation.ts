@@ -155,10 +155,8 @@ async function authorizePayment(suffix: string) {
     method: "POST",
     url: "/api/payments/authorize-mock",
     payload: {
-      holder_name: `Buyer ${suffix}`,
-      card_number: "4111111111111111",
-      expiry: "12/28",
-      cvv: "123"
+      payer_name: `Buyer ${suffix}`,
+      payment_method_id: `pm_deal_type_${suffix}`
     }
   });
   assert.equal(response.statusCode, 200, response.body);
@@ -444,8 +442,8 @@ try {
     assert.equal(publicJson.deal.delivery_options.length, 0, "physical delivery options must be suppressed for voucher deals");
     assert.equal(publicJson.deal.voucher_terms.face_value_amount, 100);
     assert.equal(publicJson.deal.ticket_terms, null);
-    assert.match(publicJson.deal.fulfillment_copy.disclaimer, /׳™׳•׳ ׳₪׳§ ׳¨׳§ ׳׳׳—׳¨/);
-    assert.match(publicJson.deal.fulfillment_copy.headline, /׳©׳•׳‘׳¨/);
+    assert.match(publicJson.deal.fulfillment_copy.disclaimer, /יונפק רק לאחר/);
+    assert.match(publicJson.deal.fulfillment_copy.headline, /שובר/);
   });
 
   await run("B2: voucher buyer flow ג€” no code before Completed, fulfillment issued only for eligible, qty=N ג†’ N units, no plaintext code in DB", async () => {
@@ -474,7 +472,7 @@ try {
     assert.equal(preJson.deal_type, "voucher");
     assert.equal(preJson.fulfillment.eligible, false);
     assert.equal(preJson.fulfillment.units.length, 0);
-    assert.match(preJson.fulfillment.copy.headline, /׳¢׳“׳™׳™׳ ׳׳ ׳”׳•׳ ׳₪׳§/);
+    assert.match(preJson.fulfillment.copy.headline, /עדיין לא הונפק/);
     // Voucher terms surface even pre-completion (they describe the offer).
     assert.equal(preJson.fulfillment.voucher_terms.face_value_amount, 100);
 
@@ -707,8 +705,8 @@ try {
     assert.equal(pj.deal.voucher_terms, null);
     assert.match(pj.deal.ticket_terms.event_name, /׳’'׳׳–/);
     assert.equal(pj.deal.ticket_terms.seat_mode, "general_admission");
-    assert.match(pj.deal.fulfillment_copy.disclaimer, /׳™׳•׳ ׳₪׳§ ׳¨׳§ ׳׳׳—׳¨/);
-    assert.match(pj.deal.fulfillment_copy.headline, /׳›׳¨׳˜׳™׳¡/);
+    assert.match(pj.deal.fulfillment_copy.disclaimer, /יונפק רק לאחר/);
+    assert.match(pj.deal.fulfillment_copy.headline, /כרטיס/);
   });
 
   await run("C2: ticket buyer flow ג€” no code before Completed, qty=N ג†’ N tickets, eligibility-gated", async () => {
@@ -731,7 +729,7 @@ try {
     assert.equal(pj.deal_type, "ticket");
     assert.equal(pj.fulfillment.eligible, false);
     assert.equal(pj.fulfillment.units.length, 0);
-    assert.match(pj.fulfillment.copy.headline, /׳”׳›׳¨׳˜׳™׳¡ ׳¢׳“׳™׳™׳ ׳׳ ׳”׳•׳ ׳₪׳§/);
+    assert.match(pj.fulfillment.copy.headline, /הכרטיס עדיין לא הונפק/);
     assert.match(pj.fulfillment.ticket_terms.event_name, /׳’'׳׳–/);
 
     const final = await driveDealToFinalState(ticketDealId, ticketSellerId, "ticket");
