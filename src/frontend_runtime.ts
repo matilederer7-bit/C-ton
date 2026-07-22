@@ -5229,7 +5229,7 @@ export function registerFrontendExperience(
     if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
     const stuckTimeoutMs = deps.workerStuckTimeoutMs ?? 60_000;
     return deps.withTx(async (c) => {
-      const [outbox, dlq] = await Promise.all([
+      const [outbox, dlq, workers] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*)                                              FILTER (WHERE status='pending')    AS pending_count,
@@ -5241,13 +5241,20 @@ export function registerFrontendExperience(
                                                                   FILTER (WHERE status='processing'))) AS oldest_processing_age_s,
              COUNT(*)
                FILTER (WHERE status='processing'
-                         AND (processing_started_at IS NULL
-                              OR processing_started_at < now() - ($1::text || ' milliseconds')::interval))
+                         AND (lease_expires_at <= now()
+                              OR (lease_expires_at IS NULL AND (processing_started_at IS NULL
+                                   OR processing_started_at < now() - ($1::text || ' milliseconds')::interval))))
                                                                                                      AS stuck_candidates
            FROM siton.outbox_events`,
           [String(stuckTimeoutMs)]
         ),
-        c.query(`SELECT COUNT(*) AS dlq_count FROM siton.outbox_dlq`)
+        c.query(`SELECT COUNT(*) AS dlq_count FROM siton.outbox_dlq`),
+        c.query(
+          `SELECT worker_id,status,started_at,heartbeat_at,
+                  (heartbeat_at > now() - interval '30 seconds') AS fresh
+             FROM siton.worker_heartbeats
+            ORDER BY heartbeat_at DESC`
+        )
       ]);
       const o = outbox.rows[0];
       return {
@@ -5264,10 +5271,9 @@ export function registerFrontendExperience(
           stuck_timeout_ms:  stuckTimeoutMs
         },
         worker: {
-          running: typeof deps.getWorkerRunning === "function" ? deps.getWorkerRunning() : null,
-          note: typeof deps.getWorkerRunning !== "function"
-            ? "workerRunning status not wired — set getWorkerRunning dep"
-            : undefined
+          running: workers.rows.some((row: any) => row.fresh && row.status === "ready"),
+          active_count: workers.rows.filter((row: any) => row.fresh && row.status === "ready").length,
+          instances: workers.rows
         }
       };
     });

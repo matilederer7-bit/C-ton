@@ -514,7 +514,13 @@ async function assertSellerCreateTitleSubmissionContract() {
 
 async function assertSellerCreateDomFlowContract() {
   await withCdp("/app/seller/new", async ({ evaluate }) => {
-    await wait(1500);
+    let formReady = false;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      formReady = Boolean(await evaluate(`document.querySelector('form[data-action="seller-create"]')`));
+      if (formReady) break;
+      await wait(250);
+    }
+    assert.equal(formReady, true, `seller create form did not render before timeout: ${String(await evaluate(`document.body.innerText`)).slice(0, 500)}`);
     const setup = await evaluate(`(() => {
       const forms = document.querySelectorAll('form[data-action="seller-create"]').length;
       const submitButtons = document.querySelectorAll('form[data-action="seller-create"] button[type="submit"]').length;

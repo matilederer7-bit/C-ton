@@ -9,6 +9,8 @@ services:
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: demo-preview
+      - key: DISABLE_OUTBOX_WORKER
+        value: "1"
       - key: ADMIN_API_KEY
         generateValue: true
       - key: EXPECTED_COMMIT_SHA
@@ -50,3 +52,49 @@ services:
         value: log-only
       - key: DATABASE_URL
         sync: false
+  - type: worker
+    name: siton-background-worker
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    dockerCommand: npm run start:worker:prod
+    autoDeploy: true
+    envVars:
+      - key: APP_DEPLOYMENT_MODE
+        value: demo-preview
+      - key: DATABASE_URL
+        sync: false
+      - key: DB_SCHEMA
+        value: siton
+      - key: LOG_LEVEL
+        value: info
+      - key: WORKER_CONCURRENCY
+        value: "4"
+      - key: WORKER_MONEY_CONCURRENCY
+        value: "1"
+      - key: WORKER_RECONCILE_CONCURRENCY
+        value: "1"
+      - key: WORKER_INVOICE_CONCURRENCY
+        value: "2"
+      - key: WORKER_LEASE_MS
+        value: "60000"
+      - key: WORKER_STUCK_TIMEOUT_MS
+        value: "60000"
+      - key: WORKER_HEARTBEAT_MS
+        value: "10000"
+      - key: WORKER_SHUTDOWN_TIMEOUT_MS
+        value: "30000"
+      - key: OUTBOX_MAX_ATTEMPTS
+        value: "4"
+      - key: PAYMENT_PROVIDER
+        value: mockpay
+      - key: PAYMENT_PROVIDER_MODE
+        value: mock-backed
+      - key: PAYOUT_PROVIDER
+        value: internal-ledger
+      - key: PAYOUT_PROVIDER_MODE
+        value: internal-truth-only
+      - key: NOTIFICATION_PROVIDER
+        value: log-only
+      - key: INVOICE_PROVIDER_MODE
+        value: internal-truth-only

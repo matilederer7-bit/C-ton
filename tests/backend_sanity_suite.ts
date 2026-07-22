@@ -185,7 +185,7 @@ async function main() {
     assert.match(JSON.stringify(blank.json()), /title_required|title is required/);
   });
 
-  await runTest("outbox retry helper increments attempts on temporary failures", async () => {
+  await runTest("outbox retry helper preserves the claim-time attempt count on temporary failures", async () => {
     const calls: Array<{ sql: string; params: unknown[] | undefined }> = [];
     const helpers = buildOutboxWorkerHelpers({
       withTx: async <T>(fn: (c: any) => Promise<T>) =>
@@ -203,8 +203,9 @@ async function main() {
 
     await helpers.markOutboxFailed("event-1", 1, new Error("temporary_fail"));
 
-    assert.ok(calls.some((call) => call.sql.includes("attempt_count=attempt_count+1")));
+    assert.ok(!calls.some((call) => call.sql.includes("attempt_count=attempt_count+1")));
     assert.ok(calls.some((call) => call.sql.includes("SET status='pending'")));
+    assert.ok(calls.some((call) => call.sql.includes("worker_id=$4")));
   });
 
   await runTest("outbox permanent failures move directly to dlq", async () => {

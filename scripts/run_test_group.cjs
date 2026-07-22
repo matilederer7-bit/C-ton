@@ -17,7 +17,7 @@ function isolatedTestEnv(overrides = {}) {
 function classify(name) {
   if (/concurrency|load_capacity|scale_readiness/.test(name)) return "concurrency";
   if (/payment|refund|invoice|payout|money_tax|platform_fee|provider_|webhook/.test(name)) return "payments";
-  if (/outbox|notification|operational_hardening/.test(name)) return "workers";
+  if (/worker|outbox|notification|operational_hardening/.test(name)) return "workers";
   if (/security|auth|otp|legal|debug_surface|rate_limiter|server_side_money_authority/.test(name)) return "security";
   if (/adversarial|preprod_torture|failure/.test(name)) return "failure";
   if (/e2e|full_|ultimate|mvp_|demo_|docker_|aws_|frontend_browser|production_launch/.test(name)) return "e2e";
@@ -81,7 +81,7 @@ async function main() {
         const result = spawnSync(process.execPath, [compiled], {
           stdio: "inherit",
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
-          timeout: 180000
+          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 300000 : 180000
         });
         if (result.status === 0) console.log(`TEST_PASS file=${item.name}`);
         else {

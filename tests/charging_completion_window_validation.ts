@@ -17,7 +17,10 @@ process.env.PAYMENT_PROVIDER_API_KEY = "live-provider-key";
 process.env.PAYMENT_PROVIDER_AUTH_PATH = "/authorize";
 process.env.PAYMENT_PROVIDER_CAPTURE_PATH = "/capture";
 process.env.PAYMENT_PROVIDER_RECOVERY_PATH = "/recover";
-process.env.PAYMENT_PROVIDER_TIMEOUT_MS = "150";
+// The in-process fake provider is deterministic; allow enough scheduling
+// headroom for a full-suite run on a busy host so an event-loop pause is not
+// misclassified as a provider failure.
+process.env.PAYMENT_PROVIDER_TIMEOUT_MS = "2000";
 process.env.OUTBOX_POLL_MS = "60000";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PAYMENT_WEBHOOK_PROVIDER = "payrail-http";

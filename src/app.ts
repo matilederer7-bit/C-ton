@@ -12,8 +12,7 @@ import { buildNotificationService, getNotificationServiceSummary } from "./notif
 import {
   enqueueNotification,
   ensureNotificationRailTables,
-  flushPendingNotifications,
-  type SmsProvider
+  flushPendingNotifications
 } from "./notification_dispatch.js";
 import {
   enqueueInvoiceDocument,
@@ -25,8 +24,7 @@ import {
   getInvoiceProviderSummary,
   isEligibleForChargeReceipt,
   isEligibleForRefundReceipt,
-  reclaimStuckInvoiceDocuments,
-  type InvoiceProvider
+  reclaimStuckInvoiceDocuments
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
@@ -99,11 +97,6 @@ const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
 
 // Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
-const DISABLE_OUTBOX_WORKER =
-  process.env.DISABLE_OUTBOX_WORKER === "1" ||
-  process.env.NODE_ENV === "test" ||
-  process.env.npm_lifecycle_event === "test";
-
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
 const APP_DEPLOYMENT_MODE = process.env.APP_DEPLOYMENT_MODE || "demo-preview";
@@ -439,13 +432,18 @@ class PermanentFailError extends Error {
 
 const {
   claimOutboxBatch,
+  claimOutboxEventById,
   reclaimStuckProcessing,
   markOutboxSent,
-  markOutboxFailed
+  markOutboxFailed,
+  heartbeatOutboxLease,
+  workerId: outboxWorkerId
 } = buildOutboxWorkerHelpers({
   withTx,
   outboxPollMs: OUTBOX_POLL_MS,
   outboxMaxAttempts: OUTBOX_MAX_ATTEMPTS,
+  workerId: process.env.WORKER_ID || `siton-worker-${process.pid}-${randomUUID()}`,
+  leaseMs: Number(process.env.WORKER_LEASE_MS || 60_000),
   PermanentFailErrorCtor: PermanentFailError,
   DeferredEventErrorCtor: DeferredEventError
 });
@@ -1938,8 +1936,17 @@ async function workerProcessEvent(event: {
   aggregate_id: string;
   payload: any;
   attempt_count: number;
+  max_attempts?: number;
 }) {
   const eventId = event.event_uuid;
+  if (!event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) {
+    throw new PermanentFailError(`invalid payload for ${event.event_type}`);
+  }
+  try {
+    requireUuid(event.aggregate_id, "aggregate_id");
+  } catch {
+    throw new PermanentFailError(`invalid aggregate_id for ${event.event_type}`);
+  }
 
   if (event.event_type === "deadline_check") {
     const dealId = event.aggregate_id;
@@ -2054,6 +2061,8 @@ async function workerProcessEvent(event: {
     });
     return;
   }
+
+  throw new PermanentFailError(`unsupported outbox event type: ${event.event_type}`);
 }
 
 export async function processNextPendingOutboxEvent(limit = 1) {
@@ -2061,6 +2070,18 @@ export async function processNextPendingOutboxEvent(limit = 1) {
   if (batch.length === 0) return null;
   const event = batch[0];
   if (!event) return null;
+  return processClaimedOutboxEvent(event);
+}
+
+export async function claimPendingOutboxBatch(limit: number) {
+  return claimOutboxBatch(limit);
+}
+
+export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof claimOutboxBatch>>[number]) {
+  const heartbeat = setInterval(() => {
+    heartbeatOutboxLease(event.event_uuid).catch(() => undefined);
+  }, Math.max(1_000, Math.floor(Number(process.env.WORKER_LEASE_MS || 60_000) / 3)));
+  heartbeat.unref();
   try {
     await workerProcessEvent(event);
     await markOutboxSent(event.event_uuid);
@@ -2070,41 +2091,20 @@ export async function processNextPendingOutboxEvent(limit = 1) {
       status: "sent" as const
     };
   } catch (error) {
-    await markOutboxFailed(event.event_uuid, Number(event.attempt_count || 0), error);
+    await markOutboxFailed(event.event_uuid, Number(event.attempt_count || 0), error, Number(event.max_attempts || OUTBOX_MAX_ATTEMPTS));
     return {
       event_uuid: event.event_uuid,
       event_type: event.event_type,
       status: "failed" as const,
       error: String(error instanceof Error ? error.message : error)
     };
+  } finally {
+    clearInterval(heartbeat);
   }
 }
 
 export async function processOutboxEventById(eventId: string) {
-  const claimed = await withTx(async (c) => {
-    await c.query(`SELECT set_config('siton.is_worker','true',true)`);
-    const result = await c.query(
-      `UPDATE siton.outbox_events
-       SET status='processing',
-           processing_started_at=now(),
-           updated_at=now()
-       WHERE event_uuid = $1
-         AND status='pending'
-       RETURNING event_uuid, event_type, aggregate_type, aggregate_id, payload, attempt_count, processing_started_at`,
-      [eventId]
-    );
-    return result.rows[0] as
-      | {
-          event_uuid: string;
-          event_type: string;
-          aggregate_type: string;
-          aggregate_id: string;
-          payload: any;
-          attempt_count: number;
-          processing_started_at?: string | Date | null;
-        }
-      | undefined;
-  });
+  const claimed = await claimOutboxEventById(eventId);
 
   if (!claimed) return null;
 
@@ -2117,7 +2117,7 @@ export async function processOutboxEventById(eventId: string) {
       status: "sent" as const
     };
   } catch (error) {
-    await markOutboxFailed(claimed.event_uuid, Number(claimed.attempt_count || 0), error);
+    await markOutboxFailed(claimed.event_uuid, Number(claimed.attempt_count || 0), error, Number(claimed.max_attempts || OUTBOX_MAX_ATTEMPTS));
     return {
       event_uuid: claimed.event_uuid,
       event_type: claimed.event_type,
@@ -2131,77 +2131,31 @@ const WORKER_EVENT_TIMEOUT_MS = 30_000;
 // Set to 2× WORKER_EVENT_TIMEOUT_MS so a legitimately-slow event can finish
 // before the reclaim window opens.
 const WORKER_STUCK_TIMEOUT_MS = Number(process.env.WORKER_STUCK_TIMEOUT_MS || 60_000);
+export async function reclaimWorkerJobs(timeoutMs = WORKER_STUCK_TIMEOUT_MS) {
+  const outbox = await reclaimStuckProcessing(timeoutMs);
+  const invoices = await reclaimStuckInvoiceDocuments(pool, timeoutMs, app.log);
+  return { outbox, invoices };
+}
+
+export async function runWorkerMaintenance() {
+  await flushPendingNotifications(pool, notificationService, app.log);
+  await enqueuePendingInvoiceDocumentOutboxEvents(pool);
+}
+
+export async function assertWorkerDatabaseReady() {
+  await assertDatabaseSchema(pool);
+}
+
+export function getWorkerIdentity() {
+  return outboxWorkerId;
+}
+
+export async function closeWorkerDatabase() {
+  await pool.end();
+}
 // Run the stuck-event reclaim every N poll cycles to amortise its cost.
 const RECLAIM_EVERY_N_POLLS = 10;
 
-async function workerLoop(app: ReturnType<typeof Fastify>, smsProvider: SmsProvider, invoiceDocProvider: InvoiceProvider) {
-  let pollCount = 0;
-  while (true) {
-    try {
-      // Periodically reclaim events/documents that got stuck in 'processing' (e.g. after a crash).
-      if (pollCount % RECLAIM_EVERY_N_POLLS === 0) {
-        const reclaimed = await reclaimStuckProcessing(WORKER_STUCK_TIMEOUT_MS).catch((e: unknown) => {
-          app.log.error({ err: e }, "workerLoop: reclaimStuckProcessing failed");
-          return 0;
-        });
-        if (reclaimed > 0) {
-          app.log.warn({ reclaimed }, "workerLoop: reclaimed stuck processing events");
-        }
-        await reclaimStuckInvoiceDocuments(pool, WORKER_STUCK_TIMEOUT_MS, app.log).catch((e: unknown) => {
-          app.log.error({ err: e }, "workerLoop: reclaimStuckInvoiceDocuments failed");
-        });
-      }
-      pollCount++;
-
-      const batch = await claimOutboxBatch(10);
-      if (batch.length === 0) {
-        // No outbox events — flush pending notifications then sleep
-        await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
-          app.log.error({ err: e }, "workerLoop: notification flush failed");
-        });
-        await enqueuePendingInvoiceDocumentOutboxEvents(pool).catch((e: unknown) => {
-          app.log.error({ err: e }, "workerLoop: invoice document outbox scheduling failed");
-        });
-        await new Promise((r) => setTimeout(r, OUTBOX_POLL_MS));
-        continue;
-      }
-
-      for (const ev of batch) {
-        try {
-          await Promise.race([
-            (async () => {
-              await workerProcessEvent(ev);
-              await markOutboxSent(ev.event_uuid);
-            })(),
-            new Promise<never>((_, reject) =>
-              setTimeout(
-                () => reject(new Error(`worker event ${ev.event_uuid} timed out after ${WORKER_EVENT_TIMEOUT_MS}ms`)),
-                WORKER_EVENT_TIMEOUT_MS
-              )
-            )
-          ]);
-        } catch (e) {
-          app.log.error({ err: e, event_uuid: ev.event_uuid }, "workerLoop: event processing failed");
-          await markOutboxFailed(ev.event_uuid, Number(ev.attempt_count || 0), e).catch((markErr) => {
-            app.log.error({ err: markErr }, "workerLoop: failed to mark event as failed");
-          });
-        }
-      }
-
-      // After processing the outbox batch, flush pending notifications and invoice documents
-      await flushPendingNotifications(pool, smsProvider, app.log).catch((e: unknown) => {
-        app.log.error({ err: e }, "workerLoop: notification flush failed (post-batch)");
-      });
-      await enqueuePendingInvoiceDocumentOutboxEvents(pool).catch((e: unknown) => {
-        app.log.error({ err: e }, "workerLoop: invoice document outbox scheduling failed (post-batch)");
-      });
-    } catch (e) {
-      app.log.error({ err: e }, "workerLoop: batch-level error, retrying in 5s");
-      await new Promise((r) => setTimeout(r, 5_000));
-    }
-    if (!workerRunning) return;
-  }
-}
 
 const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
 
@@ -3470,21 +3424,13 @@ registerFrontendExperience(app, {
   invoiceSummary: getInvoiceProviderSummary(invoiceProvider),
   invoiceProvider,
   debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1",
-  getWorkerRunning: () => workerRunning,
+  getWorkerRunning: () => false,
   workerStuckTimeoutMs: WORKER_STUCK_TIMEOUT_MS,
   applyPaymentWebhookClassification
 });
 
-let workerRunning = false;
-
 export async function startApplication() {
   await assertDatabaseSchema(pool);
-
-  if (!DISABLE_OUTBOX_WORKER) {
-    workerRunning = true;
-    workerLoop(app, notificationService, invoiceProvider).catch((e) => app.log.error(e));
-  }
-
   await app.listen({ port: PORT, host: HOST });
 
   /*
@@ -3496,7 +3442,6 @@ export async function startApplication() {
 
 async function gracefulShutdown(signal: string) {
   app.log.info({ signal }, "graceful shutdown initiated");
-  workerRunning = false;
   // Hard-kill after 30s if clean shutdown hangs
   const forceExit = setTimeout(() => {
     app.log.error("graceful shutdown timed out, forcing exit");

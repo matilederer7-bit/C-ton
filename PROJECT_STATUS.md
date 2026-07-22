@@ -1,5 +1,40 @@
 # PROJECT STATUS
 
+## Current update: 2026-07-22 (Worker Separation and Hardening - Complete)
+
+- API startup now starts only the HTTP listener and performs no background polling or claiming.
+- Standalone `src/worker.ts` owns polling, metrics, heartbeats, bounded startup retry, SIGTERM/SIGINT draining, and database shutdown; it exposes no HTTP listener.
+- `src/worker_scheduler.ts` provides independently bounded money, reconciliation, invoice, and general lanes, including serialized money work by default.
+- PostgreSQL claims remain atomic with `FOR UPDATE SKIP LOCKED` and now include unique worker ownership, claim-time attempt increments, explicit leases, live lease renewal, owner-scoped completion/failure, expired-lease recovery, bounded retry/backoff, and terminal DLQ transfer retaining the final error.
+- Canonical migration `040_outbox_worker_leases.sql` brings the manifest to 36 migrations and adds lease/ownership/correlation fields, indexes, and `worker_heartbeats`. Application and worker startup perform no runtime DDL.
+- Render now defines separate web and background-worker services using the same image/database and independent worker controls. No live payment operation or secret was introduced.
+- Admin outbox health is derived from persisted worker heartbeats, including active instance count.
+
+### Queue coverage and failures fixed
+- Dispatch covers deadline, charge, recovery, finalize, refund/cancel-refund, payout prepare/dispatch/reconcile, invoice issue/reconcile, notification flush, and invoice maintenance paths.
+- Invalid payloads/aggregate IDs and unknown event types fail permanently to DLQ. Temporary failures remain bounded and retryable.
+- Fixed missing job ownership/lease protection, ambiguous post-failure attempt counting, and stale/null terminal DLQ failure reasons.
+- Fixed two full-suite-only harness races at their roots: browser readiness now uses bounded DOM polling and the browser file has its existing five-minute execution envelope; the deterministic local fake payment provider timeout is 2000ms instead of 150ms. Production provider timeouts/outcomes were not changed.
+
+### Verification
+- Worker separation/concurrency/recovery suite: PASS, including three concurrent claimers processing 30 jobs exactly once, non-owner terminal-write rejection, live-heartbeat reclaim protection, expired-lease recovery, restart attempt preservation, and max-attempt DLQ retention.
+- Groups: Unit 9/9; Integration 5/5; Database 4/4; API 35/35; Workers 7/7; Payments 21/21; Security 13/13; Concurrency 3/3; Failure 3/3; End-to-end 12/12.
+- Full suite run 1: 112/112 PASS, exit 0, 555.2 seconds. Run 2: 112/112 PASS, exit 0, 489.2 seconds. No random, ordering, schema-contamination, or cross-process failure remained.
+- `npx tsc --noEmit`, lint, `git diff --check`, backend enforcement (56 files), direct state mutation, Payment SDK boundary, payment/raw-card compliance, secret, and runtime TypeScript DDL scans: PASS.
+
+### Remaining work and progress
+- Worker separation and hardening is 100% complete. CI/deployment gates were not created, live payments were not executed, and no UX work was performed.
+- Next step: establish CI and deployment gates. Do not start it in this milestone.
+- Verdict: `WORKER_SEPARATION_AND_HARDENING_COMPLETE`.
+
+## Current update: 2026-07-22 (Worker Separation - Pre-change Mapping)
+
+- Before separation, `startApplication()` conditionally launched `workerLoop()` inside the API process. An API crash therefore stopped background work, and a worker failure shared the API process boundary.
+- The embedded loop consumed PostgreSQL outbox events for deadline, charging, recovery, finalization, refund/cancel-refund, seller payout, and invoice work. It also flushed notifications, reclaimed invoices, and scheduled invoice outbox work.
+- Handler dependencies were assembled in `src/app.ts`; polling had no standalone entry point.
+- Claiming already used `FOR UPDATE SKIP LOCKED`, but ownership had only `status='processing'` and `processing_started_at`; there was no worker ID, lease expiry, heartbeat, or owner-scoped completion.
+- Attempts were incremented after retryable failure. Permanent/exhausted work moved to `outbox_dlq`; age-based reclaim reset old processing rows.
+- Controls were `DISABLE_OUTBOX_WORKER`, `OUTBOX_POLL_MS`, `OUTBOX_MAX_ATTEMPTS`, and `WORKER_STUCK_TIMEOUT_MS`. PostgreSQL outbox was retained as the intended queue.
 ## Current update: 2026-07-22 (Backend Hardening Milestone 2 — Complete)
 
 ### What was completed
