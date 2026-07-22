@@ -16,6 +16,7 @@ const runtime = await readFile("src/frontend_runtime.ts", "utf8");
 const mission = await readFile("src/admin_mission_control.ts", "utf8");
 const doc = await readFile("docs/SUPPORT_OPERATIONS.md", "utf8");
 const migration = await readFile("src/migrations/034_operational_cases.sql", "utf8");
+const controlPlaneMigration = await readFile("src/migrations/035_admin_control_plane.sql", "utf8");
 
 await run("support_case_lifecycle_validation", async () => {
   for (const status of ["Open", "NeedsSeller", "NeedsAdmin", "WaitingExternal", "Resolved", "Closed"]) {
@@ -33,14 +34,13 @@ await run("support_case_requires_reason_validation", async () => {
 
 await run("support_case_correlation_link_validation", async () => {
   // operational_cases stores deal_id/participant_id/seller_id directly; correlation_id
-  // and request_id columns are added by the admin_control_plane DDL guard.
+  // and request_id columns are added by the canonical intervention migration.
   assert.match(cases, /deal_id/);
   assert.match(cases, /participant_id/);
   assert.match(cases, /seller_id/);
   assert.match(cases, /auto_key/);
-  const controlPlane = await readFile("src/admin_control_plane.ts", "utf8");
-  assert.match(controlPlane, /operational_cases ADD COLUMN IF NOT EXISTS correlation_id/);
-  assert.match(controlPlane, /operational_cases ADD COLUMN IF NOT EXISTS request_id/);
+  assert.match(controlPlaneMigration, /operational_cases ADD COLUMN IF NOT EXISTS correlation_id/);
+  assert.match(controlPlaneMigration, /operational_cases ADD COLUMN IF NOT EXISTS request_id/);
 });
 
 await run("support_case_overdue_sla_validation", async () => {

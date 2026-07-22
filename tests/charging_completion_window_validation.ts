@@ -433,7 +433,7 @@ await runTest("charge_deal mixed outcome records attempts, opens completion wind
   });
 
   const processed = await processOutboxEventById(charging.outboxEventId);
-  assert.equal(processed?.status, "sent");
+  assert.equal(processed?.status, "sent", `charge_deal failed: ${processed && "error" in processed ? processed.error : "unknown"}`);
 
   const deal = await fetchOne<{ state: string; completion_window_until: string }>(
     `SELECT state, completion_window_until FROM siton.deals WHERE deal_id=$1`,

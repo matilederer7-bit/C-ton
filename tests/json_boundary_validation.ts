@@ -337,9 +337,10 @@ await runTest("json_boundary_outbox_worker_reloads_from_db", async () => {
 
 await runTest("json_boundary_admin_action_metadata_cannot_bypass_action_type", async () => {
   const plane = await readFile("src/admin_control_plane.ts", "utf8");
+  const schema = await readFile("src/migrations/035_admin_control_plane.sql", "utf8");
   // action_type and target_type must be rigid CHECK-constrained columns.
-  assert.match(plane, /action_type TEXT NOT NULL CHECK \(action_type IN/);
-  assert.match(plane, /target_type TEXT NOT NULL CHECK \(target_type IN/);
+  assert.match(schema, /action_type TEXT NOT NULL CHECK \(action_type IN/);
+  assert.match(schema, /target_type TEXT NOT NULL CHECK \(target_type IN/);
   // metadata_jsonb is read but only as input parameters (e.g. expires_at), never as auth grant.
   assert.doesNotMatch(plane, /metadata_jsonb\??\.role/);
   assert.doesNotMatch(plane, /metadata_jsonb\??\.permission/);

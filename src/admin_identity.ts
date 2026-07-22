@@ -1,3 +1,4 @@
+import { assertRequiredTables } from "./schema_contract.js";
 import { randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
 import { ADMIN_API_KEY, isProductionLikeEnv } from "./runtime_config.js";
@@ -159,69 +160,7 @@ export function hasRecentMfa(identity: AdminIdentity, now = Date.now()) {
 }
 
 export async function ensureAdminIdentityTables(withTx: <T>(fn: (c: any) => Promise<T>) => Promise<T>) {
-  if (ensurePromise) return ensurePromise;
-  ensurePromise = withTx(async (c) => {
-    await c.query(`SELECT pg_advisory_xact_lock(hashtext('siton_admin_identity_ddl'))`);
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_users (
-        admin_user_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        email TEXT UNIQUE NOT NULL,
-        display_name TEXT NULL,
-        role TEXT NOT NULL CHECK (role IN ('SuperAdmin','OpsAdmin','SupportAdmin','ReadOnlyAdmin')),
-        status TEXT NOT NULL CHECK (status IN ('Active','Suspended','Disabled')),
-        password_hash TEXT NULL,
-        mfa_required BOOLEAN NOT NULL DEFAULT true,
-        mfa_enabled BOOLEAN NOT NULL DEFAULT false,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_sessions (
-        admin_session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        admin_user_id UUID NOT NULL REFERENCES siton.admin_users(admin_user_id),
-        session_token_hash TEXT NOT NULL UNIQUE,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        expires_at TIMESTAMPTZ NOT NULL,
-        revoked_at TIMESTAMPTZ NULL,
-        last_seen_at TIMESTAMPTZ NULL,
-        mfa_verified_at TIMESTAMPTZ NULL,
-        ip_hash TEXT NULL,
-        user_agent_hash TEXT NULL
-      )
-    `);
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_mfa_factors (
-        mfa_factor_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        admin_user_id UUID NOT NULL REFERENCES siton.admin_users(admin_user_id),
-        factor_type TEXT NOT NULL CHECK (factor_type IN ('totp','email_otp')),
-        secret_hash TEXT NULL,
-        secret_encrypted TEXT NULL,
-        status TEXT NOT NULL CHECK (status IN ('Pending','Active','Disabled')),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        verified_at TIMESTAMPTZ NULL,
-        disabled_at TIMESTAMPTZ NULL
-      )
-    `);
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_mfa_challenges (
-        mfa_challenge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        admin_user_id UUID NOT NULL REFERENCES siton.admin_users(admin_user_id),
-        code_hash TEXT NOT NULL,
-        purpose TEXT NOT NULL,
-        status TEXT NOT NULL CHECK (status IN ('Pending','Verified','Expired','Revoked')),
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        expires_at TIMESTAMPTZ NOT NULL,
-        verified_at TIMESTAMPTZ NULL
-      )
-    `);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_sessions_user_active ON siton.admin_sessions (admin_user_id, expires_at) WHERE revoked_at IS NULL`);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_mfa_challenges_user_status ON siton.admin_mfa_challenges (admin_user_id, status, expires_at)`);
-    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS requested_by_admin_user_id UUID NULL`);
-    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS approved_by_admin_user_id UUID NULL`);
-    await c.query(`ALTER TABLE IF EXISTS siton.admin_actions ADD COLUMN IF NOT EXISTS identity_strength TEXT NULL`);
-  });
-  return ensurePromise;
+  await withTx(async c=>assertRequiredTables(c,["admin_users","admin_sessions","admin_mfa_factors","admin_mfa_challenges"]));
 }
 
 export async function issueAdminSession(c: Queryable, adminUserId: string, req: any, mfaVerified = false) {

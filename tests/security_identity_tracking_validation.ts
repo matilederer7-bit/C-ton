@@ -29,7 +29,7 @@ await run("admin_session_cookie_security_validation", async () => {
   assert.match(adminIdentity, /HttpOnly/);
   assert.match(adminIdentity, /SameSite=Lax/);
   assert.match(adminIdentity, /Secure/);
-  assert.match(adminIdentity, /session_token_hash TEXT NOT NULL UNIQUE/);
+  assert.match(migration, /session_token_hash TEXT NOT NULL UNIQUE/);
   assert.doesNotMatch(adminIdentity, /session_token TEXT NOT NULL/);
 });
 

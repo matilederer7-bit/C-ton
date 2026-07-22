@@ -1,3 +1,4 @@
+import { assertDatabaseSchema, assertRequiredTables } from "./schema_contract.js";
 import Fastify from "fastify";
 import pg from "pg"; const { Pool } = pg; type PoolClient = any;
 import { createHash, randomUUID } from "crypto";
@@ -119,36 +120,7 @@ function hashOptional(value: unknown): string | null {
 }
 
 async function ensureLegalAcceptanceTables(withTxFn: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>) {
-  await withTxFn(async (c) => {
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.legal_acceptances (
-        acceptance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        actor_type TEXT NOT NULL CHECK (actor_type IN ('buyer','seller')),
-        actor_ref TEXT NOT NULL,
-        deal_id UUID NULL,
-        participant_id UUID NULL,
-        acceptance_type TEXT NOT NULL CHECK (acceptance_type IN (
-          'buyer_join_terms',
-          'buyer_payment_disclosure',
-          'seller_publish_terms'
-        )),
-        policy_version TEXT NOT NULL,
-        accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        ip_hash TEXT NULL,
-        user_agent_hash TEXT NULL,
-        metadata_jsonb JSONB NOT NULL DEFAULT '{}',
-        CONSTRAINT ux_legal_acceptances_scope UNIQUE (
-          actor_type,
-          actor_ref,
-          deal_id,
-          participant_id,
-          acceptance_type,
-          policy_version
-        )
-      )`);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_deal ON siton.legal_acceptances (deal_id, accepted_at)`);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_actor ON siton.legal_acceptances (actor_type, actor_ref, accepted_at)`);
-  });
+  await withTxFn(async c=>assertRequiredTables(c,["legal_acceptances"]));
 }
 
 async function recordLegalAcceptance(args: {
@@ -3506,17 +3478,7 @@ registerFrontendExperience(app, {
 let workerRunning = false;
 
 export async function startApplication() {
-  await ensurePlatformFeeMoneyTables(withTx);
-  await ensureRemainingProductSurfaceTables(withTx);
-  await ensurePayoutRailTables(withTx);
-  await ensureInvoiceRailTables(withTx);
-  await ensureNotificationRailTables(withTx);
-  await ensureLegalAcceptanceTables(withTx);
-  await ensureOtpRailTables(withTx);
-  await ensureAdminControlPlaneTables(withTx);
-  await ensureAdminIdentityTables(withTx);
-  await ensureParticipantTrackingTables(withTx);
-  await ensureAdminInterventionTables(withTx);
+  await assertDatabaseSchema(pool);
 
   if (!DISABLE_OUTBOX_WORKER) {
     workerRunning = true;

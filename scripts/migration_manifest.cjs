@@ -1,0 +1,42 @@
+const path = require("node:path");
+
+const MIGRATIONS_DIR = path.join(process.cwd(), "src", "migrations");
+const MIGRATIONS = [
+  ["014", "014_demo_preview_bootstrap.sql"],
+  ["007", "007_db_alignment_phase1.sql"],
+  ["008", "008_db_enforcement_phase2a.sql"],
+  ["009", "009_db_enforcement_phase2c.sql"],
+  ["010", "010_runtime_contract_hard_checks.sql"],
+  ["011", "011_outbox_status_processing_fix.sql"],
+  ["012", "012_payment_attempts_idempotency.sql"],
+  ["013", "013_payment_attempts_not_null.sql"],
+  ["014a", "014a_product_account_prerequisites.sql"],
+  ["015a", "015_notifications.sql"],
+  ["015b", "015_seller_ownership_alignment.sql"],
+  ["016", "016_delivery_method_persistence.sql"],
+  ["017", "017_open_production_seller_auth.sql"],
+  ["018", "018_invoice_documents.sql"],
+  ["019", "019_platform_fee_money_events.sql"],
+  ["020", "020_drop_affiliate_legacy_columns.sql"],
+  ["021", "021_seller_payout_rail.sql"],
+  ["022", "022_drop_deals_commission_rate.sql"],
+  ["023", "023_invoice_rail.sql"],
+  ["024", "024_payment_provider_production_hardening.sql"],
+  ["025", "025_invoice_provider_morning_adapter.sql"],
+  ["026", "026_participant_delivery_snapshot.sql"],
+  ["027", "027_deal_images.sql"],
+  ["028", "028_seller_profiles.sql"],
+  ["029", "029_notification_rail.sql"],
+  ["030", "030_legal_acceptances.sql"],
+  ["031", "031_otp_rail.sql"],
+  ["032", "032_deal_chat_messages.sql"],
+  ["033", "033_seller_enforcement_status.sql"],
+  ["034", "034_operational_cases.sql"],
+  ["035", "035_admin_control_plane.sql"],
+  ["036", "036_security_identity_tracking.sql"],
+  ["037", "037_admin_intervention_and_storage.sql"],
+  ["038", "038_deal_types_voucher_ticket.sql"],
+  ["039", "039_webhook_processing_status.sql"]
+].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
+
+module.exports = { MIGRATIONS_DIR, MIGRATIONS };

@@ -1,3 +1,4 @@
+import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { existsSync } from "fs";
 import { readFile } from "fs/promises";
@@ -1188,68 +1189,11 @@ export function registerFrontendExperience(
   };
   setInterval(purgeLegacy, 5 * 60_000).unref();
   const ensureInvoiceWebhookTables = async () => {
-    await deps.withTx(async (c) => {
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.invoice_webhook_events (
-          invoice_webhook_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          provider TEXT NOT NULL,
-          event_id TEXT NOT NULL,
-          provider_document_id TEXT NULL,
-          document_id UUID NULL,
-          document_key TEXT NULL,
-          status TEXT NOT NULL DEFAULT 'pending'
-            CHECK (status IN ('pending','queued','ignored','failed')),
-          correlation_id TEXT NULL,
-          payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-          received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          processed_at TIMESTAMPTZ NULL,
-          UNIQUE (provider, event_id)
-        )
-      `);
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.invoice_webhook_security_events (
-          security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          provider TEXT NOT NULL,
-          event_id TEXT NULL,
-          failure_reason TEXT NOT NULL,
-          remote_hint TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_events_document ON siton.invoice_webhook_events (document_id, received_at DESC)`);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_invoice_webhook_security_events_created ON siton.invoice_webhook_security_events (created_at DESC)`);
-    });
-  };
+  await deps.withTx(async c=>assertRequiredTables(c,["invoice_webhook_events","invoice_webhook_security_events"]));
+};
   const ensureLegalAcceptanceTables = async () => {
-    await deps.withTx(async (c) => {
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.legal_acceptances (
-          acceptance_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          actor_type TEXT NOT NULL CHECK (actor_type IN ('buyer','seller')),
-          actor_ref TEXT NOT NULL,
-          deal_id UUID NULL,
-          participant_id UUID NULL,
-          acceptance_type TEXT NOT NULL CHECK (
-            acceptance_type IN ('buyer_join_terms','buyer_payment_disclosure','seller_publish_terms')
-          ),
-          policy_version TEXT NOT NULL,
-          accepted_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          ip_hash TEXT NULL,
-          user_agent_hash TEXT NULL,
-          metadata_jsonb JSONB NOT NULL DEFAULT '{}',
-          CONSTRAINT ux_legal_acceptances_scope UNIQUE (
-            actor_type,
-            actor_ref,
-            deal_id,
-            participant_id,
-            acceptance_type,
-            policy_version
-          )
-        )`);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_deal ON siton.legal_acceptances (deal_id, accepted_at)`);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_legal_acceptances_actor ON siton.legal_acceptances (actor_type, actor_ref, accepted_at)`);
-    });
-  };
+  await deps.withTx(async c=>assertRequiredTables(c,["legal_acceptances"]));
+};
   const recordInvoiceWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
     await ensureInvoiceWebhookTables();
     await deps.withTx(async (c) => {
@@ -1261,37 +1205,8 @@ export function registerFrontendExperience(
     });
   };
   const ensurePaymentOpsTables = async () => {
-    await deps.withTx(async (c) => {
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.payment_webhook_security_events (
-          security_event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          provider TEXT NOT NULL,
-          event_id TEXT NULL,
-          failure_reason TEXT NOT NULL,
-          remote_hint TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-        )
-      `);
-      await c.query(`
-        CREATE TABLE IF NOT EXISTS siton.buyer_payment_methods (
-          buyer_payment_method_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          buyer_id TEXT NOT NULL,
-          provider_code TEXT NOT NULL,
-          provider_payment_method_id TEXT NOT NULL,
-          status TEXT NOT NULL DEFAULT 'active'
-            CHECK (status IN ('active','invalid','expired','revoked')),
-          last_authorized_at TIMESTAMPTZ NULL,
-          last_failed_at TIMESTAMPTZ NULL,
-          correlation_id TEXT NULL,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-          UNIQUE (provider_code, provider_payment_method_id)
-        )
-      `);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_payment_webhook_security_events_created ON siton.payment_webhook_security_events (created_at DESC)`);
-      await c.query(`CREATE INDEX IF NOT EXISTS idx_buyer_payment_methods_buyer_created ON siton.buyer_payment_methods (buyer_id, created_at DESC)`);
-    });
-  };
+  await deps.withTx(async c=>assertRequiredTables(c,["payment_webhook_security_events","buyer_payment_methods"]));
+};
   const recordWebhookSecurityFailure = async (args: { provider: string; event_id?: string | null; failure_reason: string; remote_hint?: string }) => {
     await ensurePaymentOpsTables();
     await deps.withTx(async (c) => {
@@ -1957,9 +1872,13 @@ export function registerFrontendExperience(
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
 
+    // Schema contract checks may acquire their own connection. Complete them
+    // before opening the request transaction so concurrent reads cannot fill
+    // the pool with transactions that are all waiting for a nested checkout.
+    await ensureProductSurfaces();
+    await ensureDealTypeTables(deps.withTx);
+
     return deps.withTx(async (c) => {
-      await ensureProductSurfaces();
-      await ensureDealTypeTables(deps.withTx);
       const dealResult = await c.query(
         `SELECT d.deal_id, d.title, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,

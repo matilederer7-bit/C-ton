@@ -1,5 +1,93 @@
 # PROJECT STATUS
 
+## Current update: 2026-07-22 (Backend Hardening Milestone 2 — Complete)
+
+### What was completed
+- Consolidated database ownership into one explicit 35-entry manifest, `scripts/migration_manifest.cjs`, executed only by `scripts/run_migrations.cjs`. The ledger records stable ID, position, filename, SHA-256 checksum, start/completion timestamps, status, and failure detail.
+- Canonical files, in execution order: `014_demo_preview_bootstrap.sql`, `007_db_alignment_phase1.sql`, `008_db_enforcement_phase2a.sql`, `009_db_enforcement_phase2c.sql`, `010_runtime_contract_hard_checks.sql`, `011_outbox_status_processing_fix.sql`, `012_payment_attempts_idempotency.sql`, `013_payment_attempts_not_null.sql`, `014a_product_account_prerequisites.sql`, `015_notifications.sql`, `015_seller_ownership_alignment.sql`, `016_delivery_method_persistence.sql`, `017_open_production_seller_auth.sql`, `018_invoice_documents.sql`, `019_platform_fee_money_events.sql`, `020_drop_affiliate_legacy_columns.sql`, `021_seller_payout_rail.sql`, `022_drop_deals_commission_rate.sql`, `023_invoice_rail.sql`, `024_payment_provider_production_hardening.sql`, `025_invoice_provider_morning_adapter.sql`, `026_participant_delivery_snapshot.sql`, `027_deal_images.sql`, `028_seller_profiles.sql`, `029_notification_rail.sql`, `030_legal_acceptances.sql`, `031_otp_rail.sql`, `032_deal_chat_messages.sql`, `033_seller_enforcement_status.sql`, `034_operational_cases.sql`, `035_admin_control_plane.sql`, `036_security_identity_tracking.sql`, `037_admin_intervention_and_storage.sql`, `038_deal_types_voucher_ticket.sql`, and `039_webhook_processing_status.sql`.
+- `bootstrap_demo_db.cjs` now invokes the canonical migrator before seed DML. Test databases use the same migrations and a narrow identity-only prerequisite fixture; no demo deals or worker data leak between tests.
+- Removed runtime schema mutation from app, frontend routes, product surfaces, deal types, admin, identity, intervention, tracking, operations, OTP, notification, webhook, fee, payout, and invoice modules. These paths now perform read-only contract checks and fail closed on drift.
+- Retired executable DDL in `scripts/init_db.sql`, `src/migrations/001_uuid_schema.ts`, `src/migrations/002_drop_siton_schema.ts`, and `src/stage10c_harden_deals.sql`; they are non-executable pointers/tombstones. None of the 35 canonical historical SQL files was rewritten.
+
+### Database-path verification
+- Clean PostgreSQL install from the 35 migrations only: PASS; complete successful ledger and startup schema contract verified.
+- Application operation after migration: PASS across API/integration/E2E suites; startup validation rejects incomplete or drifted schema and performs no DDL.
+- Repeat migration run: PASS with unchanged data and ledger.
+- Existing demo-schema adoption/upgrade: PASS; the full ledger was adopted over an existing idempotent schema and a deal sentinel retained its title, price, and capacity exactly.
+- Checksum mismatch detection: PASS. Failed-migration DDL rollback plus failed ledger record: PASS. Schema-drift detection: PASS.
+- Functions, triggers, constraints, indexes, and foreign keys: present and validated. `webhook_events.status = 'processing'` was restored through new migration 039 and its constraint is part of the startup contract.
+
+### Failures found and root-cause fixes
+- Webhook processing writes failed because the canonical status constraint omitted `processing`; migration 039 replaces the constraint with the runtime-supported status set.
+- Clean isolated tests exposed hidden dependencies on broad demo seed data; the template now contains schema plus only explicit seller/affiliate identity prerequisites.
+- Several static tests still read retired runtime/bootstrap DDL; they now assert the corresponding canonical migrations and manifest.
+- Tracking load tests timed out because public reads opened schema-check transactions from inside an active request transaction, allowing concurrent reads to exhaust the pool. Contract checks now complete before opening the request transaction; concurrency passes without timeouts.
+- The browser E2E process was blocked by sandbox `spawn EPERM`; the same unmodified test passed when run with process-spawn permission.
+
+### Test results
+- Unit 9/9; Integration 5/5; Database 4/4; API 35/35; Workers 6/6; Payments 21/21; Security 13/13; Concurrency 3/3; Failure 3/3; End-to-end 12/12.
+- `test:all` run 1: 111/111 PASS, exit 0, 520.2 seconds.
+- `test:all` run 2: 111/111 PASS, exit 0, 467.3 seconds.
+- `deal_images_validation` passed inside both full-suite runs. No random, order-dependent, schema-contamination, or cross-process failure remained.
+
+### Scans and gates
+- `npx tsc --noEmit`: PASS. `npm run lint`: PASS. `git diff --check`: PASS.
+- Backend enforcement/direct state mutation scan: PASS. Payment SDK import-boundary scan: PASS. Raw-card payment scan: PASS. High-confidence secret scan: PASS. Runtime DDL scan: PASS.
+- The separate legacy `legal_compliance_gate.cjs` is not the repository lint command nor one of this milestone's requested scans; it still reports its pre-existing policy findings for heavy seller KYC wording and legal-page CVV disclosure. The scoped runtime raw-card scan explicitly excludes static legal disclosure and passes.
+
+### Remaining work and progress
+- Milestone 2 is complete. No worker separation, CI work, UX change, real payment charge, secret addition, or force push was performed.
+- The requested two-milestone backend hardening task is 100% complete.
+- Next step: separate the worker from the API server.
+
+### Verdict
+`BACKEND_HARDENING_MILESTONE_2_COMPLETE`
+
+---
+
+## Current update: 2026-07-22 (Backend Hardening Milestone 2 — DDL Inventory Before Changes)
+
+### Current database bootstrap path
+- `scripts/bootstrap_demo_db.cjs:18-50,182-196` owns a hand-written, non-linear migration list: it runs `014_demo_preview_bootstrap.sql` first, then returns to 007-013, has two migrations numbered 015, skips a missing migration with a warning, and continues after migration errors.
+- `scripts/bootstrap_demo_db.cjs:55-137` duplicates schema creation for `seller_accounts`, `affiliate_accounts`, `affiliate_attributions`, and `notification_events`; these blocks run during bootstrap before demo seed DML.
+- `scripts/init_db.sql:1-1143` is a second full-schema definition containing types, tables, indexes, constraints, functions, and triggers. It overlaps both the SQL migrations and runtime ensure helpers, but is not the migration ledger source.
+- `src/migrations/001_uuid_schema.ts:13-73` and `002_drop_siton_schema.ts:12` are destructive legacy development migrations outside the SQL chain. They drop tables/schema and are not invoked by the current bootstrap.
+- `src/stage10c_harden_deals.sql:5-118` is a standalone historical hardening script outside the bootstrap chain; its deal constraints/trigger overlap later canonical migrations.
+
+### Runtime DDL inventory
+
+| Runtime source | DDL and affected objects | Called at startup/request time | Parallel SQL migration | Duplication/conflict |
+|---|---|---:|---|---|
+| `src/app.ts:121-150` | creates/indexes `legal_acceptances` | request paths | `030_legal_acceptances.sql` | duplicate |
+| `src/frontend_runtime.ts:1188-1292` | invoice webhook/security tables, legal acceptances, payment webhook security, buyer payment methods, indexes | route registration/request setup | 024, 025, 030 | duplicate |
+| `src/product_surface_support.ts:48-384` | seller/session/affiliate/support/chat/delivery/image/security tables; participant/deal/seller columns; indexes; legacy drops | many product routes | 016, 017, 020, 027, 028, 032, 033 plus missing account prerequisites | duplicate plus the only source for base seller/affiliate/support tables |
+| `src/deal_types.ts:237-337` | deal type columns/check, voucher/ticket/fulfillment tables and indexes | deal routes | `038_deal_types_voucher_ticket.sql` | duplicate |
+| `src/admin_control_plane.ts:140-229` | correlation columns, `admin_actions`, constraints and indexes | admin routes | `035_admin_control_plane.sql` | duplicate |
+| `src/admin_identity.ts:161-222` | admin users/sessions/MFA tables, indexes, admin action identity columns | admin authentication | `036_security_identity_tracking.sql` | duplicate |
+| `src/admin_intervention.ts:68-142` | control flags/events and storage orphan reports with indexes | admin/storage routes | `037_admin_intervention_and_storage.sql` | duplicate |
+| `src/participant_tracking_security.ts:43-64` | tracking-token table and indexes | tracking routes | `036_security_identity_tracking.sql` | duplicate |
+| `src/operational_cases.ts:53-167` | operational case tables/columns/indexes | support/admin routes | `034_operational_cases.sql` | duplicate |
+| `src/otp_rail.ts:206-246` | OTP challenge/attempt tables and indexes | OTP routes | `031_otp_rail.sql` | duplicate |
+| `src/notification_dispatch.ts:368-451` | notification tables, check constraints and indexes | notification enqueue/worker | `029_notification_rail.sql` | duplicate |
+| `src/webhook_ingestion.ts:17-65` | webhook table, status constraint and indexes | webhook ingestion | `007_db_alignment_phase1.sql` | duplicate |
+| `src/platform_fee_money.ts:80-154` | platform-fee money table, constraints and indexes | money-event paths | `019_platform_fee_money_events.sql` | duplicate |
+| `src/payout_rail.ts:175-486` | settlement/payout tables, columns, constraints and indexes | payout/admin paths | `021_seller_payout_rail.sql` | duplicate |
+| `src/invoice_dispatch.ts:256-482` | invoice tables, columns, constraints and indexes; second DB-specific DDL helper | invoice enqueue/worker | 018 and 023-025 | duplicate |
+
+### Schema ownership findings before implementation
+- All runtime-created feature tables except the base seller/affiliate/support account prerequisites already have a parallel SQL migration.
+- The required canonical order is not simple filename order: 014 is the actual base and must precede 007-013; seller/affiliate prerequisites must then exist before migrations 017, 020, 021, 028, and 033.
+- The `public` schema contains no intended application tables in the canonical model; application objects belong to `siton`. Legacy public/duplicate tables require inspection and a non-destructive migration plan before any removal.
+- Runtime helpers currently mix schema repair with normal request handling. They must become validation-only/no-DDL, with startup refusing to serve when the migration ledger or schema contract is incomplete.
+- Demo seed insertion in `bootstrap_demo_db.cjs` is explicit bootstrap DML and is separate from schema ownership; it must run only after the canonical migrator succeeds.
+
+### Planned canonical chain
+- Preserve historical SQL files unchanged.
+- Introduce one explicit manifest with stable migration IDs for the historical execution order, including distinct IDs for the two 015 files.
+- Add a new prerequisite migration for base seller/affiliate/support objects at the point required by the historical dependencies.
+- Add a durable ledger with migration ID, filename, SHA-256 checksum, start/completion timestamps, and success/failure status.
+- Fail closed on missing files, failed SQL, checksum mismatch, dirty/failed ledger entries, or schema drift.
+
 ---
 
 ## Current update: 2026-07-21 (Backend Hardening Milestone 1 — Complete Test Suite)

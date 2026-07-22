@@ -28,6 +28,7 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const migration = await readFile("src/migrations/038_deal_types_voucher_ticket.sql", "utf8");
+const migrationManifest = await readFile("scripts/migration_manifest.cjs", "utf8");
 const dealTypesModule = await readFile("src/deal_types.ts", "utf8");
 const app = await readFile("src/app.ts", "utf8");
 const runtime = await readFile("src/frontend_runtime.ts", "utf8");
@@ -213,8 +214,9 @@ await runTest("notifications_voucher_ticket_templates_validation", async () => {
 });
 
 await runTest("full_e2e_deal_type_smoke_validation", async () => {
-  // Bootstrap registers migration 038 so the deal-types tables ship in demo bootstrap.
-  assert.match(bootstrap, /"038_deal_types_voucher_ticket\.sql"/);
+  // The canonical manifest registers migration 038; bootstrap delegates schema work to it.
+  assert.match(migrationManifest, /"038_deal_types_voucher_ticket\.sql"/);
+  assert.match(bootstrap, /runMigrations/);
   // Deal-types script is wired in package.json.
   assert.match(packageJson, /"test:deal-types"/);
   // Canonical doc enumerates the verdict markers.

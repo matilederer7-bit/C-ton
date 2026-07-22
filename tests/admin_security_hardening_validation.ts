@@ -22,7 +22,13 @@ function fakeWithTx() {
   return async <T>(fn: (c: any) => Promise<T>): Promise<T> => {
     // Return harmless aggregates for any admin endpoint that runs queries.
     const fakeClient = {
-      query: async (_sql: string, _params?: any[]) => ({ rowCount: 0, rows: [] })
+      query: async (sql: string, params?: any[]) => {
+        if (/information_schema\.tables/.test(sql)) {
+          const tables = Array.isArray(params?.[0]) ? params[0] : [];
+          return { rowCount: tables.length, rows: tables.map((table_name: string) => ({ table_name })) };
+        }
+        return { rowCount: 0, rows: [] };
+      }
     };
     return fn(fakeClient);
   };

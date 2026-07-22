@@ -11,6 +11,8 @@
     "start": "tsx src/app.ts",
     "start:demo": "npm run build:demo && npm run start:demo:prod",
     "bootstrap:demo-db": "node scripts/bootstrap_demo_db.cjs",
+    "db:migrate": "node scripts/run_migrations.cjs",
+    "db:inspect": "node scripts/inspect_db.cjs",
     "admin:create-user": "node scripts/create_admin_user.cjs",
     "build:demo": "node scripts/build_demo_bundle.cjs",
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",

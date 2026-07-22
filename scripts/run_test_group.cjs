@@ -60,11 +60,16 @@ async function main() {
   try {
     await admin.query(`CREATE DATABASE ${quoteIdentifier(templateName)}`);
     const templateUrl = databaseUrl(baseUrl, templateName);
-    const bootstrap = spawnSync(process.execPath, ["scripts/bootstrap_demo_db.cjs"], {
+    const bootstrap = spawnSync(process.execPath, ["scripts/run_migrations.cjs"], {
       stdio: "inherit",
       env: isolatedTestEnv({ DATABASE_URL: templateUrl })
     });
-    if (bootstrap.status !== 0) throw bootstrap.error || new Error(`Test DB bootstrap failed: ${bootstrap.status}`);
+    if (bootstrap.status !== 0) throw bootstrap.error || new Error(`Test DB migration failed: ${bootstrap.status}`);
+    const prerequisites = spawnSync(process.execPath, ["scripts/seed_test_prerequisites.cjs"], {
+      stdio: "inherit",
+      env: isolatedTestEnv({ DATABASE_URL: templateUrl })
+    });
+    if (prerequisites.status !== 0) throw prerequisites.error || new Error(`Test prerequisite seed failed: ${prerequisites.status}`);
 
     for (let index = 0; index < selected.length; index += 1) {
       const item = selected[index];

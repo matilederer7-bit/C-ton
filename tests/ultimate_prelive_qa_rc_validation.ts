@@ -134,8 +134,9 @@ async function main() {
     assert.ok(names.includes("affiliate_attributions_participant_id_key"));
 
     const initSql = await readFile("scripts/init_db.sql", "utf8");
-    assert.match(initSql, /CREATE TABLE IF NOT EXISTS (siton\.)?webhook_events/);
-    assert.match(initSql, /CREATE TABLE IF NOT EXISTS (siton\.)?affiliate_attributions/);
+    assert.match(initSql, /intentionally contains no executable DDL/i);
+    assert.match(initSql, /scripts\/migration_manifest\.cjs/);
+    assert.ok(!/\b(?:CREATE|ALTER|DROP)\s+(?:TABLE|TYPE|FUNCTION|TRIGGER|INDEX|SCHEMA)\b/i.test(initSql));
     assert.ok(!/UNIQUE\s*\(\s*deal_id\s*,\s*buyer_id\s*\)/i.test(initSql));
   });
 

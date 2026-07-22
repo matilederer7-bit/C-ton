@@ -1,3 +1,4 @@
+import { assertRequiredTables } from "./schema_contract.js";
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
 export type WebhookEventStatus = "pending" | "processing" | "processed" | "ignored" | "failed";
@@ -15,59 +16,8 @@ export function buildWebhookIngestion(deps: { withTx: WithTx }) {
   let readyPromise: Promise<void> | null = null;
 
   async function ensureStorage() {
-    if (!readyPromise) {
-      readyPromise = deps.withTx(async (c) => {
-        await c.query(
-          `CREATE TABLE IF NOT EXISTS siton.webhook_events (
-             provider TEXT NOT NULL,
-             event_id TEXT NOT NULL,
-             payload_jsonb JSONB NOT NULL,
-             received_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-             processed_at TIMESTAMPTZ NULL,
-             status TEXT NOT NULL DEFAULT 'pending',
-             deal_id UUID NULL REFERENCES siton.deals(deal_id) ON DELETE RESTRICT,
-             participant_id UUID NULL REFERENCES siton.participants(participant_id) ON DELETE RESTRICT,
-             CONSTRAINT webhook_events_pk PRIMARY KEY (provider, event_id),
-             CONSTRAINT webhook_events_status_check CHECK (status IN ('pending','processing','processed','ignored','failed'))
-           )`
-        );
-        await c.query(
-          `DO $$
-           DECLARE
-             v_def text;
-           BEGIN
-             SELECT pg_get_constraintdef(oid)
-             INTO v_def
-             FROM pg_constraint
-             WHERE conrelid = 'siton.webhook_events'::regclass
-               AND conname = 'webhook_events_status_check';
-
-             IF v_def IS NULL OR position('processing' in v_def) = 0 THEN
-               ALTER TABLE siton.webhook_events DROP CONSTRAINT IF EXISTS webhook_events_status_check;
-               ALTER TABLE siton.webhook_events
-                 ADD CONSTRAINT webhook_events_status_check
-                 CHECK (status IN ('pending','processing','processed','ignored','failed')) NOT VALID;
-               ALTER TABLE siton.webhook_events VALIDATE CONSTRAINT webhook_events_status_check;
-             END IF;
-           END $$`
-        );
-        await c.query(
-          `CREATE INDEX IF NOT EXISTS idx_webhook_status_received
-           ON siton.webhook_events (status, received_at)`
-        );
-        await c.query(
-          `CREATE INDEX IF NOT EXISTS idx_webhook_provider_received
-           ON siton.webhook_events (provider, received_at)`
-        );
-        await c.query(
-          `CREATE INDEX IF NOT EXISTS idx_webhook_deal_received
-           ON siton.webhook_events (deal_id, received_at)`
-        );
-      });
-    }
-
-    await readyPromise;
-  }
+  await deps.withTx(async c=>assertRequiredTables(c,["webhook_events"]));
+}
 
   async function claimEvent(input: WebhookIngestInput) {
     await ensureStorage();

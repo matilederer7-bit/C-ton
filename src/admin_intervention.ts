@@ -1,3 +1,4 @@
+import { assertRequiredTables } from "./schema_contract.js";
 // Admin intervention foundation.
 //
 // These helpers manage `siton.admin_control_flags`. The flags express SuperAdmin
@@ -66,80 +67,7 @@ export function isAdminFlagScopeType(value: unknown): value is AdminFlagScopeTyp
 let ensurePromise: Promise<void> | null = null;
 
 export async function ensureAdminInterventionTables(withTx: WithTx) {
-  if (ensurePromise) return ensurePromise;
-  ensurePromise = withTx(async (c) => {
-    await c.query(`SELECT pg_advisory_xact_lock(hashtext('siton_admin_intervention_ddl'))`);
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_control_flags (
-        flag_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        flag_type TEXT NOT NULL CHECK (flag_type IN (
-          'pause_joining_emergency',
-          'pause_charging_emergency',
-          'payout_freeze',
-          'content_takedown'
-        )),
-        scope_type TEXT NOT NULL CHECK (scope_type IN (
-          'global','deal','seller','participant','payout','content'
-        )),
-        scope_id TEXT NOT NULL DEFAULT 'global',
-        status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','released','expired')),
-        reason TEXT NOT NULL,
-        metadata_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb,
-        requested_by_admin_id TEXT NULL,
-        approved_by_admin_id TEXT NULL,
-        admin_action_id UUID NULL,
-        request_id TEXT NULL,
-        correlation_id TEXT NULL,
-        expires_at TIMESTAMPTZ NULL,
-        released_at TIMESTAMPTZ NULL,
-        released_by_admin_id TEXT NULL,
-        released_reason TEXT NULL,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_control_flags_active
-      ON siton.admin_control_flags (flag_type, scope_type, scope_id, status)
-      WHERE status='active'`);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_control_flags_scope
-      ON siton.admin_control_flags (scope_type, scope_id, status, created_at DESC)`);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_control_flags_expires
-      ON siton.admin_control_flags (expires_at)
-      WHERE expires_at IS NOT NULL AND status='active'`);
-
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.admin_control_flag_events (
-        event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        flag_id UUID NOT NULL REFERENCES siton.admin_control_flags(flag_id) ON DELETE CASCADE,
-        event_type TEXT NOT NULL CHECK (event_type IN ('flag.create','flag.release','flag.expire','flag.extend')),
-        actor_ref TEXT NOT NULL DEFAULT 'admin',
-        reason TEXT NOT NULL DEFAULT '',
-        request_id TEXT NULL,
-        correlation_id TEXT NULL,
-        payload JSONB NOT NULL DEFAULT '{}'::jsonb,
-        created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-      )
-    `);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_admin_control_flag_events_flag
-      ON siton.admin_control_flag_events (flag_id, created_at DESC)`);
-
-    await c.query(`
-      CREATE TABLE IF NOT EXISTS siton.storage_orphan_reports (
-        report_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-        generated_by_admin_id TEXT NULL,
-        storage_provider TEXT NOT NULL DEFAULT 'local',
-        scanned_keys_count INTEGER NOT NULL DEFAULT 0,
-        orphan_keys_count INTEGER NOT NULL DEFAULT 0,
-        missing_files_count INTEGER NOT NULL DEFAULT 0,
-        notes TEXT NULL,
-        metadata_jsonb JSONB NOT NULL DEFAULT '{}'::jsonb
-      )
-    `);
-    await c.query(`CREATE INDEX IF NOT EXISTS idx_storage_orphan_reports_generated
-      ON siton.storage_orphan_reports (generated_at DESC)`);
-  });
-  return ensurePromise;
+  await withTx(async c=>assertRequiredTables(c,["admin_control_flags","admin_control_flag_events","storage_orphan_reports"]));
 }
 
 export type CreateAdminFlagInput = {
