@@ -56,3 +56,4 @@ desktop.ini
 # Reports that live at repo root
 *_DELIVERY_REPORT.md
 PROJECT_STATUS.md
+.ci-artifacts/

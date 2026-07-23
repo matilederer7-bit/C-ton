@@ -51,4 +51,4 @@ backups/
 
 # local upload roots (image storage adapter writes here in dev)
 uploads/
-
+.ci-artifacts/

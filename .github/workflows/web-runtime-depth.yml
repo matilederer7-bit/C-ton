@@ -1,0 +1,72 @@
+name: Web runtime depth gates
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: web-runtime-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  web-runtime-core:
+    name: web-runtime-core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Clean dependency install
+        run: npm ci
+      - name: Prepare reports
+        run: mkdir -p .ci-artifacts
+      - name: Route and frontend-backend contract
+        run: npm run web:routes 2>&1 | tee .ci-artifacts/web-route-contract.log
+      - name: Real HTTP authentication, core E2E, errors, and Docker runtime
+        run: npm run ci:web-runtime 2>&1 | tee .ci-artifacts/web-runtime-core.log
+      - name: Upload focused Web runtime reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-runtime-core-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  web-runtime-resilience:
+    name: web-runtime-resilience
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    needs: web-runtime-core
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Clean dependency install
+        run: npm ci
+      - name: Prepare reports
+        run: mkdir -p .ci-artifacts
+      - name: Load, outage, recovery, restart, and multi-instance
+        run: npm run ci:web-runtime:extended 2>&1 | tee .ci-artifacts/web-runtime-resilience.log
+      - name: Upload Web resilience reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-runtime-resilience-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true

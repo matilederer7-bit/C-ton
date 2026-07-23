@@ -89,7 +89,10 @@
     "scan:runtime-ddl": "node scripts/runtime_ddl_scan.cjs",
     "validate:render": "node scripts/render_config_gate.cjs",
     "ci:migrations": "node scripts/ci_migration_report.cjs",
-    "ci:docker-smoke": "node scripts/ci_docker_smoke.cjs"
+    "ci:docker-smoke": "node scripts/ci_docker_smoke.cjs",
+    "web:routes": "npm run build:demo && node scripts/web_route_inventory.cjs",
+    "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
+    "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended"
   },
   "engines": {
     "node": ">=22.0.0"
