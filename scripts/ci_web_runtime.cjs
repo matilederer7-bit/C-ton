@@ -110,7 +110,7 @@ async function main() {
       if (second.status === 0) {
         await waitFor(async () => (await request("http://127.0.0.1:3002/health")).status === 200);
         const both = await Promise.all(Array.from({ length: 100 }, (_, index) =>
-          request(`http://127.0.0.1:${index % 2 ? 3001 : 3002}/api/deals/${dealId}/public`)
+          request(`http://127.0.0.1:${index % 2 ? 3001 : 3002}/api/deals/${dealId}/public`, { headers: { "x-forwarded-for": `10.40.0.${index + 1}` } })
         ));
         record("two web instances serve shared state", both.every((item) => item.status === 200), {
           statuses: both.reduce((map, item) => { map[item.status] = (map[item.status] || 0) + 1; return map; }, {})

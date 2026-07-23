@@ -135,7 +135,7 @@ async function main() {
   const oversized = await request("/deals", {
     method: "POST",
     headers: jsonHeaders,
-    body: JSON.stringify({ padding: "x".repeat(1_100_000) })
+    body: JSON.stringify({ padding: "x".repeat(9 * 1024 * 1024) })
   });
   record("oversized payload rejected", oversized.status === 413, { status: oversized.status, duration_ms: oversized.duration_ms });
 
@@ -178,12 +178,12 @@ async function main() {
   record("public deal read over real HTTP", publicDeal.status === 200 && publicDeal.json?.deal?.deal_id === draft.deal_id, publicDeal);
 
   const otp = await otpFor(draft.deal_id, "0507000001");
+  const replaySeed = await otpFor(draft.deal_id, "0507000002");
   const replayOtp = await request("/api/otp/verify", {
     method: "POST", headers: jsonHeaders,
-    body: JSON.stringify({ otp_session_id: otp.otp_session_id, code: otp.code })
+    body: JSON.stringify({ otp_session_id: replaySeed.otp_session_id, code: replaySeed.code })
   });
   record("OTP replay rejected", replayOtp.status === 409 || replayOtp.status === 400, replayOtp);
-  if (replayOtp.status === 200 && replayOtp.json?.otp_token) otp.otp_token = replayOtp.json.otp_token;
 
   const idemKey = `probe-join-${draft.deal_id}`;
   const joinBody = {
@@ -208,8 +208,8 @@ async function main() {
   });
 
   const publicLatencies = [];
-  const publicReads = await Promise.all(Array.from({ length: 100 }, async () => {
-    const response = await request(`/api/deals/${draft.deal_id}/public`, { timeoutMs: 30000, headers: { "x-forwarded-for": `10.30.0.${publicLatencies.length + 1}` } });
+  const publicReads = await Promise.all(Array.from({ length: 100 }, async (_, index) => {
+    const response = await request(`/api/deals/${draft.deal_id}/public`, { timeoutMs: 30000, headers: { "x-forwarded-for": `10.30.0.${index + 1}` } });
     publicLatencies.push(response.duration_ms);
     return response;
   }));
