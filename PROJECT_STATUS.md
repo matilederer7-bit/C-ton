@@ -1,4 +1,28 @@
 # PROJECT STATUS
+## Current update: 2026-07-23 (Stage 1/6 - Concurrent Join Idempotency)
+
+### Root cause and correction
+- Root cause: Join checked `idempotency_log` only after locking the deal and persisted the result at the end of the business transaction. Its uniqueness tuple included the newly allocated `participant_id`, so it could not establish ownership of a logical request before that participant existed. The route also generated a new tracking token after the transaction on every replay, so successful replay responses were not canonical.
+- PostgreSQL transaction-scoped advisory ownership now serializes `(deal_id, buyer_id, idempotency_key)` across Web instances with a bounded 20-second lock wait. Rollback, connection loss, or process death releases ownership; a waiter then safely takes over.
+- Canonical migration `041_join_idempotency_key_ownership.sql` adds `join_idempotency_results`, keyed by deal, buyer, and idempotency key. The row stores the normalized SHA-256 request hash, participant, and complete response. The manifest now contains 37 migrations.
+- An identical completed request reads and returns the persisted response. The same key with a different normalized business payload returns 409 `idempotency_payload_mismatch` before any mutation.
+- Participant insertion, buyer/money state changes, two state audits, legal acceptance, notification outbox event, tracking-token issuance, business idempotency log, and canonical Join result commit in one transaction. The first response is read from PostgreSQL JSONB too, so it is identical to later replays.
+
+### Failure, restart, and concurrency evidence
+- Failure before participant creation leaves zero participant/audit/outbox/idempotency rows and a retry on the second Web takes ownership successfully.
+- Injected failure after participant insertion but before commit rolls the entire transaction back; the retry succeeds without partial state.
+- A response discarded after commit replays exactly. A freshly imported Web instance after commit returns the same stored participant, tracking token, URL, delivery fields, and hold total.
+- Ten consecutive two-Web races of 100 identical requests passed. Every run: 100 successes, 0 conflicts/non-200 responses, 1 participant, quantity 1, 2 audit rows, 1 notification outbox event, 1 business idempotency row, and 1 canonical result. Observed run durations were 14.9-19.2 seconds for the complete proof file.
+- Sequential replay, different-payload conflict, distinct keys, oversell protection, multi-purchase policy, response-loss recovery, and restart replay all pass in `concurrency_proof.ts`.
+
+### Regression and enforcement results
+- Integration 5/5; Database 4/4; API 35/35; Workers 7/7; Payments 21/21; Concurrency 3/3; Failure 3/3. E2E product tests passed 11/11, and the browser smoke passed separately in its permitted process environment; full-suite execution passed the other 112 files, while the bundled Edge fallback-route dump timed out once locally after passing all preceding browser routes. No Join regression failed.
+- `npx tsc --noEmit`, lint/backend enforcement (64 files), direct-state mutation, Payment SDK boundary, secret, payment/raw-card, runtime-DDL (39 files), and `git diff --check`: PASS.
+- OTP single-use, upload/storage, payment Sandbox, live payments, UX, and design were not changed in this stage.
+
+### Remaining work
+- Stage 1 Join/idempotency implementation and its focused gates are complete. The local all-suite browser child has an unrelated Edge dump timeout under the Windows runner; the dedicated browser smoke passes, and GitHub CI is the authoritative combined gate.
+- Next step: make OTP genuinely single-use.
 
 ## Current update: 2026-07-23 (Focused Web Runtime Depth Audit)
 

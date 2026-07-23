@@ -37,7 +37,8 @@ const MIGRATIONS = [
   ["037", "037_admin_intervention_and_storage.sql"],
   ["038", "038_deal_types_voucher_ticket.sql"],
   ["039", "039_webhook_processing_status.sql"],
-  ["040", "040_outbox_worker_leases.sql"]
+  ["040", "040_outbox_worker_leases.sql"],
+  ["041", "041_join_idempotency_key_ownership.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

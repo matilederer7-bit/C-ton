@@ -113,6 +113,10 @@ function hashOptional(value: unknown): string | null {
   return createHash("sha256").update(text).digest("hex");
 }
 
+function hashJoinRequestPayload(payload: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
 async function ensureLegalAcceptanceTables(withTxFn: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>) {
   await withTxFn(async c=>assertRequiredTables(c,["legal_acceptances"]));
 }
@@ -2878,12 +2882,57 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     ? String(req.headers["idempotency-key"])
     : `join:${dealId}:${buyer_id}:${requestId}`;
 
+  const joinRequestHash = hashJoinRequestPayload({
+    deal_id: dealId,
+    buyer_id,
+    qty,
+    authorization_id: authorizationId || null,
+    authorization_provider: authorizationProvider || null,
+    authorization_correlation_id: authorizationCorrelationId || null,
+    delivery_option_id: deliveryOptionId || null,
+    buyer_name: buyerName,
+    buyer_email: buyerEmail,
+    delivery_address: deliveryAddress,
+    delivery_city: deliveryCity,
+    delivery_notes: deliveryNotes,
+    affiliate_ref: String(body.affiliate_ref || "").trim().slice(0, 120),
+    payment_disclosure_accepted: true
+  });
   await ensureAdminControlPlaneTables(withTx);
   await ensureAdminInterventionTables(withTx);
-  const participant = await withTx(async (c) => {
+  await ensureParticipantTrackingTables(withTx);
+  await ensureNotificationRailTables(withTx);
+  const joinResult = await withTx(async (c) => {
+    // Database-scoped ownership serializes the same logical Join across every Web instance.
+    // The timeout bounds waiter lifetime; rollback or process death releases ownership automatically.
+    await c.query("SET LOCAL lock_timeout = '20s'");
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", [`participant.join_authorize:${dealId}:${buyer_id}:${idem}`]);
+
+    const idemCheck = await c.query(
+      `SELECT request_hash, response_jsonb
+       FROM siton.join_idempotency_results
+       WHERE deal_id=$1 AND buyer_id=$2 AND idempotency_key=$3`,
+      [dealId, buyer_id, idem]
+    );
+    if (idemCheck.rowCount) {
+      if (String(idemCheck.rows[0].request_hash || "") !== joinRequestHash) {
+        const err: any = new Error("idempotency key was already used with a different Join payload");
+        err.statusCode = 409;
+        err.code = "idempotency_payload_mismatch";
+        throw err;
+      }
+      return { replayed: true as const, response: idemCheck.rows[0].response_jsonb };
+    }
+
+    const joinTestFailurePoint = process.env.NODE_ENV === "test"
+      ? String(req.headers["x-siton-join-failure-point"] || "")
+      : "";
+    if (joinTestFailurePoint === "before_participant") {
+      throw new Error("join_test_failure_before_participant");
+    }
     // Lock the deal row to prevent concurrent over-booking
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units, seller_id FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      `SELECT deal_id, state, max_units, seller_id, title, price_per_unit FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
     );
     if (!dealRow.rowCount) {
@@ -2909,32 +2958,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
-    // Pre-INSERT idempotency check: if this exact idempotency key was already committed for
-    // a participant on this deal+buyer pair, return that participant directly without re-inserting.
-    const idemCheck = await c.query(
-      `SELECT p.participant_id, p.buyer_state, p.money_state,
-              p.delivery_option_id, p.delivery_method_type, p.delivery_method_label, p.delivery_cost
-       FROM siton.idempotency_log il
-       JOIN siton.participants p ON p.participant_id = il.entity_id
-       WHERE il.entity_type = 'participant'
-         AND il.action_name = 'participant.join_authorize'
-         AND il.idempotency_key = $1
-         AND p.deal_id = $2
-         AND p.buyer_id = $3
-       LIMIT 1`,
-      [idem, dealId, buyer_id]
-    );
-    if (idemCheck.rowCount) {
-      return idemCheck.rows[0] as {
-        participant_id: string;
-        buyer_state: BuyerState;
-        money_state: MoneyState;
-        delivery_option_id?: string | null;
-        delivery_method_type?: string | null;
-        delivery_method_label?: string | null;
-        delivery_cost?: number | string | null;
-      };
-    }
     const deliveryOption = deliveryOptionId
       ? await c.query(
           `SELECT option_id, option_type, label, cost
@@ -3015,6 +3038,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       ]
     );
     const pid = ins.rows[0].participant_id as string;
+    if (joinTestFailurePoint === "after_participant_before_commit") {
+      throw new Error("join_test_failure_after_participant_before_commit");
+    }
 
     const affiliateRef = String(body.affiliate_ref || "").trim().slice(0, 120);
     if (affiliateRef) {
@@ -3070,24 +3096,84 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     );
     if (msUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NoFinancial`);
 
+    await recordLegalAcceptance({
+      c,
+      req,
+      actorType: "buyer",
+      actorRef: buyer_id,
+      dealId,
+      participantId: pid,
+      acceptanceType: "buyer_payment_disclosure",
+      policyVersion: PAYMENT_DISCLOSURE_VERSION,
+      metadata: { no_charge_before_successful_close: true }
+    });
+
+    await enqueueNotification({
+      eventKey: `join_authorized:${pid}:sms`,
+      notificationEventType: "join_authorized",
+      channel: "sms",
+      recipient: buyer_id,
+      templateParams: {
+        deal_id: dealId,
+        deal_title: String(dealRow.rows[0].title || ""),
+        participant_id: pid
+      },
+      providerCode: notificationService.providerCode
+    }, c);
+
+    const trackingAccess = await issueParticipantTrackingToken(c, {
+      participant_id: pid,
+      deal_id: dealId,
+      purpose: "tracking",
+      issued_via: "buyer_join",
+      correlation_id: correlationId
+    });
+    const deliveryCost = Number(selectedDelivery?.cost || 0);
+    const response = {
+      ok: true,
+      participant_id: pid,
+      tracking_access_token: trackingAccess.token,
+      tracking_url: `/app/track/${encodeURIComponent(pid)}?t=${encodeURIComponent(trackingAccess.token)}`,
+      delivery_option_id: selectedDelivery?.option_id ?? null,
+      delivery_method_type: selectedDelivery?.option_type ?? null,
+      delivery_method_label: selectedDelivery?.label ?? null,
+      delivery_cost: deliveryCost,
+      hold_total: Number(qty) * Number(dealRow.rows[0].price_per_unit || 0) + deliveryCost
+    };
+
+    const canonicalResult = await c.query(
+      `INSERT INTO siton.join_idempotency_results
+         (deal_id, buyer_id, idempotency_key, request_hash, participant_id, response_jsonb)
+       VALUES ($1,$2,$3,$4,$5,$6)
+       RETURNING response_jsonb`,
+      [dealId, buyer_id, idem, joinRequestHash, pid, JSON.stringify(response)]
+    );
+    const canonicalResponse = canonicalResult.rows[0].response_jsonb;
     await c.query(
       `INSERT INTO siton.idempotency_log
-       (entity_type, entity_id, action_name, idempotency_key, response_code, response_jsonb, correlation_id, request_id)
-       VALUES ('participant',$1,'participant.join_authorize',$2,'OK',$3,$4,$5)`,
-      [pid, idem, JSON.stringify({ ok: true }), correlationId, requestId]
+       (entity_type, entity_id, action_name, idempotency_key, request_hash, response_code, response_jsonb, correlation_id, request_id)
+       VALUES ('participant',$1,'participant.join_authorize',$2,$3,'OK',$4,$5,$6)`,
+      [pid, idem, joinRequestHash, JSON.stringify(canonicalResponse), correlationId, requestId]
     );
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
 
     return {
-      participant_id: pid,
-      buyer_state: "JoinedAuthorized" as BuyerState,
-      money_state: "AuthHeld" as MoneyState,
-      delivery_option_id: selectedDelivery?.option_id ?? null,
-      delivery_method_type: selectedDelivery?.option_type ?? null,
-      delivery_method_label: selectedDelivery?.label ?? null,
-      delivery_cost: Number(selectedDelivery?.cost || 0)
+      replayed: false as const,
+      participant: {
+        participant_id: pid,
+        buyer_state: "JoinedAuthorized" as BuyerState,
+        money_state: "AuthHeld" as MoneyState,
+        delivery_option_id: selectedDelivery?.option_id ?? null,
+        delivery_method_type: selectedDelivery?.option_type ?? null,
+        delivery_method_label: selectedDelivery?.label ?? null,
+        delivery_cost: deliveryCost
+      },
+      response: canonicalResponse
     };
   });
+
+  if (joinResult.replayed) return joinResult.response;
+  const participant = joinResult.participant;
 
   const targetAttempt = await withTx(async (c) => {
     const d = await c.query(`SELECT state, threshold_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
@@ -3102,62 +3188,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     await tryTargetReached(dealId, requestId);
   }
 
-  await withTx(async (c) => {
-    await recordLegalAcceptance({
-      c,
-      req,
-      actorType: "buyer",
-      actorRef: buyer_id,
-      dealId,
-      participantId: participant.participant_id,
-      acceptanceType: "buyer_payment_disclosure",
-      policyVersion: PAYMENT_DISCLOSURE_VERSION,
-      metadata: { no_charge_before_successful_close: true }
-    });
-  });
-
-  // Enqueue join_authorized notification (non-blocking — failure must not break join)
-  await (async () => {
-    try {
-      const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
-      const dealTitle = String(dealTitleRow.rows[0]?.title || "");
-      await enqueueNotification({
-        eventKey: `join_authorized:${participant.participant_id}:sms`,
-        notificationEventType: "join_authorized",
-        channel: "sms",
-        recipient: buyer_id,
-        templateParams: { deal_id: dealId, deal_title: dealTitle, participant_id: participant.participant_id },
-        providerCode: notificationService.providerCode
-      }, pool);
-    } catch (e) {
-      app.log.error({ err: e, participant_id: participant.participant_id }, "join: notification enqueue failed (non-fatal)");
-    }
-  })();
-
-  const dealPriceRow = await pool.query(`SELECT price_per_unit FROM siton.deals WHERE deal_id=$1`, [dealId]);
-  const deliveryCost = Number(participant.delivery_cost || 0);
-  await ensureParticipantTrackingTables(withTx);
-  const trackingAccess = await withTx(async (c) => {
-    return issueParticipantTrackingToken(c, {
-      participant_id: participant.participant_id,
-      deal_id: dealId,
-      purpose: "tracking",
-      issued_via: "buyer_join",
-      correlation_id: correlationId
-    });
-  });
-  const trackingUrl = `/app/track/${encodeURIComponent(participant.participant_id)}?t=${encodeURIComponent(trackingAccess.token)}`;
-  return {
-    ok: true,
-    participant_id: participant.participant_id,
-    tracking_access_token: trackingAccess.token,
-    tracking_url: trackingUrl,
-    delivery_option_id: participant.delivery_option_id ?? null,
-    delivery_method_type: participant.delivery_method_type ?? null,
-    delivery_method_label: participant.delivery_method_label ?? null,
-    delivery_cost: deliveryCost,
-    hold_total: Number(qty) * Number(dealPriceRow.rows[0]?.price_per_unit || 0) + deliveryCost
-  };
+  return joinResult.response;
 });
 
 app.post("/deals/:id/close_joining", async (req: any) => {

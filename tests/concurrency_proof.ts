@@ -25,6 +25,7 @@ process.env.RATE_LIMIT_MAX = "1000000";
 process.env.RATE_LIMIT_SENSITIVE_MAX = "1000000";
 
 const { app } = await import("../src/app.js");
+const { app: secondWebApp } = await import(new URL("../src/app.js?second-web", import.meta.url).href);
 
 // ─── direct DB pool for setup / evidence ────────────────────────────────────
 const DB = new Pool({
@@ -91,15 +92,19 @@ interface Evidence {
   maxUnits: number;
   auditCount: number;
   idemCount: number;
+  resultCount: number;
+  outboxCount: number;
   buyers: { buyer_id: string; participant_count: number; qty_sum: number }[];
 }
 
 async function evidence(dealId: string): Promise<Evidence> {
-  const [deal, parts, audit, idem, buyers] = await Promise.all([
+  const [deal, parts, audit, idem, results, outbox, buyers] = await Promise.all([
     DB.query(`SELECT max_units FROM siton.deals WHERE deal_id=$1`, [dealId]),
     DB.query(`SELECT COUNT(*) as cnt, COALESCE(SUM(qty),0) as total FROM siton.participants WHERE deal_id=$1 AND buyer_state NOT IN ('DealFailed','Dropped')`, [dealId]),
     DB.query(`SELECT COUNT(*) as cnt FROM siton.audit_log WHERE entity_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1) AND action_name='participant.join_authorize'`, [dealId]),
     DB.query(`SELECT COUNT(*) as cnt FROM siton.idempotency_log WHERE entity_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1) AND action_name='participant.join_authorize'`, [dealId]),
+    DB.query(`SELECT COUNT(*) as cnt FROM siton.join_idempotency_results WHERE deal_id=$1`, [dealId]),
+    DB.query(`SELECT COUNT(*) as cnt FROM siton.notification_events WHERE deal_id=$1 AND event_type='buyer_joined_authorized'`, [dealId]),
     DB.query(`SELECT buyer_id, COUNT(*) as participant_count, SUM(qty) as qty_sum FROM siton.participants WHERE deal_id=$1 AND buyer_state NOT IN ('DealFailed','Dropped') GROUP BY buyer_id`, [dealId])
   ]);
   return {
@@ -108,6 +113,8 @@ async function evidence(dealId: string): Promise<Evidence> {
     maxUnits: Number(deal.rows[0]?.max_units ?? 0),
     auditCount: Number(audit.rows[0].cnt),
     idemCount: Number(idem.rows[0].cnt),
+    resultCount: Number(results.rows[0].cnt),
+    outboxCount: Number(outbox.rows[0].cnt),
     buyers: buyers.rows.map(r => ({ buyer_id: r.buyer_id, participant_count: Number(r.participant_count), qty_sum: Number(r.qty_sum) }))
   };
 }
@@ -115,10 +122,11 @@ async function evidence(dealId: string): Promise<Evidence> {
 // Each scenario gets its own spoofed IP subnet so rate buckets never bleed across scenarios
 let scenarioIp = "10.0.0.1";
 
-async function join(dealId: string, buyerId: string, qty: unknown = 1, idemKey?: string) {
+async function join(dealId: string, buyerId: string, qty: unknown = 1, idemKey?: string, targetApp: any = app, failurePoint?: string) {
   const headers: Record<string, string> = { "x-forwarded-for": scenarioIp };
   if (idemKey) headers["idempotency-key"] = idemKey;
-  const res = await app.inject({
+  if (failurePoint) headers["x-siton-join-failure-point"] = failurePoint;
+  const res = await targetApp.inject({
     method: "POST",
     url: `/deals/${dealId}/join`,
     payload: {
@@ -190,7 +198,7 @@ await run("S1 — 70 concurrent joins on max_units=10 deal, no oversell", async 
     const other     = results.filter(r => r.status !== 200 && r.status !== 409).length;
 
     console.log(`     requests=70  succeeded=${succeeded}  rejected=${rejected}  other=${other}`);
-    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  max_units=${ev.maxUnits}  audit=${ev.auditCount}  idem=${ev.idemCount}`);
+    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  max_units=${ev.maxUnits}  audit=${ev.auditCount}  outbox=${ev.outboxCount}  idem=${ev.idemCount}  result=${ev.resultCount}`);
 
     // atomicMultiTransition writes 2 audit rows per join (buyer_state + money_state)
     assert.ok(ev.qtySum <= ev.maxUnits, `OVERSELL: qty_sum=${ev.qtySum} > max_units=${ev.maxUnits}`);
@@ -218,7 +226,7 @@ await run("S2 — 200 concurrent joins on max_units=20 deal, no oversell", async
     const rejected  = results.filter(r => r.status === 409).length;
 
     console.log(`     requests=200  succeeded=${succeeded}  rejected=${rejected}`);
-    console.log(`     DB: qty_sum=${ev.qtySum}  max_units=${ev.maxUnits}  audit=${ev.auditCount}  idem=${ev.idemCount}`);
+    console.log(`     DB: qty_sum=${ev.qtySum}  max_units=${ev.maxUnits}  audit=${ev.auditCount}  outbox=${ev.outboxCount}  idem=${ev.idemCount}  result=${ev.resultCount}`);
 
     assert.ok(ev.qtySum <= ev.maxUnits, `OVERSELL: qty_sum=${ev.qtySum} > max_units=${ev.maxUnits}`);
     assert.equal(ev.qtySum, succeeded, `qty_sum(${ev.qtySum}) != succeeded(${succeeded})`);
@@ -362,7 +370,7 @@ await run("I1 — Same explicit idempotency-key replayed returns same participan
 
     console.log(`     r1=${r1.status}  r2=${r2.status}  r3=${r3.status}`);
     console.log(`     participant_id r1=${r1.body.participant_id}  r2=${r2.body.participant_id}  r3=${r3.body.participant_id}`);
-    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  audit=${ev.auditCount}  idem=${ev.idemCount}`);
+    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  audit=${ev.auditCount}  outbox=${ev.outboxCount}  idem=${ev.idemCount}  result=${ev.resultCount}`);
 
     assert.equal(r1.status, 200, `first join failed: ${JSON.stringify(r1.body)}`);
     assert.equal(r2.status, 200, `replay 2 should return 200 idempotently`);
@@ -381,7 +389,7 @@ await run("I1 — Same explicit idempotency-key replayed returns same participan
 
 // ─── IDEMPOTENCY 2: Same key, different qty (payload mismatch) ───────────────
 
-await run("I2 — Same idempotency-key with different qty: idempotent result, no double reservation", async () => {
+await run("I2 — Same idempotency-key with different qty: canonical payload conflict, no mutation", async () => {
   const dealId = await createDeal(10, "I2-idem-payload-mismatch");
   try {
     const idemKey = `test-mismatch-${randomUUID()}`;
@@ -395,8 +403,8 @@ await run("I2 — Same idempotency-key with different qty: idempotent result, no
     console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  audit=${ev.auditCount}`);
 
     assert.equal(r1.status, 200, `first join failed`);
-    assert.equal(r2.status, 200, `replay with same key should be idempotent`);
-    assert.equal(r1.body.participant_id, r2.body.participant_id, `same key must return same participant`);
+    assert.equal(r2.status, 409, `same key with a different payload must conflict`);
+    assert.equal(r2.body.code, "idempotency_payload_mismatch", `payload mismatch must return the canonical code`);
     // Critical: must NOT double-reserve
     assert.equal(ev.qtySum, 1, `qty_sum must be 1 (original), not 4: got ${ev.qtySum}`);
     assert.equal(ev.participantCount, 1, `only 1 participant row must exist`);
@@ -408,39 +416,120 @@ await run("I2 — Same idempotency-key with different qty: idempotent result, no
 
 // ─── IDEMPOTENCY 3: Multiple retries concurrently on same key ────────────────
 
-await run("I3 — 20 concurrent retries on same explicit key: exactly one side effect", async () => {
+await run("I3 - 100 concurrent retries across two Web instances: exactly one side effect", async () => {
   const dealId = await createDeal(10, "I3-idem-concurrent-replay");
   try {
     const idemKey = `concurrent-replay-${randomUUID()}`;
-    // Fire 20 concurrent requests with the same explicit idempotency key
+    // Fire 100 requests with one key across two independently initialized Web applications
     const results = await Promise.all(
-      Array.from({ length: 20 }, () => join(dealId, "buyer-concurrent-idem", 1, idemKey))
+      Array.from({ length: 100 }, (_, index) => join(dealId, "buyer-concurrent-idem", 1, idemKey, index % 2 === 0 ? app : secondWebApp))
     );
     const ev = await evidence(dealId);
     const succeeded = results.filter(r => r.status === 200).length;
-    const failed    = results.filter(r => r.status >= 500).length;
+    const failed    = results.filter(r => r.status !== 200).length;
     const pids = [...new Set(results.filter(r => r.status === 200).map(r => r.body.participant_id))];
 
-    console.log(`     20 concurrent same-key requests: succeeded=${succeeded} 5xx=${failed}`);
+    console.log(`     100 concurrent same-key requests across two Web instances: succeeded=${succeeded} non_200=${failed}`);
     console.log(`     unique participant_ids returned: ${pids.length}`);
-    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  audit=${ev.auditCount}  idem=${ev.idemCount}`);
+    console.log(`     DB: participants=${ev.participantCount}  qty_sum=${ev.qtySum}  audit=${ev.auditCount}  outbox=${ev.outboxCount}  idem=${ev.idemCount}  result=${ev.resultCount}`);
 
     // All must return 200 (idempotent)
-    assert.equal(succeeded + failed, 20);
-    assert.ok(succeeded >= 1, `at least one must succeed`);
+    assert.equal(succeeded, 100, "all identical concurrent requests must succeed");
+    assert.equal(failed, 0, "no identical concurrent request may conflict or fail");
     // All successful responses must reference same participant
-    assert.equal(pids.length, 1, `all 200 responses must return same participant_id, got ${pids.length} unique`);
+    assert.equal(pids.length, 1, `all 100 responses must return same participant_id, got ${pids.length} unique`);
+    assert.ok(results.every(r => JSON.stringify(r.body) === JSON.stringify(results[0]!.body)), "all replays must return the exact canonical response");
     // DB must have exactly one side effect
     assert.equal(ev.participantCount, 1, `exactly 1 participant in DB, got ${ev.participantCount}`);
     assert.equal(ev.qtySum, 1, `qty_sum must be 1`);
     assert.equal(ev.auditCount, 2, `exactly 2 audit entries (2 ops per join), got ${ev.auditCount}`);
     assert.equal(ev.idemCount, 1, `exactly 1 idem_log entry, got ${ev.idemCount}`);
+    assert.equal(ev.resultCount, 1, "exactly 1 canonical idempotency result");
+    assert.equal(ev.outboxCount, 1, "exactly 1 Join notification outbox event");
   } finally {
     await deleteDeal(dealId);
   }
 });
 
 // ─── MULTI-PURCHASE 1: Same buyer, sequential distinct joins ─────────────────
+
+await run("I4 - owner failure before participant leaves no partial state and permits takeover", async () => {
+  const dealId = await createDeal(10, "I4-fail-before-participant");
+  try {
+    const idemKey = `fail-before-${randomUUID()}`;
+    const failed = await join(dealId, "buyer-fail-before", 1, idemKey, app, "before_participant");
+    const afterFailure = await evidence(dealId);
+    assert.equal(failed.status, 500);
+    assert.equal(afterFailure.participantCount, 0);
+    assert.equal(afterFailure.auditCount, 0);
+    assert.equal(afterFailure.outboxCount, 0);
+    assert.equal(afterFailure.resultCount, 0);
+
+    const retry = await join(dealId, "buyer-fail-before", 1, idemKey, secondWebApp);
+    assert.equal(retry.status, 200);
+    const afterRetry = await evidence(dealId);
+    assert.equal(afterRetry.participantCount, 1);
+    assert.equal(afterRetry.resultCount, 1);
+  } finally {
+    await deleteDeal(dealId);
+  }
+});
+
+await run("I5 - failure after participant insert but before commit rolls back completely", async () => {
+  const dealId = await createDeal(10, "I5-fail-after-participant");
+  try {
+    const idemKey = `fail-after-${randomUUID()}`;
+    const failed = await join(
+      dealId,
+      "buyer-fail-after",
+      1,
+      idemKey,
+      app,
+      "after_participant_before_commit"
+    );
+    assert.equal(failed.status, 500);
+    const afterFailure = await evidence(dealId);
+    assert.equal(afterFailure.participantCount, 0);
+    assert.equal(afterFailure.auditCount, 0);
+    assert.equal(afterFailure.outboxCount, 0);
+    assert.equal(afterFailure.idemCount, 0);
+    assert.equal(afterFailure.resultCount, 0);
+
+    const retry = await join(dealId, "buyer-fail-after", 1, idemKey, secondWebApp);
+    assert.equal(retry.status, 200);
+  } finally {
+    await deleteDeal(dealId);
+  }
+});
+
+await run("I6 - lost response and fresh Web restart replay the committed canonical result", async () => {
+  const dealId = await createDeal(10, "I6-response-loss-restart");
+  let restartedWeb: any = null;
+  try {
+    const idemKey = `response-loss-${randomUUID()}`;
+    const committedButIgnored = await join(dealId, "buyer-response-loss", 1, idemKey);
+    assert.equal(committedButIgnored.status, 200);
+
+    const retryAfterDisconnect = await join(dealId, "buyer-response-loss", 1, idemKey, secondWebApp);
+    assert.deepEqual(retryAfterDisconnect.body, committedButIgnored.body);
+
+    const restartedModule = await import(
+      new URL(`../src/app.js?restart=${randomUUID()}`, import.meta.url).href
+    );
+    restartedWeb = restartedModule.app;
+    const retryAfterRestart = await join(dealId, "buyer-response-loss", 1, idemKey, restartedWeb);
+    assert.deepEqual(retryAfterRestart.body, committedButIgnored.body);
+    const ev = await evidence(dealId);
+    assert.equal(ev.participantCount, 1);
+    assert.equal(ev.auditCount, 2);
+    assert.equal(ev.outboxCount, 1);
+    assert.equal(ev.idemCount, 1);
+    assert.equal(ev.resultCount, 1);
+  } finally {
+    if (restartedWeb) await restartedWeb.close().catch(() => undefined);
+    await deleteDeal(dealId);
+  }
+});
 
 await run("M1 — Same buyer, 5 sequential purchases with auto-keys: 5 separate participants", async () => {
   const dealId = await createDeal(10, "M1-multi-purchase-seq");
@@ -531,5 +620,6 @@ await run("CONSISTENCY — No proof deal residue remains in DB", async () => {
 });
 
 await app.close().catch(() => undefined);
+await secondWebApp.close().catch(() => undefined);
 await DB.end();
 console.log("\n\nAll Wave 1 proof scenarios completed.");
