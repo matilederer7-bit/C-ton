@@ -126,6 +126,7 @@ async function main() {
     report.completed_at = new Date().toISOString();
     report.verdict = report.product_findings.length ? "PRODUCT_FINDINGS_RECORDED" : "PASS";
     fs.writeFileSync(path.join(artifacts, `web-runtime-${mode}-report.json`), JSON.stringify(report, null, 2));
+    console.log("CI_WEB_RUNTIME_FINDINGS", JSON.stringify(report.product_findings));
     console.log("CI_WEB_RUNTIME_COMPLETE", JSON.stringify({
       mode,
       scenarios: report.scenarios.length,

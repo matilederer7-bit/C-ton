@@ -245,6 +245,7 @@ async function main() {
 
   await db.end();
   fs.writeFileSync(path.join(artifacts, "web-runtime-http-report.json"), JSON.stringify(report, null, 2));
+  console.log("WEB_RUNTIME_HTTP_FINDINGS", JSON.stringify(report.product_findings));
   console.log("WEB_RUNTIME_HTTP_PROBE_COMPLETE", JSON.stringify({
     passed: report.counts.passed,
     findings: report.counts.failed,
