@@ -18,10 +18,20 @@ const report = {
   counts: { passed: 0, failed: 0 }
 };
 
+function sanitize(value, key = "") {
+  if (/^(otp_token|development_code|authorization|cookie|set-cookie)$/i.test(key)) return "[REDACTED]";
+  if (typeof value === "string") return value
+    .replace(/("(?:otp_token|development_code)"\s*:\s*")[^"]+("?)/gi, "$1[REDACTED]$2")
+    .replace(/\bv1\.[A-Za-z0-9._-]{20,}/g, "[REDACTED_TOKEN]");
+  if (Array.isArray(value)) return value.map((item) => sanitize(item));
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([childKey, child]) => [childKey, sanitize(child, childKey)]));
+  return value;
+}
 function record(name, passed, details = {}) {
-  report.scenarios.push({ name, passed, ...details });
+  const safeDetails = sanitize(details);
+  report.scenarios.push({ name, passed, ...safeDetails });
   report.counts[passed ? "passed" : "failed"] += 1;
-  if (!passed) report.product_findings.push({ name, ...details });
+  if (!passed) report.product_findings.push({ name, ...safeDetails });
 }
 
 async function request(route, options = {}) {
@@ -173,6 +183,7 @@ async function main() {
     body: JSON.stringify({ otp_session_id: otp.otp_session_id, code: otp.code })
   });
   record("OTP replay rejected", replayOtp.status === 409 || replayOtp.status === 400, replayOtp);
+  if (replayOtp.status === 200 && replayOtp.json?.otp_token) otp.otp_token = replayOtp.json.otp_token;
 
   const idemKey = `probe-join-${draft.deal_id}`;
   const joinBody = {
@@ -198,7 +209,7 @@ async function main() {
 
   const publicLatencies = [];
   const publicReads = await Promise.all(Array.from({ length: 100 }, async () => {
-    const response = await request(`/api/deals/${draft.deal_id}/public`, { timeoutMs: 30000 });
+    const response = await request(`/api/deals/${draft.deal_id}/public`, { timeoutMs: 30000, headers: { "x-forwarded-for": `10.30.0.${publicLatencies.length + 1}` } });
     publicLatencies.push(response.duration_ms);
     return response;
   }));
@@ -213,8 +224,9 @@ async function main() {
   record("100 concurrent public deal readers", publicReads.every((item) => item.status === 200), report.metrics.public_read_100);
 
   const affiliate = await request("/api/affiliate/overview");
-  const affiliateText = JSON.stringify(affiliate.json || {});
-  record("distributor aggregate surface excludes PII and balances", affiliate.status === 200 && !/(buyer_phone|buyer_email|commission|balance|payout)/i.test(affiliateText), { status: affiliate.status });
+  const affiliateKeys = [];
+  (function collectKeys(value) { if (Array.isArray(value)) value.forEach(collectKeys); else if (value && typeof value === "object") for (const [key, child] of Object.entries(value)) { affiliateKeys.push(key); collectKeys(child); } })(affiliate.json);
+  record("distributor aggregate surface excludes PII and balances", affiliate.status === 200 && !affiliateKeys.some((key) => /^(buyer_phone|buyer_email|commission|balance|payout)$/i.test(key)), { status: affiliate.status, forbidden_keys: affiliateKeys.filter((key) => /^(buyer_phone|buyer_email|commission|balance|payout)$/i.test(key)) });
 
   const mockAuthorize = await request("/api/payments/authorize-mock", { method: "POST", headers: jsonHeaders, body: "{}" });
   record("mock payment route remains registered in non-production runtime", mockAuthorize.status !== 404, { status: mockAuthorize.status, informational: true });
@@ -245,7 +257,7 @@ async function main() {
 
   await db.end();
   fs.writeFileSync(path.join(artifacts, "web-runtime-http-report.json"), JSON.stringify(report, null, 2));
-  console.log("WEB_RUNTIME_HTTP_FINDINGS", JSON.stringify(report.product_findings));
+  console.log("WEB_RUNTIME_HTTP_FINDINGS", JSON.stringify(report.product_findings.map((item) => ({ name: item.name, status: item.status, statuses: item.statuses, error_rate: item.error_rate, median_ms: item.median_ms, p95_ms: item.p95_ms, p99_ms: item.p99_ms, error: item.json?.error, code: item.json?.code }))));
   console.log("WEB_RUNTIME_HTTP_PROBE_COMPLETE", JSON.stringify({
     passed: report.counts.passed,
     findings: report.counts.failed,
