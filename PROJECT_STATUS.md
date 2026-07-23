@@ -1,5 +1,46 @@
 # PROJECT STATUS
 
+## Current update: 2026-07-23 (Focused Web Runtime Depth Audit)
+
+### Verdict
+- `WEB_RUNTIME_PRODUCT_FINDINGS_RECORDED`: the Docker Web process, DB recovery, restart, multi-instance reads, route/frontend contract, error boundary, authorization denials, connection hygiene, and public-read load are operational.
+- The Web service is **not ready for payment Sandbox or pilot sign-off** because three reproducible product findings remain. Per task scope, no product behavior was changed.
+
+### Automated route and frontend contract
+- Inventoried 124 registered method/path combinations from the actual Fastify registration sources and retained the runtime route tree plus JSON/Markdown reports.
+- Classified authentication/role, explicit request/response schema presence, observed success/error statuses and codes, frontend usage, and production/demo/mock/legacy lifecycle.
+- Frontend scan found 59 API calls: 0 calls without a matching backend route, 0 duplicate method/path registrations, and 0 admin routes without a detected guard.
+- Two compatibility/mock routes remain registered: `POST /api/payments/authorize-mock` and `POST /webhooks/payments/mock`. Production startup guards still prohibit mock provider configuration; the routes themselves remain part of the registered tree.
+- Most handlers do not declare explicit Fastify request/response schemas; validation remains handler-level. This is contract debt, not changed in this audit.
+
+### Real HTTP and authorization results
+- Added 25 core scenarios against a real Docker address (not Fastify inject): valid/malformed/missing/wrong-content-type/oversized JSON, invalid IDs, unknown route/method, request/correlation IDs, client disconnect, admin denial, cross-seller denial, image validation, seller draft/publish/public read, OTP, Join/idempotency, affiliate privacy, mock-route visibility, concurrency, and DB pool/transaction checks.
+- 22 scenarios passed and 3 reproducible product findings remained.
+- Unauthorized access to four representative admin surfaces returned 401/403. A seller could not read another seller's deal. Distributor aggregate output exposed no buyer phone/email, commission, balance, or payout fields.
+- No client response exposed a stack trace. Malformed input did not mutate deal data. After failures: 0 idle transactions, DB connections stayed 3 -> 3, and the Web process survived an aborted client upload/request.
+
+### Load, outage, restart, and multi-instance
+- 100 concurrent public deal reads: 0% errors; median 184.01 ms; p95 230.04 ms; p99 234.50 ms on the GitHub hosted runner.
+- DB outage during a real request returned a 5xx without false success/stack disclosure; PostgreSQL restart restored successful reads.
+- Web stayed healthy while the worker was stopped; worker restart recovered readiness.
+- Web container restart during traffic recovered, and two independent Web containers served the same database state successfully.
+- No deadlock, process crash, idle transaction, or material connection leak was observed in the completed scenarios.
+
+### Product findings (not fixed by instruction)
+1. **Pilot blocker — uploads:** a valid 1x1 PNG with a Unicode filename returned 500 `upload_storage_unwritable` in the production-built Docker image. Invalid MIME/dangerous extension and empty upload were rejected correctly. End-to-end orphan cleanup after a post-upload DB failure cannot be signed off until writable non-local test storage is available.
+2. **Sandbox/pilot blocker — OTP replay:** verifying an already verified OTP challenge returned 200 and issued another proof instead of rejecting replay.
+3. **Sandbox/pilot blocker — idempotent Join:** 100 concurrent Join requests with the same idempotency key returned 409 for all requests; there was no single successful committed result to replay. This prevented reliable completion of duplicate-Join and last-unit competition through the public HTTP flow.
+
+### CI integration and retained evidence
+- Added `.github/workflows/web-runtime-depth.yml`. Pull requests run route/frontend contract plus real-HTTP auth/core/error/Docker checks. Pushes to `master` and manual runs additionally execute load, DB outage/recovery, worker outage/recovery, restart, and multi-instance checks.
+- Final focused run `30009961612`: `web-runtime-core` PASS and `web-runtime-resilience` PASS. Redacted artifacts: `web-runtime-core-30009961612` and `web-runtime-resilience-30009961612`, retained for 14 days.
+- Final regression run `30009961732`: PASS, including the existing 113-file suite, all existing scans, migrations, Docker build, Web/worker smoke, and outbox smoke.
+- Reports redact OTP proofs and exclude credentials/card data. A prior ephemeral test-only OTP proof briefly appeared in one CI log before redaction was added; its disposable database was destroyed and the proof is unusable outside that run.
+
+### Explicitly open coverage
+- Because the public Join flow is blocked by the idempotency finding, buyer cross-account tracking after Join, last-unit competition, and full buyer authorization/join/tracking could not receive a clean sign-off.
+- A real external storage failure after bytes are written, external-provider timeout/5xx, and SIGTERM exactly while a committing mutation is in flight still require dedicated controllable fault adapters. The audit covered client disconnect, DB outage, worker outage, and container restart, but does not claim these unimplemented injection points passed.
+- No payment Sandbox, real payment, UX, migration, worker architecture, or product fix was started.
 ## Current update: 2026-07-23 (CI and Deployment Gates)
 
 ### CI, merge, and deploy gates
