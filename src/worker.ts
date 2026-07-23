@@ -12,6 +12,7 @@ import {
   runWorkerMaintenance
 } from "./app.js";
 import { runScheduledWorkerBatch } from "./worker_scheduler.js";
+import { assertProductionRuntimeGuards } from "./production_guards.js";
 
 const { Pool } = pg;
 const logger = pino({ level: process.env.LOG_LEVEL || "info" });
@@ -88,6 +89,7 @@ async function processCycle(pollCount: number) {
 }
 
 export async function startWorker() {
+  assertProductionRuntimeGuards("worker");
   let readyError: unknown = null;
   for (let attempt = 1; attempt <= 30; attempt++) {
     try {

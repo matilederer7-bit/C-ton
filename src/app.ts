@@ -27,6 +27,7 @@ import {
   reclaimStuckInvoiceDocuments
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
+import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
@@ -3430,6 +3431,7 @@ registerFrontendExperience(app, {
 });
 
 export async function startApplication() {
+  assertProductionRuntimeGuards("web");
   await assertDatabaseSchema(pool);
   await app.listen({ port: PORT, host: HOST });
 

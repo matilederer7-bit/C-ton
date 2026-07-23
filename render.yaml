@@ -4,11 +4,15 @@ services:
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    autoDeploy: true
+    dockerCommand: npm run start:web:prod
+    preDeployCommand: npm run db:migrate
+    autoDeployTrigger: checksPass
     healthCheckPath: /health
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: demo-preview
+      - key: RUNTIME_ROLE
+        value: web
       - key: DISABLE_OUTBOX_WORKER
         value: "1"
       - key: ADMIN_API_KEY
@@ -28,11 +32,11 @@ services:
       - key: UPLOAD_DIR
         value: /tmp/uploads
       - key: PAYMENT_PROVIDER
-        value: mockpay
+        sync: false
       - key: PAYMENT_PROVIDER_MODE
-        value: mock-backed
+        sync: false
       - key: PAYMENT_WEBHOOK_PROVIDER
-        value: mockpay
+        sync: false
       - key: PAYMENT_WEBHOOK_SECRET
         generateValue: true
       # Real Morning invoice activation must be set manually in Render.
@@ -58,10 +62,12 @@ services:
     plan: starter
     dockerfilePath: ./Dockerfile
     dockerCommand: npm run start:worker:prod
-    autoDeploy: true
+    autoDeployTrigger: checksPass
     envVars:
       - key: APP_DEPLOYMENT_MODE
         value: demo-preview
+      - key: RUNTIME_ROLE
+        value: worker
       - key: DATABASE_URL
         sync: false
       - key: DB_SCHEMA
@@ -87,9 +93,9 @@ services:
       - key: OUTBOX_MAX_ATTEMPTS
         value: "4"
       - key: PAYMENT_PROVIDER
-        value: mockpay
+        sync: false
       - key: PAYMENT_PROVIDER_MODE
-        value: mock-backed
+        sync: false
       - key: PAYOUT_PROVIDER
         value: internal-ledger
       - key: PAYOUT_PROVIDER_MODE

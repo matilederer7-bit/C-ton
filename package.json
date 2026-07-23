@@ -84,7 +84,12 @@
     "test:all": "node scripts/run_test_group.cjs all",
     "lint": "node scripts/backend_enforcement_scan.cjs",
     "scan:payment": "node scripts/compliance_payment_scan.cjs",
-    "scan:backend": "node scripts/backend_enforcement_scan.cjs"
+    "scan:backend": "node scripts/backend_enforcement_scan.cjs",
+    "start:web:prod": "node .demo_dist/src/app.js",
+    "scan:runtime-ddl": "node scripts/runtime_ddl_scan.cjs",
+    "validate:render": "node scripts/render_config_gate.cjs",
+    "ci:migrations": "node scripts/ci_migration_report.cjs",
+    "ci:docker-smoke": "node scripts/ci_docker_smoke.cjs"
   },
   "engines": {
     "node": ">=22.0.0"

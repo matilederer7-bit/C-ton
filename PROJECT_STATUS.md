@@ -1,5 +1,34 @@
 # PROJECT STATUS
 
+## Current update: 2026-07-23 (CI and Deployment Gates)
+
+### CI, merge, and deploy gates
+- Added `.github/workflows/backend-quality-gates.yml` for pushes to `master` and pull requests targeting `master`: clean `npm ci`, PostgreSQL 16, TypeScript, lint, whitespace, all enforcement/compliance/secret/runtime-DDL scans, Render validation, every test group, the complete suite, Docker topology smoke, and retained reports.
+- Critical gates do not use `continue-on-error`. Reports and failure logs are retained for 14 days without credentials or payment data.
+- CI provisions a clean database, runs all 36 canonical migrations twice, validates the ledger/schema object inventory, and runs checksum, rollback, drift, functions, triggers, constraints, indexes, and foreign-key tests.
+- Branch protection is intended to require `backend-gates`. Render uses `autoDeployTrigger: checksPass`, so failed GitHub checks block automatic deployment.
+
+### Deployment topology
+- Docker and Render use a one-shot canonical migration command before startup. Web uses `start:web:prod`; worker uses `start:worker:prod`; migrations no longer run inside every web instance.
+- Added `docker-compose.ci.yml` and `ci:docker-smoke`: build one image, start PostgreSQL/migrations/web, create an outbox-producing deal through the API, then start the private worker and verify heartbeat, consumption, no loss, and exactly-once effect.
+- `render.yaml` has separate roles/commands, pre-deploy migrations, checks-pass deployment gating, no hard-coded payment mock mode, and no credential literal. Local Compose now also separates migration, web, and worker.
+
+### Production guards
+- Production startup rejects mock/mock-backed payments, temporary local storage, missing database/admin/seller-session/webhook secrets, role mismatch, and web startup without `DISABLE_OUTBOX_WORKER=1`.
+- Web and worker guard before schema readiness. Missing migrations/drift then fail through the schema contract; runtime DDL is blocked by a dedicated scan.
+- Demo/test remain unaffected. No real provider, live payment, secret, UX, or design change was introduced.
+
+### Verification before push
+- Groups: Unit 9/9; Integration 5/5; Database 4/4; API 35/35; Workers 7/7; Payments 21/21; Security 14/14; Concurrency 3/3; Failure 3/3; End-to-end 12/12. Inventory: 113.
+- Complete suite: 113/113 PASS in 438.1 seconds. A second attempt exposed an Edge child cleanup flake; PID-owned bounded termination fixed it and E2E passed 12/12 in 140.5 seconds.
+- Later repetition was limited by degraded local PostgreSQL admin waits after hundreds of disposable databases. Explicit connection/query timeouts now prevent CI hangs. Clean GitHub PostgreSQL is the authoritative final gate after push.
+- TypeScript, lint/backend enforcement (61 files), mutation, Payment SDK, secret, payment/raw-card, runtime DDL (39 files), Render, Docker static readiness, and `git diff --check`: PASS.
+- Docker is not installed locally, so build/web/worker smoke is pending the mandatory non-skipping GitHub job.
+
+### Remaining work and progress
+- Backend readiness: 98%, pending green GitHub Actions and mandatory Docker smoke. No production deployment was manually triggered.
+- Next step after green CI: full payment-provider sandbox validation; do not connect live money.
+
 ## Current update: 2026-07-22 (Worker Separation and Hardening - Complete)
 
 - API startup now starts only the HTTP listener and performs no background polling or claiming.

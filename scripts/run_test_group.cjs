@@ -49,7 +49,7 @@ async function main() {
 
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) throw new Error("DATABASE_URL is required for isolated database tests");
-  const admin = new Client({ connectionString: databaseUrl(baseUrl, "postgres") });
+  const admin = new Client({ connectionString: databaseUrl(baseUrl, "postgres"), connectionTimeoutMillis: 10_000, query_timeout: 30_000 });
   await admin.connect();
   const suffix = `${process.pid}_${Date.now()}`;
   const templateName = `siton_test_template_${suffix}`;
@@ -81,7 +81,7 @@ async function main() {
         const result = spawnSync(process.execPath, [compiled], {
           stdio: "inherit",
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
-          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 300000 : 180000
+          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 600000 : 180000
         });
         if (result.status === 0) console.log(`TEST_PASS file=${item.name}`);
         else {

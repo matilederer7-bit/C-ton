@@ -1,4 +1,4 @@
-﻿import assert from "node:assert/strict";
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm } from "node:fs/promises";
@@ -82,7 +82,7 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
   const psUrl = `${baseUrl}${path}`;
   const psCommand = [
     "$ErrorActionPreference='Stop';",
-    `Start-Process -FilePath '${psEdge}'`,
+    `$edgeProcess = Start-Process -FilePath '${psEdge}'`,
     "-ArgumentList",
     [
       "'--headless=old'",
@@ -97,7 +97,8 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
     ].join(","),
     "-NoNewWindow",
     `-RedirectStandardOutput '${psDump}'`,
-    "-Wait"
+    "-PassThru;",
+    `if (-not $edgeProcess.WaitForExit(25000)) { Stop-Process -Id $edgeProcess.Id -Force -ErrorAction SilentlyContinue; throw 'Edge dump timed out for ${path}' }`
   ].join(" ");
 
   await new Promise<void>((resolve, reject) => {

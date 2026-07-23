@@ -1,0 +1,119 @@
+name: Backend and deployment quality gates
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend-gates:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      APP_DEPLOYMENT_MODE: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+      PAYMENT_WEBHOOK_SECRET: ci-placeholder-only
+      ADMIN_API_KEY: ci-placeholder-only
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        run: npm ci
+
+      - name: Prepare artifact directory
+        run: mkdir -p .ci-artifacts
+
+      - name: TypeScript
+        run: npx tsc --noEmit 2>&1 | tee .ci-artifacts/typescript.log
+
+      - name: Lint and backend enforcement scans
+        run: |
+          set -o pipefail
+          npm run lint 2>&1 | tee .ci-artifacts/lint-and-backend-scan.log
+          npm run scan:backend 2>&1 | tee -a .ci-artifacts/lint-and-backend-scan.log
+
+      - name: Payment and raw-card compliance scan
+        run: npm run scan:payment 2>&1 | tee .ci-artifacts/payment-scan.log
+
+      - name: Runtime DDL scan
+        run: npm run scan:runtime-ddl 2>&1 | tee .ci-artifacts/runtime-ddl-scan.log
+
+      - name: Render deployment contract
+        run: npm run validate:render 2>&1 | tee .ci-artifacts/render-gate.log
+
+      - name: Diff whitespace gate
+        run: git diff --check HEAD^ HEAD 2>&1 | tee .ci-artifacts/git-diff-check.log
+
+      - name: Clean migrations, rerun, and schema object report
+        run: npm run ci:migrations 2>&1 | tee .ci-artifacts/migrations.log
+
+      - name: Unit tests
+        run: npm run test:unit 2>&1 | tee .ci-artifacts/test-unit.log
+      - name: Integration tests
+        run: npm run test:integration 2>&1 | tee .ci-artifacts/test-integration.log
+      - name: Database tests
+        run: npm run test:db 2>&1 | tee .ci-artifacts/test-db.log
+      - name: API tests
+        run: npm run test:api 2>&1 | tee .ci-artifacts/test-api.log
+      - name: Worker tests
+        run: npm run test:workers 2>&1 | tee .ci-artifacts/test-workers.log
+      - name: Payment tests
+        run: npm run test:payments 2>&1 | tee .ci-artifacts/test-payments.log
+      - name: Security tests
+        run: npm run test:security 2>&1 | tee .ci-artifacts/test-security.log
+      - name: Concurrency tests
+        run: npm run test:concurrency 2>&1 | tee .ci-artifacts/test-concurrency.log
+      - name: Failure tests
+        run: npm run test:failure 2>&1 | tee .ci-artifacts/test-failure.log
+      - name: End-to-end tests
+        run: npm run test:e2e 2>&1 | tee .ci-artifacts/test-e2e.log
+
+      - name: Complete repository suite
+        run: npm run test:all 2>&1 | tee .ci-artifacts/test-all.log
+
+      - name: Docker web, worker, PostgreSQL, and outbox smoke
+        run: npm run ci:docker-smoke 2>&1 | tee .ci-artifacts/docker-smoke.log
+
+      - name: Upload CI reports and failure logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-quality-gate-reports-${{ github.run_id }}
+          path: .ci-artifacts/
+          if-no-files-found: error
+          retention-days: 14
