@@ -6,7 +6,7 @@
 - Added `.github/workflows/backend-quality-gates.yml` for pushes to `master` and pull requests targeting `master`: clean `npm ci`, PostgreSQL 16, TypeScript, lint, whitespace, all enforcement/compliance/secret/runtime-DDL scans, Render validation, every test group, the complete suite, Docker topology smoke, and retained reports.
 - Critical gates do not use `continue-on-error`. Reports and failure logs are retained for 14 days without credentials or payment data.
 - CI provisions a clean database, runs all 36 canonical migrations twice, validates the ledger/schema object inventory, and runs checksum, rollback, drift, functions, triggers, constraints, indexes, and foreign-key tests.
-- Branch protection is intended to require `backend-gates`. Render uses `autoDeployTrigger: checksPass`, so failed GitHub checks block automatic deployment.
+- The PR workflow exposes `backend-gates` as the merge quality check. Render uses `autoDeployTrigger: checksPass`, so failed GitHub checks block automatic deployment. Repository-admin branch protection must require `backend-gates` if direct merges are to be technically prohibited.
 
 ### Deployment topology
 - Docker and Render use a one-shot canonical migration command before startup. Web uses `start:web:prod`; worker uses `start:worker:prod`; migrations no longer run inside every web instance.
@@ -23,11 +23,15 @@
 - Complete suite: 113/113 PASS in 438.1 seconds. A second attempt exposed an Edge child cleanup flake; PID-owned bounded termination fixed it and E2E passed 12/12 in 140.5 seconds.
 - Later repetition was limited by degraded local PostgreSQL admin waits after hundreds of disposable databases. Explicit connection/query timeouts now prevent CI hangs. Clean GitHub PostgreSQL is the authoritative final gate after push.
 - TypeScript, lint/backend enforcement (61 files), mutation, Payment SDK, secret, payment/raw-card, runtime DDL (39 files), Render, Docker static readiness, and `git diff --check`: PASS.
-- Docker is not installed locally, so build/web/worker smoke is pending the mandatory non-skipping GitHub job.
+- Docker is not installed locally. The mandatory GitHub job supplied Docker and passed image build, PostgreSQL/migration startup, web health, private worker heartbeat/readiness, API outbox creation, worker consumption, no job loss, and exactly-once execution.
+
+### GitHub Actions result
+- Run `30002064736` on commit `03682ebce7a788cc82b9ec9a15affd72b19b4ab8`: PASS. Every critical step passed, including all 10 groups, the 113-file complete suite, clean/rerun migration validation, schema-object report, and Docker smoke.
+- Artifact `backend-quality-gate-reports-30002064736` was retained successfully (438,028 bytes, SHA-256 digest recorded by GitHub, expiry 2026-08-06). The preceding run passed every gate but exposed that hidden artifact directories were excluded by default; `include-hidden-files: true` fixed the root cause.
 
 ### Remaining work and progress
-- Backend readiness: 98%, pending green GitHub Actions and mandatory Docker smoke. No production deployment was manually triggered.
-- Next step after green CI: full payment-provider sandbox validation; do not connect live money.
+- Backend CI/deployment-gate readiness: 100%. No production deployment was manually triggered. Repository branch protection remains an external GitHub administration setting if mandatory PR-only merging is desired.
+- Next step: full payment-provider sandbox validation; do not connect live money.
 
 ## Current update: 2026-07-22 (Worker Separation and Hardening - Complete)
 
