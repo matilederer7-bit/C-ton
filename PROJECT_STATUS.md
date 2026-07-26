@@ -1,4 +1,32 @@
 # PROJECT STATUS
+## Current update: 2026-07-26 (Stage 2/6 - Atomic single-use OTP)
+
+### Root cause and atomic correction
+- Root cause: OTP verification first read mutable challenge state and then updated it in a separate statement. The former `verified` replay branch could issue a fresh signed token again, so concurrent requests or a response-loss retry could obtain more than one proof from one code.
+- Canonical migration `042_single_use_otp_consumption.sql` changes the terminal state to `consumed`, records `consumed_at`, and creates `otp_proofs` with one-to-one uniqueness for both `challenge_id` and the SHA-256 token hash. The canonical manifest contains 38 migrations; `042` appears exactly once after `041`.
+- Verification now uses one PostgreSQL CTE statement: a conditional `pending` challenge update and proof insert commit atomically. A proof insert failure rolls back consumption. Every loser re-reads durable state and receives 409 `otp_already_consumed`; wrong attempts increment conditionally and cannot exceed the configured maximum.
+- Proof lookup checks the durable ledger, expiry, signed-token validity, token hash, purpose, deal binding, and destination binding. OTP values and complete proofs are never logged; even the development log provider emits `[redacted]`.
+- The earlier phrase “migration 38” referred to the total migration count at that time, not migration ID `038`. The correct canonical ID for this change is `042`; existing `038_deal_types_voucher_ticket.sql` is unrelated and unchanged.
+
+### Concurrency, failure, and lifecycle evidence
+- A two-Web race of 100 verification requests produced exactly 1 success, 99 expected 409 blocks, 1 consumed challenge, and 1 proof. Ten consecutive repetitions produced the same 1/99 result; observed race durations were 535-661 ms.
+- Sequential replay with the correct or a different code is blocked. Two simultaneous Web instances, response loss, a freshly initialized Web process, and restart replay cannot issue a second proof.
+- A forced proof-insert uniqueness failure leaves the challenge `pending` with zero attempts and a clean retry succeeds, proving transaction rollback.
+- One hundred concurrent wrong codes preserve the three-attempt limit, lock the challenge, and block a later correct code. Expired challenges return 410 and create no proof. A consumed challenge permits a new challenge under the request policy.
+
+### Verification results
+- Unit 9/9; Integration 5/5; Database 4/4; API 35/35; Workers 7/7; Payments 21/21; Security 14/14; Concurrency 4/4; Failure 3/3; E2E 12/12.
+- The complete repository suite passed: 114/114 files across all 10 groups. The runner now isolates each group in its own process/database template and reports all group failures instead of stopping at the first one.
+- The initial local E2E launch failed with Windows sandbox `EPERM`, not a product assertion. In a browser-permitted process, all 12/12 E2E files passed. The Edge smoke retries only a successful process that returned an empty DOM dump; assertions and coverage are unchanged.
+- `npx tsc --noEmit`, lint/backend enforcement, direct-state mutation, Payment SDK boundary, payment/raw-card compliance, secret scan, runtime-DDL scan, migration validation, and `git diff --check`: PASS.
+- Migration validation passed clean install and idempotent rerun for all 38 canonical migrations, ledger/order, checksum, rollback, schema drift, upgrade preservation, 15 functions, 12 triggers, 756 constraints, 182 indexes, and 47 foreign keys.
+- Local Docker/Web/Worker smoke could not start because Docker is not installed or available on this workstation. GitHub Actions is the authoritative Docker environment; Stage 2 is not declared complete until that CI run, including E2E, migrations, Docker smoke, and `test:all`, is green.
+
+### Scope and remaining work
+- No storage/upload, payment-provider, Join/idempotency, UX, or design behavior was changed. Test-infrastructure changes only remove an unnecessary app/pool import, isolate test groups, and make the browser dump collection resilient to an empty successful Edge response.
+- Stage 2 implementation and local verification: 100%. Final Stage 2 completion remains gated only on the pushed GitHub Actions run.
+- Next step after the Stage 2 completion report: Stage 3, fix upload and storage in Docker.
+
 ## Current update: 2026-07-23 (Stage 1/6 - Concurrent Join Idempotency)
 
 ### Root cause and correction

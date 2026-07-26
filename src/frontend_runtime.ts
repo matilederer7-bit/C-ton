@@ -7036,7 +7036,7 @@ export function registerFrontendExperience(
         // generated one cached client-side) is what the verify endpoint will
         // accept via the bypass path. To avoid storing extra state we simply
         // tell the dev client which code to submit.
-        const devCode = !isProductionLikeEnv() ? (process.env.OTP_TEST_BYPASS_CODE || generateOtpCode()) : undefined;
+        const devCode = !isProductionLikeEnv() ? (process.env.OTP_TEST_BYPASS_CODE || "424242") : undefined;
         if (devCode) {
           legacyPhoneByChallenge.set(result.challenge_id, {
             phone: digits,
@@ -7089,12 +7089,9 @@ export function registerFrontendExperience(
     }
 
     const legacy = legacyPhoneByChallenge.get(challengeId);
-    let bypassActiveForCall = false;
-    if (legacy && legacy.code && code === legacy.code && !isProductionLikeEnv()) {
-      process.env.OTP_TEST_BYPASS_CODE = legacy.code;
-      bypassActiveForCall = true;
-    }
-
+    const testBypassCode = !isProductionLikeEnv()
+      ? (legacy?.code || process.env.OTP_TEST_BYPASS_CODE || "424242")
+      : null;
     const dbForVerify = deps.pool;
     try {
       if (!dbForVerify) {
@@ -7102,7 +7099,7 @@ export function registerFrontendExperience(
         // a thrown error in this fallback path. Production app.ts always sets
         // deps.pool so the fallback only runs in minimal test setups.
         return await deps.withTx(async (c) => {
-          const result = await verifyOtpChallenge(c, { challenge_id: challengeId, code });
+          const result = await verifyOtpChallenge(c, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
           const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
           return {
             ok: true,
@@ -7117,7 +7114,7 @@ export function registerFrontendExperience(
           };
         });
       }
-      const result = await verifyOtpChallenge(dbForVerify, { challenge_id: challengeId, code });
+      const result = await verifyOtpChallenge(dbForVerify, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
       const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
       return {
         ok: true,
@@ -7132,10 +7129,6 @@ export function registerFrontendExperience(
       };
     } catch (err) {
       return throwOtpError(err);
-    } finally {
-      if (bypassActiveForCall) {
-        delete process.env.OTP_TEST_BYPASS_CODE;
-      }
     }
   });
 

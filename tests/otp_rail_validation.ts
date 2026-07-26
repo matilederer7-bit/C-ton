@@ -166,7 +166,7 @@ await run("verify with correct code marks verified and issues otp_token", async 
   assert.equal(verifyResult.status, "verified");
   assert.match(verifyResult.otp_token, /^v1\./);
   const row = await fetchChallenge(result.challenge_id);
-  assert.equal(row.status, "verified");
+  assert.equal(row.status, "consumed");
 });
 
 // 6) wrong code increments attempts and does not flip status.

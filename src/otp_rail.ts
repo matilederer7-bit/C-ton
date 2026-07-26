@@ -17,7 +17,7 @@ import { isProductionLikeEnv } from "./runtime_config.js";
 
 export type OtpChannel = "sms" | "email";
 export type OtpPurpose = "buyer_join" | "buyer_recovery" | "seller_login";
-export type OtpStatus = "pending" | "verified" | "expired" | "locked" | "cancelled";
+export type OtpStatus = "pending" | "consumed" | "expired" | "locked" | "cancelled";
 export type OtpProviderMode = "dev" | "real" | "disabled" | "log-only";
 export type OtpDeliveryResult = "success" | "temporary_fail" | "permanent_fail" | "skipped";
 
@@ -163,14 +163,13 @@ class LogOtpProvider implements OtpProvider {
     if (this.mode === "disabled") {
       return { status: "skipped", error_code: "otp_provider_disabled", error_message: "OTP provider disabled" };
     }
-    // Never log the OTP code itself in production-like environments.
-    const safeCode = isProductionLikeEnv() ? "[redacted]" : input.code;
+    // OTP material is never written to logs, including dev/test CI artifacts.
     this.logger.info("[otp.log]", {
       challenge_id: input.challenge_id,
       channel: input.channel,
       purpose: input.purpose,
       destination_display: input.destination_display,
-      code: safeCode
+      code: "[redacted]"
     });
     return {
       status: "success",
@@ -207,7 +206,7 @@ export function getOtpProviderSummary(provider: OtpProvider) {
 export async function ensureOtpRailTables(
   withTx: <T>(fn: (c: pg.PoolClient) => Promise<T>) => Promise<T>
 ): Promise<void> {
-  await withTx(async c=>assertRequiredTables(c,["otp_challenges","otp_delivery_attempts"]));
+  await withTx(async c=>assertRequiredTables(c,["otp_challenges","otp_delivery_attempts","otp_proofs"]));
 }
 
 // ─── Request flow ─────────────────────────────────────────────────────────────
@@ -286,7 +285,7 @@ export async function requestOtpChallenge(
         code_hash, status, expires_at, max_attempts, attempts_count, resend_count,
         idempotency_key, deal_id)
      VALUES ($1,$2,$3,$4,$5,$6,'pending',$7::timestamptz,$8,0,0,$9,$10)
-     ON CONFLICT (idempotency_key) DO NOTHING
+     ON CONFLICT (idempotency_key) WHERE status='pending' DO NOTHING
      RETURNING challenge_id, expires_at, destination_display`,
     [
       challengeId,
@@ -371,6 +370,7 @@ export async function requestOtpChallenge(
 export type VerifyOtpInput = {
   challenge_id: string;
   code: string;
+  test_bypass_code?: string | null;
 };
 
 export type VerifyOtpResult = {
@@ -388,6 +388,10 @@ function getTestBypassCode(): string | null {
   if (isProductionLikeEnv()) return null;
   const bypass = String(process.env.OTP_TEST_BYPASS_CODE || "").trim();
   return bypass || null;
+}
+
+function hashOtpProofToken(token: string): string {
+  return createHash("sha256").update(`otp-proof:${token}`).digest("hex");
 }
 
 export async function verifyOtpChallenge(
@@ -410,11 +414,68 @@ export async function verifyOtpChallenge(
   if (!row.rowCount) throw new OtpValidationError("otp_invalid", 400, "challenge not found");
   const challenge = row.rows[0] as any;
 
+  if (challenge.status === "consumed") {
+    throw new OtpValidationError("otp_already_consumed", 409, "otp challenge was already consumed");
+  }
   if (challenge.status === "locked") throw new OtpValidationError("otp_locked", 423, "too many attempts");
   if (challenge.status === "cancelled") throw new OtpValidationError("otp_cancelled", 400, "challenge cancelled");
-  if (challenge.status === "verified") {
-    // Idempotent re-verify: re-issue token if still within TTL window.
-    const verifiedAt = new Date().toISOString();
+  if (challenge.status === "expired" || Date.parse(challenge.expires_at) <= Date.now()) {
+    await db.query(
+      `UPDATE siton.otp_challenges
+       SET status='expired', updated_at=now()
+       WHERE challenge_id=$1 AND status='pending'`,
+      [challengeId]
+    );
+    throw new OtpValidationError("otp_expired", 410, "challenge expired");
+  }
+
+  const bypass = input.test_bypass_code || getTestBypassCode();
+  const bypassMatches = Boolean(bypass && code === bypass);
+  const expectedCodeHash = hashOtpCode(code, challengeId);
+  const verifiedAt = new Date().toISOString();
+  const otpToken = signOtpToken({
+    challenge_id: challengeId,
+    destination_hash: String(challenge.destination_hash),
+    purpose: challenge.purpose as OtpPurpose,
+    verified_at: verifiedAt
+  });
+  const proofExpiresAt = new Date(Date.parse(verifiedAt) + OTP_TOKEN_TTL_MS).toISOString();
+
+  const consumed = await db.query(
+    `WITH consumed AS (
+       UPDATE siton.otp_challenges
+       SET status='consumed',
+           verified_at=$2::timestamptz,
+           consumed_at=$2::timestamptz,
+           attempts_count=attempts_count+1,
+           last_error=NULL,
+           updated_at=now()
+       WHERE challenge_id=$1
+         AND status='pending'
+         AND expires_at > now()
+         AND attempts_count < max_attempts
+         AND (code_hash=$3 OR $4::boolean)
+       RETURNING challenge_id
+     ),
+     proof AS (
+       INSERT INTO siton.otp_proofs
+         (challenge_id, token_hash, issued_at, expires_at)
+       SELECT challenge_id, $5, $2::timestamptz, $6::timestamptz
+       FROM consumed
+       RETURNING challenge_id
+     )
+     SELECT challenge_id FROM proof`,
+    [
+      challengeId,
+      verifiedAt,
+      expectedCodeHash,
+      bypassMatches,
+      hashOtpProofToken(otpToken),
+      proofExpiresAt
+    ]
+  );
+
+  if (consumed.rowCount) {
     return {
       challenge_id: challengeId,
       status: "verified",
@@ -423,67 +484,61 @@ export async function verifyOtpChallenge(
       purpose: challenge.purpose as OtpPurpose,
       deal_id: challenge.deal_id ? String(challenge.deal_id) : null,
       verified_at: verifiedAt,
-      otp_token: signOtpToken({
-        challenge_id: challengeId,
-        destination_hash: String(challenge.destination_hash),
-        purpose: challenge.purpose as OtpPurpose,
-        verified_at: verifiedAt
-      })
+      otp_token: otpToken
     };
   }
-  if (Date.parse(challenge.expires_at) <= Date.now()) {
-    await db.query(`UPDATE siton.otp_challenges SET status='expired', updated_at=now() WHERE challenge_id=$1`, [challengeId]);
+
+  // The success CTE lost either to an earlier consumer or to an invalid code.
+  // Re-read before incrementing so a loser never mutates a consumed challenge.
+  const current = await db.query(
+    `SELECT status, expires_at, attempts_count, max_attempts
+     FROM siton.otp_challenges WHERE challenge_id=$1`,
+    [challengeId]
+  );
+  const state = current.rows[0] as any;
+  if (state?.status === "consumed") {
+    throw new OtpValidationError("otp_already_consumed", 409, "otp challenge was already consumed");
+  }
+  if (state?.status === "locked") throw new OtpValidationError("otp_locked", 423, "too many attempts");
+  if (state?.status === "cancelled") throw new OtpValidationError("otp_cancelled", 400, "challenge cancelled");
+  if (state?.status === "expired" || !state || Date.parse(state.expires_at) <= Date.now()) {
+    await db.query(
+      `UPDATE siton.otp_challenges SET status='expired', updated_at=now()
+       WHERE challenge_id=$1 AND status='pending'`,
+      [challengeId]
+    );
     throw new OtpValidationError("otp_expired", 410, "challenge expired");
   }
 
-  const maxAttempts = Number(challenge.max_attempts);
-  const attempts = Number(challenge.attempts_count);
-
-  // Test-only bypass — never active in production-like environments.
-  const bypass = getTestBypassCode();
-  const matches = bypass && code === bypass
-    ? true
-    : timingSafeEqualStrings(hashOtpCode(code, challengeId), String(challenge.code_hash));
-
-  if (!matches) {
-    const newAttempts = attempts + 1;
-    if (newAttempts >= maxAttempts) {
-      await db.query(
-        `UPDATE siton.otp_challenges SET attempts_count=$2, status='locked', updated_at=now() WHERE challenge_id=$1`,
-        [challengeId, newAttempts]
-      );
+  const failed = await db.query(
+    `UPDATE siton.otp_challenges
+     SET attempts_count=attempts_count+1,
+         status=CASE WHEN attempts_count+1 >= max_attempts THEN 'locked' ELSE 'pending' END,
+         last_error='otp_invalid',
+         updated_at=now()
+     WHERE challenge_id=$1
+       AND status='pending'
+       AND expires_at > now()
+       AND attempts_count < max_attempts
+     RETURNING status`,
+    [challengeId]
+  );
+  if (failed.rows[0]?.status === "locked") {
+    throw new OtpValidationError("otp_locked", 423, "too many attempts");
+  }
+  if (!failed.rowCount) {
+    const finalState = await db.query(
+      `SELECT status FROM siton.otp_challenges WHERE challenge_id=$1`,
+      [challengeId]
+    );
+    if (finalState.rows[0]?.status === "consumed") {
+      throw new OtpValidationError("otp_already_consumed", 409, "otp challenge was already consumed");
+    }
+    if (finalState.rows[0]?.status === "locked") {
       throw new OtpValidationError("otp_locked", 423, "too many attempts");
     }
-    await db.query(
-      `UPDATE siton.otp_challenges SET attempts_count=$2, last_error='otp_invalid', updated_at=now() WHERE challenge_id=$1`,
-      [challengeId, newAttempts]
-    );
-    throw new OtpValidationError("otp_invalid", 400, "incorrect code");
   }
-
-  const verifiedAt = new Date().toISOString();
-  await db.query(
-    `UPDATE siton.otp_challenges
-     SET status='verified', verified_at=$2::timestamptz, attempts_count=$3, last_error=NULL, updated_at=now()
-     WHERE challenge_id=$1`,
-    [challengeId, verifiedAt, attempts + 1]
-  );
-
-  return {
-    challenge_id: challengeId,
-    status: "verified",
-    destination_hash: String(challenge.destination_hash),
-    channel: challenge.channel as OtpChannel,
-    purpose: challenge.purpose as OtpPurpose,
-    deal_id: challenge.deal_id ? String(challenge.deal_id) : null,
-    verified_at: verifiedAt,
-    otp_token: signOtpToken({
-      challenge_id: challengeId,
-      destination_hash: String(challenge.destination_hash),
-      purpose: challenge.purpose as OtpPurpose,
-      verified_at: verifiedAt
-    })
-  };
+  throw new OtpValidationError("otp_invalid", 400, "incorrect code");
 }
 
 function timingSafeEqualStrings(a: string, b: string): boolean {
@@ -583,14 +638,24 @@ export async function ensureJoinOtpVerified(
 
   const lookupId = payload?.challenge_id || challengeId;
   const row = await db.query(
-    `SELECT challenge_id, channel, destination_hash, purpose, status, deal_id, expires_at, verified_at
-     FROM siton.otp_challenges WHERE challenge_id=$1 LIMIT 1`,
+    `SELECT c.challenge_id, c.channel, c.destination_hash, c.purpose, c.status,
+            c.deal_id, c.expires_at, c.verified_at, p.token_hash, p.expires_at AS proof_expires_at
+     FROM siton.otp_challenges c
+     JOIN siton.otp_proofs p ON p.challenge_id=c.challenge_id
+     WHERE c.challenge_id=$1
+     LIMIT 1`,
     [lookupId]
   );
   if (!row.rowCount) throw new OtpValidationError("otp_not_verified", 400, "challenge not found");
   const challenge = row.rows[0] as any;
   if (challenge.purpose !== "buyer_join") throw new OtpValidationError("otp_not_verified", 400, "wrong otp purpose");
-  if (challenge.status !== "verified") throw new OtpValidationError("otp_not_verified", 400, "challenge not verified");
+  if (challenge.status !== "consumed") throw new OtpValidationError("otp_not_verified", 400, "challenge not verified");
+  if (Date.parse(challenge.proof_expires_at) <= Date.now()) {
+    throw new OtpValidationError("otp_not_verified", 400, "verification expired");
+  }
+  if (token && hashOtpProofToken(token) !== String(challenge.token_hash)) {
+    throw new OtpValidationError("otp_not_verified", 400, "otp proof does not match challenge");
+  }
 
   // If the challenge was bound to a deal, it must match.
   if (challenge.deal_id && String(challenge.deal_id) !== String(input.deal_id)) {

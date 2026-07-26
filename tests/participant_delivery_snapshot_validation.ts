@@ -75,12 +75,17 @@ async function createVerifiedOtpChallenge(dealId: string): Promise<string> {
   await pool.query(
     `INSERT INTO siton.otp_challenges
        (challenge_id, channel, destination_hash, destination_display, purpose,
-        code_hash, status, expires_at, verified_at, max_attempts, attempts_count,
+        code_hash, status, expires_at, verified_at, consumed_at, max_attempts, attempts_count,
         resend_count, idempotency_key, deal_id, created_at, updated_at)
      VALUES ($1,'sms','test-hash','test-display','buyer_join',
-             'test-code-hash','verified',now()+interval '1 hour',now(),3,1,
+             'test-code-hash','consumed',now()+interval '1 hour',now(),now(),3,1,
              0,$2,$3,now(),now())`,
     [challengeId, idempotencyKey, dealId]
+  );
+  await pool.query(
+    `INSERT INTO siton.otp_proofs(challenge_id, token_hash, issued_at, expires_at)
+     VALUES ($1,$2,now(),now()+interval '15 minutes')`,
+    [challengeId, `test-proof-${challengeId}`]
   );
   return challengeId;
 }

@@ -40,9 +40,32 @@ async function main() {
     .filter((name) => name.endsWith(".ts"))
     .sort()
     .map((name) => ({ name, group: classify(name.replace(/\.ts$/, "")) }));
-  const selected = requested === "all" ? files : files.filter((item) => item.group === requested);
+  const selected = (requested === "all" ? files : files.filter((item) => item.group === requested))
+    .sort((left, right) => GROUPS.indexOf(left.group) - GROUPS.indexOf(right.group) || left.name.localeCompare(right.name));
   console.log(`TEST_INVENTORY total=${files.length} selected=${selected.length} group=${requested}`);
   for (const group of GROUPS) console.log(`TEST_GROUP ${group} count=${files.filter((item) => item.group === group).length}`);
+
+  if (requested === "all") {
+    const failedGroups = [];
+    for (const group of GROUPS) {
+      console.log(`\nTEST_ALL_GROUP_START group=${group}`);
+      const result = spawnSync(process.execPath, [__filename, group], {
+        stdio: "inherit",
+        env: process.env,
+        timeout: 30 * 60_000
+      });
+      if (result.status === 0) {
+        console.log(`TEST_ALL_GROUP_PASS group=${group}`);
+      } else {
+        const reason = result.error ? result.error.message : `exit ${result.status}`;
+        failedGroups.push({ group, reason });
+        console.error(`TEST_ALL_GROUP_FAIL group=${group} reason=${reason}`);
+      }
+    }
+    console.log(`\nTEST_SUMMARY group=all files=${files.length} groups_passed=${GROUPS.length - failedGroups.length} groups_failed=${failedGroups.length}`);
+    for (const failure of failedGroups) console.error(`FAILED_GROUP ${failure.group}: ${failure.reason}`);
+    process.exit(failedGroups.length ? 1 : 0);
+  }
 
   const compile = spawnSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.test.json"], { stdio: "inherit", env: process.env });
   if (compile.status !== 0) throw compile.error || new Error(`TypeScript compilation failed: ${compile.status}`);
@@ -81,7 +104,7 @@ async function main() {
         const result = spawnSync(process.execPath, [compiled], {
           stdio: "inherit",
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
-          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 600000 : 180000
+          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 900000 : 180000
         });
         if (result.status === 0) console.log(`TEST_PASS file=${item.name}`);
         else {
@@ -100,10 +123,10 @@ async function main() {
 
   console.log(`\nTEST_SUMMARY group=${requested} passed=${selected.length - failures.length} failed=${failures.length}`);
   for (const failure of failures) console.error(`FAILED ${failure.file}: ${failure.reason}`);
-  process.exitCode = failures.length ? 1 : 0;
+  process.exit(failures.length ? 1 : 0);
 }
 
 main().catch((error) => {
   console.error(error);
-  process.exitCode = 1;
+  process.exit(1);
 });

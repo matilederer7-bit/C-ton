@@ -101,7 +101,7 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
     `if (-not $edgeProcess.WaitForExit(25000)) { Stop-Process -Id $edgeProcess.Id -Force -ErrorAction SilentlyContinue; throw 'Edge dump timed out for ${path}' }`
   ].join(" ");
 
-  await new Promise<void>((resolve, reject) => {
+  const runEdgeDump = () => new Promise<void>((resolve, reject) => {
     const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
       stdio: ["ignore", "pipe", "pipe"],
       windowsHide: true
@@ -124,10 +124,17 @@ async function dumpDom(path: string, viewport: { width: number; height: number }
   });
 
   let output = "";
-  try {
-    output = await readFile(dumpFile, "utf8");
-  } catch {
-    output = "";
+  for (let attempt = 1; attempt <= 2 && !output.includes("<html"); attempt += 1) {
+    await runEdgeDump();
+    try {
+      output = await readFile(dumpFile, "utf8");
+    } catch {
+      output = "";
+    }
+    if (!output.includes("<html") && attempt === 1) {
+      console.warn(`SMOKE_DOM_RETRY ${label} ${path} reason=empty_dump`);
+      await wait(250);
+    }
   }
   // Cleanup is best-effort. Edge keeps Crashpad handles for a moment after
   // exit, so a forceful rm can race and produce ENOTEMPTY on Windows. Treat

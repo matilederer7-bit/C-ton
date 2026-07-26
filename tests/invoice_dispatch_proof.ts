@@ -22,8 +22,6 @@ process.env.PORT = String(process.env.PORT || "3396");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 
-// Import app to ensure DB + schema are ready
-const { app } = await import("../src/app.js");
 
 import {
   enqueueInvoiceDocument,
@@ -106,21 +104,9 @@ async function run(name: string, fn: () => Promise<void>) {
   }
 }
 
-async function waitForImportedAppListen() {
-  const deadline = Date.now() + 5_000;
-  while (!(app as any).server?.listening && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-}
-
-async function closeImportedApp() {
-  await waitForImportedAppListen();
-  await app.close().catch(() => undefined);
-}
 
 // ─── D1: Enqueue → pending row ───────────────────────────────────────────────
 
-await waitForImportedAppListen();
 
 try {
 await run("D1 — enqueue charge_receipt → status=pending, returns queued", async () => {
@@ -348,6 +334,5 @@ await run("D8 — eligibility helpers: correct states accepted and rejected", as
 
 console.log("\nAll invoice dispatch proof tests completed.");
 } finally {
-  await closeImportedApp();
   await pool.end().catch(() => undefined);
 }
