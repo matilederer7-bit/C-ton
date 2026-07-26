@@ -552,8 +552,8 @@ async function assertSellerCreateDomFlowContract() {
     await evaluate(`(() => {
       const input = document.querySelector("#sellerImage");
       const files = new DataTransfer();
-      files.items.add(new File([new Uint8Array([1,2,3,4,5,6])], "primary.png", { type: "image/png" }));
-      files.items.add(new File([new Uint8Array([7,8,9,10,11,12])], "secondary.png", { type: "image/png" }));
+      files.items.add(new File([new Uint8Array([137,80,78,71,13,10,26,10,1])], "primary.png", { type: "image/png" }));
+      files.items.add(new File([new Uint8Array([137,80,78,71,13,10,26,10,2])], "secondary.png", { type: "image/png" }));
       input.files = files.files;
       input.dispatchEvent(new Event("change", { bubbles: true }));
       return true;

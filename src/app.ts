@@ -2600,6 +2600,8 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   const response = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    // Serialize image-list mutations for this deal across Web instances.
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
     const dealResult = await c.query(
       `SELECT seller_id, state FROM siton.deals WHERE deal_id=$1`,
       [dealId]
@@ -2649,8 +2651,8 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       }
       inserted = await c.query(
         `INSERT INTO siton.deal_images
-           (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, sort_order, is_primary)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, checksum_sha256, sort_order, is_primary)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
         [
           dealId,
@@ -2659,6 +2661,7 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
           saved.original_filename,
           saved.mime_type,
           saved.size_bytes,
+          saved.checksum_sha256,
           sortOrder,
           requestedPrimary
         ]

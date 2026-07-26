@@ -556,7 +556,7 @@ try {
       url: `/api/seller/deals/${imageDealId}/images`,
       headers: { "x-seller-id": sellerId },
       payload: {
-        image_base64: Buffer.from("tiny-image").toString("base64"),
+        image_base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
         mime_type: "image/png",
         original_filename: "product.png"
       }

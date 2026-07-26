@@ -1,4 +1,21 @@
 # PROJECT STATUS
+## Current update: 2026-07-26 (Stage 3/6 - Reliable Docker upload storage)
+
+### Root cause and correction
+- Docker resolved the existing local adapter root to `/app/uploads/deal-images`. The image built `/app` as root and then ran Web as non-root `appuser`; no writable upload directory was created or owned by that process. Local tests always injected a writable OS temp directory, so they could not reproduce `upload_storage_unwritable`.
+- Docker now prepares `/var/lib/siton/uploads/deal-images` for `appuser`; CI mounts a named volume there. Writes use a flushed private `.partial-<uuid>` file, atomic no-overwrite publication and failure cleanup. A per-deal PostgreSQL advisory lock serializes multi-Web image-list mutations.
+- Migration `043_deal_image_checksums.sql` adds validated SHA-256 metadata. The sequence is authorize/validate, storage write, DB metadata transaction, commit, then 201. DB failure deletes the object; storage failure creates no valid DB row.
+
+### Security, verification and readiness
+- Size/non-empty, JPEG/PNG/WebP allowlist, magic-byte/MIME match, traversal/separator/NUL rejection, NFC filename normalization, seller ownership and non-public storage keys are enforced.
+- Local focused upload/adapter, DB, storage readiness, security and Docker static gates pass. `test:all` passes 115/115 files across 10/10 groups; E2E passes 12/12. TypeScript, lint/enforcement, payment/raw-card, secret, runtime-DDL, migration validation and diff checks pass.
+- Docker and Web runtime cannot run locally because Docker is unavailable. GitHub Actions is the authoritative runtime gate for non-root Web, real HTTP upload, two Web instances, shared-volume reads, restart persistence, Worker smoke and cleanup.
+- No external object-storage adapter exists and no provider was selected. Render `/tmp` is ephemeral; payment Sandbox and public pilot remain blocked pending a real adapter, deployment-only credentials, bucket policy, lifecycle and authorized-read strategy. The production guard still rejects local storage.
+
+### Scope and next step
+- Join/idempotency, OTP, state machines, payments, UX and design were not changed.
+- Stage 3 local implementation and regression verification: 100%. Final completion remains gated on green GitHub Docker/Web CI.
+- Next step after the Stage 3 completion report: Stage 4, complete the buyer flow and last-unit competition behavior.
 ## Current update: 2026-07-26 (Stage 2/6 - Atomic single-use OTP)
 
 ### Root cause and atomic correction

@@ -24,7 +24,8 @@ ENV PORT=3000
 RUN npm run build:demo
 
 # Run as non-root user.
-RUN useradd -m appuser
+RUN useradd -m appuser && mkdir -p /var/lib/siton/uploads/deal-images && chown -R appuser:appuser /var/lib/siton
+ENV DEAL_IMAGE_UPLOAD_DIR=/var/lib/siton/uploads/deal-images
 USER appuser
 
 EXPOSE 3000

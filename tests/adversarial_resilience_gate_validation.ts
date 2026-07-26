@@ -526,18 +526,13 @@ await run("storage: image upload rejects MIME abuse, oversized bodies, and filen
     url: `/api/seller/deals/${dealId}/images`,
     headers: { "x-seller-id": SELLER },
     payload: {
-      image_base64: Buffer.from("tiny").toString("base64"),
+      image_base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
       mime_type: "image/png",
       original_filename: "../../evil.png"
     }
   });
-  assert.equal(traversal.statusCode, 201, traversal.body);
-  const row = await pool.query(
-    `SELECT storage_key, original_filename FROM siton.deal_images WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 1`,
-    [dealId]
-  );
-  assert.doesNotMatch(String(row.rows[0].storage_key), /\.\.|\\/);
-  assert.equal(row.rows[0].original_filename, "evil.png");
+  assert.equal(traversal.statusCode, 400, traversal.body);
+  assert.equal(traversal.json().code, "invalid_image_filename");
 });
 
 try {

@@ -14,7 +14,8 @@
 // - Adapters never delete files outside their own keyspace.
 // - The orphan report is read-only; it never deletes.
 
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { link, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { dirname, join, relative, resolve, sep } from "node:path";
 
 export type StorageProviderCode = "local" | "object";
@@ -52,6 +53,7 @@ export interface StorageAdapter {
   put(key: string, content: Buffer): Promise<StoredObject>;
   get(key: string): Promise<Buffer>;
   delete(key: string): Promise<void>;
+  exists(key: string): Promise<boolean>;
   // listKeys is best-effort and used only by the read-only orphan report.
   listKeys(prefix?: string, limit?: number): Promise<string[]>;
   // describeForReadiness exposes a masked summary for Mission Control. It must
@@ -95,10 +97,21 @@ export class LocalStorageAdapter implements StorageAdapter {
 
   async put(key: string, content: Buffer): Promise<StoredObject> {
     const final = this.resolveSafe(key);
+    const temporary = `${final}.partial-${randomUUID()}`;
     try {
       await mkdir(dirname(final), { recursive: true });
-      await writeFile(final, content);
+      const handle = await open(temporary, "wx", 0o600);
+      try {
+        await handle.writeFile(content);
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      // A hard-link publication is atomic and refuses to overwrite an existing key.
+      await link(temporary, final);
+      await rm(temporary, { force: true });
     } catch (error) {
+      await rm(temporary, { force: true }).catch(() => undefined);
       throw this.wrapFilesystemWriteError(error);
     }
     return { storage_provider: this.providerCode, storage_key: key, size_bytes: content.length };
@@ -119,6 +132,14 @@ export class LocalStorageAdapter implements StorageAdapter {
   async get(key: string): Promise<Buffer> {
     const final = this.resolveSafe(key);
     return readFile(final);
+  }
+
+  async exists(key: string): Promise<boolean> {
+    try {
+      return (await stat(this.resolveSafe(key))).isFile();
+    } catch {
+      return false;
+    }
   }
 
   async delete(key: string): Promise<void> {

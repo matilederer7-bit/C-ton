@@ -56,7 +56,7 @@ async function insertPublishedDeal(sellerId: string) {
 
 function imagePayload(overrides: Record<string, unknown> = {}) {
   return {
-    image_base64: Buffer.from("tiny-image").toString("base64"),
+    image_base64: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
     mime_type: "image/png",
     original_filename: "product.png",
     ...overrides
@@ -91,10 +91,11 @@ await run("D1 seller can upload valid product image before publish and public pa
   assert.equal(body.image.is_primary, true);
 
   const row = await pool.query(
-    `SELECT image_id, storage_key FROM siton.deal_images WHERE deal_id=$1`,
+    `SELECT image_id, storage_key, checksum_sha256 FROM siton.deal_images WHERE deal_id=$1`,
     [dealId]
   );
   assert.equal(row.rowCount, 1, "image row was not persisted");
+  assert.match(String(row.rows[0].checksum_sha256), /^[0-9a-f]{64}$/);
   const savedFile = await stat(join(uploadDir, String(row.rows[0].storage_key)));
   assert.equal(savedFile.isFile(), true, "uploaded image file was not written to UPLOAD_DIR");
 
@@ -141,6 +142,20 @@ await run("D3 invalid mime type is rejected", async () => {
   assert.equal(res.json().code, "invalid_image_type");
 });
 
+await run("D3b declared MIME must match image content", async () => {
+  const sellerId = `seller-img-content-${randomUUID().slice(0, 8)}`;
+  const dealId = await insertDraftDeal(sellerId);
+  const res = await app.inject({
+    method: "POST",
+    url: `/api/seller/deals/${dealId}/images`,
+    headers: { "x-seller-id": sellerId },
+    payload: imagePayload({ image_base64: Buffer.from("not a png").toString("base64") })
+  });
+  assert.equal(res.statusCode, 400, res.body);
+  assert.equal(res.json().code, "image_content_mismatch");
+  const count = await pool.query(`SELECT COUNT(*)::int AS count FROM siton.deal_images WHERE deal_id=$1`, [dealId]);
+  assert.equal(Number(count.rows[0].count), 0);
+});
 await run("D4 too large image is rejected", async () => {
   const sellerId = `seller-img-large-${randomUUID().slice(0, 8)}`;
   const dealId = await insertDraftDeal(sellerId);
@@ -157,7 +172,7 @@ await run("D4 too large image is rejected", async () => {
   assert.equal(res.json().code, "image_too_large");
 });
 
-await run("D5 path traversal filename is stored safely", async () => {
+await run("D5 path traversal filename is rejected", async () => {
   const sellerId = `seller-img-safe-${randomUUID().slice(0, 8)}`;
   const dealId = await insertDraftDeal(sellerId);
 
@@ -168,14 +183,8 @@ await run("D5 path traversal filename is stored safely", async () => {
     payload: imagePayload({ original_filename: "../../evil.png" })
   });
 
-  assert.equal(res.statusCode, 201, `upload failed: ${res.body}`);
-  const row = await pool.query(
-    `SELECT storage_key, original_filename FROM siton.deal_images WHERE deal_id=$1`,
-    [dealId]
-  );
-  assert.ok(row.rowCount, "image row missing");
-  assert.doesNotMatch(String(row.rows[0].storage_key), /\.\.|\\/);
-  assert.equal(row.rows[0].original_filename, "evil.png");
+  assert.equal(res.statusCode, 400, `expected traversal rejection: ${res.body}`);
+  assert.equal(res.json().code, "invalid_image_filename");
 });
 
 await run("D6 public deal payload does not expose storage_key", async () => {

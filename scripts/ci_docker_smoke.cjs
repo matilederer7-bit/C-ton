@@ -27,7 +27,7 @@ async function main() {
   if (spawnSync("docker", ["version"], { stdio: "ignore" }).status !== 0) throw new Error("Docker is required for ci:docker-smoke");
   docker(["down", "-v", "--remove-orphans"], { allowFailure: true });
   try {
-    docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web"]);
+    docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web", "web-secondary"]);
     await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
     const created = await fetch("http://127.0.0.1:3001/deals", {
       method: "POST", headers: { "content-type": "application/json" },
@@ -35,6 +35,29 @@ async function main() {
     });
     if (!created.ok) throw new Error(`deal create failed ${created.status}: ${await created.text()}`);
     const deal = await created.json();
+    const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+    const upload = async (origin, filename, primary) => {
+      const response = await fetch(`${origin}/api/seller/deals/${deal.deal_id}/images`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-seller-id": "seller-default" },
+        body: JSON.stringify({ filename, mime_type: "image/png", image_base64: png, is_primary: primary })
+      });
+      if (response.status !== 201) throw new Error(`image upload failed ${response.status}: ${await response.text()}`);
+      return response.json();
+    };
+    const [firstImage, secondImage] = await Promise.all([
+      upload("http://127.0.0.1:3001", "same-name.png", true),
+      upload("http://127.0.0.1:3002", "same-name.png", false)
+    ]);
+    if (firstImage.image.image_id === secondImage.image.image_id) throw new Error("multi-instance uploads collided");
+    const firstRead = await fetch(`http://127.0.0.1:3002${firstImage.image.public_url}`);
+    const secondRead = await fetch(`http://127.0.0.1:3001${secondImage.image.public_url}`);
+    if (!firstRead.ok || !secondRead.ok) throw new Error("shared volume image read failed across web instances");
+    const uid = docker(["exec", "-T", "web", "id", "-u"]);
+    if (String(uid.stdout || "").trim() === "0") throw new Error("web container must run as non-root");
+    docker(["restart", "web"]);
+    await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
+    if (!(await fetch(`http://127.0.0.1:3001${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
     const published = await fetch(`http://127.0.0.1:3001/deals/${deal.deal_id}/publish`, {
       method: "POST", headers: { "content-type": "application/json", "idempotency-key": `ci-publish-${deal.deal_id}` },
       body: JSON.stringify({ seller_id: "seller-default", seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })
@@ -56,7 +79,10 @@ async function main() {
     if (heartbeat.rowCount !== 1 || heartbeat.rows[0].status !== "ready") throw new Error("worker heartbeat is not ready");
     if (Number(result.attempt_count) !== 1) throw new Error("outbox job executed more than once");
     if (Number(audits.rows[0].count) !== 1) throw new Error("deadline effect was not exactly once");
-    const report = { docker_build: "pass", web_health: "pass", worker_heartbeat: "pass", api_outbox_create: "pass", worker_consume: "pass", job_loss: false, double_execution: false };
+    const metadata = await db.query("SELECT count(*)::int AS count, count(checksum_sha256)::int AS checksums FROM siton.deal_images WHERE deal_id=$1", [deal.deal_id]);
+    if (Number(metadata.rows[0].count) !== 2 || Number(metadata.rows[0].checksums) !== 2) throw new Error("image metadata/checksum persistence failed");
+    await db.end();
+    const report = { docker_build: "pass", web_health: "pass", upload_http: "pass", upload_restart: "pass", upload_multi_instance: "pass", web_non_root: "pass", worker_heartbeat: "pass", api_outbox_create: "pass", worker_consume: "pass", job_loss: false, double_execution: false };
     fs.writeFileSync(path.join(artifacts, "docker-smoke-report.json"), JSON.stringify(report, null, 2));
     console.log("CI_DOCKER_SMOKE_PASS", JSON.stringify(report));
   } finally {

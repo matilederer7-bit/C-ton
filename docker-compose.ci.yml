@@ -40,6 +40,9 @@ services:
       RUNTIME_ROLE: web
       HOST: 0.0.0.0
       PORT: "3000"
+      DEAL_IMAGE_UPLOAD_DIR: /var/lib/siton/uploads/deal-images
+    volumes:
+      - upload_data:/var/lib/siton/uploads/deal-images
     command: ["npm", "run", "start:web:prod"]
     ports:
       - "3001:3000"
@@ -49,6 +52,27 @@ services:
       timeout: 3s
       retries: 30
 
+  web-secondary:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *ci-env
+      RUNTIME_ROLE: web
+      HOST: 0.0.0.0
+      PORT: "3000"
+      DEAL_IMAGE_UPLOAD_DIR: /var/lib/siton/uploads/deal-images
+    volumes:
+      - upload_data:/var/lib/siton/uploads/deal-images
+    command: ["npm", "run", "start:web:prod"]
+    ports:
+      - "3002:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
   worker:
     build: .
     depends_on:
@@ -67,3 +91,6 @@ services:
       interval: 2s
       timeout: 4s
       retries: 30
+
+volumes:
+  upload_data:
