@@ -16,9 +16,9 @@
 ### Verification and remaining gate
 - PASS locally: concurrency 4/4; payments 21/21; E2E 12/12 in a browser-permitted runner; `test:all` 115/115 across 10/10 groups; TypeScript; lint/backend enforcement; direct state mutation; Payment SDK boundary; raw-card/payment compliance; secret scan; runtime DDL; migration validation (39/39, rerun, 15 functions, 12 triggers, 757 constraints, 182 indexes, 47 FKs); `git diff --check`.
 - The first sandboxed `test:all` attempt had one environmental `spawn EPERM` in the browser file. The same 12-file E2E group and then the complete 115-file suite passed outside that browser restriction without product-code workarounds or skips.
-- Docker is unavailable on this workstation, so Docker build, two-Web real-HTTP buyer smoke, Worker smoke and upload smoke are authoritative GitHub Actions gates. Stage completion remains conditional until the pushed workflow is green.
+- Docker is unavailable on this workstation. Authoritative GitHub Actions run `30201081810` passed Docker build, the two-Web real-HTTP 100-buyer race, tracking/restart, Worker and upload smoke, every individual group and `test:all`. Web Runtime run `30201081827` passed both core and resilience jobs.
 - No OTP/Upload algorithm, external object storage, real payment provider, fee formula, affiliate fee, UX/design or capture behavior was changed.
-- Stage 4 completion: locally complete; final percentage becomes 100% only after the authoritative GitHub Docker/CI gate passes.
+- Stage 4 completion: 100%. Local verification and both authoritative GitHub workflows are green.
 - Next step after the Stage 4 completion report: real Object Storage and precise failure testing before payment Sandbox. Do not start it before the report.
 ## Current update: 2026-07-26 (Stage 3/6 - Reliable Docker upload storage)
 
