@@ -9,13 +9,14 @@
 ### Security, verification and readiness
 - Size/non-empty, JPEG/PNG/WebP allowlist, magic-byte/MIME match, traversal/separator/NUL rejection, NFC filename normalization, seller ownership and non-public storage keys are enforced.
 - Local focused upload/adapter, DB, storage readiness, security and Docker static gates pass. `test:all` passes 115/115 files across 10/10 groups; E2E passes 12/12. TypeScript, lint/enforcement, payment/raw-card, secret, runtime-DDL, migration validation and diff checks pass.
-- Docker and Web runtime cannot run locally because Docker is unavailable. GitHub Actions is the authoritative runtime gate for non-root Web, real HTTP upload, two Web instances, shared-volume reads, restart persistence, Worker smoke and cleanup.
+- Docker and Web runtime cannot run locally because Docker is unavailable. GitHub Actions run `30194988359` passed non-root Web, real HTTP upload, two Web instances, shared-volume reads, restart persistence, Worker smoke and cleanup; Web runtime run `30194988326` also passed.
 - No external object-storage adapter exists and no provider was selected. Render `/tmp` is ephemeral; payment Sandbox and public pilot remain blocked pending a real adapter, deployment-only credentials, bucket policy, lifecycle and authorized-read strategy. The production guard still rejects local storage.
 
 ### Scope and next step
 - Join/idempotency, OTP, state machines, payments, UX and design were not changed.
-- Stage 3 local implementation and regression verification: 100%. Final completion remains gated on green GitHub Docker/Web CI.
+- Stage 3 completion: 100%. Local verification and both authoritative GitHub Docker/Web workflows are green.
 - Next step after the Stage 3 completion report: Stage 4, complete the buyer flow and last-unit competition behavior.
+
 ## Current update: 2026-07-26 (Stage 2/6 - Atomic single-use OTP)
 
 ### Root cause and atomic correction
