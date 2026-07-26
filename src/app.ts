@@ -62,6 +62,7 @@ import {
 import {
   deleteDealImageFile,
   getDealImagePublicUrl,
+  getDealImageStorageAdapter,
   readDealImage,
   saveDealImage
 } from "./product_image_storage.js";
@@ -2142,9 +2143,65 @@ export async function reclaimWorkerJobs(timeoutMs = WORKER_STUCK_TIMEOUT_MS) {
   return { outbox, invoices };
 }
 
+function storageCleanupErrorCode(error: unknown) {
+  const value = error as { code?: unknown; name?: unknown } | null;
+  return String(value?.code || value?.name || "storage_cleanup_failed").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
+}
+
+async function enqueueStorageCleanupTask(storageProvider: "local" | "s3", storageKey: string, reason: string) {
+  await pool.query(
+    `INSERT INTO siton.storage_cleanup_tasks(storage_provider, storage_key, reason)
+     VALUES ($1,$2,$3)
+     ON CONFLICT (storage_provider, storage_key) WHERE status IN ('pending','processing')
+     DO UPDATE SET reason=EXCLUDED.reason, updated_at=now()`,
+    [storageProvider, storageKey, reason]
+  );
+}
+
+export async function processStorageCleanupBatch(limit = 10) {
+  const processed: Array<{ task_id: string; status: "completed" | "pending" | "failed" }> = [];
+  for (let index = 0; index < Math.max(1, Math.min(50, limit)); index++) {
+    const claimed = await pool.query(
+      `WITH candidate AS (
+         SELECT task_id FROM siton.storage_cleanup_tasks
+         WHERE status='pending' AND available_at <= now()
+         ORDER BY available_at, created_at
+         FOR UPDATE SKIP LOCKED LIMIT 1
+       )
+       UPDATE siton.storage_cleanup_tasks t
+       SET status='processing', attempt_count=t.attempt_count+1, processing_started_at=now(), updated_at=now()
+       FROM candidate WHERE t.task_id=candidate.task_id
+       RETURNING t.task_id, t.storage_provider, t.storage_key, t.attempt_count, t.max_attempts`
+    );
+    if (!claimed.rowCount) break;
+    const task = claimed.rows[0];
+    try {
+      const storage = getDealImageStorageAdapter();
+      if (storage.providerCode !== task.storage_provider) throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
+      await storage.delete(String(task.storage_key));
+      await pool.query(
+        `UPDATE siton.storage_cleanup_tasks SET status='completed', completed_at=now(), last_error_code=NULL, updated_at=now() WHERE task_id=$1`,
+        [task.task_id]
+      );
+      processed.push({ task_id: String(task.task_id), status: "completed" });
+    } catch (error) {
+      const terminal = Number(task.attempt_count) >= Number(task.max_attempts);
+      await pool.query(
+        `UPDATE siton.storage_cleanup_tasks
+         SET status=$2, available_at=CASE WHEN $2='pending' THEN now() + (LEAST(300, power(2, attempt_count))::text || ' seconds')::interval ELSE available_at END,
+             last_error_code=$3, updated_at=now()
+         WHERE task_id=$1`,
+        [task.task_id, terminal ? "failed" : "pending", storageCleanupErrorCode(error)]
+      );
+      processed.push({ task_id: String(task.task_id), status: terminal ? "failed" : "pending" });
+    }
+  }
+  return processed;
+}
 export async function runWorkerMaintenance() {
   await flushPendingNotifications(pool, notificationService, app.log);
   await enqueuePendingInvoiceDocumentOutboxEvents(pool);
+  await processStorageCleanupBatch();
 }
 
 export async function assertWorkerDatabaseReady() {
@@ -2667,7 +2724,13 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
         ]
       );
     } catch (error) {
-      await deleteDealImageFile(saved.storage_key).catch(() => undefined);
+      try {
+        await deleteDealImageFile(saved.storage_key);
+      } catch (cleanupError) {
+        await enqueueStorageCleanupTask(saved.storage_provider, saved.storage_key, "deal_image_metadata_write_failed").catch((enqueueError) => {
+          app.log.error({ cleanup_error_code: storageCleanupErrorCode(cleanupError), enqueue_error_code: storageCleanupErrorCode(enqueueError) }, "storage_cleanup_enqueue_failed");
+        });
+      }
       throw error;
     }
     const image = inserted.rows[0];
@@ -2690,6 +2753,45 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   return reply.code(201).send(response);
 });
 
+app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: any) => {
+  const dealId = String(req.params.dealId || "");
+  const imageId = String(req.params.imageId || "");
+  requireUuid(dealId, "deal_id");
+  requireUuid(imageId, "image_id");
+  const removed = await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
+    const result = await c.query(
+      `SELECT i.storage_provider, i.storage_key, i.is_primary, d.seller_id, d.state
+       FROM siton.deal_images i JOIN siton.deals d ON d.deal_id=i.deal_id
+       WHERE i.deal_id=$1 AND i.image_id=$2 FOR UPDATE`,
+      [dealId, imageId]
+    );
+    if (!result.rowCount) throw Object.assign(new Error("deal image not found"), { statusCode: 404, code: "deal_image_not_found" });
+    const image = result.rows[0];
+    if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) throw Object.assign(new Error("seller is not authorized for this deal"), { statusCode: 403 });
+    if (String(image.state) !== "Draft") throw Object.assign(new Error("deal already published"), { statusCode: 409, code: "deal_already_published" });
+    await c.query(`DELETE FROM siton.deal_images WHERE image_id=$1`, [imageId]);
+    if (image.is_primary) {
+      await c.query(
+        `UPDATE siton.deal_images SET is_primary=true
+         WHERE image_id=(SELECT image_id FROM siton.deal_images WHERE deal_id=$1 ORDER BY sort_order, created_at LIMIT 1)`,
+        [dealId]
+      );
+    }
+    return { storage_provider: image.storage_provider as "local" | "s3", storage_key: String(image.storage_key) };
+  });
+
+  let deletion: "deleted" | "scheduled" = "deleted";
+  try {
+    await deleteDealImageFile(removed.storage_key);
+  } catch (error) {
+    await enqueueStorageCleanupTask(removed.storage_provider, removed.storage_key, "deal_image_deleted");
+    deletion = "scheduled";
+  }
+  return reply.send({ ok: true, deletion });
+});
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");

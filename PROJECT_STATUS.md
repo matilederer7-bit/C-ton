@@ -1,4 +1,28 @@
 # PROJECT STATUS
+## Current update: 2026-07-26 (Stage 5a/6 - External Object Storage)
+
+### Existing-state map and selected architecture
+- The existing canonical boundary was `src/storage_adapter.ts`; `LocalStorageAdapter` was the only implementation. Image bytes were written under a server-generated local key, PostgreSQL held provider/key/MIME/size/checksum metadata, and reads flowed through `GET /api/deal-images/:imageId`. The bucket/object key was not exposed and no signed-URL mechanism existed. No canonical external provider had been selected in repository documentation; previous AWS material was an optional deployment blueprint, not a provider decision.
+- Stage 5a preserves that contract and adds a provider-neutral S3-compatible implementation. AWS SDK imports exist only inside the canonical adapter. The product layer does not call provider SDKs. The selected protocol is S3-compatible; CI uses MinIO and no external vendor account was selected or created.
+- Internal keys are `<environment>/deals/<deal-id>/images/<generated-uuid>.<verified-extension>`. Original filenames, phones, OTPs, tokens and personal data never enter the key. Put uses no-overwrite semantics, private cache metadata, verified MIME/size/SHA-256, timeout/abort support and canonical missing-object/bucket, access-denied, timeout, collision and verification error codes.
+
+### Privacy, consistency and cleanup
+- Buckets are private by default. Product reads continue through the database-authorized Web route by image UUID with safe content type/disposition and immutable cache policy; the adapter also supports short-lived signed GET URLs. Anonymous listing/read is not enabled, credentials and internal paths are not returned, and same client filenames create unrelated random keys.
+- The safe order is file validation -> generated key -> object upload -> HEAD checksum/size verification -> PostgreSQL metadata transaction -> commit -> 201. Failed upload creates no valid metadata. A DB failure triggers immediate idempotent deletion and never returns 201.
+- Migration `044_storage_cleanup_tasks.sql` adds the durable cleanup queue for deletion failures. The separate Worker claims tasks with `SKIP LOCKED`, performs idempotent deletion, records only redacted error codes, and uses bounded exponential retry. Seller image deletion now removes metadata transactionally after authorization and then deletes the object or schedules the same cleanup mechanism.
+
+### Configuration, deployment and guards
+- `render.yaml`, `.env.demo.example`, and the environment/storage docs define deployment-only configuration for `STORAGE_ADAPTER`, endpoint, region, bucket, access key, secret key, path style, timeout, environment prefix and signed-URL TTL for both Web and Worker. Required deployment secrets are `OBJECT_STORAGE_ACCESS_KEY_ID` and `OBJECT_STORAGE_SECRET_ACCESS_KEY`; bucket/region/endpoint are environment configuration and may also be managed as protected values. No real values are committed.
+- Object mode fails closed when region, bucket or credentials are absent or placeholder-like, including in Sandbox. Production rejects local storage. Test/development may use local storage; Docker CI uses object mode only and deliberately has no shared local upload volume.
+- The external operator must still configure and independently verify a private authorized Sandbox/Production bucket, least-privilege identity, encryption at rest, access logging, CORS, multipart lifecycle cleanup and credential rotation. No authorized external account or Render access was supplied, so real-provider upload/read/restart/delete validation remains an explicit open operational blocker and is not reported as completed.
+
+### Verification
+- PASS locally: all ten groups separately — Unit 9/9, Integration 7/7, Database 5/5, API 35/35, Workers 7/7, Payments 21/21, Security 14/14, Concurrency 4/4, Failure 3/3, E2E 12/12 — and `test:all` 117/117 across 10/10 groups. The browser E2E required the permitted Windows process because the restricted sandbox returned environmental `spawn EPERM`; no skip or product workaround was added.
+- PASS locally: 40/40 canonical migrations, clean install, upgrade preservation, ledger/checksum/rollback/drift/rerun, 15 functions, 12 triggers, 772 constraints, 185 indexes and 47 foreign keys; focused S3 contract double; cleanup queue against PostgreSQL; local upload/read/delete; production guards; TypeScript; lint/backend enforcement; direct-state mutation; Payment SDK boundary; raw-card/payment compliance; secret scan; runtime-DDL scan; Render gate; and `git diff --check`.
+- Docker is unavailable on this workstation. GitHub Actions is the authoritative real-protocol gate: it builds Docker and runs PostgreSQL, migrations, a private persistent MinIO bucket, two Web instances and the separate Worker. The smoke covers upload/HEAD/checksum/list/download/delete/re-delete, signed URL/expiry, anonymous denial, missing bucket, bad credentials, missing read/write permission, unavailable endpoint, no overwrite, same filename isolation, DB-failure cleanup, cross-Web reads, HTTP delete, Web/MinIO restart persistence and redacted artifacts.
+- Repository implementation completion: 95% pending this commit's green GitHub Actions Docker/MinIO run. Full external Sandbox readiness remains blocked until an authorized provider bucket is supplied and verified.
+- No Join, OTP, inventory, platform-fee, affiliate-fee, payment/capture, UX or design behavior was changed. Stage 5b was not started.
+- Next step only after the Stage 5a completion report: Stage 5b, Fault Adapters and precise failure testing.
 ## Current update: 2026-07-26 (Stage 4/6 - Buyer flow and last-unit concurrency)
 
 ### Canonical buyer flow and focused correction

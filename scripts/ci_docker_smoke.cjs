@@ -12,6 +12,12 @@ function docker(args, options = {}) {
   return result;
 }
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+function objectCount() {
+  const result = docker(["run", "--rm", "-T", "web", "node", "-e", "import('./.demo_dist/src/storage_adapter.js').then(async m=>console.log('OBJECT_COUNT=' + (await m.buildStorageAdapter().listKeys('ci/')).length))"]);
+  const match = String(result.stdout || "").match(/OBJECT_COUNT=(\d+)/);
+  if (!match) throw new Error("object count probe failed");
+  return Number(match[1]);
+}
 
 async function waitFor(fn, timeoutMs = 120000) {
   const end = Date.now() + timeoutMs;
@@ -78,6 +84,10 @@ async function main() {
   try {
     docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web", "web-secondary"]);
     await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
+    const minioContract = docker(["run", "--rm", "-T", "web", "node", "scripts/minio_contract_probe.cjs"]);
+    if (!String(minioContract.stdout || "").includes("MINIO_CONTRACT_PASS")) throw new Error("MinIO contract probe did not report success");
+    const db = new Client({ connectionString: "postgresql://siton_ci:siton_ci_password@127.0.0.1:55432/siton_ci" });
+    await db.connect();
     const created = await fetch("http://127.0.0.1:3001/deals", {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ seller_id: "seller-default", title: "CI outbox smoke", price_per_unit: 10, min_units: 2, max_units: 3, deadline: new Date(Date.now() + 3 * 3600000).toISOString() })
@@ -94,6 +104,17 @@ async function main() {
       if (response.status !== 201) throw new Error(`image upload failed ${response.status}: ${await response.text()}`);
       return response.json();
     };
+    const objectCountBeforeDbFailure = objectCount();
+    await db.query(`CREATE OR REPLACE FUNCTION siton.ci_reject_deal_image() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'ci_forced_deal_image_db_failure'; END $$`);
+    await db.query(`CREATE TRIGGER trg_ci_reject_deal_image BEFORE INSERT ON siton.deal_images FOR EACH ROW EXECUTE FUNCTION siton.ci_reject_deal_image()`);
+    try {
+      await upload("http://127.0.0.1:3001", "db-failure.png", false).then(() => { throw new Error("forced DB failure upload unexpectedly returned 201"); }, (error) => { if (!String(error.message).includes("image upload failed 500")) throw error; });
+    } finally {
+      await db.query(`DROP TRIGGER IF EXISTS trg_ci_reject_deal_image ON siton.deal_images`);
+      await db.query(`DROP FUNCTION IF EXISTS siton.ci_reject_deal_image()`);
+    }
+    if (objectCount() !== objectCountBeforeDbFailure) throw new Error("DB metadata failure left an object behind");
+
     const [firstImage, secondImage] = await Promise.all([
       upload("http://127.0.0.1:3001", "same-name.png", true),
       upload("http://127.0.0.1:3002", "same-name.png", false)
@@ -102,19 +123,26 @@ async function main() {
     const firstRead = await fetch(`http://127.0.0.1:3002${firstImage.image.public_url}`);
     const secondRead = await fetch(`http://127.0.0.1:3001${secondImage.image.public_url}`);
     if (!firstRead.ok || !secondRead.ok) throw new Error("shared volume image read failed across web instances");
+    docker(["restart", "minio"]);
+    docker(["up", "-d", "--wait", "minio"]);
+    if (!(await fetch(`http://127.0.0.1:3002${firstImage.image.public_url}`)).ok) throw new Error("object was lost after MinIO restart");
     const uid = docker(["exec", "-T", "web", "id", "-u"]);
     if (String(uid.stdout || "").trim() === "0") throw new Error("web container must run as non-root");
     docker(["restart", "web"]);
     await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
     if (!(await fetch(`http://127.0.0.1:3001${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
+    const countBeforeDelete = objectCount();
+    const imageDelete = await fetch(`http://127.0.0.1:3001/api/seller/deals/${deal.deal_id}/images/${secondImage.image.image_id}`, { method: "DELETE", headers: { "x-seller-id": "seller-default" } });
+    const imageDeleteBody = await imageDelete.json();
+    if (!imageDelete.ok || imageDeleteBody.deletion !== "deleted") throw new Error(`image deletion failed ${imageDelete.status}`);
+    if (objectCount() !== countBeforeDelete - 1) throw new Error("HTTP image deletion did not remove the object");
+    if ((await fetch(`http://127.0.0.1:3002${secondImage.image.public_url}`)).status !== 404) throw new Error("deleted image remained readable");
     const published = await fetch(`http://127.0.0.1:3001/deals/${deal.deal_id}/publish`, {
       method: "POST", headers: { "content-type": "application/json", "idempotency-key": `ci-publish-${deal.deal_id}` },
       body: JSON.stringify({ seller_id: "seller-default", seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })
     });
     if (!published.ok) throw new Error(`deal publish failed ${published.status}: ${await published.text()}`);
 
-    const db = new Client({ connectionString: "postgresql://siton_ci:siton_ci_password@127.0.0.1:55432/siton_ci" });
-    await db.connect();
     const buyerRaceReport = await proveTwoWebLastUnitHttp(db);
     await db.query("UPDATE siton.deals SET deadline=now()-interval '1 minute' WHERE deal_id=$1", [deal.deal_id]);
     await db.query("UPDATE siton.outbox_events SET available_at=now() WHERE aggregate_id=$1 AND event_type='deadline_check'", [deal.deal_id]);
@@ -129,9 +157,9 @@ async function main() {
     if (Number(result.attempt_count) !== 1) throw new Error("outbox job executed more than once");
     if (Number(audits.rows[0].count) !== 1) throw new Error("deadline effect was not exactly once");
     const metadata = await db.query("SELECT count(*)::int AS count, count(checksum_sha256)::int AS checksums FROM siton.deal_images WHERE deal_id=$1", [deal.deal_id]);
-    if (Number(metadata.rows[0].count) !== 2 || Number(metadata.rows[0].checksums) !== 2) throw new Error("image metadata/checksum persistence failed");
+    if (Number(metadata.rows[0].count) !== 1 || Number(metadata.rows[0].checksums) !== 1) throw new Error("image metadata/checksum persistence failed");
     await db.end();
-    const report = { buyer_flow_http: "pass", buyer_last_unit: buyerRaceReport, docker_build: "pass", web_health: "pass", upload_http: "pass", upload_restart: "pass", upload_multi_instance: "pass", web_non_root: "pass", worker_heartbeat: "pass", api_outbox_create: "pass", worker_consume: "pass", job_loss: false, double_execution: false };
+    const report = { object_storage_contract: "pass", object_storage_private_bucket: "pass", object_storage_restart: "pass", db_failure_object_cleanup: "pass", object_delete_http: "pass", buyer_flow_http: "pass", buyer_last_unit: buyerRaceReport, docker_build: "pass", web_health: "pass", upload_http: "pass", upload_restart: "pass", upload_multi_instance: "pass", web_non_root: "pass", worker_heartbeat: "pass", api_outbox_create: "pass", worker_consume: "pass", job_loss: false, double_execution: false };
     fs.writeFileSync(path.join(artifacts, "docker-smoke-report.json"), JSON.stringify(report, null, 2));
     console.log("CI_DOCKER_SMOKE_PASS", JSON.stringify(report));
   } finally {

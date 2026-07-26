@@ -263,6 +263,21 @@ await run("D9 draft deal supports up to five images with one primary image", asy
   assert.equal(sixth.json().code, "deal_image_limit");
 });
 
+await run("D10 authorized draft image deletion removes DB metadata and stored bytes", async () => {
+  const sellerId = `seller-img-delete-${randomUUID().slice(0, 8)}`;
+  const dealId = await insertDraftDeal(sellerId);
+  const uploaded = await app.inject({ method: "POST", url: `/api/seller/deals/${dealId}/images`, headers: { "x-seller-id": sellerId }, payload: imagePayload() });
+  assert.equal(uploaded.statusCode, 201, uploaded.body);
+  const imageId = uploaded.json().image.image_id;
+  const before = await pool.query(`SELECT storage_key FROM siton.deal_images WHERE image_id=$1`, [imageId]);
+  const storedPath = join(uploadDir, String(before.rows[0].storage_key));
+  assert.equal((await stat(storedPath)).isFile(), true);
+  const deleted = await app.inject({ method: "DELETE", url: `/api/seller/deals/${dealId}/images/${imageId}`, headers: { "x-seller-id": sellerId } });
+  assert.equal(deleted.statusCode, 200, deleted.body);
+  assert.equal(deleted.json().deletion, "deleted");
+  assert.equal(Number((await pool.query(`SELECT COUNT(*)::int AS count FROM siton.deal_images WHERE image_id=$1`, [imageId])).rows[0].count), 0);
+  await assert.rejects(() => stat(storedPath), (error: any) => error?.code === "ENOENT");
+});
 await pool.end();
 await app.close();
 console.log("All deal image tests passed.");

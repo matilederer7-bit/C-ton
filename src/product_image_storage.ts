@@ -13,7 +13,7 @@ export type DealImageUploadInput = {
 };
 
 export type DealImageFile = {
-  storage_provider: "local" | "object";
+  storage_provider: "local" | "s3";
   storage_key: string;
   original_filename: string | null;
   mime_type: string;
@@ -78,8 +78,10 @@ export async function saveDealImage(input: DealImageUploadInput): Promise<DealIm
   }
 
   const safeDealSegment = String(input.dealId || "").replace(/[^a-zA-Z0-9-]/g, "");
-  const storageKey = `${safeDealSegment}/${randomUUID()}${extensionForMime(mimeType)}`;
-  const stored = await adapter().put(storageKey, buffer);
+  const environmentPrefix = String(process.env.OBJECT_STORAGE_PREFIX || process.env.APP_DEPLOYMENT_MODE || "test").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "test";
+  const storageKey = `${environmentPrefix}/deals/${safeDealSegment}/images/${randomUUID()}${extensionForMime(mimeType)}`;
+  const checksumSha256 = createHash("sha256").update(buffer).digest("hex");
+  const stored = await adapter().put(storageKey, buffer, { contentType: mimeType, checksumSha256 });
 
   return {
     storage_provider: stored.storage_provider,
@@ -87,7 +89,7 @@ export async function saveDealImage(input: DealImageUploadInput): Promise<DealIm
     original_filename: originalFilename ? basename(originalFilename) : null,
     mime_type: mimeType,
     size_bytes: stored.size_bytes,
-    checksum_sha256: createHash("sha256").update(buffer).digest("hex")
+    checksum_sha256: checksumSha256
   };
 }
 
@@ -96,7 +98,7 @@ export async function readDealImage(storageKey: string) {
 }
 
 export async function deleteDealImageFile(storageKey: string) {
-  await adapter().delete(storageKey).catch(() => undefined);
+  await adapter().delete(storageKey);
 }
 
 export function getDealImagePublicUrl(image: { image_id: string }) {

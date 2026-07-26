@@ -8,6 +8,10 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     PAYMENT_PROVIDER: "stripe",
     PAYMENT_PROVIDER_MODE: "stripe",
     STORAGE_ADAPTER: "object",
+    OBJECT_STORAGE_REGION: "us-east-1",
+    OBJECT_STORAGE_BUCKET: "siton-production-private",
+    OBJECT_STORAGE_ACCESS_KEY_ID: "production-access-key",
+    OBJECT_STORAGE_SECRET_ACCESS_KEY: "production-secret-key",
     DATABASE_URL: "postgresql://placeholder.invalid/siton",
     ADMIN_API_KEY: "placeholder",
     SELLER_SESSION_SECRET: "placeholder",
@@ -24,6 +28,9 @@ assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", production({ R
 assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_PROVIDER: "mockpay" })), /mock PAYMENT_PROVIDER/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_PROVIDER_MODE: "mock-backed" })), /mock-backed/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ STORAGE_ADAPTER: "local" })), /STORAGE_ADAPTER=object/);
+assert.throws(() => assertProductionRuntimeGuards("web", production({ OBJECT_STORAGE_BUCKET: "" })), /OBJECT_STORAGE_BUCKET/);
+assert.throws(() => assertProductionRuntimeGuards("web", production({ OBJECT_STORAGE_ACCESS_KEY_ID: "placeholder" })), /placeholder/);
+assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "sandbox", STORAGE_ADAPTER: "object" }), /external storage runtime guard/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_WEBHOOK_SECRET: "" })), /PAYMENT_WEBHOOK_SECRET/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ RUNTIME_ROLE: "worker" })), /cannot start the web process/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ DISABLE_OUTBOX_WORKER: "0" })), /DISABLE_OUTBOX_WORKER=1/);

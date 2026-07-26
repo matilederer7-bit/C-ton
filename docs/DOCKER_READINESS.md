@@ -130,7 +130,7 @@ The Docker engine is not required by the static validation. Container build / ru
 - The shipped Dockerfile is single-stage and includes devDependencies in the runtime layer (because `dotenv` is currently a devDependency consumed at runtime by `runtime_config.ts`). This is an image-size concern, not a security one.
 - The image runs as non-root (`appuser`) but is not minimised (no distroless base, no read-only FS).
 - The container expects a managed database — it does NOT bundle Postgres for production use. The compose stack bundles Postgres for demo only.
-- No object storage adapter is wired. `STORAGE_ADAPTER=object` is documented in [STORAGE_PRODUCTION_FOUNDATION.md](STORAGE_PRODUCTION_FOUNDATION.md) but not implemented in this MVP.
+- The canonical S3-compatible object storage adapter is wired behind `STORAGE_ADAPTER=object`. Docker CI validates it against a private MinIO bucket; authorized external provider activation remains an operational gate documented in [STORAGE_PRODUCTION_FOUNDATION.md](STORAGE_PRODUCTION_FOUNDATION.md).
 - No Redis / shared rate-limit. The in-process rate limiter is `single_instance_only`.
 - No live money. Real provider validation and live charges are blocked behind the Provider Sandbox / Live Money Validation gate.
 - No production admin identity / MFA enforcement. `ADMIN_API_KEY` is the demo bootstrap fallback.

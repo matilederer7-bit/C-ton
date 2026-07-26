@@ -102,6 +102,8 @@
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1095.0",
+    "@aws-sdk/s3-request-presigner": "^3.1095.0",
     "exceljs": "^4.4.0",
     "fastify": "^5.7.4",
     "pg": "^8.18.0",

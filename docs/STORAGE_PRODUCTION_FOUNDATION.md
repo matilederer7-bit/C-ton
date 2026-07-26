@@ -1,38 +1,38 @@
 # Storage Production Foundation
 
-Status: the canonical adapter contract and reliable local Docker adapter are implemented. No external object-storage provider has been selected or implemented. Payment Sandbox and any public pilot remain blocked until that provider gate is completed.
+Status: Stage 5a implements a provider-neutral, private S3-compatible object-storage adapter behind the canonical contract in `src/storage_adapter.ts`. Local storage remains available only for development, tests and demo use. Activation against an authorized external Sandbox/Production account is still an operational gate; no real credentials are stored in this repository.
 
-## Canonical contract
+## Canonical contract and object model
 
-`src/storage_adapter.ts` is the only storage contract. It provides `put`, `get`, `delete`, `exists`, `listKeys`, readiness metadata, and capability reporting. API responses expose only an image UUID URL; filesystem roots and storage keys are never public.
+The contract provides `put`, `head`/metadata, `get`, idempotent `delete`, `exists`, prefix listing, short-lived signed reads, readiness/capability reporting, timeouts and abort signals. Provider failures map to stable application codes for missing objects/buckets, denied access, timeouts, collisions and verification failures. AWS SDK imports are confined to the adapter boundary.
 
-Stored metadata is distinct from object bytes: PostgreSQL keeps the internal storage key, normalized original filename, verified MIME type, byte size, SHA-256 checksum, creation time, owner deal and provider. The adapter stores only the bytes under the internal key.
+Object keys are server-generated and never use the client filename: `<environment>/deals/<deal UUID>/images/<random UUID>.<verified extension>`. The bucket must be private. Authorized application downloads retain `Cache-Control: public, max-age=31536000, immutable` for immutable UUID resources. Public API responses contain an authorized application URL by image UUID; the application resolves the internal key from PostgreSQL. The adapter can also create a short-lived signed GET URL for authorized internal use.
 
-## Local test and Docker storage
+PostgreSQL remains the metadata source of truth: provider code, internal key, normalized original filename, verified MIME type, size and SHA-256. Object bytes are stored only in object storage.
 
-Local storage is allowed only in test, development and demo-preview. `DEAL_IMAGE_UPLOAD_DIR` is the preferred explicit root; `UPLOAD_DIR` remains a compatibility alias. The Docker image creates `/var/lib/siton/uploads/deal-images`, assigns it to the non-root `appuser`, and the CI compose file mounts a named volume there for restart and two-Web tests.
+## Safe write and cleanup order
 
-`put` writes a mode-0600 `.partial-<uuid>` file, flushes it, atomically publishes it with a no-overwrite hard link, and removes the partial file on success or failure. Client filenames never form a storage path. Upload mutations for one deal are serialized in PostgreSQL so two Web instances cannot race the five-image or primary-image constraints.
+The upload order is validate and authorize, generate key, upload privately with no-overwrite semantics, HEAD-verify size and SHA-256, write DB metadata in the transaction, commit, then return 201. A storage failure creates no DB row. If the DB write fails, the Web process immediately deletes the object. If that delete fails, migration `044_storage_cleanup_tasks.sql` provides an idempotent retry queue processed by the separate worker with bounded exponential retry and redacted error codes.
 
-The safe cross-system order is: authorize and validate; create an internal key; write and verify storage; insert metadata inside the DB transaction; return 201 only after commit. If the DB operation fails after storage succeeds, the route deletes the stored object. If storage fails, no valid DB row is created.
+## Runtime configuration
 
-## Security policy
+Set these only through the deployment environment/secret manager for both Web and Worker:
 
-- Maximum size: 5 MiB; empty files are rejected.
-- Allowlist: JPEG, PNG and WebP. SVG, HTML and executable formats are rejected.
-- Magic bytes must match the declared MIME type.
-- Traversal, slash/backslash/NUL filenames and storage keys outside the adapter root are rejected; Unicode filenames are normalized to NFC.
-- Existing keys cannot be overwritten, directory listing is not public, internal paths are not returned, and downloads use the database-authorized image UUID with fixed MIME and `Cache-Control: public, max-age=31536000, immutable`.
-- Logs do not include file bytes. External antivirus is not currently integrated and must be reviewed before a public upload pilot.
+- `STORAGE_ADAPTER=object`
+- `OBJECT_STORAGE_ENDPOINT` — optional for AWS S3; required for a compatible custom endpoint
+- `OBJECT_STORAGE_REGION`
+- `OBJECT_STORAGE_BUCKET`
+- `OBJECT_STORAGE_ACCESS_KEY_ID`
+- `OBJECT_STORAGE_SECRET_ACCESS_KEY`
+- `OBJECT_STORAGE_FORCE_PATH_STYLE=1` only where required (MinIO uses it)
+- `OBJECT_STORAGE_PREFIX=sandbox` or `production`
+- `OBJECT_STORAGE_TIMEOUT_MS=5000`
+- `OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS=300`
 
-## External storage and production blocker
+Object mode fails closed when required configuration is absent or placeholder-like. Production also refuses local storage. Use distinct least-privilege credentials per environment, a private bucket, encryption at rest, provider access logging, restricted CORS, and a lifecycle rule for provider-side abandoned multipart uploads. Rotation is performed in the provider/secret manager and followed by a Web/Worker restart; no credential belongs in Git, logs, images, CI artifacts or client code.
 
-There is no real external adapter in this repository. `STORAGE_ADAPTER=object` is readiness configuration only; a provider implementation is still required. A local volume or Render `/tmp` is not a production solution. The existing production guard continues to reject `STORAGE_ADAPTER=local`.
+## Local and CI validation
 
-No provider-specific secret names can be canonical until a provider is selected. The future adapter will require, at minimum, provider endpoint/region configuration, bucket/container identifier, access identity/credential supplied only through deployment secrets, access policy, lifecycle policy and an authorized/signed-read strategy. No credentials are committed here.
+Local unit tests use the filesystem adapter and an in-memory S3 protocol double. Docker CI uses a real MinIO server, private persistent bucket, PostgreSQL, two Web instances and the Worker. It tests upload, HEAD metadata, checksum, listing, download, delete/re-delete, no overwrite, signed reads and expiry, anonymous denial, bad credentials, missing bucket, read-only/write-only permissions, endpoint outage, cross-Web reads, service restart persistence, same client filename isolation, DB metadata and cleanup retry. The Docker named local upload volume is deliberately absent in object-mode smoke tests.
 
-Render demo-preview currently configures `/tmp/uploads`; it is writable but ephemeral. Therefore a restart-safe payment Sandbox and public pilot remain blocked until the external adapter is selected, implemented, contract-tested and configured with deployment secrets.
-
-## Validation
-
-Local gates cover atomic publication, failure cleanup, no overwrite, MIME sniffing, traversal, Unicode, authorization, DB checksum metadata and no pre-commit 201. GitHub Actions runs real HTTP uploads against two non-root Web containers sharing a named volume, cross-instance reads, restart persistence, migrations, Web/Worker smoke, and verifies production-local-storage rejection. The CI image is removed with its test volume after the smoke.
+An authorized real provider account was not supplied. Therefore provider-console checks for encryption, lifecycle, access logs, IAM policy, rotation and real external restart persistence remain explicitly blocked until credentials and an approved Sandbox bucket are provided. This does not permit Stage 5b or live payment activation.

@@ -46,17 +46,19 @@ await runTest("aws_accordion_blueprint_doc_present", async () => {
   assert.match(doc, /not load AWS credentials|portable/i, "blueprint must state app is portable / no AWS credentials in code");
 });
 
-await runTest("aws_accordion_no_aws_sdk_in_runtime", async () => {
+await runTest("aws_accordion_storage_sdk_boundary", async () => {
   const packageJson = await readFile("package.json", "utf8");
   const pkg = JSON.parse(packageJson);
   const runtimeDeps = Object.keys(pkg.dependencies || {});
+  assert.ok(runtimeDeps.includes("@aws-sdk/client-s3"), "canonical S3-compatible adapter requires the scoped S3 client");
+  assert.ok(runtimeDeps.includes("@aws-sdk/s3-request-presigner"), "authorized short-lived reads require the scoped presigner");
+  for (const forbidden of ["aws-sdk", "@aws-sdk/client-secrets-manager"]) assert.ok(!runtimeDeps.includes(forbidden), `${forbidden} is outside the storage adapter boundary`);
 
-  for (const forbidden of ["aws-sdk", "@aws-sdk/client-s3", "@aws-sdk/client-secrets-manager"]) {
-    assert.ok(
-      !runtimeDeps.includes(forbidden),
-      `${forbidden} must not be a runtime dependency at this tier — accordion blueprint requires app code to stay portable`
-    );
-  }
+  const storageAdapter = await readFile("src/storage_adapter.ts", "utf8");
+  assert.match(storageAdapter, /@aws-sdk\/client-s3/);
+  const appSource = await readFile("src/app.ts", "utf8");
+  const imageStorage = await readFile("src/product_image_storage.ts", "utf8");
+  assert.doesNotMatch(appSource + imageStorage, /@aws-sdk|S3Client|PutObjectCommand|GetObjectCommand/);
 });
 
 await runTest("accordion_scaling_mission_control_validation", async () => {

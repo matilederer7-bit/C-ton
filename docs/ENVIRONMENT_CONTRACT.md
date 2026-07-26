@@ -132,3 +132,7 @@ No env value is logged, surfaced, or returned by any admin endpoint.
 - [AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md](AWS_ACCORDION_DEPLOYMENT_BLUEPRINT.md) — env per tier.
 - [PROVIDER_LIVE_MONEY_READINESS.md](PROVIDER_LIVE_MONEY_READINESS.md) — required envs before live money.
 - [PRODUCTION_LAUNCH_READINESS.md](PRODUCTION_LAUNCH_READINESS.md) — full launch checklist.
+
+## External object storage (Stage 5a)
+
+`STORAGE_ADAPTER=object` selects the canonical S3-compatible adapter. Web and Worker must receive `OBJECT_STORAGE_REGION`, `OBJECT_STORAGE_BUCKET`, `OBJECT_STORAGE_ACCESS_KEY_ID`, and `OBJECT_STORAGE_SECRET_ACCESS_KEY` from the deployment secret manager. `OBJECT_STORAGE_ENDPOINT` is optional for AWS and required for a custom compatible provider; `OBJECT_STORAGE_FORCE_PATH_STYLE=1` is intended for compatible services such as MinIO. `OBJECT_STORAGE_PREFIX` separates sandbox and production object namespaces. Production rejects local storage and object mode fails closed on missing or placeholder configuration. See `docs/STORAGE_PRODUCTION_FOUNDATION.md` for the security, rotation and cleanup contract.

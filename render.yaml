@@ -23,6 +23,26 @@ services:
         value: 0.0.0.0
       - key: DB_SCHEMA
         value: siton
+      - key: STORAGE_ADAPTER
+        sync: false
+      - key: OBJECT_STORAGE_ENDPOINT
+        sync: false
+      - key: OBJECT_STORAGE_REGION
+        sync: false
+      - key: OBJECT_STORAGE_BUCKET
+        sync: false
+      - key: OBJECT_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: OBJECT_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: OBJECT_STORAGE_FORCE_PATH_STYLE
+        value: "0"
+      - key: OBJECT_STORAGE_PREFIX
+        value: sandbox
+      - key: OBJECT_STORAGE_TIMEOUT_MS
+        value: "5000"
+      - key: OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS
+        value: "300"
       - key: LOG_LEVEL
         value: info
       - key: DEBUG_SQL_LOGGING
@@ -72,6 +92,26 @@ services:
         sync: false
       - key: DB_SCHEMA
         value: siton
+      - key: STORAGE_ADAPTER
+        sync: false
+      - key: OBJECT_STORAGE_ENDPOINT
+        sync: false
+      - key: OBJECT_STORAGE_REGION
+        sync: false
+      - key: OBJECT_STORAGE_BUCKET
+        sync: false
+      - key: OBJECT_STORAGE_ACCESS_KEY_ID
+        sync: false
+      - key: OBJECT_STORAGE_SECRET_ACCESS_KEY
+        sync: false
+      - key: OBJECT_STORAGE_FORCE_PATH_STYLE
+        value: "0"
+      - key: OBJECT_STORAGE_PREFIX
+        value: sandbox
+      - key: OBJECT_STORAGE_TIMEOUT_MS
+        value: "5000"
+      - key: OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS
+        value: "300"
       - key: LOG_LEVEL
         value: info
       - key: WORKER_CONCURRENCY

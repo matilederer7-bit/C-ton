@@ -13,6 +13,37 @@ services:
       timeout: 3s
       retries: 30
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    environment:
+      MINIO_ROOT_USER: siton-ci-root
+      MINIO_ROOT_PASSWORD: siton-ci-root-secret
+    command: ["server", "/data", "--console-address", ":9001"]
+    ports:
+      - "59000:9000"
+    volumes:
+      - object_data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_started
+    volumes:
+      - ./scripts/minio-readonly-policy.json:/policies/readonly.json:ro
+      - ./scripts/minio-writeonly-policy.json:/policies/writeonly.json:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >-
+        until mc alias set ci http://minio:9000 siton-ci-root siton-ci-root-secret; do sleep 1; done &&
+        mc mb --ignore-existing ci/siton-ci-private &&
+        mc anonymous set none ci/siton-ci-private &&
+        mc admin policy create ci siton-ci-readonly /policies/readonly.json &&
+        mc admin policy create ci siton-ci-writeonly /policies/writeonly.json &&
+        mc admin user add ci siton-ci-reader siton-ci-reader-secret &&
+        mc admin user add ci siton-ci-writer siton-ci-writer-secret &&
+        mc admin policy attach ci siton-ci-readonly --user siton-ci-reader &&
+        mc admin policy attach ci siton-ci-writeonly --user siton-ci-writer
   migrate:
     build: .
     depends_on:
@@ -28,6 +59,16 @@ services:
       PAYMENT_WEBHOOK_SECRET: ci-placeholder-only
       ADMIN_API_KEY: ci-placeholder-only
       DISABLE_OUTBOX_WORKER: "1"
+      STORAGE_ADAPTER: object
+      OBJECT_STORAGE_ENDPOINT: http://minio:9000
+      OBJECT_STORAGE_REGION: us-east-1
+      OBJECT_STORAGE_BUCKET: siton-ci-private
+      OBJECT_STORAGE_ACCESS_KEY_ID: siton-ci-root
+      OBJECT_STORAGE_SECRET_ACCESS_KEY: siton-ci-root-secret
+      OBJECT_STORAGE_FORCE_PATH_STYLE: "1"
+      OBJECT_STORAGE_TIMEOUT_MS: "5000"
+      OBJECT_STORAGE_PREFIX: ci
+      OBJECT_STORAGE_SIGNED_URL_TTL_SECONDS: "2"
       RATE_LIMIT_MAX: "100000"
       RATE_LIMIT_SENSITIVE_MAX: "100000"
     command: ["sh", "-c", "npm run db:migrate && node scripts/seed_test_prerequisites.cjs"]
@@ -37,14 +78,13 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
     environment:
       <<: *ci-env
       RUNTIME_ROLE: web
       HOST: 0.0.0.0
       PORT: "3000"
-      DEAL_IMAGE_UPLOAD_DIR: /var/lib/siton/uploads/deal-images
-    volumes:
-      - upload_data:/var/lib/siton/uploads/deal-images
     command: ["npm", "run", "start:web:prod"]
     ports:
       - "3001:3000"
@@ -59,14 +99,13 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
     environment:
       <<: *ci-env
       RUNTIME_ROLE: web
       HOST: 0.0.0.0
       PORT: "3000"
-      DEAL_IMAGE_UPLOAD_DIR: /var/lib/siton/uploads/deal-images
-    volumes:
-      - upload_data:/var/lib/siton/uploads/deal-images
     command: ["npm", "run", "start:web:prod"]
     ports:
       - "3002:3000"
@@ -79,6 +118,8 @@ services:
     build: .
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      minio-init:
         condition: service_completed_successfully
     environment:
       <<: *ci-env
@@ -95,4 +136,4 @@ services:
       retries: 30
 
 volumes:
-  upload_data:
+  object_data:
