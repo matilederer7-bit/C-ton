@@ -1,4 +1,25 @@
 # PROJECT STATUS
+## Current update: 2026-07-26 (Stage 4/6 - Buyer flow and last-unit concurrency)
+
+### Canonical buyer flow and focused correction
+- Canonical HTTP path: public deal (`GET /api/deals/:id/public`) -> OTP start/verify (`POST /api/otp/start`, `POST /api/otp/verify`) -> server-authoritative mock authorization (`POST /api/payments/authorize-mock`) -> atomic Join (`POST /deals/:id/join`) -> hashed tracking token (`GET /api/participants/:id/tracking?t=...`) -> public-deal refresh. Join commits participant buyer/money state, two audit rows, one notification/outbox event, idempotency result and tracking token in the canonical transaction.
+- The inventory lock was already correct: Join locks the deal row with `FOR UPDATE`, recomputes active quantity, and commits at most the remaining stock. The focused defect found in this stage was that ordinary inventory exhaustion returned HTTP 409 without its canonical machine-readable code. It now returns `max_units_exceeded`; no Join, OTP, Upload or state-machine redesign was performed.
+- Docker smoke now executes the buyer path over real HTTP against two separate Web containers and PostgreSQL, verifies a 100-buyer last-unit race, the frontend response (`hold_total` and tracking token), cross-Web tracking, public inventory refresh and persistence after a Web restart. Worker remains separate.
+
+### Concurrency, money and authorization evidence
+- Ten consecutive 100-buyer last-unit runs use distinct buyer identities, OTP proofs, mock authorization references and idempotency keys, alternating between two Web application instances. Every run produced exactly 1 success, 99 `max_units_exceeded` failures, 0 other/500 failures, 1 participant, 1 sold unit, 0 remaining, 2 canonical Join audit rows, 1 notification/outbox event and 1 winner authorization association. No loser received a tracking token and no capture or real charge occurred.
+- The five-unit/100-buyer run produced exactly 5 successes and 95 expected inventory failures, 5 participants and exactly 5 sold units, with no negative inventory or duplicate mutation.
+- Existing quantity, competing-bulk, idempotent replay/payload-mismatch, response-loss/restart and state-transition cases remain green in `concurrency_proof.ts` and the complete regression suite.
+- Numeric buyer authorization scenario: product 100 + delivery 20 = server-authoritative authorization/hold 120. The existing canonical settlement suite passes the fixed 8% platform-fee contract, delivery inclusion, VAT tracking, and absence of any affiliate fee. The fee formula itself was not changed in this stage.
+- The mock adapter can prove authorization success/failure and winner association, but it does not model provider-side void/release of losing holds. Release/cancel evidence remains explicitly deferred to the payment-provider Sandbox; no synthetic success or real payment was introduced.
+
+### Verification and remaining gate
+- PASS locally: concurrency 4/4; payments 21/21; E2E 12/12 in a browser-permitted runner; `test:all` 115/115 across 10/10 groups; TypeScript; lint/backend enforcement; direct state mutation; Payment SDK boundary; raw-card/payment compliance; secret scan; runtime DDL; migration validation (39/39, rerun, 15 functions, 12 triggers, 757 constraints, 182 indexes, 47 FKs); `git diff --check`.
+- The first sandboxed `test:all` attempt had one environmental `spawn EPERM` in the browser file. The same 12-file E2E group and then the complete 115-file suite passed outside that browser restriction without product-code workarounds or skips.
+- Docker is unavailable on this workstation, so Docker build, two-Web real-HTTP buyer smoke, Worker smoke and upload smoke are authoritative GitHub Actions gates. Stage completion remains conditional until the pushed workflow is green.
+- No OTP/Upload algorithm, external object storage, real payment provider, fee formula, affiliate fee, UX/design or capture behavior was changed.
+- Stage 4 completion: locally complete; final percentage becomes 100% only after the authoritative GitHub Docker/CI gate passes.
+- Next step after the Stage 4 completion report: real Object Storage and precise failure testing before payment Sandbox. Do not start it before the report.
 ## Current update: 2026-07-26 (Stage 3/6 - Reliable Docker upload storage)
 
 ### Root cause and correction

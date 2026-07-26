@@ -28,6 +28,8 @@ services:
       PAYMENT_WEBHOOK_SECRET: ci-placeholder-only
       ADMIN_API_KEY: ci-placeholder-only
       DISABLE_OUTBOX_WORKER: "1"
+      RATE_LIMIT_MAX: "100000"
+      RATE_LIMIT_SENSITIVE_MAX: "100000"
     command: ["sh", "-c", "npm run db:migrate && node scripts/seed_test_prerequisites.cjs"]
 
   web:

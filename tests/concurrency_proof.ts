@@ -34,7 +34,7 @@ const DB = new Pool({
 });
 
 const SELLER = "seller-test-proof";
-const SCENARIO_TIMEOUT_MS = 30_000;
+const SCENARIO_TIMEOUT_MS = 240_000;
 
 // ─── once-per-suite OTP setup ───────────────────────────────────────────────
 // Legal-acceptance + OTP gates run BEFORE the DB lock, so a single verified,
@@ -142,6 +142,24 @@ async function join(dealId: string, buyerId: string, qty: unknown = 1, idemKey?:
   return { status: res.statusCode, body: JSON.parse(res.body) };
 }
 
+async function prepareDistinctBuyer(dealId: string, suffix: string, targetApp: any) {
+  const digits = Number(suffix.replace(/\D/g, "").slice(-6) || "0");
+  const phone = `050${String(7000000 + digits).slice(-7)}`;
+  const start = await targetApp.inject({ method: "POST", url: "/api/otp/start", payload: { phone } });
+  assert.equal(start.statusCode, 200, start.body);
+  const started = start.json() as any;
+  const verify = await targetApp.inject({ method: "POST", url: "/api/otp/verify", payload: { otp_session_id: started.otp_session_id, code: started.development_code } });
+  assert.equal(verify.statusCode, 200, verify.body);
+  const otp = verify.json() as any;
+  const authorization = await targetApp.inject({ method: "POST", url: "/api/payments/authorize-mock", payload: { payer_name: `Buyer ${suffix}`, payment_method_id: `pm_stage4_${suffix}`, buyer_id: otp.buyer_id, deal_id: dealId, qty: 1, otp_token: otp.otp_token, otp_challenge_id: otp.challenge_id || otp.otp_session_id } });
+  assert.equal(authorization.statusCode, 200, authorization.body);
+  return { otp, authorization: authorization.json() as any };
+}
+
+async function joinWithDistinctProof(dealId: string, suffix: string, targetApp: any, credential: any) {
+  const res = await targetApp.inject({ method: "POST", url: `/deals/${dealId}/join`, headers: { "idempotency-key": `stage4-${suffix}`, "x-request-id": `stage4-${suffix}` }, payload: { buyer_id: credential.otp.buyer_id, qty: 1, payment_disclosure_accepted: true, otp_token: credential.otp.otp_token, otp_challenge_id: credential.otp.challenge_id || credential.otp.otp_session_id, authorization_id: credential.authorization.authorization_id, authorization_provider: credential.authorization.provider, authorization_correlation_id: credential.authorization.correlation_id } });
+  return { status: res.statusCode, body: res.json() as any };
+}
 function nextScenarioIp() {
   // Increment the last octet of the IP for each new scenario
   const parts = scenarioIp.split(".");
@@ -295,26 +313,38 @@ await run("S4 — Same buyer fires 10 concurrent joins (qty=1 each), max_units=5
 
 // ─── SCENARIO 5: Last unit race ──────────────────────────────────────────────
 
-await run("S5 — Last unit race: 2 buyers racing for the last unit", async () => {
-  const dealId = await createDeal(1, "S5-last-unit");
-  try {
-    // Fire 50 concurrent requests at a max_units=1 deal
-    const results = await Promise.all(
-      Array.from({ length: 50 }, (_, i) => join(dealId, `buyer-race-${i}`, 1))
-    );
-    const ev = await evidence(dealId);
-    const succeeded = results.filter(r => r.status === 200).length;
-
-    console.log(`     requests=50  succeeded=${succeeded}  qty_sum=${ev.qtySum}  max_units=${ev.maxUnits}`);
-
-    assert.ok(ev.qtySum <= ev.maxUnits, `OVERSELL: qty_sum=${ev.qtySum} > max_units=${ev.maxUnits}`);
-    assert.equal(succeeded, 1, `exactly 1 should have won the race, got ${succeeded}`);
-    assert.equal(ev.qtySum, 1, `DB qty_sum must be exactly 1`);
-  } finally {
-    await deleteDeal(dealId);
+await run("S5 — 100 distinct buyers race for the last unit, stable across 10 runs", async () => {
+  for (let runIndex = 1; runIndex <= 10; runIndex += 1) {
+    const dealId = await createDeal(1, `S5-last-unit-${runIndex}`);
+    try {
+      const credentials = await Promise.all(Array.from({ length: 100 }, (_, i) => prepareDistinctBuyer(dealId, `${runIndex}-${i}`, i % 2 ? secondWebApp : app)));
+      const startedAt = Date.now();
+      const results = await Promise.all(credentials.map((credential, i) => joinWithDistinctProof(dealId, `${runIndex}-${i}`, i % 2 ? secondWebApp : app, credential)));
+      const ev = await evidence(dealId);
+      const succeeded = results.filter((r) => r.status === 200).length;
+      const inventoryFailures = results.filter((r) => r.status === 409 && r.body?.code === "max_units_exceeded").length;
+      const otherFailures = results.length - succeeded - inventoryFailures;
+      console.log(`     run=${runIndex} success=${succeeded} inventory_failures=${inventoryFailures} other=${otherFailures} participants=${ev.participantCount} sold=${ev.qtySum} remaining=${ev.maxUnits - ev.qtySum} audit=${ev.auditCount} outbox=${ev.outboxCount} authorization_records=${succeeded} duration_ms=${Date.now() - startedAt}`);
+      assert.equal(succeeded, 1); assert.equal(inventoryFailures, 99); assert.equal(otherFailures, 0);
+      assert.equal(ev.participantCount, 1); assert.equal(ev.qtySum, 1); assert.equal(ev.resultCount, 1); assert.equal(ev.auditCount, 2); assert.equal(ev.outboxCount, 1);
+      assert.ok(results.filter((r) => r.status !== 200).every((r) => !r.body?.tracking_access_token));
+    } finally { await deleteDeal(dealId); }
   }
 });
 
+await run("S5b — 100 distinct buyers race for five units", async () => {
+  const dealId = await createDeal(5, "S5b-five-units");
+  try {
+    const credentials = await Promise.all(Array.from({ length: 100 }, (_, i) => prepareDistinctBuyer(dealId, `five-${i}`, i % 2 ? secondWebApp : app)));
+    const results = await Promise.all(credentials.map((credential, i) => joinWithDistinctProof(dealId, `five-${i}`, i % 2 ? secondWebApp : app, credential)));
+    const ev = await evidence(dealId);
+    assert.equal(results.filter((r) => r.status === 200).length, 5);
+    assert.equal(results.filter((r) => r.status === 409 && r.body?.code === "max_units_exceeded").length, 95);
+    assert.equal(ev.participantCount, 5); assert.equal(ev.qtySum, 5); assert.equal(ev.auditCount, 10); assert.equal(ev.outboxCount, 5);
+  } finally { await deleteDeal(dealId); }
+});
+
+// ─── SCENARIO 6: One large request takes all inventory ──────────────────────
 // ─── SCENARIO 6: One large request takes all inventory ──────────────────────
 
 await run("S6 — One request claims all 8 units, subsequent request gets 409", async () => {

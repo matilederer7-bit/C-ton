@@ -3008,6 +3008,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         `requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`
       );
       err.statusCode = 409;
+      err.code = "max_units_exceeded";
       throw err;
     }
 
