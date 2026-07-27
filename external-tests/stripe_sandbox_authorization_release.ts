@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
 
 const serverKey = String(process.env.PAYMENT_PROVIDER_API_KEY || "");
 const publicKey = String(process.env.PAYMENT_PROVIDER_PUBLIC_KEY || "");
@@ -85,7 +87,7 @@ try {
   assert.equal(releasedStatus.amount_minor, amountMinor);
   assert.equal(releasedStatus.currency, currency);
 
-  console.log(JSON.stringify({
+  const report = {
     external_verification: "executed",
     stripe_mode: "test",
     authorization: "authorized_then_released",
@@ -96,7 +98,13 @@ try {
     decline: "normalized",
     status_after_release: "released",
     provider_reference_sha256_prefix: filteredReference(authorizationId)
-  }));
+  };
+  const reportPath = String(process.env.STRIPE_SANDBOX_REPORT_PATH || "");
+  if (reportPath) {
+    await mkdir(dirname(reportPath), { recursive: true });
+    await writeFile(reportPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  }
+  console.log(JSON.stringify(report));
 } finally {
   if (authorizationId && !released) {
     const cleanup = await provider.release!({ authorization_id: authorizationId, amount_minor: amountMinor, currency, correlation_id: `${releaseKey}_cleanup` });

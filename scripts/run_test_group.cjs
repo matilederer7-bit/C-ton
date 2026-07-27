@@ -34,6 +34,7 @@ function databaseUrl(base, databaseName) {
 }
 
 async function main() {
+  const suiteStartedAt = Date.now();
   const requested = process.argv[2] || "all";
   if (requested !== "all" && !GROUPS.includes(requested)) throw new Error(`Unknown test group: ${requested}`);
   const files = readdirSync(path.join(process.cwd(), "tests"))
@@ -48,6 +49,7 @@ async function main() {
   if (requested === "all") {
     const failedGroups = [];
     for (const group of GROUPS) {
+      const groupStartedAt = Date.now();
       console.log(`\nTEST_ALL_GROUP_START group=${group}`);
       const result = spawnSync(process.execPath, [__filename, group], {
         stdio: "inherit",
@@ -55,14 +57,14 @@ async function main() {
         timeout: 30 * 60_000
       });
       if (result.status === 0) {
-        console.log(`TEST_ALL_GROUP_PASS group=${group}`);
+        console.log(`TEST_ALL_GROUP_PASS group=${group} duration_ms=${Date.now() - groupStartedAt}`);
       } else {
         const reason = result.error ? result.error.message : `exit ${result.status}`;
         failedGroups.push({ group, reason });
-        console.error(`TEST_ALL_GROUP_FAIL group=${group} reason=${reason}`);
+        console.error(`TEST_ALL_GROUP_FAIL group=${group} duration_ms=${Date.now() - groupStartedAt} reason=${reason}`);
       }
     }
-    console.log(`\nTEST_SUMMARY group=all files=${files.length} groups_passed=${GROUPS.length - failedGroups.length} groups_failed=${failedGroups.length}`);
+    console.log(`\nTEST_SUMMARY group=all files=${files.length} groups_passed=${GROUPS.length - failedGroups.length} groups_failed=${failedGroups.length} duration_ms=${Date.now() - suiteStartedAt}`);
     for (const failure of failedGroups) console.error(`FAILED_GROUP ${failure.group}: ${failure.reason}`);
     process.exit(failedGroups.length ? 1 : 0);
   }
@@ -99,6 +101,7 @@ async function main() {
       const testDb = `siton_test_${suffix}_${index}`;
       const compiled = path.join(".tmp_test_dist", "tests", item.name.replace(/\.ts$/, ".js"));
       console.log(`\nTEST_START group=${item.group} file=${item.name}`);
+      const testStartedAt = Date.now();
       try {
         await admin.query(`CREATE DATABASE ${quoteIdentifier(testDb)} TEMPLATE ${quoteIdentifier(templateName)}`);
         const result = spawnSync(process.execPath, [compiled], {
@@ -106,11 +109,11 @@ async function main() {
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
           timeout: item.name === "frontend_browser_smoke_validation.ts" ? 900000 : 180000
         });
-        if (result.status === 0) console.log(`TEST_PASS file=${item.name}`);
+        if (result.status === 0) console.log(`TEST_PASS file=${item.name} duration_ms=${Date.now() - testStartedAt}`);
         else {
           const reason = result.error ? result.error.message : `exit ${result.status}`;
           failures.push({ file: item.name, reason });
-          console.error(`TEST_FAIL file=${item.name} reason=${reason}`);
+          console.error(`TEST_FAIL file=${item.name} duration_ms=${Date.now() - testStartedAt} reason=${reason}`);
         }
       } finally {
         await dropDatabase(testDb);
@@ -121,7 +124,7 @@ async function main() {
     await admin.end();
   }
 
-  console.log(`\nTEST_SUMMARY group=${requested} passed=${selected.length - failures.length} failed=${failures.length}`);
+  console.log(`\nTEST_SUMMARY group=${requested} passed=${selected.length - failures.length} failed=${failures.length} duration_ms=${Date.now() - suiteStartedAt}`);
   for (const failure of failures) console.error(`FAILED ${failure.file}: ${failure.reason}`);
   process.exit(failures.length ? 1 : 0);
 }

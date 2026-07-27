@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 
 const workflow = await readFile(".github/workflows/stripe-sandbox-proof.yml", "utf8");
 const harness = await readFile("external-tests/stripe_sandbox_authorization_release.ts", "utf8");
+const artifactScan = await readFile("scripts/scan_stripe_sandbox_report.cjs", "utf8");
 const packageJson = JSON.parse(await readFile("package.json", "utf8"));
 
 assert.match(workflow, /workflow_dispatch:/);
@@ -13,6 +14,8 @@ assert.match(workflow, /secrets\.STRIPE_SANDBOX_PUBLISHABLE_KEY/);
 assert.match(workflow, /secrets\.STRIPE_SANDBOX_WEBHOOK_SECRET/);
 assert.match(workflow, /Stripe Sandbox external verification not executed/);
 assert.doesNotMatch(workflow, /set\s+-x|printenv|env\s*\|/);
+assert.match(workflow, /actions\/upload-artifact@v4/);
+assert.match(workflow, /scan_stripe_sandbox_report\.cjs/);
 assert.match(harness, /startsWith\("sk_test_"\)/);
 assert.match(harness, /startsWith\("pk_test_"\)/);
 assert.match(harness, /startsWith\("whsec_"\)/);
@@ -24,6 +27,9 @@ assert.match(harness, /provider\.release/);
 assert.doesNotMatch(harness, /provider\.capture\s*\(/, "Stage 6b-1 must not capture");
 assert.doesNotMatch(harness, /provider\.refund\s*\(/, "Stage 6b-1 must not refund");
 assert.doesNotMatch(harness, /card_number|card\[number\]|\bcvv\b|\bcvc\b|exp_month|exp_year/i);
+assert.match(harness, /STRIPE_SANDBOX_REPORT_PATH/);
+assert.match(artifactScan, /Unexpected field in filtered report/);
+assert.match(artifactScan, /sk_\(\?:test\|live\)_/);
 const runner = await readFile("scripts/run_stripe_sandbox_external.cjs", "utf8");
 assert.match(runner, /Stripe Sandbox external verification not executed/);
 assert.match(runner, /startsWith\("sk_test_"\)/);

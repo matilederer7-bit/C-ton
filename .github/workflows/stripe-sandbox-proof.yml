@@ -58,6 +58,7 @@ jobs:
       PAYMENT_PROVIDER_PUBLIC_KEY: ${{ secrets.STRIPE_SANDBOX_PUBLISHABLE_KEY }}
       PAYMENT_WEBHOOK_SECRET: ${{ secrets.STRIPE_SANDBOX_WEBHOOK_SECRET }}
       PAYMENT_PROVIDER_TIMEOUT_MS: "8000"
+      STRIPE_SANDBOX_REPORT_PATH: .ci-artifacts/stripe-sandbox-proof.json
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -73,6 +74,15 @@ jobs:
           npm run scan:backend
       - name: Real Stripe Test Mode authorization and release
         run: npm run test:stripe-sandbox-external
+      - name: Scan filtered proof artifact
+        run: node scripts/scan_stripe_sandbox_report.cjs .ci-artifacts/stripe-sandbox-proof.json
+      - name: Upload filtered proof artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: stripe-sandbox-filtered-proof
+          path: .ci-artifacts/stripe-sandbox-proof.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Record filtered result
         if: always()
         run: |

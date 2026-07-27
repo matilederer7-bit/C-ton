@@ -141,6 +141,19 @@ async function openCdpPage(path: string) {
   throw new Error("Edge CDP page did not become available");
 }
 
+async function waitForProcessExit(child: ReturnType<typeof spawn>, timeoutMs: number) {
+  if (child.exitCode !== null) return true;
+  return new Promise<boolean>((resolve) => {
+    const onExit = () => finish(true);
+    const timer = setTimeout(() => finish(false), timeoutMs);
+    const finish = (exited: boolean) => {
+      clearTimeout(timer);
+      child.off("exit", onExit);
+      resolve(exited);
+    };
+    child.once("exit", onExit);
+  });
+}
 async function withCdp<T>(path: string, fn: (cdp: CdpSession) => Promise<T>): Promise<T> {
   let page: Awaited<ReturnType<typeof openCdpPage>> | undefined;
   let openError: unknown;
@@ -215,7 +228,11 @@ async function withCdp<T>(path: string, fn: (cdp: CdpSession) => Promise<T>): Pr
       wait(2_000)
     ]);
     ws.close();
-    page.browser.kill("SIGKILL");
+    const closedGracefully = await waitForProcessExit(page.browser, 5_000);
+    if (!closedGracefully) {
+      page.browser.kill("SIGKILL");
+      await waitForProcessExit(page.browser, 5_000);
+    }
     await rm(page.profileDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
