@@ -110,7 +110,7 @@ jobs:
         run: npm run test:all 2>&1 | tee .ci-artifacts/test-all.log
 
       - name: Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
-        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
+        if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
         run: npm run ci:docker-smoke 2>&1 | tee .ci-artifacts/docker-smoke.log
 
       - name: Upload CI reports and failure logs
