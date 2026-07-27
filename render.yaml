@@ -55,6 +55,16 @@ services:
         sync: false
       - key: PAYMENT_PROVIDER_MODE
         sync: false
+      - key: PAYMENT_ENVIRONMENT
+        sync: false
+      - key: PAYMENT_PROVIDER_BASE_URL
+        sync: false
+      - key: PAYMENT_PROVIDER_API_KEY
+        sync: false
+      - key: PAYMENT_PROVIDER_PUBLIC_KEY
+        sync: false
+      - key: PAYMENT_PROVIDER_TIMEOUT_MS
+        value: "8000"
       - key: PAYMENT_WEBHOOK_PROVIDER
         sync: false
       - key: PAYMENT_WEBHOOK_SECRET
@@ -136,6 +146,14 @@ services:
         sync: false
       - key: PAYMENT_PROVIDER_MODE
         sync: false
+      - key: PAYMENT_ENVIRONMENT
+        sync: false
+      - key: PAYMENT_PROVIDER_BASE_URL
+        sync: false
+      - key: PAYMENT_PROVIDER_API_KEY
+        sync: false
+      - key: PAYMENT_PROVIDER_TIMEOUT_MS
+        value: "8000"
       - key: PAYOUT_PROVIDER
         value: internal-ledger
       - key: PAYOUT_PROVIDER_MODE

@@ -51,10 +51,13 @@ Legend:
 | `DEBUG_SURFACES_ACCESS_KEY` | ⬜ | ⚠ if enabled | ⚠ if enabled | 🔒 | — | Required when `DEBUG_SURFACES_ENABLED=1`. |
 | `PAYMENT_PROVIDER` | ✅ | ✅ | ✅ | 📄 | `mockpay` | Selects payment adapter. `stripe` is the first live adapter. |
 | `PAYMENT_PROVIDER_MODE` | ✅ | ✅ | ✅ | 📄 | `mock-backed` | Mode for the chosen provider. |
+| `PAYMENT_ENVIRONMENT` | ⬜ | ⚠ | ✅ | 📄 | `demo` | `sandbox` requires Stripe test credentials; production requires `live`. |
 | `PAYMENT_PROVIDER_BASE_URL` | ⬜ | ⚠ for live | ⚠ for live | 📄 | — | |
 | `PAYMENT_PROVIDER_API_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider API key. |
 | `PAYMENT_PROVIDER_PUBLIC_KEY` | ⬜ | ⚠ | ⚠ | 🔒 | — | Provider public key (e.g. Stripe `pk_*`). |
 | `PAYMENT_PROVIDER_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `8000` | Provider HTTP timeout. |
+| `PAYMENT_PROVIDER_RELEASE_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/release` | Generic provider-ready compatibility path; Stripe uses PaymentIntent cancel. |
+| `PAYMENT_PROVIDER_STATUS_PATH` | ⬜ | ⬜ | ⬜ | 📄 | `/status` | Generic provider-ready compatibility path; Stripe retrieves PaymentIntent/Refund. |
 | `PAYMENT_PROVIDER_CURRENCY` | ⬜ | ⬜ | ⬜ | 📄 | `ILS` | |
 | `PAYMENT_WEBHOOK_PROVIDER` | ✅ | ✅ | ✅ | 📄 | matches `PAYMENT_PROVIDER` | |
 | `PAYMENT_WEBHOOK_SECRET` | ⬜ (`mock-webhook-secret`) | ⚠ | ⚠ | 🔒 | demo default in demo-preview | Live requires a real provider webhook secret. |

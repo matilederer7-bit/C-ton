@@ -8,7 +8,10 @@ import {
   PAYMENT_PROVIDER_CAPTURE_PATH,
   PAYMENT_PROVIDER_RECOVERY_PATH,
   PAYMENT_PROVIDER_REFUND_PATH,
+  PAYMENT_PROVIDER_RELEASE_PATH,
+  PAYMENT_PROVIDER_STATUS_PATH,
   PAYMENT_PROVIDER_CURRENCY,
+  PAYMENT_ENVIRONMENT,
   PAYMENT_PROVIDER_MODE,
   PAYMENT_PROVIDER_PUBLIC_KEY,
   PAYMENT_PROVIDER,
@@ -126,6 +129,35 @@ export type RefundPaymentInput = {
   request_id?: string;
 };
 
+export type ReleasePaymentInput = {
+  authorization_id: string;
+  amount_minor?: number;
+  currency?: string;
+  participant_id?: string;
+  deal_id?: string;
+  buyer_id?: string;
+  correlation_id: string;
+  request_id?: string;
+};
+
+export type PaymentStatusInput = {
+  provider_reference: string;
+  operation: "authorization" | "capture" | "release" | "refund";
+  correlation_id: string;
+};
+
+export type PaymentStatusResult = {
+  provider: string;
+  provider_reference: string | null;
+  correlation_id: string;
+  state: "authorized" | "captured" | "released" | "refunded" | "failed" | "pending" | "unknown";
+  amount_minor: number | null;
+  currency: string | null;
+  provider_time: string | null;
+  final: boolean;
+  error_code: string | null;
+};
+
 export interface PaymentProvider {
   readonly providerCode: string;
   readonly mode: "mock-backed" | "provider-ready" | "stripe";
@@ -136,6 +168,8 @@ export interface PaymentProvider {
   capture(input: CapturePaymentInput): Promise<PaymentExecutionResult>;
   recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult>;
   refund(input: RefundPaymentInput): Promise<PaymentExecutionResult>;
+  release?(input: ReleasePaymentInput): Promise<PaymentExecutionResult>;
+  status?(input: PaymentStatusInput): Promise<PaymentStatusResult>;
   verifyWebhook?(args: { rawBody: string; signatureHeader?: string; timestampHeader?: string; secret?: string }): boolean;
   parseWebhookEvent?(body: Record<string, unknown>): {
     provider: string;
@@ -216,6 +250,15 @@ function stripeFormEncode(values: Record<string, string | number | boolean | nul
   return params;
 }
 
+async function stripeGet(path: string) {
+  const response = await fetch(`${normalizeStripeBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${path}`, {
+    method: "GET",
+    headers: { authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}` },
+    signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
+  });
+  const payload = await parseJsonSafely(response);
+  return { response, payload };
+}
 async function stripePost(path: string, body: Record<string, string | number | boolean | null | undefined>, idempotencyKey: string) {
   const response = await fetch(`${normalizeStripeBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${path}`, {
     method: "POST",
@@ -451,6 +494,12 @@ function buildMockPaymentProvider(): PaymentProvider {
       if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" };
       if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true };
       return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
+    },
+    async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
+      return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, provider_reference: input.authorization_id, correlation_id: input.correlation_id };
+    },
+    async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
+      return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: input.operation === "release" ? "released" : input.operation === "refund" ? "refunded" : input.operation === "capture" ? "captured" : "authorized", amount_minor: null, currency: null, provider_time: null, final: true, error_code: null };
     }
   };
 }
@@ -822,14 +871,41 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           reconciliation_event_type: "refund_issued"
         };
       } catch {
-        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: false, correlation_id: correlationId };
+        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, correlation_id: correlationId };
+      }
+    },
+    async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
+      const correlationId = input.correlation_id;
+      const url = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_RELEASE_PATH)}`;
+      if (!configured || !input.authorization_id) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId };
+      try {
+        const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`, "idempotency-key": correlationId, "x-request-id": input.request_id || correlationId }, body: JSON.stringify({ authorization_id: input.authorization_id, reference: correlationId, amount_minor: input.amount_minor, currency: input.currency, participant_id: input.participant_id, deal_id: input.deal_id, buyer_id: input.buyer_id }), signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS) });
+        const payload = await parseJsonSafely(response);
+        if (!response.ok || payload?.ok === false) return { provider: PAYMENT_PROVIDER, result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
+        return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
+      } catch {
+        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
+      }
+    },
+    async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
+      const base = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_STATUS_PATH)}`;
+      if (!configured || !input.provider_reference) return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference || null, correlation_id: input.correlation_id, state: "unknown", amount_minor: null, currency: null, provider_time: null, final: false, error_code: "payment_provider_not_configured" };
+      try {
+        const response = await fetch(`${base}/${encodeURIComponent(input.provider_reference)}?operation=${encodeURIComponent(input.operation)}`, { headers: { authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`, "x-request-id": input.correlation_id }, signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS) });
+        const payload = await parseJsonSafely(response);
+        const state = String(payload?.state || payload?.status || "unknown").toLowerCase();
+        const allowed = ["authorized", "captured", "released", "refunded", "failed", "pending", "unknown"] as const;
+        const canonicalState = (allowed as readonly string[]).includes(state) ? state as PaymentStatusResult["state"] : "unknown";
+        return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed") };
+      } catch {
+        return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: "unknown", amount_minor: null, currency: null, provider_time: null, final: false, error_code: "provider_status_unreachable" };
       }
     }
   };
 }
 
 function buildStripePaymentProvider(): PaymentProvider {
-  const configured = PAYMENT_PROVIDER === "stripe" && Boolean(PAYMENT_PROVIDER_API_KEY);
+  const configured = (PAYMENT_PROVIDER === "stripe" || PAYMENT_PROVIDER_MODE === "stripe") && Boolean(PAYMENT_PROVIDER_API_KEY);
   const providerCode = "stripe";
   const webhookProvider = PAYMENT_WEBHOOK_PROVIDER || "stripe";
   async function tokenize(input: TokenizePaymentInput): Promise<PaymentTokenizationResult> {
@@ -901,9 +977,10 @@ function buildStripePaymentProvider(): PaymentProvider {
       "payment_intent.amount_capturable_updated": "payment_authorized",
       "payment_intent.succeeded": "charge_captured",
       "payment_intent.payment_failed": "charge_failed",
+      "payment_intent.canceled": "payment_released",
       "charge.refunded": "refund_issued",
       "refund.succeeded": "refund_issued",
-      "refund.failed": "charge_failed"
+      "refund.failed": "refund_failed"
     };
     const eventType = eventMap[stripeType] || "";
     if (!eventType) return null;
@@ -1128,7 +1205,43 @@ function buildStripePaymentProvider(): PaymentProvider {
           reconciliation_event_type: "refund_issued"
         };
       } catch {
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+      }
+    },
+    async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
+      const paymentIntentId = String(input.authorization_id || "").trim();
+      const correlationId = String(input.correlation_id || "").trim();
+      if (!configured || !paymentIntentId || !correlationId) return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId || null, correlation_id: correlationId || null };
+      try {
+        const { response, payload } = await stripePost(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}/cancel`, { cancellation_reason: "abandoned" }, correlationId);
+        if (!response.ok || payload?.error) return executionFromStripeFailure({ statusCode: response.status, payload, providerReference: paymentIntentId, correlationId, failureEvent: null });
+        const state = String(payload?.status || "");
+        if (state !== "canceled") return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.id || paymentIntentId), correlation_id: correlationId };
+      } catch {
+        return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+      }
+    },
+    async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
+      const reference = String(input.provider_reference || "").trim();
+      const correlationId = String(input.correlation_id || "").trim();
+      const unknown = (errorCode: string): PaymentStatusResult => ({ provider: providerCode, provider_reference: reference || null, correlation_id: correlationId, state: "unknown", amount_minor: null, currency: null, provider_time: null, final: false, error_code: errorCode });
+      if (!configured || !reference) return unknown(!configured ? "stripe_not_configured" : "provider_reference_required");
+      try {
+        const path = input.operation === "refund" ? `/v1/refunds/${encodeURIComponent(reference)}` : `/v1/payment_intents/${encodeURIComponent(reference)}`;
+        const { response, payload } = await stripeGet(path);
+        if (!response.ok || payload?.error) return unknown(String(payload?.error?.code || "stripe_status_failed"));
+        const status = String(payload?.status || "").toLowerCase();
+        let state: PaymentStatusResult["state"] = "unknown";
+        if (input.operation === "refund") state = status === "succeeded" ? "refunded" : status === "pending" ? "pending" : ["failed", "canceled"].includes(status) ? "failed" : "unknown";
+        else state = status === "requires_capture" ? "authorized" : status === "succeeded" ? "captured" : status === "canceled" ? "released" : status === "processing" ? "pending" : ["requires_payment_method", "requires_confirmation"].includes(status) ? "failed" : "unknown";
+        const final = ["authorized", "captured", "released", "refunded", "failed"].includes(state);
+        const created = Number(payload?.created);
+        const providerAmount = Reflect.get(payload || {}, "amount");
+        const providerRefundedAmount = Reflect.get(payload || {}, "amount_refunded");
+        return { provider: providerCode, provider_reference: String(payload?.id || reference), correlation_id: String(payload?.metadata?.correlation_id || correlationId), state, amount_minor: Number.isInteger(providerAmount) ? Number(providerAmount) : Number.isInteger(providerRefundedAmount) ? Number(providerRefundedAmount) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: Number.isFinite(created) ? new Date(created * 1000).toISOString() : null, final, error_code: state === "unknown" ? "stripe_status_unrecognized" : null };
+      } catch {
+        return unknown("stripe_status_unreachable");
       }
     }
   };
@@ -1140,11 +1253,12 @@ export function buildPaymentProvider(): PaymentProvider {
       if (!PAYMENT_PROVIDER_API_KEY) {
         throw new Error("PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_API_KEY in production");
       }
-      if (!PAYMENT_PROVIDER_PUBLIC_KEY) {
-        throw new Error("PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_PUBLIC_KEY in production");
+      const runtimeRole = String(process.env.RUNTIME_ROLE || "web").toLowerCase();
+      if (runtimeRole === "web" && !PAYMENT_PROVIDER_PUBLIC_KEY) {
+        throw new Error("PAYMENT_PROVIDER=stripe requires PAYMENT_PROVIDER_PUBLIC_KEY in production for the web role");
       }
-      if (!PAYMENT_WEBHOOK_SECRET || PAYMENT_WEBHOOK_SECRET_IS_DEFAULT) {
-        throw new Error("PAYMENT_PROVIDER=stripe requires a non-default PAYMENT_WEBHOOK_SECRET in production");
+      if (runtimeRole === "web" && (!PAYMENT_WEBHOOK_SECRET || PAYMENT_WEBHOOK_SECRET_IS_DEFAULT)) {
+        throw new Error("PAYMENT_PROVIDER=stripe requires a non-default PAYMENT_WEBHOOK_SECRET in production for the web role");
       }
       if (STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION) {
         throw new Error("STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION must be disabled in production");
@@ -1176,6 +1290,7 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
   return {
     provider: provider.providerCode,
     mode: provider.mode,
+    environment: PAYMENT_ENVIRONMENT,
     configured: provider.configured,
     webhook_provider: provider.webhookProvider,
     mock_backed: provider.mode === "mock-backed",
@@ -1187,6 +1302,8 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     capture_path: PAYMENT_PROVIDER_CAPTURE_PATH,
     recovery_path: PAYMENT_PROVIDER_RECOVERY_PATH,
     refund_path: PAYMENT_PROVIDER_REFUND_PATH,
+    release_path: PAYMENT_PROVIDER_RELEASE_PATH,
+    status_path: PAYMENT_PROVIDER_STATUS_PATH,
     tokenization_transport_live: provider.mode === "stripe" && provider.configured,
     authorization_transport_live: provider.mode !== "mock-backed" && provider.configured,
     capture_transport_live: provider.mode !== "mock-backed" && provider.configured,
@@ -1207,7 +1324,9 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
       authorize: "authorization intent only, no capture side-effects",
       capture: "charge capture result with reconciliation event mapping",
       recover: "completion-window recovery capture result with reconciliation event mapping",
-      refund: "refund result with duplicate-safe reconciliation handoff"
+      refund: "refund result with duplicate-safe reconciliation handoff",
+      release: "authorization cancellation/release before capture",
+      status: "authoritative provider query after an unknown outcome"
     },
     idempotency_contract: {
       outbound_headers: ["idempotency-key", "x-request-id"],

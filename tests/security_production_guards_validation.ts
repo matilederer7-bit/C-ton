@@ -7,6 +7,9 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     RUNTIME_ROLE: "web",
     PAYMENT_PROVIDER: "stripe",
     PAYMENT_PROVIDER_MODE: "stripe",
+    PAYMENT_ENVIRONMENT: "production",
+    PAYMENT_PROVIDER_API_KEY: "sk_live_contract_fixture",
+    PAYMENT_PROVIDER_PUBLIC_KEY: "pk_live_contract_fixture",
     STORAGE_ADAPTER: "object",
     OBJECT_STORAGE_REGION: "us-east-1",
     OBJECT_STORAGE_BUCKET: "siton-production-private",
@@ -15,7 +18,7 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     DATABASE_URL: "postgresql://placeholder.invalid/siton",
     ADMIN_API_KEY: "placeholder",
     SELLER_SESSION_SECRET: "placeholder",
-    PAYMENT_WEBHOOK_SECRET: "placeholder",
+    PAYMENT_WEBHOOK_SECRET: "whsec_contract_fixture",
     DISABLE_OUTBOX_WORKER: "1",
     ...overrides
   };

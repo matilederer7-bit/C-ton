@@ -1,4 +1,29 @@
 # PROJECT STATUS
+## Current update: 2026-07-27 (Stage 6a/6 - Canonical payment provider and real Sandbox readiness)
+
+### Canonical provider decision and adapter
+
+- Stripe is the canonical buyer-payment provider. The decision comes from the existing `src/payment_provider.ts` Stripe branch and the repository's production-readiness/environment documents, which name Stripe as the first real adapter. The generic `provider-ready` transport remains compatibility infrastructure, not a second selected provider.
+- The Stripe adapter accepts hosted `payment_method_id` values only, creates manual-capture PaymentIntents, captures, cancels/releases an uncaptured authorization, refunds, queries authoritative PaymentIntent/refund status, verifies signed raw-body webhooks, normalizes provider events and carries correlation/idempotency keys.
+- Unknown capture/refund/release outcomes are not blindly retried. They remain non-final and are resolved through the status/webhook/reconciliation contract. Duplicate and out-of-order webhook behavior continues to use the durable webhook ledger and canonical DB state.
+- The server remains the amount authority. Product plus delivery is authorized, the canonical 8% platform fee and VAT treatment are unchanged, distributor attribution creates no commission, and no capture scheduling or product money-state transition changed.
+
+### Configuration, secrets and guards
+
+- `PAYMENT_ENVIRONMENT`, release/status paths and the canonical Stripe endpoint are documented and wired for Web and Worker. Web receives the publishable key and webhook secret; Worker receives only the server API key. No secret value is committed.
+- Sandbox requires `PAYMENT_PROVIDER=stripe`, `PAYMENT_PROVIDER_MODE=stripe`, `sk_test_` API credentials, and for Web a `pk_test_` publishable key plus non-placeholder `whsec_` secret. Live keys are rejected in Sandbox.
+- Production rejects mock/test/demo payment modes and test keys, requires canonical `https://api.stripe.com`, `sk_live_`, Web-only `pk_live_` and webhook secret, and retains the raw-card/server-tokenization prohibition.
+- The capability and activation matrix is in `docs/PAYMENT_PROVIDER_SANDBOX_READINESS.md`, including official Stripe references and the exact external prerequisites for Stage 6b.
+
+### Verification and blockers
+
+- PASS locally: Payments 22/22 and `test:all` 124/124 across Unit 9, Integration 7, Database 5, API 35, Workers 7, Payments 22, Security 14, Concurrency 4, Failure 9 and E2E 12. The first restricted run exposed environmental `spawn EPERM`; the complete permitted run passed all process/browser tests without skips or product workarounds.
+- PASS locally: TypeScript; lint/backend enforcement; direct-state mutation; Payment SDK boundary; raw-card/payment compliance; secret scan; runtime-DDL scan; Render contract; `git diff --check`; and migration validation 40/40 with rerun, 15 functions, 12 triggers, 772 constraints, 185 indexes and 47 foreign keys.
+- Docker is unavailable on this workstation, so local Docker smoke could not execute. GitHub Actions is the authoritative Docker/Web/Worker gate for this commit.
+- No authorized Stripe Sandbox API/public/webhook credentials were supplied. Therefore no real Stripe Sandbox request, hosted tokenization, signed provider webhook delivery or provider-dashboard reconciliation has been claimed. Repository adapter readiness is complete; external Sandbox proof remains the explicit Stage 6b blocker.
+- Stage 6a repository completion: 100%. External Sandbox activation/proof: blocked pending deployment-only Stripe test credentials and an authorized Sandbox account.
+- No Join, OTP, inventory, storage, UX/design, affiliate/distributor fee or platform-fee rule changed.
+- Next step only after the Stage 6a completion report: Stage 6b, execute the full Stripe Sandbox lifecycle with hosted test PaymentMethods and signed webhooks. Do not use live credentials or real cards.
 ## Current update: 2026-07-27 (Stage 5b/6 - Deterministic fault boundaries)
 
 ### Completed

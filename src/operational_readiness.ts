@@ -120,7 +120,7 @@ export function buildOperationalReadinessSummary(args: {
       state: paymentStatus,
       activation: paymentActivation,
       what_is_real: payment.mode !== "mock-backed" && payment.configured
-        ? "live tokenization, authorization transport, capture transport, recovery transport, refund transport, provider env wiring, webhook verification, and canonical authorization/capture/recovery/refund path selection"
+        ? "live tokenization, authorization transport, capture transport, recovery transport, release/refund transport, authoritative status query, provider env wiring, webhook verification, and canonical authorization/capture/recovery/release/refund path selection"
         : "none of the external provider transport",
       what_is_mock: payment.mode === "mock-backed"
         ? "authorization, capture, recovery, and refund behavior are simulated inside the app"
@@ -131,11 +131,14 @@ export function buildOperationalReadinessSummary(args: {
       depends_on_env: [
         "PAYMENT_PROVIDER",
         "PAYMENT_PROVIDER_MODE",
+        "PAYMENT_ENVIRONMENT",
         "PAYMENT_PROVIDER_BASE_URL",
         "PAYMENT_PROVIDER_AUTH_PATH",
         "PAYMENT_PROVIDER_CAPTURE_PATH",
         "PAYMENT_PROVIDER_RECOVERY_PATH",
         "PAYMENT_PROVIDER_REFUND_PATH",
+        "PAYMENT_PROVIDER_RELEASE_PATH",
+        "PAYMENT_PROVIDER_STATUS_PATH",
         "PAYMENT_PROVIDER_API_KEY",
         "PAYMENT_PROVIDER_PUBLIC_KEY",
         "PAYMENT_WEBHOOK_PROVIDER",
