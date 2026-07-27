@@ -5034,10 +5034,10 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
 - External Preview blocker: both documented Render URLs timed out without headers, and the connected workspace has no Render API token, deploy hook or deployment connector. Exact account-owner deployment steps are recorded in `docs/UX_CURRENT_PRODUCT_AUDIT.md`.
 - Demo roles reviewed: buyer, seller, affiliate and admin. Browser coverage included home, public deal, seller workspace, deal creation, affiliate dashboard, admin dashboard, buyer tracking, missing-deal recovery, desktop and 390px mobile.
 - Canonical demo identities are synthetic: seller `demo-seller`, affiliate code `DEMO01`, buyer fixtures under `demo-buyer-*`; no production identity or personal data was used.
-- Current seed limitation: it reliably covers joinable, completed and failed deals, but not the full requested UX matrix of all deal states and image/delivery/inventory variants. This remains open and is not hidden by broad fixtures.
+- UX fixture matrix completed with guarded `bootstrap:ux-review`: 10 deterministic synthetic deals cover Draft, open/low participation, near target, target reached, closed, cancelled, limited inventory, multiple delivery options, with image and without image. The seed is idempotent and refuses production or non-mock payment mode.
 - Validation PASS: `test:demo-readiness`, `test:demo-preview`, `test:frontend-browser-smoke`, `npx tsc --noEmit`, local `/health`, local `/api/preview/meta` and screenshot capture.
-- Evidence: 13 sanitized desktop/mobile screenshots under `docs/ux-current-product-screenshots/` and the audit at `docs/UX_CURRENT_PRODUCT_AUDIT.md`.
+- Evidence: 14 sanitized desktop/mobile screenshots under `docs/ux-current-product-screenshots/` and the audit at `docs/UX_CURRENT_PRODUCT_AUDIT.md`.
 - What works: Hebrew RTL shell, public deal hierarchy, progress/trust copy, seller creation validation, mock-payment disclosure, affiliate no-commission boundary, mobile core CTAs and controlled error/recovery surfaces.
 - Principal gaps: no guided role entry, buyer continuation depends on browser-local flow state, incomplete UX fixture matrix, fragmented role discovery, and dense seller/admin information hierarchy.
-- Demo environment completion: 80% locally; external shareable Preview: 0% until the Render owner performs the documented isolated deployment action.
+- Demo environment completion: 95% locally; external shareable Preview: 0% until the Render owner performs the documented isolated deployment action.
 - Next step: restore the isolated Render Preview from this branch, review the live URL, approve the upgrade map, then begin Design System only.

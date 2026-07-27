@@ -22,7 +22,7 @@ No public preview can currently be claimed. Both documented Render URLs timed ou
 - Notifications: `log-only`.
 - Storage: local test storage only.
 - Data: synthetic demo records only. No production data was used.
-- Existing canonical seed is idempotent but covers only three deal states; the requested full UX state matrix remains a deployment-fixture gap.
+- The canonical base seed is supplemented by the demo-only `bootstrap:ux-review` fixture: ten deterministic synthetic deals cover Draft, open/low participation, near target, target reached, closed, cancelled, limited inventory, multiple delivery options, with image, and without image. Reruns are idempotent and production/mock guards fail closed.
 
 ## Project and route map
 
@@ -69,7 +69,7 @@ Admin overview → system/deal search → deal/participant/support/audit surface
 
 1. **High — no guided demo entry or concrete deal CTA.** The home surface exposes product concepts and internal roles, but an external reviewer is not handed one obvious “start here” public deal. The prominent home CTA can lead toward seller context, which conflicts with buyer expectations.
 2. **High — buyer continuation depends on browser-local flow state.** Direct opening, refresh, or device switching on OTP/payment/confirmation can yield recovery screens even when the URL looks valid. The messages are helpful, but users may perceive lost progress.
-3. **High — complete UX fixture matrix is missing.** The canonical bootstrap contains joinable, completed, and failed deals, not Draft/open/low participation/near target/target reached/closed/cancelled/limited inventory/multiple delivery/image/no-image as separate reliable fixtures. This limits external UX review quality.
+3. **High — the complete fixture matrix requires an explicit Preview bootstrap.** `bootstrap:ux-review` now supplies the matrix, but `render.yaml` still runs migrations only. A Preview owner must use the documented pre-deploy command or the richer review data will be absent.
 4. **High — role discovery is fragmented.** Seller, affiliate and admin routes exist, but there is no preview-only role launcher explaining who the reviewer is, what can be tested, and what is simulated. Reviewers need out-of-band route instructions.
 5. **Medium — dense operational copy and tables.** Seller and admin screens expose extensive truth and safeguards, but hierarchy is text-heavy. New reviewers must scan many cards, technical statuses and caveats before identifying the primary action.
 
@@ -100,6 +100,7 @@ All screenshots contain synthetic data only and no secrets, OTP values, tokens o
 |---|---|---|---|---|
 | [Home desktop](ux-current-product-screenshots/home-desktop.png) / [mobile](ux-current-product-screenshots/home-mobile.png) | General | Understand product and choose next action | Rich but entry choice is ambiguous | High |
 | [Public deal desktop](ux-current-product-screenshots/deal-desktop.png) / [mobile](ux-current-product-screenshots/deal-mobile.png) | Buyer | Understand offer and join | Strong progress and trust copy | Medium |
+| [Near-target fixture](ux-current-product-screenshots/near_target-desktop.png) | Buyer | Judge urgency close to threshold | Synthetic fixture from the full UX matrix | Low |
 | [Buyer tracking desktop](ux-current-product-screenshots/tracking-desktop.png) / [mobile](ux-current-product-screenshots/tracking-mobile.png) | Buyer | Understand participation state | Clear next-state explanation | Low |
 | [Seller dashboard desktop](ux-current-product-screenshots/seller-desktop.png) / [mobile](ux-current-product-screenshots/seller-mobile.png) | Seller | Manage deals | Dense on small screens | Medium |
 | [Create deal desktop](ux-current-product-screenshots/seller_new-desktop.png) / [mobile](ux-current-product-screenshots/seller_new-mobile.png) | Seller | Create/publish | Long but comprehensive form | Medium |
@@ -137,7 +138,7 @@ The Render account owner can complete the missing action safely:
 1. Open Render and create or restore an isolated Preview PostgreSQL database; do not reuse Production data.
 2. Create Web and Background Worker services from branch `ux-current-product-review`, using the repository `Dockerfile`.
 3. Web start command: `npm run start:web:prod`; Worker start command: `npm run start:worker:prod`.
-4. Web pre-deploy command: `npm run bootstrap:demo-db` (canonical migrations plus idempotent synthetic demo seed).
+4. Web pre-deploy command: `npm run bootstrap:ux-review` (canonical migrations/base seed plus the guarded, idempotent ten-deal UX matrix).
 5. Configure both services with the Preview database URL and `APP_DEPLOYMENT_MODE=demo-preview`, `DB_SCHEMA=siton`.
 6. Configure payment strictly as `PAYMENT_PROVIDER=mockpay`, `PAYMENT_PROVIDER_MODE=mock-backed`, `PAYMENT_WEBHOOK_PROVIDER=mockpay`. Do not configure Stripe keys.
 7. Use `NOTIFICATION_PROVIDER=log-only`, a generated Preview-only `ADMIN_API_KEY`, and a generated Preview-only webhook secret.
