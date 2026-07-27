@@ -5019,3 +5019,25 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
 - Still open: publish the final branch commit, open a PR to `master`, obtain green branch CI including Docker/Web/Worker/migrations/test:all, merge cleanly, obtain green `master` CI, and verify the manual Stripe workflow is visible without running it.
 - Stage 6b-1a preparation: 95% locally; external Stripe verification: 0%; Stage 6b-1 remains incomplete until protected Test Mode credentials are supplied and Stage 6b-1b is explicitly authorized.
 - Next step after this gate: configure the protected GitHub Environment and secrets, then explicitly authorize Stage 6b-1b. Do not start it automatically.
+
+## Current update: 2026-07-27 (UX current-product review started)
+
+- Started the isolated UX review and demo-environment task on branch `ux-current-product-review` from synchronized `origin/master`.
+- Scope is limited to preview/demo setup, synthetic fixtures, browser-based UX audit, screenshots, documentation and blocking launch fixes only.
+- No Stripe, payment rail, Join, OTP, inventory, object-storage, state-machine, migration, API-contract, permission or fee-formula change is authorized.
+- Preview status: verification in progress; no external URL is claimed until isolation, mock payment and deployed revision are confirmed.
+
+## Current update: 2026-07-27 (UX current-product review environment and audit)
+
+- Established an isolated local UX Preview on database `siton_ux_preview` with 40 canonical migrations, separate Web and Worker processes, mockpay/mock-backed payments, log-only notifications, local test storage and synthetic demo data only.
+- Local entry used during review: `http://127.0.0.1:3390/app`. This is not externally shareable and is not presented as a live Preview URL.
+- External Preview blocker: both documented Render URLs timed out without headers, and the connected workspace has no Render API token, deploy hook or deployment connector. Exact account-owner deployment steps are recorded in `docs/UX_CURRENT_PRODUCT_AUDIT.md`.
+- Demo roles reviewed: buyer, seller, affiliate and admin. Browser coverage included home, public deal, seller workspace, deal creation, affiliate dashboard, admin dashboard, buyer tracking, missing-deal recovery, desktop and 390px mobile.
+- Canonical demo identities are synthetic: seller `demo-seller`, affiliate code `DEMO01`, buyer fixtures under `demo-buyer-*`; no production identity or personal data was used.
+- Current seed limitation: it reliably covers joinable, completed and failed deals, but not the full requested UX matrix of all deal states and image/delivery/inventory variants. This remains open and is not hidden by broad fixtures.
+- Validation PASS: `test:demo-readiness`, `test:demo-preview`, `test:frontend-browser-smoke`, `npx tsc --noEmit`, local `/health`, local `/api/preview/meta` and screenshot capture.
+- Evidence: 13 sanitized desktop/mobile screenshots under `docs/ux-current-product-screenshots/` and the audit at `docs/UX_CURRENT_PRODUCT_AUDIT.md`.
+- What works: Hebrew RTL shell, public deal hierarchy, progress/trust copy, seller creation validation, mock-payment disclosure, affiliate no-commission boundary, mobile core CTAs and controlled error/recovery surfaces.
+- Principal gaps: no guided role entry, buyer continuation depends on browser-local flow state, incomplete UX fixture matrix, fragmented role discovery, and dense seller/admin information hierarchy.
+- Demo environment completion: 80% locally; external shareable Preview: 0% until the Render owner performs the documented isolated deployment action.
+- Next step: restore the isolated Render Preview from this branch, review the live URL, approve the upgrade map, then begin Design System only.
