@@ -98,15 +98,19 @@ jobs:
         run: npm run test:security 2>&1 | tee .ci-artifacts/test-security.log
       - name: Concurrency tests
         run: npm run test:concurrency 2>&1 | tee .ci-artifacts/test-concurrency.log
-      - name: Failure tests
+      - name: Failure tests and deterministic fault adapters
         run: npm run test:failure 2>&1 | tee .ci-artifacts/test-failure.log
+      - name: Build filtered fault-injection report
+        run: npm run ci:fault-report 2>&1 | tee .ci-artifacts/fault-report.log
+
       - name: End-to-end tests
         run: npm run test:e2e 2>&1 | tee .ci-artifacts/test-e2e.log
 
       - name: Complete repository suite
         run: npm run test:all 2>&1 | tee .ci-artifacts/test-all.log
 
-      - name: Docker web, worker, PostgreSQL, and outbox smoke
+      - name: Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
+        if: github.event_name == 'push' && github.ref == 'refs/heads/master'
         run: npm run ci:docker-smoke 2>&1 | tee .ci-artifacts/docker-smoke.log
 
       - name: Upload CI reports and failure logs

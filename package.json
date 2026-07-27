@@ -92,7 +92,8 @@
     "ci:docker-smoke": "node scripts/ci_docker_smoke.cjs",
     "web:routes": "npm run build:demo && node scripts/web_route_inventory.cjs",
     "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
-    "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended"
+    "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended",
+    "ci:fault-report": "node scripts/ci_fault_report.cjs"
   },
   "engines": {
     "node": ">=22.0.0"

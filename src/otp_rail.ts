@@ -10,6 +10,7 @@ import { assertRequiredTables } from "./schema_contract.js";
  *   destination_hash + purpose + verified_at). The token is the proof that join
  *   needs; it does not replace the full session/auth layer.
  */
+import { hitTestFault } from "./fault_injection.js";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import type pg from "pg";
 
@@ -476,6 +477,7 @@ export async function verifyOtpChallenge(
   );
 
   if (consumed.rowCount) {
+    await hitTestFault("http.otp.after_commit_before_response");
     return {
       challenge_id: challengeId,
       status: "verified",

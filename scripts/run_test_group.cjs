@@ -19,7 +19,7 @@ function classify(name) {
   if (/payment|refund|invoice|payout|money_tax|platform_fee|provider_|webhook/.test(name)) return "payments";
   if (/worker|outbox|notification|operational_hardening/.test(name)) return "workers";
   if (/security|auth|otp|legal|debug_surface|rate_limiter|server_side_money_authority/.test(name)) return "security";
-  if (/adversarial|preprod_torture|failure/.test(name)) return "failure";
+  if (/adversarial|preprod_torture|failure|fault/.test(name)) return "failure";
   if (/e2e|full_|ultimate|mvp_|demo_|docker_|aws_|frontend_browser|production_launch/.test(name)) return "e2e";
   if (/state_engine|atomicity|database|db_|charging_completion|participant_delivery_snapshot/.test(name)) return "db";
   if (/frontend_foundation|cache_policy|json_boundary|spec_drift|read_surfaces|product_surfaces|deal_types_validation/.test(name)) return "unit";

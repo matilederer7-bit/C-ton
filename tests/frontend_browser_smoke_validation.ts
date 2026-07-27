@@ -14,7 +14,10 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
-const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
+const browserCandidates = process.platform === "win32"
+  ? ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"]
+  : ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
+const edgePath = browserCandidates.find((candidate) => existsSync(candidate)) || browserCandidates[0]!;
 const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
 const cdpPort = 3311;
@@ -59,93 +62,48 @@ async function waitForHealth(getServerLog?: () => string) {
   throw new Error(`smoke server did not become healthy in time${log ? `\n${log}` : ""}`);
 }
 
-async function dumpDom(path: string, viewport: { width: number; height: number }, label: string) {
-  if (!existsSync(edgePath)) {
-    throw new Error(`Edge executable not found at ${edgePath}`);
-  }
+type CdpSession = {
+  evaluate: (expression: string) => Promise<any>;
+  navigate: (path: string) => Promise<void>;
+};
 
+async function captureCanonicalDom(cdp: CdpSession, path: string, viewport: { width: number; height: number }, expected: string[], navigate: boolean) {
+  if (navigate) await cdp.navigate(path);
+  await cdp.evaluate(`(() => { window.resizeTo(${viewport.width}, ${viewport.height}); return true; })()`);
+  let lastSnapshot: any = null;
+  for (let attempt = 0; attempt < 60; attempt += 1) {
+    const snapshot = await cdp.evaluate(`(() => ({
+      href: location.href,
+      appChildren: document.querySelector("#app")?.childElementCount || 0,
+      html: document.documentElement?.outerHTML || ""
+    }))()`);
+    lastSnapshot = snapshot;
+    const html = String(snapshot?.html || "");
+    const rendered = path.startsWith("/legal/") ? html.includes("<main") : snapshot?.appChildren > 0;
+    if (rendered && !html.includes("main-frame-error") && expected.every((text) => html.includes(text))) return html;
+    await wait(100);
+  }
+  throw new Error(`frontend route did not reach its canonical DOM state for ${path}: ${JSON.stringify({ href: lastSnapshot?.href, appChildren: lastSnapshot?.appChildren, html: String(lastSnapshot?.html || "").slice(0, 1200) })}`);
+}
+
+async function dumpDom(path: string, viewport: { width: number; height: number }, label: string, expected: string[]) {
   console.log(`SMOKE_DOM ${label} ${path}`);
-  const profileDir = join(tmpdir(), `siton-browser-smoke-${label}-${Date.now()}`);
-  await mkdir(profileDir, { recursive: true });
-  const dumpFile = join(profileDir, "dump.html");
+  await waitForHealth();
+  return withCdp(path, (cdp) => captureCanonicalDom(cdp, path, viewport, expected, false));
+}
 
-  // Edge 147+ requires the legacy headless mode for --dump-dom. The new
-  // headless backend does not stream the rendered DOM to stdout. Additionally,
-  // when launched via Node's child_process.spawn/execFile on Windows, Edge
-  // exits with empty output because Chromium does not honor the piped stdout
-  // handle the way a regular console process does. Launch Edge through
-  // PowerShell's Start-Process with -RedirectStandardOutput, which sets up the
-  // standard handle at the Win32 level that Edge actually respects.
-  const psEdge = edgePath.replaceAll("\\", "\\\\");
-  const psProfile = profileDir.replaceAll("\\", "\\\\");
-  const psDump = dumpFile.replaceAll("\\", "\\\\");
-  const psUrl = `${baseUrl}${path}`;
-  const psCommand = [
-    "$ErrorActionPreference='Stop';",
-    `$edgeProcess = Start-Process -FilePath '${psEdge}'`,
-    "-ArgumentList",
-    [
-      "'--headless=old'",
-      "'--disable-gpu'",
-      "'--no-first-run'",
-      "'--no-default-browser-check'",
-      `'--user-data-dir=${psProfile}'`,
-      `'--window-size=${viewport.width},${viewport.height}'`,
-      "'--virtual-time-budget=9000'",
-      "'--dump-dom'",
-      `'${psUrl}'`
-    ].join(","),
-    "-NoNewWindow",
-    `-RedirectStandardOutput '${psDump}'`,
-    "-PassThru;",
-    `if (-not $edgeProcess.WaitForExit(25000)) { Stop-Process -Id $edgeProcess.Id -Force -ErrorAction SilentlyContinue; throw 'Edge dump timed out for ${path}' }`
-  ].join(" ");
-
-  const runEdgeDump = () => new Promise<void>((resolve, reject) => {
-    const child = spawn("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", psCommand], {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true
-    });
-    let stderrBuf = "";
-    child.stderr?.on("data", (chunk) => { stderrBuf += String(chunk); });
-    const killTimer = setTimeout(() => child.kill("SIGKILL"), 30_000);
-    child.on("error", (error) => {
-      clearTimeout(killTimer);
-      reject(new Error(`Edge dump failed for ${path}: ${stderrBuf || error.message}`));
-    });
-    child.on("exit", (code) => {
-      clearTimeout(killTimer);
-      if (code === 0 || code === null) {
-        resolve();
-      } else {
-        reject(new Error(`Edge dump exited ${code} for ${path}: ${stderrBuf}`));
-      }
-    });
+async function dumpDomRoutes(routes: SmokeRoute[], viewport: { width: number; height: number }, prefix: string) {
+  if (!routes.length) return [];
+  await waitForHealth();
+  return withCdp(routes[0]!.path, async (cdp) => {
+    const snapshots: string[] = [];
+    for (let index = 0; index < routes.length; index += 1) {
+      const route = routes[index]!;
+      console.log(`SMOKE_DOM ${prefix}-${route.name.replace(/\s+/g, "-")} ${route.path}`);
+      snapshots.push(await captureCanonicalDom(cdp, route.path, viewport, route.expect, index > 0));
+    }
+    return snapshots;
   });
-
-  let output = "";
-  for (let attempt = 1; attempt <= 2 && !output.includes("<html"); attempt += 1) {
-    await runEdgeDump();
-    try {
-      output = await readFile(dumpFile, "utf8");
-    } catch {
-      output = "";
-    }
-    if (!output.includes("<html") && attempt === 1) {
-      console.warn(`SMOKE_DOM_RETRY ${label} ${path} reason=empty_dump`);
-      await wait(250);
-    }
-  }
-  // Cleanup is best-effort. Edge keeps Crashpad handles for a moment after
-  // exit, so a forceful rm can race and produce ENOTEMPTY on Windows. Treat
-  // cleanup errors as non-fatal so the assertion failure (if any) is the one
-  // that surfaces.
-  try {
-    assert.ok(output.includes("<html"), `expected rendered HTML for ${path}`);
-  } finally {
-    rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
-  }
-  return output;
 }
 
 async function openCdpPage(path: string) {
@@ -154,19 +112,22 @@ async function openCdpPage(path: string) {
   }
   const profileDir = join(tmpdir(), `siton-cdp-smoke-${Date.now()}`);
   await mkdir(profileDir, { recursive: true });
+  const remoteDebuggingPort = 33_500 + Math.floor(Math.random() * 1_000);
   const browser = spawn(edgePath, [
     "--headless=new",
     "--disable-gpu",
+    "--disable-breakpad",
+    "--disable-crash-reporter",
     "--no-first-run",
     "--no-default-browser-check",
-    `--remote-debugging-port=${cdpPort}`,
+    `--remote-debugging-port=${remoteDebuggingPort}`,
     `--user-data-dir=${profileDir}`,
     `${baseUrl}${path}`
   ], { stdio: ["ignore", "ignore", "ignore"], windowsHide: true });
 
   for (let attempt = 0; attempt < 60; attempt += 1) {
     try {
-      const response = await fetch(`http://127.0.0.1:${cdpPort}/json/list`);
+      const response = await fetch(`http://127.0.0.1:${remoteDebuggingPort}/json/list`);
       const pages = await response.json() as Array<{ url?: string; webSocketDebuggerUrl?: string }>;
       const page = pages.find((item) => item.url?.includes(path)) || pages[0];
       if (page?.webSocketDebuggerUrl) {
@@ -176,12 +137,22 @@ async function openCdpPage(path: string) {
     await wait(250);
   }
   browser.kill("SIGKILL");
-  rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
+  await rm(profileDir, { recursive: true, force: true }).catch(() => undefined);
   throw new Error("Edge CDP page did not become available");
 }
 
-async function withCdp(path: string, fn: (cdp: { evaluate: (expression: string) => Promise<any> }) => Promise<void>) {
-  const page = await openCdpPage(path);
+async function withCdp<T>(path: string, fn: (cdp: CdpSession) => Promise<T>): Promise<T> {
+  let page: Awaited<ReturnType<typeof openCdpPage>> | undefined;
+  let openError: unknown;
+  for (let attempt = 0; attempt < 3 && !page; attempt += 1) {
+    try {
+      page = await openCdpPage(path);
+    } catch (error) {
+      openError = error;
+      await wait(500);
+    }
+  }
+  if (!page) throw openError instanceof Error ? openError : new Error("Edge CDP page did not become available");
   const ws = new WebSocket(page.wsUrl);
   let seq = 0;
   const pending = new Map<number, { resolve: (value: any) => void; reject: (error: Error) => void }>();
@@ -195,7 +166,20 @@ async function withCdp(path: string, fn: (cdp: { evaluate: (expression: string) 
   });
   const send = (method: string, params: Record<string, unknown> = {}) => new Promise<any>((resolve, reject) => {
     const id = ++seq;
-    pending.set(id, { resolve, reject });
+    const timer = setTimeout(() => {
+      pending.delete(id);
+      reject(new Error(`CDP command timed out: ${method}`));
+    }, 10_000);
+    pending.set(id, {
+      resolve: (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      reject: (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    });
     ws.send(JSON.stringify({ id, method, params }));
   });
   try {
@@ -221,11 +205,18 @@ async function withCdp(path: string, fn: (cdp: { evaluate: (expression: string) 
       if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails));
       return result.result?.value;
     };
-    await fn({ evaluate });
+    const navigate = async (targetPath: string) => {
+      await send("Page.navigate", { url: `${baseUrl}${targetPath}` });
+    };
+    return await fn({ evaluate, navigate });
   } finally {
+    await Promise.race([
+      send("Browser.close").catch(() => undefined),
+      wait(2_000)
+    ]);
     ws.close();
     page.browser.kill("SIGKILL");
-    rm(page.profileDir, { recursive: true, force: true }).catch(() => undefined);
+    await rm(page.profileDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -896,32 +887,29 @@ async function main() {
     ];
 
     await run("desktop smoke routes render hydrated browser DOM", async () => {
-      for (const route of desktopRoutes) {
-        const dom = await dumpDom(route.path, { width: 1440, height: 1100 }, `desktop-${route.name.replace(/\s+/g, "-")}`);
+      const doms = await dumpDomRoutes(desktopRoutes, { width: 1440, height: 1100 }, "desktop");
+      desktopRoutes.forEach((route, index) => {
+        const dom = doms[index]!;
         assertHealthyHebrewDom(dom, `desktop ${route.name}`);
-        for (const text of route.expect) {
-          assert.match(dom, new RegExp(escapeRegex(text)));
-        }
-      }
+        for (const text of route.expect) assert.match(dom, new RegExp(escapeRegex(text)));
+      });
     });
 
     await run("mobile smoke routes keep core hierarchy and CTA copy visible", async () => {
-      for (const route of mobileRoutes) {
-        const dom = await dumpDom(route.path, { width: 390, height: 844 }, `mobile-${route.name.replace(/\s+/g, "-")}`);
+      const doms = await dumpDomRoutes(mobileRoutes, { width: 390, height: 844 }, "mobile");
+      mobileRoutes.forEach((route, index) => {
+        const dom = doms[index]!;
         assertHealthyHebrewDom(dom, `mobile ${route.name}`);
-        for (const text of route.expect) {
-          assert.match(dom, new RegExp(escapeRegex(text)));
-        }
-      }
+        for (const text of route.expect) assert.match(dom, new RegExp(escapeRegex(text)));
+      });
     });
 
     await run("browser smoke keeps fallback and missing-data routes sane", async () => {
-      for (const route of fallbackRoutes) {
-        const dom = await dumpDom(route.path, { width: 1280, height: 900 }, `fallback-${route.name.replace(/\s+/g, "-")}`);
-        for (const text of route.expect) {
-          assert.match(dom, new RegExp(escapeRegex(text)));
-        }
-      }
+      const doms = await dumpDomRoutes(fallbackRoutes, { width: 1280, height: 900 }, "fallback");
+      fallbackRoutes.forEach((route, index) => {
+        const dom = doms[index]!;
+        for (const text of route.expect) assert.match(dom, new RegExp(escapeRegex(text)));
+      });
     });
   } finally {
     server.kill("SIGTERM");

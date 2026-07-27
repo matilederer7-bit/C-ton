@@ -1,4 +1,39 @@
 # PROJECT STATUS
+## Current update: 2026-07-27 (Stage 5b/6 - Deterministic fault boundaries)
+
+### Completed
+
+- Added a process-local, test-only fault controller with deterministic throw, crash and explicit barrier/cancel actions. It refuses arming unless `NODE_ENV=test` and refuses production-like deployment modes; there is no endpoint, request header, secret or deployment flag that activates it.
+- Mapped storage, PostgreSQL, cleanup, Outbox/Worker, HTTP response and shutdown commit boundaries in `docs/FAULT_BOUNDARY_MAP.md`.
+- Added precise hooks before/after transaction commit, storage PUT/partial publish/HEAD/delete, cleanup claim/ack, Worker claim/ack and HTTP response for Join, OTP, upload and image delete.
+- Fixed a real cleanup recovery defect: a crash after claim could leave a task `processing` forever. Cleanup now reclaims an expired processing lease and uses `attempt_count` as a claim generation so a stale worker cannot acknowledge a reclaimed task.
+- Fixed outcome-unknown S3 PUT timeout handling: the adapter reconciles the same object key with HEAD and checksum, returns success only for an exact match, and otherwise fails closed after compensating delete.
+- Local partial files are removed before publication; post-PUT verification failures compensate with delete; delete retry remains idempotent.
+- Added filtered CI fault artifacts and made Docker/MinIO/multi-Web/Worker extended smoke a master-only gate while PRs retain fault contracts, DB boundaries, response replay and lease tests.
+
+### Verification evidence
+
+- Failure: 9/9; E2E: 12/12; complete suite: 123 test files across 10 groups (the 122-file full pass preceded the final response-loss test, and the final 123-file full rerun is the last local gate).
+- The Windows browser harness root cause was per-route Edge launcher/Crashpad process accumulation. It now uses bounded CDP commands, production-equivalent hydration assertions, and one browser session per route family; the standalone browser gate and the combined E2E group both pass without skips.
+- Timing stability: storage/timeout scenarios 10/10; Web SIGTERM before commit 10/10 and after commit 10/10 using real child processes; cleanup lease reclaim deterministic.
+- DB boundaries: before-commit fault rolled back with zero rows; after-commit fault left exactly one durable row and did not issue a misleading rollback.
+- HTTP response loss: Join retry returned the canonical idempotency result with one participant and one ledger result; OTP remained consumed with one proof and retry returned the canonical consumed conflict; upload left one discoverable committed image (the existing upload route is intentionally documented as non-idempotent); repeated delete observed the canonical absent state without another side effect.
+- TypeScript, lint/backend enforcement, direct-state mutation, Payment SDK boundary, payment/raw-card compliance, secret scan, runtime DDL scan, render contract and `git diff --check` pass.
+- Migration validation passes 40/40, rerun pass, with 15 functions, 12 triggers, 772 constraints, 185 indexes and 47 foreign keys.
+- Local Docker/Web Runtime could not execute because this Windows host has no `docker` executable. The same Docker/MinIO/Web/Worker gate remains mandatory on the GitHub master workflow; Stage 5b is not final until that run is green.
+
+### Root causes corrected
+
+1. Cleanup claims had no reclaim path for `processing` rows after process death.
+2. S3 PUT timeout handling treated an outcome-unknown write as a simple failure instead of reconciling the stable key.
+3. Transaction error handling attempted rollback even after a confirmed commit when the response path failed.
+
+### Scope and remaining work
+
+- No Join, OTP, inventory, fee or payment business rule changed. No external payment provider, Sandbox payment flow, real card, UX or storage-provider expansion was introduced.
+- Remaining gate: green GitHub Actions, including Docker build, MinIO contract/restart, Web/Worker smoke and complete suite. Upload replay remains explicitly non-idempotent by its existing contract; committed state is discoverable and no broad product idempotency redesign was introduced in this stage.
+- Stage 5b completion: 99% pending GitHub Docker/CI evidence.
+- Next step after the final Stage 5b report only: Stage 6, external payment provider connection and full Sandbox validation.
 ## Current update: 2026-07-26 (Stage 5a/6 - External Object Storage)
 
 ### Existing-state map and selected architecture

@@ -3,6 +3,7 @@ import { link, mkdir, open, readFile, readdir, rm, stat } from "node:fs/promises
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { hitTestFault } from "./fault_injection.js";
 
 export type StorageProviderCode = "local" | "s3";
 export type StorageAdapterMode = "local" | "object";
@@ -43,14 +44,15 @@ export class LocalStorageAdapter implements StorageAdapter {
   private resolveSafe(key: string) { const final = resolve(this.root, validateStorageKey(key)); if (!final.startsWith(this.root + sep)) { const err: any = new Error("invalid_storage_key"); err.statusCode = 400; err.code = "invalid_storage_key"; throw err; } return final; }
   async put(key: string, content: Buffer, options: PutObjectOptions = {}): Promise<StoredObject> {
     const normalized = validateStorageKey(key); const final = this.resolveSafe(normalized); const temporary = `${final}.partial-${randomUUID()}`;
-    try { await mkdir(dirname(final), { recursive: true }); const handle = await open(temporary, "wx", 0o600); try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); } await link(temporary, final); await rm(temporary, { force: true }); }
-    catch (error) { await rm(temporary, { force: true }).catch(() => undefined); const code = String((error as NodeJS.ErrnoException)?.code || ""); if (["EACCES", "EPERM", "EROFS", "ENOTDIR"].includes(code)) { const err: any = new Error("image upload storage is not writable"); err.statusCode = 500; err.code = "upload_storage_unwritable"; err.cause = error; throw err; } throw error; }
+    let published = false;
+    try { await hitTestFault("storage.before_put"); await mkdir(dirname(final), { recursive: true }); const handle = await open(temporary, "wx", 0o600); try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); } await hitTestFault("storage.after_bytes_before_publish"); await link(temporary, final); published = true; await hitTestFault("storage.after_put_before_verify"); await rm(temporary, { force: true }); }
+    catch (error) { await rm(temporary, { force: true }).catch(() => undefined); if (published) await rm(final, { force: true }).catch(() => undefined); const code = String((error as NodeJS.ErrnoException)?.code || ""); if (["EACCES", "EPERM", "EROFS", "ENOTDIR"].includes(code)) { const err: any = new Error("image upload storage is not writable"); err.statusCode = 500; err.code = "upload_storage_unwritable"; err.cause = error; throw err; } throw error; }
     return { storage_provider: this.providerCode, storage_key: normalized, size_bytes: content.length, checksum_sha256: options.checksumSha256, content_type: options.contentType };
   }
   async get(key: string) { return readFile(this.resolveSafe(key)); }
   async exists(key: string) { try { return (await stat(this.resolveSafe(key))).isFile(); } catch { return false; } }
-  async metadata(key: string): Promise<StoredObjectMetadata> { try { const s = await stat(this.resolveSafe(key)); return { exists: s.isFile(), size_bytes: s.size, checksum_sha256: null, content_type: null }; } catch { return { exists: false, size_bytes: null, checksum_sha256: null, content_type: null }; } }
-  async delete(key: string) { await rm(this.resolveSafe(key), { force: true }); }
+  async metadata(key: string): Promise<StoredObjectMetadata> { await hitTestFault("storage.before_head"); try { const s = await stat(this.resolveSafe(key)); return { exists: s.isFile(), size_bytes: s.size, checksum_sha256: null, content_type: null }; } catch { return { exists: false, size_bytes: null, checksum_sha256: null, content_type: null }; } }
+  async delete(key: string) { await hitTestFault("storage.before_delete"); await rm(this.resolveSafe(key), { force: true }); await hitTestFault("storage.after_delete"); }
   async listKeys(prefix = "", limit = 500) { const keys: string[] = []; const start = prefix ? this.resolveSafe(prefix) : this.root; await this.walk(start, keys, limit); return keys.map((p) => relative(this.root, p).split(sep).join("/")).filter(Boolean); }
   private async walk(dir: string, out: string[], limit: number) { if (out.length >= limit) return; let entries: any[] = []; try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; } for (const entry of entries) { if (out.length >= limit) return; const full = join(dir, entry.name); if (entry.isDirectory()) await this.walk(full, out, limit); else if (entry.isFile()) out.push(full); } }
   async fileSize(key: string) { const metadata = await this.metadata(key); return metadata.size_bytes; }
@@ -81,15 +83,27 @@ export class S3CompatibleStorageAdapter implements StorageAdapter {
   private signal(signal?: AbortSignal) { return signal || AbortSignal.timeout(this.config.timeoutMs); }
   async put(key: string, content: Buffer, options: PutObjectOptions = {}): Promise<StoredObject> {
     const normalized = validateStorageKey(key); const checksumHex = options.checksumSha256 || createHash("sha256").update(content).digest("hex");
-    try { await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: normalized, Body: content, ContentLength: content.length, ContentType: options.contentType || "application/octet-stream", CacheControl: "private, max-age=0, no-store", ChecksumSHA256: Buffer.from(checksumHex, "hex").toString("base64"), Metadata: { checksum_sha256: checksumHex }, IfNoneMatch: "*" }), { abortSignal: this.signal(options.signal) }); }
-    catch (error) { storageError(error, "write"); }
-    let head: StoredObjectMetadata; try { head = await this.metadata(normalized, options.signal); } catch (error) { await this.delete(normalized).catch(() => undefined); throw error; } if (!head.exists || head.size_bytes !== content.length || head.checksum_sha256 !== checksumHex) { await this.delete(normalized).catch(() => undefined); const err: any = new Error("storage_verification_failed"); err.statusCode = 503; err.code = "storage_verification_failed"; throw err; }
+    try { await hitTestFault("storage.before_put"); await this.client.send(new PutObjectCommand({ Bucket: this.config.bucket, Key: normalized, Body: content, ContentLength: content.length, ContentType: options.contentType || "application/octet-stream", CacheControl: "private, max-age=0, no-store", ChecksumSHA256: Buffer.from(checksumHex, "hex").toString("base64"), Metadata: { checksum_sha256: checksumHex }, IfNoneMatch: "*" }), { abortSignal: this.signal(options.signal) }); }
+    catch (error: any) {
+      const timeout = ["TimeoutError", "AbortError"].includes(String(error?.name || ""));
+      if (!timeout) storageError(error, "write");
+      // PUT timeouts are outcome-unknown: reconcile the stable key before retrying.
+      try {
+        const reconciled = await this.metadata(normalized, options.signal);
+        if (reconciled.exists && reconciled.size_bytes === content.length && reconciled.checksum_sha256 === checksumHex) {
+          return { storage_provider: this.providerCode, storage_key: normalized, size_bytes: content.length, checksum_sha256: checksumHex, content_type: options.contentType };
+        }
+      } catch { /* cleanup below is the fail-closed outcome */ }
+      await this.delete(normalized).catch(() => undefined);
+      storageError(error, "write");
+    }
+    let head: StoredObjectMetadata; try { await hitTestFault("storage.after_put_before_verify"); head = await this.metadata(normalized, options.signal); } catch (error) { await this.delete(normalized).catch(() => undefined); throw error; } if (!head.exists || head.size_bytes !== content.length || head.checksum_sha256 !== checksumHex) { await this.delete(normalized).catch(() => undefined); const err: any = new Error("storage_verification_failed"); err.statusCode = 503; err.code = "storage_verification_failed"; throw err; }
     return { storage_provider: this.providerCode, storage_key: normalized, size_bytes: content.length, checksum_sha256: checksumHex, content_type: options.contentType };
   }
   async get(key: string, signal?: AbortSignal) { try { const result = await this.client.send(new GetObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); if (!result.Body) throw new Error("empty_storage_body"); return Buffer.from(await result.Body.transformToByteArray()); } catch (error) { storageError(error, "read"); } }
-  async metadata(key: string, signal?: AbortSignal): Promise<StoredObjectMetadata> { try { const result = await this.client.send(new HeadObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); return { exists: true, size_bytes: Number(result.ContentLength || 0), checksum_sha256: String(result.Metadata?.checksum_sha256 || "") || null, content_type: result.ContentType || null }; } catch (error: any) { if (String(error?.name || "") === "NotFound" || Number(error?.$metadata?.httpStatusCode) === 404) return { exists: false, size_bytes: null, checksum_sha256: null, content_type: null }; storageError(error, "metadata"); } }
+  async metadata(key: string, signal?: AbortSignal): Promise<StoredObjectMetadata> { try { await hitTestFault("storage.before_head"); const result = await this.client.send(new HeadObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); return { exists: true, size_bytes: Number(result.ContentLength || 0), checksum_sha256: String(result.Metadata?.checksum_sha256 || "") || null, content_type: result.ContentType || null }; } catch (error: any) { if (String(error?.name || "") === "NotFound" || Number(error?.$metadata?.httpStatusCode) === 404) return { exists: false, size_bytes: null, checksum_sha256: null, content_type: null }; storageError(error, "metadata"); } }
   async exists(key: string, signal?: AbortSignal) { return (await this.metadata(key, signal)).exists; }
-  async delete(key: string, signal?: AbortSignal) { try { await this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); } catch (error) { storageError(error, "delete"); } }
+  async delete(key: string, signal?: AbortSignal) { try { await hitTestFault("storage.before_delete"); await this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); await hitTestFault("storage.after_delete"); } catch (error) { storageError(error, "delete"); } }
   async signedReadUrl(key: string, expiresInSeconds = this.config.signedUrlTtlSeconds) { const ttl = Math.max(1, Math.min(3600, Number(expiresInSeconds || this.config.signedUrlTtlSeconds))); try { return await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key), ResponseContentDisposition: "inline" }), { expiresIn: ttl }); } catch (error) { storageError(error, "sign"); } }
   async listKeys(prefix = "", limit = 500) { try { const result = await this.client.send(new ListObjectsV2Command({ Bucket: this.config.bucket, Prefix: prefix ? validateStorageKey(prefix) : undefined, MaxKeys: Math.max(1, Math.min(1000, limit)) }), { abortSignal: this.signal() }); return (result.Contents || []).map((item) => String(item.Key || "")).filter(Boolean); } catch (error) { storageError(error, "list"); } }
   describeForReadiness(): StorageAdapterSummary { return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: true, scale_blocker_for_multi_instance: false, notes: ["private_bucket_required", "s3_compatible_adapter_configured"], root: null, bucket: "<configured>", region: this.config.region, endpoint_configured: Boolean(this.config.endpoint), signed_url_ttl_seconds: this.config.signedUrlTtlSeconds }; }

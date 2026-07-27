@@ -29,6 +29,7 @@ import {
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
+import { hitTestFault } from "./fault_injection.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
@@ -380,15 +381,23 @@ class DeferredEventError extends Error {
   }
 }
 
-async function withTx<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
+export async function withTx<T>(fn: (c: PoolClient) => Promise<T>, requestBoundary = false): Promise<T> {
   const c = await pool.connect();
+  let committed = false;
   try {
+    await hitTestFault("db.before_begin");
     await c.query("BEGIN");
+    await hitTestFault("db.after_begin");
     const r = await fn(c);
+    await hitTestFault("db.before_commit");
+    if (requestBoundary) await hitTestFault("web.request.before_commit");
     await c.query("COMMIT");
+    committed = true;
+    if (requestBoundary) await hitTestFault("web.request.after_commit");
+    await hitTestFault("db.after_commit");
     return r;
   } catch (e) {
-    await c.query("ROLLBACK");
+    if (!committed) await c.query("ROLLBACK").catch(() => undefined);
     throw e;
   } finally {
     c.release();
@@ -2084,12 +2093,14 @@ export async function claimPendingOutboxBatch(limit: number) {
 }
 
 export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof claimOutboxBatch>>[number]) {
+  await hitTestFault("worker.after_claim");
   const heartbeat = setInterval(() => {
     heartbeatOutboxLease(event.event_uuid).catch(() => undefined);
   }, Math.max(1_000, Math.floor(Number(process.env.WORKER_LEASE_MS || 60_000) / 3)));
   heartbeat.unref();
   try {
     await workerProcessEvent(event);
+    await hitTestFault("worker.before_ack");
     await markOutboxSent(event.event_uuid);
     return {
       event_uuid: event.event_uuid,
@@ -2158,30 +2169,35 @@ async function enqueueStorageCleanupTask(storageProvider: "local" | "s3", storag
   );
 }
 
-export async function processStorageCleanupBatch(limit = 10) {
+export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   const processed: Array<{ task_id: string; status: "completed" | "pending" | "failed" }> = [];
   for (let index = 0; index < Math.max(1, Math.min(50, limit)); index++) {
     const claimed = await pool.query(
       `WITH candidate AS (
          SELECT task_id FROM siton.storage_cleanup_tasks
-         WHERE status='pending' AND available_at <= now()
+         WHERE (status='pending' AND available_at <= now())
+            OR (status='processing' AND processing_started_at <= now() - ($1 * interval '1 millisecond'))
          ORDER BY available_at, created_at
          FOR UPDATE SKIP LOCKED LIMIT 1
        )
        UPDATE siton.storage_cleanup_tasks t
        SET status='processing', attempt_count=t.attempt_count+1, processing_started_at=now(), updated_at=now()
        FROM candidate WHERE t.task_id=candidate.task_id
-       RETURNING t.task_id, t.storage_provider, t.storage_key, t.attempt_count, t.max_attempts`
+       RETURNING t.task_id, t.storage_provider, t.storage_key, t.attempt_count, t.max_attempts`,
+      [Math.max(0, leaseMs)]
     );
     if (!claimed.rowCount) break;
     const task = claimed.rows[0];
+    await hitTestFault("cleanup.after_claim");
     try {
       const storage = getDealImageStorageAdapter();
       if (storage.providerCode !== task.storage_provider) throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
       await storage.delete(String(task.storage_key));
+      await hitTestFault("cleanup.before_ack");
       await pool.query(
-        `UPDATE siton.storage_cleanup_tasks SET status='completed', completed_at=now(), last_error_code=NULL, updated_at=now() WHERE task_id=$1`,
-        [task.task_id]
+        `UPDATE siton.storage_cleanup_tasks SET status='completed', completed_at=now(), last_error_code=NULL, updated_at=now()
+         WHERE task_id=$1 AND status='processing' AND attempt_count=$2`,
+        [task.task_id, task.attempt_count]
       );
       processed.push({ task_id: String(task.task_id), status: "completed" });
     } catch (error) {
@@ -2190,8 +2206,8 @@ export async function processStorageCleanupBatch(limit = 10) {
         `UPDATE siton.storage_cleanup_tasks
          SET status=$2, available_at=CASE WHEN $2='pending' THEN now() + (LEAST(300, power(2, attempt_count))::text || ' seconds')::interval ELSE available_at END,
              last_error_code=$3, updated_at=now()
-         WHERE task_id=$1`,
-        [task.task_id, terminal ? "failed" : "pending", storageCleanupErrorCode(error)]
+         WHERE task_id=$1 AND status='processing' AND attempt_count=$4`,
+        [task.task_id, terminal ? "failed" : "pending", storageCleanupErrorCode(error), task.attempt_count]
       );
       processed.push({ task_id: String(task.task_id), status: terminal ? "failed" : "pending" });
     }
@@ -2557,7 +2573,7 @@ app.post("/deals", async (req: any) => {
       await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
     }
     return deal;
-  });
+  }, true);
   return r;
 });
 
@@ -2750,6 +2766,7 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   });
 
   // A successful write must not be visible to the client before COMMIT.
+  await hitTestFault("http.upload.after_commit_before_response");
   return reply.code(201).send(response);
 });
 
@@ -2790,6 +2807,7 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
     await enqueueStorageCleanupTask(removed.storage_provider, removed.storage_key, "deal_image_deleted");
     deletion = "scheduled";
   }
+  await hitTestFault("http.delete.after_commit_before_response");
   return reply.send({ ok: true, deletion });
 });
 app.post("/deals/:id/publish", async (req: any) => {
@@ -3294,6 +3312,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     await tryTargetReached(dealId, requestId);
   }
 
+  await hitTestFault("http.join.after_commit_before_response");
   return joinResult.response;
 });
 
