@@ -20,7 +20,7 @@
 - HTTP response loss: Join retry returned the canonical idempotency result with one participant and one ledger result; OTP remained consumed with one proof and retry returned the canonical consumed conflict; upload left one discoverable committed image (the existing upload route is intentionally documented as non-idempotent); repeated delete observed the canonical absent state without another side effect.
 - TypeScript, lint/backend enforcement, direct-state mutation, Payment SDK boundary, payment/raw-card compliance, secret scan, runtime DDL scan, render contract and `git diff --check` pass.
 - Migration validation passes 40/40, rerun pass, with 15 functions, 12 triggers, 772 constraints, 185 indexes and 47 foreign keys.
-- Local Docker/Web Runtime could not execute because this Windows host has no `docker` executable. The same Docker/MinIO/Web/Worker gate remains mandatory on the GitHub master workflow; Stage 5b is not final until that run is green.
+- Local Docker/Web Runtime could not execute because this Windows host has no `docker` executable. The authoritative GitHub master workflow supplied Docker and passed the Docker/MinIO/Web/Worker gate.
 
 ### Root causes corrected
 
@@ -31,8 +31,8 @@
 ### Scope and remaining work
 
 - No Join, OTP, inventory, fee or payment business rule changed. No external payment provider, Sandbox payment flow, real card, UX or storage-provider expansion was introduced.
-- Remaining gate: green GitHub Actions, including Docker build, MinIO contract/restart, Web/Worker smoke and complete suite. Upload replay remains explicitly non-idempotent by its existing contract; committed state is discoverable and no broad product idempotency redesign was introduced in this stage.
-- Stage 5b completion: 99% pending GitHub Docker/CI evidence.
+- GitHub Actions run `30241160579` passed all local-equivalent gates, the 123-file complete suite, Docker build, MinIO contract/restart, multi-Web and Worker smoke. Artifact `backend-quality-gate-reports-30241160579` was retained without sensitive values. Upload replay remains explicitly non-idempotent by its existing contract; committed state is discoverable and no broad product idempotency redesign was introduced in this stage.
+- Stage 5b completion: 100%.
 - Next step after the final Stage 5b report only: Stage 6, external payment provider connection and full Sandbox validation.
 ## Current update: 2026-07-26 (Stage 5a/6 - External Object Storage)
 
