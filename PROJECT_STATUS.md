@@ -1,4 +1,15 @@
 # PROJECT STATUS
+## Current update: 2026-07-27 (Stage 6b-1/6 - Stripe Test Mode authorization/release gate opened, externally blocked)
+
+- Baseline is clean and synchronized at `e83c2b1f34066e6d2711cd7fef160d231c1c05c6`; no parallel agent is editing payment files.
+- Authorized Stripe Test Mode values were checked by presence and prefix only. `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, and `PAYMENT_WEBHOOK_SECRET` are all absent; no values or prefixes were printed beyond the non-sensitive classification `missing`.
+- No Stripe API call, PaymentIntent, authorization, release, status query or real signed webhook has executed in this stage. Stage 6b-1 is not complete and must not be represented as Sandbox-verified.
+- Repository preparation now includes an isolated external authorization/release harness and a manual protected GitHub Environment workflow. Missing secrets report `Stripe Sandbox external verification not executed`; contract tests remain separate from provider proof.
+- The harness has no Capture or Refund path, uses only official Stripe Test Mode PaymentMethod identifiers, filters provider references, and guarantees cleanup release on assertion failure.
+- External blockers: protected `sk_test_*`, `pk_test_*`, endpoint-specific `whsec_*`, an approved Test Mode webhook endpoint/Stripe CLI session, and an approved response-loss proxy execution.
+- Stage 6b-1 completion: 35% overall (repository execution preparation 100%; real provider proof 0%). No Join, OTP, inventory, Object Storage, UX or fee formula changed.
+- Repository verification: Integration 8/8, Payments 22/22, the protected-gate contract, TypeScript, lint/backend enforcement, direct-state mutation, Payment SDK boundary, raw-card/payment compliance, secret scan, runtime-DDL and Render validation pass. Two permitted `test:all` attempts timed out in the process/browser wrapper without a `TEST_SUMMARY`; no full-suite pass is claimed for this worktree.
+- Next step remains Stage 6b-1 external execution. Stage 6b-2 must not start until the real authorization/release/webhook/reconciliation evidence is complete.
 ## Current update: 2026-07-27 (Stage 6a/6 - Canonical payment provider and real Sandbox readiness)
 
 ### Canonical provider decision and adapter

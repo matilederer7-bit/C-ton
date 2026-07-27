@@ -1,0 +1,80 @@
+name: Stripe Sandbox authorization and release proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_test_mode_only:
+        description: "Confirm Test Mode only; never capture or refund"
+        required: true
+        type: choice
+        options: ["no", "yes"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stripe-sandbox-proof
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    environment: stripe-sandbox
+    outputs:
+      ready: ${{ steps.presence.outputs.ready }}
+    steps:
+      - name: Validate protected Test Mode secret presence
+        id: presence
+        env:
+          STRIPE_SERVER_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
+          STRIPE_PUBLIC_KEY: ${{ secrets.STRIPE_SANDBOX_PUBLISHABLE_KEY }}
+          STRIPE_WEBHOOK_KEY: ${{ secrets.STRIPE_SANDBOX_WEBHOOK_SECRET }}
+          CONFIRMED: ${{ inputs.confirm_test_mode_only }}
+        run: |
+          if [ "$CONFIRMED" != "yes" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Stripe Sandbox external verification not executed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ -z "$STRIPE_SERVER_KEY" ] || [ -z "$STRIPE_PUBLIC_KEY" ] || [ -z "$STRIPE_WEBHOOK_KEY" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Stripe Sandbox external verification not executed" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          case "$STRIPE_SERVER_KEY" in sk_test_*) ;; *) echo "Forbidden or malformed Stripe server key"; exit 1 ;; esac
+          case "$STRIPE_PUBLIC_KEY" in pk_test_*) ;; *) echo "Forbidden or malformed Stripe publishable key"; exit 1 ;; esac
+          case "$STRIPE_WEBHOOK_KEY" in whsec_*) ;; *) echo "Malformed Stripe webhook secret"; exit 1 ;; esac
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+          echo "Authorized Stripe Test Mode secrets detected; external verification will execute." >> "$GITHUB_STEP_SUMMARY"
+
+  authorization-release:
+    needs: preflight
+    if: needs.preflight.outputs.ready == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: stripe-sandbox
+    env:
+      PAYMENT_PROVIDER_API_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
+      PAYMENT_PROVIDER_PUBLIC_KEY: ${{ secrets.STRIPE_SANDBOX_PUBLISHABLE_KEY }}
+      PAYMENT_WEBHOOK_SECRET: ${{ secrets.STRIPE_SANDBOX_WEBHOOK_SECRET }}
+      PAYMENT_PROVIDER_TIMEOUT_MS: "8000"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Clean dependency install
+        run: npm ci
+      - name: Compile and enforce payment boundaries
+        run: |
+          npx tsc --noEmit
+          npm run scan:payment
+          npm run scan:backend
+      - name: Real Stripe Test Mode authorization and release
+        run: npm run test:stripe-sandbox-external
+      - name: Record filtered result
+        if: always()
+        run: |
+          echo "Stripe Sandbox external verification command completed; inspect job conclusion for pass/fail." >> "$GITHUB_STEP_SUMMARY"
+          echo "No Capture or Refund command is part of this workflow." >> "$GITHUB_STEP_SUMMARY"

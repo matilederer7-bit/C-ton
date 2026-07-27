@@ -93,7 +93,8 @@
     "web:routes": "npm run build:demo && node scripts/web_route_inventory.cjs",
     "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
     "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended",
-    "ci:fault-report": "node scripts/ci_fault_report.cjs"
+    "ci:fault-report": "node scripts/ci_fault_report.cjs",
+    "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs"
   },
   "engines": {
     "node": ">=22.0.0"
