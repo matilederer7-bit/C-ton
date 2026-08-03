@@ -1,4 +1,16 @@
 # PROJECT STATUS
+## Current update: 2026-08-03 (Stage 6b-1b-a - GitHub Environment prepared, externally blocked on secrets)
+
+- Stage 6b-1b-a has started. The clean local `master` baseline is synchronized with `origin/master` at `a71b7deda1b1a809476945ff3def7763e55f1761`; the separate UX PR branch was not changed, and no parallel agent is editing Stripe or GitHub Actions files.
+- GitHub Environment `stripe-sandbox` now exists. Its protection rules include required reviewers, with repository owner `matilederer7-bit` configured as the required reviewer and self-review prevention disabled.
+- Environment-secret name inspection only found none of the required names. `STRIPE_SANDBOX_SECRET_KEY`, `STRIPE_SANDBOX_PUBLISHABLE_KEY`, and `STRIPE_SANDBOX_WEBHOOK_SECRET` are all missing. No secret value was read, printed, downloaded, stored locally, or requested through chat; no placeholder was added.
+- The workflow secret mapping is valid: the three Environment secrets map to canonical runtime variables `PAYMENT_PROVIDER_API_KEY`, `PAYMENT_PROVIDER_PUBLIC_KEY`, and `PAYMENT_WEBHOOK_SECRET`. Both jobs target `stripe-sandbox`; the workflow is manual-only and requires `confirm_test_mode_only=yes`; it has minimal read-only repository permission and no `push` or `pull_request` trigger.
+- Test Mode protections are valid. The preflight and harness require `sk_test_*`, `pk_test_*`, and `whsec_*`, fail closed on missing/malformed/placeholder-like inputs, reject Live Mode, do not use `set -x` or print the environment, and do not pass secrets as visible command arguments. Capture and Refund are absent, and only the filtered proof artifact can be uploaded.
+- Focused verification passed: Stripe external-gate contract; payment Sandbox contract; production guards; provider production-readiness guards; TypeScript application and test compilation; lint/backend enforcement; direct-state mutation; Payment SDK boundary; secret scan; raw-card/payment compliance; and `git diff --check`.
+- Stage 6b-1b-a is externally blocked until the repository owner adds all three required Stripe Test Mode Environment secrets. The Stripe Sandbox workflow must not be run before the secrets are added and this preparation checkpoint is reviewed.
+- No Stripe workflow was dispatched, no Stripe API call was made, and no Authorization, status query, Release, Capture, Refund, or signed provider webhook operation was performed.
+- Next step after this external blocker is resolved and Stage 6b-1b-a is closed: Stage 6b-1b-b - Stripe Test Mode Authorization, Status, Idempotency and decline proof. That stage has not started.
+
 ## Current update: 2026-07-27 (Stage 6b-1/6 - Stripe Test Mode authorization/release gate opened, externally blocked)
 
 - Baseline is clean and synchronized at `e83c2b1f34066e6d2711cd7fef160d231c1c05c6`; no parallel agent is editing payment files.
