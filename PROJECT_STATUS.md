@@ -1,4 +1,13 @@
 # PROJECT STATUS
+## Current update: 2026-08-03 (Stage 6b-1b-b - stopped at secret-presence gate)
+
+- Stage 6b-1b-b started with a clean, synchronized `master` at `87abcd1c58b458ed0d857dbd5c80f11ef6d9b82e`; no parallel agent is editing payment files, and the separate UX PR branch was not changed.
+- GitHub Environment `stripe-sandbox` and required reviewer `matilederer7-bit` remain configured, but name-only inspection found all three required Environment secrets missing: `STRIPE_SANDBOX_SECRET_KEY`, `STRIPE_SANDBOX_PUBLISHABLE_KEY`, and `STRIPE_SANDBOX_WEBHOOK_SECRET`.
+- Per the mandatory stop condition, the Stripe Sandbox workflow was not dispatched. No Stripe API call, Authorization, Status query, idempotent replay, payload-mismatch request, Decline, Release, Capture, Refund, or webhook operation was performed.
+- No secret value was read, printed, downloaded, stored locally, passed as a visible argument, or requested through chat; no placeholder or raw-card detail was introduced.
+- Stage 6b-1b-b remains externally blocked at 0% execution until all three secret names are present. After that prerequisite is met, the workflow/harness must also be split into an authorization-only scope that cannot execute Release before any Stripe run is authorized.
+- Stage 6b-1b-c has not started.
+
 ## Current update: 2026-08-03 (Stage 6b-1b-a - GitHub Environment prepared, externally blocked on secrets)
 
 - Stage 6b-1b-a has started. The clean local `master` baseline is synchronized with `origin/master` at `a71b7deda1b1a809476945ff3def7763e55f1761`; the separate UX PR branch was not changed, and no parallel agent is editing Stripe or GitHub Actions files.
