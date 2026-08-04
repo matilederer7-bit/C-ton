@@ -1,4 +1,14 @@
-# Stripe Test Mode external verification (Stage 6b-1)
+# Stripe Test Mode external verification
+
+## Authorization-only scope (Stage 6b-1b-b-1)
+
+The manual workflow now accepts only the required `proof_scope=authorization-only` choice together with `confirm_test_mode_only=yes`. Missing or unknown scope fails before provider code; missing credentials retain the explicit `Stripe Sandbox external verification not executed` result.
+
+The authorization-only module can call only the canonical adapter's `authorize` and `status` contracts. It proves manual-capture authorization, authoritative status, same-key replay, changed-payload rejection and an official Test Mode decline. Its provider interface and entrypoint contain no Release/Cancel, Capture, Refund or cleanup call, including failure paths. Live credentials remain blocked.
+
+A successful authorization intentionally remains pending for the separately approved Release stage. The filtered artifact stores amount, currency, canonical status, creation time, hashed internal references, and the provider reference encrypted with AES-256-GCM. The encryption key is derived at runtime from the protected Environment webhook secret; neither the raw provider reference, encryption key, client secret, provider response, authorization header nor card data is stored. The next protected stage can decrypt the handoff with the same Environment secret and must release promptly; operators must not run authorization-only unless the next Release window is scheduled.
+
+The three Environment secrets remain absent, so no Stripe request or external workflow execution occurred during this code/CI stage.
 
 ## Current state
 
