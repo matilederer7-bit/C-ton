@@ -1,13 +1,18 @@
-name: Stripe Sandbox authorization and release proof
+name: Stripe Sandbox authorization-only proof
 
 on:
   workflow_dispatch:
     inputs:
       confirm_test_mode_only:
-        description: "Confirm Test Mode only; never capture or refund"
+        description: "Confirm Test Mode only; never release, capture, or refund"
         required: true
         type: choice
         options: ["no", "yes"]
+      proof_scope:
+        description: "Proof scope"
+        required: true
+        type: choice
+        options: ["authorization-only"]
 
 permissions:
   contents: read
@@ -23,18 +28,22 @@ jobs:
     outputs:
       ready: ${{ steps.presence.outputs.ready }}
     steps:
-      - name: Validate protected Test Mode secret presence
+      - name: Validate authorization-only Test Mode gate
         id: presence
         env:
           STRIPE_SERVER_KEY: ${{ secrets.STRIPE_SANDBOX_SECRET_KEY }}
           STRIPE_PUBLIC_KEY: ${{ secrets.STRIPE_SANDBOX_PUBLISHABLE_KEY }}
           STRIPE_WEBHOOK_KEY: ${{ secrets.STRIPE_SANDBOX_WEBHOOK_SECRET }}
           CONFIRMED: ${{ inputs.confirm_test_mode_only }}
+          PROOF_SCOPE: ${{ inputs.proof_scope }}
         run: |
           if [ "$CONFIRMED" != "yes" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Stripe Sandbox external verification not executed" >> "$GITHUB_STEP_SUMMARY"
-            exit 0
+            echo "confirm_test_mode_only must be yes"
+            exit 1
+          fi
+          if [ "$PROOF_SCOPE" != "authorization-only" ]; then
+            echo "Unsupported or missing Stripe Sandbox proof scope"
+            exit 1
           fi
           if [ -z "$STRIPE_SERVER_KEY" ] || [ -z "$STRIPE_PUBLIC_KEY" ] || [ -z "$STRIPE_WEBHOOK_KEY" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
@@ -45,9 +54,9 @@ jobs:
           case "$STRIPE_PUBLIC_KEY" in pk_test_*) ;; *) echo "Forbidden or malformed Stripe publishable key"; exit 1 ;; esac
           case "$STRIPE_WEBHOOK_KEY" in whsec_*) ;; *) echo "Malformed Stripe webhook secret"; exit 1 ;; esac
           echo "ready=true" >> "$GITHUB_OUTPUT"
-          echo "Authorized Stripe Test Mode secrets detected; external verification will execute." >> "$GITHUB_STEP_SUMMARY"
+          echo "Authorized Stripe Test Mode secrets detected; authorization-only verification will execute." >> "$GITHUB_STEP_SUMMARY"
 
-  authorization-release:
+  authorization-only:
     needs: preflight
     if: needs.preflight.outputs.ready == 'true'
     runs-on: ubuntu-24.04
@@ -58,6 +67,7 @@ jobs:
       PAYMENT_PROVIDER_PUBLIC_KEY: ${{ secrets.STRIPE_SANDBOX_PUBLISHABLE_KEY }}
       PAYMENT_WEBHOOK_SECRET: ${{ secrets.STRIPE_SANDBOX_WEBHOOK_SECRET }}
       PAYMENT_PROVIDER_TIMEOUT_MS: "8000"
+      STRIPE_SANDBOX_PROOF_SCOPE: ${{ inputs.proof_scope }}
       STRIPE_SANDBOX_REPORT_PATH: .ci-artifacts/stripe-sandbox-proof.json
     steps:
       - uses: actions/checkout@v4
@@ -72,19 +82,19 @@ jobs:
           npx tsc --noEmit
           npm run scan:payment
           npm run scan:backend
-      - name: Real Stripe Test Mode authorization and release
+      - name: Real Stripe Test Mode authorization-only proof
         run: npm run test:stripe-sandbox-external
       - name: Scan filtered proof artifact
         run: node scripts/scan_stripe_sandbox_report.cjs .ci-artifacts/stripe-sandbox-proof.json
-      - name: Upload filtered proof artifact
+      - name: Upload protected authorization-only artifact
         uses: actions/upload-artifact@v4
         with:
-          name: stripe-sandbox-filtered-proof
+          name: stripe-sandbox-authorization-only-proof
           path: .ci-artifacts/stripe-sandbox-proof.json
           if-no-files-found: error
           retention-days: 14
       - name: Record filtered result
         if: always()
         run: |
-          echo "Stripe Sandbox external verification command completed; inspect job conclusion for pass/fail." >> "$GITHUB_STEP_SUMMARY"
-          echo "No Capture or Refund command is part of this workflow." >> "$GITHUB_STEP_SUMMARY"
+          echo "Stripe Sandbox authorization-only command completed; inspect job conclusion for pass/fail." >> "$GITHUB_STEP_SUMMARY"
+          echo "No Release, Capture, or Refund command is part of this workflow." >> "$GITHUB_STEP_SUMMARY"

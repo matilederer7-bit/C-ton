@@ -1,4 +1,14 @@
 # PROJECT STATUS
+## Current update: 2026-08-04 (Stage 6b-1b-b-1 - authorization-only proof isolated)
+
+- Work started on dedicated branch `stripe-authorization-only-proof` from clean, synchronized `master` at `d7abe96ae13fc888976e97613d7ef3fac2e4d741`; the separate UX PR was not changed and no parallel agent touched payment or Actions files.
+- Added the explicit manual `proof_scope=authorization-only` gate. Missing/unknown scope and `confirm_test_mode_only` other than `yes` fail before provider execution; missing secrets retain `Stripe Sandbox external verification not executed`.
+- Split the harness into an authorization-only module whose provider capability exposes only `authorize` and `status`. It performs manual-capture authorization, status, idempotent replay, payload-mismatch rejection and decline normalization, with zero reachable Release/Cancel, Capture, Refund or cleanup calls.
+- The filtered handoff artifact retains only allow-listed proof fields. The provider reference is encrypted with AES-256-GCM using a runtime key derived from the protected Environment webhook secret; raw provider identifiers, client secrets, provider responses, authorization headers and card data are excluded.
+- An authorization created by the future external run intentionally remains open for the separately approved Release stage. The external run must be scheduled only when the follow-up Release window is ready; no authorization was created in this code/CI stage.
+- The three Stripe Environment secrets remain missing. No Stripe workflow was dispatched and no Stripe API call, Authorization, Release, Capture, Refund or webhook action occurred.
+- Verification passed: authorization-only external-gate contract with zero forbidden-operation calls; Payments 22/22; Integration 8/8; API rerun 35/35; TypeScript; lint/backend enforcement; Payment SDK boundary; secret scan; raw-card/payment compliance; production guards; `git diff --check`; and final `test:all` 125/125 across all 10 groups.
+- Next step after merge is Stage 6b-1b-b-2: add the protected secrets and invoke `authorization-only`. That stage has not started.
 ## Current update: 2026-08-03 (Stage 6b-1b-b - stopped at secret-presence gate)
 
 - Stage 6b-1b-b started with a clean, synchronized `master` at `87abcd1c58b458ed0d857dbd5c80f11ef6d9b82e`; no parallel agent is editing payment files, and the separate UX PR branch was not changed.
