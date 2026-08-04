@@ -94,7 +94,8 @@
     "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
     "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended",
     "ci:fault-report": "node scripts/ci_fault_report.cjs",
-    "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs"
+    "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs",
+    "bootstrap:ux-review": "npm run bootstrap:demo-db && node scripts/seed_ux_review.cjs"
   },
   "engines": {
     "node": ">=22.0.0"
