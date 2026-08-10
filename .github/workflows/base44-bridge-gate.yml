@@ -1,0 +1,62 @@
+name: Base44 migration bridge gate
+
+on:
+  pull_request:
+    paths:
+      - "base44/**"
+      - "bridge/base44-ui/**"
+      - "docs/BASE44_MIGRATION_BRIDGE.md"
+      - ".github/workflows/base44-bridge-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-safety-and-build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fail if bridge changes canonical Siton core
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch origin "${{ github.base_ref }}" --depth=1
+          changed="$(git diff --name-only "origin/${{ github.base_ref }}...HEAD")"
+          echo "$changed"
+          if echo "$changed" | grep -E '^(src/|migrations/|tests/|scripts/|Dockerfile$|render\.yaml$|package\.json$|package-lock\.json$)'; then
+            echo "Base44 Bridge Stage 0 must not modify canonical Siton runtime/test/infrastructure files."
+            exit 1
+          fi
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install bridge UI dependencies
+        run: npm install --prefix bridge/base44-ui --no-audit --no-fund
+
+      - name: Build bridge UI
+        run: npm run build --prefix bridge/base44-ui
+
+      - name: Validate Base44 bridge config
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const config = JSON.parse(fs.readFileSync('base44/config.jsonc', 'utf8'));
+          if (config.name !== 'Siton Base44 Migration Bridge') throw new Error('unexpected bridge config name');
+          if (!config.site?.buildCommand || !config.site?.outputDirectory) throw new Error('missing site config');
+          const fn = JSON.parse(fs.readFileSync('base44/functions/bridge-info/function.jsonc', 'utf8'));
+          if (fn.name !== 'bridge-info' || fn.entry !== 'index.ts') throw new Error('invalid bridge-info function config');
+          console.log('BASE44_BRIDGE_CONFIG_OK');
+          NODE
+
+      - name: Confirm bridge readiness function is non-mutating
+        run: |
+          if grep -Ei 'capture|refund|release|UPDATE[[:space:]]|INSERT[[:space:]]|DELETE[[:space:]]|\.create\(|\.update\(|\.delete\(' base44/functions/bridge-info/index.ts; then
+            echo "Bridge readiness function contains a forbidden mutating/payment primitive."
+            exit 1
+          fi
+          echo "BASE44_BRIDGE_READ_ONLY_OK"
