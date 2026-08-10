@@ -1,49 +1,62 @@
-# Base44 Bridge Checkpoint
+# Base44 Migration Checkpoint
 
 Date: 2026-08-10
-Branch: base44-migration-spike
+Branch: `base44-migration-spike`
+Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 
-Completed:
-- isolated migration branch created from master
-- Base44 bridge configuration added as a portable reference package
-- separate React/Vite bridge surface added
-- dedicated bridge CI gate added
-- separate Base44 migration app created as `ראש גשר`
-- draft PR opened as PR #4
-- Base44 migration bridge CI gate passed successfully
-- Web runtime depth gates passed successfully
-- Backend and deployment quality gates passed successfully
-- repository topology reviewed against current Base44 sandbox rules
-- canonical C-ton repository remains independent and untouched by Base44 ownership
-- Base44 app edited directly in its cloud sandbox
-- Base44 Home replaced with a dedicated Siton bridge status screen
-- read-only Base44 backend function `siton-core-readiness` added using the sandbox-required `entry.ts` convention
-- Base44 frontend build passes after the bridge UI change
-- Base44 checkpoint created after the read-only bridge surface was installed
-- final Base44 checkpoint created with the confirmed historical Render endpoint configured
+## Completed
 
-Checked:
-- branch comparison contains bridge additions only
-- canonical Siton source files are unchanged
-- canonical database migrations are unchanged
-- existing tests and deployment files are unchanged
-- no payment, Worker, webhook, outbox or state-transition path was moved
-- Base44 function performs GET-only health probing and contains no write path
-- Base44 sandbox auto-sync is used; no manual deploy/push step is required
-- confirmed historical Siton Render endpoint: `https://siton-demo-preview-atp1.onrender.com`
-- attempted read-only health probe to `https://siton-demo-preview-atp1.onrender.com/health`
-- the confirmed historical Render endpoint returned zero bytes and timed out after 70 seconds
+- Stage 0 bridge completed without making the old Render deployment a dependency.
+- Canonical C-ton `master` remains untouched and is used as specification, test oracle and rollback source.
+- Draft creation migrated to Base44.
+- Publish migrated to Base44 with Draft -> PendingTarget, seller enforcement, 90% threshold, seller confirmations, audit evidence and idempotency evidence.
+- Canonical Base44 entity files established for Deal, SellerAccount, DealAudit, IdempotencyRecord, Participant, OtpChallenge and OtpDeliveryAttempt.
+- A schema-drift defect caused by duplicate PascalCase/kebab-case entity files was found and fixed. One canonical file per entity now remains.
+- OTP request rail implemented: sms/email validation, masked destination, 10-minute TTL, five requests per 15-minute destination window, three attempts, no plaintext OTP storage or response, provider remains log/migration pending external provider connection.
+- OTP verification implemented with conditional consume, attempt counting, lockout and short-lived opaque proof token.
+- Join contract implemented: OTP proof, payment-disclosure acceptance, multi-purchase by the same buyer, delivery snapshot, authorization reference, JoinedAuthorized/AuthHeld states, hold total, tracking token, affiliate attribution reference only, and deterministic idempotency handling.
+- Inventory reservation was moved into the single Deal aggregate. `reserved_units`, reservation evidence and the idempotency key are changed in one conditional Base44 update.
+- Participant is a derived projection after the canonical Deal reservation, so a crash after reservation cannot oversell or lose the accepted Join.
+- TargetReached transition uses a conditional PendingTarget -> TargetReached update after the reservation, matching the old post-Join target check pattern.
+- Test probe records were moved to owner `migration-probe-system` so they do not appear in the seller UI.
 
-Open:
-- restore/deploy the existing Render web service or identify a currently live Siton Core endpoint
-- repeat the Base44-to-Core GET `/health` proof against a live endpoint
-- only after a successful read-only proof, select the first capability for Copy + Adapt migration
-- update canonical PROJECT_STATUS.md when Stage 0 is fully closed
+## Checked
 
-Progress: 95%
+- Base44 frontend build: PASS.
+- ESLint: PASS.
+- esbuild parse/bundle: PASS for `create-deal-draft`, `publish-deal`, `request-otp`, `verify-otp`, `join-deal`.
+- Entity schemas verified after an additional sandbox commit: PASS; no schema regression after duplicate cleanup.
+- Atomic inventory primitive probe with one available unit: first reservation updated one Deal; second reservation updated zero.
+- Combined ceiling + idempotency probe: first reservation succeeded; replay using the same key produced zero additional mutation; a different key also produced zero mutation once inventory was full.
+- Final stored probe state contained exactly one unit and one reservation.
+- Conditional PendingTarget -> TargetReached transition probe: PASS.
+- Attempted true simultaneous two-request probe through `base44 exec`; the CLI timed out before returning a result and left the Deal unchanged. True race testing is therefore NOT marked PASS.
+- Full project `typecheck` remains red because of pre-existing Base44 template JSX/UI/Auth typing problems; build and lint remain green. Do not represent typecheck as PASS.
 
-Current blocker:
-The Base44 side of the bridge is built, auto-synced and verified. The confirmed historical Siton Render endpoint `https://siton-demo-preview-atp1.onrender.com` is not currently responding. Stage 0 cannot claim end-to-end Core connectivity until a live Siton Core URL responds.
+## Open
 
-Next step:
-Restore or redeploy Siton Core on Render, then rerun the read-only readiness probe from Base44. No write-path migration begins before that proof passes.
+- Execute an authoritative concurrent race test against the deployed Base44 function/API rather than the timing-out CLI path.
+- Connect a real OTP delivery provider; current provider intentionally remains log/migration and never exposes the OTP code.
+- Connect and verify the canonical payment provider authorization flow; `join-deal` records an authorization reference but Stage 3 does not yet prove that reference against Stripe.
+- Build the buyer-facing Deal/OTP/Join UI.
+- Migrate close-joining, prepare-charging, charging Worker, Completion Window, reconciliation and refunds only after the Join/concurrency gate is proven.
+- Update root `PROJECT_STATUS.md` without truncating its existing large history when a safe patch surface is available.
+
+## Progress
+
+Initial Base44 migration path: 40%.
+
+- Stage 0 bridge: complete.
+- Stage 1 Draft: implemented and build-verified.
+- Stage 2 Publish: implemented and build-verified.
+- Stage 3 OTP + Join + atomic inventory foundation: implemented; concurrency race proof and real authorization provider remain open.
+
+## Current Base44 checkpoint
+
+`Stage 3 Join OTP atomic inventory foundation`
+
+Checkpoint id: `6a7a1526524b50117a46d600`
+
+## Next step
+
+Build the buyer-facing Base44 deal page and execute the Join flow through the deployed function surface. Then attack the last-unit race with concurrent requests. Do not begin real charging until that gate passes.
