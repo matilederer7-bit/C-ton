@@ -1,0 +1,122 @@
+import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { strict as assert } from "node:assert";
+import pg from "pg";
+import { ReservationError, ReservationStore } from "../src/store.js";
+const { Pool } = pg;
+
+const DATABASE_URL = String(process.env.DATABASE_URL || "").trim();
+if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
+const pool = new Pool({ connectionString: DATABASE_URL, max: 60 });
+const schema = await readFile(new URL("../schema.sql", import.meta.url), "utf8");
+await pool.query(schema);
+
+async function cleanup(dealId: string) {
+  await pool.query(`DELETE FROM siton_inventory.inventory_deals WHERE deal_id=$1`, [dealId]);
+}
+
+async function run(name: string, fn: () => Promise<void>) {
+  try {
+    await fn();
+    console.log(`PASS ${name}`);
+  } catch (error) {
+    console.error(`FAIL ${name}`);
+    throw error;
+  }
+}
+
+await run("200 concurrent holds cannot oversell max_units=20", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 20 });
+    const attempts = await Promise.allSettled(
+      Array.from({ length: 200 }, (_, i) => store.hold({
+        deal_id: dealId,
+        qty: 1,
+        idempotency_key: `buyer-${i}`,
+        request_hash: `hash-${i}`
+      }))
+    );
+    const success = attempts.filter((result) => result.status === "fulfilled");
+    const failures = attempts.filter((result): result is PromiseRejectedResult => result.status === "rejected");
+    assert.equal(success.length, 20);
+    assert.equal(failures.length, 180);
+    for (const failure of failures) {
+      assert.ok(failure.reason instanceof ReservationError);
+      assert.equal(failure.reason.code, "inventory_exhausted");
+    }
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, 20);
+    assert.equal(inventory.available_units, 0);
+    const rows = await pool.query(`SELECT COALESCE(SUM(qty),0)::int AS total FROM siton_inventory.inventory_reservations WHERE deal_id=$1 AND status IN ('held','committed')`, [dealId]);
+    assert.equal(Number(rows.rows[0].total), 20);
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await run("50 concurrent replays of one idempotency key reserve exactly once", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 5 });
+    const attempts = await Promise.all(
+      Array.from({ length: 50 }, () => store.hold({
+        deal_id: dealId,
+        qty: 1,
+        idempotency_key: "same-key",
+        request_hash: "same-hash"
+      }))
+    );
+    assert.equal(new Set(attempts.map((result) => result.reservation_id)).size, 1);
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, 1);
+    const count = await pool.query(`SELECT COUNT(*)::int AS count FROM siton_inventory.inventory_reservations WHERE deal_id=$1`, [dealId]);
+    assert.equal(Number(count.rows[0].count), 1);
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await run("mixed concurrent quantities never exceed max_units=15", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 15 });
+    const quantities = Array.from({ length: 60 }, (_, index) => [1, 2, 3][index % 3]!);
+    await Promise.allSettled(quantities.map((qty, i) => store.hold({
+      deal_id: dealId,
+      qty,
+      idempotency_key: `mixed-${i}`,
+      request_hash: `mixed-hash-${i}`
+    })));
+    const inventory = await store.inventory(dealId);
+    assert.ok(inventory.reserved_units <= 15);
+    assert.ok(inventory.available_units >= 0);
+    const row = await pool.query(`SELECT reserved_units,max_units FROM siton_inventory.inventory_deals WHERE deal_id=$1`, [dealId]);
+    assert.ok(Number(row.rows[0].reserved_units) <= Number(row.rows[0].max_units));
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await run("expired hold is reclaimed inside the next inventory transaction", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 5);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 2 });
+    const held = await store.hold({ deal_id: dealId, qty: 2, idempotency_key: "expires", request_hash: "expires-hash" });
+    await pool.query(`UPDATE siton_inventory.inventory_reservations SET expires_at=now()-interval '1 second' WHERE reservation_id=$1`, [held.reservation_id]);
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, 0);
+    assert.equal(inventory.available_units, 2);
+    const status = await pool.query(`SELECT status FROM siton_inventory.inventory_reservations WHERE reservation_id=$1`, [held.reservation_id]);
+    assert.equal(status.rows[0].status, "expired");
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await pool.end();
+console.log("PASS reservation-service concurrency suite");
