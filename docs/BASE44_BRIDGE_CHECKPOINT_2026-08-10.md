@@ -27,7 +27,7 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Distribution attribution migrated as attribution-only. `DistributionSource` manages active source codes and `DistributionAttribution` records committed Join attribution.
 - Join accepts only an active known source code. Arbitrary `ref` values do not create Attribution.
 - Admin distribution surface migrated at `/admin/distribution` with source creation, activation/deactivation, attribution count, unit count and share-link generation.
-- Seller deal detail shows units by distribution source only. No distributor money surface exists.
+- Seller deal detail shows units by distribution source only. No distributor commission or payout surface exists.
 - Public deal route recognizes `?ref=` distribution links.
 - Admin Forensics migrated at `/admin/forensics` as read-only cross-domain search across Deals, Participants, Outbox, PaymentAttempts, Support, Delivery and Distribution Attribution.
 - Forensics redacts buyer identity fields, delivery address, authorization/payment identifiers, tracking hashes and secrets, and reports simple anomaly verdicts for pending Join intents, stale Worker processing and failed/dead-letter events.
@@ -43,12 +43,16 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Join checks active pause-joining flags before any reservation side effect. Charging checks active pause-charging flags before transition/outbox creation. Public deal visibility respects content-takedown flags.
 - Seller Draft cancellation migrated as the narrow canonical `Draft -> Cancelled` path only, with ownership, idempotency and audit evidence.
 - Deal image surface migrated onto Base44 storage. Deal `images` metadata is attached/removed/reordered only through seller-owned Draft-only Backend logic; images become immutable with the published Deal contract.
-- Public deal page now renders a Deal image gallery.
+- Public deal page renders a Deal image gallery.
+- Distribution measurement expanded to the source UX contract: `click`, `visit`, committed Join attribution, units, conversion and attributed sales measurement.
+- `DistributionEvent` is anonymous and stores no IP, phone, email, buyer name, address, payment identifier or device fingerprint.
+- Public `?ref=` links record one click per browser session and one visit only after the Deal successfully loads. Server-side event keys are hashed and retries are best-effort idempotent.
+- Attributed gross is calculated only for completed Deals whose Participant money state is `ChargedSuccess` or `RecoveredCharge`. It is labelled as measurement only and creates no commission, balance or payment entitlement.
 
 ## Checked
 
-- Base44 frontend build: PASS through Stage 27.
-- ESLint: PASS through Stage 27.
+- Base44 frontend build: PASS through Stage 28.
+- ESLint: PASS through Stage 28.
 - Stage 16 bundles PASS: `inventory-bridge`, `join-deal`, `reconcile-join-intents`, `close-joining`, `publish-deal`.
 - Join static gate: no old Base44 `$inc reserved_units` inventory path remains; `INVENTORY_SAGA_PROVEN` is still required.
 - Reservation PostgreSQL CI: PASS, including 200 simultaneous Holds on 20 units with exactly 20 winners, replay/payload mismatch, mixed quantities, Commit-vs-Release, expiry/renewal and serialized Close.
@@ -70,6 +74,9 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Live `AdminControlFlag` schema created; delete denied.
 - Stage 26 Draft cancellation: build/lint/bundle PASS and restricted to `Draft -> Cancelled`.
 - Stage 27 Deal images: frontend build/lint and Backend bundles PASS. Live Deal schema includes `images` metadata and published Deal immutability is preserved by Draft-only image attach/remove/reorder logic.
+- Stage 27 Runtime UploadFile probe reached the real Base44 integration endpoint and returned HTTP 403 with `reason=not_deployed`; this is a deployment blocker, not a storage-function failure. No false Runtime PASS recorded.
+- Stage 28 distribution measurement: build/lint and `track-distribution-event` / `admin-distribution` bundles PASS. Static scan found no PII in DistributionEvent and no distributor commission/payout/settlement fields in the distribution backend model.
+- Live `DistributionEvent` schema created with Admin-only direct access and no update/delete.
 - Full project typecheck remains red because of pre-existing Base44 template/UI/Auth typing. Do not represent typecheck as PASS.
 
 ## Open
@@ -83,11 +90,12 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Implement provider status reconciliation for UNKNOWN plus real Retry/DLQ behavior.
 - Wire supported Base44 Automation/CRON or Entity Hook for Worker ticks.
 - Add buyer payment-method recovery after provider connection.
-- Prove a real Base44 `UploadFile` Runtime call with an actual JPEG/PNG/WebP file. Current image layer is build-verified but runtime upload is not yet proven.
+- Deploy the Base44 app to a safe non-production target before repeating the real `UploadFile` Runtime proof. Current endpoint reports `not_deployed`.
 - Base44 does not currently expose a documented DeleteFile primitive in this implementation path; detached image files may require orphan cleanup policy/tooling.
 - Voucher/Ticket full-code issuance remains disabled until reliable one-time full-code delivery survives crash/replay without storing plaintext code at rest.
 - Connect a real notification provider and prove retry/idempotency before enabling outbound delivery.
 - Invoice/receipt issuance remains disabled until a real document provider and authoritative tax/payment snapshots exist.
+- Distribution event dedup is analytics-grade, not a hard database unique constraint; it must never be used as financial truth.
 - Preserve current business rule: distributors are attribution-only; no distributor commission or payout surfaces may be reintroduced.
 - Siton fee is 8% on the correct non-VAT base including shipping. Do not calculate until an authoritative VAT/tax basis exists.
 - Remove empty Admin-only `_noop` schema once supported remote schema deletion exists.
@@ -96,7 +104,7 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 ## Progress
 
 Initial technical Base44 migration path: 99%.
-Overall Siton-to-Base44 migration estimate: 89%.
+Overall Siton-to-Base44 migration estimate: 91%.
 
 The percentages measure migrated scope, not production readiness. Join and real money remain disabled.
 
@@ -129,16 +137,17 @@ The percentages measure migrated scope, not production readiness. Join and real 
 - Stage 24 Seller operational analytics: complete.
 - Stage 25 Admin emergency control flags: complete.
 - Stage 26 Seller Draft cancellation: complete.
-- Stage 27 Base44 deal images and public gallery: complete in code; real UploadFile runtime proof open.
+- Stage 27 Base44 deal images and public gallery: complete in code; Runtime upload proof blocked by app not deployed.
+- Stage 28 Distribution click/visit/attributed-sales measurement: complete.
 
 ## Current Base44 checkpoint
 
-`Stage 27 Base44 deal images and public gallery`
+`Stage 28 distribution click visit and attributed-sales analytics`
 
-Checkpoint id: `6a7afaed570ac28c2d09f3da`
+Checkpoint id: `6a7afda45f38c7453dd18508`
 
-Sandbox commit: `a77cb65a94f2bd71714b87d19397e9af57522b7f`
+Sandbox commit: `07b1e831d0c8241385faffb04b8ed881aedcea6e`
 
 ## Next step
 
-Prove the Base44-native image upload path with a real file, then move to the remaining production-readiness blockers rather than adding more decorative surfaces. Join and real money stay disabled until reservation deployment, payment-provider Sandbox proof and the canonical P0/P1 gates are satisfied.
+Continue independent Base44 UX/product migration without deploying the unfinished app: add polling/live refresh and canonical sharing on the public buyer and buyer-tracking surfaces. Keep Join and real money disabled until reservation deployment, payment-provider Sandbox proof and the canonical P0/P1 gates are satisfied.
