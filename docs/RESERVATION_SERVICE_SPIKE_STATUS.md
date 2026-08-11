@@ -20,7 +20,7 @@ Parent migration branch: `base44-migration-spike`
 - Base44 contains the `inventory-bridge` boundary and rewritten Join Saga. Publish synchronizes inventory, Join stages a recovery intent before Hold, external Commit is projected deterministically, and CloseJoining reconciles pending Join intents before closing inventory.
 - Base44 recovery policy is fail-safe: already committed reservations are projected; ambiguous held reservations are released rather than auto-committed; expired, released or never-created outcomes clear their pending intent.
 - Join remains fail-closed unless both `RESERVATION_SERVICE_ENFORCED=true` and `JOIN_EXTERNAL_RESERVATION_PROVEN=true` are explicitly configured.
-- Base44 Deno functions can bundle `npm:pg`; direct runtime PostgreSQL connectivity is now the preferred minimal-infrastructure experiment before deploying a separate Node service.
+- Base44 Deno functions can bundle an `npm:pg` import. This proves build compatibility only; actual outbound PostgreSQL connectivity from the hosted runtime remains unproven and is the next minimal-infrastructure experiment.
 
 ## Checked
 
