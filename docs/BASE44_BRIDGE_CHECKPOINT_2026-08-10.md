@@ -13,6 +13,7 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Join contract migrated with OTP proof, payment-disclosure acceptance, delivery snapshot, authorization reference, JoinedAuthorized/AuthHeld, hold total, tracking token and attribution-only affiliate reference.
 - Participant remains a derived projection after the Deal reservation attempt.
 - Public buyer route `/deal/:dealId` implemented with safe public fields only.
+- Buyer post-Join tracking migrated at `/app/track/:participantId`. `get-buyer-tracking` validates the opaque tracking token against its SHA-256 hash and expiry before returning buyer/money state, quantity, hold total, delivery summary, Deal progress and Completion Window timing. Provider authorization references and other buyers are not exposed.
 - TargetReached -> ClosedForJoining -> ReadyForCharging -> Charging migrated.
 - `start-charging` performs no payment I/O and embeds exactly one canonical `charge_deal` Outbox event in the same Deal mutation.
 - Outbox projection and reconciliation implemented.
@@ -31,10 +32,11 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 
 ## Checked
 
-- Base44 frontend build: PASS after the fail-closed and Admin Mission Control changes.
-- ESLint: PASS after the fail-closed and Admin Mission Control changes.
+- Base44 frontend build: PASS after the fail-closed, Admin Mission Control and buyer tracking changes.
+- ESLint: PASS after the same changes.
 - `join-deal` esbuild parse/bundle: PASS with the hard concurrency gate enabled.
 - `admin-overview` esbuild parse/bundle: PASS.
+- `get-buyer-tracking` esbuild parse/bundle: PASS.
 - Entity schema mirror gate: PASS before the latest safety change.
 - Live schema verification: Deal/SellerAccount update/delete admin-only; money/outbox control entities admin-only.
 - Sequential inventory probe with max_units=1: first reservation updated one Deal; second updated zero.
@@ -55,14 +57,15 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Implement provider-I/O Worker adapter plus UNKNOWN reconciliation/status lookup after Stripe is available.
 - Wire Base44 Automation/CRON or Entity Hook to Worker tick. Platform supports it, but the current remote-sandbox surface does not expose a reliable Automation creation/deployment action and Base44 CLI authentication does not complete in this sandbox.
 - Exercise Retry/DLQ against a real provider sandbox once Worker Automation exists.
+- Add the payment-method recovery action behind the buyer tracking surface after a real provider is connected.
 - Continue migrating remaining admin/product UX surfaces that do not depend on Join being enabled.
 - Resolve the documented KYC runtime/compliance inconsistency before production.
 - Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path.
 
 ## Progress
 
-Initial technical Base44 migration path: 80%.
-Overall Siton-to-Base44 migration estimate: 45%.
+Initial technical Base44 migration path: 82%.
+Overall Siton-to-Base44 migration estimate: 47%.
 
 The percentages measure migrated scope, not production readiness. The concurrency defect does not erase migrated code, but Join is intentionally disabled until the blocker is solved.
 
@@ -76,14 +79,15 @@ The percentages measure migrated scope, not production readiness. The concurrenc
 - Stage 7 True last-unit concurrency proof: FAILED on repeat; previous PASS was non-authoritative/flaky.
 - Stage 8 Seller profile safe-edit surface: implemented and build-verified.
 - Stage 9 Admin Mission Control read-only: implemented and build-verified.
+- Stage 10 Buyer tracking surface: implemented and build-verified.
 
 ## Current Base44 checkpoint
 
-`Stage 9 admin mission control read-only`
+`Stage 10 buyer tracking surface`
 
-Checkpoint id: `6a7aaf507ae4b3115d8cad26`
+Checkpoint id: `6a7ab030de400cb06c00c735`
 
-Sandbox commit: `d5ebdd7ff4a15d171a0071ec27ecd724409de7fc`
+Sandbox commit: `6a324b60deb4f343edf34c2423c697ad957ae69a`
 
 ## Next step
 
