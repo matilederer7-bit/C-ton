@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
+import { closeInventory } from "./close.js";
 import { ReservationError, ReservationStore } from "./store.js";
 const { Pool } = pg;
 
@@ -69,7 +70,8 @@ app.addHook("preHandler", async (req) => {
   verifySignature(req);
 });
 
-app.post("/v1/deals/sync", async (req: any) => store.syncDeal(req.body || {}));
+app.post("/v1/deals/sync", async (req: any) => store.syncDeal({ ...(req.body || {}), status: "open" }));
+app.post("/v1/deals/close", async (req: any) => closeInventory(pool, req.body?.deal_id, req.body?.max_units));
 app.post("/v1/reservations/hold", async (req: any) => store.hold(req.body || {}));
 app.post("/v1/reservations/commit", async (req: any) => store.commitReservation(req.body?.reservation_id));
 app.post("/v1/reservations/release", async (req: any) => store.releaseReservation(req.body?.reservation_id));
