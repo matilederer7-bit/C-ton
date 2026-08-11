@@ -25,13 +25,16 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Seller profile safe-edit surface migrated. Authenticated seller can edit only `display_name`, `business_name`, `support_phone` and `support_email` through `update-seller-profile`; `seller_id`, `seller_status`, `verification_status` and `owner_user_id` remain immutable from this path. `/seller/profile` UI added.
 - A hard safety gate was added to `join-deal`: production Join is fail-closed with `503 inventory_concurrency_gate_not_proven` until a supported serialized reservation primitive is proven.
 - The temporary public concurrency probe function and temporary lock-probe source were removed after testing.
+- Read-only Admin Mission Control migrated at `/admin` with backend `role=admin` enforcement. It exposes Deal state counts, seller status/verification counts, Worker/Outbox queue depth, stale leases, DLQ, PaymentAttempt result summaries and recent Deal/DLQ rows without offering state mutation controls.
+- Admin Mission Control explicitly reports that Join is disabled by the concurrency gate and that real money is disabled.
 - No Base44 function currently performs real authorization, capture, recovery, refund or release.
 
 ## Checked
 
-- Base44 frontend build: PASS after the fail-closed change.
-- ESLint: PASS after the fail-closed change.
+- Base44 frontend build: PASS after the fail-closed and Admin Mission Control changes.
+- ESLint: PASS after the fail-closed and Admin Mission Control changes.
 - `join-deal` esbuild parse/bundle: PASS with the hard concurrency gate enabled.
+- `admin-overview` esbuild parse/bundle: PASS.
 - Entity schema mirror gate: PASS before the latest safety change.
 - Live schema verification: Deal/SellerAccount update/delete admin-only; money/outbox control entities admin-only.
 - Sequential inventory probe with max_units=1: first reservation updated one Deal; second updated zero.
@@ -58,8 +61,8 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 
 ## Progress
 
-Initial technical Base44 migration path: 78%.
-Overall Siton-to-Base44 migration estimate: 44%.
+Initial technical Base44 migration path: 80%.
+Overall Siton-to-Base44 migration estimate: 45%.
 
 The percentages measure migrated scope, not production readiness. The concurrency defect does not erase migrated code, but Join is intentionally disabled until the blocker is solved.
 
@@ -72,14 +75,15 @@ The percentages measure migrated scope, not production readiness. The concurrenc
 - Stage 6 Recovery, Finalize, Refund and Worker queue foundation: implemented.
 - Stage 7 True last-unit concurrency proof: FAILED on repeat; previous PASS was non-authoritative/flaky.
 - Stage 8 Seller profile safe-edit surface: implemented and build-verified.
+- Stage 9 Admin Mission Control read-only: implemented and build-verified.
 
 ## Current Base44 checkpoint
 
-`Stage 6.1 concurrency race failed, Join fail-closed`
+`Stage 9 admin mission control read-only`
 
-Checkpoint id: `6a7aae21bf9f5b9a7a7c2190`
+Checkpoint id: `6a7aaf507ae4b3115d8cad26`
 
-Sandbox commit: `449838b4c2aff148d6aadfc2080944227fde0946`
+Sandbox commit: `d5ebdd7ff4a15d171a0071ec27ecd724409de7fc`
 
 ## Next step
 
