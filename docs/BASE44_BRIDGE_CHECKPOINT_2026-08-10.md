@@ -23,13 +23,14 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Refund application implemented so only provider-confirmed success can move money to Refunded.
 - Worker queue foundation migrated: claim, lease, heartbeat, reclaim, retry, deferred retry and DLQ.
 - Deal and SellerAccount direct mutation hardened to admin-only so seller UI cannot bypass Transitions, seller status or KYC controls.
+- Seller profile safe-edit surface migrated. Authenticated seller can edit only `display_name`, `business_name`, `support_phone` and `support_email` through `update-seller-profile`; `seller_id`, `seller_status`, `verification_status` and `owner_user_id` remain immutable from this path. `/seller/profile` UI added.
 - No Base44 function currently performs real authorization, capture, recovery, refund or release.
 
 ## Checked
 
 - Base44 frontend build: PASS.
 - ESLint: PASS.
-- esbuild parse/bundle: PASS for all migrated backend functions and worker functions.
+- esbuild parse/bundle: PASS for all migrated backend functions and worker functions, including `update-seller-profile`.
 - Entity schema mirror gate: PASS.
 - Live schema verification: Deal/SellerAccount update/delete admin-only; money/outbox control entities admin-only.
 - Inventory max=1 sequential probe: first reservation updated one Deal; second updated zero.
@@ -39,6 +40,7 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Worker claim race probe: Worker A claimed; Worker B updated zero.
 - Worker reclaim probe: expired lease returned event to pending; next worker reclaimed it; attempt_count advanced 1 -> 2.
 - TRUE simultaneous last-unit race proof: PASS on 2026-08-11. A temporary self-contained deployed Base44 backend function created a one-unit Deal and ran two conditional reservations in the same `Promise.all`. Result: exactly one winner, the other update returned zero, final `reserved_units=1`, one reservation and one idempotency key. HTTP 200. The temporary public probe function was removed immediately after the test. The permanent probe remains admin-protected.
+- Seller profile gate: frontend build PASS, ESLint PASS, backend function esbuild PASS.
 - Full project typecheck remains red because of pre-existing Base44 template JSX/UI/Auth typing; build/lint remain green. Do not represent typecheck as PASS.
 
 ## Open
@@ -48,32 +50,33 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Implement provider-I/O Worker adapter plus UNKNOWN reconciliation/status lookup after Stripe is available.
 - Wire Base44 Automation/CRON or Entity Hook to Worker tick. Platform supports it, but the current remote-sandbox surface does not expose a reliable Automation creation/deployment action.
 - Exercise Retry/DLQ against a real provider sandbox once Worker Automation exists.
-- Implement remaining seller/admin/product UX surfaces and seller profile-update path.
+- Continue migrating remaining admin/product UX surfaces.
 - Resolve the documented KYC runtime/compliance inconsistency before production.
 - Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path.
 
 ## Progress
 
-Initial technical Base44 migration path: 75%.
-Overall Siton-to-Base44 migration estimate: 42%.
+Initial technical Base44 migration path: 78%.
+Overall Siton-to-Base44 migration estimate: 44%.
 
 - Stage 0 Bridge: complete.
 - Stage 1 Draft: complete.
 - Stage 2 Publish: complete.
-- Stage 3 OTP + Join + atomic inventory: implemented; TRUE concurrency proof now PASS; real OTP/payment provider remain open.
+- Stage 3 OTP + Join + atomic inventory: implemented; TRUE concurrency proof PASS; real OTP/payment provider remain open.
 - Stage 4 Public buyer surface: implemented.
 - Stage 5 Pre-money charging boundary: implemented.
 - Stage 6 Recovery, Finalize, Refund and Worker queue foundation: implemented.
 - Stage 7 True last-unit concurrency proof: PASS.
+- Stage 8 Seller profile safe-edit surface: implemented and build-verified.
 
 ## Current Base44 checkpoint
 
-`Stage 7 true last-unit concurrency proof passed`
+`Stage 8 seller profile safe edit surface`
 
-Checkpoint id: `6a7aab7c3ee3060483271e2e`
+Checkpoint id: `6a7aacde25bf451a737ef58a`
 
-Sandbox commit: `66207334c023c7986d5a50ae0b3eeb29391b43c3`
+Sandbox commit: `dc4827bd00b4bd5c30b91628a510050545c8f1ca`
 
 ## Next step
 
-Continue migrating seller/admin/product surfaces that do not depend on external providers. In parallel, the remaining external gates are Base44 Worker Automation, real OTP delivery and Stripe Sandbox. No real money run until all three are connected and UNKNOWN/retry/reconciliation tests pass.
+Continue migrating admin/product surfaces that do not depend on external providers. In parallel, the remaining external gates are Base44 Worker Automation, real OTP delivery and Stripe Sandbox. No real money run until all three are connected and UNKNOWN/retry/reconciliation tests pass.
