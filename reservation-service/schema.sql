@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS siton_inventory.inventory_deals (
   deal_id uuid PRIMARY KEY,
   max_units integer NOT NULL CHECK (max_units > 0),
   reserved_units integer NOT NULL DEFAULT 0 CHECK (reserved_units >= 0 AND reserved_units <= max_units),
+  committed_units integer NOT NULL DEFAULT 0 CHECK (committed_units >= 0 AND committed_units <= reserved_units),
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -16,6 +17,7 @@ CREATE TABLE IF NOT EXISTS siton_inventory.inventory_reservations (
   request_hash varchar(128) NOT NULL,
   qty integer NOT NULL CHECK (qty > 0),
   status text NOT NULL CHECK (status IN ('held','committed','released','expired')),
+  hold_generation integer NOT NULL DEFAULT 1 CHECK (hold_generation > 0),
   expires_at timestamptz NOT NULL,
   canonical_response jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
