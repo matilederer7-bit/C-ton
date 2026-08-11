@@ -65,6 +65,39 @@ Older DB/constitution fields use the generic name `commission_rate`. This must n
 
 Migration rule: in Base44, avoid reintroducing distributor money surfaces. Any future financial snapshot must name the Siton platform fee explicitly and must not calculate it until the VAT/tax base is authoritative.
 
+## C-06 Browser payment component vs Payment SDK worker-only rule
+
+The enforcement checklist states that importing a Payment SDK outside `/workers/` is a P0 failure.
+
+The buyer UX simultaneously requires card entry inside the payment provider's secure iframe/component so raw card data never touches Siton servers.
+
+The Base44 package currently includes Stripe.js client dependencies but no current source import was found. A future card-entry screen cannot be activated until the rule is clarified as either:
+
+- server-side payment SDK only in workers, while the provider's PCI client component is explicitly allowed in the browser; or
+- no payment-provider SDK of any kind outside workers, requiring a different provider-hosted redirect/tokenization approach.
+
+Migration rule: do not activate a browser payment SDK until the constitution explicitly resolves this distinction.
+
+## C-07 Automatic TargetReached transition has no official Action
+
+The constitution requires `PendingTarget -> TargetReached` when the threshold is reached, but its closed Action list contains no Action for this automatic system transition. Database Contract v1.2 also restricts `audit_log.action_name` to the same seven official Actions, so there is no legal audit Action currently available for this required state change.
+
+The legacy implementation used `deal.target_reached`, but that value is not legal under the binding closed Action list and must not be copied into Base44.
+
+Migration rule: the automatic target transition remains a constitutional blocker until a versioned constitution defines its legal audit/action semantics.
+
+## C-08 Refund after `RecoveredCharge`
+
+The full product specification allows a refund after either an initial successful charge or a recovered charge. The binding Constitution v1.4 Money transition table lists `ChargedSuccess -> Refunded` but does not list `RecoveredCharge -> Refunded`.
+
+Migration rule: do not add `RecoveredCharge -> Refunded` silently. Refund execution remains fail-closed until the transition is explicitly versioned.
+
+## C-09 Pre-charge authorization release pathways
+
+The product/UX requires authorization release when a Deal fails or is cancelled before money is captured. Constitution v1.4 Money transitions list `ChargeFailedRecovery -> AuthReleased`, but do not explicitly list every pre-charge release path such as `AuthHeld -> AuthReleased` or `AuthLocked -> AuthReleased`.
+
+Migration rule: no new pre-charge release transition may be invented in Base44. The authoritative release matrix must be versioned before these pathways are called constitution-complete.
+
 ## Resolution policy
 
 - No AI agent may resolve these conflicts by renaming a state/action or adding a transition on its own.
