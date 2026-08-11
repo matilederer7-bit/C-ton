@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "test:concurrency": "tsx tests/concurrency.ts",
     "test:close": "tsx tests/close.ts",
-    "test": "npm run test:concurrency && npm run test:close"
+    "test:saga": "tsx tests/saga-recovery.ts",
+    "test": "npm run test:concurrency && npm run test:close && npm run test:saga"
   },
   "dependencies": {
     "fastify": "^5.7.4",
