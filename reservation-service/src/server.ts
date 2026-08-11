@@ -1,6 +1,7 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
 import Fastify from "fastify";
 import pg from "pg";
+import { runIdempotentDealAction } from "./action-idempotency.js";
 import { closeInventory } from "./close.js";
 import { ReservationError, ReservationStore } from "./store.js";
 const { Pool } = pg;
@@ -98,8 +99,32 @@ app.addHook("preHandler", async (req) => {
   verifySignature(req);
 });
 
-app.post("/v1/deals/sync", async (req: any) => store.syncDeal({ ...(req.body || {}), status: "open" }));
-app.post("/v1/deals/close", async (req: any) => closeInventory(pool, req.body?.deal_id, req.body?.max_units));
+app.post("/v1/deals/sync", async (req: any) => {
+  const body = req.body || {};
+  const dealId = requireUuid(body.deal_id, "deal_id");
+  const idempotencyKey = requireText(body.idempotency_key, "idempotency_key", 200);
+  return runIdempotentDealAction({
+    pool,
+    operation: "sync",
+    dealId,
+    idempotencyKey,
+    requestPayload: { deal_id: dealId, max_units: body.max_units, status: "open" },
+    execute: () => store.syncDeal({ ...body, deal_id: dealId, status: "open" })
+  });
+});
+app.post("/v1/deals/close", async (req: any) => {
+  const body = req.body || {};
+  const dealId = requireUuid(body.deal_id, "deal_id");
+  const idempotencyKey = requireText(body.idempotency_key, "idempotency_key", 200);
+  return runIdempotentDealAction({
+    pool,
+    operation: "close",
+    dealId,
+    idempotencyKey,
+    requestPayload: { deal_id: dealId, max_units: body.max_units },
+    execute: () => closeInventory(pool, dealId, body.max_units)
+  });
+});
 app.post("/v1/reservations/hold", async (req: any) => store.hold(req.body || {}));
 app.post("/v1/reservations/commit", async (req: any) => store.commitReservation(req.body?.reservation_id));
 app.post("/v1/reservations/release", async (req: any) => store.releaseReservation(req.body?.reservation_id));
