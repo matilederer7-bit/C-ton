@@ -6,108 +6,101 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 
 ## Completed
 
-- Stage 0 bridge completed without making the old Render deployment a dependency.
-- Canonical C-ton `master` remains untouched and is used as specification, test oracle and rollback source.
-- Draft creation and Publish migrated to Base44 with seller enforcement, 90% threshold, deadline rules, confirmations and idempotency evidence.
-- OTP request/verify rail migrated with hashing, masking, TTL, rate limit, attempt limit, lockout and proof token. External OTP delivery remains disconnected.
-- Join contract migrated with OTP proof, payment-disclosure acceptance, delivery snapshot, authorization reference, JoinedAuthorized/AuthHeld, hold total, tracking token and attribution-only affiliate reference.
-- Participant remains a derived projection after the Deal reservation attempt.
-- Public buyer route `/deal/:dealId` implemented with safe public fields only.
-- Buyer post-Join tracking migrated at `/app/track/:participantId`. `get-buyer-tracking` validates the opaque tracking token against its SHA-256 hash and expiry before returning buyer/money state, quantity, hold total, delivery summary, Deal progress and Completion Window timing. Provider authorization references and other buyers are not exposed.
-- TargetReached -> ClosedForJoining -> ReadyForCharging -> Charging migrated.
-- `start-charging` performs no payment I/O and embeds exactly one canonical `charge_deal` Outbox event in the same Deal mutation.
-- Outbox projection and reconciliation implemented.
-- Deterministic charge-result application implemented. Unknown/temporary truth stays in Charging. Final truth opens one 24-hour Completion Window and schedules recovery/finalize.
-- Recovery application implemented: success -> Recovered/RecoveredCharge; permanent failure -> Dropped/AuthReleased; unknown/temporary -> no state transition.
-- Finalize implemented against captured/recovered quantity and the canonical 90% threshold. Success -> Completed; below threshold -> Failed plus `refund_issue`.
-- Refund application implemented so only provider-confirmed success can move money to Refunded.
-- Worker queue foundation migrated: claim, lease, heartbeat, reclaim, retry, deferred retry and DLQ.
-- A hard safety gate was added to `join-deal`: production Join is fail-closed with `503 inventory_concurrency_gate_not_proven` until a supported serialized reservation primitive is proven.
-- The temporary public concurrency probe function and temporary lock-probe source were removed after testing.
-- Read-only Admin Mission Control migrated at `/admin` with backend `role=admin` enforcement. It exposes Deal state counts, seller status/verification counts, Worker/Outbox queue depth, stale leases, DLQ, PaymentAttempt result summaries and recent Deal/DLQ rows.
-- Seller profile safe-edit surface migrated. Authenticated seller can edit only `display_name`, `business_name`, `support_phone` and `support_email` through `update-seller-profile`.
-- Seller dashboard migrated at `/seller` with summaries, progress, deadlines, canonical Publish action and public buyer links.
-- Seller deal detail migrated at `/seller/deal/:dealId` with quantity/state/delivery aggregates and sanitized transition history only. Buyer PII, authorization references, tracking hashes, idempotency evidence and transition payloads are excluded.
-- A security issue discovered during seller-dashboard work was fixed: `Deal` and `SellerAccount` are now Admin-only for direct entity reads as well as writes. Seller UI no longer reads either canonical entity directly.
-- `seller-deals`, `seller-deal-detail` and `get-seller-profile` now provide authenticated, ownership-checked safe projections to seller UI.
-- Seller KYC runtime inconsistency was resolved. New SellerAccount records now start with `verification_status=pending` instead of auto-approved.
-- Publish now requires `verification_status=approved` plus `verification_reviewed_at` and `verification_reviewed_by`, so legacy auto-approved records without a real admin review cannot publish.
-- `UnderReview`, `Restricted`, `Suspended` and `Banned` all block Publish. Draft creation remains available according to the existing seller-status rules.
-- Admin seller review migrated at `/admin/sellers`. `admin-review-seller` is Admin-only, supports explicit KYC review and seller-status changes, and appends review evidence to `review_history` in the SellerAccount document.
-- SellerAccount schema now includes `verification_reviewed_at`, `verification_reviewed_by` and embedded `review_history` audit evidence.
-- Seller Draft editing migrated. `/seller/deal/:dealId/edit` loads the seller-safe deal projection and `update-deal-draft` enforces ownership plus `state=Draft` on the backend before allowing title, deal type, price, min/max units, 90% threshold, deadline and type-specific delivery/voucher/ticket fields to change.
-- Once a Deal is no longer Draft, `update-deal-draft` returns `409 deal_not_draft`; published critical terms cannot be edited through this path.
-- No Base44 function currently performs real authorization, capture, recovery, refund or release.
+- Base44-first migration remains isolated from canonical `master`; the old Render deployment is not a dependency.
+- Draft creation, Draft editing, Publish, 90% threshold, deadline rules, seller terms and seller enforcement migrated.
+- Seller profile, seller dashboard, safe seller deal detail and public buyer page migrated.
+- Seller KYC review is explicit: new sellers start `pending`; Publish requires an Admin-reviewed approval with reviewer/timestamp evidence.
+- `Deal` and `SellerAccount` direct entity access is Admin-only. Seller UI uses ownership-checked Backend projections.
+- OTP request/verify rail migrated with hash, TTL, rate limit, attempt limit, lockout and proof token; external delivery is still disconnected.
+- Buyer tracking migrated with opaque token verification and safe state/delivery projection.
+- Charging state machine, Completion Window, Recovery, Finalize, Refund result application and Worker queue foundation migrated without real provider I/O.
+- Read-only Admin Mission Control migrated with Deal, seller, Outbox, DLQ and PaymentAttempt visibility.
+- True concurrent Base44 last-unit testing disproved `updateMany` as a hard inventory lock. Join was kept fail-closed.
+- A deliberately narrow PostgreSQL reservation component was extracted on branch `base44-reservation-service` / Draft PR #5. It owns only inventory ceiling and Reservation lifecycle, not the Siton backend.
+- Reservation component separates active `reserved_units` from `committed_units`; only committed capacity may count toward the 90% target.
+- Reservation component supports transactional Sync, Hold, Commit, Release, status and serialized Close. Close rejects while Holds are in flight.
+- Reservation component has HMAC-SHA256 request authentication and no buyer PII, OTP, delivery details, payment identifiers or financial state.
+- Base44 `inventory-bridge` was added. Publish can Sync the inventory ceiling and CloseJoining can close it when enforcement is enabled.
+- Base44 Join was rewritten behind disabled gates as Hold -> durable `pending_join_intent` -> Commit -> authoritative reservation status -> deterministic projection/reconciliation. The old Base44 `$inc reserved_units` inventory path is gone.
+- `reconcile-join-intents` can recover committed/expired/released reservations and project committed units back into Base44.
+- Join remains fail-closed unless both `RESERVATION_SERVICE_ENFORCED=true` and `INVENTORY_SAGA_PROVEN=true`. Neither production proof flag is enabled.
+- Temporary Base44 inventory race probe removed.
+- Admin Support Operations migrated at `/admin/support` using one Admin-only Backend function. It supports list/filter/create/update/assign/escalate with the canonical lifecycle, priorities, case types and SLA windows.
+- Support closing to `Resolved` or `Closed` requires `resolution_note`; every case change requires Reason.
+- Support cannot delete cases/events, execute or approve refunds, or mutate Deal/Participant money state.
+- Support audit evidence is embedded in the canonical Case and projected to append-only `OperationalCaseEvent` records.
+- Mission Control now includes Support Case counts and `support_readiness`; an overdue Urgent case produces `blocked`.
 
 ## Checked
 
-- Base44 frontend build: PASS after seller dashboard, safe projections, KYC and seller Draft editing changes.
-- ESLint: PASS after the same changes.
-- `join-deal` esbuild parse/bundle: PASS with the hard concurrency gate enabled.
-- `admin-overview` and `get-buyer-tracking` esbuild parse/bundle: PASS.
-- `seller-deals` and `seller-deal-detail` esbuild parse/bundle: PASS.
-- `create-deal-draft`, `publish-deal`, `get-seller-profile`, `admin-sellers` and `admin-review-seller` esbuild parse/bundle: PASS.
-- `update-deal-draft` esbuild parse/bundle: PASS.
-- Static Draft-edit gate verification: `update-deal-draft` explicitly rejects every non-Draft Deal with `409 deal_not_draft` before mutation.
-- Frontend grep: no direct `entities.Deal` or `entities.SellerAccount` access remains.
-- Frontend grep: no direct Deal create/update/updateMany/delete calls remain.
-- Seller pages grep: no `authorization_id`, `tracking_token_hash`, `buyer_phone`, `delivery_address` or `join_reservations` references remain.
-- Live Base44 schema verification: `Deal` and `SellerAccount` create/read/update/delete are Admin-only.
-- Live SellerAccount schema verification: `verification_status` default is `pending`; review timestamp, reviewer and review-history fields are present.
-- Sequential inventory probe with max_units=1: first reservation updated one Deal; second updated zero.
-- Ceiling + idempotency sequential probe: replay caused zero extra mutation; new key after full inventory also caused zero mutation.
-- Worker claim race probe: Worker A claimed; Worker B updated zero.
-- Worker reclaim probe: expired lease returned event to pending; next worker reclaimed it; attempt_count advanced 1 -> 2.
-- A previous simultaneous last-unit probe happened to return exactly one winner and was initially marked PASS.
-- A repeated TRUE simultaneous last-unit probe disproved that conclusion: a Deal with `max_units=1` finished with `reserved_units=2`, two reservations and two idempotency keys. Therefore Base44 Entity conditional `updateMany` is NOT accepted as a hard oversell-prevention primitive.
-- SDK/package inspection found an Actor API backed by Durable Objects, but the installed Base44 CLI exposes no Actor create/deploy/config command. Actor is therefore treated as undocumented/unsupported and is not used for Siton inventory.
-- Attempting a deterministic record-id lock also failed as a design path because Base44 generated its own entity record id rather than honoring the supplied deterministic id.
-- Full project typecheck remains red because of pre-existing Base44 template JSX/UI/Auth typing; build/lint remain green. Do not represent typecheck as PASS.
+- Base44 frontend build: PASS after Stages 16 and 17.
+- ESLint: PASS after Stages 16 and 17.
+- Stage 16 bundles PASS: `inventory-bridge`, `join-deal`, `reconcile-join-intents`, `close-joining`, `publish-deal`.
+- Static Stage 16 gate: no old `$inc reserved_units` / Base44 inventory-ceiling mutation remains in Join.
+- Static Stage 16 gate: Join requires `INVENTORY_SAGA_PROVEN`; CloseJoining blocks unresolved `pending_join_intents`.
+- Live Deal schema includes inventory sync/reserved/committed projections and pending Join intents.
+- Reservation GitHub Actions PostgreSQL gate: PASS. 200 simultaneous Holds on 20 units produce exactly 20 winners.
+- Reservation tests PASS for same-key replay, payload mismatch, mixed quantities, committed-count idempotency, Commit-vs-Release race, expiry/renewal and closed-inventory rejection.
+- Reservation close gate PASS: active Hold blocks Close; Close after Commit or expiry succeeds; no new Hold after Close.
+- Stage 17 bundles PASS: `admin-support-cases`, `admin-overview`.
+- Stage 17 static forbidden-action scan: no refund, money-state, Deal/Participant mutation or delete action exists in the Support Backend.
+- Live `OperationalCase` schema: Admin-only create/read/update; delete denied.
+- Live `OperationalCaseEvent` schema: Admin-only create/read; update/delete denied.
+- Full project typecheck remains red because of pre-existing Base44 template/UI/Auth typing. Do not represent it as PASS.
 
 ## Open
 
-- Provide a production-supported serialized reservation mechanism before Join can be enabled. This may be a supported Base44 primitive if one becomes documented, otherwise a deliberately narrow external transactional reservation component.
-- Connect real OTP delivery provider.
-- Connect and verify canonical payment provider for authorization/capture/recovery/refund/release. Stripe is not connected in this Base44 session and no credentials were invented.
-- Implement provider-I/O Worker adapter plus UNKNOWN reconciliation/status lookup after Stripe is available.
-- Wire Base44 Automation/CRON or Entity Hook to Worker tick. The current remote-sandbox authoring surface does not provide a supported automation deployment path.
-- Exercise Retry/DLQ against a real provider sandbox once Worker Automation exists.
-- Add the payment-method recovery action behind the buyer tracking surface after a real provider is connected.
-- Continue migrating remaining admin/product UX surfaces that do not depend on Join being enabled.
-- Remove the harmless temporary `_noop` schema created during tooling cleanup once a supported remote entity-schema delete surface is available. It is empty, unused and Admin-only.
-- Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path; the GitHub connector currently returns the very large file in chunks and its update action requires full replacement content.
+- Deploy/provision the narrow reservation component plus PostgreSQL, then configure protected Base44 secrets. No production URL or secret is configured yet.
+- Run repeated Base44-to-reservation end-to-end races and crash/response-loss tests before enabling Join.
+- Prove deterministic Base44 Join projection/reconciliation under concurrent replay; Participant remains a derived projection without a documented unique constraint.
+- Ensure every deadline/failure path closes the external inventory before a terminal state.
+- Connect real OTP delivery.
+- Connect Stripe Sandbox / canonical payment provider and verify authorization, capture, recovery, release and refund.
+- Implement provider status reconciliation for UNKNOWN plus real Retry/DLQ behavior.
+- Wire supported Base44 Automation/CRON or Entity Hook for Worker ticks.
+- Add buyer payment-method recovery after provider connection.
+- Continue remaining seller/admin product surfaces, especially fulfillment/delivery, receipts/invoice projections and deeper forensics.
+- Preserve current business rule: distributors are attribution-only; no distributor commission or payout surfaces may be reintroduced.
+- Apply Siton's 8% fee to the correct non-VAT base including shipping once tax basis and real financial records are available; do not invent VAT allocation.
+- Remove empty Admin-only `_noop` schema once a supported remote schema delete surface is available.
+- Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path; the connector cannot safely replace the huge file from truncated content.
 
 ## Progress
 
-Initial technical Base44 migration path: 93%.
-Overall Siton-to-Base44 migration estimate: 57%.
+Initial technical Base44 migration path: 99%.
+Overall Siton-to-Base44 migration estimate: 68%.
 
-The percentages measure migrated scope, not production readiness. The concurrency defect does not erase migrated code, but Join is intentionally disabled until the blocker is solved.
+The percentages measure migrated scope, not production readiness. Join and real money remain disabled.
+
+## Milestones
 
 - Stage 0 Bridge: complete.
 - Stage 1 Draft: complete.
 - Stage 2 Publish: complete.
-- Stage 3 OTP + Join contract: implemented, but Join is fail-closed because hard inventory concurrency is NOT proven.
-- Stage 4 Public buyer surface: implemented.
-- Stage 5 Pre-money charging boundary: implemented.
-- Stage 6 Recovery, Finalize, Refund and Worker queue foundation: implemented.
-- Stage 7 True last-unit concurrency proof: FAILED on repeat; previous PASS was non-authoritative/flaky.
-- Stage 8 Seller profile safe-edit surface: complete.
-- Stage 9 Admin Mission Control read-only: complete.
-- Stage 10 Buyer tracking surface: complete.
-- Stage 11 Seller deal dashboard: complete.
-- Stage 12 Safe seller projections and seller deal detail: complete.
-- Stage 13 Enforced seller KYC review gate: complete.
-- Stage 14 Seller Draft editing: complete and build-verified.
+- Stage 3 OTP + Join contract: migrated; production Join remains fail-closed.
+- Stage 4 Public buyer surface: complete.
+- Stage 5 Pre-money charging boundary: complete.
+- Stage 6 Recovery, Finalize, Refund and Worker queue foundation: complete.
+- Stage 7 Base44 native concurrency proof: failed on repeat; external critical section required.
+- Stage 8 Seller profile: complete.
+- Stage 9 Admin Mission Control: complete.
+- Stage 10 Buyer tracking: complete.
+- Stage 11 Seller dashboard: complete.
+- Stage 12 Safe seller projections/detail: complete.
+- Stage 13 Seller KYC review gate: complete.
+- Stage 14 Seller Draft editing: complete.
+- Stage 15 Inventory bridge Publish/Close boundaries: complete in code, enforcement disabled.
+- Stage 16 External inventory Saga wired fail-closed: complete in code, end-to-end deployment proof open.
+- Stage 17 Admin Support Operations and SLA: complete and build-verified.
 
 ## Current Base44 checkpoint
 
-`Stage 14 seller draft editing`
+`Stage 17 admin support operations and SLA`
 
-Checkpoint id: `6a7ad336f4c05da82c91f666`
+Checkpoint id: `6a7ae707e6912615a5db58d6`
 
-Sandbox commit: `b96f9eb63c97e812c4dfe866e538f6acf105a3a2`
+Sandbox commit: `42a33de6f3ff3691c69d0aa2ac1adc60cf98c8f4`
 
 ## Next step
 
-Keep Base44-first architecture. Continue independent product/admin surfaces, but do not enable Join or any real money path until the inventory critical section has a proven serialized/transactional mechanism. In parallel, external prerequisites remain Worker Automation, OTP delivery and Stripe Sandbox.
+Continue Base44-first migration with independent product surfaces while Join remains disabled. Next independent surface: seller fulfillment/delivery operations for Completed deals, using only participants with `ChargedSuccess` or `RecoveredCharge`. No payment or refund action may be embedded in fulfillment. In parallel, keep PR #5 isolated until a real reservation deployment and end-to-end Saga proof are available.
