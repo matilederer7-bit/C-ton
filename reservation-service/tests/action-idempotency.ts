@@ -23,6 +23,11 @@ async function run(name: string, fn: () => Promise<void>) {
 }
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+function assertAllSemanticallyEqual(rows: Record<string, unknown>[]) {
+  assert.ok(rows.length > 0);
+  for (const row of rows.slice(1)) assert.deepStrictEqual(row, rows[0]);
+}
+
 await run("20 concurrent sync calls with one key execute exactly once and return identical canonical response", async () => {
   const dealId = randomUUID();
   const store = new ReservationStore(pool, 120);
@@ -42,7 +47,7 @@ await run("20 concurrent sync calls with one key execute exactly once and return
     });
     const responses = await Promise.all(Array.from({ length: 20 }, invoke));
     assert.equal(executions, 1);
-    assert.equal(new Set(responses.map((row) => JSON.stringify(row))).size, 1);
+    assertAllSemanticallyEqual(responses);
     assert.equal(responses[0].replay, false);
     const records = await pool.query(`SELECT COUNT(*)::int AS count,status FROM siton_inventory.inventory_action_idempotency WHERE operation='sync' AND deal_id=$1 AND idempotency_key=$2 GROUP BY status`, [dealId, "publish-action-key"]);
     assert.equal(Number(records.rows[0]?.count || 0), 1);
@@ -70,7 +75,7 @@ await run("20 concurrent close calls with one key execute exactly once", async (
     });
     const responses = await Promise.all(Array.from({ length: 20 }, invoke));
     assert.equal(executions, 1);
-    assert.equal(new Set(responses.map((row) => JSON.stringify(row))).size, 1);
+    assertAllSemanticallyEqual(responses);
     assert.equal(responses[0].status, "closed");
   } finally { await cleanup(dealId); }
 });
