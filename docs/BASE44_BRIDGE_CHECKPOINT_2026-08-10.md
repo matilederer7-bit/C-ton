@@ -22,23 +22,33 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Finalize implemented against captured/recovered quantity and the canonical 90% threshold. Success -> Completed; below threshold -> Failed plus `refund_issue`.
 - Refund application implemented so only provider-confirmed success can move money to Refunded.
 - Worker queue foundation migrated: claim, lease, heartbeat, reclaim, retry, deferred retry and DLQ.
-- Deal and SellerAccount direct mutation hardened to admin-only so seller UI cannot bypass Transitions, seller status or KYC controls.
-- Seller profile safe-edit surface migrated. Authenticated seller can edit only `display_name`, `business_name`, `support_phone` and `support_email` through `update-seller-profile`; `seller_id`, `seller_status`, `verification_status` and `owner_user_id` remain immutable from this path. `/seller/profile` UI added.
 - A hard safety gate was added to `join-deal`: production Join is fail-closed with `503 inventory_concurrency_gate_not_proven` until a supported serialized reservation primitive is proven.
 - The temporary public concurrency probe function and temporary lock-probe source were removed after testing.
-- Read-only Admin Mission Control migrated at `/admin` with backend `role=admin` enforcement. It exposes Deal state counts, seller status/verification counts, Worker/Outbox queue depth, stale leases, DLQ, PaymentAttempt result summaries and recent Deal/DLQ rows without offering state mutation controls.
-- Admin Mission Control explicitly reports that Join is disabled by the concurrency gate and that real money is disabled.
+- Read-only Admin Mission Control migrated at `/admin` with backend `role=admin` enforcement. It exposes Deal state counts, seller status/verification counts, Worker/Outbox queue depth, stale leases, DLQ, PaymentAttempt result summaries and recent Deal/DLQ rows.
+- Seller profile safe-edit surface migrated. Authenticated seller can edit only `display_name`, `business_name`, `support_phone` and `support_email` through `update-seller-profile`.
+- Seller dashboard migrated at `/seller` with summaries, progress, deadlines, canonical Publish action and public buyer links.
+- Seller deal detail migrated at `/seller/deal/:dealId` with quantity/state/delivery aggregates and sanitized transition history only. Buyer PII, authorization references, tracking hashes, idempotency evidence and transition payloads are excluded.
+- A security issue discovered during seller-dashboard work was fixed: `Deal` and `SellerAccount` are now Admin-only for direct entity reads as well as writes. Seller UI no longer reads either canonical entity directly.
+- `seller-deals`, `seller-deal-detail` and `get-seller-profile` now provide authenticated, ownership-checked safe projections to seller UI.
+- Seller KYC runtime inconsistency was resolved. New SellerAccount records now start with `verification_status=pending` instead of auto-approved.
+- Publish now requires `verification_status=approved` plus `verification_reviewed_at` and `verification_reviewed_by`, so legacy auto-approved records without a real admin review cannot publish.
+- `UnderReview`, `Restricted`, `Suspended` and `Banned` all block Publish. Draft creation remains available according to the existing seller-status rules.
+- Admin seller review migrated at `/admin/sellers`. `admin-review-seller` is Admin-only, supports explicit KYC review and seller-status changes, and appends review evidence to `review_history` in the SellerAccount document.
+- SellerAccount schema now includes `verification_reviewed_at`, `verification_reviewed_by` and embedded `review_history` audit evidence.
 - No Base44 function currently performs real authorization, capture, recovery, refund or release.
 
 ## Checked
 
-- Base44 frontend build: PASS after the fail-closed, Admin Mission Control and buyer tracking changes.
+- Base44 frontend build: PASS after seller dashboard, safe projections and KYC changes.
 - ESLint: PASS after the same changes.
 - `join-deal` esbuild parse/bundle: PASS with the hard concurrency gate enabled.
-- `admin-overview` esbuild parse/bundle: PASS.
-- `get-buyer-tracking` esbuild parse/bundle: PASS.
-- Entity schema mirror gate: PASS before the latest safety change.
-- Live schema verification: Deal/SellerAccount update/delete admin-only; money/outbox control entities admin-only.
+- `admin-overview` and `get-buyer-tracking` esbuild parse/bundle: PASS.
+- `seller-deals` and `seller-deal-detail` esbuild parse/bundle: PASS.
+- `create-deal-draft`, `publish-deal`, `get-seller-profile`, `admin-sellers` and `admin-review-seller` esbuild parse/bundle: PASS.
+- Frontend grep: no direct `entities.Deal` or `entities.SellerAccount` access remains.
+- Seller pages grep: no `authorization_id`, `tracking_token_hash`, `buyer_phone`, `delivery_address` or `join_reservations` references remain.
+- Live Base44 schema verification: `Deal` and `SellerAccount` create/read/update/delete are Admin-only.
+- Live SellerAccount schema verification: `verification_status` default is `pending`; review timestamp, reviewer and review-history fields are present.
 - Sequential inventory probe with max_units=1: first reservation updated one Deal; second updated zero.
 - Ceiling + idempotency sequential probe: replay caused zero extra mutation; new key after full inventory also caused zero mutation.
 - Worker claim race probe: Worker A claimed; Worker B updated zero.
@@ -55,17 +65,17 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - Connect real OTP delivery provider.
 - Connect and verify canonical payment provider for authorization/capture/recovery/refund/release. Stripe is not connected in this Base44 session and no credentials were invented.
 - Implement provider-I/O Worker adapter plus UNKNOWN reconciliation/status lookup after Stripe is available.
-- Wire Base44 Automation/CRON or Entity Hook to Worker tick. Platform supports it, but the current remote-sandbox surface does not expose a reliable Automation creation/deployment action and Base44 CLI authentication does not complete in this sandbox.
+- Wire Base44 Automation/CRON or Entity Hook to Worker tick. The current remote-sandbox authoring surface does not provide a supported automation deployment path.
 - Exercise Retry/DLQ against a real provider sandbox once Worker Automation exists.
 - Add the payment-method recovery action behind the buyer tracking surface after a real provider is connected.
 - Continue migrating remaining admin/product UX surfaces that do not depend on Join being enabled.
-- Resolve the documented KYC runtime/compliance inconsistency before production.
-- Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path.
+- Remove the harmless temporary `_noop` schema created during tooling cleanup once a supported remote entity-schema delete surface is available. It is empty, unused and Admin-only.
+- Update root `PROJECT_STATUS.md` only through a safe non-truncating patch path; the GitHub connector currently returns the very large file in chunks and its update action requires full replacement content.
 
 ## Progress
 
-Initial technical Base44 migration path: 82%.
-Overall Siton-to-Base44 migration estimate: 47%.
+Initial technical Base44 migration path: 91%.
+Overall Siton-to-Base44 migration estimate: 55%.
 
 The percentages measure migrated scope, not production readiness. The concurrency defect does not erase migrated code, but Join is intentionally disabled until the blocker is solved.
 
@@ -77,18 +87,21 @@ The percentages measure migrated scope, not production readiness. The concurrenc
 - Stage 5 Pre-money charging boundary: implemented.
 - Stage 6 Recovery, Finalize, Refund and Worker queue foundation: implemented.
 - Stage 7 True last-unit concurrency proof: FAILED on repeat; previous PASS was non-authoritative/flaky.
-- Stage 8 Seller profile safe-edit surface: implemented and build-verified.
-- Stage 9 Admin Mission Control read-only: implemented and build-verified.
-- Stage 10 Buyer tracking surface: implemented and build-verified.
+- Stage 8 Seller profile safe-edit surface: complete.
+- Stage 9 Admin Mission Control read-only: complete.
+- Stage 10 Buyer tracking surface: complete.
+- Stage 11 Seller deal dashboard: complete.
+- Stage 12 Safe seller projections and seller deal detail: complete.
+- Stage 13 Enforced seller KYC review gate: complete.
 
 ## Current Base44 checkpoint
 
-`Stage 10 buyer tracking surface`
+`Stage 13 enforced seller KYC review gate`
 
-Checkpoint id: `6a7ab030de400cb06c00c735`
+Checkpoint id: `6a7ad1795a19de37319ca6c2`
 
-Sandbox commit: `6a324b60deb4f343edf34c2423c697ad957ae69a`
+Sandbox commit: `cdb8af4322ee96675c200dcd4e342160f3218a00`
 
 ## Next step
 
-Keep Base44-first architecture, but solve only the narrow inventory-reservation critical section with a proven serialized/transactional primitive. Do not reconnect Join, Stripe, or real money until oversell prevention passes repeated concurrent stress tests. Continue migrating independent admin/product surfaces in parallel without touching the blocked Join path.
+Keep Base44-first architecture. Continue independent product/admin surfaces, but do not enable Join or any real money path until the inventory critical section has a proven serialized/transactional mechanism. In parallel, external prerequisites remain Worker Automation, OTP delivery and Stripe Sandbox.
