@@ -56,7 +56,6 @@ await run("crash after Commit survives process-style replay without double count
     const committed = await firstStore.commitReservation(held.reservation_id);
     assert.equal(committed.committed_units, 2);
 
-    // Simulates a new function/process instance reconstructing authoritative state.
     const restartedStore = new ReservationStore(pool, 120);
     const replay = await restartedStore.commitReservation(held.reservation_id);
     assert.equal(replay.replay, true);
@@ -77,7 +76,7 @@ await run("Close is blocked while a Join Hold is unresolved", async () => {
     const held = await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "close-block", request_hash: "h3" });
     await assert.rejects(
       () => closeInventory(pool, dealId, 1),
-      (error: unknown) => error instanceof ReservationError && error.code === "inventory_close_inflight_holds"
+      (error: unknown) => error instanceof ReservationError && error.code === "inventory_holds_in_flight"
     );
     await store.releaseReservation(held.reservation_id);
     const closed = await closeInventory(pool, dealId, 1);
