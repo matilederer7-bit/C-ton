@@ -35,17 +35,22 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 - `UnderReview`, `Restricted`, `Suspended` and `Banned` all block Publish. Draft creation remains available according to the existing seller-status rules.
 - Admin seller review migrated at `/admin/sellers`. `admin-review-seller` is Admin-only, supports explicit KYC review and seller-status changes, and appends review evidence to `review_history` in the SellerAccount document.
 - SellerAccount schema now includes `verification_reviewed_at`, `verification_reviewed_by` and embedded `review_history` audit evidence.
+- Seller Draft editing migrated. `/seller/deal/:dealId/edit` loads the seller-safe deal projection and `update-deal-draft` enforces ownership plus `state=Draft` on the backend before allowing title, deal type, price, min/max units, 90% threshold, deadline and type-specific delivery/voucher/ticket fields to change.
+- Once a Deal is no longer Draft, `update-deal-draft` returns `409 deal_not_draft`; published critical terms cannot be edited through this path.
 - No Base44 function currently performs real authorization, capture, recovery, refund or release.
 
 ## Checked
 
-- Base44 frontend build: PASS after seller dashboard, safe projections and KYC changes.
+- Base44 frontend build: PASS after seller dashboard, safe projections, KYC and seller Draft editing changes.
 - ESLint: PASS after the same changes.
 - `join-deal` esbuild parse/bundle: PASS with the hard concurrency gate enabled.
 - `admin-overview` and `get-buyer-tracking` esbuild parse/bundle: PASS.
 - `seller-deals` and `seller-deal-detail` esbuild parse/bundle: PASS.
 - `create-deal-draft`, `publish-deal`, `get-seller-profile`, `admin-sellers` and `admin-review-seller` esbuild parse/bundle: PASS.
+- `update-deal-draft` esbuild parse/bundle: PASS.
+- Static Draft-edit gate verification: `update-deal-draft` explicitly rejects every non-Draft Deal with `409 deal_not_draft` before mutation.
 - Frontend grep: no direct `entities.Deal` or `entities.SellerAccount` access remains.
+- Frontend grep: no direct Deal create/update/updateMany/delete calls remain.
 - Seller pages grep: no `authorization_id`, `tracking_token_hash`, `buyer_phone`, `delivery_address` or `join_reservations` references remain.
 - Live Base44 schema verification: `Deal` and `SellerAccount` create/read/update/delete are Admin-only.
 - Live SellerAccount schema verification: `verification_status` default is `pending`; review timestamp, reviewer and review-history fields are present.
@@ -74,8 +79,8 @@ Base44 app: `ראש גשר` (`6a79b3ce58f678716af8d295`)
 
 ## Progress
 
-Initial technical Base44 migration path: 91%.
-Overall Siton-to-Base44 migration estimate: 55%.
+Initial technical Base44 migration path: 93%.
+Overall Siton-to-Base44 migration estimate: 57%.
 
 The percentages measure migrated scope, not production readiness. The concurrency defect does not erase migrated code, but Join is intentionally disabled until the blocker is solved.
 
@@ -93,14 +98,15 @@ The percentages measure migrated scope, not production readiness. The concurrenc
 - Stage 11 Seller deal dashboard: complete.
 - Stage 12 Safe seller projections and seller deal detail: complete.
 - Stage 13 Enforced seller KYC review gate: complete.
+- Stage 14 Seller Draft editing: complete and build-verified.
 
 ## Current Base44 checkpoint
 
-`Stage 13 enforced seller KYC review gate`
+`Stage 14 seller draft editing`
 
-Checkpoint id: `6a7ad1795a19de37319ca6c2`
+Checkpoint id: `6a7ad336f4c05da82c91f666`
 
-Sandbox commit: `cdb8af4322ee96675c200dcd4e342160f3218a00`
+Sandbox commit: `b96f9eb63c97e812c4dfe866e538f6acf105a3a2`
 
 ## Next step
 
