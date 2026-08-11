@@ -79,6 +79,23 @@ await run("50 concurrent replays of one idempotency key reserve exactly once", a
   }
 });
 
+await run("same idempotency key with a different request hash is rejected", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 5 });
+    await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "payload-key", request_hash: "payload-a" });
+    await assert.rejects(
+      () => store.hold({ deal_id: dealId, qty: 1, idempotency_key: "payload-key", request_hash: "payload-b" }),
+      (error: unknown) => error instanceof ReservationError && error.code === "idempotency_payload_mismatch"
+    );
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, 1);
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
 await run("mixed concurrent quantities never exceed max_units=15", async () => {
   const dealId = randomUUID();
   const store = new ReservationStore(pool, 120);
@@ -96,6 +113,48 @@ await run("mixed concurrent quantities never exceed max_units=15", async () => {
     assert.ok(inventory.available_units >= 0);
     const row = await pool.query(`SELECT reserved_units,max_units FROM siton_inventory.inventory_deals WHERE deal_id=$1`, [dealId]);
     assert.ok(Number(row.rows[0].reserved_units) <= Number(row.rows[0].max_units));
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await run("commit and release racing on one hold resolve to exactly one terminal action", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 1 });
+    const held = await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "terminal-race", request_hash: "terminal-race-hash" });
+    const results = await Promise.allSettled([
+      store.commitReservation(held.reservation_id),
+      store.releaseReservation(held.reservation_id)
+    ]);
+    assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(results.filter((result) => result.status === "rejected").length, 1);
+
+    const row = await pool.query(`SELECT status,qty FROM siton_inventory.inventory_reservations WHERE reservation_id=$1`, [held.reservation_id]);
+    const status = String(row.rows[0].status);
+    assert.ok(status === "committed" || status === "released");
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, status === "committed" ? 1 : 0);
+    assert.ok(inventory.reserved_units >= 0 && inventory.reserved_units <= inventory.max_units);
+  } finally {
+    await cleanup(dealId);
+  }
+});
+
+await run("closed inventory rejects new holds", async () => {
+  const dealId = randomUUID();
+  const store = new ReservationStore(pool, 120);
+  try {
+    await store.syncDeal({ deal_id: dealId, max_units: 3 });
+    await store.syncDeal({ deal_id: dealId, max_units: 3, status: "closed" });
+    await assert.rejects(
+      () => store.hold({ deal_id: dealId, qty: 1, idempotency_key: "closed", request_hash: "closed-hash" }),
+      (error: unknown) => error instanceof ReservationError && error.code === "inventory_deal_closed"
+    );
+    const inventory = await store.inventory(dealId);
+    assert.equal(inventory.reserved_units, 0);
+    assert.equal(inventory.status, "closed");
   } finally {
     await cleanup(dealId);
   }
