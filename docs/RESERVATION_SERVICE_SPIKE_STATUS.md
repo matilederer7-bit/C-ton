@@ -45,6 +45,7 @@ Parent migration branch: `base44-migration-spike`
 - Base44 ESLint: PASS.
 - Base44 `join-deal`, `inventory-bridge`, `reconcile-join-intents`, `transition-engine`, `close-joining` and `publish-deal` bundles: PASS.
 - Static Base44 safety check confirms the old `$inc reserved_units` Join path is absent and both enable flags are required.
+- Base44 Stage 17 checkpoint: `6a7b0b5cb552ed02ddc9976e`, sandbox commit `dda072313b3e718d725b00e23f7b9da2e28099d0`.
 - No production reservation URL, database URL, shared secret, tracking secret or Join enable flag is configured.
 - No real buyer Join and no real payment path was enabled by this milestone.
 
