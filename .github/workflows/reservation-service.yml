@@ -41,6 +41,6 @@ jobs:
       - name: TypeScript build
         working-directory: reservation-service
         run: npm run build
-      - name: PostgreSQL concurrency and close proof
+      - name: PostgreSQL concurrency, TargetReached transaction, and close proof
         working-directory: reservation-service
         run: npm test

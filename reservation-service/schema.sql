@@ -3,9 +3,11 @@ CREATE SCHEMA IF NOT EXISTS siton_inventory;
 CREATE TABLE IF NOT EXISTS siton_inventory.inventory_deals (
   deal_id uuid PRIMARY KEY,
   max_units integer NOT NULL CHECK (max_units > 0),
+  min_units integer NOT NULL CHECK (min_units > 0 AND min_units <= max_units),
   reserved_units integer NOT NULL DEFAULT 0 CHECK (reserved_units >= 0 AND reserved_units <= max_units),
   committed_units integer NOT NULL DEFAULT 0 CHECK (committed_units >= 0 AND committed_units <= reserved_units),
   status text NOT NULL DEFAULT 'open' CHECK (status IN ('open','closed')),
+  deal_state text NOT NULL DEFAULT 'PendingTarget' CHECK (deal_state IN ('PendingTarget','TargetReached')),
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
@@ -53,3 +55,31 @@ CREATE INDEX IF NOT EXISTS inventory_reservations_expiry_idx
 
 CREATE INDEX IF NOT EXISTS inventory_reservations_status_idx
   ON siton_inventory.inventory_reservations(deal_id, status);
+
+CREATE TABLE IF NOT EXISTS siton_inventory.deal_state_audit (
+  audit_id uuid PRIMARY KEY,
+  deal_id uuid NOT NULL REFERENCES siton_inventory.inventory_deals(deal_id),
+  source_reservation_id uuid NOT NULL REFERENCES siton_inventory.inventory_reservations(reservation_id),
+  action_name text NOT NULL CHECK (action_name IN ('deal.target_reached')),
+  from_state text NOT NULL CHECK (from_state IN ('PendingTarget')),
+  to_state text NOT NULL CHECK (to_state IN ('TargetReached')),
+  idempotency_key varchar(200) NOT NULL,
+  committed_units integer NOT NULL CHECK (committed_units > 0),
+  min_units integer NOT NULL CHECK (min_units > 0),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (deal_id, action_name, idempotency_key)
+);
+
+CREATE OR REPLACE FUNCTION siton_inventory.reject_deal_state_audit_mutation()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  RAISE EXCEPTION 'deal_state_audit is append-only';
+END;
+$$;
+
+DROP TRIGGER IF EXISTS deal_state_audit_append_only ON siton_inventory.deal_state_audit;
+CREATE TRIGGER deal_state_audit_append_only
+BEFORE UPDATE OR DELETE ON siton_inventory.deal_state_audit
+FOR EACH ROW EXECUTE FUNCTION siton_inventory.reject_deal_state_audit_mutation();

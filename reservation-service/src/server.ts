@@ -52,6 +52,8 @@ function reservationResponse(row: any) {
     released_at: row.released_at ? new Date(row.released_at).toISOString() : null,
     expired_at: row.expired_at ? new Date(row.expired_at).toISOString() : null,
     max_units: Number(row.max_units),
+    min_units: Number(row.min_units),
+    deal_state: String(row.deal_state),
     reserved_units: Number(row.reserved_units),
     committed_units: Number(row.committed_units),
     inventory_status: String(row.inventory_status)
@@ -108,7 +110,7 @@ app.post("/v1/deals/sync", async (req: any) => {
     operation: "sync",
     dealId,
     idempotencyKey,
-    requestPayload: { deal_id: dealId, max_units: body.max_units, status: "open" },
+    requestPayload: { deal_id: dealId, max_units: body.max_units, min_units: body.min_units, status: "open" },
     execute: () => store.syncDeal({ ...body, deal_id: dealId, status: "open" })
   });
 });
@@ -134,7 +136,7 @@ app.post("/v1/reservations/lookup", async (req: any) => {
   const result = await pool.query(
     `SELECT r.reservation_id, r.deal_id, r.idempotency_key, r.request_hash, r.qty, r.status, r.hold_generation,
             r.expires_at, r.created_at, r.committed_at, r.released_at, r.expired_at,
-            d.max_units, d.reserved_units, d.committed_units, d.status AS inventory_status
+            d.max_units, d.min_units, d.deal_state, d.reserved_units, d.committed_units, d.status AS inventory_status
        FROM siton_inventory.inventory_reservations r
        JOIN siton_inventory.inventory_deals d ON d.deal_id=r.deal_id
       WHERE r.deal_id=$1 AND r.idempotency_key=$2
@@ -149,7 +151,7 @@ app.post("/v1/reservations/status", async (req: any) => {
   const result = await pool.query(
     `SELECT r.reservation_id, r.deal_id, r.idempotency_key, r.request_hash, r.qty, r.status, r.hold_generation,
             r.expires_at, r.created_at, r.committed_at, r.released_at, r.expired_at,
-            d.max_units, d.reserved_units, d.committed_units, d.status AS inventory_status
+            d.max_units, d.min_units, d.deal_state, d.reserved_units, d.committed_units, d.status AS inventory_status
        FROM siton_inventory.inventory_reservations r
        JOIN siton_inventory.inventory_deals d ON d.deal_id=r.deal_id
       WHERE r.reservation_id=$1

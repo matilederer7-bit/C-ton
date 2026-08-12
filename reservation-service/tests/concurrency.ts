@@ -11,8 +11,13 @@ const pool = new Pool({ connectionString: DATABASE_URL, max: 60 });
 const schema = await readFile(new URL("../schema.sql", import.meta.url), "utf8");
 await pool.query(schema);
 
-async function cleanup(dealId: string) {
-  await pool.query(`DELETE FROM siton_inventory.inventory_deals WHERE deal_id=$1`, [dealId]);
+async function cleanup(_dealId: string) {
+  await pool.query(`TRUNCATE
+    siton_inventory.deal_state_audit,
+    siton_inventory.inventory_reservations,
+    siton_inventory.inventory_action_idempotency,
+    siton_inventory.inventory_deals
+    CASCADE`);
 }
 
 async function run(name: string, fn: () => Promise<void>) {

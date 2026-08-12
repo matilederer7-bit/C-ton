@@ -4,14 +4,17 @@ const { Pool } = pg;
 export type PoolType = InstanceType<typeof Pool>;
 
 type DealStatus = "open" | "closed";
+type DealTargetState = "PendingTarget" | "TargetReached";
 type ReservationStatus = "held" | "committed" | "released" | "expired";
 
 type LockedDeal = {
   deal_id: string;
   max_units: number;
+  min_units: number;
   reserved_units: number;
   committed_units: number;
   status: DealStatus;
+  deal_state: DealTargetState;
 };
 
 export class ReservationError extends Error {
@@ -44,6 +47,8 @@ export interface HoldResult {
   reserved_units: number;
   committed_units: number;
   max_units: number;
+  min_units: number;
+  deal_state: DealTargetState;
   available_units: number;
   replay: boolean;
   renewed?: boolean;
@@ -101,7 +106,7 @@ export class ReservationStore {
 
   private async lockDeal(client: pg.PoolClient, dealId: string): Promise<LockedDeal> {
     const result = await client.query(
-      `SELECT deal_id, max_units, reserved_units, committed_units, status
+      `SELECT deal_id, max_units, min_units, reserved_units, committed_units, status, deal_state
          FROM siton_inventory.inventory_deals
         WHERE deal_id=$1
         FOR UPDATE`,
@@ -112,9 +117,11 @@ export class ReservationStore {
     return {
       deal_id: String(row.deal_id),
       max_units: Number(row.max_units),
+      min_units: Number(row.min_units),
       reserved_units: Number(row.reserved_units),
       committed_units: Number(row.committed_units),
-      status: String(row.status) as DealStatus
+      status: String(row.status) as DealStatus,
+      deal_state: String(row.deal_state) as DealTargetState
     };
   }
 
@@ -158,19 +165,23 @@ export class ReservationStore {
       reserved_units: Number(args.deal.reserved_units),
       committed_units: Number(args.deal.committed_units),
       max_units: Number(args.deal.max_units),
+      min_units: Number(args.deal.min_units),
+      deal_state: args.deal.deal_state,
       available_units: Number(args.deal.max_units) - Number(args.deal.reserved_units),
       replay: args.replay,
       ...(args.renewed ? { renewed: true } : {})
     };
   }
 
-  async syncDeal(input: { deal_id: string; max_units: number; status?: DealStatus }) {
+  async syncDeal(input: { deal_id: string; max_units: number; min_units?: number; status?: DealStatus }) {
     const dealId = requireUuid(input.deal_id, "deal_id");
     const maxUnits = requirePositiveInteger(input.max_units, "max_units");
+    const minUnits = input.min_units === undefined ? maxUnits : requirePositiveInteger(input.min_units, "min_units");
+    if (minUnits > maxUnits) throw new ReservationError(400, "invalid_min_units", "min_units cannot exceed max_units");
     const status: DealStatus = input.status === "closed" ? "closed" : "open";
     return this.transaction(async (client) => {
       const existing = await client.query(
-        `SELECT deal_id, max_units, reserved_units, committed_units, status
+        `SELECT deal_id, max_units, min_units, reserved_units, committed_units, status, deal_state
            FROM siton_inventory.inventory_deals
           WHERE deal_id=$1
           FOR UPDATE`,
@@ -178,23 +189,24 @@ export class ReservationStore {
       );
       if (!existing.rowCount) {
         const inserted = await client.query(
-          `INSERT INTO siton_inventory.inventory_deals(deal_id,max_units,reserved_units,committed_units,status)
-           VALUES ($1,$2,0,0,$3)
-           RETURNING deal_id,max_units,reserved_units,committed_units,status`,
-          [dealId, maxUnits, status]
+          `INSERT INTO siton_inventory.inventory_deals(deal_id,max_units,min_units,reserved_units,committed_units,status,deal_state)
+           VALUES ($1,$2,$3,0,0,$4,'PendingTarget')
+           RETURNING deal_id,max_units,min_units,reserved_units,committed_units,status,deal_state`,
+          [dealId, maxUnits, minUnits, status]
         );
         return { ok: true, ...inserted.rows[0], created: true };
       }
       const row = existing.rows[0];
-      if (Number(row.max_units) !== maxUnits) {
-        throw new ReservationError(409, "inventory_max_units_immutable", "max_units cannot change after inventory sync", {
-          existing_max_units: Number(row.max_units), requested_max_units: maxUnits
+      if (Number(row.max_units) !== maxUnits || Number(row.min_units) !== minUnits) {
+        throw new ReservationError(409, "inventory_thresholds_immutable", "max_units and min_units cannot change after inventory sync", {
+          existing_max_units: Number(row.max_units), requested_max_units: maxUnits,
+          existing_min_units: Number(row.min_units), requested_min_units: minUnits
         });
       }
       await this.reclaimExpired(client, dealId);
       const updated = await client.query(
         `UPDATE siton_inventory.inventory_deals SET status=$2, updated_at=now() WHERE deal_id=$1
-         RETURNING deal_id,max_units,reserved_units,committed_units,status`,
+         RETURNING deal_id,max_units,min_units,reserved_units,committed_units,status,deal_state`,
         [dealId, status]
       );
       return { ok: true, ...updated.rows[0], created: false };
@@ -260,16 +272,18 @@ export class ReservationStore {
           `UPDATE siton_inventory.inventory_deals
               SET reserved_units=reserved_units+$2, updated_at=now()
             WHERE deal_id=$1 AND reserved_units+$2 <= max_units
-            RETURNING deal_id,max_units,reserved_units,committed_units,status`,
+            RETURNING deal_id,max_units,min_units,reserved_units,committed_units,status,deal_state`,
           [dealId, qty]
         );
         if (updatedDeal.rowCount !== 1) throw new ReservationError(409, "inventory_exhausted", "inventory ceiling rejected renewed reservation");
         deal = {
           deal_id: String(updatedDeal.rows[0].deal_id),
           max_units: Number(updatedDeal.rows[0].max_units),
+          min_units: Number(updatedDeal.rows[0].min_units),
           reserved_units: Number(updatedDeal.rows[0].reserved_units),
           committed_units: Number(updatedDeal.rows[0].committed_units),
-          status: String(updatedDeal.rows[0].status) as DealStatus
+          status: String(updatedDeal.rows[0].status) as DealStatus,
+          deal_state: String(updatedDeal.rows[0].deal_state) as DealTargetState
         };
         const response = this.responseFrom({ reservationId: String(row.reservation_id), dealId, qty, status: "held", expiresAt, deal, replay: true, renewed: true });
         await client.query(`UPDATE siton_inventory.inventory_reservations SET canonical_response=$2 WHERE reservation_id=$1`, [row.reservation_id, JSON.stringify(response)]);
@@ -290,16 +304,18 @@ export class ReservationStore {
         `UPDATE siton_inventory.inventory_deals
             SET reserved_units=reserved_units+$2, updated_at=now()
           WHERE deal_id=$1 AND reserved_units+$2 <= max_units
-          RETURNING deal_id,max_units,reserved_units,committed_units,status`,
+          RETURNING deal_id,max_units,min_units,reserved_units,committed_units,status,deal_state`,
         [dealId, qty]
       );
       if (updatedDeal.rowCount !== 1) throw new ReservationError(409, "inventory_exhausted", "inventory ceiling rejected reservation");
       deal = {
         deal_id: String(updatedDeal.rows[0].deal_id),
         max_units: Number(updatedDeal.rows[0].max_units),
+        min_units: Number(updatedDeal.rows[0].min_units),
         reserved_units: Number(updatedDeal.rows[0].reserved_units),
         committed_units: Number(updatedDeal.rows[0].committed_units),
-        status: String(updatedDeal.rows[0].status) as DealStatus
+        status: String(updatedDeal.rows[0].status) as DealStatus,
+        deal_state: String(updatedDeal.rows[0].deal_state) as DealTargetState
       };
       const response = this.responseFrom({ reservationId, dealId, qty, status: "held", expiresAt, deal, replay: false });
       await client.query(
@@ -330,7 +346,19 @@ export class ReservationStore {
       );
       const row = result.rows[0] as { reservation_id: string; deal_id: string; qty: number; status: ReservationStatus; expires_at: string };
       if (row.status === "committed") {
-        return { ok: true, reservation_id: reservationId, status: "committed", replay: true, reserved_units: deal.reserved_units, committed_units: deal.committed_units, max_units: deal.max_units };
+        const priorAudit = await client.query(
+          `SELECT audit_id FROM siton_inventory.deal_state_audit
+            WHERE deal_id=$1 AND action_name='deal.target_reached'
+            LIMIT 1`,
+          [dealId]
+        );
+        return {
+          ok: true, reservation_id: reservationId, status: "committed", replay: true,
+          reserved_units: deal.reserved_units, committed_units: deal.committed_units,
+          max_units: deal.max_units, min_units: deal.min_units, deal_state: deal.deal_state,
+          target_transitioned: false,
+          target_audit_id: priorAudit.rowCount ? String(priorAudit.rows[0].audit_id) : null
+        };
       }
       if (row.status !== "held") throw new ReservationError(409, `reservation_${row.status}`, `reservation is already ${row.status}`);
       const updatedReservation = await client.query(
@@ -345,18 +373,42 @@ export class ReservationStore {
         `UPDATE siton_inventory.inventory_deals
             SET committed_units=committed_units+$2, updated_at=now()
           WHERE deal_id=$1 AND committed_units+$2 <= reserved_units
-          RETURNING max_units,reserved_units,committed_units`,
+          RETURNING max_units,min_units,reserved_units,committed_units,deal_state`,
         [dealId, Number(updatedReservation.rows[0].qty)]
       );
       if (updatedDeal.rowCount !== 1) throw new ReservationError(409, "inventory_commit_invariant_failed", "committed units would exceed reserved units");
+
+      const committedUnits = Number(updatedDeal.rows[0].committed_units);
+      const minUnits = Number(updatedDeal.rows[0].min_units);
+      let dealState = String(updatedDeal.rows[0].deal_state) as DealTargetState;
+      let targetTransitioned = false;
+      let targetAuditId: string | null = null;
+
+      if (dealState === "PendingTarget" && committedUnits >= minUnits) {
+        targetAuditId = randomUUID();
+        const transitioned = await client.query(
+          `UPDATE siton_inventory.inventory_deals
+              SET deal_state='TargetReached', updated_at=now()
+            WHERE deal_id=$1 AND deal_state='PendingTarget' AND committed_units >= min_units
+            RETURNING deal_state`,
+          [dealId]
+        );
+        if (transitioned.rowCount !== 1) throw new ReservationError(409, "target_transition_conflict", "target state changed concurrently");
+        await client.query(
+          `INSERT INTO siton_inventory.deal_state_audit
+            (audit_id,deal_id,source_reservation_id,action_name,from_state,to_state,idempotency_key,committed_units,min_units)
+           VALUES ($1,$2,$3,'deal.target_reached','PendingTarget','TargetReached',$4,$5,$6)`,
+          [targetAuditId, dealId, reservationId, `target-reached:${dealId}`, committedUnits, minUnits]
+        );
+        dealState = "TargetReached";
+        targetTransitioned = true;
+      }
+
       return {
-        ok: true,
-        reservation_id: reservationId,
-        status: "committed",
-        replay: false,
-        max_units: Number(updatedDeal.rows[0].max_units),
-        reserved_units: Number(updatedDeal.rows[0].reserved_units),
-        committed_units: Number(updatedDeal.rows[0].committed_units)
+        ok: true, reservation_id: reservationId, status: "committed", replay: false,
+        max_units: Number(updatedDeal.rows[0].max_units), min_units: minUnits,
+        reserved_units: Number(updatedDeal.rows[0].reserved_units), committed_units: committedUnits,
+        deal_state: dealState, target_transitioned: targetTransitioned, target_audit_id: targetAuditId
       };
     });
   }
@@ -417,7 +469,9 @@ export class ReservationStore {
         ok: true,
         deal_id: dealId,
         status: deal.status,
+        deal_state: deal.deal_state,
         max_units: Number(deal.max_units),
+        min_units: Number(deal.min_units),
         reserved_units: Number(deal.reserved_units),
         committed_units: Number(deal.committed_units),
         available_units: Number(deal.max_units) - Number(deal.reserved_units)

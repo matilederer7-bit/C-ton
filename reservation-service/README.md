@@ -12,9 +12,9 @@ Repeated true-concurrency testing showed that Base44 Entity conditional `updateM
 
 Protected endpoints use HMAC-SHA256 headers `x-siton-timestamp` and `x-siton-signature`. The signature covers timestamp, HTTP method, path and a SHA-256 hash of canonical JSON body. TLS remains mandatory.
 
-- `POST /v1/deals/sync` creates the immutable inventory ceiling at Publish time. `max_units` cannot change after first sync.
+- `POST /v1/deals/sync` creates immutable `max_units` and `min_units` thresholds at Publish time.
 - `POST /v1/reservations/hold` serializes on the Deal row with `SELECT ... FOR UPDATE`, reclaims expired holds, enforces the ceiling and writes one idempotent short-lived Hold.
-- `POST /v1/reservations/commit` converts a live Hold to a committed Reservation after Base44 has durably stored the participant.
+- `POST /v1/reservations/commit` converts a live Hold to a committed Reservation. The Commit that reaches the full `min_units` performs `PendingTarget` to `TargetReached` and inserts its append-only `deal.target_reached` Audit row in the same PostgreSQL transaction.
 - `POST /v1/reservations/release` compensates a pre-commit Base44 failure by releasing a live Hold.
 - `POST /v1/inventory/status` returns the current ceiling and also reclaims expired Holds.
 - `GET /health` is the only unauthenticated route.
@@ -35,5 +35,7 @@ The default Hold lease is 120 seconds and is configurable from 5 to 900 seconds.
 2. 50 simultaneous replays of one idempotency key create one Reservation only.
 3. Mixed quantities never push `reserved_units` above `max_units`.
 4. Expired Holds are reclaimed transactionally without a background Worker.
+5. Holds and sub-minimum Commits do not reach the target; the full minimum does.
+6. Concurrent threshold-crossing Commits create one Audit row, and an Audit failure rolls back the Reservation Commit, counter and state together.
 
 This package is not production-enabled merely because the code exists. Join in Base44 must stay fail-closed until CI passes the real PostgreSQL concurrency suite, the service is deployed behind TLS with a protected secret, and Base44 Hold/Commit/Release compensation is verified end-to-end.
