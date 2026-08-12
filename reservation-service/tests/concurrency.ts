@@ -10,6 +10,7 @@ if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 const pool = new Pool({ connectionString: DATABASE_URL, max: 60 });
 const schema = await readFile(new URL("../schema.sql", import.meta.url), "utf8");
 await pool.query(schema);
+const AUTH_EVIDENCE_HASH = "a".repeat(64);
 
 async function cleanup(_dealId: string) {
   await pool.query(`TRUNCATE
@@ -133,8 +134,8 @@ await run("commit increments committed_units exactly once and replay does not do
   try {
     await store.syncDeal({ deal_id: dealId, max_units: 5 });
     const held = await store.hold({ deal_id: dealId, qty: 2, idempotency_key: "commit-once", request_hash: "commit-once-hash" });
-    const first = await store.commitReservation(held.reservation_id);
-    const second = await store.commitReservation(held.reservation_id);
+    const first = await store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH);
+    const second = await store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH);
     assert.equal(first.committed_units, 2);
     assert.equal(second.committed_units, 2);
     assert.equal(second.replay, true);
@@ -153,7 +154,7 @@ await run("commit and release racing on one hold resolve to exactly one terminal
     await store.syncDeal({ deal_id: dealId, max_units: 1 });
     const held = await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "terminal-race", request_hash: "terminal-race-hash" });
     const results = await Promise.allSettled([
-      store.commitReservation(held.reservation_id),
+      store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH),
       store.releaseReservation(held.reservation_id)
     ]);
     assert.equal(results.filter((result) => result.status === "fulfilled").length, 1);

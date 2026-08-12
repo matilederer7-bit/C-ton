@@ -51,6 +51,10 @@ function reservationResponse(row: any) {
     committed_at: row.committed_at ? new Date(row.committed_at).toISOString() : null,
     released_at: row.released_at ? new Date(row.released_at).toISOString() : null,
     expired_at: row.expired_at ? new Date(row.expired_at).toISOString() : null,
+    buyer_state: String(row.buyer_state),
+    money_state: String(row.money_state),
+    authorization_evidence_hash: row.authorization_evidence_hash ? String(row.authorization_evidence_hash) : null,
+    join_authorize_audit_count: Number(row.join_authorize_audit_count || 0),
     max_units: Number(row.max_units),
     min_units: Number(row.min_units),
     deal_state: String(row.deal_state),
@@ -128,7 +132,9 @@ app.post("/v1/deals/close", async (req: any) => {
   });
 });
 app.post("/v1/reservations/hold", async (req: any) => store.hold(req.body || {}));
-app.post("/v1/reservations/commit", async (req: any) => store.commitReservation(req.body?.reservation_id));
+app.post("/v1/reservations/commit", async (req: any) =>
+  store.commitReservation(req.body?.reservation_id, req.body?.authorization_evidence_hash)
+);
 app.post("/v1/reservations/release", async (req: any) => store.releaseReservation(req.body?.reservation_id));
 app.post("/v1/reservations/lookup", async (req: any) => {
   const dealId = requireUuid(req.body?.deal_id, "deal_id");
@@ -136,6 +142,9 @@ app.post("/v1/reservations/lookup", async (req: any) => {
   const result = await pool.query(
     `SELECT r.reservation_id, r.deal_id, r.idempotency_key, r.request_hash, r.qty, r.status, r.hold_generation,
             r.expires_at, r.created_at, r.committed_at, r.released_at, r.expired_at,
+            r.buyer_state, r.money_state, r.authorization_evidence_hash,
+            (SELECT COUNT(*) FROM siton_inventory.participant_state_audit a
+              WHERE a.participant_id=r.reservation_id AND a.action_name='participant.join_authorize') AS join_authorize_audit_count,
             d.max_units, d.min_units, d.deal_state, d.reserved_units, d.committed_units, d.status AS inventory_status
        FROM siton_inventory.inventory_reservations r
        JOIN siton_inventory.inventory_deals d ON d.deal_id=r.deal_id
@@ -151,6 +160,9 @@ app.post("/v1/reservations/status", async (req: any) => {
   const result = await pool.query(
     `SELECT r.reservation_id, r.deal_id, r.idempotency_key, r.request_hash, r.qty, r.status, r.hold_generation,
             r.expires_at, r.created_at, r.committed_at, r.released_at, r.expired_at,
+            r.buyer_state, r.money_state, r.authorization_evidence_hash,
+            (SELECT COUNT(*) FROM siton_inventory.participant_state_audit a
+              WHERE a.participant_id=r.reservation_id AND a.action_name='participant.join_authorize') AS join_authorize_audit_count,
             d.max_units, d.min_units, d.deal_state, d.reserved_units, d.committed_units, d.status AS inventory_status
        FROM siton_inventory.inventory_reservations r
        JOIN siton_inventory.inventory_deals d ON d.deal_id=r.deal_id

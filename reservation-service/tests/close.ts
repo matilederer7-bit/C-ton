@@ -10,6 +10,7 @@ const DATABASE_URL = String(process.env.DATABASE_URL || "").trim();
 if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 const pool = new Pool({ connectionString: DATABASE_URL, max: 20 });
 await pool.query(await readFile(new URL("../schema.sql", import.meta.url), "utf8"));
+const AUTH_EVIDENCE_HASH = "a".repeat(64);
 
 async function cleanup(_dealId: string) {
   await pool.query(`TRUNCATE
@@ -36,7 +37,7 @@ async function cleanup(_dealId: string) {
     assert.equal(status.reserved_units, 1);
     assert.equal(status.committed_units, 0);
 
-    await store.commitReservation(held.reservation_id);
+    await store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH);
     const closed = await closeInventory(pool, dealId, 2);
     assert.equal(closed.status, "closed");
     assert.equal(closed.reserved_units, 1);

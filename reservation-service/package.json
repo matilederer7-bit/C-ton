@@ -13,8 +13,9 @@
     "test:close": "tsx tests/close.ts",
     "test:saga": "tsx tests/saga-recovery.ts",
     "test:idempotency": "tsx tests/action-idempotency.ts",
-    "test": "npm run test:concurrency && npm run test:target && npm run test:close && npm run test:saga && npm run test:idempotency",
-    "test:target": "tsx tests/target-reached.ts"
+    "test": "npm run test:concurrency && npm run test:join-authorize && npm run test:target && npm run test:close && npm run test:saga && npm run test:idempotency",
+    "test:target": "tsx tests/target-reached.ts",
+    "test:join-authorize": "tsx tests/join-authorize.ts"
   },
   "dependencies": {
     "fastify": "^5.7.4",

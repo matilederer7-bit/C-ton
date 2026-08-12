@@ -9,6 +9,7 @@ const DATABASE_URL = String(process.env.DATABASE_URL || "").trim();
 if (!DATABASE_URL) throw new Error("DATABASE_URL is required");
 const pool = new Pool({ connectionString: DATABASE_URL, max: 50 });
 await pool.query(await readFile(new URL("../schema.sql", import.meta.url), "utf8"));
+const AUTH_EVIDENCE_HASH = "a".repeat(64);
 
 async function cleanup() {
   await pool.query(`TRUNCATE siton_inventory.deal_state_audit, siton_inventory.inventory_reservations, siton_inventory.inventory_action_idempotency, siton_inventory.inventory_deals CASCADE`);
@@ -41,19 +42,19 @@ await run("full minimum creates one canonical TargetReached audit", async () => 
   try {
     await store.syncDeal({ deal_id: dealId, max_units: 5, min_units: 3 });
     const first = await store.hold({ deal_id: dealId, qty: 2, idempotency_key: "below-min", request_hash: "below-min-hash" });
-    const below = await store.commitReservation(first.reservation_id);
+    const below = await store.commitReservation(first.reservation_id, AUTH_EVIDENCE_HASH);
     assert.equal(below.committed_units, 2);
     assert.equal(below.deal_state, "PendingTarget");
     assert.equal(below.target_transitioned, false);
 
     const second = await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "reaches-min", request_hash: "reaches-min-hash" });
-    const reached = await store.commitReservation(second.reservation_id);
+    const reached = await store.commitReservation(second.reservation_id, AUTH_EVIDENCE_HASH);
     assert.equal(reached.committed_units, 3);
     assert.equal(reached.deal_state, "TargetReached");
     assert.equal(reached.target_transitioned, true);
     assert.ok(reached.target_audit_id);
 
-    const replay = await store.commitReservation(second.reservation_id);
+    const replay = await store.commitReservation(second.reservation_id, AUTH_EVIDENCE_HASH);
     assert.equal(replay.replay, true);
     const audit = await pool.query(
       `SELECT action_name,from_state,to_state,idempotency_key,committed_units,min_units
@@ -78,7 +79,7 @@ await run("20 concurrent commits create exactly one TargetReached audit", async 
     const holds = await Promise.all(Array.from({ length: 20 }, (_, i) =>
       store.hold({ deal_id: dealId, qty: 1, idempotency_key: `race-${i}`, request_hash: `race-hash-${i}` })
     ));
-    const commits = await Promise.all(holds.map((hold) => store.commitReservation(hold.reservation_id)));
+    const commits = await Promise.all(holds.map((hold) => store.commitReservation(hold.reservation_id)), AUTH_EVIDENCE_HASH);
     assert.equal(commits.filter((row) => row.target_transitioned).length, 1);
     const inventory = await store.inventory(dealId);
     assert.equal(inventory.committed_units, 20);
@@ -103,7 +104,7 @@ await run("Audit insert failure rolls reservation, counter, and state back toget
       BEFORE INSERT ON siton_inventory.deal_state_audit
       FOR EACH ROW EXECUTE FUNCTION siton_inventory.fail_target_audit_insert();
     `);
-    await assert.rejects(() => store.commitReservation(held.reservation_id));
+    await assert.rejects(() => store.commitReservation(held.reservation_id), AUTH_EVIDENCE_HASH);
     await pool.query(`DROP TRIGGER force_target_audit_failure ON siton_inventory.deal_state_audit; DROP FUNCTION siton_inventory.fail_target_audit_insert();`);
 
     const reservation = await pool.query(`SELECT status FROM siton_inventory.inventory_reservations WHERE reservation_id=$1`, [held.reservation_id]);
@@ -113,7 +114,7 @@ await run("Audit insert failure rolls reservation, counter, and state back toget
     assert.equal(inventory.committed_units, 0);
     assert.equal(inventory.deal_state, "PendingTarget");
     assert.equal(Number(audit.rows[0].count), 0);
-    const recovered = await store.commitReservation(held.reservation_id);
+    const recovered = await store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH);
     assert.equal(recovered.deal_state, "TargetReached");
   } finally {
     await pool.query(`DROP TRIGGER IF EXISTS force_target_audit_failure ON siton_inventory.deal_state_audit`).catch(() => undefined);
@@ -128,7 +129,7 @@ await run("deal state audit rejects update and delete", async () => {
   try {
     await store.syncDeal({ deal_id: dealId, max_units: 1, min_units: 1 });
     const held = await store.hold({ deal_id: dealId, qty: 1, idempotency_key: "append-only", request_hash: "append-only-hash" });
-    await store.commitReservation(held.reservation_id);
+    await store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH);
     await assert.rejects(() => pool.query(`UPDATE siton_inventory.deal_state_audit SET committed_units=2 WHERE deal_id=$1`, [dealId]));
     await assert.rejects(() => pool.query(`DELETE FROM siton_inventory.deal_state_audit WHERE deal_id=$1`, [dealId]));
     const audit = await pool.query(`SELECT COUNT(*)::int AS count FROM siton_inventory.deal_state_audit WHERE deal_id=$1`, [dealId]);

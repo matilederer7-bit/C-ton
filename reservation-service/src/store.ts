@@ -70,6 +70,14 @@ function requireNonEmpty(value: unknown, field: string, maxLength: number): stri
   return text;
 }
 
+function requireSha256Hex(value: unknown, field: string): string {
+  const text = requireNonEmpty(value, field, 64).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(text)) {
+    throw new ReservationError(400, `invalid_${field}`, `${field} must be a SHA-256 hex digest`);
+  }
+  return text;
+}
+
 function requireUuid(value: unknown, field: string): string {
   const text = requireNonEmpty(value, field, 80);
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
@@ -328,8 +336,9 @@ export class ReservationStore {
     });
   }
 
-  async commitReservation(reservationIdInput: unknown) {
+  async commitReservation(reservationIdInput: unknown, authorizationEvidenceHashInput: unknown) {
     const reservationId = requireUuid(reservationIdInput, "reservation_id");
+    const authorizationEvidenceHash = requireSha256Hex(authorizationEvidenceHashInput, "authorization_evidence_hash");
     return this.transaction(async (client) => {
       const lookup = await client.query(`SELECT deal_id FROM siton_inventory.inventory_reservations WHERE reservation_id=$1`, [reservationId]);
       if (!lookup.rowCount) throw new ReservationError(404, "reservation_not_found", "reservation not found");
@@ -338,14 +347,36 @@ export class ReservationStore {
       await this.reclaimExpired(client, dealId);
       deal = await this.lockDeal(client, dealId);
       const result = await client.query(
-        `SELECT reservation_id,deal_id,qty,status,expires_at
+        `SELECT reservation_id,deal_id,idempotency_key,qty,status,expires_at,buyer_state,money_state,authorization_evidence_hash
            FROM siton_inventory.inventory_reservations
           WHERE reservation_id=$1
           FOR UPDATE`,
         [reservationId]
       );
-      const row = result.rows[0] as { reservation_id: string; deal_id: string; qty: number; status: ReservationStatus; expires_at: string };
+      const row = result.rows[0] as {
+        reservation_id: string;
+        deal_id: string;
+        idempotency_key: string;
+        qty: number;
+        status: ReservationStatus;
+        expires_at: string;
+        buyer_state: string;
+        money_state: string;
+        authorization_evidence_hash: string | null;
+      };
       if (row.status === "committed") {
+        if (String(row.authorization_evidence_hash || "") !== authorizationEvidenceHash) {
+          throw new ReservationError(409, "authorization_evidence_mismatch", "committed reservation used different authorization evidence");
+        }
+        const joinAudit = await client.query(
+          `SELECT audit_id,state_type FROM siton_inventory.participant_state_audit
+            WHERE participant_id=$1 AND action_name='participant.join_authorize' AND idempotency_key=$2
+            ORDER BY state_type`,
+          [reservationId, String(row.idempotency_key)]
+        );
+        if (String(row.buyer_state) !== "JoinedAuthorized" || String(row.money_state) !== "AuthHeld" || joinAudit.rowCount !== 2) {
+          throw new ReservationError(500, "join_authorize_audit_incomplete", "committed Join authorization evidence is incomplete");
+        }
         const priorAudit = await client.query(
           `SELECT audit_id FROM siton_inventory.deal_state_audit
             WHERE deal_id=$1 AND action_name='deal.target_reached'
@@ -356,19 +387,39 @@ export class ReservationStore {
           ok: true, reservation_id: reservationId, status: "committed", replay: true,
           reserved_units: deal.reserved_units, committed_units: deal.committed_units,
           max_units: deal.max_units, min_units: deal.min_units, deal_state: deal.deal_state,
+          buyer_state: String(row.buyer_state),
+          money_state: String(row.money_state),
+          authorization_evidence_hash: authorizationEvidenceHash,
+          join_authorize_audit_count: Number(joinAudit.rowCount),
+          join_authorize_audit_ids: joinAudit.rows.map((audit) => String(audit.audit_id)),
           target_transitioned: false,
           target_audit_id: priorAudit.rowCount ? String(priorAudit.rows[0].audit_id) : null
         };
       }
       if (row.status !== "held") throw new ReservationError(409, `reservation_${row.status}`, `reservation is already ${row.status}`);
+      if (String(row.buyer_state) !== "NotJoined" || String(row.money_state) !== "NoFinancial" || row.authorization_evidence_hash) {
+        throw new ReservationError(409, "join_authorize_source_state_invalid", "reservation is not in the canonical Join source state");
+      }
       const updatedReservation = await client.query(
         `UPDATE siton_inventory.inventory_reservations
-            SET status='committed', committed_at=now()
+            SET status='committed', committed_at=now(),
+                buyer_state='JoinedAuthorized', money_state='AuthHeld',
+                authorization_evidence_hash=$2
           WHERE reservation_id=$1 AND status='held'
-          RETURNING qty`,
-        [reservationId]
+          RETURNING qty,idempotency_key`,
+        [reservationId, authorizationEvidenceHash]
       );
       if (updatedReservation.rowCount !== 1) throw new ReservationError(409, "reservation_state_conflict", "reservation state changed concurrently");
+      const buyerAuditId = randomUUID();
+      const moneyAuditId = randomUUID();
+      await client.query(
+        `INSERT INTO siton_inventory.participant_state_audit
+          (audit_id,participant_id,deal_id,state_type,action_name,from_state,to_state,idempotency_key,authorization_evidence_hash)
+         VALUES
+          ($1,$3,$4,'buyer_state','participant.join_authorize','NotJoined','JoinedAuthorized',$5,$6),
+          ($2,$3,$4,'money_state','participant.join_authorize','NoFinancial','AuthHeld',$5,$6)`,
+        [buyerAuditId, moneyAuditId, reservationId, dealId, String(updatedReservation.rows[0].idempotency_key), authorizationEvidenceHash]
+      );
       const updatedDeal = await client.query(
         `UPDATE siton_inventory.inventory_deals
             SET committed_units=committed_units+$2, updated_at=now()
@@ -408,7 +459,14 @@ export class ReservationStore {
         ok: true, reservation_id: reservationId, status: "committed", replay: false,
         max_units: Number(updatedDeal.rows[0].max_units), min_units: minUnits,
         reserved_units: Number(updatedDeal.rows[0].reserved_units), committed_units: committedUnits,
-        deal_state: dealState, target_transitioned: targetTransitioned, target_audit_id: targetAuditId
+        deal_state: dealState,
+        buyer_state: "JoinedAuthorized",
+        money_state: "AuthHeld",
+        authorization_evidence_hash: authorizationEvidenceHash,
+        join_authorize_audit_count: 2,
+        join_authorize_audit_ids: [buyerAuditId, moneyAuditId],
+        target_transitioned: targetTransitioned,
+        target_audit_id: targetAuditId
       };
     });
   }
