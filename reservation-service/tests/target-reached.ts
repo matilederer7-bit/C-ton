@@ -79,7 +79,7 @@ await run("20 concurrent commits create exactly one TargetReached audit", async 
     const holds = await Promise.all(Array.from({ length: 20 }, (_, i) =>
       store.hold({ deal_id: dealId, qty: 1, idempotency_key: `race-${i}`, request_hash: `race-hash-${i}` })
     ));
-    const commits = await Promise.all(holds.map((hold) => store.commitReservation(hold.reservation_id)), AUTH_EVIDENCE_HASH);
+    const commits = await Promise.all(holds.map((hold) => store.commitReservation(hold.reservation_id, AUTH_EVIDENCE_HASH)));
     assert.equal(commits.filter((row) => row.target_transitioned).length, 1);
     const inventory = await store.inventory(dealId);
     assert.equal(inventory.committed_units, 20);
@@ -104,7 +104,7 @@ await run("Audit insert failure rolls reservation, counter, and state back toget
       BEFORE INSERT ON siton_inventory.deal_state_audit
       FOR EACH ROW EXECUTE FUNCTION siton_inventory.fail_target_audit_insert();
     `);
-    await assert.rejects(() => store.commitReservation(held.reservation_id), AUTH_EVIDENCE_HASH);
+    await assert.rejects(() => store.commitReservation(held.reservation_id, AUTH_EVIDENCE_HASH));
     await pool.query(`DROP TRIGGER force_target_audit_failure ON siton_inventory.deal_state_audit; DROP FUNCTION siton_inventory.fail_target_audit_insert();`);
 
     const reservation = await pool.query(`SELECT status FROM siton_inventory.inventory_reservations WHERE reservation_id=$1`, [held.reservation_id]);
