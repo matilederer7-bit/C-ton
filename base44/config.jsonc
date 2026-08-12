@@ -1,0 +1,12 @@
+{
+  "name": "Siton Base44 Migration Bridge",
+  "description": "Isolated Base44 bridge for incremental Siton migration. The canonical Siton runtime remains untouched until a capability is explicitly migrated and verified.",
+  "entitiesDir": "./entities",
+  "functionsDir": "./functions",
+  "site": {
+    "installCommand": "npm --prefix bridge/base44-ui install",
+    "buildCommand": "npm --prefix bridge/base44-ui run build",
+    "serveCommand": "npm --prefix bridge/base44-ui run dev -- --host 0.0.0.0",
+    "outputDirectory": "./bridge/base44-ui/dist"
+  }
+}
