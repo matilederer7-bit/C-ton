@@ -1,0 +1,51 @@
+{
+  "schema_version": "stage-32a-v1",
+  "app": {
+    "name": "ראש גשר",
+    "id": "6a79b3ce58f678716af8d295"
+  },
+  "functions": [
+    {
+      "domain": "transition",
+      "canonical": "siton-transition-engine-v3",
+      "legacy": ["transition-engine", "siton-transition-engine", "siton-transition-engine-v2"]
+    },
+    {
+      "domain": "inventory",
+      "canonical": "siton-inventory-bridge",
+      "legacy": ["inventory-bridge"]
+    },
+    {
+      "domain": "reconcile",
+      "canonical": "siton-reconcile-join-intents-v2",
+      "legacy": ["reconcile-join-intent", "reconcile-join-intents"]
+    }
+  ],
+  "entities": [
+    { "canonical": "InvoiceDocument", "legacy": "invoice-document" },
+    { "canonical": "DeliveryRecord", "legacy": "delivery-record" },
+    { "canonical": "DistributionSource", "legacy": "distribution-source" },
+    { "canonical": "Participant", "legacy": "participant" },
+    { "canonical": "FulfillmentUnit", "legacy": "fulfillment-unit" },
+    { "canonical": "SellerSettlement", "legacy": "seller-settlement" },
+    { "canonical": "DistributorDealAccess", "legacy": "distributor-deal-access" },
+    { "canonical": "Deal", "legacy": "deal" },
+    { "canonical": "OtpChallenge", "legacy": "otp-challenge" },
+    { "canonical": "NotificationEvent", "legacy": "notification-event" },
+    { "canonical": "PaymentReconcileJob", "legacy": "payment-reconcile-job" },
+    { "canonical": "OperationalCase", "legacy": "operational-case" },
+    { "canonical": "MoneyLedgerEvent", "legacy": "money-ledger-event" },
+    { "canonical": "AdminControlAudit", "legacy": "admin-control-audit" },
+    { "canonical": "NotificationAttempt", "legacy": "notification-attempt" },
+    { "canonical": "OperationalCaseEvent", "legacy": "operational-case-event" },
+    { "canonical": "SellerAccount", "legacy": "seller-account" },
+    { "canonical": "DealAudit", "legacy": "deal-audit" },
+    { "canonical": "DistributionAttribution", "legacy": "distribution-attribution" },
+    { "canonical": "IdempotencyRecord", "legacy": "idempotency-record" },
+    { "canonical": "AdminControlFlag", "legacy": "admin-control-flag" },
+    { "canonical": "SellerPayoutBatch", "legacy": "seller-payout-batch" },
+    { "canonical": "DealComment", "legacy": "deal-comment" },
+    { "canonical": "OtpDeliveryAttempt", "legacy": "otp-delivery-attempt" },
+    { "canonical": "DistributionEvent", "legacy": "distribution-event" }
+  ]
+}

@@ -73,6 +73,9 @@ jobs:
       - name: Runtime DDL scan
         run: npm run scan:runtime-ddl 2>&1 | tee .ci-artifacts/runtime-ddl-scan.log
 
+      - name: Base44 canonical integrity and legacy caller gate
+        run: npm run gate:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity.log
+
       - name: Render deployment contract
         run: npm run validate:render 2>&1 | tee .ci-artifacts/render-gate.log
 

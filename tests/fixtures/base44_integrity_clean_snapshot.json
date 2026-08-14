@@ -1,0 +1,49 @@
+{
+  "now": "2026-08-13T12:00:00.000Z",
+  "deals": [
+    {
+      "deal_id": "00000000-0000-4000-8000-000000000001",
+      "max_units": 10,
+      "min_units": 2,
+      "state": "TargetReached",
+      "reserved_units": 2,
+      "inventory_sync_status": "synced",
+      "inventory_reserved_units": 0,
+      "inventory_committed_units": 2,
+      "transition_journal": [
+        {
+          "audit_id": "00000000-0000-4000-8000-000000000011",
+          "from_state": "Draft",
+          "to_state": "PendingTarget",
+          "action_name": "deal_publish",
+          "idempotency_key": "fixture:publish"
+        }
+      ]
+    }
+  ],
+  "inventory_projections": [
+    {
+      "deal_id": "00000000-0000-4000-8000-000000000001",
+      "max_units": 10,
+      "min_units": 2,
+      "deal_state": "TargetReached",
+      "reserved_units": 0,
+      "committed_units": 2
+    }
+  ],
+  "outbox_events": [
+    {
+      "event_uuid": "00000000-0000-4000-8000-000000000021",
+      "status": "dead_letter"
+    }
+  ],
+  "dlq_records": [
+    { "event_uuid": "00000000-0000-4000-8000-000000000021" }
+  ],
+  "audits": [
+    {
+      "audit_id": "00000000-0000-4000-8000-000000000011",
+      "deal_id": "00000000-0000-4000-8000-000000000001"
+    }
+  ]
+}

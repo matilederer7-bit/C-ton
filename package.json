@@ -94,7 +94,9 @@
     "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
     "ci:web-runtime:extended": "node scripts/ci_web_runtime.cjs --extended",
     "ci:fault-report": "node scripts/ci_fault_report.cjs",
-    "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs"
+    "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs",
+    "gate:base44-canonical-integrity": "node scripts/base44_canonical_integrity_gate.cjs --snapshot tests/fixtures/base44_integrity_clean_snapshot.json",
+    "test:base44-canonical-integrity": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/base44_canonical_integrity_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -1,0 +1,43 @@
+{
+  "schema_version": "stage-32a-v1",
+  "app_id": "6a79b3ce58f678716af8d295",
+  "callers": {
+    "siton-transition-engine-v3": [
+      "base44/functions/apply-charge-results/entry.ts",
+      "base44/functions/apply-recovery-results/entry.ts",
+      "base44/functions/base44-inventory-lifecycle-proof/entry.ts",
+      "base44/functions/close-joining/entry.ts",
+      "base44/functions/finalize-deal/entry.ts",
+      "base44/functions/join-deal/entry.ts",
+      "base44/functions/prepare-charging/entry.ts",
+      "base44/functions/publish-deal/entry.ts",
+      "base44/functions/reconcile-join-intents/entry.ts",
+      "base44/functions/reconcile-payment-jobs/entry.ts",
+      "base44/functions/siton-base44-lifecycle-proof/entry.ts",
+      "base44/functions/siton-base44-lifecycle-proof-v3/entry.ts",
+      "base44/functions/siton-lifecycle-proof-v4/entry.ts",
+      "base44/functions/siton-reconcile-join-intents-v2/entry.ts",
+      "base44/functions/start-charging/entry.ts"
+    ],
+    "siton-inventory-bridge": [
+      "base44/functions/base44-inventory-lifecycle-proof/entry.ts",
+      "base44/functions/join-deal/entry.ts",
+      "base44/functions/reconcile-join-intents/entry.ts",
+      "base44/functions/siton-base44-lifecycle-proof/entry.ts",
+      "base44/functions/siton-base44-lifecycle-proof-v3/entry.ts",
+      "base44/functions/siton-lifecycle-proof-v4/entry.ts",
+      "base44/functions/siton-reconcile-join-intents-v2/entry.ts",
+      "base44/functions/siton-transition-engine/entry.ts",
+      "base44/functions/siton-transition-engine-v2/entry.ts",
+      "base44/functions/siton-transition-engine-v3/entry.ts",
+      "base44/functions/transition-engine/entry.ts"
+    ],
+    "siton-reconcile-join-intents-v2": [
+      "base44/functions/join-deal/entry.ts",
+      "base44/functions/siton-transition-engine/entry.ts",
+      "base44/functions/siton-transition-engine-v2/entry.ts",
+      "base44/functions/siton-transition-engine-v3/entry.ts",
+      "base44/functions/transition-engine/entry.ts"
+    ]
+  }
+}
