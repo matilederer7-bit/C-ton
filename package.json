@@ -14,6 +14,7 @@
     "bootstrap:demo-db": "node scripts/bootstrap_demo_db.cjs",
     "db:migrate": "node scripts/run_migrations.cjs",
     "db:inspect": "node scripts/inspect_db.cjs",
+    "ops:repair": "tsx src/operational_repair_cli.ts",
     "admin:create-user": "node scripts/create_admin_user.cjs",
     "build:demo": "node scripts/build_demo_bundle.cjs",
     "start:demo:prod": "npm run bootstrap:demo-db && node .demo_dist/src/app.js",
@@ -96,7 +97,8 @@
     "ci:fault-report": "node scripts/ci_fault_report.cjs",
     "test:stripe-sandbox-external": "node scripts/run_stripe_sandbox_external.cjs",
     "gate:base44-canonical-integrity": "node scripts/base44_canonical_integrity_gate.cjs --snapshot tests/fixtures/base44_integrity_clean_snapshot.json",
-    "test:base44-canonical-integrity": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/base44_canonical_integrity_validation.js"
+    "test:base44-canonical-integrity": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/base44_canonical_integrity_validation.js",
+    "test:operational-repair": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/operational_repair_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

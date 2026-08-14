@@ -17,6 +17,9 @@ jobs:
   backend-gates:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
     services:
       postgres:
         image: postgres:16-alpine
@@ -74,7 +77,20 @@ jobs:
         run: npm run scan:runtime-ddl 2>&1 | tee .ci-artifacts/runtime-ddl-scan.log
 
       - name: Base44 canonical integrity and legacy caller gate
-        run: npm run gate:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity.log
+        run: |
+          set -o pipefail
+          npm run gate:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity.log
+
+      - name: Canonical integrity and operational repair validation
+        run: |
+          set -o pipefail
+          npm run test:base44-canonical-integrity 2>&1 | tee .ci-artifacts/base44-canonical-integrity-test.log
+          npm run test:operational-repair 2>&1 | tee .ci-artifacts/operational-repair-test.log
+
+      - name: Production demo build
+        run: |
+          set -o pipefail
+          npm run build:demo 2>&1 | tee .ci-artifacts/build-demo.log
 
       - name: Render deployment contract
         run: npm run validate:render 2>&1 | tee .ci-artifacts/render-gate.log

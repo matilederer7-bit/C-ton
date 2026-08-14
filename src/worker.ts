@@ -75,6 +75,7 @@ async function processCycle(pollCount: number) {
   });
   const completed = results.filter((item) => item?.status === "sent").length;
   const failed = results.filter((item) => item?.status === "failed").length;
+  const leaseLost = results.filter((item) => item?.status === "lease_lost").length;
   const retries = failed;
   await runWorkerMaintenance();
   const metrics = await queueMetrics();
@@ -82,6 +83,7 @@ async function processCycle(pollCount: number) {
     worker_id: WORKER_ID,
     jobs_completed: completed,
     jobs_failed: failed,
+    jobs_lease_lost: leaseLost,
     retry_count: retries,
     job_latency_ms: Date.now() - started,
     ...metrics

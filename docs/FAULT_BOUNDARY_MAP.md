@@ -14,8 +14,9 @@ Stage 5b fault injection is an internal test module. It has no HTTP route, reque
 | Storage delete before/after success | metadata already removed | cleanup task / idempotent delete | deletion outcome unknown | retry delete; missing object is success |
 | Cleanup after claim | task is `processing` with generation | lease reclaim | unacknowledged claim | expired claim is reclaimed; stale generation cannot ack |
 | Cleanup before ack | object deletion may be durable | retry idempotent delete | task processing | retry/reclaim and conditional generation ack |
-| Outbox after claim | event is processing with worker lease | lease reclaim | external action not started | expired lease returns to pending |
-| Worker before ack | external action may be durable | provider/idempotency reconciliation | event processing | worker ownership and lease guard stale ack; provider idempotency prevents double effect |
+| Outbox after claim | event is processing with owner, expiry and generation | automatic fenced lease reclaim | external action may be outcome-unknown | a complete generation 1+ expired lease may return to pending and the next claim increments generation; legacy/incomplete leases stay quarantined and every handler must preserve idempotency |
+| Worker after internal effect, before ack | effect may be durable | idempotent replay/reconciliation | event processing | stale generation cannot ack; new owner replays the same internal/provider key |
+| Worker heartbeat or completion after ownership loss | newer owner/generation is durable | none by stale worker | stale handler may still be returning | owner + generation + DB-time expiry fail closed; zero-row ack is never success |
 | HTTP upload/delete/join/OTP after commit | domain mutation is durable | domain-specific retry | response outcome unknown | canonical idempotency/proof/object identity returns one outcome without duplicate effect |
 | Web SIGTERM | committed work remains | open transaction rollback | draining request | Fastify drain then pool close |
 | Worker SIGTERM | claimed work has lease | lease reclaim | active cycle drains until timeout | heartbeat transitions and lease-based restart recovery |

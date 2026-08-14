@@ -192,6 +192,19 @@ async function main() {
         fn({
           query: async (sql: string, params?: unknown[]) => {
             calls.push({ sql, params });
+            if (sql.includes("FROM siton.outbox_events") && sql.includes("FOR UPDATE")) {
+              return {
+                rowCount: 1,
+                rows: [{
+                  event_uuid: "event-1", event_type: "deadline_check", aggregate_type: "deal",
+                  aggregate_id: "aggregate-1", payload: {}, attempt_count: 1, max_attempts: 4,
+                  worker_id: `worker-${process.pid}`, lease_generation: 1
+                }]
+              };
+            }
+            if (sql.includes("lease_expires_at > clock_timestamp() AS valid")) {
+              return { rowCount: 1, rows: [{ valid: true }] };
+            }
             return { rowCount: 1, rows: [] };
           }
         }),
@@ -205,7 +218,7 @@ async function main() {
 
     assert.ok(!calls.some((call) => call.sql.includes("attempt_count=attempt_count+1")));
     assert.ok(calls.some((call) => call.sql.includes("SET status='pending'")));
-    assert.ok(calls.some((call) => call.sql.includes("worker_id=$4")));
+    assert.ok(calls.some((call) => call.sql.includes("lease_generation=$3")));
   });
 
   await runTest("outbox permanent failures move directly to dlq", async () => {
@@ -215,6 +228,19 @@ async function main() {
         fn({
           query: async (sql: string) => {
             calls.push(sql);
+            if (sql.includes("FROM siton.outbox_events") && sql.includes("FOR UPDATE")) {
+              return {
+                rowCount: 1,
+                rows: [{
+                  event_uuid: "event-2", event_type: "deadline_check", aggregate_type: "deal",
+                  aggregate_id: "aggregate-2", payload: {}, attempt_count: 1, max_attempts: 4,
+                  worker_id: `worker-${process.pid}`, lease_generation: 1
+                }]
+              };
+            }
+            if (sql.includes("lease_expires_at > clock_timestamp() AS valid")) {
+              return { rowCount: 1, rows: [{ valid: true }] };
+            }
             return { rowCount: 1, rows: [] };
           }
         }),
@@ -224,7 +250,7 @@ async function main() {
       DeferredEventErrorCtor: DeferredEventError
     });
 
-    await helpers.markOutboxFailed("event-2", 0, new PermanentFailError("boom"));
+    await helpers.markOutboxFailed("event-2", 1, new PermanentFailError("boom"));
 
     assert.ok(calls.some((sql) => sql.includes("INSERT INTO siton.outbox_dlq")));
     assert.ok(calls.some((sql) => sql.includes("DELETE FROM siton.outbox_events")));

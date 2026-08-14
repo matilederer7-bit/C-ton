@@ -66,6 +66,11 @@ const FORBIDDEN_ACTIONS = new Set([
   "edit_product_eligibility"
 ]);
 
+const parsedAdminOutboxMaxAttempts = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
+const ADMIN_OUTBOX_MAX_ATTEMPTS = Number.isSafeInteger(parsedAdminOutboxMaxAttempts) && parsedAdminOutboxMaxAttempts >= 1
+  ? parsedAdminOutboxMaxAttempts
+  : 4;
+
 type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
 };
@@ -197,13 +202,44 @@ export async function executeAdminAction(c: Queryable, actionId: string, context
 
   if (action.action_type === "requeue_outbox_event") {
     const upd = await c.query(
-      `UPDATE siton.outbox_events
-       SET status='pending', available_at=now(), processing_started_at=NULL,
-           correlation_id=COALESCE(correlation_id,$2), request_id=COALESCE(request_id,$3), updated_at=now()
-       WHERE (event_uuid::text=$1 OR event_id::text=$1)
-         AND status IN ('pending','processing','failed')
-       RETURNING event_uuid`,
-      [action.target_id, action.correlation_id || context.correlation_id, context.request_id]
+      `WITH eligible AS (
+         SELECT event_uuid, status AS from_status, attempt_count, lease_generation
+         FROM siton.outbox_events
+         WHERE event_uuid::text=$1
+           AND status IN ('pending','failed')
+           AND sent=false AND sent_at IS NULL
+           AND attempt_count < LEAST(max_attempts,$6)
+         FOR UPDATE
+       ), requeued AS (
+         UPDATE siton.outbox_events o
+         SET status='pending', sent=false, sent_at=NULL, available_at=clock_timestamp(), processing_started_at=NULL,
+             claimed_at=NULL, lease_expires_at=NULL, worker_id=NULL, last_heartbeat_at=NULL,
+             lease_generation=o.lease_generation+1,
+             correlation_id=COALESCE(o.correlation_id,$2), request_id=COALESCE(o.request_id,$3),
+             updated_at=clock_timestamp()
+         FROM eligible e
+         WHERE o.event_uuid=e.event_uuid
+         RETURNING o.event_uuid, e.from_status, o.attempt_count, o.lease_generation
+       ), audited AS (
+         INSERT INTO siton.operational_recovery_audit (
+           subject_type, subject_id, action, worker_id, lease_generation, attempt_count,
+           from_status, to_status, idempotency_key, reason_code, metadata
+         )
+         SELECT 'outbox_event', event_uuid::text, 'retry', $4, lease_generation, attempt_count,
+                from_status, 'pending', $5, 'admin_requeue', '{}'::jsonb
+         FROM requeued
+         RETURNING subject_id
+       )
+       SELECT event_uuid FROM requeued
+       WHERE event_uuid::text IN (SELECT subject_id FROM audited)`,
+      [
+        action.target_id,
+        action.correlation_id || context.correlation_id,
+        context.request_id,
+        "admin:" + context.admin_id,
+        "admin-action:" + actionId + ":outbox-retry",
+        ADMIN_OUTBOX_MAX_ATTEMPTS
+      ]
     );
     completed = (upd.rowCount ?? 0) > 0;
     resultCode = completed ? "Requeued" : "NoEligibleOutboxEvent";

@@ -75,13 +75,16 @@ async function insertProcessingEvent(opts: {
 }): Promise<string> {
   const uuid = randomUUID();
   const startedAt = new Date(Date.now() + opts.processingStartedAtOffsetMs);
+  const expiresAt = new Date(startedAt.getTime() + STUCK_TIMEOUT_MS);
   await DB.query(
     `INSERT INTO siton.outbox_events
        (event_uuid, event_type, aggregate_type, aggregate_id, payload,
         status, attempt_count, available_at, sent, sent_at, last_error,
-        processing_started_at, created_at, updated_at)
-     VALUES ($1,'deadline_check','deal',$2,'{}','processing',1,NOW(),false,NULL,NULL,$3,NOW(),NOW())`,
-    [uuid, uuid, startedAt.toISOString()]
+        processing_started_at, claimed_at, lease_expires_at, worker_id,
+        lease_generation, last_heartbeat_at, created_at, updated_at)
+     VALUES ($1,'deadline_check','deal',$2,'{}','processing',1,NOW(),false,NULL,NULL,
+             $3,$3,$4,'precision-owner',1,$3,NOW(),NOW())`,
+    [uuid, uuid, startedAt.toISOString(), expiresAt.toISOString()]
   );
   return uuid;
 }
@@ -199,27 +202,22 @@ await run("A3 — simultaneous old+young: only old is reclaimed", async () => {
   }
 });
 
-await run("A4 — processing_started_at=null event is reclaimed (defensive path)", async () => {
-  // Simulates a pre-column migration row or a race where started_at was never set
+await run("A4 — new processing rows require complete fenced lease evidence", async () => {
+  // New ambiguous processing rows are rejected; pre-cutover generation-0 rows
+  // remain quarantined for the explicit repair planner.
   const uuid = randomUUID();
-  await DB.query(
-    `INSERT INTO siton.outbox_events
-       (event_uuid, event_type, aggregate_type, aggregate_id, payload,
-        status, attempt_count, available_at, sent, created_at, updated_at)
-     VALUES ($1,'deadline_check','deal',$2,'{}','processing',1,NOW()-INTERVAL '5 minutes',false,NOW()-INTERVAL '5 minutes',NOW())`,
-    [uuid, uuid]
+  await assert.rejects(
+    DB.query(
+      `INSERT INTO siton.outbox_events
+         (event_uuid, event_type, aggregate_type, aggregate_id, payload,
+          status, attempt_count, available_at, sent, created_at, updated_at)
+       VALUES ($1,'deadline_check','deal',$2,'{}','processing',1,NOW()-INTERVAL '5 minutes',false,NOW()-INTERVAL '5 minutes',NOW())`,
+      [uuid, uuid]
+    ),
+    (error: any) => error?.code === "23514",
+    "the cutover constraint must reject an unfenced processing row"
   );
-  try {
-    const reclaimed = await reclaimStuckProcessing(STUCK_TIMEOUT_MS);
-    const ev = await getEvent(uuid);
-
-    console.log(`     reclaimed=${reclaimed}  status=${ev?.status}`);
-
-    // processing_started_at=NULL should always be reclaimed (treated as stuck)
-    assert.equal(ev?.status, "pending", `null processing_started_at should be reclaimed`);
-  } finally {
-    await deleteEvent(uuid);
-  }
+  assert.equal(await getEvent(uuid), null);
 });
 
 // ─── B: NO DUPLICATE PROCESSING AFTER RECLAIM ────────────────────────────────
@@ -248,7 +246,7 @@ await run("B1 — reclaimed event is claimable exactly once, produces one sent r
     assert.equal(afterClaim?.status, "processing", `should be processing after claim`);
 
     // 4. Mark sent
-    await markOutboxSent(uuid);
+    await markOutboxSent(uuid, claimed.lease_generation);
 
     // Sent events stay in outbox_events with status='sent', never appear in DLQ
     const afterSent = await getEvent(uuid);
@@ -303,7 +301,7 @@ await run("B3 — reclaimed then failed goes to DLQ correctly, no phantom sent r
 
     // Mark it as permanently failed (immediate DLQ)
     const permanentErr = new PermanentFailError("permanent failure in test");
-    await markOutboxFailed(uuid, claimed.attempt_count, permanentErr);
+    await markOutboxFailed(uuid, claimed.lease_generation, permanentErr);
 
     const inOutbox = await getEvent(uuid);
     const inDlq = await getDlqEvent(uuid);

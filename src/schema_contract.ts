@@ -14,13 +14,14 @@ export const REQUIRED_TABLES = [
   "admin_users", "admin_sessions", "admin_mfa_factors", "admin_mfa_challenges",
   "participant_tracking_tokens", "admin_control_flags", "admin_control_flag_events",
   "storage_orphan_reports", "operational_cases", "operational_case_events",
-  "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units", "migration_ledger", "worker_heartbeats", "storage_cleanup_tasks"
+  "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units", "migration_ledger", "worker_heartbeats",
+  "storage_cleanup_tasks", "operational_recovery_audit"
 ] as const;
 
 export const REQUIRED_MIGRATION_IDS = [
   "014", "007", "008", "009", "010", "011", "012", "013", "014a", "015a", "015b",
   "016", "017", "018", "019", "020", "021", "022", "023", "024", "025", "026",
-  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044"
+  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045"
 ] as const;
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {
@@ -50,6 +51,10 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
     "trg_audit_log_before_insert_enforce",
     "trg_audit_log_append_only_update",
     "trg_audit_log_append_only_delete",
+    "trg_operational_recovery_audit_append_only_update",
+    "trg_operational_recovery_audit_append_only_delete",
+    "trg_outbox_fencing_cutover_update",
+    "trg_outbox_fencing_cutover_delete",
     "trg_deals_outbox_enforce"
   ];
   const triggers = await db.query(
@@ -71,6 +76,10 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
   const webhookStatus = constraints.rows.find((row: any) => row.conname === "webhook_events_status_check");
   if (!webhookStatus || !String(webhookStatus.definition).includes("processing")) {
     throw new Error("database schema drift: webhook_events_status_check is missing processing");
+  }
+  const fencedOutbox = constraints.rows.find((row: any) => row.conname === "outbox_processing_requires_fenced_lease");
+  if (!fencedOutbox || !String(fencedOutbox.definition).includes("lease_generation >= 1")) {
+    throw new Error("database schema drift: outbox processing fencing constraint is missing");
   }
 }
 

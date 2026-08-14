@@ -5,7 +5,7 @@ import { createHash, randomUUID } from "crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
-import { buildOutboxWorkerHelpers } from "./outbox_worker_helpers.js";
+import { buildOutboxWorkerHelpers, OutboxLeaseLostError } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
@@ -1157,10 +1157,25 @@ async function cleanupObsoleteDealOutboxEvents(dealId: string) {
   await withTx(async (c) => {
     await c.query(`SELECT set_config('siton.is_worker','true',true)`);
     await c.query(
-      `DELETE FROM siton.outbox_events
-       WHERE aggregate_id=$1
-         AND event_type IN ('deadline_check')`,
-      [dealId]
+      `WITH completed AS (
+         UPDATE siton.outbox_events
+         SET status='sent', sent=true, sent_at=now(),
+             last_error='obsolete_after_terminal_deal', updated_at=now()
+         WHERE aggregate_id=$1
+           AND event_type='deadline_check'
+           AND status='pending'
+         RETURNING event_uuid, attempt_count, lease_generation
+       )
+       INSERT INTO siton.operational_recovery_audit (
+         subject_type, subject_id, action, worker_id, lease_generation, attempt_count,
+         from_status, to_status, idempotency_key, reason_code, metadata
+       )
+       SELECT 'outbox_event', event_uuid::text, 'completion', $2, lease_generation,
+              attempt_count, 'pending', 'sent',
+              'outbox:' || event_uuid::text || ':' || lease_generation::text || ':completion:obsolete-deadline',
+              'obsolete_after_terminal_deal', '{}'::jsonb
+       FROM completed`,
+      [dealId, outboxWorkerId]
     );
   });
 }
@@ -2094,21 +2109,48 @@ export async function claimPendingOutboxBatch(limit: number) {
 
 export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof claimOutboxBatch>>[number]) {
   await hitTestFault("worker.after_claim");
+  let ownershipLost = false;
+  let heartbeatInFlight = Promise.resolve();
   const heartbeat = setInterval(() => {
-    heartbeatOutboxLease(event.event_uuid).catch(() => undefined);
+    heartbeatInFlight = heartbeatInFlight.then(async () => {
+      const renewed = await heartbeatOutboxLease(event.event_uuid, event.lease_generation).catch(() => false);
+      if (!renewed) ownershipLost = true;
+    });
   }, Math.max(1_000, Math.floor(Number(process.env.WORKER_LEASE_MS || 60_000) / 3)));
   heartbeat.unref();
   try {
     await workerProcessEvent(event);
+    await heartbeatInFlight;
+    if (ownershipLost) throw new OutboxLeaseLostError(event.event_uuid);
     await hitTestFault("worker.before_ack");
-    await markOutboxSent(event.event_uuid);
+    await markOutboxSent(event.event_uuid, event.lease_generation);
     return {
       event_uuid: event.event_uuid,
       event_type: event.event_type,
       status: "sent" as const
     };
   } catch (error) {
-    await markOutboxFailed(event.event_uuid, Number(event.attempt_count || 0), error, Number(event.max_attempts || OUTBOX_MAX_ATTEMPTS));
+    if (ownershipLost || error instanceof OutboxLeaseLostError) {
+      return {
+        event_uuid: event.event_uuid,
+        event_type: event.event_type,
+        status: "lease_lost" as const,
+        error: "outbox_lease_lost"
+      };
+    }
+    try {
+      await markOutboxFailed(event.event_uuid, event.lease_generation, error);
+    } catch (failureError) {
+      if (failureError instanceof OutboxLeaseLostError) {
+        return {
+          event_uuid: event.event_uuid,
+          event_type: event.event_type,
+          status: "lease_lost" as const,
+          error: "outbox_lease_lost"
+        };
+      }
+      throw failureError;
+    }
     return {
       event_uuid: event.event_uuid,
       event_type: event.event_type,
@@ -2117,31 +2159,14 @@ export async function processClaimedOutboxEvent(event: Awaited<ReturnType<typeof
     };
   } finally {
     clearInterval(heartbeat);
+    await heartbeatInFlight.catch(() => undefined);
   }
 }
 
 export async function processOutboxEventById(eventId: string) {
   const claimed = await claimOutboxEventById(eventId);
-
   if (!claimed) return null;
-
-  try {
-    await workerProcessEvent(claimed);
-    await markOutboxSent(claimed.event_uuid);
-    return {
-      event_uuid: claimed.event_uuid,
-      event_type: claimed.event_type,
-      status: "sent" as const
-    };
-  } catch (error) {
-    await markOutboxFailed(claimed.event_uuid, Number(claimed.attempt_count || 0), error, Number(claimed.max_attempts || OUTBOX_MAX_ATTEMPTS));
-    return {
-      event_uuid: claimed.event_uuid,
-      event_type: claimed.event_type,
-      status: "failed" as const,
-      error: String(error instanceof Error ? error.message : error)
-    };
-  }
+  return processClaimedOutboxEvent(claimed);
 }
 const WORKER_EVENT_TIMEOUT_MS = 30_000;
 // Events stuck in 'processing' longer than this are recycled back to 'pending'.
@@ -3629,8 +3654,6 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
-
-
 
 
 

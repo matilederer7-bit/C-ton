@@ -460,8 +460,20 @@ async function runOutboxScenario() {
     [stuckId, 0, "processing", new Date(Date.now() - 5000).toISOString()]
   ] as const) {
     await DB.query(
-      `INSERT INTO siton.outbox_events(event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, processing_started_at, sent, created_at, updated_at)
-       VALUES ($1,'deadline_check','deal',$2,$3,$4,$5,now(),$6,false,now(),now())`,
+      `INSERT INTO siton.outbox_events(
+         event_uuid, event_type, aggregate_type, aggregate_id, payload, status,
+         attempt_count, available_at, processing_started_at, claimed_at,
+         lease_expires_at, worker_id, lease_generation, last_heartbeat_at,
+         sent, created_at, updated_at
+       ) VALUES (
+         $1,'deadline_check','deal',$2,$3,$4,$5,now(),$6,
+         CASE WHEN $4='processing' THEN $6::timestamptz ELSE NULL END,
+         CASE WHEN $4='processing' THEN $6::timestamptz ELSE NULL END,
+         CASE WHEN $4='processing' THEN 'load-baseline-owner' ELSE NULL END,
+         CASE WHEN $4='processing' THEN 1 ELSE 0 END,
+         CASE WHEN $4='processing' THEN $6::timestamptz ELSE NULL END,
+         false,now(),now()
+       )`,
       [id, randomUUID(), JSON.stringify({ load_baseline_failure: true }), status, attempt, processingStarted]
     );
     createdOutboxEvents.push(id);
@@ -470,7 +482,9 @@ async function runOutboxScenario() {
   const dlq = await processOutboxEventById(dlqId);
   await DB.query(
     `UPDATE siton.outbox_events
-        SET status='pending', processing_started_at=null, available_at=now()
+        SET status='pending', processing_started_at=null, claimed_at=null,
+            lease_expires_at=null, worker_id=null, last_heartbeat_at=null,
+            available_at=now()
       WHERE event_uuid=$1
         AND status='processing'
         AND processing_started_at < now() - interval '1 second'`,

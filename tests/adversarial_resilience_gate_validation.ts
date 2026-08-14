@@ -471,15 +471,20 @@ await run("outbox: pending, stale processing, and DLQ are visible to admin statu
   await pool.query(
     `INSERT INTO siton.outbox_events (
        event_uuid, event_type, aggregate_type, aggregate_id, payload, status,
-       attempt_count, available_at, processing_started_at, created_at, updated_at
-     ) VALUES ($1,'deadline_check','deal',$2,$3,'processing',2,now()-interval '20 minutes',now()-interval '20 minutes',now()-interval '20 minutes',now()-interval '20 minutes')`,
+       attempt_count, available_at, processing_started_at, claimed_at,
+       lease_expires_at, worker_id, lease_generation, last_heartbeat_at,
+       created_at, updated_at
+     ) VALUES ($1,'deadline_check','deal',$2,$3,'processing',2,
+       now()-interval '20 minutes',now()-interval '20 minutes',now()-interval '20 minutes',
+       now()-interval '10 minutes','resilience-stale-owner',1,now()-interval '20 minutes',
+       now()-interval '20 minutes',now()-interval '20 minutes')`,
     [staleEventId, dealId, JSON.stringify({ deal_id: dealId, resilience_probe: true })]
   );
   await pool.query(
     `INSERT INTO siton.outbox_dlq (
        event_uuid, event_type, aggregate_type, aggregate_id, payload, status,
-       attempt_count, available_at, last_error, created_at, updated_at
-     ) VALUES ($1,'deadline_check','deal',$2,$3,'failed',10,now()-interval '30 minutes','resilience final failure',now()-interval '30 minutes',now()-interval '30 minutes')`,
+       attempt_count, max_attempts, available_at, last_error, created_at, updated_at
+     ) VALUES ($1,'deadline_check','deal',$2,$3,'failed',10,4,now()-interval '30 minutes','resilience final failure',now()-interval '30 minutes',now()-interval '30 minutes')`,
     [dlqEventId, dealId, JSON.stringify({ deal_id: dealId, resilience_probe: true })]
   );
 
@@ -543,4 +548,3 @@ try {
 }
 
 console.log("Adversarial resilience gate validation passed.");
-

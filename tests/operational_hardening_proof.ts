@@ -67,21 +67,36 @@ async function insertRawOutboxEvent(opts: {
   // Use a fixed aggregate_id that doesn't FK-conflict; outbox_events has no FK on aggregate_id
   const event_uuid = randomUUID();
   const aggregate_id = opts.aggregate_id || randomUUID();
+  const status = opts.status || "pending";
+  const processingStartedAt = status === "processing"
+    ? (opts.processing_started_at || new Date())
+    : (opts.processing_started_at !== undefined ? opts.processing_started_at : null);
+  const claimedAt = status === "processing" ? processingStartedAt : null;
+  const leaseExpiresAt = status === "processing" && processingStartedAt
+    ? new Date(processingStartedAt.getTime() + WORKER_STUCK_TIMEOUT_MS)
+    : null;
+  const seededWorkerId = status === "processing" ? "operational-hardening-seeded-worker" : null;
+  const leaseGeneration = status === "processing" ? 1 : 0;
   await q(
     `INSERT INTO siton.outbox_events
        (event_uuid, event_type, aggregate_type, aggregate_id, payload, status,
-        attempt_count, available_at, processing_started_at, last_error, sent)
-     VALUES ($1,$2,$3,$4,'{}', $5, $6, $7, $8, $9, false)`,
+        attempt_count, available_at, processing_started_at, last_error, sent,
+        worker_id, lease_generation, claimed_at, lease_expires_at, last_heartbeat_at)
+     VALUES ($1,$2,$3,$4,'{}', $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $12)`,
     [
       event_uuid,
       opts.event_type || "deadline_check",
       opts.aggregate_type || "deal",
       aggregate_id,
-      opts.status || "pending",
+      status,
       opts.attempt_count ?? 0,
       opts.available_at !== undefined ? opts.available_at : new Date(),
-      opts.processing_started_at !== undefined ? opts.processing_started_at : null,
+      processingStartedAt,
       opts.last_error !== undefined ? opts.last_error : null,
+      seededWorkerId,
+      leaseGeneration,
+      claimedAt,
+      leaseExpiresAt,
     ]
   );
   return event_uuid;
@@ -190,7 +205,7 @@ async function scenarioR1() {
       fail("R1.status_processing", `got status=${afterClaim?.status}`);
     }
 
-    await markOutboxSent(uuid);
+    await markOutboxSent(uuid, claimed.lease_generation);
     const afterSent = await getOutboxEvent(uuid);
     if (afterSent?.status === "sent") {
       pass("R1.status_sent", "status=sent after markOutboxSent");
@@ -247,7 +262,7 @@ async function scenarioR2() {
     const reClaimed = batchAfter.find((e) => e.event_uuid === uuid);
     if (reClaimed) {
       pass("R2.re_claimed", "event successfully re-claimed after reclaim");
-      await markOutboxSent(uuid);
+      await markOutboxSent(uuid, reClaimed.lease_generation);
     } else {
       fail("R2.re_claimed", "event not in batch after reclaim");
     }
@@ -301,9 +316,8 @@ async function scenarioR3() {
         continue;
       }
 
-      const currentAttempt = Number(ev.attempt_count);
       // Fail it — this increments attempt_count or DLQs
-      await markOutboxFailed(ev.event_uuid, currentAttempt, new Error("simulated failure"));
+      await markOutboxFailed(ev.event_uuid, ev.lease_generation, new Error("simulated failure"));
 
       const row = await getOutboxEvent(uuid);
       if (row?.location === "dlq") {
@@ -347,20 +361,19 @@ async function scenarioR4() {
   try {
     const batch = await claimOutboxBatch(5);
     const ev = batch.find((e) => e.event_uuid === uuid);
-    if (!ev) {
-      fail("R4.claim", "event not claimed");
-      return;
-    }
-    pass("R4.claim", `claimed with attempt_count=${ev.attempt_count}`);
+    if (ev) fail("R4.never_claimed", `exhausted event was incorrectly claimed at attempt_count=${ev.attempt_count}`);
+    else pass("R4.never_claimed", "already-exhausted pending event was never claimed");
 
-    // Simulate a failure — should go directly to DLQ
-    await markOutboxFailed(uuid, Number(ev.attempt_count), new Error("failure at max"));
-
-    const result = await getOutboxEvent(uuid);
-    if (result?.location === "dlq") {
-      pass("R4.dlq_immediate", `event at max_attempts immediately in DLQ`);
+    // The sweep must archive at-cap work before any handler can claim it.
+    const active = await q(`SELECT count(*)::int AS count FROM siton.outbox_events WHERE event_uuid=$1`, [uuid]);
+    const archived = await q(`SELECT status, attempt_count FROM siton.outbox_dlq WHERE event_uuid=$1`, [uuid]);
+    if (active.rows[0].count === 0 && archived.rowCount === 1 && archived.rows[0].status === "failed") {
+      pass("R4.dlq_only", "event at max_attempts exists only in DLQ");
     } else {
-      fail("R4.dlq_immediate", `location=${result?.location} status=${result?.status}`);
+      fail(
+        "R4.dlq_only",
+        `active=${active.rows[0].count} dlq=${archived.rowCount} status=${archived.rows[0]?.status}`
+      );
     }
   } finally {
     await cleanupTestEvents([uuid]);
@@ -403,7 +416,7 @@ async function scenarioR5() {
       }
       emptyBatches = 0;
       for (const ev of mine) {
-        await markOutboxSent(ev.event_uuid);
+        await markOutboxSent(ev.event_uuid, ev.lease_generation);
         processed++;
       }
     }
@@ -458,7 +471,10 @@ async function scenarioR6() {
       const [r1, r2] = await Promise.all([
         c1.query(
           `UPDATE siton.outbox_events
-           SET status='processing', processing_started_at=now(), updated_at=now()
+           SET status='processing', processing_started_at=clock_timestamp(), claimed_at=clock_timestamp(),
+               lease_expires_at=clock_timestamp()+interval '30 seconds', worker_id='r6-worker-1',
+               last_heartbeat_at=clock_timestamp(), attempt_count=attempt_count+1,
+               lease_generation=lease_generation+1, updated_at=clock_timestamp()
            WHERE event_uuid IN (
              SELECT event_uuid FROM siton.outbox_events
              WHERE status='pending' AND event_uuid=$1
@@ -470,7 +486,10 @@ async function scenarioR6() {
         ),
         c2.query(
           `UPDATE siton.outbox_events
-           SET status='processing', processing_started_at=now(), updated_at=now()
+           SET status='processing', processing_started_at=clock_timestamp(), claimed_at=clock_timestamp(),
+               lease_expires_at=clock_timestamp()+interval '30 seconds', worker_id='r6-worker-2',
+               last_heartbeat_at=clock_timestamp(), attempt_count=attempt_count+1,
+               lease_generation=lease_generation+1, updated_at=clock_timestamp()
            WHERE event_uuid IN (
              SELECT event_uuid FROM siton.outbox_events
              WHERE status='pending' AND event_uuid=$1
@@ -537,7 +556,7 @@ async function scenarioR7() {
     fail("R7.dlq_schema", `missing columns: ${missing.join(", ")}`);
   }
 
-  // Verify actual DLQ flow: insert event at max, fail it → should land in DLQ
+  // Verify actual DLQ flow: an event already at max is swept without a claim.
   const uuid = await insertRawOutboxEvent({
     status: "pending",
     attempt_count: OUTBOX_MAX_ATTEMPTS,
@@ -546,16 +565,14 @@ async function scenarioR7() {
   try {
     const batch = await claimOutboxBatch(5);
     const ev = batch.find((e) => e.event_uuid === uuid);
-    if (!ev) {
-      fail("R7.dlq_flow", "event not claimed");
-      return;
-    }
-    await markOutboxFailed(uuid, OUTBOX_MAX_ATTEMPTS, new Error("force to dlq"));
-    const result = await getOutboxEvent(uuid);
-    if (result?.location === "dlq") {
-      pass("R7.dlq_flow", "event correctly moved to DLQ after exhausted retries");
+    if (ev) fail("R7.exhausted_never_claimed", `event was incorrectly claimed at attempt_count=${ev.attempt_count}`);
+    else pass("R7.exhausted_never_claimed", "exhausted pending event was not claimed");
+    const active = await q(`SELECT count(*)::int AS count FROM siton.outbox_events WHERE event_uuid=$1`, [uuid]);
+    const archived = await q(`SELECT status FROM siton.outbox_dlq WHERE event_uuid=$1`, [uuid]);
+    if (active.rows[0].count === 0 && archived.rowCount === 1 && archived.rows[0].status === "failed") {
+      pass("R7.dlq_flow", "exhausted pending event exists only in DLQ");
     } else {
-      fail("R7.dlq_flow", `location=${result?.location} status=${result?.status}`);
+      fail("R7.dlq_flow", `active=${active.rows[0].count} dlq=${archived.rowCount}`);
     }
   } finally {
     await cleanupTestEvents([uuid]);
@@ -570,7 +587,7 @@ async function scenarioR7() {
       fail("R7.permanent_fail_dlq", "event not claimed");
       return;
     }
-    await markOutboxFailed(uuid2, 0, new PermanentFailError("permanent"));
+    await markOutboxFailed(uuid2, ev.lease_generation, new PermanentFailError("permanent"));
     const result = await getOutboxEvent(uuid2);
     if (result?.location === "dlq") {
       pass("R7.permanent_fail_dlq", "PermanentFailError moves event immediately to DLQ (attempt_count=0)");
@@ -712,9 +729,9 @@ async function scenarioR10() {
       for (const ev of mine) {
         // Vary behaviour: 80% success, 20% fail at attempt_count
         if (ev.attempt_count < OUTBOX_MAX_ATTEMPTS - 1 && Math.random() < 0.2) {
-          await markOutboxFailed(ev.event_uuid, Number(ev.attempt_count), new Error("soak test fail"));
+          await markOutboxFailed(ev.event_uuid, ev.lease_generation, new Error("soak test fail"));
         } else {
-          await markOutboxSent(ev.event_uuid);
+          await markOutboxSent(ev.event_uuid, ev.lease_generation);
           processed++;
         }
       }

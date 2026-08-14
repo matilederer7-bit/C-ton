@@ -48,7 +48,8 @@ await runTest("in_memory_state_inventory_validation", async () => {
 await runTest("worker_claim_parallel_safety_validation", async () => {
   assert.match(outboxHelpers, /FOR UPDATE SKIP LOCKED/);
   assert.match(outboxHelpers, /status='processing'/);
-  assert.match(outboxHelpers, /processing_started_at=now\(\)/);
+  assert.match(outboxHelpers, /processing_started_at=clock_timestamp\(\)/);
+  assert.match(outboxHelpers, /lease_expires_at > clock_timestamp\(\)/);
 });
 
 await runTest("auth_session_not_memory_backed_validation", async () => {

@@ -74,10 +74,13 @@ try {
 
   const owned = claimed[0];
   assert.ok(owned);
-  await workers[1]!.markOutboxSent(owned.event_uuid);
+  await assert.rejects(
+    workers[1]!.markOutboxSent(owned.event_uuid, owned.lease_generation),
+    /outbox lease lost/
+  );
   let state = await pool.query(`SELECT status,worker_id FROM siton.outbox_events WHERE event_uuid=$1`, [owned.event_uuid]);
   assert.equal(state.rows[0].status, "processing");
-  await workers[0]!.markOutboxSent(owned.event_uuid);
+  await workers[0]!.markOutboxSent(owned.event_uuid, owned.lease_generation);
   state = await pool.query(`SELECT status,worker_id FROM siton.outbox_events WHERE event_uuid=$1`, [owned.event_uuid]);
   assert.equal(state.rows[0].status, "sent");
   console.log("PASS only the lease owner can mark a job complete");
@@ -85,8 +88,9 @@ try {
   const leaseId = await insertEvent();
   created.push(leaseId);
   const shortOwner = helper("short-owner", 5_000);
-  assert.ok(await shortOwner.claimOutboxEventById(leaseId));
-  assert.equal(await shortOwner.heartbeatOutboxLease(leaseId), true);
+  const shortClaim = await shortOwner.claimOutboxEventById(leaseId);
+  assert.ok(shortClaim);
+  assert.equal(await shortOwner.heartbeatOutboxLease(leaseId, shortClaim.lease_generation), true);
   assert.equal(await workers[1]!.reclaimStuckProcessing(60_000), 0);
   await pool.query(`UPDATE siton.outbox_events SET lease_expires_at=now()-interval '1 second' WHERE event_uuid=$1`, [leaseId]);
   assert.equal(await workers[1]!.reclaimStuckProcessing(60_000), 1);
@@ -100,7 +104,8 @@ try {
   const dlqOwner = helper("dlq-owner", 30_000, 3);
   const finalAttempt = await dlqOwner.claimOutboxEventById(dlqId);
   assert.equal(finalAttempt?.attempt_count, 3);
-  await dlqOwner.markOutboxFailed(dlqId, 3, new Error("bounded_failure"));
+  assert.ok(finalAttempt);
+  await dlqOwner.markOutboxFailed(dlqId, finalAttempt.lease_generation, new Error("bounded_failure"));
   assert.equal((await pool.query(`SELECT COUNT(*)::int AS count FROM siton.outbox_events WHERE event_uuid=$1`, [dlqId])).rows[0].count, 0);
   const dlq = await pool.query(`SELECT attempt_count,last_error FROM siton.outbox_dlq WHERE event_uuid=$1`, [dlqId]);
   assert.equal(dlq.rows[0].attempt_count, 3);
