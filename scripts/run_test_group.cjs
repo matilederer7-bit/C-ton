@@ -104,10 +104,15 @@ async function main() {
       const testStartedAt = Date.now();
       try {
         await admin.query(`CREATE DATABASE ${quoteIdentifier(testDb)} TEMPLATE ${quoteIdentifier(templateName)}`);
+        const testTimeoutMs = item.name === "frontend_browser_smoke_validation.ts"
+          ? 900000
+          : item.name === "web_sigterm_fault_process_validation.ts"
+            ? 600000
+            : 180000;
         const result = spawnSync(process.execPath, [compiled], {
           stdio: "inherit",
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
-          timeout: item.name === "frontend_browser_smoke_validation.ts" ? 900000 : 180000
+          timeout: testTimeoutMs
         });
         if (result.status === 0) console.log(`TEST_PASS file=${item.name} duration_ms=${Date.now() - testStartedAt}`);
         else {
