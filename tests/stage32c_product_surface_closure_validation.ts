@@ -153,6 +153,17 @@ async function main() {
     }
   });
 
+  await run("admin overview omnisearch keeps heterogeneous states text-safe", async () => {
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/admin/overview?q=${encodeURIComponent(dealId)}`
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    const body = response.json() as any;
+    assert.equal(body.q, dealId);
+    assert.ok(body.admin_surface.search_results.some((item: any) => item.entity_type === "deal" && item.entity_id === dealId));
+  });
+
   await run("frontend closes distributor navigation, performance, assets and admin hierarchy", () => {
     for (const marker of ["affiliate-dashboard", "affiliate-links", "affiliate-performance", "affiliate-assets", "marketing-assets-grid"]) {
       assert.match(frontend, new RegExp(marker));

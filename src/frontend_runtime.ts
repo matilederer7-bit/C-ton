@@ -4048,11 +4048,11 @@ export function registerFrontendExperience(
 
       const search = q
         ? await c.query(
-            `SELECT 'deal' AS entity_type, d.deal_id::text AS entity_id, d.title AS headline, d.state AS state, NULL::text AS detail
+            `SELECT 'deal' AS entity_type, d.deal_id::text AS entity_id, d.title AS headline, d.state::text AS state, NULL::text AS detail
              FROM siton.deals d
              WHERE d.deal_id::text ILIKE '%' || $1 || '%' OR d.title ILIKE '%' || $1 || '%'
              UNION ALL
-             SELECT 'participant' AS entity_type, p.participant_id::text AS entity_id, p.buyer_id AS headline, p.buyer_state AS state, p.deal_id::text AS detail
+             SELECT 'participant' AS entity_type, p.participant_id::text AS entity_id, p.buyer_id AS headline, p.buyer_state::text AS state, p.deal_id::text AS detail
              FROM siton.participants p
              WHERE p.participant_id::text ILIKE '%' || $1 || '%' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.deal_id::text ILIKE '%' || $1 || '%'
              ORDER BY entity_type, headline

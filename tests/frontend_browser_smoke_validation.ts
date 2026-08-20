@@ -807,8 +807,9 @@ async function assertSellerCreateDomFlowContract() {
   });
 }
 
-async function assertBuyerDomFlowAndSafeResume(dealId: string) {
-  return withCdp(`/app/deal/${dealId}`, async ({ evaluate, navigate, setViewport }) => {
+async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = "") {
+  const initialPath = `/app/deal/${dealId}${affiliateRef ? `?ref=${encodeURIComponent(affiliateRef)}` : ""}`;
+  return withCdp(initialPath, async ({ evaluate, navigate, setViewport }) => {
     await setViewport({ width: 390, height: 844 });
     for (let attempt = 0; attempt < 60; attempt += 1) {
       if (await evaluate(`Boolean(document.querySelector('form[data-action="start-join"]'))`)) break;
@@ -839,6 +840,7 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string) {
       return raw;
     })()`);
     assert.match(String(persisted), new RegExp(dealId));
+    if (affiliateRef) assert.match(String(persisted), new RegExp(escapeRegex(affiliateRef)), "safe resume should retain the non-sensitive attribution source");
     assert.doesNotMatch(String(persisted), /phone|otp|buyerId|participantId|tracking|authorization|payment/i, "safe resume must exclude sensitive/transient buyer data");
 
     await navigate(`/app/join/${dealId}/otp`);
@@ -930,7 +932,7 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string) {
 }
 
 async function assertAffiliateDomFlowContract(dealId: string) {
-  await withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
+  return withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
     await setViewport({ width: 390, height: 844 });
     for (let attempt = 0; attempt < 60; attempt += 1) {
       if (await evaluate(`Boolean(document.querySelector('form[data-action="affiliate-link-create"]'))`)) break;
@@ -970,6 +972,120 @@ async function assertAffiliateDomFlowContract(dealId: string) {
     assert.match(String(snapshot.text), /עמלת מפיץ היא 0/);
     assert.doesNotMatch(String(snapshot.text), /יתרה זמינה|משיכת כספים|payout available/i);
     assert.ok(snapshot.overflow <= 1, `mobile affiliate workspace should not overflow horizontally: ${JSON.stringify(snapshot)}`);
+    const sourceCode = await evaluate(`(() => {
+      const heading = [...document.querySelectorAll('.affiliate-link-list h3')].find((node) => node.textContent === '${internalName}');
+      const card = heading?.closest('.summary-item');
+      const sharePath = card?.querySelector('[data-share-url]')?.getAttribute('data-share-url') || '';
+      return new URL(sharePath, location.origin).searchParams.get('ref') || '';
+    })()`);
+    assert.match(String(sourceCode), /^[a-z0-9][a-z0-9_-]{7,63}$/);
+    return { internalName, sourceCode: String(sourceCode) };
+  });
+}
+
+async function assertAffiliateAttributedMetrics(internalName: string, sourceCode: string) {
+  await withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    let snapshot: any = null;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await wait(250);
+      snapshot = await evaluate(`(async () => {
+        const response = await fetch('/api/affiliate/overview');
+        const payload = await response.json();
+        const link = (payload.affiliate_surface?.links || []).find((item) => item.source_code === '${sourceCode}');
+        const row = [...document.querySelectorAll('.affiliate-performance-table tbody tr')]
+          .find((node) => node.textContent?.includes('${internalName}'));
+        return {
+          attributedBuyers: Number(link?.attributed_buyers || 0),
+          attributedUnits: Number(link?.attributed_units || 0),
+          conversionRate: Number(link?.conversion_rate || 0),
+          rowVisible: Boolean(row),
+          rowText: row?.textContent || '',
+          overflow: document.documentElement.scrollWidth - window.innerWidth
+        };
+      })()`);
+      if (snapshot.attributedBuyers >= 1 && snapshot.rowVisible) break;
+    }
+    assert.equal(snapshot.attributedBuyers, 1, `the named source should receive the browser join attribution: ${JSON.stringify(snapshot)}`);
+    assert.equal(snapshot.attributedUnits, 2, "the named source should receive the browser-selected quantity");
+    assert.ok(snapshot.conversionRate > 0, "named-link performance should expose a non-zero conversion after the attributed join");
+    assert.match(String(snapshot.rowText), new RegExp(escapeRegex(internalName)));
+    assert.ok(snapshot.overflow <= 1, `attributed metrics should not overflow on mobile: ${JSON.stringify(snapshot)}`);
+  });
+}
+
+async function assertSellerClosedDealBrowserState(dealId: string) {
+  await withCdp("/app/seller", async ({ evaluate, navigate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`document.body.innerText.includes('Closed browser fixture')`)) break;
+      await wait(250);
+    }
+    const dashboard = await evaluate(`(() => ({
+      titleVisible: document.body.innerText.includes('Closed browser fixture'),
+      businessStateVisible: document.body.innerText.includes('חלון ההצטרפות נסגר'),
+      overflow: document.documentElement.scrollWidth - window.innerWidth
+    }))()`);
+    assert.equal(dashboard.titleVisible, true, "seller dashboard should list the closed deal");
+    assert.equal(dashboard.businessStateVisible, true, "seller dashboard should use the closed business-state label");
+    assert.ok(dashboard.overflow <= 1, `closed seller card should not overflow on mobile: ${JSON.stringify(dashboard)}`);
+
+    await navigate(`/app/seller/deals/${dealId}`);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('.cton-seller-live'))`)) break;
+      await wait(250);
+    }
+    const detail = await evaluate(`(async () => {
+      const response = await fetch('/api/seller/deals/${dealId}');
+      const payload = await response.json();
+      return {
+        state: payload.deal?.state,
+        titleVisible: document.body.innerText.includes('Closed browser fixture'),
+        businessStateVisible: document.body.innerText.includes('חלון ההצטרפות נסגר'),
+        overflow: document.documentElement.scrollWidth - window.innerWidth
+      };
+    })()`);
+    assert.equal(detail.state, "ClosedForJoining");
+    assert.equal(detail.titleVisible, true, "seller closed-deal detail should render the deal title");
+    assert.equal(detail.businessStateVisible, true, "seller closed-deal detail should render the business-state label");
+    assert.ok(detail.overflow <= 1, `closed seller detail should not overflow on mobile: ${JSON.stringify(detail)}`);
+  });
+}
+
+async function assertAdminOmnisearchBrowserFlow(dealId: string) {
+  await withCdp("/app/admin", async ({ evaluate, setViewport }) => {
+    await setViewport({ width: 1440, height: 1100 });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('#adminMissionQuery'))`)) break;
+      await wait(250);
+    }
+    await evaluate(`(() => {
+      const input = document.querySelector('#adminMissionQuery');
+      if (!input) throw new Error('admin omnisearch input missing');
+      input.value = '${dealId}';
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      input.closest('form').requestSubmit();
+      return true;
+    })()`);
+    let snapshot: any = null;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await wait(250);
+      snapshot = await evaluate(`(() => ({
+          result: Boolean(document.querySelector('a[href="/app/admin/deals/${dealId}"]')),
+          resultTitle: document.body.innerText.includes('Closed browser fixture'),
+          queryValue: document.querySelector('#adminMissionQuery')?.value || document.querySelector('#adminQuery')?.value || '',
+          audit: document.body.innerText.includes('Audit & Forensics'),
+          system: Boolean(document.querySelector('#admin-system')),
+          overflow: document.documentElement.scrollWidth - window.innerWidth
+      }))()`);
+      if (snapshot.result) break;
+    }
+    assert.equal(snapshot.result, true, `admin omnisearch should link to the requested deal profile: ${JSON.stringify(snapshot)}`);
+    assert.equal(snapshot.resultTitle, true, "admin omnisearch should render the matching deal title");
+    assert.equal(snapshot.queryValue, dealId, "admin omnisearch should retain the submitted canonical identifier");
+    assert.equal(snapshot.audit, true, "admin dashboard should expose Audit & Forensics");
+    assert.equal(snapshot.system, true, "admin dashboard should expose System Status");
+    assert.ok(snapshot.overflow <= 1, `admin search results should not overflow horizontally: ${JSON.stringify(snapshot)}`);
   });
 }
 
@@ -1106,8 +1222,9 @@ async function main() {
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
-    await run("distributor creates a named attribution link and sees performance/assets at 390px", () => assertAffiliateDomFlowContract(created.deal_id));
-    const joined = await run("buyer completes public, OTP, mock authorization, confirmation, tracking and safe resume at 390px", () => assertBuyerDomFlowAndSafeResume(created.deal_id));
+    const affiliateLink = await run("distributor creates a named attribution link and sees performance/assets at 390px", () => assertAffiliateDomFlowContract(created.deal_id));
+    const joined = await run("buyer opens the attributed deal and completes OTP, mock authorization, confirmation, tracking and safe resume at 390px", () => assertBuyerDomFlowAndSafeResume(created.deal_id, affiliateLink.sourceCode));
+    await run("distributor sees the browser join attributed to the named link", () => assertAffiliateAttributedMetrics(affiliateLink.internalName, affiliateLink.sourceCode));
 
     const soldOutDeal = await createDeal("Sold out browser fixture", { minUnits: 1, maxUnits: 1 });
     await publishDeal(soldOutDeal.deal_id);
@@ -1117,6 +1234,8 @@ async function main() {
     await createJoinedParticipant(closedDeal.deal_id, 1);
     await closeJoining(closedDeal.deal_id);
     await run("buyer sold-out and closed states disable joining at 390px", () => assertUnavailableBuyerStates(soldOutDeal.deal_id, closedDeal.deal_id));
+    await run("seller sees the closed deal and business-state detail at 390px", () => assertSellerClosedDealBrowserState(closedDeal.deal_id));
+    await run("admin omnisearch reaches the deal profile and keeps audit/system status visible", () => assertAdminOmnisearchBrowserFlow(closedDeal.deal_id));
     await run("buyer failed-recovery state and safe retry failure render at 390px", assertFailedRecoveryBrowserState);
 
     const desktopRoutes: SmokeRoute[] = [
@@ -1250,6 +1369,11 @@ async function main() {
         name: "not found route",
         path: "/app/does-not-exist",
         expect: ["empty-surface", "shell-main"]
+      },
+      {
+        name: "missing public deal",
+        path: "/app/deal/00000000-0000-0000-0000-000000000000",
+        expect: ["empty-surface", "shell-live-region"]
       },
       {
         name: "missing tracking route",
