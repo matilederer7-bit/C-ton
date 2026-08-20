@@ -6364,7 +6364,7 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "case_reference_or_detailed_description_required" });
     }
 
-    return deps.withTx(async (c) => {
+    const created = await deps.withTx(async (c) => {
       const inserted = await c.query(
         `INSERT INTO siton.operational_cases
            (case_type, status, priority, source, deal_id, seller_id, participant_id, buyer_ref,
@@ -6391,8 +6391,9 @@ export function registerFrontendExperience(
           payload: { no_refund_executed_in_request_thread: true }
         });
       }
-      return reply.code(201).send({ ok: true, case: row });
+      return { ok: true, case: row };
     });
+    return reply.code(201).send(created);
   });
 
   app.patch("/api/admin/support-cases/:caseId", async (req: any, reply: any) => {
