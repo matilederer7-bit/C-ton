@@ -144,18 +144,38 @@ async function main() {
     if (!published.ok) throw new Error(`deal publish failed ${published.status}: ${await published.text()}`);
 
     const buyerRaceReport = await proveTwoWebLastUnitHttp(db);
-    await db.query("UPDATE siton.deals SET deadline=now()-interval '1 minute' WHERE deal_id=$1", [deal.deal_id]);
-    await db.query("UPDATE siton.outbox_events SET available_at=now() WHERE aggregate_id=$1 AND event_type='deadline_check'", [deal.deal_id]);
+    const scheduledDeadlineEvent = await db.query(
+      `UPDATE siton.outbox_events o
+       SET available_at=d.deadline
+       FROM siton.deals d
+       WHERE o.aggregate_id=d.deal_id AND o.aggregate_id=$1 AND o.event_type='deadline_check'
+       RETURNING o.event_uuid`,
+      [deal.deal_id]
+    );
+    if (scheduledDeadlineEvent.rowCount !== 1) throw new Error("publish did not create exactly one deadline event");
+    const expiredWorkerDeal = await db.query(
+      `INSERT INTO siton.deals(title,price_per_unit,min_units,max_units,threshold_units,deadline,seller_id,state,published_at)
+       VALUES ('CI expired worker smoke',10,2,3,2,now()-interval '1 minute','seller-default','PendingTarget',now())
+       RETURNING deal_id`
+    );
+    const workerDealId = expiredWorkerDeal.rows[0].deal_id;
+    await db.query(
+      `INSERT INTO siton.outbox_events(event_type,aggregate_type,aggregate_id,payload,status,attempt_count,available_at)
+       VALUES ('deadline_check','deal',$1,$2,'pending',0,now())`,
+      [workerDealId, JSON.stringify({ deal_id: workerDealId, ci_expired_fixture: true })]
+    );
     docker(["up", "-d", "--wait", "worker"]);
     const result = await waitFor(async () => {
-      const row = await db.query("SELECT status, attempt_count FROM siton.outbox_events WHERE aggregate_id=$1 AND event_type='deadline_check'", [deal.deal_id]);
+      const row = await db.query("SELECT status, attempt_count FROM siton.outbox_events WHERE aggregate_id=$1 AND event_type='deadline_check'", [workerDealId]);
       return row.rows[0]?.status === "sent" ? row.rows[0] : null;
     });
     const heartbeat = await db.query("SELECT status FROM siton.worker_heartbeats WHERE worker_id='ci-worker' AND heartbeat_at>now()-interval '10 seconds'");
-    const audits = await db.query("SELECT COUNT(*)::int AS count FROM siton.audit_log WHERE deal_id=$1 AND action_name='deal.deadline_check'", [deal.deal_id]);
+    const audits = await db.query("SELECT COUNT(*)::int AS count FROM siton.audit_log WHERE deal_id=$1 AND action_name='deal.deadline_check'", [workerDealId]);
+    const workerDeal = await db.query("SELECT state FROM siton.deals WHERE deal_id=$1", [workerDealId]);
     if (heartbeat.rowCount !== 1 || heartbeat.rows[0].status !== "ready") throw new Error("worker heartbeat is not ready");
     if (Number(result.attempt_count) !== 1) throw new Error("outbox job executed more than once");
     if (Number(audits.rows[0].count) !== 1) throw new Error("deadline effect was not exactly once");
+    if (workerDeal.rows[0]?.state !== "Failed") throw new Error("expired worker deal did not transition to Failed");
     const metadata = await db.query("SELECT count(*)::int AS count, count(checksum_sha256)::int AS checksums FROM siton.deal_images WHERE deal_id=$1", [deal.deal_id]);
     if (Number(metadata.rows[0].count) !== 1 || Number(metadata.rows[0].checksums) !== 1) throw new Error("image metadata/checksum persistence failed");
     await db.end();
