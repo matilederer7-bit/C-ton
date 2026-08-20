@@ -3,6 +3,12 @@ import { createHmac } from "node:crypto";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+process.env.ADMIN_API_KEY = "remaining-product-surfaces-admin-key";
+
+const ADMIN_HEADERS = {
+  "x-admin-key": "remaining-product-surfaces-admin-key",
+  "x-admin-user": "remaining-product-surfaces-test"
+};
 
 const { app } = await import("../src/app.js");
 const { pool } = await import("../src/db.js");
@@ -223,7 +229,8 @@ async function main() {
 
     const adminOverview = await app.inject({
       method: "GET",
-      url: "/api/admin/overview?q="
+      url: "/api/admin/overview?q=",
+      headers: ADMIN_HEADERS
     });
     assert.equal(adminOverview.statusCode, 200);
     const adminPayload = adminOverview.json() as any;
@@ -239,6 +246,7 @@ async function main() {
     const approve = await app.inject({
       method: "POST",
       url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
+      headers: ADMIN_HEADERS,
       payload: {
         decision: "approve",
         admin_note: "Approved for internal closure validation"
@@ -252,6 +260,7 @@ async function main() {
     const ticket = await app.inject({
       method: "POST",
       url: "/api/admin/support",
+      headers: ADMIN_HEADERS,
       payload: {
         scope_type: "system",
         scope_key: "closure-pass",
@@ -264,7 +273,8 @@ async function main() {
 
     const adminOverview = await app.inject({
       method: "GET",
-      url: "/api/admin/overview?q="
+      url: "/api/admin/overview?q=",
+      headers: ADMIN_HEADERS
     });
     assert.equal(adminOverview.statusCode, 200);
     const payload = adminOverview.json() as any;
