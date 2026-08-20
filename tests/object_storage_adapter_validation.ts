@@ -37,6 +37,8 @@ assert.deepEqual(await adapter.get(key), content);
 assert.deepEqual(await adapter.metadata(key), { exists: true, size_bytes: content.length, checksum_sha256: checksum, content_type: "image/png" });
 assert.equal(await adapter.exists(key), true);
 assert.deepEqual(await adapter.listKeys("sandbox/deals"), [key]);
+assert.deepEqual(await adapter.listKeys("sandbox/deals/"), [key]);
+assert.deepEqual(await adapter.listKeys(""), [key]);
 await assert.rejects(() => adapter.put(key, content), (error: any) => error.code === "storage_object_exists");
 await adapter.delete(key);
 await adapter.delete(key);

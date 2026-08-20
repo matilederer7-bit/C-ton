@@ -35,6 +35,17 @@ function validateStorageKey(key: string) {
   return normalized;
 }
 
+function validateStoragePrefix(prefix: string) {
+  const normalized = String(prefix || "").replace(/\\/g, "/");
+  if (!normalized) return "";
+  const parts = normalized.split("/");
+  const hasInvalidPart = parts.some((part, index) => part === "." || part === ".." || (!part && index !== parts.length - 1));
+  if (normalized.startsWith("/") || normalized.includes("\0") || hasInvalidPart) {
+    const err: any = new Error("invalid_storage_key"); err.statusCode = 400; err.code = "invalid_storage_key"; throw err;
+  }
+  return normalized;
+}
+
 export class LocalStorageAdapter implements StorageAdapter {
   readonly mode = "local" as const;
   readonly providerCode = "local" as const;
@@ -53,7 +64,7 @@ export class LocalStorageAdapter implements StorageAdapter {
   async exists(key: string) { try { return (await stat(this.resolveSafe(key))).isFile(); } catch { return false; } }
   async metadata(key: string): Promise<StoredObjectMetadata> { await hitTestFault("storage.before_head"); try { const s = await stat(this.resolveSafe(key)); return { exists: s.isFile(), size_bytes: s.size, checksum_sha256: null, content_type: null }; } catch { return { exists: false, size_bytes: null, checksum_sha256: null, content_type: null }; } }
   async delete(key: string) { await hitTestFault("storage.before_delete"); await rm(this.resolveSafe(key), { force: true }); await hitTestFault("storage.after_delete"); }
-  async listKeys(prefix = "", limit = 500) { const keys: string[] = []; const start = prefix ? this.resolveSafe(prefix) : this.root; await this.walk(start, keys, limit); return keys.map((p) => relative(this.root, p).split(sep).join("/")).filter(Boolean); }
+  async listKeys(prefix = "", limit = 500) { const keys: string[] = []; const normalizedPrefix = validateStoragePrefix(prefix); const start = normalizedPrefix ? this.resolveSafe(normalizedPrefix.replace(/\/$/, "")) : this.root; await this.walk(start, keys, limit); return keys.map((p) => relative(this.root, p).split(sep).join("/")).filter(Boolean); }
   private async walk(dir: string, out: string[], limit: number) { if (out.length >= limit) return; let entries: any[] = []; try { entries = await readdir(dir, { withFileTypes: true }); } catch { return; } for (const entry of entries) { if (out.length >= limit) return; const full = join(dir, entry.name); if (entry.isDirectory()) await this.walk(full, out, limit); else if (entry.isFile()) out.push(full); } }
   async fileSize(key: string) { const metadata = await this.metadata(key); return metadata.size_bytes; }
   describeForReadiness(): StorageAdapterSummary { return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: false, scale_blocker_for_multi_instance: true, notes: ["object_storage_required_before_multi_instance", "local filesystem is appropriate for single-instance demo only"], root: this.isProductionLike() ? "<masked>" : this.root }; }
@@ -105,7 +116,7 @@ export class S3CompatibleStorageAdapter implements StorageAdapter {
   async exists(key: string, signal?: AbortSignal) { return (await this.metadata(key, signal)).exists; }
   async delete(key: string, signal?: AbortSignal) { try { await hitTestFault("storage.before_delete"); await this.client.send(new DeleteObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key) }), { abortSignal: this.signal(signal) }); await hitTestFault("storage.after_delete"); } catch (error) { storageError(error, "delete"); } }
   async signedReadUrl(key: string, expiresInSeconds = this.config.signedUrlTtlSeconds) { const ttl = Math.max(1, Math.min(3600, Number(expiresInSeconds || this.config.signedUrlTtlSeconds))); try { return await getSignedUrl(this.client, new GetObjectCommand({ Bucket: this.config.bucket, Key: validateStorageKey(key), ResponseContentDisposition: "inline" }), { expiresIn: ttl }); } catch (error) { storageError(error, "sign"); } }
-  async listKeys(prefix = "", limit = 500) { try { const result = await this.client.send(new ListObjectsV2Command({ Bucket: this.config.bucket, Prefix: prefix ? validateStorageKey(prefix) : undefined, MaxKeys: Math.max(1, Math.min(1000, limit)) }), { abortSignal: this.signal() }); return (result.Contents || []).map((item) => String(item.Key || "")).filter(Boolean); } catch (error) { storageError(error, "list"); } }
+  async listKeys(prefix = "", limit = 500) { try { const normalizedPrefix = validateStoragePrefix(prefix); const result = await this.client.send(new ListObjectsV2Command({ Bucket: this.config.bucket, Prefix: normalizedPrefix || undefined, MaxKeys: Math.max(1, Math.min(1000, limit)) }), { abortSignal: this.signal() }); return (result.Contents || []).map((item) => String(item.Key || "")).filter(Boolean); } catch (error) { storageError(error, "list"); } }
   describeForReadiness(): StorageAdapterSummary { return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: true, scale_blocker_for_multi_instance: false, notes: ["private_bucket_required", "s3_compatible_adapter_configured"], root: null, bucket: "<configured>", region: this.config.region, endpoint_configured: Boolean(this.config.endpoint), signed_url_ttl_seconds: this.config.signedUrlTtlSeconds }; }
 }
 
