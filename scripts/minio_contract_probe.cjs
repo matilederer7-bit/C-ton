@@ -10,7 +10,7 @@ async function main() {
     secretAccessKey: process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY,
     forcePathStyle: true,
     timeoutMs: 1500,
-    signedUrlTtlSeconds: 1
+    signedUrlTtlSeconds: 10
   };
   const adapter = new S3CompatibleStorageAdapter(base);
   const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
@@ -29,10 +29,11 @@ async function main() {
   const unsigned = `${base.endpoint}/${base.bucket}/${key}`;
   const anonymous = await fetch(unsigned);
   if (anonymous.status !== 403) throw new Error(`private bucket anonymous read returned ${anonymous.status}`);
-  const signed = await adapter.signedReadUrl(key, 1);
+  const signed = await adapter.signedReadUrl(key, 10);
   const signedRead = await fetch(signed);
-  if (!signedRead.ok || !Buffer.from(await signedRead.arrayBuffer()).equals(png)) throw new Error("signed read failed");
-  await new Promise((resolve) => setTimeout(resolve, 2100));
+  const signedBody = Buffer.from(await signedRead.arrayBuffer());
+  if (!signedRead.ok || !signedBody.equals(png)) throw new Error(`signed read failed status=${signedRead.status} bytes=${signedBody.length}`);
+  await new Promise((resolve) => setTimeout(resolve, 11100));
   const expired = await fetch(signed);
   if (expired.status !== 403) throw new Error(`expired signed URL returned ${expired.status}`);
 
