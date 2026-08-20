@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { app } from "../src/app.js";
+
+process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.ADMIN_API_KEY = "stage32c-product-surface-admin-key";
+
+const ADMIN_HEADERS = { "x-admin-key": "stage32c-product-surface-admin-key" };
+const { app } = await import("../src/app.js");
 
 async function run(name: string, fn: () => Promise<void> | void) {
   try {
@@ -156,7 +162,8 @@ async function main() {
   await run("admin overview omnisearch keeps heterogeneous states text-safe", async () => {
     const response = await app.inject({
       method: "GET",
-      url: `/api/admin/overview?q=${encodeURIComponent(dealId)}`
+      url: `/api/admin/overview?q=${encodeURIComponent(dealId)}`,
+      headers: ADMIN_HEADERS
     });
     assert.equal(response.statusCode, 200, response.body);
     const body = response.json() as any;

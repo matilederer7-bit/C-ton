@@ -37,13 +37,11 @@ jobs:
     env:
       CI: "true"
       NODE_ENV: test
-      APP_DEPLOYMENT_MODE: test
       DISABLE_OUTBOX_WORKER: "1"
       DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
       PAYMENT_PROVIDER: mockpay
       PAYMENT_PROVIDER_MODE: mock-backed
       PAYMENT_WEBHOOK_SECRET: ci-placeholder-only
-      ADMIN_API_KEY: ci-placeholder-only
 
     steps:
       - uses: actions/checkout@v4

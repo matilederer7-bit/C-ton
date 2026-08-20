@@ -19,6 +19,9 @@ const { Pool } = pg;
 process.env.PORT = String(process.env.PORT || "3399");
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.ADMIN_API_KEY = "deal-ops-summary-admin-key";
+
+const ADMIN_HEADERS = { "x-admin-key": "deal-ops-summary-admin-key" };
 
 const { app } = await import("../src/app.js");
 
@@ -103,7 +106,7 @@ async function run(name: string, fn: () => Promise<void>) {
 // ─── X1: 404 on unknown deal ──────────────────────────────────────────────────
 
 await run("X1 — 404 on unknown deal_id", async () => {
-  const res = await app.inject({ method: "GET", url: `/api/admin/deals/${randomUUID()}/ops-summary` });
+  const res = await app.inject({ method: "GET", url: `/api/admin/deals/${randomUUID()}/ops-summary`, headers: ADMIN_HEADERS });
   assert.equal(res.statusCode, 404, `expected 404, got ${res.statusCode}`);
   const body = JSON.parse(res.body);
   assert.ok(body.message || body.error, "should have error message");
@@ -128,7 +131,7 @@ await run("X2 — correct bucket counts with participants + notifications + invo
     await insertInvoiceDoc(dealId, p1, "issued");
     await insertInvoiceDoc(dealId, p2, "pending");
 
-    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary` });
+    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary`, headers: ADMIN_HEADERS });
     assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
     const body = JSON.parse(res.body);
     assert.equal(body.ok, true);
@@ -168,7 +171,7 @@ await run("X3 — failed notification is NOT counted as sent", async () => {
     await insertParticipant(p1, dealId, "DealCompleted");
     await insertNotification(dealId, p1, "failed");  // failed, not sent
 
-    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary` });
+    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary`, headers: ADMIN_HEADERS });
     const body = JSON.parse(res.body);
 
     assert.equal(body.notifications.sent,   0, `sent should be 0, got ${body.notifications.sent}`);
@@ -190,7 +193,7 @@ await run("X4 — failed invoice is NOT counted as issued", async () => {
     await insertParticipant(p1, dealId, "DealCompleted");
     await insertInvoiceDoc(dealId, p1, "failed");  // failed, not issued
 
-    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary` });
+    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary`, headers: ADMIN_HEADERS });
     const body = JSON.parse(res.body);
 
     assert.equal(body.invoice_documents.issued, 0, `issued should be 0, got ${body.invoice_documents.issued}`);
@@ -209,7 +212,7 @@ await run("X5 — empty deal (no participants/notifications/invoices) does not c
   try {
     await insertDeal(dealId, "Empty Deal");
 
-    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary` });
+    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary`, headers: ADMIN_HEADERS });
     assert.equal(res.statusCode, 200, `expected 200, got ${res.statusCode}: ${res.body}`);
     const body = JSON.parse(res.body);
     assert.equal(body.ok, true);
@@ -244,7 +247,7 @@ await run("X6 — by_channel and by_type split is correct", async () => {
     await insertInvoiceDoc(dealId, p1, "issued",  "charge_receipt");
     await insertInvoiceDoc(dealId, p2, "failed",  "refund_receipt");
 
-    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary` });
+    const res = await app.inject({ method: "GET", url: `/api/admin/deals/${dealId}/ops-summary`, headers: ADMIN_HEADERS });
     const body = JSON.parse(res.body);
     assert.equal(res.statusCode, 200);
 

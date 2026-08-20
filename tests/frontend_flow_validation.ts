@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 
 // Keep this frontend-flow validation isolated from background deadline/outbox work.
 process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 
 const { app } = await import("../src/app.js");
 
