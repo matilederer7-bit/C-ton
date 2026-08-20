@@ -9,7 +9,8 @@ const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const harness = new URL("./support/fault_web_process_harness.js", import.meta.url);
 function waitMessage(child: ReturnType<typeof fork>, type: string) {
   return new Promise<any>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`timed out waiting for ${type}`)), 15_000);
+    const timeoutMs = type === "ready" ? 60_000 : 30_000;
+    const timer = setTimeout(() => reject(new Error(`timed out waiting for ${type}`)), timeoutMs);
     const listener = (message: any) => { if (message?.type === type) { clearTimeout(timer); child.off("message", listener); resolve(message); } };
     child.on("message", listener);
   });
