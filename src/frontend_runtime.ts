@@ -7475,7 +7475,7 @@ export function registerFrontendExperience(
     if (!internalName || internalName.length > 80) {
       return reply.code(400).send({ error: "affiliate_link_name_invalid" });
     }
-    return deps.withTx(async (c) => {
+    const result = await deps.withTx(async (c) => {
       const affiliate = await c.query(
         `SELECT affiliate_id, affiliate_code FROM siton.affiliate_accounts WHERE affiliate_code=$1 LIMIT 1`,
         [DEFAULT_AFFILIATE_CODE]
@@ -7485,9 +7485,9 @@ export function registerFrontendExperience(
         `SELECT deal_id, state FROM siton.deals WHERE deal_id=$1 LIMIT 1`,
         [dealId]
       );
-      if (!deal.rows[0]) return reply.code(404).send({ error: "deal_not_found" });
+      if (!deal.rows[0]) return { status: 404, body: { error: "deal_not_found" } };
       if (!["PendingTarget", "TargetReached"].includes(String(deal.rows[0].state))) {
-        return reply.code(409).send({ error: "affiliate_link_deal_not_shareable" });
+        return { status: 409, body: { error: "affiliate_link_deal_not_shareable" } };
       }
       const prefix = String(profile.affiliate_code || "distributor").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 32) || "distributor";
       const sourceCode = `${prefix}-${randomBytes(6).toString("hex")}`;
@@ -7499,20 +7499,24 @@ export function registerFrontendExperience(
           [profile.affiliate_id, dealId, internalName, sourceCode]
         );
         const row = inserted.rows[0] as any;
-        return reply.code(201).send({
-          ok: true,
-          link: {
-            ...row,
-            share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
+        return {
+          status: 201,
+          body: {
+            ok: true,
+            link: {
+              ...row,
+              share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
+            }
           }
-        });
+        };
       } catch (error: any) {
         if (String(error?.code || "") === "23505") {
-          return reply.code(409).send({ error: "affiliate_link_name_exists" });
+          return { status: 409, body: { error: "affiliate_link_name_exists" } };
         }
         throw error;
       }
     });
+    return reply.code(result.status).send(result.body);
   });
 
   app.post("/api/affiliate/links/visit", async (req: any, reply: any) => {
