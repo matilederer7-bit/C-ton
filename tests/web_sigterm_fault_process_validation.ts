@@ -35,8 +35,10 @@ async function run(point: "web.request.before_commit" | "web.request.after_commi
 }
 try {
   for (let runIndex = 0; runIndex < 10; runIndex += 1) {
-    await run("web.request.before_commit", runIndex);
-    await run("web.request.after_commit", runIndex);
+    await Promise.all([
+      run("web.request.before_commit", runIndex),
+      run("web.request.after_commit", runIndex)
+    ]);
   }
 } finally { await pool.end(); }
 console.log("PASS real Web processes handle SIGTERM before/after commit deterministically across 10 runs");
