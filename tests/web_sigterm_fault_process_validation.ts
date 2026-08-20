@@ -56,7 +56,7 @@ async function stopChild(child: ReturnType<typeof fork>) {
       forceTimer = setTimeout(() => {
         if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
         resolve();
-      }, 5_000);
+      }, 30_000);
     })
   ]);
   if (forceTimer) clearTimeout(forceTimer);
