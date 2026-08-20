@@ -29,10 +29,11 @@ type SmokeRoute = {
   expect: string[];
 };
 
-async function run(name: string, fn: () => Promise<void>) {
+async function run<T>(name: string, fn: () => Promise<T>): Promise<T> {
   try {
-    await fn();
+    const result = await fn();
     console.log(`PASS ${name}`);
+    return result;
   } catch (error) {
     console.error(`FAIL ${name}`);
     throw error;
@@ -65,11 +66,12 @@ async function waitForHealth(getServerLog?: () => string) {
 type CdpSession = {
   evaluate: (expression: string) => Promise<any>;
   navigate: (path: string) => Promise<void>;
+  setViewport: (viewport: { width: number; height: number }) => Promise<void>;
 };
 
 async function captureCanonicalDom(cdp: CdpSession, path: string, viewport: { width: number; height: number }, expected: string[], navigate: boolean) {
   if (navigate) await cdp.navigate(path);
-  await cdp.evaluate(`(() => { window.resizeTo(${viewport.width}, ${viewport.height}); return true; })()`);
+  await cdp.setViewport(viewport);
   let lastSnapshot: any = null;
   for (let attempt = 0; attempt < 60; attempt += 1) {
     const snapshot = await cdp.evaluate(`(() => ({
@@ -80,10 +82,26 @@ async function captureCanonicalDom(cdp: CdpSession, path: string, viewport: { wi
     lastSnapshot = snapshot;
     const html = String(snapshot?.html || "");
     const rendered = path.startsWith("/legal/") ? html.includes("<main") : snapshot?.appChildren > 0;
-    if (rendered && !html.includes("main-frame-error") && expected.every((text) => html.includes(text))) return html;
+    if (rendered && !html.includes("main-frame-error") && expected.every((text) => html.includes(text))) {
+      const layout = await cdp.evaluate(`(() => ({
+        viewportWidth: window.innerWidth,
+        documentWidth: document.documentElement.scrollWidth,
+        direction: document.documentElement.dir || getComputedStyle(document.documentElement).direction
+      }))()`);
+      assert.equal(layout.viewportWidth, viewport.width, `${path} should render at the requested viewport width`);
+      assert.ok(layout.documentWidth <= layout.viewportWidth + 1, `${path} should not create horizontal page overflow: ${JSON.stringify(layout)}`);
+      assert.equal(layout.direction, "rtl", `${path} should keep canonical RTL direction`);
+      return html;
+    }
     await wait(100);
   }
-  throw new Error(`frontend route did not reach its canonical DOM state for ${path}: ${JSON.stringify({ href: lastSnapshot?.href, appChildren: lastSnapshot?.appChildren, html: String(lastSnapshot?.html || "").slice(0, 1200) })}`);
+  const finalHtml = String(lastSnapshot?.html || "");
+  throw new Error(`frontend route did not reach its canonical DOM state for ${path}: ${JSON.stringify({
+    href: lastSnapshot?.href,
+    appChildren: lastSnapshot?.appChildren,
+    missing: expected.filter((text) => !finalHtml.includes(text)),
+    html: finalHtml.slice(0, 1200)
+  })}`);
 }
 
 async function dumpDom(path: string, viewport: { width: number; height: number }, label: string, expected: string[]) {
@@ -221,7 +239,15 @@ async function withCdp<T>(path: string, fn: (cdp: CdpSession) => Promise<T>): Pr
     const navigate = async (targetPath: string) => {
       await send("Page.navigate", { url: `${baseUrl}${targetPath}` });
     };
-    return await fn({ evaluate, navigate });
+    const setViewport = async (viewport: { width: number; height: number }) => {
+      await send("Emulation.setDeviceMetricsOverride", {
+        width: viewport.width,
+        height: viewport.height,
+        deviceScaleFactor: 1,
+        mobile: viewport.width <= 480
+      });
+    };
+    return await fn({ evaluate, navigate, setViewport });
   } finally {
     await Promise.race([
       send("Browser.close").catch(() => undefined),
@@ -241,7 +267,7 @@ function randomSuffix(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
 
-async function createDeal(title: string) {
+async function createDeal(title: string, config: { minUnits?: number; maxUnits?: number } = {}) {
   const unique = randomSuffix("browser-smoke-create");
   const { response, json } = await fetchJson("/deals", {
     method: "POST",
@@ -254,8 +280,8 @@ async function createDeal(title: string) {
     body: JSON.stringify({
       title,
       price_per_unit: 36,
-      min_units: 8,
-      max_units: 24,
+      min_units: config.minUnits ?? 8,
+      max_units: config.maxUnits ?? 24,
       deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
       delivery_options: [
         { option_type: "pickup", label: "איסוף עצמי", cost: 0, sort_order: 0 },
@@ -291,7 +317,7 @@ async function publishDeal(dealId: string) {
   assert.equal(response.status, 200);
 }
 
-async function createJoinedParticipant(dealId: string) {
+async function createJoinedParticipant(dealId: string, qty = 3) {
   const publicDeal = await fetchJson(`/api/deals/${dealId}/public`);
   assert.equal(publicDeal.response.status, 200);
   const deliveryOptions = Array.isArray(publicDeal.json?.deal?.delivery_options)
@@ -341,7 +367,7 @@ async function createJoinedParticipant(dealId: string) {
     },
     body: JSON.stringify({
       buyer_id: otpVerify.json?.buyer_id,
-      qty: 3,
+      qty,
       delivery_option_id: deliveryOptionId,
       buyer_terms_accepted: true,
       payment_disclosure_accepted: true,
@@ -358,6 +384,21 @@ async function createJoinedParticipant(dealId: string) {
   return {
     participantId: String(joinResult.json.participant_id)
   };
+}
+
+async function closeJoining(dealId: string) {
+  const unique = randomSuffix("browser-smoke-close");
+  const { response, json } = await fetchJson(`/deals/${dealId}/close_joining`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "x-request-id": unique,
+      "idempotency-key": unique,
+      "x-seller-id": "seller-default"
+    },
+    body: JSON.stringify({})
+  });
+  assert.equal(response.status, 200, `close joining fixture failed: ${JSON.stringify(json)}`);
 }
 
 function escapeRegex(text: string) {
@@ -599,6 +640,32 @@ async function assertSellerCreateDomFlowContract() {
       const deadline = new Date(Date.now() + 4 * 60 * 60 * 1000);
       const pad = (value) => String(value).padStart(2, "0");
       setField("#sellerDeadline", deadline.getFullYear() + "-" + pad(deadline.getMonth() + 1) + "-" + pad(deadline.getDate()) + "T" + pad(deadline.getHours()) + ":" + pad(deadline.getMinutes()));
+      return true;
+    })()`);
+
+    const preview = await evaluate(`(async () => {
+      const button = document.querySelector('[data-inline-action="seller-preview-open"]');
+      if (!button) throw new Error("missing full buyer preview button");
+      button.click();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const dialog = document.querySelector('[data-seller-preview-dialog]');
+      const result = {
+        dialog: Boolean(dialog),
+        publicRenderer: Boolean(dialog?.querySelector('.cton-deal-page.seller-public-preview')),
+        activeJoinForms: dialog?.querySelectorAll('form[data-action="start-join"]').length || 0,
+        disabledCta: Boolean(dialog?.querySelector('button[disabled]')),
+        title: dialog?.querySelector('h1')?.textContent || ""
+      };
+      dialog?.querySelector('[data-inline-action="seller-preview-close"]')?.click();
+      return result;
+    })()`);
+    assert.equal(preview.dialog, true, "seller preview should open as a full dialog");
+    assert.equal(preview.publicRenderer, true, "seller preview should reuse the public buyer renderer");
+    assert.equal(preview.activeJoinForms, 0, "seller preview must not expose a live join form");
+    assert.equal(preview.disabledCta, true, "seller preview should show a disabled buyer CTA");
+    assert.equal(preview.title, "עסקת DOM מלאה");
+
+    await evaluate(`(() => {
       document.querySelector('form[data-action="seller-create"] button[type="submit"]').click();
       return true;
     })()`);
@@ -740,6 +807,266 @@ async function assertSellerCreateDomFlowContract() {
   });
 }
 
+async function assertBuyerDomFlowAndSafeResume(dealId: string) {
+  return withCdp(`/app/deal/${dealId}`, async ({ evaluate, navigate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('form[data-action="start-join"]'))`)) break;
+      await wait(250);
+    }
+
+    await evaluate(`(() => {
+      const qty = document.querySelector('#qty');
+      const delivery = document.querySelector('input[name="deliveryOptionId"]');
+      if (!qty || !delivery) throw new Error('buyer join controls missing');
+      qty.value = '2';
+      qty.dispatchEvent(new Event('input', { bubbles: true }));
+      delivery.checked = true;
+      delivery.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('form[data-action="start-join"]').requestSubmit();
+      return true;
+    })()`);
+
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await evaluate(`location.pathname.endsWith('/otp') && Boolean(document.querySelector('form[data-action="otp-start"]'))`)) break;
+      await wait(250);
+    }
+    assert.match(String(await evaluate(`location.pathname`)), /\/otp$/);
+
+    const persisted = await evaluate(`(() => {
+      const raw = localStorage.getItem('siton_safe_resume_v1') || '{}';
+      sessionStorage.removeItem('siton_flow_v2');
+      return raw;
+    })()`);
+    assert.match(String(persisted), new RegExp(dealId));
+    assert.doesNotMatch(String(persisted), /phone|otp|buyerId|participantId|tracking|authorization|payment/i, "safe resume must exclude sensitive/transient buyer data");
+
+    await navigate(`/app/join/${dealId}/otp`);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('form[data-action="otp-start"]'))`)) break;
+      await wait(250);
+    }
+    const resumed = await evaluate(`(() => ({
+      qty: JSON.parse(sessionStorage.getItem('siton_flow_v2') || '{}')['${dealId}']?.qty,
+      phone: document.querySelector('#phone')?.value || '',
+      overflow: document.documentElement.scrollWidth - window.innerWidth
+    }))()`);
+    assert.equal(resumed.qty, 2, "safe refresh should restore the non-sensitive buyer choice");
+    assert.equal(resumed.phone, "", "safe refresh must not restore the phone number");
+    assert.ok(resumed.overflow <= 1, `mobile OTP should not overflow horizontally: ${JSON.stringify(resumed)}`);
+
+    await evaluate(`(() => {
+      const phone = document.querySelector('#phone');
+      phone.value = '0501234567';
+      phone.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('form[data-action="otp-start"]').requestSubmit();
+      return true;
+    })()`);
+    let developmentCode = "";
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      await wait(250);
+      developmentCode = String(await evaluate(`JSON.parse(sessionStorage.getItem('siton_flow_v2') || '{}')['${dealId}']?.developmentCode || ''`));
+      if (developmentCode && await evaluate(`Boolean(document.querySelector('form[data-action="otp-verify"]'))`)) break;
+    }
+    assert.match(developmentCode, /^\d{6}$/, "demo OTP flow should expose a six-digit development code only inside transient session state");
+
+    await evaluate(`(() => {
+      const code = document.querySelector('#code');
+      code.value = '${developmentCode}';
+      code.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('form[data-action="otp-verify"]').requestSubmit();
+      return true;
+    })()`);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`location.pathname.endsWith('/payment') && Boolean(document.querySelector('form[data-action="pay"]'))`)) break;
+      await wait(250);
+    }
+    assert.match(String(await evaluate(`location.pathname`)), /\/payment$/);
+
+    await evaluate(`(() => {
+      const payer = document.querySelector('#payerName');
+      payer.value = 'Browser Buyer';
+      payer.dispatchEvent(new Event('input', { bubbles: true }));
+      const acceptance = document.querySelector('input[name="buyerPaymentDisclosureAcceptance"]');
+      acceptance.checked = true;
+      acceptance.dispatchEvent(new Event('change', { bubbles: true }));
+      document.querySelector('form[data-action="pay"]').requestSubmit();
+      return true;
+    })()`);
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      if (await evaluate(`location.pathname.endsWith('/confirmation') && Boolean(document.querySelector('.cton-success-card, .success-screen'))`)) break;
+      await wait(250);
+    }
+    const confirmation = await evaluate(`(() => {
+      const flow = JSON.parse(sessionStorage.getItem('siton_flow_v2') || '{}')['${dealId}'] || {};
+      return {
+        path: location.pathname,
+        participantId: flow.participantId || '',
+        success: Boolean(document.querySelector('.cton-success-card, .success-screen')),
+        authorizationId: flow.authorizationId || '',
+        body: document.body.innerText
+      };
+    })()`);
+    assert.match(String(confirmation.path), /\/confirmation$/);
+    assert.equal(confirmation.success, true);
+    assert.match(String(confirmation.participantId), /^[0-9a-f-]{36}$/i);
+    assert.ok(confirmation.authorizationId, "buyer confirmation should follow mock authorization");
+    assert.match(String(confirmation.body), /לא בוצע חיוב בפועל/);
+
+    await navigate(`/app/track/${confirmation.participantId}`);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('.cton-tracking-page, .tracking-command-center'))`)) break;
+      await wait(250);
+    }
+    const tracking = await evaluate(`(() => ({
+      path: location.pathname,
+      rendered: Boolean(document.querySelector('.cton-tracking-page, .tracking-command-center')),
+      overflow: document.documentElement.scrollWidth - window.innerWidth
+    }))()`);
+    assert.equal(tracking.rendered, true, "buyer tracking should render after the browser join flow");
+    assert.ok(tracking.overflow <= 1, `mobile tracking should not overflow horizontally: ${JSON.stringify(tracking)}`);
+    return { participantId: String(confirmation.participantId) };
+  });
+}
+
+async function assertAffiliateDomFlowContract(dealId: string) {
+  await withCdp("/app/affiliate", async ({ evaluate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('form[data-action="affiliate-link-create"]'))`)) break;
+      await wait(250);
+    }
+    const internalName = `browser-link-${Date.now()}`;
+    await evaluate(`(() => {
+      const deal = document.querySelector('#affiliateDealId');
+      const name = document.querySelector('#affiliateLinkName');
+      if (!deal || !name) throw new Error('affiliate link controls missing');
+      deal.value = '${dealId}';
+      deal.dispatchEvent(new Event('change', { bubbles: true }));
+      name.value = '${internalName}';
+      name.dispatchEvent(new Event('input', { bubbles: true }));
+      document.querySelector('form[data-action="affiliate-link-create"]').requestSubmit();
+      return true;
+    })()`);
+    let snapshot: any = null;
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      await wait(250);
+      snapshot = await evaluate(`(() => ({
+        text: document.body.innerText,
+        namedLink: [...document.querySelectorAll('.affiliate-link-list h3')].some((node) => node.textContent === '${internalName}'),
+        shareActions: document.querySelectorAll('.affiliate-link-list [data-inline-action="copy-link"], .affiliate-link-list [data-inline-action="share-link"]').length,
+        performanceRows: document.querySelectorAll('.affiliate-performance-table tbody tr').length,
+        assets: document.querySelectorAll('.marketing-asset-card').length,
+        boundary: Boolean(document.querySelector('.affiliate-boundary-note')),
+        overflow: document.documentElement.scrollWidth - window.innerWidth
+      }))()`);
+      if (snapshot.namedLink) break;
+    }
+    assert.equal(snapshot.namedLink, true, `affiliate named link should be created in-browser: ${JSON.stringify(snapshot)}`);
+    assert.ok(snapshot.shareActions >= 2, "named links should expose copy and share actions");
+    assert.ok(snapshot.performanceRows >= 1, "named links should appear in the performance table");
+    assert.ok(snapshot.assets >= 1, "seller-provided marketing assets should render for distributors");
+    assert.equal(snapshot.boundary, true, "distributor surface should keep the permanent attribution-only boundary");
+    assert.match(String(snapshot.text), /עמלת מפיץ היא 0/);
+    assert.doesNotMatch(String(snapshot.text), /יתרה זמינה|משיכת כספים|payout available/i);
+    assert.ok(snapshot.overflow <= 1, `mobile affiliate workspace should not overflow horizontally: ${JSON.stringify(snapshot)}`);
+  });
+}
+
+async function assertUnavailableBuyerStates(soldOutDealId: string, closedDealId: string) {
+  await withCdp(`/app/deal/${soldOutDealId}`, async ({ evaluate, navigate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    const inspect = async (dealId: string) => {
+      for (let attempt = 0; attempt < 60; attempt += 1) {
+        if (await evaluate(`Boolean(document.querySelector('form[data-action="start-join"] button[disabled]'))`)) break;
+        await wait(250);
+      }
+      return evaluate(`(async () => {
+        const response = await fetch('/api/deals/${dealId}/public');
+        const payload = await response.json();
+        return {
+          state: payload.deal?.state,
+          reason: payload.availability?.reasonCode,
+          disabled: Boolean(document.querySelector('form[data-action="start-join"] button[disabled]')),
+          overflow: document.documentElement.scrollWidth - window.innerWidth
+        };
+      })()`);
+    };
+
+    const soldOut = await inspect(soldOutDealId);
+    assert.equal(soldOut.reason, "stock_exhausted");
+    assert.equal(soldOut.disabled, true, "sold-out deal should disable the join CTA");
+    assert.ok(soldOut.overflow <= 1, `sold-out mobile state should not overflow: ${JSON.stringify(soldOut)}`);
+
+    await navigate(`/app/deal/${closedDealId}`);
+    const closed = await inspect(closedDealId);
+    assert.equal(closed.state, "ClosedForJoining");
+    assert.equal(closed.reason, "closed");
+    assert.equal(closed.disabled, true, "closed deal should disable the join CTA");
+    assert.ok(closed.overflow <= 1, `closed mobile state should not overflow: ${JSON.stringify(closed)}`);
+  });
+}
+
+async function assertFailedRecoveryBrowserState() {
+  const participantId = "11111111-1111-4111-8111-111111111111";
+  await withCdp("/app", async ({ evaluate, navigate, setViewport }) => {
+    await setViewport({ width: 390, height: 844 });
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`location.origin !== 'null' && Boolean(document.querySelector('#app'))`)) break;
+      if (attempt === 5) await navigate("/app");
+      await wait(250);
+    }
+    assert.notEqual(await evaluate(`location.origin`), "null", "recovery fixture should start from the app origin");
+    await evaluate(`(() => {
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = async (input, init = {}) => {
+        const url = typeof input === 'string' ? input : String(input?.url || '');
+        const method = String(init.method || 'GET').toUpperCase();
+        if (url.includes('/api/participants/${participantId}/tracking')) {
+          return new Response(JSON.stringify({ tracking: {
+            participant_id: '${participantId}',
+            deal_id: '22222222-2222-4222-8222-222222222222',
+            deal_title: 'Recovery browser fixture',
+            buyer_state: 'ChargeFailedCompletion',
+            money_state: 'ChargeFailedRecovery',
+            deal_state: 'CompletionWindow',
+            completion_window_until: new Date(Date.now() + 3600000).toISOString(),
+            qty: 2,
+            estimated_total: 72
+          }}), { status: 200, headers: { 'content-type': 'application/json' } });
+        }
+        if (url.includes('/api/participants/${participantId}/recovery') && method === 'POST') {
+          return new Response(JSON.stringify({ error: 'provider_unavailable' }), { status: 503, headers: { 'content-type': 'application/json' } });
+        }
+        return originalFetch(input, init);
+      };
+      history.pushState({}, '', '/app/recovery/${participantId}');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+      return true;
+    })()`);
+    for (let attempt = 0; attempt < 60; attempt += 1) {
+      if (await evaluate(`Boolean(document.querySelector('.buyer-recovery-flow form[data-action="recovery-submit"] button:not([disabled])'))`)) break;
+      await wait(250);
+    }
+    const ready = await evaluate(`(() => ({
+      rendered: Boolean(document.querySelector('.buyer-recovery-flow')),
+      enabled: Boolean(document.querySelector('form[data-action="recovery-submit"] button:not([disabled])')),
+      overflow: document.documentElement.scrollWidth - window.innerWidth
+    }))()`);
+    assert.equal(ready.rendered, true, "failed recovery state should render in the browser");
+    assert.equal(ready.enabled, true, "open completion window should allow a recovery retry");
+    assert.ok(ready.overflow <= 1, `recovery mobile state should not overflow: ${JSON.stringify(ready)}`);
+
+    await evaluate(`document.querySelector('form[data-action="recovery-submit"]').requestSubmit()`);
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      if (await evaluate(`document.body.innerText.includes('לא הצלחנו להשלים את התשלום')`)) break;
+      await wait(250);
+    }
+    const failure = await evaluate(`document.body.innerText`);
+    assert.match(String(failure), /לא הצלחנו להשלים את התשלום/, "failed recovery retry should show a safe retry message");
+  });
+}
+
 async function ensureFrontendAssets() {
   await mkdir(frontendTarget, { recursive: true });
   await cp(frontendSource, frontendTarget, { recursive: true, force: true });
@@ -756,7 +1083,9 @@ async function main() {
       PORT: String(smokePort),
       HOST: "127.0.0.1",
       DISABLE_OUTBOX_WORKER: "1",
-      APP_DEPLOYMENT_MODE: "demo-preview"
+      APP_DEPLOYMENT_MODE: "demo-preview",
+      RATE_LIMIT_MAX: "2000",
+      RATE_LIMIT_SENSITIVE_MAX: "200"
     },
     stdio: ["ignore", "pipe", "pipe"]
   });
@@ -777,7 +1106,18 @@ async function main() {
 
     const created = await createDeal("עסקת smoke לדפדפן");
     await publishDeal(created.deal_id);
-    const joined = await createJoinedParticipant(created.deal_id);
+    await run("distributor creates a named attribution link and sees performance/assets at 390px", () => assertAffiliateDomFlowContract(created.deal_id));
+    const joined = await run("buyer completes public, OTP, mock authorization, confirmation, tracking and safe resume at 390px", () => assertBuyerDomFlowAndSafeResume(created.deal_id));
+
+    const soldOutDeal = await createDeal("Sold out browser fixture", { minUnits: 1, maxUnits: 1 });
+    await publishDeal(soldOutDeal.deal_id);
+    await createJoinedParticipant(soldOutDeal.deal_id, 1);
+    const closedDeal = await createDeal("Closed browser fixture", { minUnits: 1, maxUnits: 2 });
+    await publishDeal(closedDeal.deal_id);
+    await createJoinedParticipant(closedDeal.deal_id, 1);
+    await closeJoining(closedDeal.deal_id);
+    await run("buyer sold-out and closed states disable joining at 390px", () => assertUnavailableBuyerStates(soldOutDeal.deal_id, closedDeal.deal_id));
+    await run("buyer failed-recovery state and safe retry failure render at 390px", assertFailedRecoveryBrowserState);
 
     const desktopRoutes: SmokeRoute[] = [
       {
@@ -826,9 +1166,19 @@ async function main() {
         expect: ["cton-tracking-page", "ההצטרפות שלך", "לא בוצע חיוב בפועל"]
       },
       {
+        name: "distributor workspace",
+        path: "/app/affiliate",
+        expect: ["affiliate-workspace", "affiliate-links", "affiliate-performance", "affiliate-assets"]
+      },
+      {
         name: "admin dashboard",
         path: "/app/admin",
         expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid", "חיפוש תפעולי"]
+      },
+      {
+        name: "admin support hub",
+        path: "/app/admin/support",
+        expect: ["Admin Support Hub", "data-action=\"admin-case-filter\"", "data-action=\"admin-case-create\""]
       },
       {
         name: "admin deal",
@@ -879,9 +1229,19 @@ async function main() {
         expect: ["cton-tracking-page", "ההצטרפות שלך"]
       },
       {
+        name: "distributor workspace mobile",
+        path: "/app/affiliate",
+        expect: ["affiliate-workspace", "affiliate-performance", "marketing-assets-grid"]
+      },
+      {
         name: "admin dashboard mobile",
         path: "/app/admin",
         expect: ["מרכז שליטה תפעולי", "Omnisearch אדמין", "admin-urgency-grid"]
+      },
+      {
+        name: "admin support hub mobile",
+        path: "/app/admin/support",
+        expect: ["Admin Support Hub", "data-action=\"admin-case-filter\"", "data-action=\"admin-case-create\""]
       }
     ];
 

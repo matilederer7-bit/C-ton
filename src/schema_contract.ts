@@ -5,7 +5,7 @@ type Db = {
 export const REQUIRED_TABLES = [
   "deals", "participants", "audit_log", "idempotency_log", "outbox_events", "outbox_dlq",
   "payment_attempts", "webhook_events", "seller_accounts", "seller_sessions",
-  "affiliate_accounts", "affiliate_attributions", "support_tickets", "deal_delivery_options",
+  "affiliate_accounts", "affiliate_attributions", "affiliate_links", "affiliate_link_events", "support_tickets", "deal_delivery_options",
   "deal_images", "deal_chat_messages", "notification_events", "notification_attempts",
   "legal_acceptances", "otp_challenges", "otp_delivery_attempts", "invoice_documents",
   "invoice_document_attempts", "invoice_reconciliation_cases", "platform_fee_money_events",
@@ -21,7 +21,7 @@ export const REQUIRED_TABLES = [
 export const REQUIRED_MIGRATION_IDS = [
   "014", "007", "008", "009", "010", "011", "012", "013", "014a", "015a", "015b",
   "016", "017", "018", "019", "020", "021", "022", "023", "024", "025", "026",
-  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045"
+  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045", "046"
 ] as const;
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {

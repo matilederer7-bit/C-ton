@@ -2510,6 +2510,13 @@ app.post("/deals", async (req: any) => {
     err.statusCode = 400;
     throw err;
   }
+  const description = String(body.description || "").trim();
+  if (description.length > 420) {
+    const err: any = new Error("description must be 420 characters or fewer");
+    err.statusCode = 400;
+    err.code = "description_too_long";
+    throw err;
+  }
   const priceRaw = Number(body.price_per_unit);
   if (!Number.isFinite(priceRaw) || priceRaw <= 0) {
     const err: any = new Error("price_per_unit must be a positive number");
@@ -2567,11 +2574,12 @@ app.post("/deals", async (req: any) => {
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (title, description, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
        RETURNING deal_id, state, deal_type`,
       [
         title,
+        description || null,
         priceRaw,
         minUnits,
         maxUnits,
@@ -2619,7 +2627,7 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
     const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
     const source = await c.query(
-      `SELECT deal_id, seller_id, title, price_per_unit, min_units, max_units
+      `SELECT deal_id, seller_id, title, description, price_per_unit, min_units, max_units
        FROM siton.deals
        WHERE deal_id=$1`,
       [sourceDealId]
@@ -2643,11 +2651,12 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
     const draftDeadline = new Date(Date.now() + DEADLINE_DEFAULT_MS).toISOString();
     const inserted = await c.query(
       `INSERT INTO siton.deals
-         (title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, state)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'Draft')
+         (title, description, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, state)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'Draft')
        RETURNING deal_id, state`,
       [
         String(sourceDeal.title || ""),
+        String(sourceDeal.description || "") || null,
         Number(sourceDeal.price_per_unit || 0),
         minUnits,
         maxUnits,
@@ -3196,9 +3205,17 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       await c.query(
         `INSERT INTO siton.affiliate_attributions
            (affiliate_id, deal_id, participant_id, share_code)
-         SELECT affiliate_id, $1, $2, $3
-         FROM siton.affiliate_accounts
-         WHERE affiliate_code=$3
+         SELECT source.affiliate_id, $1, $2, $3
+         FROM (
+           SELECT affiliate_id
+           FROM siton.affiliate_accounts
+           WHERE affiliate_code=$3
+           UNION ALL
+           SELECT affiliate_id
+           FROM siton.affiliate_links
+           WHERE source_code=$3 AND deal_id=$1 AND disabled_at IS NULL
+           LIMIT 1
+         ) source
          ON CONFLICT (participant_id) DO NOTHING`,
         [dealId, pid, affiliateRef]
       );
@@ -3654,8 +3671,6 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
-
-
 
 
 

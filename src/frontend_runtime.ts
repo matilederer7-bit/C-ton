@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { PassThrough } from "stream";
 import ExcelJS from "exceljs";
 import { fileURLToPath } from "url";
-import { createHmac, timingSafeEqual } from "crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
@@ -1880,7 +1880,7 @@ export function registerFrontendExperience(
 
     return deps.withTx(async (c) => {
       const dealResult = await c.query(
-        `SELECT d.deal_id, d.title, d.state, d.price_per_unit, d.min_units, d.max_units,
+        `SELECT d.deal_id, d.title, d.description, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
                 d.created_at, d.seller_id, d.deal_type,
                 sa.business_name, sa.support_phone, sa.support_email, sa.business_description
@@ -1949,6 +1949,7 @@ export function registerFrontendExperience(
         deal: {
           deal_id: deal.deal_id,
           title: deal.title,
+          description: (deal as any).description || "",
           state: deal.state,
           deal_type: dealType,
           price_per_unit: Number(deal.price_per_unit),
@@ -3525,32 +3526,122 @@ export function registerFrontendExperience(
       const campaigns = await c.query(
         `SELECT d.deal_id,
                 d.title,
+                d.description,
                 d.state,
+                d.price_per_unit,
+                d.threshold_units,
+                d.max_units,
+                d.deadline,
                 d.created_at,
                 d.published_at,
-                COUNT(a.participant_id)::int AS attributed_buyers,
-                COALESCE(SUM(p.qty),0) AS attributed_units
+                COUNT(DISTINCT a.participant_id)::int AS attributed_buyers,
+                COALESCE(SUM(p.qty),0) AS attributed_units,
+                COALESCE(SUM((p.qty * d.price_per_unit) + COALESCE(p.delivery_cost,0)),0) AS attributed_gross,
+                COALESCE(dm.joined_units,0) AS joined_units,
+                img.image_id,
+                img.mime_type,
+                COALESCE(delivery.delivery_labels, ARRAY[]::text[]) AS delivery_labels
          FROM siton.deals d
          LEFT JOIN siton.affiliate_attributions a
            ON a.deal_id = d.deal_id
           AND a.affiliate_id = $1
          LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
-         GROUP BY d.deal_id
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(dp.qty),0) AS joined_units
+           FROM siton.participants dp
+           WHERE dp.deal_id=d.deal_id
+         ) dm ON true
+         LEFT JOIN LATERAL (
+           SELECT image_id, mime_type
+           FROM siton.deal_images
+           WHERE deal_id=d.deal_id
+           ORDER BY is_primary DESC, sort_order ASC, created_at ASC
+           LIMIT 1
+         ) img ON true
+         LEFT JOIN LATERAL (
+           SELECT array_agg(label ORDER BY sort_order, created_at) AS delivery_labels
+           FROM siton.deal_delivery_options
+           WHERE deal_id=d.deal_id
+         ) delivery ON true
+         GROUP BY d.deal_id, dm.joined_units, img.image_id, img.mime_type, delivery.delivery_labels
          ORDER BY d.created_at DESC
          LIMIT 50`,
+        [profile.affiliate_id]
+      );
+
+      const links = await c.query(
+        `SELECT l.link_id, l.deal_id, l.internal_name, l.source_code, l.created_at,
+                d.title, d.state, d.deadline, d.threshold_units, d.max_units,
+                COALESCE(dm.joined_units,0) AS joined_units,
+                COALESCE(event_stats.clicks,0) AS clicks,
+                COALESCE(event_stats.entries,0) AS entries,
+                COALESCE(attribution_stats.attributed_buyers,0) AS attributed_buyers,
+                COALESCE(attribution_stats.attributed_units,0) AS attributed_units
+         FROM siton.affiliate_links l
+         JOIN siton.deals d ON d.deal_id=l.deal_id
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*) FILTER (WHERE event_type='click')::int AS clicks,
+                  COUNT(*) FILTER (WHERE event_type='entry')::int AS entries
+           FROM siton.affiliate_link_events
+           WHERE link_id=l.link_id
+         ) event_stats ON true
+         LEFT JOIN LATERAL (
+           SELECT COUNT(*)::int AS attributed_buyers,
+                  COALESCE(SUM(p.qty),0) AS attributed_units
+           FROM siton.affiliate_attributions a
+           LEFT JOIN siton.participants p ON p.participant_id=a.participant_id
+           WHERE a.affiliate_id=l.affiliate_id
+             AND a.deal_id=l.deal_id
+             AND a.share_code=l.source_code
+         ) attribution_stats ON true
+         LEFT JOIN LATERAL (
+           SELECT COALESCE(SUM(dp.qty),0) AS joined_units
+           FROM siton.participants dp
+           WHERE dp.deal_id=d.deal_id
+         ) dm ON true
+         WHERE l.affiliate_id=$1 AND l.disabled_at IS NULL
+         GROUP BY l.link_id, d.deal_id, dm.joined_units,
+                  event_stats.clicks, event_stats.entries,
+                  attribution_stats.attributed_buyers, attribution_stats.attributed_units
+         ORDER BY l.created_at DESC`,
         [profile.affiliate_id]
       );
 
       const attributionTotals = await c.query(
         `SELECT
            COUNT(*)::int AS total_attributions,
-           COALESCE(SUM(p.qty),0) AS total_units
-         FROM siton.affiliate_attributions a
-         LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
-         WHERE a.affiliate_id = $1`,
+           COALESCE(SUM(p.qty),0) AS total_units,
+           COALESCE(SUM((p.qty * d.price_per_unit) + COALESCE(p.delivery_cost,0)),0) AS attributed_gross
+          FROM siton.affiliate_attributions a
+          LEFT JOIN siton.participants p ON p.participant_id = a.participant_id
+          LEFT JOIN siton.deals d ON d.deal_id = a.deal_id
+          WHERE a.affiliate_id = $1`,
         [profile.affiliate_id]
       );
       const totals = attributionTotals.rows[0] as any;
+      const linkRows = links.rows.map((row: any) => {
+        const entries = Number(row.entries || 0);
+        const joins = Number(row.attributed_buyers || 0);
+        return {
+          link_id: row.link_id,
+          deal_id: row.deal_id,
+          internal_name: row.internal_name,
+          source_code: row.source_code,
+          created_at: row.created_at,
+          title: row.title,
+          state: row.state,
+          deadline: row.deadline,
+          threshold_units: Number(row.threshold_units || 0),
+          max_units: Number(row.max_units || 0),
+          joined_units: Number(row.joined_units || 0),
+          clicks: Number(row.clicks || 0),
+          entries,
+          attributed_buyers: joins,
+          attributed_units: Number(row.attributed_units || 0),
+          conversion_rate: entries > 0 ? roundMoney((joins / entries) * 100) : 0,
+          share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
+        };
+      });
 
       return {
         ok: true,
@@ -3562,20 +3653,41 @@ export function registerFrontendExperience(
           totals: {
             total_attributions: Number(totals.total_attributions || 0),
             total_units: Number(totals.total_units || 0),
+            attributed_gross: Number(totals.attributed_gross || 0),
+            clicks: linkRows.reduce((sum: number, row: any) => sum + row.clicks, 0),
+            entries: linkRows.reduce((sum: number, row: any) => sum + row.entries, 0),
             active_campaigns: campaigns.rows.filter((row: any) => Number(row.attributed_buyers || 0) > 0).length
           },
           verification_surface: {
             status: profile.verification_status,
             admin_note: profile.admin_note || ""
           },
+          capabilities: {
+            named_link_creation: deps.isDemoPreview,
+            identity_mode: deps.isDemoPreview ? "demo-context" : "not-configured"
+          },
+          links: linkRows,
           campaigns: campaigns.rows.map((row: any) => ({
             deal_id: row.deal_id,
             title: row.title,
+            description: row.description || "",
             state: row.state,
+            price_per_unit: Number(row.price_per_unit || 0),
+            threshold_units: Number(row.threshold_units || 0),
+            max_units: Number(row.max_units || 0),
+            joined_units: Number(row.joined_units || 0),
+            deadline: row.deadline,
             created_at: row.created_at,
             published_at: row.published_at,
             attributed_buyers: Number(row.attributed_buyers || 0),
             attributed_units: Number(row.attributed_units || 0),
+            attributed_gross: Number(row.attributed_gross || 0),
+            delivery_labels: Array.isArray(row.delivery_labels) ? row.delivery_labels : [],
+            image: row.image_id ? {
+              image_id: row.image_id,
+              mime_type: row.mime_type,
+              url: getDealImagePublicUrl({ image_id: String(row.image_id) })
+            } : null,
             share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(profile.affiliate_code)}`
           }))
         }
@@ -7262,6 +7374,88 @@ export function registerFrontendExperience(
       ok: false,
       error: "hosted_payment_required",
       message: "Payment details must be entered in the payment provider hosted component; C-ton accepts only payment_method_id."
+    });
+  });
+
+  app.post("/api/affiliate/links", async (req: any, reply: any) => {
+    if (!deps.isDemoPreview) {
+      return reply.code(503).send({
+        error: "affiliate_identity_not_configured",
+        message: "named affiliate link creation requires an authenticated production distributor identity"
+      });
+    }
+    const body = req.body || {};
+    const dealId = String(body.deal_id || "").trim();
+    const internalName = String(body.internal_name || "").trim();
+    requireUuid(dealId, "deal_id");
+    if (!internalName || internalName.length > 80) {
+      return reply.code(400).send({ error: "affiliate_link_name_invalid" });
+    }
+    return deps.withTx(async (c) => {
+      const affiliate = await c.query(
+        `SELECT affiliate_id, affiliate_code FROM siton.affiliate_accounts WHERE affiliate_code=$1 LIMIT 1`,
+        [DEFAULT_AFFILIATE_CODE]
+      );
+      const profile = affiliate.rows[0] as any;
+      const deal = await c.query(
+        `SELECT deal_id, state FROM siton.deals WHERE deal_id=$1 LIMIT 1`,
+        [dealId]
+      );
+      if (!deal.rows[0]) return reply.code(404).send({ error: "deal_not_found" });
+      if (!["PendingTarget", "TargetReached"].includes(String(deal.rows[0].state))) {
+        return reply.code(409).send({ error: "affiliate_link_deal_not_shareable" });
+      }
+      const prefix = String(profile.affiliate_code || "distributor").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 32) || "distributor";
+      const sourceCode = `${prefix}-${randomBytes(6).toString("hex")}`;
+      try {
+        const inserted = await c.query(
+          `INSERT INTO siton.affiliate_links (affiliate_id, deal_id, internal_name, source_code)
+           VALUES ($1,$2,$3,$4)
+           RETURNING link_id, deal_id, internal_name, source_code, created_at`,
+          [profile.affiliate_id, dealId, internalName, sourceCode]
+        );
+        const row = inserted.rows[0] as any;
+        return reply.code(201).send({
+          ok: true,
+          link: {
+            ...row,
+            share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(row.source_code)}`
+          }
+        });
+      } catch (error: any) {
+        if (String(error?.code || "") === "23505") {
+          return reply.code(409).send({ error: "affiliate_link_name_exists" });
+        }
+        throw error;
+      }
+    });
+  });
+
+  app.post("/api/affiliate/links/visit", async (req: any, reply: any) => {
+    const body = req.body || {};
+    const dealId = String(body.deal_id || "").trim();
+    const sourceCode = String(body.source_code || "").trim().slice(0, 64);
+    const clickId = String(body.click_id || "").trim().slice(0, 100);
+    const entryId = String(body.entry_id || "").trim().slice(0, 100);
+    requireUuid(dealId, "deal_id");
+    if (!sourceCode || clickId.length < 8 || entryId.length < 8) {
+      return reply.code(400).send({ error: "affiliate_visit_invalid" });
+    }
+    return deps.withTx(async (c) => {
+      const link = await c.query(
+        `SELECT link_id FROM siton.affiliate_links
+         WHERE source_code=$1 AND deal_id=$2 AND disabled_at IS NULL
+         LIMIT 1`,
+        [sourceCode, dealId]
+      );
+      if (!link.rows[0]) return reply.code(202).send({ ok: true, recorded: false });
+      await c.query(
+        `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id)
+         VALUES ($1,'click',$2),($1,'entry',$3)
+         ON CONFLICT (link_id, event_type, client_event_id) DO NOTHING`,
+        [link.rows[0].link_id, clickId, entryId]
+      );
+      return reply.code(202).send({ ok: true, recorded: true });
     });
   });
 

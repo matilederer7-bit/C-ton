@@ -777,6 +777,33 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
 .cton-timeline div { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
 .cton-timeline span { padding: 10px; border-radius: 999px; text-align: center; background: var(--closed-soft); color: var(--muted); font-weight: 700; }
 
+.seller-preview-dialog { width: min(1180px, 100%); max-height: calc(100vh - 32px); }
+.seller-preview-toolbar { position: sticky; top: -24px; z-index: 2; margin: -24px -24px 8px; padding: 20px 24px; background: var(--surface); border-bottom: 1px solid var(--border); }
+.seller-public-preview { padding-block: 4px; }
+.seller-public-preview .cton-join-card { top: 0; }
+.affiliate-workspace { gap: 24px; scroll-behavior: smooth; }
+.affiliate-header { border-top: 5px solid var(--primary); }
+.affiliate-subnav, .admin-section-nav { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; padding: 14px; }
+.affiliate-subnav a, .admin-section-nav a { min-height: 42px; display: inline-flex; align-items: center; justify-content: center; padding: 8px 14px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--text); font-weight: 800; text-decoration: none; }
+.affiliate-subnav a:hover, .affiliate-subnav a:focus-visible, .admin-section-nav a:hover, .admin-section-nav a:focus-visible { border-color: var(--primary); color: var(--primary); outline: 3px solid rgba(198, 90, 30, 0.16); outline-offset: 2px; }
+.affiliate-boundary-note { position: sticky; top: 8px; z-index: 3; }
+.affiliate-kpi-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.affiliate-link-form { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(240px, 1fr) auto; gap: 14px; align-items: end; }
+.affiliate-link-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.affiliate-performance-table { min-width: 1040px; }
+.affiliate-performance-table th { white-space: nowrap; }
+.affiliate-performance-table td { vertical-align: top; }
+.marketing-assets-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.marketing-asset-card { min-width: 0; padding: 18px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.marketing-asset-card > img, .marketing-asset-placeholder { width: 100%; aspect-ratio: 16 / 9; border-radius: 14px; border: 1px solid var(--border); background: var(--primary-soft); object-fit: cover; }
+.marketing-asset-placeholder { display: grid; place-items: center; align-content: center; gap: 8px; color: var(--primary); font-weight: 800; }
+.admin-section-nav { position: sticky; top: 8px; z-index: 5; margin-bottom: 20px; box-shadow: var(--shadow); }
+
+@media (max-width: 1100px) {
+  .affiliate-kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .marketing-assets-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
 @media (max-width: 900px) {
   .cton-home-hero, .cton-deal-page, .cton-home-cards, .cton-steps, .cton-data-grid, .cton-kpi-grid, .cton-kpi-grid.six, .cton-seller-deal-card, .cton-timeline div {
     grid-template-columns: 1fr;
@@ -787,6 +814,10 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
   .cton-join-card { position: static; }
   .cton-progress-numbers { align-items: flex-start; }
   .cton-progress-numbers strong { font-size: 28px; }
+  .affiliate-link-form, .affiliate-link-list, .marketing-assets-grid { grid-template-columns: 1fr; }
+  .affiliate-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .seller-preview-dialog { padding: 18px; }
+  .seller-preview-toolbar { top: -18px; margin: -18px -18px 8px; padding: 16px 18px; }
 }
 
 @media (max-width: 768px) {
@@ -847,4 +878,8 @@ a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible
     margin-inline: auto;
   }
   .cton-actions .button, .cton-actions button, .cton-join-card .primary, .cton-payment-card .primary { width: 100%; }
+  .affiliate-subnav, .admin-section-nav { position: static; display: grid; grid-template-columns: 1fr 1fr; }
+  .affiliate-subnav a, .admin-section-nav a, .affiliate-link-form .primary, .marketing-asset-card .button, .marketing-asset-card button { width: 100%; }
+  .affiliate-kpi-grid { grid-template-columns: 1fr; }
+  .affiliate-boundary-note { position: static; }
 }

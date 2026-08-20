@@ -1,8 +1,11 @@
 ﻿const root = document.getElementById("app");
 const FLOW_KEY = "siton_flow_v2";
 const FLOW_SCHEMA_VERSION = 2;
+const SAFE_RESUME_KEY = "siton_safe_resume_v1";
+const SAFE_RESUME_SCHEMA_VERSION = 1;
 const SELLER_CONTEXT_KEY = "siton_seller_context_v1";
 const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
+const SAFE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
 const POLL_INTERVAL_MS = 12000;
 const TRACKING_POLL_INTERVAL_MS = 6000;
 let routePollTimer = null;
@@ -56,12 +59,15 @@ const state = {
   banner: null,
   sellerImageUploadStatus: "idle",
   sellerImageUploadError: "",
+  sellerPreviewOpen: false,
   createDealFieldErrors: {},
   form: {
     adminQuery: "",
     adminCaseStatus: "",
     adminCaseType: "",
     adminCasePriority: "",
+    affiliateDealId: "",
+    affiliateLinkName: "",
     qty: "1",
     deliveryOptionId: "",
     phone: "",
@@ -268,6 +274,13 @@ document.addEventListener("visibilitychange", () => {
   if (!document.hidden) void runRouteSilently();
 });
 
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && state.sellerPreviewOpen) {
+    state.sellerPreviewOpen = false;
+    render();
+  }
+});
+
 document.addEventListener("click", (event) => {
   const navTarget = event.target.closest("[data-nav]");
   if (navTarget) {
@@ -286,6 +299,18 @@ document.addEventListener("click", (event) => {
     if (action === "seller-clone") void cloneSellerDeal(actionTarget.dataset.dealId);
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
+    if (action === "copy-text") void copyText(actionTarget.dataset.copyText || "");
+    if (action === "seller-preview-open") {
+      state.sellerPreviewOpen = true;
+      render();
+      queueMicrotask(() => document.querySelector("[data-seller-preview-dialog]")?.focus());
+      return;
+    }
+    if (action === "seller-preview-close") {
+      state.sellerPreviewOpen = false;
+      render();
+      return;
+    }
     if (action === "seller-excel-export") void downloadSellerDealExport(actionTarget.dataset.dealId);
     if (action === "download-delivery-handoff-excel") void downloadDeliveryHandoffExcel(actionTarget.dataset.dealId);
     if (action === "copy-delivery-address") void copyLink(actionTarget.dataset.address);
@@ -564,6 +589,7 @@ async function loadDeal(dealId) {
     state.dealPayload = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
     await loadDealChat(dealId, false);
     state.form.qty = String(getFlow(dealId)?.qty || 1);
+    void recordAffiliateVisit(dealId);
   }, "לא הצלחנו לטעון את העסקה.");
 }
 
@@ -783,7 +809,59 @@ async function loadSellerDeal(dealId) {
 async function loadAffiliate() {
   await busy("טוען את מסך השותפים הפנימי...", async () => {
     state.affiliatePayload = await api("/api/affiliate/overview");
+    const campaigns = state.affiliatePayload?.affiliate_surface?.campaigns || [];
+    if (!state.form.affiliateDealId && campaigns.length) {
+      const firstShareable = campaigns.find((campaign) => ["PendingTarget", "TargetReached"].includes(campaign.state));
+      state.form.affiliateDealId = firstShareable?.deal_id || "";
+    }
   }, "לא הצלחנו לטעון את מסך השותפים הפנימי.");
+}
+
+async function createAffiliateLink(form) {
+  const formData = new FormData(form);
+  const dealId = String(formData.get("affiliateDealId") || state.form.affiliateDealId || "").trim();
+  const internalName = String(formData.get("affiliateLinkName") || state.form.affiliateLinkName || "").trim();
+  if (!dealId) return fail("לא נבחרה עסקה", "יש לבחור עסקה פתוחה להפצה.");
+  if (!internalName) return fail("חסר שם פנימי", "יש לתת ללינק שם שיעזור לזהות את ערוץ ההפצה.");
+  await busy("יוצר לינק ייחודי...", async () => {
+    const response = await api("/api/affiliate/links", {
+      method: "POST",
+      body: json({ deal_id: dealId, internal_name: internalName })
+    });
+    state.form.affiliateLinkName = "";
+    state.banner = {
+      tone: "success",
+      title: "לינק ההפצה נוצר",
+      message: "הלינק הייחודי מוכן להעתקה, שיתוף ומדידת ביצועים."
+    };
+    await loadAffiliate();
+    if (response?.link?.share_link) await copyLink(response.link.share_link);
+  }, "לא הצלחנו ליצור את לינק ההפצה.");
+}
+
+async function recordAffiliateVisit(dealId) {
+  const sourceCode = currentAffiliateRef();
+  if (!sourceCode) return;
+  const entryKey = `siton_affiliate_entry:${dealId}:${sourceCode}`;
+  let entryId = "";
+  try {
+    entryId = sessionStorage.getItem(entryKey) || "";
+    if (!entryId) {
+      entryId = globalThis.crypto?.randomUUID?.() || `entry-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      sessionStorage.setItem(entryKey, entryId);
+    }
+  } catch {
+    entryId = `entry-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  }
+  const clickId = globalThis.crypto?.randomUUID?.() || `click-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  try {
+    await api("/api/affiliate/links/visit", {
+      method: "POST",
+      body: json({ deal_id: dealId, source_code: sourceCode, click_id: clickId, entry_id: entryId })
+    });
+  } catch {
+    // Measurement is deliberately non-blocking and must never interrupt a buyer.
+  }
 }
 
 async function loadAdmin(query = "") {
@@ -1078,6 +1156,7 @@ async function submitAction(action, form) {
   if (action === "seller-logout") return logoutSeller();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId, form);
   if (action === "seller-profile-save") return saveSellerProfile(form);
+  if (action === "affiliate-link-create") return createAffiliateLink(form);
   if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
   if (action === "admin-kyc-decision") return decideKyc(form);
@@ -1296,6 +1375,7 @@ async function createDeal(form) {
   const formData = new FormData(form);
   rememberSellerCreateForm(formData);
   const title = readCreateDealTitle(formData);
+  const description = String(formData.get("sellerDescription") || "").trim();
   const price = Number(formData.get("sellerPrice") || 0);
   const minUnitsRaw = String(formData.get("sellerMinUnits") || "").trim();
   const maxUnitsRaw = String(formData.get("sellerMaxUnits") || "").trim();
@@ -1373,6 +1453,7 @@ async function createDeal(form) {
       },
       body: json(buildCreateDealPayload({
         title,
+        description,
         price,
         minUnits,
         maxUnits,
@@ -1424,9 +1505,10 @@ async function createDeal(form) {
   }
 }
 
-function buildCreateDealPayload({ title, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions }) {
+function buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions }) {
   return {
     title: String(title || "").trim(),
+    description: String(description || "").trim(),
     price_per_unit: price,
     min_units: minUnits,
     max_units: maxUnits,
@@ -2142,6 +2224,26 @@ async function busy(loadingMessage, fn, fallbackMessage) {
   }
 }
 
+async function copyText(value) {
+  const content = String(value || "").trim();
+  if (!content) return;
+  try {
+    await navigator.clipboard.writeText(content);
+    state.banner = {
+      tone: "success",
+      title: "הטקסט הועתק",
+      message: "אפשר להדביק אותו עכשיו בערוץ השיווק שבחרת."
+    };
+  } catch {
+    state.banner = {
+      tone: "warning",
+      title: "ההעתקה האוטומטית לא הצליחה",
+      message: "אפשר לסמן את הטקסט ולהעתיק אותו ידנית."
+    };
+  }
+  render();
+}
+
 function render() {
   syncDocumentFrame();
   const routeLabel = getRouteLabel();
@@ -2354,14 +2456,21 @@ function renderCtonHome() {
 }
 
 function renderCtonDealPage() {
-  if (!state.dealPayload && state.loading) return "";
-  if (!state.dealPayload) return renderEmptyState("אי אפשר להציג את העסקה", "לא הצלחנו לטעון את פרטי העסקה שביקשת.");
-  const { deal, metrics, availability } = state.dealPayload;
+  return renderCtonDealPageView();
+}
+
+function renderCtonDealPageView(payloadOverride = null, options = {}) {
+  const payload = payloadOverride || state.dealPayload;
+  const preview = Boolean(options.preview);
+  if (!payload && state.loading) return "";
+  if (!payload) return renderEmptyState("אי אפשר להציג את העסקה", "לא הצלחנו לטעון את פרטי העסקה שביקשת.");
+  const { deal, metrics, availability } = payload;
+  const seller = payload.seller || deal.seller || {};
   const dealCopy = getDealCopy(deal.state);
   const qty = Math.max(1, Number(state.form.qty || 1));
-  const deliveryOptions = getDeliveryOptions(state.dealPayload);
-  const selectedDelivery = getSelectedDeliveryOption(state.dealPayload, state.form.deliveryOptionId);
-  const holdTotal = calcHoldTotal(state.dealPayload, qty, selectedDelivery);
+  const deliveryOptions = getDeliveryOptions(payload);
+  const selectedDelivery = getSelectedDeliveryOption(payload, state.form.deliveryOptionId);
+  const holdTotal = calcHoldTotal(payload, qty, selectedDelivery);
   const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
   const isDraft = deal.state === "Draft";
   const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
@@ -2369,7 +2478,7 @@ function renderCtonDealPage() {
     ? remainingToTarget > 0 ? `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד` : "הצטרפו עכשיו – העסקה יוצאת לפועל"
     : "העסקה כבר סגורה";
   return `
-    <section class="cton-deal-page">
+    <section class="cton-deal-page ${preview ? "seller-public-preview" : ""}" ${preview ? 'aria-label="תצוגה מקדימה מלאה של דף הקונה"' : ""}>
       <article class="cton-deal-main">
         <div class="cton-product-image">
           ${getPrimaryDealImage(deal)?.url ? `<img src="${esc(getPrimaryDealImage(deal).url)}" alt="${esc(deal.title)}" />` : `<div>${icon("package")}<strong>תמונת מוצר</strong></div>`}
@@ -2380,7 +2489,7 @@ function renderCtonDealPage() {
           <h1>${esc(deal.title)}</h1>
           <p class="muted">${esc(availability.message || dealCopy.description)}</p>
           <div class="cton-meta-row">
-            <span>${icon("users")} ${esc(deal.seller?.business_name || "מוכר C-ton")}</span>
+            <span>${icon("users")} ${esc(seller.business_name || "מוכר C-ton")}</span>
             <span>${icon("clock")} ${dt(deal.deadline)}</span>
           </div>
         </section>
@@ -2396,12 +2505,12 @@ function renderCtonDealPage() {
           <h2>מה מקבלים</h2>
           <p>${esc(deal.description || "דף העסקה מרכז את הפרטים, הכמות, קצב ההצטרפות ואופן הקבלה במקום אחד ברור.")}</p>
         </section>
-        ${isShareable ? `<section class="cton-card cton-share-box">${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}</section>` : `<section class="cton-card cton-share-box"><strong>העסקה עדיין בטיוטה</strong><p class="muted">פרסום ושיתוף יהיו זמינים רק אחרי שהמוכר מפרסם את העסקה.</p></section>`}
+        ${preview ? `<section class="cton-card cton-share-box"><strong>תצוגה מקדימה בלבד</strong><p class="muted">לא נוצרה עסקה, לא בוצע פרסום, ולא הופעלו שיתוף או הצטרפות.</p></section>` : isShareable ? `<section class="cton-card cton-share-box">${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}</section>` : `<section class="cton-card cton-share-box"><strong>העסקה עדיין בטיוטה</strong><p class="muted">פרסום ושיתוף יהיו זמינים רק אחרי שהמוכר מפרסם את העסקה.</p></section>`}
       </article>
       <aside class="cton-join-card">
         <h2>הצטרפות לעסקה</h2>
         <div class="cton-unit-price"><strong>${currency(deal.price_per_unit)}</strong><span>ליחידה</span></div>
-        <form data-action="start-join" class="stack">
+        <${preview ? "div" : "form"} ${preview ? "" : 'data-action="start-join"'} class="stack">
           <div class="cton-stepper" aria-label="בחירת כמות">
             <button type="button" data-inline-action="qty-step" data-delta="-1">−</button>
             <input id="qty" name="qty" type="number" min="1" max="${Math.max(1, metrics.remaining_units)}" value="${qty}" />
@@ -2427,13 +2536,12 @@ function renderCtonDealPage() {
             ${icon("shield")}
             <p>הסכום יתפוס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד שהעסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.</p>
           </div>
-          <button class="primary" type="submit" ${availability.canJoin ? "" : "disabled"}>${cta}</button>
-        </form>
-        ${isShareable ? renderShareActions(`/app/deal/${deal.deal_id}`, deal.title) : `<div class="info-strip tone-warning"><strong>אין שיתוף בטיוטה</strong><p class="small">העסקה עדיין פנימית ולא פתוחה לקונים.</p></div>`}
+          <button class="primary" type="${preview ? "button" : "submit"}" ${preview || !availability.canJoin ? "disabled" : ""}>${preview ? "תצוגה מקדימה — אין הצטרפות" : cta}</button>
+        </${preview ? "div" : "form"}>
+        ${preview ? `<div class="info-strip tone-warning"><strong>מצב Preview בטוח</strong><p class="small">המסך משתמש באותו renderer של דף העסקה הציבורי, אך כל פעולות Join, Authorization ופרסום כבויות.</p></div>` : isShareable ? renderShareActions(`/app/deal/${deal.deal_id}`, deal.title) : `<div class="info-strip tone-warning"><strong>אין שיתוף בטיוטה</strong><p class="small">העסקה עדיין פנימית ולא פתוחה לקונים.</p></div>`}
       </aside>
     </section>
-    ${renderLegalReferenceStrip("deal")}
-    ${renderDealChatSection(deal)}
+    ${preview ? renderLegalReferenceStrip("deal") : `${renderLegalReferenceStrip("deal")}${renderDealChatSection(deal)}`}
   `;
 }
 
@@ -2593,6 +2701,7 @@ function renderCtonSellerPage() {
   const deals = Array.isArray(payload.deals) ? payload.deals : [];
   const activeDeals = deals.filter((d) => ["PendingTarget", "TargetReached", "Charging", "CompletionWindow"].includes(d.state));
   const riskDeals = deals.filter((d) => ["CompletionWindow", "Charging"].includes(d.state));
+  const regularDeals = deals.filter((d) => !["CompletionWindow", "Charging"].includes(d.state));
   const totalUnits = deals.reduce((sum, d) => sum + Number(d.metrics?.joined_units || 0), 0);
   const potentialGross = deals.reduce((sum, d) => sum + Number(d.price_per_unit || 0) * Number(d.metrics?.joined_units || 0), 0);
   return `
@@ -2611,10 +2720,10 @@ function renderCtonSellerPage() {
         <article class="cton-kpi">${icon("trend")}<span>ברוטו פוטנציאלי</span><strong>${currency(potentialGross)}</strong></article>
         <article class="cton-kpi warning">${icon("alert")}<span>עסקאות בסיכון</span><strong>${num(riskDeals.length)}</strong></article>
       </section>
-      ${riskDeals.length ? `<section class="cton-card cton-attention"><h2>דורש תשומת לב</h2>${riskDeals.map(renderCtonSellerDealCard).join("")}</section>` : ""}
+      ${riskDeals.length ? `<section class="cton-card cton-attention" aria-labelledby="sellerUrgentDeals"><h2 id="sellerUrgentDeals">דורש תשומת לב עכשיו</h2><p class="muted">עסקאות בחיוב או בחלון השלמה מוצגות ראשונות.</p>${riskDeals.map(renderCtonSellerDealCard).join("")}</section>` : ""}
       <section class="cton-card cton-all-deals">
-        <h2>כל העסקאות</h2>
-        <div class="cton-deal-list">${deals.length ? deals.map(renderCtonSellerDealCard).join("") : `<div class="empty-surface">אין עדיין עסקאות להצגה.</div>`}</div>
+        <h2>${riskDeals.length ? "שאר העסקאות" : "כל העסקאות"}</h2>
+        <div class="cton-deal-list">${regularDeals.length ? regularDeals.map(renderCtonSellerDealCard).join("") : `<div class="empty-surface">אין עסקאות נוספות להצגה.</div>`}</div>
       </section>
     </section>
   `;
@@ -2628,6 +2737,8 @@ function renderCtonSellerDealCard(item) {
   const volume = Number(item.price_per_unit || 0) * Number(item.metrics?.joined_units || 0);
   const image = getPrimaryDealImage(item);
   const isDraft = item.state === "Draft";
+  const urgency = sellerDeadlineSignal(item.deadline, item.state);
+  const ctaLabel = isDraft ? "בדיקה ופרסום" : ["Charging", "CompletionWindow"].includes(item.state) ? "פתיחת תמונת מצב" : ["Completed", "Failed", "Cancelled"].includes(item.state) ? "צפייה בסיכום" : "ניהול העסקה";
   return `
     <article class="cton-seller-deal-card ${item.state === "CompletionWindow" ? "warning" : ""} ${item.state === "Failed" ? "failed" : ""}">
       ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(item.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
@@ -2644,8 +2755,9 @@ function renderCtonSellerDealCard(item) {
           <span class="text-warning">בהמתנה: ${num(pendingUnits)}</span>
           <span class="text-muted">לא חויב: ${num(notChargedUnits)}</span>
         </div>
+        <span class="countdown-chip"><span>זמן שנותר</span><strong>${esc(urgency.title)}</strong></span>
         <div class="cton-actions compact">
-          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">כניסה לעסקה</a>
+          <a class="button primary" href="/app/seller/deals/${encodeURIComponent(item.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(item.deal_id)}">${ctaLabel}</a>
           ${isDraft ? `<span class="status-note">אין לינק בטיוטה</span>` : `<button class="secondary" type="button" data-inline-action="copy-link" data-share-url="/app/deal/${encodeURIComponent(item.deal_id)}">העתק לינק</button>`}
         </div>
       </div>
@@ -4107,6 +4219,79 @@ function renderSellerDealCard(item) {
   `;
 }
 
+function buildSellerPreviewPayload() {
+  const fulfillmentType = state.form.sellerFulfillmentType || "delivery";
+  const slots = fulfillmentType === "delivery" ? [1] : activeSellerPickupSlots();
+  const deliveryOptions = slots.map((slot, index) => {
+    if (fulfillmentType === "delivery") {
+      return { option_id: "preview-delivery", option_type: "delivery", label: "משלוח", cost: 0, sort_order: 0 };
+    }
+    const type = fulfillmentType === "distribution_point" ? "distribution_point" : "pickup";
+    return {
+      option_id: `preview-${slot}`,
+      option_type: type,
+      label: buildDistributionPointLabel({
+        label: state.form[`sellerDeliveryLabel${slot}`] || formatDeliveryTypeLabel(type),
+        pointName: state.form[`sellerDeliveryPointName${slot}`],
+        address: state.form[`sellerDeliveryAddress${slot}`],
+        city: state.form[`sellerDeliveryCity${slot}`],
+        instructions: state.form[`sellerDeliveryInstructions${slot}`],
+        locationUrl: state.form[`sellerDeliveryLocationUrl${slot}`]
+      }),
+      cost: Number(state.form[`sellerDeliveryCost${slot}`] || 0),
+      sort_order: index
+    };
+  });
+  const images = readSellerImages().map((image, index) => ({
+    image_id: `preview-image-${index}`,
+    url: image.dataUrl,
+    is_primary: Boolean(image.isPrimary),
+    sort_order: index
+  }));
+  const threshold = Math.max(1, Number(state.form.sellerMinUnits || 1));
+  const maxUnits = Math.max(threshold, Number(state.form.sellerMaxUnits || threshold));
+  return {
+    deal: {
+      deal_id: "preview-only",
+      title: state.form.sellerTitle || "שם העסקה יופיע כאן",
+      description: state.form.sellerDescription || "תיאור העסקה יופיע כאן כפי שהקונה יקרא אותו.",
+      state: "Draft",
+      price_per_unit: Math.max(0, Number(state.form.sellerPrice || 0)),
+      threshold_units: threshold,
+      max_units: maxUnits,
+      deadline: state.form.sellerDeadline || null,
+      delivery_options: deliveryOptions,
+      images,
+      seller: { business_name: currentSellerContext().display_name || "מוכר C-ton" }
+    },
+    metrics: {
+      joined_units: 0,
+      remaining_units: maxUnits,
+      progress_to_minimum_pct: 0
+    },
+    seller: { business_name: currentSellerContext().display_name || "מוכר C-ton" },
+    availability: {
+      canJoin: false,
+      message: "כך העסקה תיראה לקונים אחרי פרסום. כרגע זו תצוגה מקדימה בטוחה בלבד."
+    }
+  };
+}
+
+function renderSellerPreviewModal() {
+  if (!state.sellerPreviewOpen) return "";
+  return `
+    <section class="modal-backdrop seller-preview-backdrop" role="presentation">
+      <div class="modal-panel seller-preview-dialog stack" role="dialog" aria-modal="true" aria-labelledby="sellerPreviewTitle" tabindex="-1" data-seller-preview-dialog>
+        <div class="section-header seller-preview-toolbar">
+          <div><span class="eyebrow">Preview לפני פרסום</span><h2 id="sellerPreviewTitle">כך הקונה יראה את העסקה</h2><p class="small muted">אותו renderer ציבורי, ללא יצירה, פרסום, הצטרפות או אישור מסגרת.</p></div>
+          <button class="secondary" type="button" data-inline-action="seller-preview-close" aria-label="סגירת התצוגה המקדימה">סגירה</button>
+        </div>
+        ${renderCtonDealPageView(buildSellerPreviewPayload(), { preview: true })}
+      </div>
+    </section>
+  `;
+}
+
 function renderSellerNewPage() {
   const auth = currentSellerAuth();
   if (!usesDemoSellerContext() && !auth.authenticated) {
@@ -4291,6 +4476,7 @@ function renderSellerNewPage() {
             <label class="check-row"><input type="checkbox" name="sellerFinalConfirm" ${state.form.sellerFinalConfirm === "on" ? "checked" : ""} /> <span>אני מאשר שהתנאים סופיים.</span></label>
           </section>
           <div class="actions">
+            <button class="secondary" type="button" data-inline-action="seller-preview-open">תצוגה מקדימה מלאה לקונה</button>
             <button class="primary" type="submit">יצירת טיוטה</button>
             <a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לניהול העסקאות שלי</a>
           </div>
@@ -4352,6 +4538,7 @@ function renderSellerNewPage() {
         </div>
       </aside>
     </section>
+    ${renderSellerPreviewModal()}
   `;
 }
 
@@ -4645,59 +4832,75 @@ function renderAffiliatePage() {
   const payload = state.affiliatePayload?.affiliate_surface;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("מרכז ההפצה לא זמין", "לא הצלחנו לטעון עכשיו את מרכז ההפצה.");
+  const campaigns = Array.isArray(payload.campaigns) ? payload.campaigns : [];
+  const links = Array.isArray(payload.links) ? payload.links : [];
+  const shareableCampaigns = campaigns.filter((campaign) => ["PendingTarget", "TargetReached"].includes(campaign.state));
+  const canCreateNamedLinks = Boolean(payload.capabilities?.named_link_creation);
+  const totals = payload.totals || {};
   return `
-    <section class="hero">
-      <article class="card hero-main stack">
-        <span class="badge warning">גישה תפעולית</span>
-        <span class="eyebrow">הפצה וייחוס</span>
-        <h1>מרכז הפצה למדידה, ייחוס ושיתוף לינקים</h1>
-        <p class="muted">המשטח הזה מרכז את מצב הייחוס, הקמפיינים והאימות של המפיץ. המפיץ הוא ערוץ מדידה והפצה בלבד — אין כאן עמלה, יתרה, התחשבנות או תשלום, לא כעת ולא בעתיד.</p>
-        <div class="summary-grid">
-          <div class="summary-item"><span class="muted">שם תצוגה</span><strong>${esc(payload.display_name || "לא זמין")}</strong></div>
-          <div class="summary-item"><span class="muted">מצב ייחוס</span><strong>${esc(payload.attribution_status)}</strong></div>
-          <div class="summary-item"><span class="muted">מצב אימות</span><strong>${esc(payload.verification_status)}</strong></div>
-          <div class="summary-item"><span class="muted">קמפיינים פעילים</span><strong>${num(payload.totals.active_campaigns)}</strong></div>
+    <section class="affiliate-workspace stack" id="affiliate-dashboard">
+      <header class="card section affiliate-header stack">
+        <div class="section-header">
+          <div><span class="eyebrow">הפצה וייחוס</span><h1>מרכז ההפצה של ${esc(payload.display_name || "המפיץ")}</h1><p class="muted">לינקים, ביצועים ונכסי שיווק במקום אחד — בלי מידע אישי של קונים ובלי מסלול כסף.</p></div>
+          <span class="badge ${payload.verification_status === "verified" ? "success" : "warning"}">${esc(payload.verification_status || "ממתין לאימות")}</span>
         </div>
-        <div class="info-strip tone-info">
-          <strong>גבול המודל החי</strong>
-          <p>${esc(payload.note)}</p>
+        <nav class="affiliate-subnav" aria-label="ניווט מרכז הפצה">
+          <a href="#affiliate-dashboard">דשבורד</a>
+          <a href="#affiliate-links">לינקים להפצה</a>
+          <a href="#affiliate-performance">ביצועי לינקים</a>
+          <a href="#affiliate-assets">נכסי שיווק</a>
+        </nav>
+        <div class="info-strip tone-info affiliate-boundary-note">
+          <strong>מדידה וייחוס בלבד</strong>
+          <p>הנתונים אינם יוצרים זכאות כספית דרך Siton. עמלת מפיץ היא 0; אין יתרה, ארנק, משיכה, payout, חשבונית או זכות פיננסית.</p>
         </div>
-        <div class="info-strip tone-info">
-          <strong>גבולות השטח של המפיץ</strong>
-          <p>אין חשיפה של פרטי קונים, אין תזרים כספי ואין פרופיל תשלום. התצוגה מצטברת בלבד — קליקים, ייחוסים, יחידות וקמפיינים.</p>
-        </div>
-      </article>
-      <aside class="card hero-side stack">
-        <div class="summary-item"><span class="muted">קונים משויכים</span><strong>${num(payload.totals.total_attributions)}</strong></div>
-        <div class="summary-item"><span class="muted">יחידות משויכות</span><strong>${num(payload.totals.total_units)}</strong></div>
-        <div class="summary-item"><span class="muted">הערת אימות</span><strong>${esc(payload.verification_surface.admin_note || "אין הערת אימות פנימית")}</strong></div>
-      </aside>
-    </section>
-    <section class="card section stack">
-      <h2>סיכום ייחוסים</h2>
-      <div class="summary-grid">
-        <div class="summary-item"><span class="muted">קונים משויכים</span><strong>${num(payload.totals.total_attributions)}</strong></div>
-        <div class="summary-item"><span class="muted">יחידות משויכות</span><strong>${num(payload.totals.total_units)}</strong></div>
-        <div class="summary-item"><span class="muted">קמפיינים פעילים</span><strong>${num(payload.totals.active_campaigns)}</strong></div>
-        <div class="summary-item"><span class="muted">אימות</span><strong>${esc(payload.verification_surface.status || payload.verification_status)}</strong></div>
-      </div>
-      <p class="small muted">המשטח הזה מרכז את ביצועי ההפצה, סטטוס האימות ומוכנות המסלול. הוא לא מציג כסף חי ולא יוצר מצג של תשלום שכבר בוצע.</p>
-    </section>
-    <section class="card section stack">
-      <h2>קמפיינים זמינים למפיץ</h2>
-      <div class="card-list">
-        ${payload.campaigns.map((campaign) => `
-          <article class="summary-item">
-            <span class="muted">${esc(campaign.state)}</span>
-            <h3>${esc(campaign.title)}</h3>
-            <p class="small muted">קונים משויכים: ${num(campaign.attributed_buyers)} · יחידות משויכות: ${num(campaign.attributed_units)}</p>
-            <p class="small mono">${esc(campaign.share_link)}</p>
-            <div class="actions">
-              <a class="button secondary" href="/app/deal/${encodeURIComponent(campaign.deal_id)}" data-nav="/app/deal/${encodeURIComponent(campaign.deal_id)}">פתיחת העסקה</a>
-            </div>
+      </header>
+
+      <section class="cton-kpi-grid affiliate-kpi-grid" aria-label="מדדי הפצה מרכזיים">
+        <article class="cton-kpi"><span>קליקים</span><strong>${num(totals.clicks || 0)}</strong></article>
+        <article class="cton-kpi"><span>כניסות ייחודיות</span><strong>${num(totals.entries || 0)}</strong></article>
+        <article class="cton-kpi"><span>הצטרפויות</span><strong>${num(totals.total_attributions || 0)}</strong></article>
+        <article class="cton-kpi"><span>יחידות שיוחסו</span><strong>${num(totals.total_units || 0)}</strong></article>
+        <article class="cton-kpi success"><span>ברוטו מיוחס</span><strong>${currency(totals.attributed_gross || 0)}</strong><small>מדד ייחוס, לא יתרה</small></article>
+      </section>
+
+      <section class="card section stack" id="affiliate-links">
+        <div class="section-header"><div><h2>לינקים להפצה</h2><p class="muted">בחרו עסקה מורשית ותנו ללינק שם פנימי. כל לינק מקבל מקור ייחודי למדידה.</p></div><span class="stat-pill"><span>לינקים פעילים</span><strong>${num(links.length)}</strong></span></div>
+        ${canCreateNamedLinks ? "" : `<div class="info-strip tone-warning"><strong>יצירת לינק חדש אינה זמינה בסביבה הזו</strong><p class="small">נדרש חיבור זהות מפיץ מאומתת לפני הפעלת פעולת כתיבה ב-production. לינקים ונתוני מדידה קיימים נשארים לקריאה בלבד.</p></div>`}
+        <form class="affiliate-link-form" data-action="affiliate-link-create">
+          <div class="field"><label for="affiliateDealId">עסקה להפצה</label><select id="affiliateDealId" name="affiliateDealId" required><option value="">בחירת עסקה</option>${shareableCampaigns.map((campaign) => `<option value="${esc(campaign.deal_id)}" ${state.form.affiliateDealId === campaign.deal_id ? "selected" : ""}>${esc(campaign.title)}</option>`).join("")}</select></div>
+          <div class="field"><label for="affiliateLinkName">שם פנימי ללינק</label><input id="affiliateLinkName" name="affiliateLinkName" type="text" maxlength="80" value="${esc(state.form.affiliateLinkName)}" placeholder="למשל: קבוצת וואטסאפ שכונתית" required /></div>
+          <button class="primary" type="submit" ${shareableCampaigns.length && canCreateNamedLinks ? "" : "disabled"}>יצירת לינק ייחודי</button>
+        </form>
+        ${links.length ? `<div class="card-list affiliate-link-list">${links.map((link) => `
+          <article class="summary-item stack">
+            <div class="actions spread"><div><span class="muted">${esc(link.title)}</span><h3>${esc(link.internal_name)}</h3></div><span class="badge ${DEAL_TONE[link.state] || "warning"}">${esc(getDealCopy(link.state).label)}</span></div>
+            <p class="mono small">${esc(absoluteUrl(link.share_link))}</p>
+            <div class="actions"><button class="primary" type="button" data-inline-action="copy-link" data-share-url="${esc(link.share_link)}">העתקה</button><button class="secondary" type="button" data-inline-action="share-link" data-share-url="${esc(link.share_link)}" data-share-title="${esc(link.title)}">שיתוף</button><a class="button secondary" href="#affiliate-performance">פתיחת ביצועים</a></div>
           </article>
-        `).join("")}
-      </div>
+        `).join("")}</div>` : `<div class="empty-surface"><strong>עדיין לא נוצרו לינקים בשם פנימי</strong><p class="small muted">בחרו עסקה פתוחה וצרו את הלינק הראשון. הלינק הקנוני של המפיץ נשאר זמין ברשימת העסקאות.</p></div>`}
+      </section>
+
+      <section class="card section stack" id="affiliate-performance">
+        <div class="section-header"><div><h2>ביצועי לינקים</h2><p class="muted">הנתונים מצטברים ואינם כוללים שם, טלפון, אימייל או פרטי תשלום של קונים.</p></div></div>
+        ${links.length ? `<div class="table-wrap"><table class="data-table affiliate-performance-table"><thead><tr><th>לינק</th><th>עסקה</th><th>קליקים</th><th>כניסות</th><th>הצטרפויות</th><th>המרה</th><th>יחידות</th><th>ברוטו מיוחס</th><th>מצב וזמן</th><th>כמות מול יעד</th></tr></thead><tbody>${links.map((link) => {
+          const campaign = campaigns.find((item) => item.deal_id === link.deal_id) || {};
+          const urgency = sellerDeadlineSignal(link.deadline, link.state);
+          return `<tr><td>${esc(link.internal_name)}</td><td>${esc(link.title)}</td><td>${num(link.clicks)}</td><td>${num(link.entries)}</td><td>${num(link.attributed_buyers)}</td><td>${num(link.conversion_rate)}%</td><td>${num(link.attributed_units)}</td><td>${currency(campaign.attributed_gross || 0)}<small class="muted"> מדד בלבד</small></td><td>${esc(getDealCopy(link.state).label)}<br/><small>${esc(urgency.title)}</small></td><td>${num(link.joined_units)} / ${num(link.threshold_units)}</td></tr>`;
+        }).join("")}</tbody></table></div>` : `<div class="empty-surface"><strong>אין עדיין ביצועים לפי לינק</strong><p class="small muted">אחרי יצירת לינק ופתיחתו יופיעו כאן קליקים, כניסות, המרות וייחוסים.</p></div>`}
+      </section>
+
+      <section class="card section stack" id="affiliate-assets">
+        <div class="section-header"><div><h2>נכסי שיווק</h2><p class="muted">נכסים שהמוכר כבר סיפק. אפשר להעתיק, להוריד ולשתף — אי אפשר לערוך את תוכן העסקה מכאן.</p></div></div>
+        ${campaigns.length ? `<div class="marketing-assets-grid">${campaigns.map((campaign) => `
+          <article class="marketing-asset-card stack">
+            ${campaign.image?.url ? `<img src="${esc(campaign.image.url)}" alt="${esc(campaign.title)}" />` : `<div class="marketing-asset-placeholder">${icon("package")}<span>אין תמונה שסופקה</span></div>`}
+            <div><span class="badge ${DEAL_TONE[campaign.state] || "warning"}">${esc(getDealCopy(campaign.state).label)}</span><h3>${esc(campaign.title)}</h3><p>${esc(campaign.description || "המוכר לא סיפק תיאור שיווקי נוסף.")}</p></div>
+            <p class="small muted"><strong>מידע אספקה:</strong> ${esc((campaign.delivery_labels || []).join(" · ") || "לא סופק מידע נוסף")}</p>
+            <div class="actions"><button class="secondary" type="button" data-inline-action="copy-text" data-copy-text="${esc(`${campaign.title}\n${campaign.description || ""}`)}">העתקת טקסט</button>${campaign.image?.url ? `<a class="button secondary" href="${esc(campaign.image.url)}" download>הורדת תמונה</a>` : ""}<button class="primary" type="button" data-inline-action="copy-link" data-share-url="${esc(campaign.share_link)}">העתקת לינק</button></div>
+          </article>
+        `).join("")}</div>` : `<div class="empty-surface"><strong>אין נכסים זמינים</strong><p class="small muted">נכסי שיווק יופיעו רק מעסקאות שהמוכר כבר יצר.</p></div>`}
+      </section>
     </section>
   `;
 }
@@ -4841,7 +5044,10 @@ function renderAdminPage() {
   const urgencyCards = buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus);
   return `
     ${renderAdminMissionControl(mission)}
-    <section class="hero">
+    <nav class="card admin-section-nav" aria-label="ניווט מרכז תפעול">
+      <a href="#admin-urgent">דחוף עכשיו</a><a href="#admin-search">חיפוש ופרופילים</a><a href="#admin-kyc">KYC</a><a href="#admin-support">תמיכה</a><a href="#admin-system">מצב מערכת</a>
+    </nav>
+    <section class="hero" id="admin-urgent">
       <article class="card hero-main stack">
         <span class="badge warning">גישה תפעולית</span>
         <span class="eyebrow">ניהול, תמיכה ובקרה</span>
@@ -4876,7 +5082,7 @@ function renderAdminPage() {
         <div class="summary-item"><span class="muted">רשומות DLQ</span><strong>${num(payload.forensics.dlq_count)}</strong><p class="small muted">אירועים שיצאו מתור העבודה התקין ודורשים בקרה.</p></div>
       </div>
     </section>
-    <section class="card section stack">
+    <section class="card section stack" id="admin-support">
       <div class="section-header">
         <div>
           <h2>Support Cases</h2>
@@ -4892,12 +5098,12 @@ function renderAdminPage() {
     </section>
     ${renderSellerEnforcementAdminSection(sellerRisk)}
     ${renderDemoReadinessSection(state.adminDemoReadinessPayload)}
-    <section class="card section stack">
+    <section class="card section stack" id="admin-search">
       <h2>תוצאות חיפוש תפעולי</h2>
       <p class="small muted">החיפוש מפנה ישירות לפרופיל העסקה, המשתתף או המשתמש. אין כאן dump טכני של מזהים בלי מסלול המשך.</p>
       ${renderAdminSearchResults(payload.search_results)}
     </section>
-    <section class="card section stack">
+    <section class="card section stack" id="admin-kyc">
       <h2>תור אימות ובקרה</h2>
       ${payload.kyc_queue.length ? `<div class="card-list">${payload.kyc_queue.map((item) => `
         <article class="summary-item stack">
@@ -4962,7 +5168,7 @@ function renderAdminPage() {
       </div>
       <p class="small muted">המשטח הזה נשאר read-only ומתייחס רק למסלול הכספי של מוכרים ושל הפלטפורמה. הוא לא מציג payout rails חיצוניים כאילו הופעלו.</p>
     </section>
-    <section class="card section stack">
+    <section class="card section stack" id="admin-system">
       <h2>מצב מערכת ותורים</h2>
       ${systemStatus ? `
         <div class="summary-grid">
@@ -7414,7 +7620,14 @@ function validatePayment(payload) {
 
 function getFlow(dealId) {
   const all = readFlow();
-  const flow = all[dealId] || null;
+  let flow = all[dealId] || null;
+  if (!flow) {
+    flow = readSafeResume(dealId);
+    if (flow) {
+      all[dealId] = flow;
+      try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(all)); } catch {}
+    }
+  }
   if (!flow) return null;
   // Discard flows written by an incompatible schema version
   if (flow._v !== undefined && flow._v !== FLOW_SCHEMA_VERSION) {
@@ -7450,6 +7663,7 @@ function saveFlow(dealId, next) {
   const all = readFlow();
   all[dealId] = { ...(all[dealId] || {}), ...next, updatedAt: new Date().toISOString(), _v: FLOW_SCHEMA_VERSION };
   sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  writeSafeResume(dealId, all[dealId]);
   return all[dealId];
 }
 
@@ -7459,12 +7673,14 @@ function clearFlowFields(dealId, keys) {
   for (const key of keys) delete all[dealId][key];
   all[dealId].updatedAt = new Date().toISOString();
   sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  writeSafeResume(dealId, all[dealId]);
 }
 
 function removeFlow(dealId) {
   const all = readFlow();
   delete all[dealId];
   sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  removeSafeResume(dealId);
 }
 
 function readFlow() {
@@ -7473,6 +7689,55 @@ function readFlow() {
   } catch {
     return {};
   }
+}
+
+function safeResumeProjection(dealId, flow) {
+  const allowed = [
+    "dealTitle", "qty", "deliveryOptionId", "deliveryMethodType",
+    "deliveryMethodLabel", "deliveryCost", "affiliateRef", "estimatedTotal",
+    "startedAt"
+  ];
+  const projected = {
+    dealId,
+    _v: FLOW_SCHEMA_VERSION,
+    _safeV: SAFE_RESUME_SCHEMA_VERSION,
+    updatedAt: new Date().toISOString()
+  };
+  for (const key of allowed) {
+    if (flow?.[key] !== undefined) projected[key] = flow[key];
+  }
+  return projected;
+}
+
+function writeSafeResume(dealId, flow) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SAFE_RESUME_KEY) || "{}");
+    all[dealId] = safeResumeProjection(dealId, flow);
+    localStorage.setItem(SAFE_RESUME_KEY, JSON.stringify(all));
+  } catch {}
+}
+
+function readSafeResume(dealId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SAFE_RESUME_KEY) || "{}");
+    const resume = all[dealId] || null;
+    if (!resume || resume._safeV !== SAFE_RESUME_SCHEMA_VERSION) return null;
+    if (!resume.updatedAt || Date.now() - new Date(resume.updatedAt).getTime() > SAFE_RESUME_TTL_MS) {
+      removeSafeResume(dealId);
+      return null;
+    }
+    return { ...resume, updatedAt: new Date().toISOString() };
+  } catch {
+    return null;
+  }
+}
+
+function removeSafeResume(dealId) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SAFE_RESUME_KEY) || "{}");
+    delete all[dealId];
+    localStorage.setItem(SAFE_RESUME_KEY, JSON.stringify(all));
+  } catch {}
 }
 
 function defaultSellerContext() {
