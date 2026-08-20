@@ -61,6 +61,18 @@ await assert.rejects(() => verificationAdapter.put(verificationKey, content, { c
 assert.equal(verificationDeleteCount, 1);
 assert.equal(verificationObjects.has(verificationKey), false);
 
+const missingBucketClient = {
+  async send() {
+    const error: any = new Error("bucket missing");
+    error.name = "NoSuchBucket";
+    error.$metadata = { httpStatusCode: 404 };
+    throw error;
+  }
+};
+const missingBucketAdapter = new S3CompatibleStorageAdapter(base, missingBucketClient as any);
+await assert.rejects(() => missingBucketAdapter.get(key), (error: any) => error.code === "storage_bucket_not_found");
+await assert.rejects(() => missingBucketAdapter.metadata(key), (error: any) => error.code === "storage_bucket_not_found");
+
 resetStorageAdapterForTests();
 assert.throws(() => buildStorageAdapter({ STORAGE_ADAPTER: "object" }), /object storage configuration invalid/);
 resetStorageAdapterForTests();
