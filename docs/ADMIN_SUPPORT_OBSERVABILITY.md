@@ -18,10 +18,11 @@ and how to confirm each queue is clean.
 | `/api/admin/deals/:id/ops-summary` | GET | Per-deal cross-system ops counts: participants, notifications, invoices, outbox |
 | `/api/admin/deals/:id/profile` | GET | Full deal support profile: participants, outbox, payments, audit, delivery |
 | `/api/admin/users/:buyerId/profile` | GET | Buyer join history across all deals |
-| `/api/admin/system-status` | GET | Broader system health: integrations, readiness, deployment mode |
+| `/api/admin/system-status` | GET | Unified infrastructure snapshot, sustained GREEN/AMBER/RED decision, trends and recommendation |
+| `/api/admin/infrastructure/compute-upgrade` | POST | Production-only, MFA/session-protected, feature-flagged one-tier compute upgrade approval |
 | `/api/admin/overview` | GET | Admin dashboard: deal listings, KYC queue, support tickets, settlements |
 
-All endpoints require the `x-admin-key` header when `ADMIN_API_KEY` env var is set.
+Read endpoints use the existing Admin route gate (`x-admin-key` when `ADMIN_API_KEY` is set). The compute mutation deliberately does not accept that shared key as sufficient authority: it requires a database-backed Admin session, `admin_actions.execute`, and recent MFA.
 In demo/dev mode with no key set, all admin endpoints are open.
 
 ---

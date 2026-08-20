@@ -27,6 +27,7 @@ import {
   reclaimStuckInvoiceDocuments
 } from "./invoice_dispatch.js";
 import { registerFrontendExperience } from "./frontend_runtime.js";
+import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
 import { hitTestFault } from "./fault_injection.js";
@@ -2294,6 +2295,7 @@ function isDynamicNoStoreRoute(url: string) {
 }
 
 app.addHook("onRequest", (req: any, reply: any, done) => {
+  applicationRequestTelemetry.start(req);
   const requestId = safeHeaderId(req.headers?.["x-request-id"], "req");
   const correlationId = safeHeaderId(req.headers?.["x-correlation-id"], "corr");
   req.request_id = requestId;
@@ -2310,6 +2312,10 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
     reply.header("pragma", "no-cache");
     reply.header("expires", "0");
   }
+  done();
+});
+app.addHook("onResponse", (req: any, reply: any, done) => {
+  applicationRequestTelemetry.finish(req, Number(reply.statusCode || 200));
   done();
 });
 export { app, issueFulfillmentForCompletedDeal };
@@ -3671,7 +3677,6 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
-
 
 
 

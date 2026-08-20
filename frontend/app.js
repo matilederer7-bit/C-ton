@@ -8,6 +8,7 @@ const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
 const SAFE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
 const POLL_INTERVAL_MS = 12000;
 const TRACKING_POLL_INTERVAL_MS = 6000;
+const ADMIN_POLL_INTERVAL_MS = 45000;
 let routePollTimer = null;
 let routePollKey = "";
 
@@ -55,6 +56,7 @@ const state = {
   adminUserPayload: null,
   adminPollingPaused: false,
   adminSafeActionDraft: null,
+  adminComputeUpgradeDraft: null,
   error: null,
   banner: null,
   sellerImageUploadStatus: "idle",
@@ -319,6 +321,19 @@ document.addEventListener("click", (event) => {
     if (action === "admin-refresh") void loadAdmin(state.form.adminQuery);
     if (action === "admin-polling-toggle") {
       state.adminPollingPaused = !state.adminPollingPaused;
+      render();
+      return;
+    }
+    if (action === "admin-compute-upgrade-open") {
+      state.adminComputeUpgradeDraft = {
+        current_tier: actionTarget.dataset.currentTier || "",
+        target_tier: actionTarget.dataset.targetTier || ""
+      };
+      render();
+      return;
+    }
+    if (action === "admin-compute-upgrade-close") {
+      state.adminComputeUpgradeDraft = null;
       render();
       return;
     }
@@ -870,7 +885,7 @@ async function loadAdmin(query = "") {
       api(`/api/admin/overview?q=${encodeURIComponent(query || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(query || "")}`),
       api("/api/admin/launch-console"),
-      api("/api/admin/system-status"),
+      api("/api/admin/system-status").catch(() => ({ ok: false, system_status: { infrastructure: null, metrics_unavailable: true } })),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status"),
       api("/api/admin/sellers/risk"),
@@ -945,7 +960,9 @@ function syncRoutePolling() {
 
   const intervalMs = String(pollKey || "").startsWith("tracking:")
     ? TRACKING_POLL_INTERVAL_MS
-    : POLL_INTERVAL_MS;
+    : String(pollKey || "").startsWith("admin")
+      ? ADMIN_POLL_INTERVAL_MS
+      : POLL_INTERVAL_MS;
   routePollTimer = setInterval(() => {
     void runRouteSilently();
   }, intervalMs);
@@ -1071,7 +1088,7 @@ async function refreshAdminSilently() {
       api(`/api/admin/overview?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api(`/api/admin/mission-control?q=${encodeURIComponent(state.form.adminQuery || "")}`),
       api("/api/admin/launch-console"),
-      api("/api/admin/system-status"),
+      api("/api/admin/system-status").catch(() => ({ ok: false, system_status: { infrastructure: null, metrics_unavailable: true } })),
       api("/api/admin/notifications-status"),
       api("/api/admin/invoice-status"),
       api("/api/admin/sellers/risk"),
@@ -1081,7 +1098,7 @@ async function refreshAdminSilently() {
     const totalsChanged = !state.adminPayload || JSON.stringify(state.adminPayload.admin_surface.totals) !== JSON.stringify(next.admin_surface.totals);
     const systemChanged =
       !state.adminSystemStatusPayload ||
-      JSON.stringify(state.adminSystemStatusPayload.system_status.operational_counts) !== JSON.stringify(systemStatus.system_status.operational_counts);
+      JSON.stringify(state.adminSystemStatusPayload.system_status) !== JSON.stringify(systemStatus.system_status);
     const notificationsChanged =
       !state.adminNotificationsStatusPayload ||
       JSON.stringify(state.adminNotificationsStatusPayload.notifications) !== JSON.stringify(notificationsStatus.notifications);
@@ -1168,6 +1185,25 @@ async function submitAction(action, form) {
   if (action === "admin-support-create") return createSupportTicket(form);
   if (action === "admin-support-update") return updateSupportTicket(form);
   if (action === "admin-safe-action-create") return createAdminSafeAction(form);
+  if (action === "admin-compute-upgrade") return requestComputeUpgrade(form);
+}
+
+async function requestComputeUpgrade(form) {
+  const data = new FormData(form);
+  const currentTier = String(data.get("current_tier") || "");
+  const targetTier = String(data.get("target_tier") || "");
+  if (data.get("downtime_acknowledged") !== "on") return fail("נדרש אישור מפורש", "יש לאשר שהשדרוג עלול לגרום להפרעה זמנית.");
+  await busy("שולח בקשת שדרוג מבוקרת...", async () => {
+    const idempotencyKey = globalThis.crypto?.randomUUID?.() || `compute-upgrade-${Date.now()}`;
+    await api("/api/admin/infrastructure/compute-upgrade", {
+      method: "POST",
+      headers: { "idempotency-key": idempotencyKey },
+      body: json({ current_tier: currentTier, target_tier: targetTier, downtime_acknowledged: true })
+    });
+    state.adminComputeUpgradeDraft = null;
+    state.banner = { tone: "success", title: "בקשת השדרוג נשלחה", message: "הפעולה נרשמה ב־Audit ותיבדק שוב ברענון הבא." };
+    await loadAdmin(state.form.adminQuery);
+  }, "לא הצלחנו לשלוח את בקשת השדרוג.");
 }
 
 function startJoin() {
@@ -5031,6 +5067,79 @@ function renderSupportTicketCards(tickets) {
   `;
 }
 
+function formatInfrastructureMetric(metric) {
+  if (!metric || metric.availability !== "available" || metric.value == null) return "לא זמין";
+  if (metric.unit === "percent") return `${num(Number(metric.value).toFixed(1))}%`;
+  if (metric.unit === "ratio") return `${num((Number(metric.value) * 100).toFixed(1))}%`;
+  if (metric.unit === "milliseconds") return `${num(Math.round(metric.value))} ms`;
+  if (metric.unit === "seconds") return `${num(Math.round(metric.value))} שנ׳`;
+  if (metric.unit === "bytes") return `${num((Number(metric.value) / 1024 / 1024).toFixed(1))} MB`;
+  return num(metric.value);
+}
+
+function formatInfrastructureHistoryMetric(window, key, field, unit) {
+  const value = window?.metrics?.[key]?.[field];
+  return formatInfrastructureMetric(value == null
+    ? null
+    : { availability: "available", value, unit });
+}
+
+function renderComputeUpgradeModal() {
+  const draft = state.adminComputeUpgradeDraft;
+  if (!draft) return "";
+  return `
+    <div class="modal-backdrop" role="presentation">
+      <section class="modal-panel stack" role="dialog" aria-modal="true" aria-labelledby="compute-upgrade-title">
+        <div class="section-header"><div><span class="eyebrow">פעולת תשתית רגישה</span><h2 id="compute-upgrade-title">אישור שדרוג Compute</h2></div><button class="secondary" type="button" data-inline-action="admin-compute-upgrade-close">סגירה</button></div>
+        <div class="summary-grid"><div class="summary-item"><span class="muted">Current</span><strong>${esc(draft.current_tier)}</strong></div><div class="summary-item"><span class="muted">Target</span><strong>${esc(draft.target_tier)}</strong></div></div>
+        <div class="info-strip tone-warning"><strong>ייתכנו השבתה או ירידת ביצועים זמנית</strong><p>אין כאן Auto Upgrade. הפעולה תישלח רק לאחר אישור זה, תוגבל לשדרוג של tier אחד ותירשם ב־Audit.</p></div>
+        <p class="small muted">עלות: בדוק עלות ב-Supabase</p>
+        <form class="stack" data-action="admin-compute-upgrade">
+          <input type="hidden" name="current_tier" value="${esc(draft.current_tier)}" />
+          <input type="hidden" name="target_tier" value="${esc(draft.target_tier)}" />
+          <label class="choice"><input type="checkbox" name="downtime_acknowledged" /> אני מאשר/ת שהבנתי את ה־Current/Target ואת אפשרות ההשבתה.</label>
+          <button class="primary" type="submit">אשר שדרוג Compute</button>
+        </form>
+      </section>
+    </div>`;
+}
+
+function renderInfrastructureHealth(systemStatus) {
+  const infrastructure = systemStatus?.infrastructure;
+  if (!infrastructure) return `<div class="empty-surface"><h3>נתוני תשתית אינם זמינים כרגע</h3><p class="muted">מרכז האדמין ממשיך לעבוד. נסה רענון או בדוק את תצורת מקור המדדים.</p></div>`;
+  const tone = infrastructure.status === "RED" ? "danger" : infrastructure.status === "AMBER" ? "warning" : "success";
+  const collectedAt = Date.parse(infrastructure.collected_at || "");
+  const stale = infrastructure.stale || (Number.isFinite(collectedAt) && Date.now() - collectedAt > Number(infrastructure.stale_after_seconds || 120) * 1000);
+  const metrics = infrastructure.metrics || {};
+  const metricCards = [
+    ["מסד נתונים", metrics.database_cpu_percent, metrics.database_query_latency_ms],
+    ["זיכרון", metrics.database_memory_percent],
+    ["חיבורים", metrics.database_connection_percent],
+    ["API", metrics.api_p95_latency_ms, metrics.api_error_rate],
+    ["תורים", metrics.queue_depth, metrics.oldest_queued_job_seconds],
+    ["Workers", metrics.worker_heartbeat_age_seconds],
+    ["סליקה", metrics.payment_error_rate, metrics.payment_provider_latency_ms],
+    ["Webhooks", metrics.webhook_failure_rate]
+  ];
+  const recommendation = infrastructure.recommendation || {};
+  const compute = systemStatus.compute_management || {};
+  const canUpgrade = recommendation.recommend_compute_upgrade && compute.action_available && recommendation.recommended_compute_tier;
+  const unavailableCount = Object.values(metrics).filter((metric) => metric?.availability === "unavailable").length;
+  return `
+    <article class="infrastructure-health-card ${tone}">
+      <div class="section-header"><div><span class="eyebrow">מצב תשתית</span><h2>${esc(infrastructure.status_he)}</h2><p>${esc(infrastructure.summary_he)}</p></div><div class="stack align-end"><span class="badge ${tone}">${esc(infrastructure.status_he)}</span>${stale ? `<span class="badge warning">נתונים לא עדכניים</span>` : ""}</div></div>
+      <p class="small muted">עודכן: ${dt(infrastructure.collected_at)} · הערכה: ${dt(infrastructure.evaluated_at)}</p>
+    </article>
+    ${unavailableCount ? `<div class="info-strip tone-info"><strong>חלק מהמדדים אינם זמינים</strong><p>${num(unavailableCount)} מדדים מסומנים במפורש כלא זמינים; לא הומצאו עבורם ערכים.</p></div>` : ""}
+    <div class="infrastructure-metric-grid">
+      ${metricCards.map(([label, primary, secondary]) => `<article class="summary-item"><span class="muted">${esc(label)}</span><strong>${formatInfrastructureMetric(primary)}</strong>${secondary ? `<p class="small muted">מדד משלים: ${formatInfrastructureMetric(secondary)}</p>` : ""}</article>`).join("")}
+    </div>
+    <section class="stack"><h3>מה דורש תשומת לב</h3>${infrastructure.attention?.length ? `<div class="card-list">${infrastructure.attention.map((item) => `<article class="summary-item"><div class="actions spread"><strong>${esc(item.title_he)}</strong><span class="badge ${item.severity === "RED" ? "danger" : "warning"}">${item.kind === "capacity" ? "קיבולת" : "אירוע תפעולי"}</span></div><p class="small muted">${esc(item.meaning_he)}</p></article>`).join("")}</div>` : `<div class="empty-surface"><p class="muted">אין חריגים מתמשכים כרגע.</p></div>`}</section>
+    <section class="recommendation-card stack"><span class="eyebrow">המלצה</span><h3>${esc(recommendation.problem_he || "אין צורך בפעולה")}</h3><p>${esc(recommendation.meaning_he || "")}</p><div class="info-strip tone-info"><strong>הפעולה המומלצת</strong><p>${esc(recommendation.action_he || "אין צורך בפעולה.")}</p></div><p class="small muted">דחיפות: ${esc({ none: "ללא", monitor: "מעקב", soon: "בקרוב", immediate: "מיידית" }[recommendation.urgency] || "ללא")}</p>${recommendation.recommend_compute_upgrade ? `<div class="summary-grid"><div class="summary-item"><span class="muted">Current</span><strong>${esc(recommendation.current_compute_tier || "לא ידוע")}</strong></div><div class="summary-item"><span class="muted">Recommended</span><strong>${esc(recommendation.recommended_compute_tier || "בדיקה נדרשת")}</strong></div></div><p class="small muted">עלות: בדוק עלות ב-Supabase · Downtime אפשרי</p>${canUpgrade ? `<button class="primary" type="button" data-inline-action="admin-compute-upgrade-open" data-current-tier="${esc(recommendation.current_compute_tier)}" data-target-tier="${esc(recommendation.recommended_compute_tier)}">אשר שדרוג Compute</button>` : `<button class="secondary" type="button" disabled>שדרוג אינו זמין בתצורה הנוכחית</button>`}` : ""}</section>
+    <section class="stack"><h3>מגמה</h3><div class="history-window-grid">${[["עכשיו", infrastructure.history?.now], ["15 דקות", infrastructure.history?.fifteen_minutes], ["שעה", infrastructure.history?.one_hour], ["24 שעות", infrastructure.history?.twenty_four_hours]].map(([label, window]) => `<div class="summary-item"><span class="muted">${label}</span><strong>DB ${formatInfrastructureHistoryMetric(window, "database_cpu_percent", "average", "percent")}</strong><p class="small muted">API p95 ${formatInfrastructureHistoryMetric(window, "api_p95_latency_ms", "average", "milliseconds")} · תור בשיא ${formatInfrastructureHistoryMetric(window, "queue_depth", "maximum", "count")}</p><p class="small muted">${num(window?.samples || 0)} דגימות בחלון</p></div>`).join("")}</div></section>
+    ${renderComputeUpgradeModal()}`;
+}
+
 function renderAdminPage() {
   const payload = state.adminPayload?.admin_surface;
   const mission = state.adminMissionPayload;
@@ -5039,6 +5148,7 @@ function renderAdminPage() {
   const notificationStatus = state.adminNotificationsStatusPayload?.notifications;
   const invoiceStatus = state.adminInvoiceStatusPayload?.invoice_documents;
   const sellerRisk = state.adminSellerRiskPayload;
+  const infrastructure = systemStatus?.infrastructure;
   if (!payload && state.loading) return "";
   if (!payload) return renderEmptyState("מרכז התפעול לא זמין", "לא הצלחנו לטעון עכשיו את מרכז התפעול.");
   const urgencyCards = buildAdminUrgencySummary(payload, systemStatus, notificationStatus, invoiceStatus);
@@ -5063,7 +5173,7 @@ function renderAdminPage() {
         ${renderAdminUrgencyCards(urgencyCards)}
       </article>
       <aside class="card hero-side stack">
-        <div class="summary-item summary-spotlight"><span class="muted">מצב מערכת</span><strong>${systemStatus?.app_health?.ok ? "תקין" : "דורש טיפול"}</strong><p class="small muted">${systemStatus?.app_health?.ok ? "בריאות השירות תקינה כרגע." : "יש סימן תפעולי שמצריך בדיקה."}</p></div>
+        <div class="summary-item summary-spotlight"><span class="muted">מצב תשתית</span><strong>${esc(infrastructure?.status_he || (systemStatus?.app_health?.ok ? "תקין" : "לא זמין"))}</strong><p class="small muted">${esc(infrastructure?.summary_he || "נתוני תשתית אינם זמינים כרגע.")}</p></div>
         <div class="summary-item"><span class="muted">מצב סביבה</span><strong>${esc(formatEnvironmentLabel(systemStatus?.deployment?.mode || state.previewMeta?.preview?.deployment_mode || "preview"))}</strong></div>
         <div class="summary-item"><span class="muted">עסקאות חיות</span><strong>${num(payload.totals.live)}</strong></div>
         <div class="summary-item"><span class="muted">טיוטות פתוחות</span><strong>${num(payload.totals.draft)}</strong></div>
@@ -5169,25 +5279,8 @@ function renderAdminPage() {
       <p class="small muted">המשטח הזה נשאר read-only ומתייחס רק למסלול הכספי של מוכרים ושל הפלטפורמה. הוא לא מציג payout rails חיצוניים כאילו הופעלו.</p>
     </section>
     <section class="card section stack" id="admin-system">
-      <h2>מצב מערכת ותורים</h2>
-      ${systemStatus ? `
-        <div class="summary-grid">
-          <div class="summary-item"><span class="muted">בריאות אפליקטיבית</span><strong>${systemStatus.app_health.ok ? "תקין" : "דורש טיפול"}</strong></div>
-          <div class="summary-item"><span class="muted">מצב תשלומים</span><strong>${esc(formatRuntimeModeLabel(systemStatus.integrations.payment.mode))}</strong></div>
-          <div class="summary-item"><span class="muted">מצב התראות</span><strong>${esc(formatRuntimeModeLabel(systemStatus.integrations.notifications.mode))}</strong></div>
-          <div class="summary-item"><span class="muted">התראות בהמתנה</span><strong>${num(notificationStatus?.pending || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">התראות שנכשלו</span><strong>${num(notificationStatus?.failed || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">מסמכים שהונפקו</span><strong>${num(invoiceStatus?.issued || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">מסמכים שנכשלו</span><strong>${num(invoiceStatus?.failed || 0)}</strong></div>
-          <div class="summary-item"><span class="muted">תור שליחה פעיל</span><strong>${num(systemStatus.operational_counts.active_outbox)}</strong></div>
-          <div class="summary-item"><span class="muted">Webhookים שנכשלו</span><strong>${num(systemStatus.operational_counts.failed_webhooks)}</strong></div>
-          <div class="summary-item"><span class="muted">פניות תמיכה פתוחות</span><strong>${num(systemStatus.operational_counts.open_support_tickets)}</strong></div>
-        </div>
-        <div class="info-strip tone-info">
-          <strong>גבול ההפעלה החיצונית</strong>
-          <p>${esc(systemStatus.notes.join(" "))}</p>
-        </div>
-      ` : `<div class="empty-surface"><p class="muted">לא הצלחנו לטעון כרגע את מצב המערכת.</p></div>`}
+      ${renderInfrastructureHealth(systemStatus)}
+      ${systemStatus?.notes?.length ? `<div class="info-strip tone-info"><strong>גבול ההפעלה החיצונית</strong><p>${esc(systemStatus.notes.join(" "))}</p></div>` : ""}
     </section>
   `;
 }
@@ -5662,7 +5755,7 @@ function renderAdminMissionControl(mission) {
           <button class="secondary" type="button" data-inline-action="admin-polling-toggle">${state.adminPollingPaused ? "הפעלת polling" : "עצירת polling"}</button>
         </div>
       </div>
-      <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי ${state.adminPollingPaused ? "מושהה" : `כל ${num(Math.round(POLL_INTERVAL_MS / 1000))} שניות`}.</p>
+      <p class="small muted">עודכן לאחרונה: ${dt(mission.generated_at)} · רענון אוטומטי ${state.adminPollingPaused ? "מושהה" : `כל ${num(Math.round(ADMIN_POLL_INTERVAL_MS / 1000))} שניות`}.</p>
       <form class="stack" data-action="admin-search">
         <div class="field">
           <label for="adminMissionQuery">Omnisearch אדמין</label>

@@ -85,6 +85,13 @@ Legend:
 | `RATE_LIMIT_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | `0` disables. |
 | `RATE_LIMIT_WINDOW_MS` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | |
 | `MOCK_SEED` | ⬜ (demo only) | ⬜ | ⬜ | 📄 | unset | |
+| `SUPABASE_PROJECT_REF` | ⬜ | ⬜ | ⚠ for hosted metrics/compute | 📄 | unset | Hosted project identifier; never treated as a credential. |
+| `SUPABASE_METRICS_SECRET_KEY` | ⬜ | ⬜ | ⚠ for hosted metrics | 🔒 | unset | Dedicated Secret API key used server-side for the Prometheus-compatible Metrics API. |
+| `SUPABASE_METRICS_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded hosted-metrics request timeout. |
+| `SUPABASE_MANAGEMENT_API_TOKEN` | ⬜ | ⬜ | ⚠ only for compute approval | 🔒 | unset | PAT/OAuth token for billing add-on read/update; never sent to the browser. |
+| `SUPABASE_MANAGEMENT_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded Management API read/update timeout. |
+| `SUPABASE_COMPUTE_MANAGEMENT_ENABLED` | ✅ | ✅ | ✅ | 📄 | `false` | Explicit feature flag for a human-approved one-tier compute upgrade. Monitoring remains active when false. |
+| `INFRA_*_WARNING` / `INFRA_*_CRITICAL` / `INFRA_*_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | documented defaults | Central overrides for sustained health thresholds; see `INFRASTRUCTURE_HEALTH_AND_CAPACITY.md`. |
 
 ## Failure modes
 

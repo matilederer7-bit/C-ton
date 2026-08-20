@@ -84,6 +84,14 @@ services:
         sync: false
       - key: NOTIFICATION_PROVIDER
         value: log-only
+      - key: SUPABASE_PROJECT_REF
+        sync: false
+      - key: SUPABASE_METRICS_SECRET_KEY
+        sync: false
+      - key: SUPABASE_MANAGEMENT_API_TOKEN
+        sync: false
+      - key: SUPABASE_COMPUTE_MANAGEMENT_ENABLED
+        value: "false"
       - key: DATABASE_URL
         sync: false
   - type: worker

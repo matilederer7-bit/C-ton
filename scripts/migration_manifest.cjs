@@ -43,7 +43,8 @@ const MIGRATIONS = [
   ["043", "043_deal_image_checksums.sql"],
   ["044", "044_storage_cleanup_tasks.sql"],
   ["045", "045_operational_recovery.sql"],
-  ["046", "046_distributor_measurement_surfaces.sql"]
+  ["046", "046_distributor_measurement_surfaces.sql"],
+  ["047", "047_infrastructure_change_audit.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

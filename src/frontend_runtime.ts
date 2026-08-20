@@ -151,6 +151,8 @@ import {
   type DealType
 } from "./deal_types.js";
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
+import { InfrastructureMetricsCollector, applicationRequestTelemetry } from "./infrastructure_metrics.js";
+import { SupabaseComputeManager } from "./infrastructure_compute.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -1148,6 +1150,12 @@ export function registerFrontendExperience(
     }) => Promise<void>;
   }
 ) {
+  const computeManager = new SupabaseComputeManager();
+  const infrastructureCollector = new InfrastructureMetricsCollector({
+    withTx: deps.withTx,
+    requestTelemetry: applicationRequestTelemetry,
+    ...(deps.getWorkerRunning ? { getWorkerRunning: deps.getWorkerRunning } : {})
+  });
   app.addHook("preParsing", (request: any, _reply, payload, done) => {
     const contentType = String(request.headers?.["content-type"] || "").toLowerCase();
     if (!contentType.includes("application/json")) {
@@ -5263,6 +5271,11 @@ export function registerFrontendExperience(
     await ensureProductSurfaces();
     await ensurePayoutTables();
     await ensureInvoiceWebhookTables();
+    const computeManagement = await computeManager.describe();
+    const infrastructure = await infrastructureCollector.snapshot({
+      current_compute_tier: computeManagement.current_tier,
+      compute_management: computeManagement
+    });
     return deps.withTx(async (c) => {
       const counts = await c.query(
         `SELECT
@@ -5320,6 +5333,8 @@ export function registerFrontendExperience(
           },
           readiness: operationalReadiness(),
           operational_counts: counts.rows[0],
+          infrastructure,
+          compute_management: computeManagement,
           notes: [
             deps.isDemoPreview
               ? "This runtime is configured for demo / preview deployment and should not be presented as a live commercial environment."
@@ -5332,6 +5347,74 @@ export function registerFrontendExperience(
         }
       };
     });
+  });
+
+  app.post("/api/admin/infrastructure/compute-upgrade", async (req: any, reply: any) => {
+    const body = req.body || {};
+    const idempotencyKey = String(req.headers?.["idempotency-key"] || body.idempotency_key || "").trim();
+    const currentTier = String(body.current_tier || "").trim();
+    const targetTier = String(body.target_tier || "").trim();
+    const authorized = await deps.withTx(async (c) => {
+      const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.execute", recentMfa: true, sessionRequired: true });
+      if (!identity) return null;
+      if (!idempotencyKey) {
+        reply.code(400).send({ ok: false, error: "idempotency_key_required" });
+        return null;
+      }
+      await assertRequiredTables(c, ["infrastructure_change_audit"]);
+      const existing = await c.query(
+        `SELECT status,current_tier,target_tier,created_at,completed_at,failure_reason
+           FROM siton.infrastructure_change_audit WHERE idempotency_key=$1 LIMIT 1`,
+        [idempotencyKey]
+      );
+      if (existing.rows[0]) return { identity, duplicate: existing.rows[0] };
+      return { identity, duplicate: null };
+    });
+    if (!authorized) return;
+    if (authorized.duplicate) return { ok: authorized.duplicate.status === "succeeded", duplicate: true, change: authorized.duplicate };
+
+    const status = await computeManager.describe();
+    if (!status.enabled) return reply.code(403).send({ ok: false, error: "compute_management_feature_disabled" });
+    if (!status.action_available) return reply.code(503).send({ ok: false, error: "compute_management_unavailable", reason: status.reason });
+
+    const context = await deps.withTx(async (c) => {
+      const inserted = await c.query(
+        `INSERT INTO siton.infrastructure_change_audit
+           (action_type,status,requested_by_admin_id,current_tier,target_tier,idempotency_key,request_id,correlation_id)
+         VALUES ('supabase_compute_upgrade','requested',$1,$2,$3,$4,$5,$6)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING status,current_tier,target_tier,created_at,completed_at,failure_reason`,
+        [authorized.identity.admin_user_id, currentTier, targetTier, idempotencyKey, req.request_id || null, req.correlation_id || null]
+      );
+      if (inserted.rows[0]) return { duplicate: null };
+      const existing = await c.query(
+        `SELECT status,current_tier,target_tier,created_at,completed_at,failure_reason
+           FROM siton.infrastructure_change_audit WHERE idempotency_key=$1 LIMIT 1`,
+        [idempotencyKey]
+      );
+      return { duplicate: existing.rows[0] || { status: "requested", current_tier: currentTier, target_tier: targetTier } };
+    });
+    if (context.duplicate) return { ok: context.duplicate.status === "succeeded", duplicate: true, change: context.duplicate };
+    try {
+      const result = await computeManager.upgrade({
+        current_tier: currentTier,
+        target_tier: targetTier,
+        idempotency_key: idempotencyKey,
+        downtime_acknowledged: body.downtime_acknowledged === true
+      });
+      await deps.withTx((c) => c.query(
+        `UPDATE siton.infrastructure_change_audit SET status='succeeded',completed_at=now() WHERE idempotency_key=$1`,
+        [idempotencyKey]
+      ));
+      return result;
+    } catch (error) {
+      const reason = String((error as Error)?.message || "compute_upgrade_failed").slice(0, 160);
+      await deps.withTx((c) => c.query(
+        `UPDATE siton.infrastructure_change_audit SET status='failed',failure_reason=$2,completed_at=now() WHERE idempotency_key=$1`,
+        [idempotencyKey, reason]
+      )).catch(() => undefined);
+      return reply.code(Number((error as any)?.statusCode || 502)).send({ ok: false, error: reason });
+    }
   });
 
   // ── Outbox operational status ─────────────────────────────────────────────
