@@ -2,6 +2,7 @@
 import { createHmac } from "node:crypto";
 
 process.env.DISABLE_OUTBOX_WORKER = "1";
+process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 
 const { app } = await import("../src/app.js");
 const { pool } = await import("../src/db.js");
