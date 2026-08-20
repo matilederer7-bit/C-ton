@@ -62,13 +62,20 @@ async function stopChild(child: ReturnType<typeof fork>) {
   if (forceTimer) clearTimeout(forceTimer);
   await exited;
 }
-async function run(point: "web.request.before_commit" | "web.request.after_commit", run: number) {
-  const port = 37000 + run + (point === "web.request.after_commit" ? 20 : 0);
+async function run(point: "web.request.before_commit" | "web.request.after_commit", runIndex: number, attempt: number) {
+  const port = 37000 + runIndex + (point === "web.request.after_commit" ? 20 : 0) + attempt * 100;
   const title = `fault-process-${point}-${randomUUID()}`;
   const child = fork(harness, [point, "1"], { stdio: ["ignore", "ignore", "pipe", "ipc"], env: { ...process.env, NODE_ENV: "test", APP_DEPLOYMENT_MODE: "demo-preview", DISABLE_OUTBOX_WORKER: "1", PORT: String(port), HOST: "127.0.0.1" } });
   let stderr = ""; child.stderr?.on("data", (chunk) => { stderr += String(chunk); });
   try {
-    await waitMessage(child, "ready");
+    try {
+      await waitMessage(child, "ready");
+    } catch (cause) {
+      throw Object.assign(
+        new Error(`child startup failed point=${point} run=${runIndex} attempt=${attempt + 1}: ${cause instanceof Error ? cause.message : String(cause)}; ${stderr}`),
+        { code: "child_startup_failed" }
+      );
+    }
     const fault = waitMessage(child, "fault");
     const request = fetch(`http://127.0.0.1:${port}/deals`, { method: "POST", headers: { "content-type": "application/json", "x-seller-id": "seller-default" }, body: JSON.stringify({ seller_id: "seller-default", title, price_per_unit: 10, min_units: 2, max_units: 3, deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString() }) }).catch(() => null);
     const first = await Promise.race([fault.then(() => "fault"), request.then(async (response) => `response:${response?.status}:${response ? await response.text() : "connection-error"}`)]);
@@ -83,11 +90,23 @@ async function run(point: "web.request.before_commit" | "web.request.after_commi
     await stopChild(child);
   }
 }
+async function runWithStartupRetry(point: "web.request.before_commit" | "web.request.after_commit", runIndex: number) {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      return await run(point, runIndex, attempt);
+    } catch (error) {
+      lastError = error;
+      if ((error as { code?: string })?.code !== "child_startup_failed") throw error;
+    }
+  }
+  throw lastError;
+}
 try {
   for (let runIndex = 0; runIndex < 10; runIndex += 1) {
     const results = await Promise.allSettled([
-      run("web.request.before_commit", runIndex),
-      run("web.request.after_commit", runIndex)
+      runWithStartupRetry("web.request.before_commit", runIndex),
+      runWithStartupRetry("web.request.after_commit", runIndex)
     ]);
     const failure = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
     if (failure) throw failure.reason;
