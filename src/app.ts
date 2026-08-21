@@ -3020,13 +3020,15 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 
   const otpToken = body.otp_token ? String(body.otp_token) : null;
   const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
+  let verifiedBuyerIdentityHash = "";
   try {
     await withTx(async (c) => {
-      await ensureJoinOtpVerified(c, {
+      const verified = await ensureJoinOtpVerified(c, {
         otp_token: otpToken,
         otp_challenge_id: otpChallengeId,
         deal_id: dealId
       });
+      verifiedBuyerIdentityHash = verified.destination_hash;
     });
   } catch (err: any) {
     if (err instanceof OtpValidationError) {
@@ -3327,6 +3329,14 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
        VALUES ('participant',$1,'participant.join_authorize',$2,$3,'OK',$4,$5,$6)`,
       [pid, idem, joinRequestHash, JSON.stringify(canonicalResponse), correlationId, requestId]
     );
+    if (verifiedBuyerIdentityHash) {
+      await c.query(
+        `UPDATE siton.buyer_resume_contexts
+         SET consumed_at=now(), updated_at=now()
+         WHERE buyer_identity_hash=$1 AND deal_id=$2 AND consumed_at IS NULL`,
+        [verifiedBuyerIdentityHash, dealId]
+      );
+    }
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
 
     return {
@@ -3677,6 +3687,5 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
-
 
 

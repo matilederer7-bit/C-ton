@@ -884,6 +884,13 @@ async function assertBuyerDomFlowAndSafeResume(dealId: string, affiliateRef = ""
       await wait(250);
     }
     assert.match(String(await evaluate(`location.pathname`)), /\/payment$/);
+    const serverResume = await evaluate(`(async () => {
+      const response = await fetch('/api/buyer/resume/${dealId}');
+      return { status: response.status, text: await response.text() };
+    })()`);
+    assert.equal(serverResume.status, 200, `authenticated browser flow should persist safe server resume: ${JSON.stringify(serverResume)}`);
+    assert.match(String(serverResume.text), /selected_quantity/);
+    assert.doesNotMatch(String(serverResume.text), /phone|otp_token|authorization_token|payment_token|tracking_credential|secret/i);
 
     await evaluate(`(() => {
       const payer = document.querySelector('#payerName');
@@ -938,6 +945,14 @@ async function assertAffiliateDomFlowContract(dealId: string) {
       if (await evaluate(`Boolean(document.querySelector('form[data-action="affiliate-link-create"]'))`)) break;
       await wait(250);
     }
+    const distributorSession = await evaluate(`(async () => {
+      const response = await fetch('/api/distributor/session');
+      return { status: response.status, body: await response.json() };
+    })()`);
+    assert.equal(distributorSession.status, 200, `local browser distributor context must be authenticated: ${JSON.stringify(distributorSession)}`);
+    assert.equal(distributorSession.body?.distributor_auth?.authenticated, true);
+    assert.equal(distributorSession.body?.distributor_auth?.mode, "demo-context");
+    assert.ok(distributorSession.body?.distributor_auth?.distributor_context?.affiliate_id);
     const internalName = `browser-link-${Date.now()}`;
     await evaluate(`(() => {
       const deal = document.querySelector('#affiliateDealId');

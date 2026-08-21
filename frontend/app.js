@@ -36,6 +36,7 @@ const state = {
   sellerAnalyticsError: null,
   sellerDealPayload: null,
   sellerDeliveryHandoff: null,
+  distributorAuth: null,
   affiliatePayload: null,
   adminPayload: null,
   adminMissionPayload: null,
@@ -70,6 +71,8 @@ const state = {
     adminCasePriority: "",
     affiliateDealId: "",
     affiliateLinkName: "",
+    distributorIdentifier: "",
+    distributorAccessCode: "",
     qty: "1",
     deliveryOptionId: "",
     phone: "",
@@ -561,7 +564,22 @@ async function runRoute() {
 
   if (["otp", "payment", "confirmation"].includes(route.name)) {
     await ensureDeal(route.dealId);
-    const flow = getFlow(route.dealId);
+    let flow = getFlow(route.dealId);
+    if (!flow && route.name !== "confirmation") {
+      const serverResume = await readServerResume(route.dealId);
+      if (serverResume) {
+        flow = saveFlow(route.dealId, serverResume);
+        if (route.name === "payment") {
+          state.banner = {
+            tone: "info",
+            title: "המשך העסקה שוחזר בבטחה",
+            message: "הכמות והאספקה שוחזרו מהשרת. נדרש אימות קצר מחדש לפני אישור המסגרת."
+          };
+          navigate(`/app/join/${encodeURIComponent(route.dealId)}/otp`, true);
+          return;
+        }
+      }
+    }
     if (!flow) {
       state.banner = {
         tone: "warning",
@@ -823,6 +841,21 @@ async function loadSellerDeal(dealId) {
 
 async function loadAffiliate() {
   await busy("טוען את מסך השותפים הפנימי...", async () => {
+    try {
+      const session = await api("/api/distributor/session");
+      state.distributorAuth = session?.distributor_auth || null;
+    } catch (error) {
+      if ([401, 503].includes(Number(error?.status || 0))) {
+        state.distributorAuth = error?.payload?.distributor_auth || {
+          mode: "server-session",
+          configured: Number(error?.status || 0) !== 503,
+          authenticated: false
+        };
+        state.affiliatePayload = null;
+        return;
+      }
+      throw error;
+    }
     state.affiliatePayload = await api("/api/affiliate/overview");
     const campaigns = state.affiliatePayload?.affiliate_surface?.campaigns || [];
     if (!state.form.affiliateDealId && campaigns.length) {
@@ -830,6 +863,30 @@ async function loadAffiliate() {
       state.form.affiliateDealId = firstShareable?.deal_id || "";
     }
   }, "לא הצלחנו לטעון את מסך השותפים הפנימי.");
+}
+
+async function loginDistributor(form) {
+  const data = new FormData(form);
+  const identifier = String(data.get("distributorIdentifier") || "").trim();
+  const accessCode = String(data.get("distributorAccessCode") || "").trim();
+  if (!identifier || !accessCode) return fail("חסרים פרטי כניסה", "יש להזין מזהה מפיץ וקוד גישה.");
+  await busy("פותח את מרכז ההפצה...", async () => {
+    const response = await api("/api/distributor/session/login", {
+      method: "POST",
+      body: json({ identifier, access_code: accessCode })
+    });
+    state.distributorAuth = response?.distributor_auth || null;
+    state.form.distributorAccessCode = "";
+    await loadAffiliate();
+  }, "הכניסה למרכז ההפצה נכשלה.");
+}
+
+async function logoutDistributor() {
+  await busy("סוגר את מרכז ההפצה...", async () => {
+    await api("/api/distributor/session/logout", { method: "POST" });
+    state.distributorAuth = { mode: "server-session", configured: true, authenticated: false };
+    state.affiliatePayload = null;
+  }, "לא הצלחנו לסגור את סשן המפיץ.");
 }
 
 async function createAffiliateLink(form) {
@@ -1171,6 +1228,8 @@ async function submitAction(action, form) {
   if (action === "seller-context") return saveSellerContextFromForm(form);
   if (action === "seller-login") return loginSellerFromForm(form);
   if (action === "seller-logout") return logoutSeller();
+  if (action === "distributor-login") return loginDistributor(form);
+  if (action === "distributor-logout") return logoutDistributor();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId, form);
   if (action === "seller-profile-save") return saveSellerProfile(form);
   if (action === "affiliate-link-create") return createAffiliateLink(form);
@@ -1242,7 +1301,7 @@ async function otpStart(form) {
   await busy("שולח קוד אימות...", async () => {
     const response = await api("/api/otp/start", {
       method: "POST",
-      body: json({ phone })
+      body: json({ phone, deal_id: route.dealId })
     });
     const flow = saveFlow(route.dealId, {
       phone,
@@ -1279,13 +1338,16 @@ async function otpVerify(form) {
       method: "POST",
       body: json({ otp_session_id: flow.otpSessionId, code })
     });
+    const serverResume = await readServerResume(route.dealId);
     saveFlow(route.dealId, {
+      ...(serverResume || {}),
       buyerId: response.buyer_id,
       otpToken: response.otp_token || "",
       otpVerified: true,
       otpChallengeId: response.challenge_id || response.otp_session_id || "",
       otpVerifiedAt: new Date().toISOString()
     });
+    await writeServerResume(route.dealId, getFlow(route.dealId));
     state.banner = {
       tone: "success",
       title: "האימות הצליח",
@@ -4867,6 +4929,26 @@ function renderSellerDealPage() {
 function renderAffiliatePage() {
   const payload = state.affiliatePayload?.affiliate_surface;
   if (!payload && state.loading) return "";
+  if (!payload && state.distributorAuth?.configured === false) {
+    return renderEmptyState("אימות מפיץ טרם הופעל", "הקוד מוכן, אך נדרש DISTRIBUTOR_SESSION_SECRET לפני פתיחת סביבת production.");
+  }
+  if (!payload && !state.distributorAuth?.authenticated) {
+    return `
+      <section class="hero">
+        <article class="card hero-main stack">
+          <span class="eyebrow">כניסת מפיץ</span>
+          <h1>מרכז ההפצה מוגן בסשן שרת</h1>
+          <p class="muted">הזהות נקבעת בשרת בלבד. מזהה מפיץ שנשלח בכתובת או בגוף בקשה אינו משמש להרשאה.</p>
+          <form data-action="distributor-login" class="stack">
+            <div class="inline-fields">
+              <div class="field"><label for="distributorIdentifier">מזהה מפיץ או אימייל</label><input id="distributorIdentifier" name="distributorIdentifier" type="text" autocomplete="username" required /></div>
+              <div class="field"><label for="distributorAccessCode">קוד גישה</label><input id="distributorAccessCode" name="distributorAccessCode" type="password" autocomplete="current-password" required /></div>
+            </div>
+            <button class="primary" type="submit">כניסה למרכז ההפצה</button>
+          </form>
+        </article>
+      </section>`;
+  }
   if (!payload) return renderEmptyState("מרכז ההפצה לא זמין", "לא הצלחנו לטעון עכשיו את מרכז ההפצה.");
   const campaigns = Array.isArray(payload.campaigns) ? payload.campaigns : [];
   const links = Array.isArray(payload.links) ? payload.links : [];
@@ -4890,6 +4972,7 @@ function renderAffiliatePage() {
           <strong>מדידה וייחוס בלבד</strong>
           <p>הנתונים אינם יוצרים זכאות כספית דרך Siton. עמלת מפיץ היא 0; אין יתרה, ארנק, משיכה, payout, חשבונית או זכות פיננסית.</p>
         </div>
+        ${state.distributorAuth?.mode === "server-session" ? `<form data-action="distributor-logout"><button class="secondary" type="submit">יציאה ממרכז ההפצה</button></form>` : ""}
       </header>
 
       <section class="cton-kpi-grid affiliate-kpi-grid" aria-label="מדדי הפצה מרכזיים">
@@ -7755,7 +7838,7 @@ function trackingApiUrl(participantId) {
 function saveFlow(dealId, next) {
   const all = readFlow();
   all[dealId] = { ...(all[dealId] || {}), ...next, updatedAt: new Date().toISOString(), _v: FLOW_SCHEMA_VERSION };
-  sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(all)); } catch {}
   writeSafeResume(dealId, all[dealId]);
   return all[dealId];
 }
@@ -7765,14 +7848,14 @@ function clearFlowFields(dealId, keys) {
   if (!all[dealId]) return;
   for (const key of keys) delete all[dealId][key];
   all[dealId].updatedAt = new Date().toISOString();
-  sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(all)); } catch {}
   writeSafeResume(dealId, all[dealId]);
 }
 
 function removeFlow(dealId) {
   const all = readFlow();
   delete all[dealId];
-  sessionStorage.setItem(FLOW_KEY, JSON.stringify(all));
+  try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(all)); } catch {}
   removeSafeResume(dealId);
 }
 
@@ -7800,6 +7883,44 @@ function safeResumeProjection(dealId, flow) {
     if (flow?.[key] !== undefined) projected[key] = flow[key];
   }
   return projected;
+}
+
+async function readServerResume(dealId) {
+  try {
+    const payload = await api(`/api/buyer/resume/${encodeURIComponent(dealId)}`);
+    const resume = payload?.resume;
+    if (!resume) return null;
+    return {
+      dealId,
+      qty: Number(resume.selected_quantity || 1),
+      deliveryOptionId: resume.delivery_option_id || "",
+      affiliateRef: resume.attribution_ref || "",
+      pricingEstimateReference: resume.pricing_estimate_reference || "",
+      serverResumeExpiresAt: resume.expires_at || "",
+      startedAt: new Date().toISOString()
+    };
+  } catch (error) {
+    if ([401, 404, 409, 410].includes(Number(error?.status || 0))) return null;
+    throw error;
+  }
+}
+
+async function writeServerResume(dealId, flow) {
+  if (!flow) return null;
+  try {
+    return await api(`/api/buyer/resume/${encodeURIComponent(dealId)}`, {
+      method: "PUT",
+      body: json({
+        selected_quantity: Number(flow.qty || 1),
+        delivery_option_id: flow.deliveryOptionId || undefined,
+        attribution_ref: flow.affiliateRef || undefined,
+        workflow_position: "payment"
+      })
+    });
+  } catch (error) {
+    if ([401, 404, 409, 410].includes(Number(error?.status || 0))) return null;
+    throw error;
+  }
 }
 
 function writeSafeResume(dealId, flow) {

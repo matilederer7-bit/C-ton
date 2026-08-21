@@ -47,5 +47,5 @@ export function roundMoney(value: number) {
 }
 
 export async function ensureRemainingProductSurfaceTables(withTx: WithTx) {
-  await withTx(async c=>assertRequiredTables(c,["seller_accounts","seller_sessions","affiliate_accounts","affiliate_attributions","support_tickets","deal_chat_messages","deal_delivery_options","deal_images","seller_security_events"]));
+  await withTx(async c=>assertRequiredTables(c,["seller_accounts","seller_sessions","affiliate_accounts","affiliate_attributions","distributor_sessions","buyer_sessions","buyer_resume_contexts","support_tickets","deal_chat_messages","deal_delivery_options","deal_images","seller_security_events"]));
 }

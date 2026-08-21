@@ -77,6 +77,8 @@ Legend:
 | `TWILIO_FROM` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 📄 | — | E.164 sender. |
 | `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
+| `BUYER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs deal-bound HttpOnly buyer sessions used only for safe server-side resume. |
+| `DISTRIBUTOR_SESSION_SECRET` | ⬜ (demo context) | ⚠ | ⚠ | 🔒 | — | Required for non-demo distributor sessions and tenant resolution. |
 | `SITON_PLATFORM_FEE_VAT_RATE` | ⬜ | ⬜ | ⬜ | 📄 | `0.18` | |
 | `COMPLETION_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | `1440` | C6 spec — 24 h. |
 | `OUTBOX_POLL_MS` | ⬜ | ⬜ | ⬜ | 📄 | `1000` | |

@@ -6,7 +6,7 @@ import { dirname, join } from "path";
 import { PassThrough } from "stream";
 import ExcelJS from "exceljs";
 import { fileURLToPath } from "url";
-import { createHmac, randomBytes, timingSafeEqual } from "crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
@@ -73,6 +73,25 @@ import {
   serializeSellerSessionCookie,
   verifySellerAccessSecret
 } from "./seller_auth.js";
+import {
+  BUYER_SESSION_TTL_SECONDS,
+  buyerSessionConfigured,
+  createBuyerSessionToken,
+  hashBuyerSessionToken,
+  readBuyerSessionToken,
+  serializeBuyerSessionCookie,
+  serializeExpiredBuyerSessionCookie
+} from "./buyer_session.js";
+import {
+  DISTRIBUTOR_SESSION_TTL_SECONDS,
+  createDistributorSessionToken,
+  distributorAuthConfigured,
+  distributorCookieSecure,
+  hashDistributorSessionToken,
+  readDistributorSessionToken,
+  serializeDistributorSessionCookie,
+  serializeExpiredDistributorSessionCookie
+} from "./distributor_identity.js";
 import {
   buildSellerAnalytics,
   normalizeSellerAnalyticsPeriod,
@@ -464,6 +483,127 @@ async function revokeSellerSession(c: any, req: any, reason: string) {
        AND revoked_at IS NULL`,
     [tokenHash, String(reason || "logout").slice(0, 120)]
   );
+}
+
+function mapDistributorProfile(profile: any, contextSource: "demo_context" | "server_session") {
+  return {
+    affiliate_id: String(profile.affiliate_id),
+    affiliate_code: String(profile.affiliate_code),
+    display_name: String(profile.display_name || profile.affiliate_code),
+    verification_status: String(profile.verification_status || "pending"),
+    context_source: contextSource,
+    session_id: profile.session_id ? String(profile.session_id) : null,
+    expires_at: profile.expires_at ? String(profile.expires_at) : null
+  };
+}
+
+async function findDistributorLoginAccount(c: any, identifier: string) {
+  const normalized = String(identifier || "").trim();
+  const email = normalizeSellerLoginEmail(normalized);
+  const result = await c.query(
+    `SELECT affiliate_id, affiliate_code, display_name, verification_status,
+            login_email, auth_secret_hash, auth_enabled, last_login_at
+     FROM siton.affiliate_accounts
+     WHERE affiliate_code=$1 OR ($2 <> '' AND lower(login_email)=$2)
+     LIMIT 1`,
+    [normalized.slice(0, 120), email]
+  );
+  return result.rows[0] || null;
+}
+
+async function issueDistributorSession(c: any, req: any, profile: any) {
+  const token = createDistributorSessionToken();
+  const tokenHash = hashDistributorSessionToken(token);
+  if (!tokenHash) throw Object.assign(new Error("distributor session auth is not configured"), { statusCode: 503 });
+  const expiresAt = new Date(Date.now() + DISTRIBUTOR_SESSION_TTL_SECONDS * 1000).toISOString();
+  const inserted = await c.query(
+    `INSERT INTO siton.distributor_sessions
+       (affiliate_id, token_hash, expires_at, created_ip, created_user_agent)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING session_id, expires_at`,
+    [profile.affiliate_id, tokenHash, expiresAt, requestClientIp(req), requestUserAgent(req)]
+  );
+  await c.query(
+    `UPDATE siton.affiliate_accounts SET last_login_at=now(), updated_at=now() WHERE affiliate_id=$1`,
+    [profile.affiliate_id]
+  );
+  return { token, ...inserted.rows[0] };
+}
+
+async function resolveDistributorContext(req: any, c: any, isDemoPreview: boolean) {
+  if (isDemoPreview) {
+    const demo = await c.query(
+      `SELECT affiliate_id, affiliate_code, display_name, verification_status
+       FROM siton.affiliate_accounts WHERE affiliate_code=$1 LIMIT 1`,
+      [DEFAULT_AFFILIATE_CODE]
+    );
+    return demo.rowCount ? mapDistributorProfile(demo.rows[0], "demo_context") : null;
+  }
+  if (!distributorAuthConfigured()) return null;
+  const tokenHash = hashDistributorSessionToken(readDistributorSessionToken(req));
+  if (!tokenHash) return null;
+  const result = await c.query(
+    `SELECT s.session_id, s.expires_at, a.affiliate_id, a.affiliate_code,
+            a.display_name, a.verification_status, a.auth_enabled
+     FROM siton.distributor_sessions s
+     JOIN siton.affiliate_accounts a ON a.affiliate_id=s.affiliate_id
+     WHERE s.token_hash=$1 AND s.revoked_at IS NULL AND s.expires_at > now()
+       AND a.auth_enabled=true AND a.verification_status='verified'
+     LIMIT 1`,
+    [tokenHash]
+  );
+  if (!result.rowCount) return null;
+  await c.query(`UPDATE siton.distributor_sessions SET last_seen_at=now() WHERE session_id=$1`, [result.rows[0].session_id]);
+  return mapDistributorProfile(result.rows[0], "server_session");
+}
+
+async function revokeDistributorSession(c: any, req: any, reason: string) {
+  const tokenHash = hashDistributorSessionToken(readDistributorSessionToken(req));
+  if (!tokenHash) return;
+  await c.query(
+    `UPDATE siton.distributor_sessions SET revoked_at=now(), revoked_reason=$2
+     WHERE token_hash=$1 AND revoked_at IS NULL`,
+    [tokenHash, String(reason || "logout").slice(0, 120)]
+  );
+}
+
+async function issueBuyerSession(c: any, req: any, identity: { destination_hash: string; deal_id: string | null; channel: string }) {
+  if (!identity.deal_id || !buyerSessionConfigured()) return null;
+  const token = createBuyerSessionToken();
+  const tokenHash = hashBuyerSessionToken(token);
+  if (!tokenHash) return null;
+  const expiresAt = new Date(Date.now() + BUYER_SESSION_TTL_SECONDS * 1000).toISOString();
+  const inserted = await c.query(
+    `INSERT INTO siton.buyer_sessions
+       (buyer_identity_hash, authenticated_deal_id, channel, token_hash, expires_at)
+     VALUES ($1,$2,$3,$4,$5)
+     RETURNING session_id, expires_at`,
+    [identity.destination_hash, identity.deal_id, identity.channel, tokenHash, expiresAt]
+  );
+  return { token, ...inserted.rows[0] };
+}
+
+async function resolveBuyerSession(req: any, c: any, dealId: string) {
+  const tokenHash = hashBuyerSessionToken(readBuyerSessionToken(req));
+  if (!tokenHash) return null;
+  const result = await c.query(
+    `SELECT session_id, buyer_identity_hash, authenticated_deal_id, channel, expires_at
+     FROM siton.buyer_sessions
+     WHERE token_hash=$1 AND revoked_at IS NULL AND expires_at > now()
+       AND authenticated_deal_id=$2
+     LIMIT 1`,
+    [tokenHash, dealId]
+  );
+  if (!result.rowCount) return null;
+  await c.query(`UPDATE siton.buyer_sessions SET last_seen_at=now() WHERE session_id=$1`, [result.rows[0].session_id]);
+  return result.rows[0] as any;
+}
+
+function buyerPricingEstimateReference(args: { dealId: string; qty: number; deliveryOptionId: string | null; unitPrice: number; deliveryCost: number }) {
+  return `estimate_${createHash("sha256")
+    .update(`${args.dealId}:${args.qty}:${args.deliveryOptionId || "none"}:${args.unitPrice}:${args.deliveryCost}`)
+    .digest("hex")
+    .slice(0, 24)}`;
 }
 
 async function resolveSellerContext(req: any, c: any, options?: { autoCreate?: boolean }) {
@@ -1614,6 +1754,236 @@ export function registerFrontendExperience(
       ok: true,
       seller_auth: sellerAuthSummary()
     };
+  });
+
+  app.get("/api/distributor/session", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      if (!deps.isDemoPreview && !distributorAuthConfigured()) {
+        return reply.code(503).send({
+          ok: false,
+          error: "distributor_auth_unavailable",
+          distributor_auth: { mode: "server-session", configured: false, authenticated: false }
+        });
+      }
+      const context = await resolveDistributorContext(req, c, deps.isDemoPreview);
+      if (!context) {
+        return reply.code(401).send({
+          ok: false,
+          error: "distributor_auth_required",
+          distributor_auth: { mode: "server-session", configured: true, authenticated: false }
+        });
+      }
+      return {
+        ok: true,
+        distributor_auth: {
+          mode: deps.isDemoPreview ? "demo-context" : "server-session",
+          configured: true,
+          authenticated: true,
+          distributor_context: context
+        }
+      };
+    });
+  });
+
+  app.post("/api/distributor/session/login", async (req: any, reply: any) => {
+    if (deps.isDemoPreview) {
+      return reply.code(409).send({ ok: false, error: "distributor_auth_not_needed_in_demo" });
+    }
+    if (!distributorAuthConfigured()) {
+      return reply.code(503).send({ ok: false, error: "distributor_auth_unavailable" });
+    }
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const identifier = String(req.body?.identifier || req.body?.affiliate_code || req.body?.login_email || "").trim();
+      const accessCode = String(req.body?.access_code || req.body?.password || "").trim();
+      const account = await findDistributorLoginAccount(c, identifier);
+      if (!account || !account.auth_enabled || !verifySellerAccessSecret(accessCode, account.auth_secret_hash)) {
+        return reply.code(401).send({ ok: false, error: "distributor_auth_invalid_credentials" });
+      }
+      if (String(account.verification_status) !== "verified") {
+        return reply.code(403).send({ ok: false, error: "distributor_auth_blocked" });
+      }
+      const session = await issueDistributorSession(c, req, account);
+      reply.header("set-cookie", serializeDistributorSessionCookie(session.token, { secure: distributorCookieSecure() }));
+      return {
+        ok: true,
+        distributor_auth: {
+          mode: "server-session",
+          configured: true,
+          authenticated: true,
+          distributor_context: mapDistributorProfile({ ...account, ...session }, "server_session")
+        }
+      };
+    });
+  });
+
+  app.post("/api/distributor/session/logout", async (req: any, reply: any) => {
+    if (!deps.isDemoPreview && distributorAuthConfigured()) {
+      await deps.withTx(async (c) => revokeDistributorSession(c, req, "logout"));
+    }
+    reply.header("set-cookie", serializeExpiredDistributorSessionCookie({ secure: distributorCookieSecure() }));
+    return { ok: true };
+  });
+
+  app.put("/api/buyer/resume/:dealId", async (req: any, reply: any) => {
+    const dealId = String(req.params?.dealId || "");
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    const body = (req.body as any) || {};
+    const allowed = new Set(["selected_quantity", "delivery_option_id", "attribution_ref", "workflow_position"]);
+    if (Object.keys(body).some((key) => !allowed.has(key))) {
+      return reply.code(400).send({ ok: false, error: "unsafe_resume_field" });
+    }
+    const selectedQuantity = parsePositiveIntegerQuantity(body.selected_quantity, 1);
+    const deliveryOptionId = body.delivery_option_id ? String(body.delivery_option_id).trim() : null;
+    if (deliveryOptionId) requireUuid(deliveryOptionId, "delivery_option_id");
+    const attributionRef = String(body.attribution_ref || "").trim().slice(0, 120) || null;
+    const workflowPosition = String(body.workflow_position || "otp_verified");
+    if (!new Set(["otp_verified", "payment"]).has(workflowPosition)) {
+      return reply.code(400).send({ ok: false, error: "invalid_resume_position" });
+    }
+
+    return deps.withTx(async (c) => {
+      const session = await resolveBuyerSession(req, c, dealId);
+      if (!session) return reply.code(401).send({ ok: false, error: "buyer_session_required" });
+      const deal = await c.query(
+        `SELECT deal_id, state, max_units, price_per_unit
+         FROM siton.deals WHERE deal_id=$1 LIMIT 1`,
+        [dealId]
+      );
+      if (!deal.rowCount) return reply.code(404).send({ ok: false, error: "deal_not_found" });
+      const dealRow = deal.rows[0] as any;
+      if (!["PendingTarget", "TargetReached"].includes(String(dealRow.state))) {
+        return reply.code(409).send({ ok: false, error: "deal_not_resumable" });
+      }
+      const reserved = await c.query(
+        `SELECT COALESCE(SUM(qty),0)::int AS reserved
+         FROM siton.participants WHERE deal_id=$1 AND buyer_state NOT IN ('DealFailed','Dropped')`,
+        [dealId]
+      );
+      const remaining = Math.max(0, Number(dealRow.max_units) - Number(reserved.rows[0]?.reserved || 0));
+      if (selectedQuantity > remaining) {
+        return reply.code(409).send({ ok: false, error: remaining ? "inventory_changed" : "sold_out", remaining_units: remaining });
+      }
+      let deliveryCost = 0;
+      if (deliveryOptionId) {
+        const delivery = await c.query(
+          `SELECT cost FROM siton.deal_delivery_options WHERE option_id=$1 AND deal_id=$2 LIMIT 1`,
+          [deliveryOptionId, dealId]
+        );
+        if (!delivery.rowCount) return reply.code(400).send({ ok: false, error: "invalid_delivery_option" });
+        deliveryCost = Number(delivery.rows[0].cost || 0);
+      }
+      const pricingReference = buyerPricingEstimateReference({
+        dealId,
+        qty: selectedQuantity,
+        deliveryOptionId,
+        unitPrice: Number(dealRow.price_per_unit),
+        deliveryCost
+      });
+      const saved = await c.query(
+        `INSERT INTO siton.buyer_resume_contexts
+           (buyer_identity_hash, deal_id, selected_quantity, delivery_option_id,
+            attribution_ref, pricing_estimate_reference, workflow_position, expires_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,now()+($8 || ' seconds')::interval)
+         ON CONFLICT (buyer_identity_hash, deal_id) DO UPDATE
+         SET selected_quantity=EXCLUDED.selected_quantity,
+             delivery_option_id=EXCLUDED.delivery_option_id,
+             attribution_ref=EXCLUDED.attribution_ref,
+             pricing_estimate_reference=EXCLUDED.pricing_estimate_reference,
+             workflow_position=EXCLUDED.workflow_position,
+             expires_at=EXCLUDED.expires_at,
+             consumed_at=NULL,
+             updated_at=now()
+         RETURNING resume_id, expires_at`,
+        [session.buyer_identity_hash, dealId, selectedQuantity, deliveryOptionId, attributionRef, pricingReference, workflowPosition, BUYER_SESSION_TTL_SECONDS]
+      );
+      return {
+        ok: true,
+        resume: {
+          deal_id: dealId,
+          selected_quantity: selectedQuantity,
+          delivery_option_id: deliveryOptionId,
+          attribution_ref: attributionRef,
+          pricing_estimate_reference: pricingReference,
+          workflow_position: workflowPosition,
+          expires_at: saved.rows[0].expires_at
+        }
+      };
+    });
+  });
+
+  app.get("/api/buyer/resume/:dealId", async (req: any, reply: any) => {
+    const dealId = String(req.params?.dealId || "");
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const session = await resolveBuyerSession(req, c, dealId);
+      if (!session) return reply.code(401).send({ ok: false, error: "buyer_session_required" });
+      const result = await c.query(
+        `SELECT r.resume_id, r.selected_quantity, r.delivery_option_id, r.attribution_ref,
+                r.pricing_estimate_reference, r.workflow_position, r.expires_at,
+                d.state, d.max_units, d.price_per_unit,
+                COALESCE(o.cost,0) AS delivery_cost
+         FROM siton.buyer_resume_contexts r
+         JOIN siton.deals d ON d.deal_id=r.deal_id
+         LEFT JOIN siton.deal_delivery_options o
+           ON o.option_id=r.delivery_option_id AND o.deal_id=r.deal_id
+         WHERE r.buyer_identity_hash=$1 AND r.deal_id=$2 AND r.consumed_at IS NULL
+         LIMIT 1`,
+        [session.buyer_identity_hash, dealId]
+      );
+      if (!result.rowCount) return reply.code(404).send({ ok: false, error: "resume_not_found" });
+      const row = result.rows[0] as any;
+      if (Date.parse(String(row.expires_at)) <= Date.now()) {
+        return reply.code(410).send({ ok: false, error: "resume_expired" });
+      }
+      if (!["PendingTarget", "TargetReached"].includes(String(row.state))) {
+        return reply.code(409).send({ ok: false, error: "deal_not_resumable" });
+      }
+      const reserved = await c.query(
+        `SELECT COALESCE(SUM(qty),0)::int AS reserved
+         FROM siton.participants WHERE deal_id=$1 AND buyer_state NOT IN ('DealFailed','Dropped')`,
+        [dealId]
+      );
+      const remaining = Math.max(0, Number(row.max_units) - Number(reserved.rows[0]?.reserved || 0));
+      if (Number(row.selected_quantity) > remaining) {
+        return reply.code(409).send({ ok: false, error: remaining ? "inventory_changed" : "sold_out", remaining_units: remaining });
+      }
+      const currentPricingReference = buyerPricingEstimateReference({
+        dealId,
+        qty: Number(row.selected_quantity),
+        deliveryOptionId: row.delivery_option_id ? String(row.delivery_option_id) : null,
+        unitPrice: Number(row.price_per_unit),
+        deliveryCost: Number(row.delivery_cost || 0)
+      });
+      return {
+        ok: true,
+        resume: {
+          deal_id: dealId,
+          selected_quantity: Number(row.selected_quantity),
+          delivery_option_id: row.delivery_option_id ? String(row.delivery_option_id) : null,
+          attribution_ref: row.attribution_ref ? String(row.attribution_ref) : null,
+          pricing_estimate_reference: currentPricingReference,
+          pricing_changed: currentPricingReference !== String(row.pricing_estimate_reference),
+          workflow_position: String(row.workflow_position),
+          expires_at: row.expires_at,
+          remaining_units: remaining
+        }
+      };
+    });
+  });
+
+  app.post("/api/buyer/session/logout", async (req: any, reply: any) => {
+    const tokenHash = hashBuyerSessionToken(readBuyerSessionToken(req));
+    if (tokenHash) {
+      await deps.withTx(async (c) => {
+        await c.query(`UPDATE siton.buyer_sessions SET revoked_at=now() WHERE token_hash=$1 AND revoked_at IS NULL`, [tokenHash]);
+      });
+    }
+    reply.header("set-cookie", serializeExpiredBuyerSessionCookie({ secure: isProductionLikeEnv() }));
+    return { ok: true };
   });
 
   app.post("/api/admin/auth/login", async (req: any, reply: any) => {
@@ -3519,17 +3889,16 @@ export function registerFrontendExperience(
     });
   });
 
-  app.get("/api/affiliate/overview", async () => {
+  app.get("/api/affiliate/overview", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
-      const affiliate = await c.query(
-        `SELECT affiliate_id, affiliate_code, display_name, verification_status, admin_note
-         FROM siton.affiliate_accounts
-         WHERE affiliate_code = $1
-         LIMIT 1`,
-        [DEFAULT_AFFILIATE_CODE]
-      );
-      const profile = affiliate.rows[0] as any;
+      const profile = await resolveDistributorContext(req, c, deps.isDemoPreview);
+      if (!profile) {
+        return reply.code(distributorAuthConfigured() ? 401 : 503).send({
+          ok: false,
+          error: distributorAuthConfigured() ? "distributor_auth_required" : "distributor_auth_unavailable"
+        });
+      }
 
       const campaigns = await c.query(
         `SELECT d.deal_id,
@@ -3667,12 +4036,11 @@ export function registerFrontendExperience(
             active_campaigns: campaigns.rows.filter((row: any) => Number(row.attributed_buyers || 0) > 0).length
           },
           verification_surface: {
-            status: profile.verification_status,
-            admin_note: profile.admin_note || ""
+            status: profile.verification_status
           },
           capabilities: {
-            named_link_creation: deps.isDemoPreview,
-            identity_mode: deps.isDemoPreview ? "demo-context" : "not-configured"
+            named_link_creation: true,
+            identity_mode: profile.context_source
           },
           links: linkRows,
           campaigns: campaigns.rows.map((row: any) => ({
@@ -5260,6 +5628,56 @@ export function registerFrontendExperience(
         ok: true,
         seller_auth_subject: {
           ...mapSellerProfile(updated.rows[0], "admin_provisioned"),
+          sessions_revoked: true
+        }
+      };
+    });
+  });
+
+  app.post("/api/admin/distributor-auth/:affiliateId/provision", async (req: any, reply: any) => {
+    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    await ensureProductSurfaces();
+    const affiliateId = String(req.params?.affiliateId || "");
+    requireUuid(affiliateId, "affiliate_id");
+    const loginEmailRaw = String(req.body?.login_email || "").trim();
+    const loginEmail = loginEmailRaw ? normalizeSellerLoginEmail(loginEmailRaw) : "";
+    if (loginEmailRaw && !loginEmail) return reply.code(400).send({ ok: false, error: "login_email_invalid" });
+    const authEnabled = req.body?.auth_enabled === undefined ? true : Boolean(req.body.auth_enabled);
+    const accessCode = String(req.body?.access_code || "").trim();
+    if (authEnabled && !accessCode) return reply.code(400).send({ ok: false, error: "access_code_required" });
+
+    return deps.withTx(async (c) => {
+      const current = await c.query(
+        `SELECT affiliate_id, affiliate_code, display_name, verification_status
+         FROM siton.affiliate_accounts WHERE affiliate_id=$1 LIMIT 1`,
+        [affiliateId]
+      );
+      if (!current.rowCount) return reply.code(404).send({ ok: false, error: "distributor_not_found" });
+      const nextSecretHash = authEnabled ? hashSellerAccessSecret(accessCode) : null;
+      const updated = await c.query(
+        `UPDATE siton.affiliate_accounts
+         SET login_email=NULLIF($2,''), auth_secret_hash=$3, auth_enabled=$4,
+             auth_secret_updated_at=CASE WHEN $3::text IS NULL THEN auth_secret_updated_at ELSE now() END,
+             updated_at=now()
+         WHERE affiliate_id=$1
+         RETURNING affiliate_id, affiliate_code, display_name, verification_status,
+                   login_email, auth_enabled, updated_at`,
+        [affiliateId, loginEmail, nextSecretHash, authEnabled]
+      );
+      await c.query(
+        `UPDATE siton.distributor_sessions SET revoked_at=now(), revoked_reason=$2
+         WHERE affiliate_id=$1 AND revoked_at IS NULL`,
+        [affiliateId, authEnabled ? "credentials_rotated" : "auth_disabled"]
+      );
+      return {
+        ok: true,
+        distributor_auth_subject: {
+          affiliate_id: updated.rows[0].affiliate_id,
+          affiliate_code: updated.rows[0].affiliate_code,
+          display_name: updated.rows[0].display_name,
+          verification_status: updated.rows[0].verification_status,
+          login_email: updated.rows[0].login_email,
+          auth_enabled: updated.rows[0].auth_enabled,
           sessions_revoked: true
         }
       };
@@ -7265,7 +7683,7 @@ export function registerFrontendExperience(
   // Verify writes (attempts_count++, status updates) must persist even on a
   // thrown OtpValidationError. Use the auto-commit pool when available so the
   // attempt counter is never rolled back by a wrapping transaction.
-  app.post("/api/otp/verify", async (req: any) => {
+  app.post("/api/otp/verify", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     await ensureOtpTables();
     const body = (req.body as any) || {};
@@ -7289,28 +7707,11 @@ export function registerFrontendExperience(
       ? (legacy?.code || process.env.OTP_TEST_BYPASS_CODE || "424242")
       : null;
     const dbForVerify = deps.pool;
-    try {
-      if (!dbForVerify) {
-        // Fallback: route through withTx. Attempt counters may not persist on
-        // a thrown error in this fallback path. Production app.ts always sets
-        // deps.pool so the fallback only runs in minimal test setups.
-        return await deps.withTx(async (c) => {
-          const result = await verifyOtpChallenge(c, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
-          const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
-          return {
-            ok: true,
-            otp_session_id: challengeId,
-            challenge_id: challengeId,
-            verified: true,
-            buyer_id: buyerId,
-            otp_token: result.otp_token,
-            verified_at: result.verified_at,
-            purpose: result.purpose,
-            channel: result.channel
-          };
-        });
+    const verifiedResponse = async (result: any) => {
+      const session = await deps.withTx(async (c) => issueBuyerSession(c, req, result));
+      if (session) {
+        reply.header("set-cookie", serializeBuyerSessionCookie(session.token, { secure: isProductionLikeEnv() }));
       }
-      const result = await verifyOtpChallenge(dbForVerify, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
       const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
       return {
         ok: true,
@@ -7321,8 +7722,36 @@ export function registerFrontendExperience(
         otp_token: result.otp_token,
         verified_at: result.verified_at,
         purpose: result.purpose,
-        channel: result.channel
+        channel: result.channel,
+        resume_session: Boolean(session)
       };
+    };
+    try {
+      if (!dbForVerify) {
+        // Fallback: route through withTx. Attempt counters may not persist on
+        // a thrown error in this fallback path. Production app.ts always sets
+        // deps.pool so the fallback only runs in minimal test setups.
+        return await deps.withTx(async (c) => {
+          const result = await verifyOtpChallenge(c, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
+          const session = await issueBuyerSession(c, req, result);
+          if (session) reply.header("set-cookie", serializeBuyerSessionCookie(session.token, { secure: isProductionLikeEnv() }));
+          const buyerId = legacy?.phone || result.destination_hash.slice(0, 12);
+          return {
+            ok: true,
+            otp_session_id: challengeId,
+            challenge_id: challengeId,
+            verified: true,
+            buyer_id: buyerId,
+            otp_token: result.otp_token,
+            verified_at: result.verified_at,
+            purpose: result.purpose,
+            channel: result.channel,
+            resume_session: Boolean(session)
+          };
+        });
+      }
+      const result = await verifyOtpChallenge(dbForVerify, { challenge_id: challengeId, code, test_bypass_code: testBypassCode });
+      return await verifiedResponse(result);
     } catch (err) {
       return throwOtpError(err);
     }
@@ -7462,13 +7891,11 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/affiliate/links", async (req: any, reply: any) => {
-    if (!deps.isDemoPreview) {
-      return reply.code(503).send({
-        error: "affiliate_identity_not_configured",
-        message: "named affiliate link creation requires an authenticated production distributor identity"
-      });
-    }
+    await ensureProductSurfaces();
     const body = req.body || {};
+    if (body.affiliate_id !== undefined || body.distributor_id !== undefined || body.tenant_id !== undefined) {
+      return reply.code(400).send({ error: "client_distributor_identity_forbidden" });
+    }
     const dealId = String(body.deal_id || "").trim();
     const internalName = String(body.internal_name || "").trim();
     requireUuid(dealId, "deal_id");
@@ -7476,11 +7903,13 @@ export function registerFrontendExperience(
       return reply.code(400).send({ error: "affiliate_link_name_invalid" });
     }
     const result = await deps.withTx(async (c) => {
-      const affiliate = await c.query(
-        `SELECT affiliate_id, affiliate_code FROM siton.affiliate_accounts WHERE affiliate_code=$1 LIMIT 1`,
-        [DEFAULT_AFFILIATE_CODE]
-      );
-      const profile = affiliate.rows[0] as any;
+      const profile = await resolveDistributorContext(req, c, deps.isDemoPreview);
+      if (!profile) {
+        return {
+          status: distributorAuthConfigured() ? 401 : 503,
+          body: { error: distributorAuthConfigured() ? "distributor_auth_required" : "distributor_auth_unavailable" }
+        };
+      }
       const deal = await c.query(
         `SELECT deal_id, state FROM siton.deals WHERE deal_id=$1 LIMIT 1`,
         [dealId]

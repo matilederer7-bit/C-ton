@@ -104,7 +104,9 @@ async function main() {
     assert.doesNotMatch(ddlWithoutComments, /commission|wallet|withdrawal|payout|balance|invoice/i);
     assert.match(runtime, /app\.post\("\/api\/affiliate\/links"/);
     assert.match(runtime, /app\.post\("\/api\/affiliate\/links\/visit"/);
-    assert.match(runtime, /if \(!deps\.isDemoPreview\)[\s\S]*affiliate_identity_not_configured/);
+    assert.match(runtime, /resolveDistributorContext\(req, c, deps\.isDemoPreview\)/);
+    assert.match(runtime, /client_distributor_identity_forbidden/);
+    assert.match(runtime, /distributor_auth_required/);
     assert.match(frontend, /payload\.capabilities\?\.named_link_creation/);
   });
 
