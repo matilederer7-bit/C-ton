@@ -40,7 +40,7 @@ The image is built from [`Dockerfile`](../Dockerfile) on top of `node:22-bookwor
 |---|---|---|---|
 | `DATABASE_URL` | always | `postgresql://postgres:postgres@localhost:5432/siton` | Override at runtime — the default is for local dev only. |
 | `DB_SCHEMA` | always | `siton` | |
-| `PORT` | always | `3000` | Render injects this; compose maps host:3000 → container:3000. |
+| `PORT` | always | `3000` | Portable container configuration; compose maps host:3000 → container:3000. |
 | `HOST` | always | `0.0.0.0` | |
 | `APP_DEPLOYMENT_MODE` | always | `demo-preview` | Set to `production` only after production launch readiness gate is closed. |
 | `NODE_ENV` | always | `production` | |

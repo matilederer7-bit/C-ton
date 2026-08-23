@@ -1,0 +1,12 @@
+{
+  "schema_version": "siton-runtime-v1",
+  "app_id": "6a79b3ce58f678716af8d295",
+  "app_name": "ראש גשר",
+  "production_runtime": "base44",
+  "canonical_data_store": "base44_entities",
+  "supabase_role": "inventory_authority_and_proof_connector",
+  "scheduled_worker": "siton-worker-tick",
+  "legacy_runtime": "render",
+  "publish_required": true,
+  "publish_performed": false
+}

@@ -80,7 +80,9 @@ Current demo DB details to preserve:
 - plan: free
 - note: DB expires on 2026-06-09 unless upgraded
 
-Before applying `render.yaml`, verify whether Render resources should keep the current compatibility names or be aligned to C-ton naming.
+Do not apply the quarantined `legacy/render/render.legacy.yaml`. It is
+historical evidence only; restore the canonical Base44 + Supabase runtime from
+the current runtime manifest and activation checklist.
 
 ## 5. Basic Checks
 

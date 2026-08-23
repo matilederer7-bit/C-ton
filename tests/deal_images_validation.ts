@@ -63,13 +63,14 @@ function imagePayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
-await run("D0 upload dir is configurable through UPLOAD_DIR and never hardcodes /app/uploads", async () => {
+await run("D0 upload dir is runtime-configurable and never tied to a legacy host path", async () => {
   const adapter = await readFile("src/storage_adapter.ts", "utf8");
-  const renderConfig = await readFile("render.yaml", "utf8");
+  const environmentContract = await readFile("docs/ENVIRONMENT_CONTRACT.md", "utf8");
   assert.equal(process.env.UPLOAD_DIR, uploadDir);
   assert.match(adapter, /env\.UPLOAD_DIR/);
   assert.doesNotMatch(adapter, /\/app\/uploads/);
-  assert.match(renderConfig, /key:\s*UPLOAD_DIR[\s\S]*value:\s*\/tmp\/uploads/);
+  assert.match(environmentContract, /UPLOAD_DIR/);
+  assert.match(environmentContract, /writable/i);
 });
 
 await run("D1 seller can upload valid product image before publish and public payload includes URL", async () => {

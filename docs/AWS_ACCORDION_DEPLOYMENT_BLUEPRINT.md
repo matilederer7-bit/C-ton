@@ -73,7 +73,7 @@ See [DOCKER_READINESS.md](DOCKER_READINESS.md). The shortest path is `docker com
 
 ### Alternative non-AWS shapes (functionally equivalent)
 
-- **Render** with `render.yaml` (already shipped) — Postgres + web service + auto-deploy.
+- **Legacy Render evidence** is quarantined under `legacy/render/` and is not a production option. This AWS document is a supporting portability/scale reference only; Base44 + Supabase is canonical for Siton V1.
 - **Railway** — Docker service + managed Postgres.
 - **Fly.io** — Docker app + Fly Postgres.
 - **Managed VPS** (Hetzner, OVH, DO) — single Docker host + managed Postgres add-on.

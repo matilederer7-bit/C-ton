@@ -20,7 +20,10 @@ Use:
 - `INVOICE_PROVIDER_API_KEY` or `INVOICE_PROVIDER_BEARER_TOKEN`
 - `INVOICE_WEBHOOK_SECRET`
 
-`render.yaml` now declares these keys for manual deploy-time activation, but keeps them unset in-repo.
+These values must be entered in the canonical Base44/approved server-side
+secret boundary at activation time. The repository keeps them unset. Legacy
+Render configuration is quarantined and must not be used as an activation
+source.
 
 Optional path overrides:
 

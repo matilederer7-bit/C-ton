@@ -5123,3 +5123,91 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
 - Still open: publish the final branch commit, open a PR to `master`, obtain green branch CI including Docker/Web/Worker/migrations/test:all, merge cleanly, obtain green `master` CI, and verify the manual Stripe workflow is visible without running it.
 - Stage 6b-1a preparation: 95% locally; external Stripe verification: 0%; Stage 6b-1 remains incomplete until protected Test Mode credentials are supplied and Stage 6b-1b is explicitly authorized.
 - Next step after this gate: configure the protected GitHub Environment and secrets, then explicitly authorize Stage 6b-1b. Do not start it automatically.
+
+## Current update: 2026-08-21 (Siton V1 Final Zero-Development Closure)
+
+- Verdict: `ZERO_DEVELOPMENT_CLOSURE_PASS`. Known internal V1 development gaps
+  are closed; remaining work is external activation/configuration and evidence.
+- Canonical architecture is Base44 + Supabase. The Base44-owned
+  `siton-worker-tick` performs bounded scheduled orchestration every five
+  minutes. Render material is quarantined under `legacy/render/` and is not an
+  active deployment path.
+- Added the provider-neutral Grow J4/J5 adapter and deterministic synthetic
+  money provider. The final no-network A-K rehearsal passed 12/12 selected test
+  files across 10/10 groups with zero external calls, live money, notifications
+  sent, deployment or publish.
+- Added the PWA and checked-in Capacitor Android/iOS source projects, app/deep
+  links, offline handling, native camera/share/browser/network hooks and bounded
+  Keystore/Keychain pending-payment recovery. Mobile build, normalization,
+  native sync and release gate passed with eight capabilities per platform.
+- Migration proof passed 44/44 with repeatability, checksum ledger and zero
+  drift. Architecture and Base44 integrity gates passed with zero findings.
+- Full test inventory: all 135 files passed by combined evidence. The initial
+  consolidated run passed 132/135; one test still read quarantined
+  `render.yaml`, and two subprocess tests were denied by the Windows sandbox.
+  The architecture-dependent test was corrected and the API group passed
+  35/35. The SIGTERM test passed 10/10 repetitions and the complete browser
+  smoke passed in the permitted local subprocess context. A second privileged
+  consolidated run was rejected only because the execution environment's
+  approval-usage allowance was exhausted, not because of a Siton failure.
+- TypeScript runtime/tests, lint, backend enforcement (88 files), direct-state
+  mutation boundary, payment SDK boundary, secret scan, payment compliance,
+  runtime DDL scan (49 files), mobile gate and `git diff --check` passed.
+- Dirty-tree audit: the original 11 modified + 11 deleted tracked paths and 152
+  untracked paths all belonged to this closure. The deleted paths were obsolete
+  Render artifacts moved into the legacy quarantine (10 exact copies; the gate
+  changed only its manifest path/message). Android/iOS source files are release
+  sources, not generated build output. Generated bundles, copied Capacitor
+  assets/config, caches, dependencies, local test outputs, uploads and signing/
+  provisioning files remain ignored. No other-agent work or suspicious file was
+  found.
+- No deploy, push, hosted migration, provider call, real notification, store
+  submission or other live external write was performed.
+- Git disposition: the reviewed closure remains deliberately unstaged on the
+  dedicated `agent/final-zero-development-closure` branch. Workspace sandbox
+  policy made `.git/index.lock` read-only, and the explicit elevation request
+  was rejected because the execution environment exhausted its approval-usage
+  allowance. No partial staging or commit occurred. This is an execution-
+  environment limitation, not an unexplained repository change; the complete
+  classified work remains recoverable in place for the next session.
+- Binding handoff documents: `docs/CANONICAL_ARCHITECTURE_V1.md`,
+  `docs/FINAL_ZERO_DEVELOPMENT_CLOSURE.md`, `docs/SYNTHETIC_MONEY_PROOF.md`,
+  `docs/GROW_PAYMENTS_INTEGRATION_READINESS.md`,
+  `docs/MOBILE_APP_RELEASE_READINESS.md`, and
+  `docs/EXTERNAL_ACTIVATION_CHECKLIST.md`.
+- Next step: perform the external activation checklist against the exact
+  reviewed release SHA, one boundary at a time, with redacted evidence and
+  explicit authorization for any live or real-money action.
+
+## SITON V1 — ZERO-DEVELOPMENT FREEZE (2026-08-23)
+
+- Final repository-lock verification supersedes the earlier execution-
+  environment limitation: the exact closure product tree passed
+  `npm run test:all` with 135/135 files, 10/10 groups and zero failures in
+  911,672 ms.
+- The final no-network launch rehearsal passed 12/12 selected files across
+  10/10 groups in 217,865 ms, with `external_calls=0`, `live_money=0`,
+  `notifications_sent=0` and `publish=0`.
+- Architecture, Base44 canonical integrity, isolated migrations (44/44 plus
+  repeat/checksum proof), operational repair (21/21), mobile sync/release,
+  mobile readiness, security (14/14), TypeScript, backend/payment/DDL scans,
+  demo build and `git diff --check` all passed on the closure tree.
+- Final staged-blob review found and closed two packaging-only defects before
+  commit: seven existing PNG icons had misleading `.webp` paths/MIME, and the
+  Gradle wrapper lacked its executable bit. The artwork bytes were preserved,
+  PNG signatures are now gate-checked, `android/gradlew` is `100755`, and the
+  corrected exact tree is the one covered by the 135/135 run above.
+- Production architecture remains Base44 + Supabase; Render remains quarantined
+  legacy material only. The Siton fee remains exactly 8%, including delivery/
+  shipping and excluding VAT; distributor commission remains exactly 0.
+- The classified closure contains only legitimate source, tests, documentation,
+  CI/orchestration and intentional Render quarantine changes. Generated build
+  output, caches, dependencies, local databases, signing/provisioning material,
+  secrets and machine-local files remain excluded.
+- No deployment, Base44 publish, Grow/Sandbox call, hosted migration, real
+  notification, production Supabase access or live-money action was performed.
+- No known V1 programming remains. Only the explicitly listed external
+  activation, credentials, hosted validation, signed-store/device evidence,
+  legal/business approval and operational drills remain.
+- The immutable final master SHA is recorded by the Git commit/ref verification
+  produced by this repository-lock operation; a commit cannot embed its own SHA.

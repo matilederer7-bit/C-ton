@@ -39,6 +39,7 @@ archive_temp/
 .tmp*/
 
 .demo_dist/
+.mobile_dist/
 archive/
 backups/
 
@@ -52,3 +53,14 @@ backups/
 # local upload roots (image storage adapter writes here in dev)
 uploads/
 .ci-artifacts/
+
+# Mobile signing/provisioning credentials are external release inputs.
+*.jks
+*.keystore
+*.p12
+*.p8
+*.pfx
+*.mobileprovision
+*.provisionprofile
+GoogleService-Info.plist
+google-services.json

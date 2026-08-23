@@ -945,7 +945,9 @@ function deriveBuyerDocumentVisibility(args: {
 }
 
 async function sendFrontendFile(reply: FastifyReply, filename: string, contentType: string) {
-  const content = await readFile(join(frontendDir, filename), "utf8");
+  const content = contentType.startsWith("image/")
+    ? await readFile(join(frontendDir, filename))
+    : await readFile(join(frontendDir, filename), "utf8");
   const cacheControl =
     filename === "index.html" ? "no-store" : "no-cache, must-revalidate";
   return reply.header("cache-control", cacheControl).type(contentType).send(content);
@@ -7761,6 +7763,9 @@ export function registerFrontendExperience(
     const body = req.body || {};
     const authorizeInput: Parameters<typeof deps.paymentProvider.authorize>[0] = {
       payer_name: String(body.payer_name || ""),
+      payer_phone: String(body.payer_phone || ""),
+      payer_email: String(body.payer_email || ""),
+      description: String(body.description || body.deal_id || "Siton deal"),
       payment_method_id: String(body.payment_method_id || ""),
       amount_minor: body.amount_minor,
       currency: String(body.currency || ""),
@@ -7868,7 +7873,7 @@ export function registerFrontendExperience(
         provider_code: deps.paymentProvider.providerCode,
         provider_payment_method_id: String(body.payment_method_id),
         correlation_id: result.ok ? result.correlation_id : authorizeInput.correlation_id ?? null,
-        mark_authorized: result.ok,
+        mark_authorized: result.ok && result.authorization === "authorized",
         mark_failed: !result.ok && !result.retryable
       }).catch(() => undefined);
     }
@@ -7881,6 +7886,19 @@ export function registerFrontendExperience(
   };
   app.post("/api/payments/authorize", handleAuthorizePayment);
   app.post("/api/payments/authorize-mock", handleAuthorizePayment);
+
+  app.post("/api/payments/status", async (req: any, reply: any) => {
+    if (!deps.paymentProvider.status) return reply.code(501).send({ ok: false, error: "payment_status_not_supported" });
+    const body = req.body || {};
+    const providerReference = String(body.provider_reference || "").trim();
+    const correlationId = String(body.correlation_id || req.headers?.["x-request-id"] || req.id || "").trim();
+    const operation = String(body.operation || "authorization") as "authorization" | "capture" | "release" | "refund";
+    if (!providerReference || providerReference.length > 4096 || !["authorization", "capture", "release", "refund"].includes(operation)) {
+      return reply.code(400).send({ ok: false, error: "payment_status_request_invalid" });
+    }
+    const result = await deps.paymentProvider.status({ provider_reference: providerReference, correlation_id: correlationId, operation });
+    return { ok: true, ...result, authorization_id: result.state === "authorized" ? result.provider_reference : undefined };
+  });
 
   app.post("/api/payments/tokenize", async (req: any, reply: any) => {
     return reply.code(410).send({
@@ -8206,6 +8224,28 @@ export function registerFrontendExperience(
   );
   app.get("/app/assets/app.js", async (_req, reply) =>
     sendFrontendFile(reply, "app.js", "application/javascript; charset=utf-8")
+  );
+  app.get("/app/assets/mobile-bridge.js", async (_req, reply) =>
+    sendFrontendFile(reply, "mobile-bridge.js", "application/javascript; charset=utf-8")
+  );
+  app.get("/app/service-worker.js", async (_req, reply) =>
+    sendFrontendFile(reply, "service-worker.js", "application/javascript; charset=utf-8")
+  );
+  app.get("/app/manifest.webmanifest", async (_req, reply) =>
+    sendFrontendFile(reply, "manifest.webmanifest", "application/manifest+json; charset=utf-8")
+  );
+  app.get("/app/icons/logo.svg", async (_req, reply) =>
+    sendFrontendFile(reply, "icons/logo.svg", "image/svg+xml")
+  );
+  app.get("/app/icons/:iconName", async (req: any, reply: any) => {
+    const iconName = String(req.params.iconName || "");
+    if (!/^icon-(48|72|96|128|192|256|512)\.png$/.test(iconName)) {
+      return reply.code(404).send({ ok: false, error: "icon_not_found" });
+    }
+    return sendFrontendFile(reply, `icons/${iconName}`, "image/png");
+  });
+  app.get("/app/offline", async (_req, reply) =>
+    sendFrontendFile(reply, "offline.html", "text/html; charset=utf-8")
   );
 
   const sendShell = async (_req: any, reply: FastifyReply) =>

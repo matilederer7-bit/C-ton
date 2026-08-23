@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Siton</string>
+    <string name="title_activity_main">Siton</string>
+    <string name="package_name">il.co.siton.app</string>
+    <string name="custom_url_scheme">il.co.siton.app</string>
+</resources>

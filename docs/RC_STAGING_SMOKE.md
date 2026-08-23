@@ -1,4 +1,8 @@
-# RC Staging Deploy Smoke
+# RC Staging Deploy Smoke (LEGACY RENDER EVIDENCE)
+
+> Historical only. This report describes a superseded Render preview and is
+> not an activation runbook. Siton V1 production is Base44 + Supabase; use
+> `docs/EXTERNAL_ACTIVATION_CHECKLIST.md` for the current process.
 
 ## 2026-04-30 Buyer Experience V1 staging smoke attempt
 

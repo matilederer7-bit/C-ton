@@ -28,7 +28,10 @@ NODE_ENV === "production"
 || RENDER_EXTERNAL_URL is set
 ```
 
-In production-like mode, missing critical envs must fail closed (block) rather than fall back to demo defaults silently.
+`RENDER` and `RENDER_EXTERNAL_URL` remain compatibility-only detection inputs
+for the quarantined portable runtime. They do not select or describe the
+canonical production architecture. In production-like mode, missing critical
+envs must fail closed rather than fall back to demo defaults silently.
 
 ## Variables
 
@@ -87,6 +90,7 @@ Legend:
 | `RATE_LIMIT_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | `0` disables. |
 | `RATE_LIMIT_WINDOW_MS` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | |
 | `MOCK_SEED` | ⬜ (demo only) | ⬜ | ⬜ | 📄 | unset | |
+| `UPLOAD_DIR` / `DEAL_IMAGE_UPLOAD_DIR` | ⬜ | ⬜ | ⬜ | 📄 | `uploads/deal-images` | Writable local/demo image directory; `DEAL_IMAGE_UPLOAD_DIR` takes precedence. Production uses object storage. |
 | `SUPABASE_PROJECT_REF` | ⬜ | ⬜ | ⚠ for hosted metrics/compute | 📄 | unset | Hosted project identifier; never treated as a credential. |
 | `SUPABASE_METRICS_SECRET_KEY` | ⬜ | ⬜ | ⚠ for hosted metrics | 🔒 | unset | Dedicated Secret API key used server-side for the Prometheus-compatible Metrics API. |
 | `SUPABASE_METRICS_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded hosted-metrics request timeout. |
@@ -94,6 +98,21 @@ Legend:
 | `SUPABASE_MANAGEMENT_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `5000` | Bounded Management API read/update timeout. |
 | `SUPABASE_COMPUTE_MANAGEMENT_ENABLED` | ✅ | ✅ | ✅ | 📄 | `false` | Explicit feature flag for a human-approved one-tier compute upgrade. Monitoring remains active when false. |
 | `INFRA_*_WARNING` / `INFRA_*_CRITICAL` / `INFRA_*_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | documented defaults | Central overrides for sustained health thresholds; see `INFRASTRUCTURE_HEALTH_AND_CAPACITY.md`. |
+
+### Grow and mobile activation additions
+
+When `PAYMENT_PROVIDER=grow` (or `PAYMENT_PROVIDER_MODE=grow`), the server-side
+adapter additionally requires externally provisioned `GROW_USER_ID`,
+`GROW_PAGE_CODE`, a minimum-32-character `GROW_REFERENCE_ENCRYPTION_KEY`, and
+credential-free HTTPS `GROW_SUCCESS_URL`, `GROW_CANCEL_URL`, and
+`GROW_NOTIFY_URL`. `GROW_API_KEY` and the `GROW_*_PATH` overrides are supplied
+only when the provisioned Grow contract requires them. Missing production
+configuration fails closed; none of these values belongs in a browser bundle.
+
+Native packaging uses non-secret build inputs `SITON_APP_ID`,
+`SITON_APP_LINK_HOST`, and `SITON_API_BASE_URL`. The checked-in defaults end in
+`.invalid` or use the preview bundle identifier and therefore cannot silently
+be mistaken for store-release configuration.
 
 ## Failure modes
 
@@ -125,8 +144,8 @@ No env value is logged, surfaced, or returned by any admin endpoint.
 | Tier | Source |
 |---|---|
 | Tier 0 — local | `.env` (gitignored) for local dev. Compose hardcodes demo defaults inline. |
-| Tier 1 — small market launch | AWS Secrets Manager / SSM Parameter Store SecureString. Render injects via dashboard / `render.yaml`. |
-| Tier 2 — accordion scale | Same as Tier 1 plus rotation policy and per-secret IAM. |
+| Tier 1 — small market launch | Base44 secret/environment configuration plus the approved Supabase secret boundary. |
+| Tier 2 — accordion scale | Same canonical Base44 + Supabase boundary plus rotation policy and least-privilege access. |
 | Tier 3 — mature production | Plus annual rotation, audit log, optional SIEM forwarding. |
 
 ## Anti-patterns explicitly forbidden

@@ -37,13 +37,15 @@ async function main() {
   const suiteStartedAt = Date.now();
   const requested = process.argv[2] || "all";
   if (requested !== "all" && !GROUPS.includes(requested)) throw new Error(`Unknown test group: ${requested}`);
-  const files = readdirSync(path.join(process.cwd(), "tests"))
+  const testFilePattern = process.env.TEST_FILE_PATTERN ? new RegExp(process.env.TEST_FILE_PATTERN) : null;
+  const inventory = readdirSync(path.join(process.cwd(), "tests"))
     .filter((name) => name.endsWith(".ts"))
     .sort()
     .map((name) => ({ name, group: classify(name.replace(/\.ts$/, "")) }));
+  const files = testFilePattern ? inventory.filter((item) => testFilePattern.test(item.name)) : inventory;
   const selected = (requested === "all" ? files : files.filter((item) => item.group === requested))
     .sort((left, right) => GROUPS.indexOf(left.group) - GROUPS.indexOf(right.group) || left.name.localeCompare(right.name));
-  console.log(`TEST_INVENTORY total=${files.length} selected=${selected.length} group=${requested}`);
+  console.log(`TEST_INVENTORY total=${inventory.length} filtered=${files.length} selected=${selected.length} group=${requested}`);
   for (const group of GROUPS) console.log(`TEST_GROUP ${group} count=${files.filter((item) => item.group === group).length}`);
 
   if (requested === "all") {

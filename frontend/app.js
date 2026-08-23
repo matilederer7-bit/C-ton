@@ -4,6 +4,8 @@ const FLOW_SCHEMA_VERSION = 2;
 const SAFE_RESUME_KEY = "siton_safe_resume_v1";
 const SAFE_RESUME_SCHEMA_VERSION = 1;
 const SELLER_CONTEXT_KEY = "siton_seller_context_v1";
+const NATIVE_PENDING_PAYMENT_KEY = "siton_pending_payment_v1";
+const NATIVE_PENDING_PAYMENT_SCHEMA_VERSION = 1;
 const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
 const SAFE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
 const POLL_INTERVAL_MS = 12000;
@@ -239,6 +241,7 @@ const ROUTE_LABELS = {
   deal: "דף עסקה",
   otp: "אימות טלפון",
   payment: "אישור מסגרת",
+  "payment-return": "חזרה מאישור תשלום",
   confirmation: "אישור הצטרפות",
   tracking: "מעקב השתתפות",
   recovery: "השלמת תשלום",
@@ -305,6 +308,7 @@ document.addEventListener("click", (event) => {
     if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "copy-text") void copyText(actionTarget.dataset.copyText || "");
+    if (action === "capture-native-image") void captureNativeSellerImage();
     if (action === "seller-preview-open") {
       state.sellerPreviewOpen = true;
       render();
@@ -419,7 +423,13 @@ boot();
 
 async function boot() {
   consumeQaSeedFromHash();
+  const restoredPendingDealId = await restoreNativePendingPayment();
   state.route = parseRoute(location.pathname);
+  if (restoredPendingDealId && state.route.name === "home") {
+    const paymentPath = `/app/join/${encodeURIComponent(restoredPendingDealId)}/payment`;
+    history.replaceState({}, "", paymentPath);
+    state.route = parseRoute(paymentPath);
+  }
   hydrateSellerContext();
   hydrateForm();
   render();
@@ -430,7 +440,39 @@ async function boot() {
   }
   hydrateForm();
   render();
+  registerNativeDeepLinks();
+  registerNativeLifecycle();
   await runRoute();
+}
+
+function registerNativeDeepLinks() {
+  if (!globalThis.SitonMobile?.onDeepLink) return;
+  globalThis.SitonMobile.onDeepLink((url) => {
+    const configuredAppLinkHost = String(globalThis.SitonMobile.appLinkHost || "").toLowerCase();
+    const isWebLink = url.protocol === "https:" && (
+      url.origin === location.origin ||
+      (globalThis.SitonMobile.isNative && configuredAppLinkHost && url.hostname.toLowerCase() === configuredAppLinkHost)
+    );
+    const isAppLink = url.protocol === "siton:" && url.hostname === "app";
+    const path = String(url.pathname || "");
+    if ((!isWebLink && !isAppLink) || !path.startsWith("/app") || path.length > 2048) return;
+    navigate(path);
+  });
+}
+
+function registerNativeLifecycle() {
+  if (!globalThis.SitonMobile?.isNative) return;
+  globalThis.SitonMobile.onAppStateChange?.(({ isActive }) => {
+    if (isActive) void runRouteSilently();
+  });
+  globalThis.SitonMobile.onNetworkChange?.(({ connected }) => {
+    if (!connected) {
+      state.banner = { tone: "warning", title: "אין כרגע חיבור לרשת", message: "לא מוצג מידע כספי שמור. התחברו מחדש כדי לרענן אמת עדכנית מהשרת." };
+      render();
+    } else {
+      void runRouteSilently();
+    }
+  });
 }
 
 function consumeQaSeedFromHash() {
@@ -491,6 +533,7 @@ function parseRoute(path) {
     ["deal", /^\/app\/deal\/([^/]+)$/],
     ["otp", /^\/app\/join\/([^/]+)\/otp$/],
     ["payment", /^\/app\/join\/([^/]+)\/payment$/],
+    ["payment-return", /^\/app\/payment-return$/],
     ["confirmation", /^\/app\/join\/([^/]+)\/confirmation$/],
     ["tracking", /^\/app\/track\/([^/]+)$/],
     ["recovery", /^\/app\/recovery\/([^/]+)$/],
@@ -515,7 +558,7 @@ function parseRoute(path) {
   for (const [name, regex] of patterns) {
     const match = normalized.match(regex);
     if (!match) continue;
-    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "terms" || name === "privacy" || name === "refunds" || name === "accessibility" || name === "seller-terms" || name === "distributor-terms" || name === "contact") {
+    if (name === "seller" || name === "seller-new" || name === "affiliate" || name === "admin" || name === "admin-support" || name === "payment-return" || name === "terms" || name === "privacy" || name === "refunds" || name === "accessibility" || name === "seller-terms" || name === "distributor-terms" || name === "contact") {
       return { name };
     }
     return name === "tracking" || name === "recovery"
@@ -548,6 +591,17 @@ function currentAffiliateRef() {
 
 async function runRoute() {
   const route = state.route;
+  if (route.name === "payment-return") {
+    const pending = Object.entries(readFlow())
+      .filter(([, flow]) => flow?.providerPaymentPending)
+      .sort((left, right) => String(right[1]?.pendingPaymentStartedAt || "").localeCompare(String(left[1]?.pendingPaymentStartedAt || "")))[0];
+    if (pending) navigate(`/app/join/${encodeURIComponent(pending[0])}/payment`, true);
+    else {
+      state.banner = { tone: "warning", title: "לא נמצא תהליך תשלום פתוח", message: "אפשר לחזור לקישור העסקה ולהתחיל שוב בבטחה." };
+      navigate("/app", true);
+    }
+    return;
+  }
   if (route.name === "home") return loadHome();
   if (route.name === "deal") return loadDeal(route.dealId);
   if (route.name === "tracking") return loadTracking(route.participantId);
@@ -597,6 +651,11 @@ async function runRoute() {
         message: "הכמות נשמרה, אבל לפני אישור המסגרת צריך להשלים את אימות הטלפון."
       };
       render();
+      return;
+    }
+
+    if (route.name === "payment" && flow.providerPaymentPending) {
+      await completePendingHostedPayment(route.dealId, flow);
       return;
     }
 
@@ -1415,6 +1474,7 @@ async function payAndJoin(form) {
   const hostedPaymentMethodId = String(formData.get("providerPaymentMethodId") || "").trim();
   const payload = {
     payer_name: String(formData.get("payerName") || "").trim(),
+    payer_phone: String(flow.phone || "").trim(),
     payment_method_id: hostedPaymentMethodId || paymentService.createHostedPaymentMethodId(route.dealId, flow.buyerId),
     amount_minor: Math.round(Number(flow.estimatedTotal || 0) * 100),
     currency: "ILS",
@@ -1430,6 +1490,22 @@ async function payAndJoin(form) {
 
   await busy("מאשר את המסגרת ושומר את ההצטרפות...", async () => {
     const authorization = await paymentService.authorize(payload);
+    if (authorization.authorization === "pending_provider_confirmation" && authorization.payment_url) {
+      saveFlow(route.dealId, {
+        providerPaymentPending: true,
+        pendingAuthorizationId: authorization.authorization_id,
+        pendingAuthorizationProvider: authorization.provider,
+        pendingAuthorizationCorrelationId: authorization.correlation_id,
+        pendingPaymentStartedAt: new Date().toISOString(),
+        pendingJoinDetails: { buyerName, deliveryAddress, deliveryCity, deliveryNote }
+      });
+      await persistNativePendingPayment(route.dealId, getFlow(route.dealId));
+      if (globalThis.SitonMobile?.openHostedPayment) await globalThis.SitonMobile.openHostedPayment(authorization.payment_url);
+      else location.assign(authorization.payment_url);
+      return;
+    }
+
+    if (authorization.authorization !== "authorized") throw new Error("payment_authorization_not_final");
     const join = await buyerFlowService.joinDeal(route.dealId, {
       buyerId: flow.buyerId,
       qty: flow.qty,
@@ -1467,6 +1543,63 @@ async function payAndJoin(form) {
     };
     navigate(`/app/join/${encodeURIComponent(route.dealId)}/confirmation`);
   }, "תפיסת המסגרת או שמירת ההצטרפות נכשלו.");
+}
+
+async function completePendingHostedPayment(dealId, flow) {
+  const status = await api("/api/payments/status", {
+    method: "POST",
+    body: json({
+      operation: "authorization",
+      provider_reference: flow.pendingAuthorizationId,
+      correlation_id: flow.pendingAuthorizationCorrelationId
+    })
+  });
+  if (status.state === "pending" || status.state === "unknown") {
+    state.banner = {
+      tone: "info",
+      title: "ממתינים לאישור מספק התשלום",
+      message: "לא מנחשים את תוצאת התשלום. המערכת תבדוק שוב מול הספק כשתחזרו למסך או לאפליקציה."
+    };
+    render();
+    return;
+  }
+  if (status.state !== "authorized" || !status.authorization_id) {
+    saveFlow(dealId, { providerPaymentPending: false, pendingAuthorizationId: "", pendingJoinDetails: null });
+    await clearNativePendingPayment();
+    state.banner = { tone: "warning", title: "אישור המסגרת לא הושלם", message: "אפשר לנסות שוב. לא נרשמה הצלחה ללא אישור סופי מהספק." };
+    render();
+    return;
+  }
+  const details = flow.pendingJoinDetails || {};
+  const join = await buyerFlowService.joinDeal(dealId, {
+    buyerId: flow.buyerId,
+    qty: flow.qty,
+    affiliateRef: flow.affiliateRef || "",
+    deliveryOptionId: flow.deliveryOptionId || "",
+    buyerName: details.buyerName || undefined,
+    deliveryAddress: details.deliveryAddress || undefined,
+    deliveryCity: details.deliveryCity || undefined,
+    deliveryNote: details.deliveryNote || undefined,
+    otpToken: flow.otpToken || undefined,
+    otpChallengeId: flow.otpChallengeId || undefined,
+    authorizationId: status.authorization_id,
+    authorizationProvider: status.provider,
+    authorizationCorrelationId: status.correlation_id,
+    paymentDisclosureAccepted: true
+  });
+  saveFlow(dealId, {
+    providerPaymentPending: false,
+    pendingAuthorizationId: "",
+    pendingJoinDetails: null,
+    paymentAuthorized: true,
+    paymentAuthorizedAt: new Date().toISOString(),
+    authorizationId: status.authorization_id,
+    participantId: join.participant_id,
+    trackingAccessToken: join.tracking_access_token || "",
+    trackingUrl: join.tracking_url || ""
+  });
+  await clearNativePendingPayment();
+  navigate(`/app/join/${encodeURIComponent(dealId)}/confirmation`);
 }
 
 async function createDeal(form) {
@@ -1861,6 +1994,43 @@ async function handleSellerImageSelection(input) {
   }
 }
 
+async function captureNativeSellerImage() {
+  if (!globalThis.SitonMobile?.isNative || !globalThis.SitonMobile.captureDealImage) return;
+  const existingImages = readSellerImages();
+  if (existingImages.length >= 5) {
+    state.sellerImageUploadStatus = "error";
+    state.sellerImageUploadError = "אפשר להעלות עד 5 תמונות לעסקה.";
+    render();
+    return;
+  }
+  state.sellerImageUploadStatus = "loading";
+  state.sellerImageUploadError = "";
+  render();
+  try {
+    const photo = await globalThis.SitonMobile.captureDealImage();
+    const format = String(photo?.format || "jpeg").toLowerCase();
+    const mimeType = format === "png" ? "image/png" : format === "webp" ? "image/webp" : "image/jpeg";
+    const base64 = String(photo?.base64String || "");
+    if (!base64 || base64.length > 2_800_000) throw new Error("native_image_invalid");
+    const image = {
+      dataUrl: `data:${mimeType};base64,${base64}`,
+      filename: `siton-native-${Date.now()}.${format === "jpeg" ? "jpg" : format}`,
+      mimeType,
+      size: Math.floor(base64.length * 0.75)
+    };
+    setSellerImages(normalizeSellerImages([...existingImages, image]));
+    state.sellerImageUploadStatus = "idle";
+  } catch (error) {
+    if (String(error?.message || error).toLowerCase().includes("cancel")) {
+      state.sellerImageUploadStatus = "idle";
+    } else {
+      state.sellerImageUploadStatus = "error";
+      state.sellerImageUploadError = "לא הצלחנו לקבל תמונה מהמצלמה או מהספרייה.";
+    }
+  }
+  render();
+}
+
 function readImageFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -2047,6 +2217,14 @@ function focusCreateDealError() {
 async function shareLink(url, title) {
   const shareUrl = absoluteUrl(url || location.pathname);
   const shareTitle = title || "עסקה ב-C-ton";
+  if (globalThis.SitonMobile?.isNative && globalThis.SitonMobile.shareDeal) {
+    try {
+      await globalThis.SitonMobile.shareDeal(shareUrl, shareTitle);
+      return;
+    } catch (error) {
+      if (String(error?.message || error).toLowerCase().includes("cancel")) return;
+    }
+  }
   if (navigator.share) {
     try {
       await navigator.share({ title: shareTitle, url: shareUrl });
@@ -2256,6 +2434,7 @@ function restartFlow() {
   const dealId = state.route.dealId || state.trackingPayload?.tracking?.deal_id || state.dealPayload?.deal?.deal_id;
   if (!dealId) return navigate("/app");
   removeFlow(dealId);
+  void clearNativePendingPayment();
   state.form = {
     adminQuery: state.form.adminQuery,
     qty: String(state.dealPayload?.deal?.min_units || 1),
@@ -4466,9 +4645,11 @@ function renderSellerNewPage() {
                     <strong>תמונת העסקה תופיע כאן</strong>
                     <span class="small muted">אפשר להעלות עד 5 תמונות. תמונה אחת תסומן כראשית.</span>
                     <label class="button primary image-upload-button" for="sellerImage">בחרו תמונות</label>
+                    ${globalThis.SitonMobile?.isNative ? `<button class="button secondary" type="button" data-inline-action="capture-native-image">מצלמה או ספריית תמונות</button>` : ""}
                   </div>
                 `}
                 ${primarySellerImage?.dataUrl && sellerImages.length < 5 ? `<label class="button secondary image-replace-button" for="sellerImage">הוספת תמונות</label>` : ""}
+                ${primarySellerImage?.dataUrl && sellerImages.length < 5 && globalThis.SitonMobile?.isNative ? `<button class="button secondary" type="button" data-inline-action="capture-native-image">מצלמה או ספרייה</button>` : ""}
                 ${state.sellerImageUploadStatus === "loading" ? `<div class="image-upload-overlay">מעלה תמונה...</div>` : ""}
               </div>
               ${sellerImages.length ? `
@@ -4708,7 +4889,8 @@ async function downloadDeliveryHandoffExcel(dealId) {
   const sellerContext = currentSellerContext();
   const url = `/api/seller/deals/${encodeURIComponent(dealId)}/delivery-handoff/export.xlsx`;
   await busy("מכין Excel נתוני אספקה...", async () => {
-    const response = await fetch(url, {
+    const response = await fetch(resolveApiUrl(url), {
+      credentials: "include",
       headers: usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}
     });
     if (!response.ok) {
@@ -7466,6 +7648,26 @@ function renderStep(title, done, current = false) {
 
 const API_TIMEOUT_MS = 15_000;
 
+function resolveApiUrl(url) {
+  const value = String(url || "");
+  if (!globalThis.SitonMobile?.isNative) return value;
+  const base = String(globalThis.SitonMobile.apiBaseUrl || "");
+  let configured;
+  try {
+    configured = new URL(base);
+  } catch {
+    throw new Error("native_api_base_url_not_configured");
+  }
+  if (configured.protocol !== "https:" || configured.hostname.endsWith(".invalid")) {
+    throw new Error("native_api_base_url_not_configured");
+  }
+  const target = new URL(value, `${configured.origin}/`);
+  if (target.origin !== configured.origin || (!target.pathname.startsWith("/api/") && target.pathname !== "/deals" && !target.pathname.startsWith("/deals/"))) {
+    throw new Error("native_api_target_not_allowed");
+  }
+  return target.toString();
+}
+
 async function api(url, options = {}) {
   const sellerContext = currentSellerContext();
   const controller = new AbortController();
@@ -7477,8 +7679,9 @@ async function api(url, options = {}) {
       ...(usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}),
       ...(options.headers || {})
     };
-    response = await fetch(url, {
+    response = await fetch(resolveApiUrl(url), {
       ...options,
+      credentials: "include",
       signal: controller.signal,
       headers
     });
@@ -7507,7 +7710,8 @@ async function downloadSellerDealExport(dealId) {
   const sellerContext = currentSellerContext();
   const url = `/api/seller/deals/${encodeURIComponent(dealId)}/export.xlsx`;
   await busy("מכין קובץ Excel לעסקה...", async () => {
-    const response = await fetch(url, {
+    const response = await fetch(resolveApiUrl(url), {
+      credentials: "include",
       headers: usesDemoSellerContext() ? { "x-seller-id": sellerContext.seller_id } : {}
     });
     if (!response.ok) {
@@ -7841,6 +8045,85 @@ function saveFlow(dealId, next) {
   try { sessionStorage.setItem(FLOW_KEY, JSON.stringify(all)); } catch {}
   writeSafeResume(dealId, all[dealId]);
   return all[dealId];
+}
+
+function nativePendingPaymentProjection(dealId, flow) {
+  const text = (value, max = 512) => String(value || "").slice(0, max);
+  const quantity = Number(flow?.qty || 0);
+  const details = flow?.pendingJoinDetails || {};
+  return {
+    _v: NATIVE_PENDING_PAYMENT_SCHEMA_VERSION,
+    expiresAt: new Date(Date.now() + FLOW_TTL_MS).toISOString(),
+    dealId: text(dealId, 160),
+    dealTitle: text(flow?.dealTitle, 240),
+    buyerId: text(flow?.buyerId, 160),
+    phone: text(flow?.phone, 40),
+    qty: Number.isFinite(quantity) && quantity > 0 ? quantity : 1,
+    deliveryOptionId: text(flow?.deliveryOptionId, 160),
+    deliveryMethodType: text(flow?.deliveryMethodType, 40),
+    deliveryMethodLabel: text(flow?.deliveryMethodLabel, 160),
+    deliveryCost: Number(flow?.deliveryCost || 0),
+    affiliateRef: text(flow?.affiliateRef, 240),
+    estimatedTotal: Number(flow?.estimatedTotal || 0),
+    otpToken: text(flow?.otpToken, 2048),
+    otpChallengeId: text(flow?.otpChallengeId, 240),
+    otpVerified: flow?.otpVerified === true,
+    pendingAuthorizationId: text(flow?.pendingAuthorizationId, 512),
+    pendingAuthorizationProvider: text(flow?.pendingAuthorizationProvider, 80),
+    pendingAuthorizationCorrelationId: text(flow?.pendingAuthorizationCorrelationId, 512),
+    pendingPaymentStartedAt: text(flow?.pendingPaymentStartedAt, 64),
+    pendingJoinDetails: {
+      buyerName: text(details.buyerName, 160),
+      deliveryAddress: text(details.deliveryAddress, 320),
+      deliveryCity: text(details.deliveryCity, 120),
+      deliveryNote: text(details.deliveryNote, 200)
+    }
+  };
+}
+
+async function persistNativePendingPayment(dealId, flow) {
+  if (!globalThis.SitonMobile?.isNative || !globalThis.SitonMobile.secureStorage || !dealId || !flow?.providerPaymentPending) return;
+  const projected = nativePendingPaymentProjection(dealId, flow);
+  if (!projected.buyerId || !projected.otpToken || !projected.pendingAuthorizationId) {
+    throw new Error("native_pending_payment_state_incomplete");
+  }
+  await globalThis.SitonMobile.secureStorage.set(NATIVE_PENDING_PAYMENT_KEY, JSON.stringify(projected));
+}
+
+async function restoreNativePendingPayment() {
+  if (!globalThis.SitonMobile?.isNative || !globalThis.SitonMobile.secureStorage) return "";
+  try {
+    const raw = await globalThis.SitonMobile.secureStorage.get(NATIVE_PENDING_PAYMENT_KEY);
+    if (!raw || String(raw).length > 65_536) return "";
+    const pending = JSON.parse(raw);
+    const expiresAt = new Date(pending?.expiresAt || 0).getTime();
+    if (
+      pending?._v !== NATIVE_PENDING_PAYMENT_SCHEMA_VERSION ||
+      !Number.isFinite(expiresAt) || expiresAt <= Date.now() ||
+      typeof pending.dealId !== "string" || !pending.dealId || pending.dealId.length > 160 ||
+      typeof pending.buyerId !== "string" || !pending.buyerId ||
+      typeof pending.otpToken !== "string" || !pending.otpToken ||
+      typeof pending.pendingAuthorizationId !== "string" || !pending.pendingAuthorizationId
+    ) {
+      await clearNativePendingPayment();
+      return "";
+    }
+    saveFlow(pending.dealId, {
+      ...pending,
+      expiresAt: undefined,
+      providerPaymentPending: true,
+      startedAt: pending.pendingPaymentStartedAt || new Date().toISOString()
+    });
+    return pending.dealId;
+  } catch {
+    await clearNativePendingPayment();
+    return "";
+  }
+}
+
+async function clearNativePendingPayment() {
+  if (!globalThis.SitonMobile?.isNative || !globalThis.SitonMobile.secureStorage) return;
+  try { await globalThis.SitonMobile.secureStorage.remove(NATIVE_PENDING_PAYMENT_KEY); } catch {}
 }
 
 function clearFlowFields(dealId, keys) {

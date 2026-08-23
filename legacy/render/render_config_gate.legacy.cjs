@@ -1,5 +1,5 @@
 const fs = require("node:fs");
-const yaml = fs.readFileSync("render.yaml", "utf8");
+const yaml = fs.readFileSync("legacy/render/render.legacy.yaml", "utf8");
 const failures = [];
 function requirePattern(pattern, message) { if (!pattern.test(yaml)) failures.push(message); }
 function rejectPattern(pattern, message) { if (pattern.test(yaml)) failures.push(message); }
@@ -15,7 +15,7 @@ requirePattern(/key:\s*STORAGE_ADAPTER\r?\n\s+sync:\s*false/, "storage adapter m
 for (const key of ["OBJECT_STORAGE_REGION", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_ACCESS_KEY_ID", "OBJECT_STORAGE_SECRET_ACCESS_KEY"]) requirePattern(new RegExp(`key:\\s*${key}\\r?\\n\\s+sync:\\s*false`), `${key} must be injected by Render`);
 rejectPattern(/key:\s*PAYMENT_PROVIDER\r?\n\s+value:\s*(?:mock|mockpay)/i, "render services must not hard-code a mock payment provider");
 rejectPattern(/key:\s*PAYMENT_PROVIDER_MODE\r?\n\s+value:\s*mock-backed/i, "render services must not hard-code mock-backed mode");
-rejectPattern(/(?:sk_live_|pk_live_|whsec_[A-Za-z0-9]{16,})/, "render.yaml contains a credential-like literal");
+rejectPattern(/(?:sk_live_|pk_live_|whsec_[A-Za-z0-9]{16,})/, "legacy Render snapshot contains a credential-like literal");
 
 if (failures.length) {
   console.error("RENDER_CONFIG_GATE_FAIL");

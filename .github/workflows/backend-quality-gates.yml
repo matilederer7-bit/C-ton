@@ -89,8 +89,11 @@ jobs:
           set -o pipefail
           npm run build:demo 2>&1 | tee .ci-artifacts/build-demo.log
 
-      - name: Render deployment contract
-        run: npm run validate:render 2>&1 | tee .ci-artifacts/render-gate.log
+      - name: Canonical Base44 architecture contract
+        run: npm run gate:architecture 2>&1 | tee .ci-artifacts/architecture-gate.log
+
+      - name: PWA and native shell contract
+        run: npm run mobile:verify 2>&1 | tee .ci-artifacts/mobile-gate.log
 
       - name: Diff whitespace gate
         run: git diff --check HEAD^ HEAD 2>&1 | tee .ci-artifacts/git-diff-check.log

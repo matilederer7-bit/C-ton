@@ -1,6 +1,6 @@
 type PaymentSummary = {
   provider: string;
-  mode: "mock-backed" | "provider-ready" | "stripe";
+  mode: "mock-backed" | "provider-ready" | "stripe" | "grow";
   configured: boolean;
   webhook_provider: string;
   mock_backed: boolean;

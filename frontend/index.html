@@ -3,16 +3,25 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0f766e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Siton" />
+    <meta name="siton-api-base-url" content="__SITON_API_BASE_URL__" />
+    <meta name="siton-app-link-host" content="__SITON_APP_LINK_HOST__" />
     <title>C-ton</title>
     <meta
       name="description"
       content="C-ton - עסקה קבוצתית חיה, חמה, שקופה ובטוחה."
     />
+    <link rel="manifest" href="/app/manifest.webmanifest" />
+    <link rel="icon" href="/app/icons/logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/app/assets/styles.css?v=__C_TON_ASSET_VERSION__" />
   </head>
   <body>
     <a class="skip-link" href="#main-content">דילוג לתוכן הראשי</a>
     <div id="app"></div>
+    <script type="module" src="/app/assets/mobile-bridge.js?v=__C_TON_ASSET_VERSION__"></script>
     <script type="module" src="/app/assets/app.js?v=__C_TON_ASSET_VERSION__"></script>
   </body>
 </html>

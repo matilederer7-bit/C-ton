@@ -89,8 +89,10 @@
     "scan:backend": "node scripts/backend_enforcement_scan.cjs",
     "start:web:prod": "node .demo_dist/src/app.js",
     "scan:runtime-ddl": "node scripts/runtime_ddl_scan.cjs",
-    "validate:render": "node scripts/render_config_gate.cjs",
+    "gate:architecture": "node scripts/architecture_truth_gate.cjs",
+    "legacy:validate-render": "node legacy/render/render_config_gate.legacy.cjs",
     "ci:migrations": "node scripts/ci_migration_report.cjs",
+    "test:migrations-isolated": "node scripts/run_isolated_migration_proof.cjs",
     "ci:docker-smoke": "node scripts/ci_docker_smoke.cjs",
     "web:routes": "npm run build:demo && node scripts/web_route_inventory.cjs",
     "ci:web-runtime": "node scripts/ci_web_runtime.cjs",
@@ -100,7 +102,17 @@
     "gate:base44-canonical-integrity": "node scripts/base44_canonical_integrity_gate.cjs --snapshot tests/fixtures/base44_integrity_clean_snapshot.json",
     "test:base44-canonical-integrity": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/base44_canonical_integrity_validation.js",
     "test:operational-repair": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/operational_repair_validation.js",
-    "test:stage32c-product-surface": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js"
+    "test:stage32c-product-surface": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js",
+    "test:grow-adapter": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/grow_payment_adapter_validation.js",
+    "test:synthetic-money": "node scripts/run_launch_rehearsal.cjs",
+    "test:launch-rehearsal": "node scripts/run_launch_rehearsal.cjs",
+    "test:mobile-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mobile_readiness_validation.js",
+    "mobile:build": "node scripts/build_mobile_bundle.cjs",
+    "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
+    "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
+    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#0f766e\" --iconBackgroundColorDark \"#0b4f49\" --splashBackgroundColor \"#faf7f2\" --splashBackgroundColorDark \"#102a27\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#0f766e\" --iconBackgroundColorDark \"#0b4f49\" --splashBackgroundColor \"#faf7f2\" --splashBackgroundColorDark \"#102a27\"",
+    "mobile:verify": "npm run mobile:build && npm run mobile:normalize && node scripts/mobile_release_gate.cjs",
+    "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs"
   },
   "engines": {
     "node": ">=22.0.0"
@@ -112,6 +124,17 @@
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1095.0",
     "@aws-sdk/s3-request-presigner": "^3.1095.0",
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/browser": "^8.0.4",
+    "@capacitor/camera": "^8.2.3",
+    "@capacitor/core": "^8.5.0",
+    "@capacitor/ios": "^8.5.0",
+    "@capacitor/network": "^8.0.1",
+    "@capacitor/preferences": "^8.0.1",
+    "@capacitor/push-notifications": "^8.1.2",
+    "@capacitor/share": "^8.0.1",
+    "@siton/secure-storage": "file:mobile-plugins/siton-secure-storage",
     "exceljs": "^4.4.0",
     "fastify": "^5.7.4",
     "pg": "^8.18.0",
@@ -119,6 +142,8 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.5.0",
     "@types/node": "^25.2.3",
     "@types/pg": "^8.16.0",
     "dotenv": "^17.3.1",

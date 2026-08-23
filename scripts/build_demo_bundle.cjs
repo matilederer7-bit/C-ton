@@ -11,10 +11,9 @@ if (existsSync(outDir)) {
   rmSync(outDir, { recursive: true, force: true });
 }
 
-execFileSync("npx", ["tsc", "-p", "tsconfig.demo.json"], {
+execFileSync(process.execPath, [require.resolve("typescript/bin/tsc"), "-p", "tsconfig.demo.json"], {
   cwd: repoRoot,
-  stdio: "inherit",
-  shell: true
+  stdio: "inherit"
 });
 
 mkdirSync(outDir, { recursive: true });
@@ -37,7 +36,12 @@ const assetVersion =
   })();
 
 const indexPath = join(frontendDest, "index.html");
-const indexHtml = readFileSync(indexPath, "utf8").replaceAll("__C_TON_ASSET_VERSION__", assetVersion);
+const apiBaseUrl = process.env.SITON_API_BASE_URL || "";
+const appLinkHost = process.env.SITON_APP_LINK_HOST || "";
+const indexHtml = readFileSync(indexPath, "utf8")
+  .replaceAll("__C_TON_ASSET_VERSION__", assetVersion)
+  .replaceAll("__SITON_API_BASE_URL__", apiBaseUrl)
+  .replaceAll("__SITON_APP_LINK_HOST__", appLinkHost);
 writeFileSync(indexPath, indexHtml);
 
 console.log(`Demo bundle ready at ${outDir}`);

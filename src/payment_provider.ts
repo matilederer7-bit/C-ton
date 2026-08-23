@@ -22,6 +22,7 @@ import {
   STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION,
   APP_DEPLOYMENT_MODE
 } from "./runtime_config.js";
+import { buildGrowPaymentAdapter } from "./grow_payment_adapter.js";
 
 export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
 
@@ -51,9 +52,10 @@ export type PaymentAuthorizationResult =
       authorization_id: string;
       provider_reference: string;
       correlation_id: string;
-      authorization: "authorized";
+      authorization: "authorized" | "pending_provider_confirmation";
       hold_message: string;
       mock: boolean;
+      payment_url?: string;
     }
   | {
       ok: false;
@@ -83,6 +85,9 @@ export type PaymentExecutionResult = {
 
 export type AuthorizePaymentInput = {
   payer_name?: string;
+  payer_phone?: string;
+  payer_email?: string;
+  description?: string;
   payment_method_id?: string;
   amount_minor?: number;
   currency?: string;
@@ -160,7 +165,7 @@ export type PaymentStatusResult = {
 
 export interface PaymentProvider {
   readonly providerCode: string;
-  readonly mode: "mock-backed" | "provider-ready" | "stripe";
+  readonly mode: "mock-backed" | "provider-ready" | "stripe" | "grow";
   readonly webhookProvider: string;
   readonly configured: boolean;
   tokenize?(input: TokenizePaymentInput): Promise<PaymentTokenizationResult>;
@@ -1247,7 +1252,126 @@ function buildStripePaymentProvider(): PaymentProvider {
   };
 }
 
+export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
+  const adapter = buildGrowPaymentAdapter();
+  const providerCode = "grow";
+
+  function correlation(value?: string) {
+    return String(value || `grow_${randomUUID().replace(/-/g, "")}`);
+  }
+
+  function executionResult(result: any, correlationId: string, failureEvent: PaymentExecutionResult["reconciliation_event_type"] = null): PaymentExecutionResult {
+    const resultClass: PaymentResultClass = result.result_class === "success"
+      ? "success"
+      : result.result_class === "permanent_fail"
+        ? "permanent_fail"
+        : "temporary_fail";
+    return {
+      provider: providerCode,
+      result_class: resultClass,
+      retryable: result.result_class === "unknown" || result.retryable === true,
+      mock: false,
+      provider_reference: result.provider_reference || null,
+      correlation_id: correlationId,
+      reconciliation_event_type: resultClass === "permanent_fail" ? failureEvent : null
+    };
+  }
+
+  return {
+    providerCode,
+    mode: "grow",
+    webhookProvider: "grow",
+    configured: adapter.configured,
+    async authorize(input) {
+      const correlationId = correlation(input.correlation_id || input.request_id);
+      const result = await adapter.startSuspendedAuthorization({
+        amount_minor: Number(input.amount_minor || 0),
+        payer_name: String(input.payer_name || ""),
+        payer_phone: String(input.payer_phone || ""),
+        ...(input.payer_email ? { payer_email: input.payer_email } : {}),
+        description: String(input.description || input.deal_id || "Siton deal"),
+        correlation_id: correlationId
+      });
+      if (result.result_class !== "success") {
+        return {
+          ok: false,
+          provider: providerCode,
+          error: result.error_code || "grow_authorization_unavailable",
+          message: result.result_class === "unknown"
+            ? "Grow authorization outcome is unknown; Siton will reconcile and will not guess."
+            : "Grow did not create the suspended authorization.",
+          statusCode: result.result_class === "permanent_fail" ? 422 : 503,
+          retryable: result.retryable,
+          mock: false
+        };
+      }
+      if (!result.provider_reference || !result.payment_url) {
+        return { ok: false, provider: providerCode, error: "grow_authorization_response_incomplete", message: "Grow response did not include a safe hosted-payment reference.", statusCode: 503, retryable: true, mock: false };
+      }
+      return {
+        ok: true,
+        provider: providerCode,
+        authorization_id: result.provider_reference,
+        provider_reference: result.provider_reference,
+        correlation_id: correlationId,
+        authorization: "pending_provider_confirmation",
+        payment_url: result.payment_url,
+        hold_message: "Grow-hosted J4/J5 authorization is pending authoritative provider confirmation.",
+        mock: false
+      };
+    },
+    async capture(input) {
+      const correlationId = correlation(input.correlation_id || input.request_id);
+      try {
+        return executionResult(await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId, "charge_failed");
+      } catch {
+        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "charge_failed" };
+      }
+    },
+    async recover(input, withinWindow) {
+      const correlationId = correlation(input.correlation_id || input.request_id);
+      if (!withinWindow) return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
+      try {
+        return executionResult(await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId, "recovery_failed");
+      } catch {
+        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
+      }
+    },
+    async refund(input) {
+      const correlationId = correlation(input.correlation_id || input.request_id);
+      try {
+        return executionResult(await adapter.refund(String(input.capture_reference || input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId);
+      } catch {
+        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.capture_reference || input.authorization_id || null, correlation_id: correlationId };
+      }
+    },
+    async status(input) {
+      const result = await adapter.status(input.provider_reference);
+      const providerReference = "provider_reference" in result ? result.provider_reference : input.provider_reference;
+      const amountMinor = "amount_minor" in result ? result.amount_minor : null;
+      return {
+        provider: providerCode,
+        provider_reference: providerReference || input.provider_reference || null,
+        correlation_id: input.correlation_id,
+        state: result.state,
+        amount_minor: amountMinor ?? null,
+        currency: "ILS",
+        provider_time: null,
+        final: result.final,
+        error_code: result.error_code || null
+      };
+    }
+  };
+}
+
 export function buildPaymentProvider(): PaymentProvider {
+  if (PAYMENT_PROVIDER === "grow" || PAYMENT_PROVIDER_MODE === "grow") {
+    const provider = buildGrowCanonicalPaymentProvider();
+    if (isProductionRuntime() && !provider.configured) {
+      throw new Error("PAYMENT_PROVIDER=grow requires complete Grow server credentials, HTTPS return URLs, and GROW_REFERENCE_ENCRYPTION_KEY in production");
+    }
+    return provider;
+  }
   if (PAYMENT_PROVIDER === "stripe" || PAYMENT_PROVIDER_MODE === "stripe") {
     if (isProductionRuntime()) {
       if (!PAYMENT_PROVIDER_API_KEY) {
@@ -1318,7 +1442,7 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
         ? "production requires Stripe.js/Elements payment_method_id; server-side raw card tokenization is blocked unless explicit non-production test flag is set"
         : "provider-specific",
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
-    supported_modes: ["mock-backed", "provider-ready", "stripe"],
+    supported_modes: ["mock-backed", "provider-ready", "stripe", "grow"],
     adapter_contract: {
       tokenize: "Stripe PaymentMethod creation when PAYMENT_PROVIDER=stripe",
       authorize: "authorization intent only, no capture side-effects",
@@ -1333,6 +1457,8 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
       correlation_field: "correlation_id",
       provider_event_identity: "provider_code + provider_event_id"
     },
-    replacement_path: "Implement live provider HTTP client inside payment_provider.ts and keep webhook reconciliation in app/webhook path."
+    replacement_path: provider.mode === "grow"
+      ? "Enter externally provisioned Grow credentials, then run the no-network contract gate and controlled Sandbox verification runbook."
+      : "Keep provider HTTP code isolated behind PaymentProvider and webhook reconciliation in the canonical callback path."
   };
 }

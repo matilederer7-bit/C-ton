@@ -1,6 +1,11 @@
 # Provider Live Money Readiness
 
-Status: demo-ready architecture audit added; Full E2E Gate passed; live money remains blocked.
+Status: historical Stripe-era readiness audit. Internal identity, reconciliation,
+and control-plane code gaps listed below were closed by Stage 32D and the final
+zero-development closure. Live money remains blocked only on external
+credentials, controlled provider verification, deployment, and approval. The
+binding activation matrix is `EXTERNAL_ACTIVATION_CHECKLIST.md`; the intended
+payment candidate is now Grow while Stripe remains an isolated adapter.
 
 ## Verdict
 
