@@ -112,14 +112,14 @@ Deno.serve(async (req) => {
       const existingIds = images.map((row) => String(row.id ?? ""));
       if (requestedIds.length !== existingIds.length || new Set(requestedIds).size !== requestedIds.length
         || requestedIds.some((id) => !existingIds.includes(id))) return response("image_order_invalid", 400);
-      let primaryCount = 0;
-      for (const [index, raw] of order.entries()) {
-        const row = recordValue(raw) ?? {};
-        const primary = row.is_primary === true;
-        if (primary) primaryCount += 1;
-        await base44.asServiceRole.entities.DealImage.update(requestedIds[index], { sort_order: index, is_primary: primary });
-      }
+      const normalizedOrder = order.map((raw, index) => ({
+        id: requestedIds[index],
+        sort_order: index,
+        is_primary: recordValue(raw)?.is_primary === true
+      }));
+      const primaryCount = normalizedOrder.filter((row) => row.is_primary).length;
       if (primaryCount !== 1) return response("image_primary_invalid", 400);
+      await base44.asServiceRole.entities.DealImage.bulkUpdate(normalizedOrder);
       return Response.json({ ok: true, reordered: true });
     }
 
@@ -139,8 +139,11 @@ Deno.serve(async (req) => {
     const uploaded = await base44.integrations.Core.UploadFile({ file: verifiedFile });
     const publicUrl = String(uploaded?.file_url ?? "").trim();
     if (!/^https:\/\/[^\s]+$/i.test(publicUrl)) return response("image_storage_unavailable", 503);
-    const makePrimary = images.length === 0 || input.is_primary === true || String(input.is_primary) === "true";
-    const created = await base44.asServiceRole.entities.DealImage.create({
+    const makePrimary = images.length === 0
+      || !images.some((image) => image.is_primary === true)
+      || input.is_primary === true
+      || String(input.is_primary) === "true";
+    let created = await base44.asServiceRole.entities.DealImage.create({
       deal_id: dealId,
       seller_user_id: authority.userId,
       storage_object_ref: publicUrl,
@@ -150,13 +153,22 @@ Deno.serve(async (req) => {
       mime_type: mimeType,
       size_bytes: bytes.byteLength,
       sort_order: Math.min(images.length, Math.max(0, Number(input.sort_order ?? images.length) || 0)),
-      is_primary: makePrimary,
+      is_primary: makePrimary && images.length === 0,
       is_published: false
     });
-    if (makePrimary) {
-      for (const image of images) {
-        if (image.is_primary === true && image.id) await base44.asServiceRole.entities.DealImage.update(image.id, { is_primary: false });
-      }
+    if (makePrimary && images.length > 0) {
+      if (!created?.id) throw new Error("image_record_id_missing");
+      const updates = [
+        ...images
+          .filter((image) => image.is_primary === true && image.id)
+          .map((image) => ({ id: image.id, is_primary: false })),
+        { id: created.id, is_primary: true }
+      ];
+      const updated = await base44.asServiceRole.entities.DealImage.bulkUpdate(updates);
+      const promoted = Array.isArray(updated)
+        ? updated.find((image) => String(image?.id ?? "") === String(created.id))
+        : null;
+      created = promoted ?? { ...created, is_primary: true };
     }
     return Response.json({ ok: true, duplicate: false, image: created }, { status: 201 });
   } catch {

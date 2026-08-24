@@ -46,7 +46,7 @@ for (const privateEntity of ["DiscoveryEvent", "DealImage", "SellerIdentity"]) {
   assert.notEqual(json(entities.get(privateEntity)!).rls.read, true, `${privateEntity} must not be public-readable`);
 }
 
-const functionNames = ["list-mall-deals", "record-mall-event", "siton-seller-bootstrap", "project-mall-deal"];
+const functionNames = ["list-mall-deals", "record-mall-event", "siton-seller-bootstrap", "siton-seller-deal-image", "project-mall-deal"];
 for (const name of functionNames) {
   const config = json(`base44/functions/${name}/function.jsonc`);
   assert.equal(config.name, name);
@@ -81,6 +81,8 @@ assert.match(sellerBootstrap, /return_to:\s*safeReturnTo\(req\)/);
 assert.match(sellerBootstrap, /isForbiddenError/);
 assert.match(sellerBootstrap, /deterministicSellerId/);
 assert.match(sellerBootstrap, /seller_account_id:\s*sellerAccountId/);
+assert.match(sellerBootstrap, /coherentIdentityRows/);
+assert.match(sellerBootstrap, /SellerIdentity\.bulkUpdate/);
 const sellerIdentitySchema = json(entities.get("SellerIdentity")!);
 assert.deepEqual(sellerIdentitySchema.rls.create, { user_condition: { role: "admin" } });
 assert.doesNotMatch(sellerBootstrap, /input\.(?:user_id|base44_user_id|seller_id|seller_account_id)/);
@@ -88,6 +90,17 @@ const identitySchema = json(entities.get("SellerIdentity")!);
 assert.ok(identitySchema.required.includes("seller_account_id"));
 assert.ok(identitySchema.properties.seller_account_id.rls.write);
 assert.ok(identitySchema.properties.base44_user_id.rls.write);
+const sellerImageSource = read("base44/functions/siton-seller-deal-image/index.ts");
+assert.match(sellerImageSource, /base44\.auth\.me\(\)/);
+assert.match(sellerImageSource, /entities\.SellerIdentity\.filter/);
+assert.match(sellerImageSource, /entities\.Deal\.filter/);
+assert.match(sellerImageSource, /String\(deals\[0\]\?\.seller_id/);
+assert.match(sellerImageSource, /bytesMatchMime/);
+assert.match(sellerImageSource, /MAX_IMAGES\s*=\s*5/);
+assert.match(sellerImageSource, /MAX_IMAGE_BYTES\s*=\s*2\s*\*\s*1024\s*\*\s*1024/);
+assert.match(sellerImageSource, /integrations\.Core\.UploadFile/);
+assert.match(sellerImageSource, /primaryCount[^]*image_primary_invalid[^]*DealImage\.bulkUpdate/);
+assert.doesNotMatch(sellerImageSource, /input\.(?:user_id|base44_user_id|seller_id|seller_account_id)/);
 const projectionConfig = json("base44/functions/project-mall-deal/function.jsonc");
 assert.deepEqual(projectionConfig.automations.map((automation: any) => automation.entity_name), ["Deal", "DealImage"]);
 for (const automation of projectionConfig.automations) {
@@ -104,6 +117,8 @@ assert.match(projectSource, /source_deal_record_id/);
 assert.match(projectSource, /source_image_record_id/);
 assert.match(projectSource, /participants_count/);
 assert.match(projectSource, /business_name.*display_name/s);
+assert.match(projectSource, /DealImage\.bulkUpdate/);
+assert.match(projectSource, /is_published:\s*true/);
 assert.match(eventSource, /input\.client_event_id \?\? input\.session_id/);
 assert.match(eventSource, /boundedRetryToken/);
 assert.match(eventSource, /crypto\.subtle\.digest\("SHA-256"/);

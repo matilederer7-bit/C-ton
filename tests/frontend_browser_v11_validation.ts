@@ -494,20 +494,22 @@ async function seedMallFixtures(pool: pg.Pool, cookie: string) {
   });
   const fixtures: MallFixture[] = [product, voucher, ticket];
 
-  const response = await fetchJson("/api/mall/deals?sort=newest&limit=24");
+  const response = await fetchJson("/api/mall/deals?sort=newest&limit=48");
   assert.equal(response.response.status, 200, response.raw);
   assert.equal(response.json?.ok, true);
+  const fixtureIds = new Set(fixtures.map((fixture) => fixture.dealId));
+  const fixtureRows = response.json.deals.filter((deal: any) => fixtureIds.has(String(deal.deal_id)));
   assert.deepEqual(
-    response.json.deals.slice(0, 3).map((deal: any) => deal.deal_id),
+    fixtureRows.map((deal: any) => deal.deal_id),
     fixtures.map((fixture) => fixture.dealId),
-    "Mall API should expose the synthetic canonical deals in newest order"
+    "Mall API should expose this run's synthetic canonical deals in relative newest order even when prior fixtures exist"
   );
   assert.deepEqual(
-    new Set(response.json.deals.slice(0, 3).map((deal: any) => deal.deal_type)),
+    new Set(fixtureRows.map((deal: any) => deal.deal_type)),
     new Set(["physical_product", "voucher", "ticket"])
   );
   assert.deepEqual(
-    new Set(response.json.deals.slice(0, 3).map((deal: any) => deal.mall_status)),
+    new Set(fixtureRows.map((deal: any) => deal.mall_status)),
     new Set(["underway", "succeeded", "failed"])
   );
   return fixtures;
@@ -539,17 +541,21 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     await cdp.navigate("/app");
     await waitForBrowser(cdp, `document.querySelectorAll('[data-mall-card]').length >= 3`, "three Mall cards");
     const newest = await cdp.evaluate(`(() => ({
-      ids: [...document.querySelectorAll('[data-mall-card]')].slice(0, 3).map((card) => card.dataset.mallDealId),
-      types: [...document.querySelectorAll('[data-mall-card]')].slice(0, 3).map((card) => card.dataset.mallDealType),
-      statuses: [...document.querySelectorAll('[data-mall-card]')].slice(0, 3).map((card) => card.dataset.mallStatus),
+      cards: [...document.querySelectorAll('[data-mall-card]')].map((card) => ({
+        id: card.dataset.mallDealId,
+        type: card.dataset.mallDealType,
+        status: card.dataset.mallStatus
+      })),
       mall: Boolean(document.querySelector('#mall-deals')),
       filters: document.querySelectorAll('[data-inline-action="mall-filter"]').length,
       direction: document.documentElement.dir || getComputedStyle(document.documentElement).direction,
       overflow: document.documentElement.scrollWidth - window.innerWidth
     }))()`);
-    assert.deepEqual(newest.ids, fixtures.map((fixture) => fixture.dealId));
-    assert.deepEqual(new Set(newest.types), new Set(["physical_product", "voucher", "ticket"]));
-    assert.deepEqual(new Set(newest.statuses), new Set(["underway", "succeeded", "failed"]));
+    const targetIds = new Set(fixtures.map((fixture) => fixture.dealId));
+    const targetCards = newest.cards.filter((card: any) => targetIds.has(String(card.id)));
+    assert.deepEqual(targetCards.map((card: any) => card.id), fixtures.map((fixture) => fixture.dealId));
+    assert.deepEqual(new Set(targetCards.map((card: any) => card.type)), new Set(["physical_product", "voucher", "ticket"]));
+    assert.deepEqual(new Set(targetCards.map((card: any) => card.status)), new Set(["underway", "succeeded", "failed"]));
     assert.equal(newest.mall, true);
     assert.ok(newest.filters >= 10, `Mall should render bounded type/status/sort controls: ${JSON.stringify(newest)}`);
     assert.equal(newest.direction, "rtl");
@@ -560,26 +566,46 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     console.log(`SCREENSHOT ${await cdp.screenshot("mall-desktop-1440")}`);
 
     await cdp.evaluate(`document.querySelector('[data-mall-filter="status"][data-mall-value="succeeded"]').click()`);
-    await waitForBrowser(cdp, `location.search.includes('status=succeeded') && document.querySelectorAll('[data-mall-card]').length === 1`, "succeeded Mall filter");
+    await waitForBrowser(cdp, `
+      location.search.includes('status=succeeded')
+      && Boolean(document.querySelector('[data-mall-card][data-mall-deal-id="${voucher.dealId}"]'))
+      && [...document.querySelectorAll('[data-mall-card]')].every((card) => card.dataset.mallStatus === 'succeeded')
+    `, "succeeded Mall filter");
     const succeeded = await cdp.evaluate(`(() => ({
       href: location.pathname + location.search,
       ids: [...document.querySelectorAll('[data-mall-card]')].map((card) => card.dataset.mallDealId),
       statuses: [...document.querySelectorAll('[data-mall-card]')].map((card) => card.dataset.mallStatus)
     }))()`);
-    assert.deepEqual(succeeded.ids, [voucher.dealId]);
-    assert.deepEqual(succeeded.statuses, ["succeeded"]);
+    assert.ok(succeeded.ids.includes(voucher.dealId));
+    assert.ok(succeeded.statuses.length > 0 && succeeded.statuses.every((status: string) => status === "succeeded"));
 
     await cdp.evaluate(`document.querySelector('[data-mall-filter="status"][data-mall-value=""]').click()`);
     await waitForBrowser(cdp, `!location.search.includes('status=') && document.querySelectorAll('[data-mall-card]').length >= 3`, "cleared Mall status filter");
     await cdp.evaluate(`document.querySelector('[data-mall-filter="type"][data-mall-value="ticket"]').click()`);
-    await waitForBrowser(cdp, `location.search.includes('type=ticket') && document.querySelectorAll('[data-mall-card]').length === 1`, "ticket Mall filter");
+    await waitForBrowser(cdp, `
+      location.search.includes('type=ticket')
+      && Boolean(document.querySelector('[data-mall-card][data-mall-deal-id="${ticket.dealId}"]'))
+      && [...document.querySelectorAll('[data-mall-card]')].every((card) => card.dataset.mallDealType === 'ticket')
+    `, "ticket Mall filter");
     const tickets = await cdp.evaluate(`([...document.querySelectorAll('[data-mall-card]')].map((card) => ({ id: card.dataset.mallDealId, type: card.dataset.mallDealType })))`);
-    assert.deepEqual(tickets, [{ id: ticket.dealId, type: "ticket" }]);
+    assert.ok(tickets.some((item: any) => item.id === ticket.dealId));
+    assert.ok(tickets.length > 0 && tickets.every((item: any) => item.type === "ticket"));
 
     await cdp.navigate("/app?sort=oldest");
     await waitForBrowser(cdp, `location.search.includes('sort=oldest') && document.querySelectorAll('[data-mall-card]').length >= 3`, "oldest Mall order");
-    const oldestIds = await cdp.evaluate(`([...document.querySelectorAll('[data-mall-card]')].slice(0, 3).map((card) => card.dataset.mallDealId))`);
-    assert.deepEqual(oldestIds, [...fixtures].reverse().map((fixture) => fixture.dealId));
+    const oldest = await cdp.evaluate(`(async () => {
+      const response = await fetch('/api/mall/deals?sort=oldest&limit=24');
+      const payload = await response.json();
+      return {
+        browserIds: [...document.querySelectorAll('[data-mall-card]')].map((card) => card.dataset.mallDealId),
+        apiIds: (payload.deals || []).map((deal) => deal.deal_id)
+      };
+    })()`);
+    assert.deepEqual(
+      oldest.browserIds,
+      oldest.apiIds.slice(0, oldest.browserIds.length),
+      "the browser must preserve the canonical oldest-first API order even when the local DB contains earlier test fixtures"
+    );
 
     await cdp.navigate("/app");
     await waitForBrowser(cdp, `document.querySelector('[data-mall-card][data-mall-deal-id="${product.dealId}"] a[data-mall-deal]')`, "canonical product Mall card");
@@ -861,7 +887,12 @@ async function proveSellerBrowser(pool: pg.Pool) {
       document.querySelector('form[data-action="seller-login"]').requestSubmit();
       return true;
     })()`);
-    await waitForBrowser(cdp, `location.pathname === '/app/seller/new' && document.querySelector('#sellerTitle')?.value === ${JSON.stringify(resumableTitle)}`, "return to preserved seller create context", 120);
+    await waitForBrowser(cdp, `
+      location.pathname === '/app/seller/new'
+      && Boolean(document.querySelector('form[data-action="seller-create"]'))
+      && !document.querySelector('form[data-action="seller-login"]')
+      && document.querySelector('#sellerTitle')?.value === ${JSON.stringify(resumableTitle)}
+    `, "return to preserved seller create context", 120);
     const resumed = await cdp.evaluate(`(async () => {
       const sessionResponse = await fetch('/api/seller/session');
       const session = await sessionResponse.json();

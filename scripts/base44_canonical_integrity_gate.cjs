@@ -17,6 +17,7 @@ const EXPECTED_MALL_FUNCTIONS = [
   "list-mall-deals",
   "record-mall-event",
   "siton-seller-bootstrap",
+  "siton-seller-deal-image",
   "project-mall-deal"
 ];
 const EXPECTED_MALL_ENTITIES = [
@@ -46,7 +47,7 @@ function validateMallExtension(registry, callers) {
   if (!sameStringSet(entityNames, EXPECTED_MALL_ENTITIES)) {
     findings.push({ code: "invalid_mall_entity_registry", detail: entityNames });
   }
-  if (extension?.authority !== "derived-read-and-identity-resources-only"
+  if (extension?.authority !== "derived-read-identity-and-owner-media-only"
     || !Array.isArray(extension?.forbidden_authority)
     || !["deal_state", "buyer_state", "money", "payment", "payout", "commission"]
       .every((entry) => extension.forbidden_authority.includes(entry))) {

@@ -50,11 +50,12 @@
   ],
   "extensions": {
     "mall_v1_1": {
-      "authority": "derived-read-and-identity-resources-only",
+      "authority": "derived-read-identity-and-owner-media-only",
       "functions": [
         { "domain": "mall_discovery", "canonical": "list-mall-deals", "authority": "public_read" },
         { "domain": "mall_measurement", "canonical": "record-mall-event", "authority": "pii_free_telemetry" },
         { "domain": "seller_identity", "canonical": "siton-seller-bootstrap", "authority": "identity_bootstrap" },
+        { "domain": "seller_images", "canonical": "siton-seller-deal-image", "authority": "owner_bound_draft_media" },
         { "domain": "mall_projection", "canonical": "project-mall-deal", "authority": "derived_projection" }
       ],
       "entities": [

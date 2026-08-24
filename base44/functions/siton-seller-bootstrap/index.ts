@@ -118,6 +118,12 @@ async function ensureSellerAccount(base44: any, sellerId: string, businessName: 
   }
 }
 
+function coherentIdentityRows(rows: Record<string, unknown>[], userId: string) {
+  if (rows.some((row) => String(row.base44_user_id ?? "") !== userId)) return false;
+  const sellerIds = new Set(rows.map((row) => String(row.seller_account_id ?? "").trim()).filter(Boolean));
+  return sellerIds.size <= 1;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
@@ -154,17 +160,17 @@ Deno.serve(async (req) => {
   const businessName = suppliedName || trustedUserName || "New Siton seller";
 
   try {
-    const identities = await base44.asServiceRole.entities.SellerIdentity.filter(
+    const identitiesResult = await base44.asServiceRole.entities.SellerIdentity.filter(
       { base44_user_id: userId }, "-created_date", 2, 0, [...IDENTITY_FIELDS]
     );
-    if (Array.isArray(identities) && identities.length > 1) return forbiddenIdentity(req);
-    let identity = Array.isArray(identities) && identities.length === 1
-      ? identities[0] as Record<string, unknown>
-      : null;
-    if (identity && String(identity.base44_user_id ?? "") !== userId) return forbiddenIdentity(req);
+    const identities = Array.isArray(identitiesResult)
+      ? identitiesResult as Record<string, unknown>[]
+      : [];
+    if (!coherentIdentityRows(identities, userId)) return forbiddenIdentity(req);
+    let identity = identities[0] ?? null;
 
     let accountCreated = false;
-    let sellerAccountId = String(identity?.seller_account_id ?? "").trim();
+    let sellerAccountId = String(identities.find((row) => row.seller_account_id)?.seller_account_id ?? "").trim();
     if (sellerAccountId) {
       const boundAccount = await findSellerAccount(base44, sellerAccountId);
       if (!boundAccount) return forbiddenIdentity(req);
@@ -175,10 +181,15 @@ Deno.serve(async (req) => {
     }
 
     if (identity?.id) {
-      if (!identity.seller_account_id) {
-        identity = await base44.asServiceRole.entities.SellerIdentity.update(identity.id, {
-          seller_account_id: sellerAccountId
-        });
+      const unbound = identities.filter((row) => !row.seller_account_id && row.id);
+      if (unbound.length > 0) {
+        const updated = await base44.asServiceRole.entities.SellerIdentity.bulkUpdate(
+          unbound.map((row) => ({ id: row.id, seller_account_id: sellerAccountId }))
+        );
+        const selected = Array.isArray(updated)
+          ? updated.find((row) => String(row?.id ?? "") === String(identity?.id ?? ""))
+          : null;
+        identity = selected ?? { ...identity, seller_account_id: sellerAccountId };
       }
       return Response.json(sellerResponse(identity, false, accountCreated));
     }
@@ -197,9 +208,10 @@ Deno.serve(async (req) => {
       const raced = await base44.asServiceRole.entities.SellerIdentity.filter(
         { base44_user_id: userId }, "-created_date", 2, 0, [...IDENTITY_FIELDS]
       );
-      if (!Array.isArray(raced) || raced.length !== 1
-        || String(raced[0]?.seller_account_id ?? "") !== sellerAccountId) return forbiddenIdentity(req);
-      return Response.json(sellerResponse(raced[0], false, accountCreated));
+      const racedRows = Array.isArray(raced) ? raced as Record<string, unknown>[] : [];
+      if (racedRows.length === 0 || !coherentIdentityRows(racedRows, userId)
+        || racedRows.some((row) => String(row.seller_account_id ?? "") !== sellerAccountId)) return forbiddenIdentity(req);
+      return Response.json(sellerResponse(racedRows[0], false, accountCreated));
     }
   } catch (error) {
     if (String((error as Error)?.message ?? "") === FORBIDDEN_IDENTITY_CODE || isForbiddenError(error)) return forbiddenIdentity(req);

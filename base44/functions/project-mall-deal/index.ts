@@ -87,10 +87,18 @@ async function resolveInvocation(base44: any, body: Record<string, unknown>) {
 
 async function existingProjection(base44: any, dealId: string) {
   const records = await base44.asServiceRole.entities.MallDealProjection.filter(
-    { deal_id: dealId }, "-updated_date", 1, 0,
-    ["id", "deal_id", "canonical_state", "mall_status", "visibility", "projection_version", "source_deal_record_id", "source_image_record_id"]
+    { deal_id: dealId }, "created_date", 4, 0,
+    ["id", "created_date", "deal_id", "canonical_state", "mall_status", "visibility", "projection_version", "source_deal_record_id", "source_image_record_id"]
   );
-  return Array.isArray(records) && records.length > 0 ? records[0] as Record<string, unknown> : null;
+  const rows = Array.isArray(records) ? records as Record<string, unknown>[] : [];
+  if (rows.length > 1) {
+    const keeperId = String(rows[0]?.id ?? "");
+    const duplicateIds = rows.slice(1).map((row) => String(row.id ?? "")).filter((id) => id && id !== keeperId);
+    for (const duplicateId of duplicateIds) {
+      await base44.asServiceRole.entities.MallDealProjection.delete(duplicateId);
+    }
+  }
+  return rows[0] ?? null;
 }
 
 async function hideProjection(base44: any, dealId: string, existing: Record<string, unknown> | null) {
@@ -209,15 +217,29 @@ Deno.serve(async (req) => {
         { seller_account_id: String(deal.seller_id) }, "-updated_date", 2, 0,
         ["base44_user_id", "seller_account_id"]
       ) : [];
-    const sellerUserId = Array.isArray(sellerIdentities) && sellerIdentities.length === 1
-      ? String(sellerIdentities[0]?.base44_user_id ?? "")
+    const sellerIdentityRows = Array.isArray(sellerIdentities)
+      ? sellerIdentities as Record<string, unknown>[]
+      : [];
+    const sellerUserIds = [...new Set(sellerIdentityRows
+      .map((identity) => String(identity.base44_user_id ?? "").trim())
+      .filter(Boolean))];
+    const sellerUserId = sellerUserIds.length === 1
+      && sellerIdentityRows.every((identity) => String(identity.seller_account_id ?? "") === String(deal.seller_id ?? ""))
+      ? sellerUserIds[0]
       : "";
     const imageRows = sellerUserId
       ? await base44.asServiceRole.entities.DealImage.filter(
-        { deal_id: dealId, seller_user_id: sellerUserId, is_published: true }, "sort_order", 10, 0,
-        ["id", "public_url", "thumbnail_url", "is_primary", "sort_order"]
+        { deal_id: dealId, seller_user_id: sellerUserId }, "sort_order", 10, 0,
+        ["id", "public_url", "thumbnail_url", "is_primary", "is_published", "sort_order"]
       ) : [];
-    const images = Array.isArray(imageRows) ? imageRows : [];
+    const images = Array.isArray(imageRows) ? imageRows as Record<string, unknown>[] : [];
+    const unpublishedImages = images.filter((entry) => entry.id && entry.is_published !== true);
+    if (unpublishedImages.length > 0) {
+      await base44.asServiceRole.entities.DealImage.bulkUpdate(
+        unpublishedImages.map((entry) => ({ id: entry.id, is_published: true }))
+      );
+      for (const entry of unpublishedImages) entry.is_published = true;
+    }
     const image = images.find((entry: Record<string, unknown>) => entry.is_primary === true) ?? images[0] ?? null;
     const seller = Array.isArray(sellerRows) && sellerRows.length > 0 ? sellerRows[0] as Record<string, unknown> : null;
     const sellerName = String(seller?.business_name ?? "").trim()

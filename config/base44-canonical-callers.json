@@ -43,7 +43,7 @@
   "extensions": {
     "mall_v1_1": {
       "public_entrypoints": ["list-mall-deals", "record-mall-event"],
-      "authenticated_entrypoints": ["siton-seller-bootstrap"],
+      "authenticated_entrypoints": ["siton-seller-bootstrap", "siton-seller-deal-image"],
       "admin_projection_functions": ["project-mall-deal"],
       "projection_sources": ["canonical Deal", "DealImage", "SellerAccount"],
       "projection_automation_entities": ["Deal", "DealImage"]

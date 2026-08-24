@@ -3633,6 +3633,9 @@ function renderCtonSellerPage() {
         </div>
         <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">צור עסקה חדשה</a>
       </header>
+      <section class="cton-card seller-session-card" aria-label="גישה פעילה למשטח המוכר">
+        ${renderSellerContextPanel(profile)}
+      </section>
       <section class="cton-kpi-grid">
         <article class="cton-kpi">${icon("package")}<span>עסקאות פעילות</span><strong>${num(activeDeals.length)}</strong></article>
         <article class="cton-kpi">${icon("users")}<span>יחידות בהצטרפות</span><strong>${num(totalUnits)}</strong></article>
