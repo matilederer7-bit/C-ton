@@ -8477,14 +8477,14 @@ export function registerFrontendExperience(
 
   const sendShell = async (req: any, reply: FastifyReply) => {
     const pathOnly = String(req.raw?.url || req.url || "/app").split("?", 1)[0] || "/app";
-    let title = "Siton | אפליקציית עסקאות קבוצתיות";
-    let description = "Siton מאפשרת לגלות ולנהל עסקאות קבוצתיות בבטחה.";
+    let title = "C-ton | אפליקציית עסקאות קבוצתיות";
+    let description = "C-ton מאפשרת לגלות ולנהל עסקאות קבוצתיות בבטחה.";
     let canonicalPath = "/app";
     let robots = "noindex,nofollow";
     let ogImage = "";
 
     if (pathOnly === "/app" || pathOnly === "/app/") {
-      title = "Siton | קניון עסקאות קבוצתיות";
+      title = "C-ton | קניון עסקאות קבוצתיות";
       description = "מגלים עסקאות קבוצתיות פעילות, רואים את ההתקדמות ומצטרפים רק למסלול הקנוני של העסקה.";
       robots = "index,follow";
     } else {
@@ -8511,7 +8511,7 @@ export function registerFrontendExperience(
         if (publicDeal) {
           const publicTitle = String(publicDeal.title || "עסקה קבוצתית").trim().slice(0, 200);
           const publicDescription = String(publicDeal.description || "").trim().slice(0, 220);
-          title = `${publicTitle} | Siton`;
+          title = `${publicTitle} | C-ton`;
           description = publicDescription || `צפו בפרטי העסקה הקבוצתית ${publicTitle}, בהתקדמות ובסטטוס הקנוני שלה.`;
           canonicalPath = `/app/deal/${dealId}`;
           robots = "index,follow";

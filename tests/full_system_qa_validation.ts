@@ -302,15 +302,16 @@ async function main() {
     const cancel = await post(`/deals/${created.deal_id}/cancel`, `full-system-cancel-${Date.now()}`);
     assert.equal(cancel.statusCode, 200);
 
+    const sellerCancelled = await app.inject({ method: "GET", url: `/api/seller/deals/${created.deal_id}` });
+    assert.equal(sellerCancelled.statusCode, 200);
+    assert.equal((sellerCancelled.json() as any).deal.state, "Cancelled");
+
     const publicCancelled = await app.inject({ method: "GET", url: `/api/deals/${created.deal_id}/public` });
-    assert.equal(publicCancelled.statusCode, 200);
-    const cancelledJson = publicCancelled.json() as any;
-    assert.equal(cancelledJson.deal.state, "Cancelled");
-    assert.equal(cancelledJson.availability.canJoin, false);
-    assert.equal(cancelledJson.availability.reasonCode, "cancelled");
+    assert.equal(publicCancelled.statusCode, 404, "an unpublished cancelled Draft must stay hidden publicly");
 
     const dealShell = await app.inject({ method: "GET", url: `/app/deal/${created.deal_id}` });
     assert.equal(dealShell.statusCode, 200);
+    assert.equal(dealShell.headers["x-robots-tag"], "noindex,nofollow");
 
     const unknown = await app.inject({
       method: "GET",

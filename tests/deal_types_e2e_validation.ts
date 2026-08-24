@@ -342,6 +342,7 @@ try {
     const row = await pool.query(`SELECT deal_type FROM siton.deals WHERE deal_id=$1`, [created.body.deal_id]);
     assert.equal(row.rows[0].deal_type, "physical_product");
 
+    await publishDeal(created.body.deal_id, physicalSellerId, "physical-default");
     const publicDeal = await app.inject({ method: "GET", url: `/api/deals/${created.body.deal_id}/public` });
     assert.equal(publicDeal.statusCode, 200, publicDeal.body);
     const publicJson = publicDeal.json() as any;

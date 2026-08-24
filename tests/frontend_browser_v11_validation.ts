@@ -561,6 +561,19 @@ async function seedMallFixtures(pool: pg.Pool, cookie: string) {
   return { fixtures, hiddenDraftId } satisfies MallSeed;
 }
 
+async function provePublicMetadata(seed: MallSeed) {
+  const product = seed.fixtures.find((fixture) => fixture.dealType === "physical_product" && fixture.state === "PendingTarget")!;
+  const response = await fetch(`${baseUrl}/app/deal/${product.dealId}`);
+  const html = await response.text();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("x-robots-tag"), "index,follow");
+  assert.ok(html.includes(`<title>${product.title} | C-ton</title>`), "public Deal metadata must use the canonical title and brand");
+  assert.ok(html.includes(`<link rel="canonical" href="/app/deal/${product.dealId}" />`), "public Deal metadata must use its canonical URL");
+  assert.match(html, /<meta property="og:description" content="[^"]+" \/>/);
+  assert.match(html, /<meta property="og:image" content="\/api\/deal-images\/[0-9a-f-]{36}" \/>/i);
+  assert.doesNotMatch(html, /storage_key|storage_object_ref|payment_reference|buyer_email|buyer_phone/i);
+}
+
 function assertSafeVisibleAuthText(text: string) {
   assert.doesNotMatch(text, /\b401\b/i, "seller auth UI must not expose raw HTTP 401");
   assert.doesNotMatch(text, /request failed with status code/i, "seller auth UI must not expose Axios-style failures");
@@ -1137,6 +1150,7 @@ async function main() {
     const cookie = await run("V1.1 local seller session succeeds over the server authority", loginSellerOverHttp);
     await run("V1.1 local seller profile is publish-ready for synthetic Mall fixtures", () => completeSellerProfile(cookie));
     const mallSeed = await run("Mall fixtures cover Draft exclusion, three real deal types and four canonical outcomes", () => seedMallFixtures(pool, cookie));
+    await run("public Deal HTML exposes canonical title, description, URL and safe primary OG image", () => provePublicMetadata(mallSeed));
     await run("real Edge proves Mall filters, ordering, images, canonical detail and responsive widths", () => proveMallBrowser(mallSeed));
     const draft = await run("real Edge proves seller auth, resumable reauth, ownership isolation and a two-image Draft", () => proveSellerBrowser(pool));
 

@@ -151,7 +151,7 @@ await run("seller can duplicate own completed deal as Draft", async () => {
   }
 });
 
-await run("seller cannot duplicate another seller deal and no side effects are created", async () => {
+await run("wrong seller receives ownership-hidden not-found and creates no side effects", async () => {
   const ownerSellerId = await seedSeller("owner");
   const otherSellerId = await seedSeller("other");
   const sourceDealId = await seedDeal(ownerSellerId, "Completed");
@@ -165,7 +165,8 @@ await run("seller cannot duplicate another seller deal and no side effects are c
   };
   try {
     const res = await duplicateDeal(sourceDealId, otherSellerId);
-    assert.equal(res.statusCode, 403, res.body);
+    assert.equal(res.statusCode, 404, res.body);
+    assert.equal((res.json() as any).code, "deal_not_found");
     const after = {
       deals: Number((await pool.query(`SELECT COUNT(*)::int AS count FROM siton.deals`)).rows[0].count),
       options: Number((await pool.query(`SELECT COUNT(*)::int AS count FROM siton.deal_delivery_options`)).rows[0].count),
@@ -197,11 +198,17 @@ await run("duplicate copies delivery options and image metadata but not particip
     assert.equal(await countByDeal("deal_images", newDealId), 1);
 
     const publicDeal = await app.inject({ method: "GET", url: `/api/deals/${newDealId}/public` });
-    assert.equal(publicDeal.statusCode, 200, publicDeal.body);
-    const publicBody = publicDeal.json() as any;
-    assert.equal(publicBody.deal.images.length, 1);
-    assert.ok(publicBody.deal.images[0].url);
-    assert.ok(!JSON.stringify(publicBody).includes("storage_key"));
+    assert.equal(publicDeal.statusCode, 404, "duplicated Draft must remain hidden from the public API");
+    const ownerDraft = await app.inject({
+      method: "GET",
+      url: `/api/seller/deals/${newDealId}/draft`,
+      headers: { "x-seller-id": sellerId }
+    });
+    assert.equal(ownerDraft.statusCode, 200, ownerDraft.body);
+    const ownerBody = ownerDraft.json() as any;
+    assert.equal(ownerBody.draft.images.length, 1);
+    assert.ok(ownerBody.draft.images[0].url);
+    assert.ok(!JSON.stringify(ownerBody).includes("storage_key"));
   } finally {
     await cleanupDeals([sourceDealId, newDealId].filter(Boolean));
   }

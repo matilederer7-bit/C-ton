@@ -26,17 +26,22 @@ await runTest("webhook responses are no-store without requiring a successful sid
   assert.match(appSource, /reply\.header\("cache-control", "no-store"\)/);
 });
 
-await runTest("deal images keep immutable cache policy", async () => {
+await runTest("published deal images are immutable while Draft images stay private", async () => {
   const appSource = await readFile("src/app.ts", "utf8");
   assert.match(appSource, /isImmutableDealImageRoute/);
-  assert.match(appSource, /\.header\("cache-control", "public, max-age=31536000, immutable"\)/);
+  assert.match(
+    appSource,
+    /\.header\("cache-control", row\.published_at \? "public, max-age=31536000, immutable" : "private, no-store"\)/
+  );
   assert.match(appSource, /!isImmutableDealImageRoute\(req\).*isDynamicNoStoreRoute/s);
 });
 
 await runTest("frontend shell is no-store", async () => {
   const runtimeSource = await readFile("src/frontend_runtime.ts", "utf8");
-  assert.match(runtimeSource, /filename === "index\.html" \? "no-store"/);
-  assert.match(runtimeSource, /sendFrontendFile\(reply, "index\.html"/);
+  assert.match(runtimeSource, /const sendShell = async/);
+  assert.match(runtimeSource, /readFile\(join\(frontendDir, "index\.html"\), "utf8"\)/);
+  assert.match(runtimeSource, /return reply\s*\.header\("cache-control", "no-store"\)/);
+  assert.match(runtimeSource, /app\.get\("\/app", sendShell\)/);
 });
 
 await runTest("unhashed frontend assets require revalidation", async () => {

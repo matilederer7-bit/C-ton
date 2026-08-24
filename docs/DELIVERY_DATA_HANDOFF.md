@@ -26,7 +26,8 @@ The Delivery Data Handoff feature collects buyer shipping/pickup preferences at 
 - No refund, capture, void, or payout in this flow
 - No delivery SMS or email notifications from Siton — communication is seller's responsibility
 - No shipping carrier integration
-- No marketplace, search, or catalog features
+- No Mall/catalog business logic inside this delivery handoff; the canonical
+  public Mall remains the separate read/discovery surface
 
 ---
 

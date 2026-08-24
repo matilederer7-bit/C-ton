@@ -95,7 +95,8 @@ async function main() {
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
     assert.match(response.body, /<title>C-ton \| קניון עסקאות קבוצתיות<\/title>/);
-    assert.match(response.body, /C-ton - /);
+    assert.match(response.body, /<meta name="apple-mobile-web-app-title" content="C-ton" \/>/);
+    assert.match(response.body, /<meta property="og:site_name" content="C-ton" \/>/);
   });
 
   await runTest("styles support RTL layout and LTR fields inside Hebrew surfaces", async () => {
@@ -314,7 +315,7 @@ async function main() {
     assert.match(response.body, /\/app\/assets\/app\.js/);
   });
 
-  await runTest("site shell keeps buyer entry link-based", async () => {
+  await runTest("site shell exposes Mall and direct-link buyer entry", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/api/site/home"
@@ -322,22 +323,29 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     const payload = response.json() as any;
-    assert.equal(payload.site.buyer_entry_note, "Buyers should enter through a direct deal link that the seller shares directly with them.");
+    assert.equal(payload.site.buyer_entry_note, "Buyers may discover a published deal in the Mall or open the seller's direct deal link.");
   });
 
-  await runTest("draft deals stay non-joinable through the public API", async () => {
+  await runTest("draft deals stay hidden publicly and remain editable by their seller", async () => {
     const created = await createDeal("Frontend Draft Deal", "draft");
 
-    const response = await app.inject({
+    const publicResponse = await app.inject({
       method: "GET",
       url: `/api/deals/${created.deal_id}/public`
     });
 
-    assert.equal(response.statusCode, 200);
-    const payload = response.json() as any;
-    assert.equal(payload.deal.state, "Draft");
-    assert.equal(payload.availability.canJoin, false);
-    assert.equal(payload.deal.delivery_options.length, 2);
+    assert.equal(publicResponse.statusCode, 404, publicResponse.body);
+    assert.equal((publicResponse.json() as any).error, "deal not found");
+
+    const ownerResponse = await app.inject({
+      method: "GET",
+      url: `/api/seller/deals/${created.deal_id}/draft`,
+      headers: { "x-seller-id": "seller-default" }
+    });
+    assert.equal(ownerResponse.statusCode, 200, ownerResponse.body);
+    const ownerPayload = ownerResponse.json() as any;
+    assert.equal(ownerPayload.draft.state, "Draft");
+    assert.equal(ownerPayload.draft.delivery_options.length, 2);
   });
 
   await runTest("frontend happy path works through OTP, payment, join, and tracking", async () => {

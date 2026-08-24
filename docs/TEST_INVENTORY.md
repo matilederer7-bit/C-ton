@@ -86,7 +86,7 @@ node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js
 | קובץ | script קיים | מה בודק | requires_db | requires_server | requires_provider | requires_env | safe_for_unit_gate | הערות |
 |---|---|---|---|---|---|---|---|---|
 | `admin_forbidden_money_actions_validation.ts` | אין | אוסר routes לcapture/refund/void/payout באדמין | no | no | no | no | **yes** | קורא `src/frontend_runtime.ts` + `frontend/app.js`, regex assertions |
-| `admin_no_public_search_regression_validation.ts` | אין | אוסר חיפוש ציבורי/marketplace/catalog | no | no | no | no | **yes** | קורא קבצי source, regex assertions |
+| `admin_no_public_search_regression_validation.ts` | אין | שומר Omnisearch פנימי ומחייב Mall ציבורי יחיד ללא API חיפוש/קטלוג כפול | no | no | no | no | **yes** | קורא קבצי source, regex assertions |
 | `admin_rtl_surface_validation.ts` | אין | RTL, Hebrew copy, admin UI structure | no | no | no | no | **yes** | קורא `frontend/index.html`, `frontend/app.js`, `frontend/styles.css` |
 | `admin_support_product_surfaces_validation.ts` | `test:admin-support-surfaces` | Admin dashboard product surfaces, urgency hierarchy | no | no | no | no | **yes** | קורא `frontend/app.js`, `frontend/styles.css` |
 | `buyer_document_visibility_validation.ts` | `test:buyer-document-visibility` | Buyer document visibility rules in frontend | no | no | no | no | **yes** | קורא `frontend/app.js`, `src/frontend_runtime.ts` |
@@ -94,7 +94,7 @@ node .tmp_test_dist/tests/spec_drift_regression_wave3_validation.js
 | `frontend_foundation_rtl_accessibility_validation.ts` | `test:frontend-foundation` | RTL root, skip link, accessibility foundations | no | no | no | no | **yes** | קורא `frontend/index.html`, `frontend/styles.css`, `frontend/app.js` |
 | `product_surfaces_refinement_validation.ts` | `test:product-surfaces-refinement` | Deal page, seller workspace, product hierarchy | no | no | no | no | **yes** | קורא `frontend/app.js`, `frontend/styles.css` |
 | `read_surfaces_truth_alignment_validation.ts` | `test:read-surfaces-truth-alignment` | Read surfaces truth alignment (no invented IDs etc.) | no | no | no | no | **yes** | קורא `frontend/app.js`, `src/frontend_runtime.ts` |
-| `spec_drift_regression_wave3_validation.ts` | `test:spec-drift-wave3` | 5 invariants: no marketplace, fee=8%, fee base, repeat-purchase, no affiliate earnings copy | no | no | no | no | **yes** | `readFileSync` — static source grep. מוגדר במפורש כ-"no DB required" |
+| `spec_drift_regression_wave3_validation.ts` | `test:spec-drift-wave3` | 5 invariants: Mall יחיד ותחום ללא קטלוג חופשי כפול, fee=8%, fee base, repeat-purchase, no affiliate earnings copy | no | no | no | no | **yes** | `readFileSync` — static source grep. מוגדר במפורש כ-"no DB required" |
 
 ---
 

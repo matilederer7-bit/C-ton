@@ -16,11 +16,15 @@ const [appJs, stylesCss] = await Promise.all([
   readFile("frontend/styles.css", "utf8")
 ]);
 
-await run("C-ton home renders a real product hero instead of a link list", async () => {
+await run("C-ton home renders the canonical bounded Mall hero", async () => {
   assert.match(appJs, /function renderCtonHome\(\)/);
   assert.match(appJs, /cton-home-hero/);
-  assert.match(appJs, /קונים יחד\. משלמים רק כשזה קורה\./);
-  assert.match(appJs, /מארז קפה שכונתי/);
+  assert.match(appJs, /הקניון של C-ton/);
+  assert.match(appJs, /קונים יחד\./);
+  assert.match(appJs, /עסקאות אמיתיות, במקום אחד\./);
+  assert.match(appJs, /cton-mall-grid/);
+  assert.match(appJs, /data-inline-action="mall-filter"/);
+  assert.match(appJs, /לא מוצגות עסקאות מומצאות/);
 });
 
 await run("public deal page keeps live deal hierarchy and core join frame", async () => {
@@ -100,8 +104,8 @@ await run("deal sharing and seller creation guardrails stay frontend-only and co
   assert.match(appJs, /sellerFinalTerms/);
   assert.match(appJs, /sellerFinalConfirm/);
   assert.match(appJs, /handleSellerImageSelection/);
-  assert.match(appJs, /העלו תמונה ברורה של המוצר/);
-  assert.match(appJs, /אפשר להעלות עד 5 תמונות\. תמונה אחת תסומן כראשית/);
+  assert.match(appJs, /גררו לכאן או בחרו עד 5 תמונות JPG, PNG או WebP/);
+  assert.match(appJs, /תמונה אחת תסומן כראשית ואפשר לשנות את הסדר/);
   assert.doesNotMatch(appJs, /commissionPct/);
 });
 

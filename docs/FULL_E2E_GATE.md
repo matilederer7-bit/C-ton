@@ -25,7 +25,8 @@ The next gate is Provider Sandbox / Live Money Validation. Real provider credent
 The gate is implemented by `npm run test:full-e2e-gate` and validates an integrated demo-provider journey across:
 
 1. Seller onboarding, KYC blocking, admin approval and seller publish terms.
-2. Public buyer deal surface with Hebrew RTL shell, legal footer, quantity and no marketplace/search posture.
+2. Public buyer deal surface with Hebrew RTL shell, legal footer and quantity,
+   reached from either a direct link or the canonical bounded Mall.
 3. OTP, demo authorization and participant tracking token enforcement with hash-only persistence.
 4. Demo payment flow with no raw card data and no live money.
 5. Deal progression, same-buyer repeat purchase, target reached and max-unit blocking.

@@ -134,7 +134,7 @@ async function joinDeal(dealId: string, buyerId: string, suffix: string, deliver
 }
 
 async function main() {
-  await runTest("main site exposes link-first product direction", async () => {
+  await runTest("main site exposes Mall-and-direct product direction", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/api/site/home"
@@ -147,7 +147,7 @@ async function main() {
     assert.equal(payload.site.seller_entry.create_deal_url, "/app/seller/new");
   });
 
-  await runTest("site home exposes only link-based core surfaces", async () => {
+  await runTest("site home exposes the bounded Mall and canonical core surfaces", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/api/site/home"
@@ -157,9 +157,9 @@ async function main() {
     const payload = response.json() as any;
     // Valid UTF-8 Hebrew is the product surface contract.
     assert.deepEqual(payload.site.core_surfaces, [
-      "אתר מותג ודף פתיחה למוכרים",
+      "קניון ציבורי לגילוי עסקאות וקישורי עסקה ישירים",
       "יצירת עסקה וניהול עסקה למוכר",
-      "דף עסקה ציבורי מבוסס לינק",
+      "דף עסקה ציבורי קנוני מהקניון או מקישור ישיר",
       "מסלול הצטרפות קונה עם אימות והרשאה",
       "מסך מעקב לקונה",
       "ניהול בסיסי לעסקאות מוכר"

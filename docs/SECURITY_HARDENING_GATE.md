@@ -21,7 +21,9 @@ This gate is a defensive audit and hardening pass for Siton before a stronger ex
 - Rate limiting and abuse protection.
 - Debug/demo exposure and error disclosure.
 - Dependency and package-script supply chain posture.
-- Business invariants: no marketplace/search, no distributor payout, 8% Siton fee, no raw card storage, outbox/idempotency/money boundaries.
+- Business invariants: one bounded public Mall with no duplicate/free-text
+  catalog API, no distributor payout, 8% Siton fee, no raw card storage, and
+  preserved outbox/idempotency/money boundaries.
 
 ## What Was Fixed
 

@@ -186,7 +186,7 @@
 | בדיקה | מצב |
 |---|---|
 | Mission Control | ✅ read-only snapshot |
-| Omnisearch | ✅ internal-only, no marketplace |
+| Omnisearch | ✅ internal-only; the bounded public Mall is a separate surface |
 | חריגים | ✅ exception cards |
 | KYC | ✅ approve/reject (admin-gated) |
 | Audit/Forensics | ✅ read-only audit_log |
