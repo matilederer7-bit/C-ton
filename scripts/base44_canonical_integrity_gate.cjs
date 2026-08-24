@@ -4,6 +4,7 @@ const path = require("node:path");
 const ROOT = path.resolve(__dirname, "..");
 const REGISTRY_PATH = path.join(ROOT, "config", "base44-canonical-registry.json");
 const CALLERS_PATH = path.join(ROOT, "config", "base44-canonical-callers.json");
+const RUNTIME_MANIFEST_PATH = path.join(ROOT, "base44", "runtime-manifest.json");
 
 function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
@@ -33,8 +34,36 @@ function sameStringSet(actual, expected) {
     && expected.every((entry) => actual.includes(entry));
 }
 
-function validateMallExtension(registry, callers) {
+function validateRuntimeManifest(manifest) {
   const findings = [];
+  const discovery = manifest?.public_discovery || {};
+  if (manifest?.production_runtime !== "base44"
+    || manifest?.canonical_data_store !== "base44_entities"
+    || manifest?.legacy_runtime !== "render") {
+    findings.push({ code: "invalid_base44_runtime_authority" });
+  }
+  if (manifest?.seller_identity_function !== "siton-seller-bootstrap"
+    || manifest?.seller_image_function !== "siton-seller-deal-image") {
+    findings.push({ code: "invalid_base44_seller_runtime" });
+  }
+  if (discovery.route !== "/app"
+    || discovery.projection_entity !== "MallDealProjection"
+    || discovery.list_function !== "list-mall-deals"
+    || discovery.event_entity !== "DiscoveryEvent"
+    || discovery.event_function !== "record-mall-event"
+    || discovery.projection_function !== "project-mall-deal"
+    || discovery.owns_state_or_money !== false
+    || discovery.direct_links_first_class !== true) {
+    findings.push({ code: "invalid_base44_mall_runtime" });
+  }
+  if (manifest?.publish_required !== true || manifest?.publish_performed !== false) {
+    findings.push({ code: "invalid_base44_publish_boundary" });
+  }
+  return findings;
+}
+
+function validateMallExtension(registry, callers) {
+  const findings = validateRuntimeManifest(readJson(RUNTIME_MANIFEST_PATH));
   const extension = registry.extensions?.mall_v1_1;
   const callerExtension = callers.extensions?.mall_v1_1;
   const functions = extension?.functions || [];
@@ -215,7 +244,7 @@ function evaluateSnapshot(snapshot) {
     "seller_id", "seller_user_id", "buyer_id", "buyer_name", "buyer_phone", "buyer_email",
     "delivery_address", "delivery_notes", "storage_key", "storage_object_ref", "payment_reference",
     "ledger_id", "auth_secret_hash", "payout_details_masked", "admin_note",
-    "source_deal_record_id", "source_image_record_id"
+    "source_deal_record_id", "source_image_record_id", "published_sort_key"
   ]);
   const mallStatusByState = {
     PendingTarget: "underway",
@@ -267,5 +296,5 @@ function main() {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-module.exports = { evaluateSnapshot, scanLegacyReferences, validateMallExtension, validateRegistry };
+module.exports = { evaluateSnapshot, scanLegacyReferences, validateMallExtension, validateRegistry, validateRuntimeManifest };
 if (require.main === module) main();

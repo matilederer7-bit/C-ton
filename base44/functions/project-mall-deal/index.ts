@@ -87,7 +87,7 @@ async function resolveInvocation(base44: any, body: Record<string, unknown>) {
 
 async function existingProjection(base44: any, dealId: string) {
   const records = await base44.asServiceRole.entities.MallDealProjection.filter(
-    { deal_id: dealId }, "created_date", 4, 0,
+    { deal_id: dealId }, "created_date", 20, 0,
     ["id", "created_date", "deal_id", "canonical_state", "mall_status", "visibility", "projection_version", "source_deal_record_id", "source_image_record_id"]
   );
   const rows = Array.isArray(records) ? records as Record<string, unknown>[] : [];
@@ -253,6 +253,7 @@ Deno.serve(async (req) => {
     const projection = {
       source_deal_record_id: String(deal.id ?? ""),
       source_image_record_id: String(image?.id ?? ""),
+      published_sort_key: `${publishedAt}|${dealId}`,
       deal_id: dealId,
       title: String(deal.title ?? "").trim().slice(0, 160),
       description_excerpt: excerpt(deal.description),
@@ -280,7 +281,14 @@ Deno.serve(async (req) => {
     if (existing?.id) {
       await base44.asServiceRole.entities.MallDealProjection.update(existing.id, projection);
     } else {
-      await base44.asServiceRole.entities.MallDealProjection.create(projection);
+      const created = await base44.asServiceRole.entities.MallDealProjection.create(projection);
+      // Base44 entity schemas do not expose a portable unique-index declaration.
+      // Re-read after create so concurrent automation deliveries converge on the
+      // oldest projection row instead of leaving duplicate public cards behind.
+      const keeper = await existingProjection(base44, dealId);
+      if (keeper?.id && String(keeper.id) !== String(created?.id ?? "")) {
+        await base44.asServiceRole.entities.MallDealProjection.update(keeper.id, projection);
+      }
     }
     return Response.json({
       ok: true,

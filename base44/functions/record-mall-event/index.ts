@@ -18,6 +18,21 @@ async function boundedRetryToken(clientEventId: string) {
   return `evt_${hex}`;
 }
 
+async function coalesceEventKey(base44: any, eventKey: string) {
+  const records = await base44.asServiceRole.entities.DiscoveryEvent.filter(
+    { event_key: eventKey }, "created_date", 20, 0, ["id", "event_key", "created_date"]
+  );
+  const rows = Array.isArray(records) ? records as Record<string, unknown>[] : [];
+  const keeper = rows[0] ?? null;
+  for (const row of rows.slice(1)) {
+    const duplicateId = String(row.id ?? "");
+    if (duplicateId && duplicateId !== String(keeper?.id ?? "")) {
+      await base44.asServiceRole.entities.DiscoveryEvent.delete(duplicateId);
+    }
+  }
+  return keeper;
+}
+
 Deno.serve(async (req) => {
   if (req.method !== "POST") {
     return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });
@@ -69,11 +84,9 @@ Deno.serve(async (req) => {
 
     const retryToken = await boundedRetryToken(clientEventId);
     const eventKey = `${eventType}:${retryToken}:${dealId ?? "mall"}`;
-    const existing = await base44.asServiceRole.entities.DiscoveryEvent.filter(
-      { event_key: eventKey }, "-created_date", 1, 0, ["id", "event_key"]
-    );
-    if (Array.isArray(existing) && existing.length > 0) {
-      return Response.json({ ok: true, accepted: true, duplicate: true, event_id: existing[0]?.id ?? null });
+    const existing = await coalesceEventKey(base44, eventKey);
+    if (existing) {
+      return Response.json({ ok: true, accepted: true, duplicate: true, event_id: existing.id ?? null });
     }
     const sessionEvents = await base44.asServiceRole.entities.DiscoveryEvent.filter(
       { client_event_id: retryToken }, "-created_date", MAX_EVENTS_PER_SESSION + 1, 0, ["id"]
@@ -92,7 +105,18 @@ Deno.serve(async (req) => {
     if (canonicalDealType !== null) eventRecord.deal_type = canonicalDealType;
     if (canonicalMallStatus !== null) eventRecord.mall_status = canonicalMallStatus;
     const created = await base44.asServiceRole.entities.DiscoveryEvent.create(eventRecord);
-    return Response.json({ ok: true, accepted: true, duplicate: false, event_id: created?.id ?? null }, { status: 202 });
+    // The read-before-write check makes ordinary retries cheap; the post-create
+    // coalesce also self-heals a bounded concurrent duplicate race. Discovery
+    // telemetry remains derived and has no attribution, state, or money authority.
+    const keeper = await coalesceEventKey(base44, eventKey);
+    const createdId = String(created?.id ?? "");
+    const keeperId = String(keeper?.id ?? createdId) || null;
+    return Response.json({
+      ok: true,
+      accepted: true,
+      duplicate: Boolean(keeperId && createdId && keeperId !== createdId),
+      event_id: keeperId
+    }, { status: 202 });
   } catch {
     return Response.json({ ok: false, error: "mall_event_unavailable" }, { status: 503 });
   }

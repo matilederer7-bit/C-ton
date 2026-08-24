@@ -22,6 +22,15 @@
         "write": { "user_condition": { "role": "admin" } }
       }
     },
+    "published_sort_key": {
+      "type": "string",
+      "minLength": 38,
+      "maxLength": 90,
+      "rls": {
+        "read": { "user_condition": { "role": "admin" } },
+        "write": { "user_condition": { "role": "admin" } }
+      }
+    },
     "deal_id": { "type": "string", "format": "uuid" },
     "title": { "type": "string", "maxLength": 160 },
     "description_excerpt": { "type": "string", "maxLength": 180 },
@@ -46,7 +55,7 @@
     "projection_version": { "type": "integer", "minimum": 1 },
     "visibility": { "type": "string", "enum": ["public", "hidden"] }
   },
-  "required": ["source_deal_record_id", "source_image_record_id", "deal_id", "title", "description_excerpt", "deal_type", "canonical_state", "mall_status", "price_per_unit", "seller_business_name", "primary_image_url", "primary_thumbnail_url", "joined_units", "participants_count", "threshold_units", "max_units", "remaining_units", "is_joinable", "has_delivery", "deadline", "published_at", "terminal_at", "source_updated_at", "projection_version", "visibility"],
+  "required": ["source_deal_record_id", "source_image_record_id", "published_sort_key", "deal_id", "title", "description_excerpt", "deal_type", "canonical_state", "mall_status", "price_per_unit", "seller_business_name", "primary_image_url", "primary_thumbnail_url", "joined_units", "participants_count", "threshold_units", "max_units", "remaining_units", "is_joinable", "has_delivery", "deadline", "published_at", "terminal_at", "source_updated_at", "projection_version", "visibility"],
   "rls": {
     "create": { "user_condition": { "role": "admin" } },
     "read": {

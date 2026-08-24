@@ -88,9 +88,9 @@ Deno.serve(async (req) => {
   if (status !== "all") filter.mall_status = status;
   const base44 = createClientFromRequest(req);
   try {
-    const records = await base44.entities.MallDealProjection.filter(
+    const records = await base44.asServiceRole.entities.MallDealProjection.filter(
       filter,
-      sort === "oldest" ? "published_at" : "-published_at",
+      sort === "oldest" ? "published_sort_key" : "-published_sort_key",
       limit + 1,
       offset,
       [...PUBLIC_FIELDS]

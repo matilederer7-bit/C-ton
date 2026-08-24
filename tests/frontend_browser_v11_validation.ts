@@ -44,8 +44,10 @@ type MallFixture = {
   dealId: string;
   title: string;
   dealType: "physical_product" | "voucher" | "ticket";
-  state: "PendingTarget" | "Completed" | "Failed";
+  state: "PendingTarget" | "TargetReached" | "Completed" | "Failed";
 };
+
+type MallSeed = { fixtures: MallFixture[]; hiddenDraftId: string };
 
 function wait(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -410,6 +412,20 @@ async function createFixtureDeal(cookie: string, fixture: Omit<MallFixture, "dea
   assert.equal(created.response.status, 200, created.raw);
   assert.ok(created.json?.deal_id);
 
+  const imageKey = requestToken(`v11-mall-image-${fixture.dealType}`);
+  const uploaded = await fetchJson(`/api/seller/deals/${created.json.deal_id}/images`, {
+    method: "POST",
+    headers: sellerHeaders(cookie, imageKey),
+    body: JSON.stringify({
+      image_base64: "iVBORw0KGgoAAAANSUhEUgAAACAAAAAUCAIAAABj86gYAAAAK0lEQVR4nGOQr/KlKWIYtYBUC45FyVGIRi0YtWDUglELKLeA5oXdqAUYCACWmZnfwvSxZQAAAABJRU5ErkJggg==",
+      mime_type: "image/png",
+      original_filename: "v11-mall-primary.png",
+      is_primary: true
+    })
+  });
+  assert.equal(uploaded.response.status, 201, uploaded.raw);
+  assert.equal(uploaded.json?.image?.is_primary, true);
+
   const publishKey = requestToken(`v11-publish-${fixture.dealType}`);
   const published = await fetchJson(`/deals/${created.json.deal_id}/publish`, {
     method: "POST",
@@ -425,12 +441,12 @@ async function createFixtureDeal(cookie: string, fixture: Omit<MallFixture, "dea
   return { ...fixture, dealId: String(created.json.deal_id) } satisfies MallFixture;
 }
 
-async function insertTerminalMallFixture(
+async function insertCanonicalMallFixture(
   pool: pg.Pool,
   fixture: Omit<MallFixture, "dealId">,
   publishedAt: string
 ) {
-  assert.ok(fixture.state === "Completed" || fixture.state === "Failed");
+  assert.ok(["TargetReached", "Completed", "Failed"].includes(fixture.state));
   const inserted = await pool.query(
     `INSERT INTO siton.deals
        (seller_id, title, description, deal_type, state, price_per_unit,
@@ -470,29 +486,58 @@ async function insertTerminalMallFixture(
       [dealId]
     );
   }
+  if (fixture.state === "TargetReached" || fixture.state === "Completed") {
+    await pool.query(
+      `INSERT INTO siton.participants
+         (deal_id, buyer_id, qty, buyer_state, money_state, created_at, updated_at)
+       VALUES ($1,$2,4,$3,$4,now(),now())`,
+      [
+        dealId,
+        `v11-read-fixture-${dealId}`,
+        fixture.state === "Completed" ? "DealCompleted" : "JoinedAuthorized",
+        fixture.state === "Completed" ? "ChargedSuccess" : "AuthHeld"
+      ]
+    );
+  }
   return { ...fixture, dealId } satisfies MallFixture;
 }
 
 async function seedMallFixtures(pool: pg.Pool, cookie: string) {
   const stamp = Date.now();
-  // Terminal outcomes are inserted directly as immutable synthetic fixtures in
-  // the disposable test DB. No state-machine or money transition is forged.
-  const ticket = await insertTerminalMallFixture(pool, {
+  // Historical/reached outcomes and their matching participant projections are
+  // immutable synthetic read fixtures in the disposable test DB. They never
+  // call a provider, payment endpoint, money action, or transition API.
+  const ticket = await insertCanonicalMallFixture(pool, {
     title: `V1.1 כרטיס שלא הצליח ${stamp}`,
     dealType: "ticket",
     state: "Failed"
-  }, new Date(Date.now() - 180_000).toISOString());
-  const voucher = await insertTerminalMallFixture(pool, {
+  }, new Date(Date.now() - 3_000).toISOString());
+  const voucher = await insertCanonicalMallFixture(pool, {
     title: `V1.1 שובר שהושלם ${stamp}`,
     dealType: "voucher",
     state: "Completed"
-  }, new Date(Date.now() - 120_000).toISOString());
+  }, new Date(Date.now() - 2_000).toISOString());
+  const reached = await insertCanonicalMallFixture(pool, {
+    title: `V1.1 \u05de\u05d5\u05e6\u05e8 \u05e9\u05d4\u05d2\u05d9\u05e2 \u05dc\u05d9\u05e2\u05d3 ${stamp}`,
+    dealType: "physical_product",
+    state: "TargetReached"
+  }, new Date(Date.now() - 1_000).toISOString());
   const product = await createFixtureDeal(cookie, {
     title: `V1.1 מוצר חדש ${stamp}`,
     dealType: "physical_product",
     state: "PendingTarget"
   });
-  const fixtures: MallFixture[] = [product, voucher, ticket];
+  const hiddenDraft = await pool.query(
+    `INSERT INTO siton.deals
+       (seller_id, title, description, deal_type, state, price_per_unit,
+        min_units, max_units, threshold_units, deadline, published_at, created_at, updated_at)
+     VALUES ($1,$2,'Draft hidden from Mall browser proof','physical_product','Draft',45,
+             4,20,4,now()+interval '5 hours',NULL,now(),now())
+     RETURNING deal_id::text`,
+    [sellerId, `V1.1 \u05d8\u05d9\u05d5\u05d8\u05d4 \u05de\u05d5\u05e1\u05ea\u05e8\u05ea ${stamp}`]
+  );
+  const hiddenDraftId = String(hiddenDraft.rows[0].deal_id);
+  const fixtures: MallFixture[] = [product, reached, voucher, ticket];
 
   const response = await fetchJson("/api/mall/deals?sort=newest&limit=48");
   assert.equal(response.response.status, 200, response.raw);
@@ -510,9 +555,10 @@ async function seedMallFixtures(pool: pg.Pool, cookie: string) {
   );
   assert.deepEqual(
     new Set(fixtureRows.map((deal: any) => deal.mall_status)),
-    new Set(["underway", "succeeded", "failed"])
+    new Set(["underway", "reached_target", "succeeded", "failed"])
   );
-  return fixtures;
+  assert.ok(!response.json.deals.some((deal: any) => String(deal.deal_id) === hiddenDraftId));
+  return { fixtures, hiddenDraftId } satisfies MallSeed;
 }
 
 function assertSafeVisibleAuthText(text: string) {
@@ -530,16 +576,17 @@ function assertNoRawSellerTransportText(text: string) {
   assert.doesNotMatch(text, /statusCode/i, "seller UI must not expose serialized transport errors");
 }
 
-async function proveMallBrowser(fixtures: MallFixture[]) {
-  const byType = new Map(fixtures.map((fixture) => [fixture.dealType, fixture]));
-  const product = byType.get("physical_product")!;
-  const voucher = byType.get("voucher")!;
-  const ticket = byType.get("ticket")!;
+async function proveMallBrowser(seed: MallSeed) {
+  const { fixtures, hiddenDraftId } = seed;
+  const product = fixtures.find((fixture) => fixture.dealType === "physical_product" && fixture.state === "PendingTarget")!;
+  const reached = fixtures.find((fixture) => fixture.state === "TargetReached")!;
+  const voucher = fixtures.find((fixture) => fixture.dealType === "voucher")!;
+  const ticket = fixtures.find((fixture) => fixture.dealType === "ticket")!;
 
   await withCdp("/app/does-not-exist", async (cdp) => {
     await cdp.setViewport({ width: 1440, height: 1100 });
     await cdp.navigate("/app");
-    await waitForBrowser(cdp, `document.querySelectorAll('[data-mall-card]').length >= 3`, "three Mall cards");
+    await waitForBrowser(cdp, `document.querySelectorAll('[data-mall-card]').length >= 4`, "four Mall outcome cards");
     const newest = await cdp.evaluate(`(() => ({
       cards: [...document.querySelectorAll('[data-mall-card]')].map((card) => ({
         id: card.dataset.mallDealId,
@@ -555,11 +602,26 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     const targetCards = newest.cards.filter((card: any) => targetIds.has(String(card.id)));
     assert.deepEqual(targetCards.map((card: any) => card.id), fixtures.map((fixture) => fixture.dealId));
     assert.deepEqual(new Set(targetCards.map((card: any) => card.type)), new Set(["physical_product", "voucher", "ticket"]));
-    assert.deepEqual(new Set(targetCards.map((card: any) => card.status)), new Set(["underway", "succeeded", "failed"]));
+    assert.deepEqual(new Set(targetCards.map((card: any) => card.status)), new Set(["underway", "reached_target", "succeeded", "failed"]));
+    assert.ok(!newest.cards.some((card: any) => String(card.id) === hiddenDraftId), "Draft must stay hidden from the browser Mall");
     assert.equal(newest.mall, true);
     assert.ok(newest.filters >= 10, `Mall should render bounded type/status/sort controls: ${JSON.stringify(newest)}`);
     assert.equal(newest.direction, "rtl");
     assert.ok(newest.overflow <= 1, `desktop Mall should not overflow: ${JSON.stringify(newest)}`);
+    await waitForBrowser(cdp, `(() => {
+      const image = document.querySelector('[data-mall-card][data-mall-deal-id="${product.dealId}"] img');
+      return Boolean(image?.complete && image?.naturalWidth > 0);
+    })()`, "published Mall primary image load");
+    const imageProof = await cdp.evaluate(`(() => {
+      const productImage = document.querySelector('[data-mall-card][data-mall-deal-id="${product.dealId}"] img');
+      return {
+      productImage: Boolean(productImage),
+      productImageLoaded: Boolean(productImage?.complete && productImage?.naturalWidth > 0),
+      ticketPlaceholder: Boolean(document.querySelector('[data-mall-card][data-mall-deal-id="${ticket.dealId}"] .cton-mall-placeholder'))
+    }; })()`);
+    assert.equal(imageProof.productImage, true, "published primary image must appear on the Mall card");
+    assert.equal(imageProof.productImageLoaded, true, "published primary image must load successfully on the Mall card");
+    assert.equal(imageProof.ticketPlaceholder, true, "deal without an image must show the intentional Siton placeholder");
     await cdp.evaluate(`document.querySelector('[data-mall-card]')?.scrollIntoView({ block: 'center' })`);
     const impressionRequest = await waitForMallNetworkEvent(cdp, "card_impression");
     console.log(`MALL_NETWORK_EVIDENCE event=card_impression method=${impressionRequest.method} status=${impressionRequest.status}`);
@@ -579,8 +641,21 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     assert.ok(succeeded.ids.includes(voucher.dealId));
     assert.ok(succeeded.statuses.length > 0 && succeeded.statuses.every((status: string) => status === "succeeded"));
 
+    for (const statusCase of [
+      { value: "underway", dealId: product.dealId },
+      { value: "reached_target", dealId: reached.dealId },
+      { value: "failed", dealId: ticket.dealId }
+    ]) {
+      await cdp.navigate(`/app?status=${statusCase.value}`);
+      await waitForBrowser(cdp, `
+        location.search.includes('status=${statusCase.value}')
+        && Boolean(document.querySelector('[data-mall-card][data-mall-deal-id="${statusCase.dealId}"]'))
+        && [...document.querySelectorAll('[data-mall-card]')].every((card) => card.dataset.mallStatus === '${statusCase.value}')
+      `, `${statusCase.value} Mall filter`);
+    }
+
     await cdp.evaluate(`document.querySelector('[data-mall-filter="status"][data-mall-value=""]').click()`);
-    await waitForBrowser(cdp, `!location.search.includes('status=') && document.querySelectorAll('[data-mall-card]').length >= 3`, "cleared Mall status filter");
+    await waitForBrowser(cdp, `!location.search.includes('status=') && document.querySelectorAll('[data-mall-card]').length >= 4`, "cleared Mall status filter");
     await cdp.evaluate(`document.querySelector('[data-mall-filter="type"][data-mall-value="ticket"]').click()`);
     await waitForBrowser(cdp, `
       location.search.includes('type=ticket')
@@ -591,8 +666,20 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     assert.ok(tickets.some((item: any) => item.id === ticket.dealId));
     assert.ok(tickets.length > 0 && tickets.every((item: any) => item.type === "ticket"));
 
+    for (const typeCase of [
+      { value: "physical_product", dealId: product.dealId },
+      { value: "voucher", dealId: voucher.dealId }
+    ]) {
+      await cdp.navigate(`/app?type=${typeCase.value}`);
+      await waitForBrowser(cdp, `
+        location.search.includes('type=${typeCase.value}')
+        && Boolean(document.querySelector('[data-mall-card][data-mall-deal-id="${typeCase.dealId}"]'))
+        && [...document.querySelectorAll('[data-mall-card]')].every((card) => card.dataset.mallDealType === '${typeCase.value}')
+      `, `${typeCase.value} Mall filter`);
+    }
+
     await cdp.navigate("/app?sort=oldest");
-    await waitForBrowser(cdp, `location.search.includes('sort=oldest') && document.querySelectorAll('[data-mall-card]').length >= 3`, "oldest Mall order");
+    await waitForBrowser(cdp, `location.search.includes('sort=oldest') && document.querySelectorAll('[data-mall-card]').length >= 4`, "oldest Mall order");
     const oldest = await cdp.evaluate(`(async () => {
       const response = await fetch('/api/mall/deals?sort=oldest&limit=24');
       const payload = await response.json();
@@ -635,7 +722,7 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
     for (const width of [390, 375, 360, 412]) {
       await cdp.setViewport({ width, height: 844 });
       await cdp.navigate("/app");
-      await waitForBrowser(cdp, `window.innerWidth === ${width} && document.querySelectorAll('[data-mall-card]').length >= 3`, `Mall at ${width}px`);
+      await waitForBrowser(cdp, `window.innerWidth === ${width} && document.querySelectorAll('[data-mall-card]').length >= 4`, `Mall at ${width}px`);
       const layout = await cdp.evaluate(`(() => ({
         width: window.innerWidth,
         documentWidth: document.documentElement.scrollWidth,
@@ -646,7 +733,7 @@ async function proveMallBrowser(fixtures: MallFixture[]) {
       }))()`);
       assert.equal(layout.width, width);
       assert.ok(layout.documentWidth <= width + 1, `Mall should not overflow at ${width}px: ${JSON.stringify(layout)}`);
-      assert.ok(layout.cards >= 3);
+      assert.ok(layout.cards >= 4);
       assert.equal(layout.hero, true);
       assert.equal(layout.filters, true);
       assert.equal(layout.direction, "rtl");
@@ -1049,8 +1136,8 @@ async function main() {
     await run("V1.1 local seller identities can be provisioned without exposing credentials", provisionSeller);
     const cookie = await run("V1.1 local seller session succeeds over the server authority", loginSellerOverHttp);
     await run("V1.1 local seller profile is publish-ready for synthetic Mall fixtures", () => completeSellerProfile(cookie));
-    const fixtures = await run("Mall fixtures cover three real deal types and three canonical outcomes", () => seedMallFixtures(pool, cookie));
-    await run("real Edge proves Mall filters, ordering, canonical detail and responsive widths", () => proveMallBrowser(fixtures));
+    const mallSeed = await run("Mall fixtures cover Draft exclusion, three real deal types and four canonical outcomes", () => seedMallFixtures(pool, cookie));
+    await run("real Edge proves Mall filters, ordering, images, canonical detail and responsive widths", () => proveMallBrowser(mallSeed));
     const draft = await run("real Edge proves seller auth, resumable reauth, ownership isolation and a two-image Draft", () => proveSellerBrowser(pool));
 
     const storedDraft = await pool.query(
@@ -1103,7 +1190,7 @@ async function main() {
       "seller-idor-hidden-mobile-390.png"
     ].map(async (name) => ({ name, exists: Boolean(await readFile(join(artifactDir, name)).catch(() => null)) })))).filter((item) => item.exists);
     assert.equal(artifactNames.length, 7, `expected seven ignored browser screenshots: ${JSON.stringify(artifactNames)}`);
-    console.log(`PASS V1.1_BROWSER_EVIDENCE mall_deals=${fixtures.length} draft=${draft.dealId} screenshots=${artifactNames.map((item) => item.name).join(",")}`);
+    console.log(`PASS V1.1_BROWSER_EVIDENCE mall_deals=${mallSeed.fixtures.length} hidden_draft=${mallSeed.hiddenDraftId} seller_draft=${draft.dealId} screenshots=${artifactNames.map((item) => item.name).join(",")}`);
   } finally {
     server.kill("SIGTERM");
     await waitForProcessExit(server, 10_000);

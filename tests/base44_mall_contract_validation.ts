@@ -8,7 +8,7 @@ const fromRoot = (relative: string) => path.join(process.cwd(), relative);
 const read = (relative: string) => fs.readFileSync(fromRoot(relative), "utf8");
 const json = (relative: string) => JSON.parse(read(relative));
 const require = createRequire(import.meta.url);
-const { evaluateSnapshot, validateMallExtension, validateRegistry } = require(fromRoot("scripts/base44_canonical_integrity_gate.cjs"));
+const { evaluateSnapshot, validateMallExtension, validateRegistry, validateRuntimeManifest } = require(fromRoot("scripts/base44_canonical_integrity_gate.cjs"));
 const registry = json("config/base44-canonical-registry.json");
 const callers = json("config/base44-canonical-callers.json");
 const clean = json("tests/fixtures/base44_integrity_clean_snapshot.json");
@@ -32,9 +32,9 @@ for (const [name, file] of entities) {
 const projectionSchema = json(entities.get("MallDealProjection")!);
 assert.deepEqual(
   new Set(Object.keys(projectionSchema.properties)),
-  new Set(["source_deal_record_id", "source_image_record_id", ...PUBLIC_MALL_DEAL_FIELDS])
+  new Set(["source_deal_record_id", "source_image_record_id", "published_sort_key", ...PUBLIC_MALL_DEAL_FIELDS])
 );
-for (const internalField of ["source_deal_record_id", "source_image_record_id"]) {
+for (const internalField of ["source_deal_record_id", "source_image_record_id", "published_sort_key"]) {
   assert.equal(PUBLIC_MALL_DEAL_FIELDS.includes(internalField as never), false);
   assert.ok(projectionSchema.properties[internalField].rls.read);
   assert.ok(projectionSchema.properties[internalField].rls.write);
@@ -64,6 +64,8 @@ assert.match(listSource, /decodeCursor/);
 assert.match(listSource, /filters,/);
 assert.match(listSource, /next_cursor/);
 assert.match(listSource, /visibility:\s*"public"/);
+assert.match(listSource, /asServiceRole\.entities\.MallDealProjection\.filter/);
+assert.match(listSource, /sort === "oldest" \? "published_sort_key" : "-published_sort_key"/);
 assert.doesNotMatch(listSource, /SELECT\s+\*/i);
 const eventSource = read("base44/functions/record-mall-event/index.ts");
 for (const forbidden of ["ip_address", "user_agent", "buyer_email", "buyer_phone", "payment_reference"]) {
@@ -119,6 +121,8 @@ assert.match(projectSource, /participants_count/);
 assert.match(projectSource, /business_name.*display_name/s);
 assert.match(projectSource, /DealImage\.bulkUpdate/);
 assert.match(projectSource, /is_published:\s*true/);
+assert.match(projectSource, /published_sort_key:\s*`\$\{publishedAt\}\|\$\{dealId\}`/);
+assert.match(projectSource, /const keeper = await existingProjection\(base44, dealId\)/);
 assert.match(eventSource, /input\.client_event_id \?\? input\.session_id/);
 assert.match(eventSource, /boundedRetryToken/);
 assert.match(eventSource, /crypto\.subtle\.digest\("SHA-256"/);
@@ -126,9 +130,22 @@ assert.match(eventSource, /canonicalDealType = String\(publicDeals\[0\]\?\.deal_
 assert.match(eventSource, /canonicalMallStatus = String\(publicDeals\[0\]\?\.mall_status/);
 assert.doesNotMatch(eventSource, /eventRecord\.deal_type = dealType/);
 assert.doesNotMatch(eventSource, /eventRecord\.mall_status = mallStatus/);
+assert.match(eventSource, /coalesceEventKey/);
+assert.match(eventSource, /DiscoveryEvent\.delete\(duplicateId\)/);
 
 assert.deepEqual(validateMallExtension(registry, callers), []);
 assert.deepEqual(validateRegistry(registry, callers), []);
+const runtimeManifest = json("base44/runtime-manifest.json");
+assert.deepEqual(validateRuntimeManifest(runtimeManifest), []);
+const renderRegression = structuredClone(runtimeManifest);
+renderRegression.production_runtime = "render";
+assert.ok(validateRuntimeManifest(renderRegression).some((finding: { code: string }) => finding.code === "invalid_base44_runtime_authority"));
+const authorityRegression = structuredClone(runtimeManifest);
+authorityRegression.public_discovery.owns_state_or_money = true;
+assert.ok(validateRuntimeManifest(authorityRegression).some((finding: { code: string }) => finding.code === "invalid_base44_mall_runtime"));
+const publishRegression = structuredClone(runtimeManifest);
+publishRegression.publish_performed = true;
+assert.ok(validateRuntimeManifest(publishRegression).some((finding: { code: string }) => finding.code === "invalid_base44_publish_boundary"));
 assert.equal(registry.functions.length, 3, "Stage 32A canonical registry remains stable");
 assert.equal(registry.entities.length, 25, "Stage 32A entity-pair registry remains stable");
 assert.deepEqual(evaluateSnapshot(clean), []);

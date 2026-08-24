@@ -129,13 +129,21 @@ const underwayTicket = await seedDeal({
   published: true,
   publishedOffsetMinutes: -3
 });
+const reachedPhysical = await seedDeal({
+  sellerId,
+  title: "Mall target reached physical",
+  state: "TargetReached",
+  dealType: "physical_product",
+  published: true,
+  publishedOffsetMinutes: -2
+});
 const succeededVoucher = await seedDeal({
   sellerId,
   title: "Mall succeeded voucher",
   state: "Completed",
   dealType: "voucher",
   published: true,
-  publishedOffsetMinutes: -2
+  publishedOffsetMinutes: -1
 });
 const failedTicket = await seedDeal({
   sellerId,
@@ -143,7 +151,7 @@ const failedTicket = await seedDeal({
   state: "Failed",
   dealType: "ticket",
   published: true,
-  publishedOffsetMinutes: -1
+  publishedOffsetMinutes: 0
 });
 const draftDeal = await seedDeal({
   sellerId,
@@ -168,9 +176,9 @@ await run("M1 Mall returns only published canonical projections from a strict pu
   assert.match(String(response.headers["cache-control"] || ""), /public/);
   const body = response.json() as any;
   assert.equal(body.ok, true);
-  const seededIds = new Set<string>([underwayPhysical, underwayTicket, succeededVoucher, failedTicket]);
+  const seededIds = new Set<string>([underwayPhysical, underwayTicket, reachedPhysical, succeededVoucher, failedTicket]);
   const seededRows = body.deals.filter((row: any) => seededIds.has(String(row.deal_id)));
-  assert.equal(seededRows.length, 4, response.body);
+  assert.equal(seededRows.length, 5, response.body);
   assert.ok(!body.deals.some((row: any) => row.deal_id === draftDeal));
   assert.ok(!body.deals.some((row: any) => row.deal_id === unpublishedCanonicalDeal));
 
@@ -203,13 +211,21 @@ await run("M1 Mall returns only published canonical projections from a strict pu
 });
 
 await run("M2 Mall filters and opaque cursor pagination are bounded and stable", async () => {
-  const voucher = await app.inject({
-    method: "GET",
-    url: "/api/mall/deals?type=voucher&status=succeeded&sort=oldest&limit=48"
-  });
-  assert.equal(voucher.statusCode, 200, voucher.body);
-  assert.ok(voucher.json().deals.some((row: any) => row.deal_id === succeededVoucher));
-  assert.ok(voucher.json().deals.every((row: any) => row.deal_type === "voucher" && row.mall_status === "succeeded"));
+  const filterCases = [
+    { type: "physical_product", status: "underway", dealId: underwayPhysical },
+    { type: "physical_product", status: "reached_target", dealId: reachedPhysical },
+    { type: "voucher", status: "succeeded", dealId: succeededVoucher },
+    { type: "ticket", status: "failed", dealId: failedTicket }
+  ];
+  for (const filterCase of filterCases) {
+    const filtered = await app.inject({
+      method: "GET",
+      url: `/api/mall/deals?type=${filterCase.type}&status=${filterCase.status}&sort=oldest&limit=48`
+    });
+    assert.equal(filtered.statusCode, 200, filtered.body);
+    assert.ok(filtered.json().deals.some((row: any) => row.deal_id === filterCase.dealId));
+    assert.ok(filtered.json().deals.every((row: any) => row.deal_type === filterCase.type && row.mall_status === filterCase.status));
+  }
 
   const firstPage = await app.inject({
     method: "GET",
@@ -239,6 +255,39 @@ await run("M2 Mall filters and opaque cursor pagination are bounded and stable",
   const invalidType = await app.inject({ method: "GET", url: "/api/mall/deals?type=private_inventory" });
   assert.equal(invalidType.statusCode, 400, invalidType.body);
   assert.equal(invalidType.json().code, "mall_type_invalid");
+
+  const volumeToken = `Mall bounded volume ${randomUUID()}`;
+  const commonPublishedAt = new Date().toISOString();
+  const insertedVolume = await pool.query(
+    `INSERT INTO siton.deals
+       (seller_id, title, description, state, deal_type, threshold_units,
+        min_units, max_units, price_per_unit, deadline, published_at, created_at, updated_at)
+     SELECT $1, $2 || ' #' || series::text, 'Bounded synthetic Mall pagination proof',
+            'Cancelled', 'physical_product', 90, 1, 100, 42.50,
+            now()+interval '7 days', $3::timestamptz, now(), now()
+       FROM generate_series(1,55) AS series
+     RETURNING deal_id::text`,
+    [sellerId, volumeToken, commonPublishedAt]
+  );
+  assert.equal(insertedVolume.rowCount, 55);
+  const volumeIds = insertedVolume.rows.map((row: any) => String(row.deal_id)).sort().reverse();
+  const volumeFirst = await app.inject({
+    method: "GET",
+    url: "/api/mall/deals?type=physical_product&status=cancelled&sort=newest&limit=48"
+  });
+  assert.equal(volumeFirst.statusCode, 200, volumeFirst.body);
+  assert.equal(volumeFirst.json().deals.length, 48, "public Mall payload must stay capped at 48 cards");
+  assert.equal(volumeFirst.json().page.has_more, true);
+  const volumeSecond = await app.inject({
+    method: "GET",
+    url: `/api/mall/deals?type=physical_product&status=cancelled&sort=newest&limit=48&cursor=${encodeURIComponent(volumeFirst.json().page.next_cursor)}`
+  });
+  assert.equal(volumeSecond.statusCode, 200, volumeSecond.body);
+  const volumePageIds = [...volumeFirst.json().deals, ...volumeSecond.json().deals]
+    .slice(0, 55)
+    .map((row: any) => String(row.deal_id));
+  assert.deepEqual(volumePageIds, volumeIds, "equal publication timestamps must use canonical deal_id as a stable tie-breaker");
+  assert.equal(new Set(volumePageIds).size, 55, "bounded pages must not duplicate a deal");
 });
 
 await run("M3 discovery events are retry-safe, PII-free, source-locked, and derive deal truth server-side", async () => {
