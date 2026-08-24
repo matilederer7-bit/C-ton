@@ -147,7 +147,7 @@ async function openCdpPage(path: string) {
     try {
       const response = await fetch(`http://127.0.0.1:${remoteDebuggingPort}/json/list`);
       const pages = await response.json() as Array<{ url?: string; webSocketDebuggerUrl?: string }>;
-      const page = pages.find((item) => item.url?.includes(path)) || pages[0];
+      const page = pages.find((item) => item.url?.includes(path));
       if (page?.webSocketDebuggerUrl) {
         return { browser, profileDir, wsUrl: page.webSocketDebuggerUrl };
       }
