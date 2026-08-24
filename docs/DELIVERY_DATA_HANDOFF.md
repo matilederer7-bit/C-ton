@@ -1,5 +1,9 @@
 # Delivery Data Handoff — מסירת נתוני אספקה למוכר
 
+> **V1.1 product-scope notice (2026-08-23):** references that assume no public
+> Mall are historical. Siton now supports direct links plus the public Mall;
+> delivery and money boundaries in this handoff are unchanged.
+
 ## Overview
 
 The Delivery Data Handoff feature collects buyer shipping/pickup preferences at join time and surfaces them to the seller after the deal reaches `Completed` state. **This is data collection and display only — Siton does not manage logistics, shipments, or tracking.**

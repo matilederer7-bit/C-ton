@@ -11,6 +11,13 @@ share, camera/photo selection, deep links, app lifecycle, network status,
 hosted-payment browser return, push registration, safe areas, launch assets,
 and encrypted pending-payment recovery.
 
+`/app` is the canonical public Siton Mall on web, PWA, Android, and iOS. It uses
+the same bounded public read API and the same canonical deal route as direct
+links. Mall filters and cards must remain touch-safe without horizontal
+overflow at 390px, common iPhone widths, and common Android widths. Seller
+images reuse the existing native camera/photo bridge; there is no native-only
+business logic.
+
 `npm run mobile:build` creates ignored `.mobile_dist` with the correct `/app`
 layout and replaces only non-secret API/App-Link inputs. `npm run mobile:sync`
 copies that output into ignored generated native asset directories. Android,

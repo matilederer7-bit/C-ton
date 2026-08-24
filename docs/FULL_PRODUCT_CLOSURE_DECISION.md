@@ -1,5 +1,10 @@
 # [SUPERSEDED — NOT CANONICAL] FULL PRODUCT CLOSURE DECISION
 
+> **V1.1 clarification (2026-08-23):** the later rejection of public discovery
+> recorded below has itself been superseded. The current disciplined Mall
+> decision is `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`; this file remains
+> historical and does not restore its earlier broad marketplace proposal.
+
 > **STATUS: SUPERSEDED 2026-04-22.** This decision log proposed a "marketplace expansion" direction (public catalog/search/Amazon-style discovery) that was **explicitly REJECTED** by the canonical product spec adopted on 2026-04-18. Siton is link-only: no public marketplace, no catalog, no search, no browse, no discover. The canonical current direction is [CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md](/c:/Users/Lenovo/Documents/C-ton/docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md) and [PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md](/c:/Users/Lenovo/Documents/C-ton/docs/PRODUCT_DIRECTION_ALIGNMENT_2026-04-09.md). Do NOT use this document to justify product scope or direction.
 
 ## Executive Decision (historical, superseded)

@@ -1,5 +1,8 @@
 # [HISTORICAL] Pass 6: Copy And Narrative Unification
 
+> **V1.1 clarification (2026-08-23):** direct-link-only copy from this pass is
+> superseded by direct links plus the focused public Siton Mall.
+
 > **Note 2026-04-22:** historical copy-cleanup pass. The canonical current product (post 2026-04-18) is link-only Siton with no public marketplace/search. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md).
 
 Date: 2026-04-09 (historical)

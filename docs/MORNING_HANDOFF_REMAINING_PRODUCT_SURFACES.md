@@ -1,5 +1,9 @@
 # [SUPERSEDED — NOT CANONICAL] MORNING_HANDOFF_REMAINING_PRODUCT_SURFACES
 
+> **V1.1 clarification (2026-08-23):** public discovery is now canonical as a
+> focused Mall. The old affiliate payout concepts remain rejected and
+> distributor commission remains 0.
+
 > **STATUS: SUPERSEDED 2026-04-22.** References to "affiliate payout readiness", "affiliate payout profile flow", and "Marketplace expansion vs current-spec completion distinction" reflect an older product direction that was **reverted** by the canonical 2026-04-18 spec. Distributors are attribution-only; no payout, no commission. Siton has no public marketplace / catalog / search. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
 
 ## What Was Checked

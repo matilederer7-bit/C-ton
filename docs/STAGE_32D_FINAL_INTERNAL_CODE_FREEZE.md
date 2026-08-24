@@ -1,5 +1,10 @@
 # Stage 32D — Final Internal Development Closure and Code Freeze
 
+> **SUPERSEDED PRODUCT SCOPE (2026-08-23):** this freeze remains valid evidence
+> for the previous product definition. It was intentionally reopened for V1.1
+> Mall, seller-auth, image, and product-depth work; it is not current completion
+> authority.
+
 Status: **Siton V1 INTERNAL CODE FREEZE**. No known internal development gap
 remains. Remaining work is external activation, deployment, live operations,
 and production validation.

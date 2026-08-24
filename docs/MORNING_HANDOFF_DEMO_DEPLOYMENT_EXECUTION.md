@@ -1,5 +1,8 @@
 # Morning Handoff - Demo Deployment Execution
 
+> **Historical product-scope notice (2026-08-23):** this handoff predates the
+> Siton V1.1 Mall decision and is not current product-direction canon.
+
 - What was checked:
   - canonical start path
   - canonical build path

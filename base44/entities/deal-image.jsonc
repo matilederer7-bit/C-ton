@@ -1,0 +1,47 @@
+{
+  "name": "DealImage",
+  "description": "Server-managed image metadata copied from the authenticated owner-bound image API. Public Mall readers receive only allowlisted URLs from MallDealProjection.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "deal_id": {
+      "type": "string",
+      "format": "uuid",
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    },
+    "seller_user_id": {
+      "type": "string",
+      "maxLength": 160,
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    },
+    "storage_object_ref": { "type": "string", "maxLength": 500 },
+    "upload_key": {
+      "type": "string",
+      "minLength": 8,
+      "maxLength": 160,
+      "rls": {
+        "read": { "user_condition": { "role": "admin" } },
+        "write": { "user_condition": { "role": "admin" } }
+      }
+    },
+    "public_url": { "type": "string", "format": "uri", "maxLength": 2048 },
+    "thumbnail_url": { "type": "string", "format": "uri", "maxLength": 2048 },
+    "mime_type": { "type": "string", "enum": ["image/jpeg", "image/png", "image/webp"] },
+    "size_bytes": { "type": "integer", "minimum": 1, "maximum": 2097152 },
+    "sort_order": { "type": "integer", "minimum": 0, "default": 0 },
+    "is_primary": { "type": "boolean", "default": false },
+    "is_published": { "type": "boolean", "default": false }
+  },
+  "required": ["deal_id", "seller_user_id", "storage_object_ref", "public_url", "mime_type", "size_bytes", "sort_order", "is_primary", "is_published"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": {
+      "$or": [
+        { "data.seller_user_id": "{{user.id}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

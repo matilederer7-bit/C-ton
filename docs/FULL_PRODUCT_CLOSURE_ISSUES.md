@@ -1,5 +1,9 @@
 # [SUPERSEDED — NOT CANONICAL] FULL PRODUCT CLOSURE ISSUES
 
+> **V1.1 clarification (2026-08-23):** the no-public-discovery statement below
+> is no longer current. The canonical scope is direct links plus a focused
+> public Mall; distributor economics remain excluded and commission remains 0.
+
 > **STATUS: SUPERSEDED 2026-04-22.** Items 2 and 4 below refer to an "affiliate payout model" and a "public marketplace search/catalog" that are **NOT part of the current product**. Wave 2.5 dismantled the affiliate economic subsystem (migration `020_drop_affiliate_legacy_columns.sql`); the canonical 2026-04-18 spec explicitly excludes any public marketplace / catalog / search surface. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
 
 ## Non-Blocking But Real (historical, mostly superseded)

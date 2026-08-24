@@ -35,7 +35,7 @@ try {
     assert.equal(res.statusCode, 200, res.body);
     const body = res.json() as any;
     assert.equal(body.omnisearch.scope, "admin_only_operational_search");
-    assert.equal(body.omnisearch.public_marketplace, false);
+    assert.equal(body.omnisearch.public_discovery_scope, "separate_mall_read_surface");
     assert.ok(body.omnisearch.results.some((row: any) => row.entity_id === dealId));
     assert.ok(!JSON.stringify(body).toLowerCase().includes("public_catalog"));
     assert.ok(!JSON.stringify(body).toLowerCase().includes("deal_search"));

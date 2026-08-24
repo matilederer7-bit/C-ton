@@ -190,12 +190,13 @@ try {
     assert.equal(events.rows[0].reason, "test risk signal");
   });
 
-  await run("guardrail regressions stay out of scope", async () => {
+  await run("seller enforcement stays isolated from duplicate discovery and distributor money rails", async () => {
     const platformFee = await readFile("src/platform_fee_money.ts", "utf8");
     const frontendRuntime = await readFile("src/frontend_runtime.ts", "utf8");
     assert.match(platformFee, /SITON_PLATFORM_FEE_RATE/);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/marketplace/i);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/catalog/i);
+    assert.match(frontendRuntime, /app\.get\(["']\/api\/mall\/deals/i);
     assert.doesNotMatch(frontendRuntime, /affiliate.*commission/i);
     assert.doesNotMatch(frontendRuntime, /affiliate-payouts/i);
   });

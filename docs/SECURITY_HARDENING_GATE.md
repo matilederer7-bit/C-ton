@@ -1,5 +1,9 @@
 # Security Hardening Gate
 
+> **V1.1 product-scope notice (2026-08-23):** any no-Mall assertion below is
+> superseded. Its authentication, privacy, tenant, payment, and audit controls
+> remain binding for the public Mall.
+
 Status: `SECURITY_IDENTITY_TRACKING_GATE_PASS` for demo, `live_security_verdict=blocked`.
 
 ## Purpose

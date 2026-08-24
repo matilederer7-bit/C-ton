@@ -1,5 +1,9 @@
 # Full E2E Gate
 
+> **V1.1 product-scope notice (2026-08-23):** no-Mall/direct-link-only
+> assertions from this historical gate are superseded by
+> `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`. Payment evidence remains historical.
+
 Status: PASS for provider sandbox validation. This gate does not mark the system live-ready and did not connect live money.
 
 Deal Types E2E is also pass-ready for Provider Sandbox Validation as of

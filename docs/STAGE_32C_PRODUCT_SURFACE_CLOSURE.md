@@ -1,5 +1,10 @@
 # Stage 32C — Product Surface Closure
 
+> **SUPERSEDED PRODUCT SCOPE (2026-08-23):** Stage 32C is preserved as valid
+> historical evidence for the prior direct-link-only definition. The owner
+> intentionally reopened scope in V1.1; direct links plus the public Siton Mall
+> are now canonical. State, money, fee, and distributor boundaries are unchanged.
+
 Status: engineering complete and verified on
 `agent/stage-32c-product-surface-closure`; not merged or deployed.
 

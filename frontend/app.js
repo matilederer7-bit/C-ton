@@ -4,10 +4,20 @@ const FLOW_SCHEMA_VERSION = 2;
 const SAFE_RESUME_KEY = "siton_safe_resume_v1";
 const SAFE_RESUME_SCHEMA_VERSION = 1;
 const SELLER_CONTEXT_KEY = "siton_seller_context_v1";
+const SELLER_CREATE_RESUME_KEY = "siton_seller_create_resume_v1";
+const SELLER_CREATE_RESUME_SCHEMA_VERSION = 1;
+const SELLER_RETURN_TO_KEY = "siton_seller_return_to_v1";
+const MALL_SESSION_KEY = "siton_mall_session_v1";
 const NATIVE_PENDING_PAYMENT_KEY = "siton_pending_payment_v1";
 const NATIVE_PENDING_PAYMENT_SCHEMA_VERSION = 1;
 const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
 const SAFE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
+const SELLER_CREATE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
+const MALL_PAGE_LIMIT = 24;
+const MALL_TYPES = new Set(["physical_product", "voucher", "ticket"]);
+const MALL_STATUSES = new Set(["underway", "reached_target", "succeeded", "failed", "cancelled"]);
+const MALL_SORTS = new Set(["newest", "oldest"]);
+const MALL_EVENT_TYPES = new Set(["mall_session", "card_impression", "mall_deal_click", "organic_deal_entry"]);
 const POLL_INTERVAL_MS = 12000;
 const TRACKING_POLL_INTERVAL_MS = 6000;
 const ADMIN_POLL_INTERVAL_MS = 45000;
@@ -20,6 +30,14 @@ const state = {
   route: parseRoute(location.pathname),
   previewMeta: null,
   homePayload: null,
+  mallDeals: [],
+  mallPage: { limit: MALL_PAGE_LIMIT, has_more: false, next_cursor: null },
+  mallFilters: readMallFilters(),
+  mallLoadingMore: false,
+  mallError: null,
+  mallSeenDealIds: new Set(),
+  mallSessionRecorded: false,
+  mallEventCount: 0,
   sellerContext: null,
   sellerAuth: null,
   sellerProfile: null,
@@ -64,6 +82,10 @@ const state = {
   banner: null,
   sellerImageUploadStatus: "idle",
   sellerImageUploadError: "",
+  sellerImageDropActive: false,
+  sellerDraftId: "",
+  sellerDraftRequestKey: "",
+  sellerDraftEditorVersion: "",
   sellerPreviewOpen: false,
   createDealFieldErrors: {},
   form: {
@@ -82,6 +104,19 @@ const state = {
     payerName: "",
     sellerTitle: "",
     sellerDescription: "",
+    sellerDealType: "physical_product",
+    sellerVoucherFaceValue: "",
+    sellerVoucherValidUntil: "",
+    sellerVoucherLocation: "",
+    sellerVoucherInstructions: "",
+    sellerVoucherTerms: "",
+    sellerTicketEventName: "",
+    sellerTicketStartsAt: "",
+    sellerTicketEndsAt: "",
+    sellerTicketVenueName: "",
+    sellerTicketVenueAddress: "",
+    sellerTicketVenueCity: "",
+    sellerTicketEntryInstructions: "",
     sellerImageDataUrl: "",
     sellerImageName: "",
     sellerImagesJson: "[]",
@@ -230,6 +265,7 @@ const MONEY_COPY = {
 const ROUTE_LABELS = {
   seller: "ניהול העסקאות שלי",
   "seller-new": "יצירת עסקה חדשה",
+  "seller-edit": "עריכת טיוטת עסקה",
   "seller-deal": "ניהול עסקה",
   affiliate: "מרכז הפצה",
   admin: "מרכז תפעול",
@@ -293,6 +329,9 @@ document.addEventListener("click", (event) => {
   const navTarget = event.target.closest("[data-nav]");
   if (navTarget) {
     event.preventDefault();
+    if (navTarget.hasAttribute("data-mall-deal")) {
+      postMallEvent("mall_deal_click", mallEventDealContext(navTarget));
+    }
     navigate(navTarget.getAttribute("data-nav"));
     return;
   }
@@ -309,6 +348,10 @@ document.addEventListener("click", (event) => {
     if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
     if (action === "copy-text") void copyText(actionTarget.dataset.copyText || "");
     if (action === "capture-native-image") void captureNativeSellerImage();
+    if (action === "mall-filter") void applyMallFilter(actionTarget.dataset.mallFilter, actionTarget.dataset.mallValue);
+    if (action === "mall-load-more") void loadMoreMallDeals();
+    if (action === "retry-seller-images") document.querySelector("[data-action='seller-create']")?.requestSubmit();
+    if (action === "move-product-image") moveSellerImage(actionTarget.dataset.imageIndex, actionTarget.dataset.imageDelta);
     if (action === "seller-preview-open") {
       state.sellerPreviewOpen = true;
       render();
@@ -365,7 +408,7 @@ document.addEventListener("click", (event) => {
     if (action === "admin-case-close-open") openCaseCloseModal(actionTarget);
     if (action === "admin-case-close-close") closeCaseCloseModal();
     if (action === "clear-product-image") clearSellerProductImage();
-    if (action === "remove-product-image") removeSellerImage(actionTarget.dataset.imageIndex);
+    if (action === "remove-product-image") void removeSellerImage(actionTarget.dataset.imageIndex);
     if (action === "make-product-image-primary") makeSellerImagePrimary(actionTarget.dataset.imageIndex);
     if (action === "add-pickup-location") addSellerPickupLocation();
     if (action === "remove-pickup-location") removeSellerPickupLocation(actionTarget.dataset.slot);
@@ -390,6 +433,7 @@ document.addEventListener("input", (event) => {
   if (target.closest("[data-action='seller-create']")) {
     clearCreateDealErrorForField(target.name);
     updateSellerCreatePreviewFromState();
+    persistSellerCreateResume();
   }
 });
 
@@ -408,6 +452,37 @@ document.addEventListener("change", (event) => {
     state.form[target.name] = target.value;
     render();
   }
+  if (target.name === "sellerDealType") {
+    state.form.sellerDealType = MALL_TYPES.has(target.value) ? target.value : "physical_product";
+    render();
+  }
+  if (target.closest("[data-action='seller-create']")) persistSellerCreateResume();
+});
+
+document.addEventListener("dragover", (event) => {
+  const dropzone = event.target.closest?.("[data-image-dropzone]");
+  if (!dropzone) return;
+  event.preventDefault();
+  if (!state.sellerImageDropActive) {
+    state.sellerImageDropActive = true;
+    dropzone.classList.add("is-dragging");
+  }
+});
+
+document.addEventListener("dragleave", (event) => {
+  const dropzone = event.target.closest?.("[data-image-dropzone]");
+  if (!dropzone || dropzone.contains(event.relatedTarget)) return;
+  state.sellerImageDropActive = false;
+  dropzone.classList.remove("is-dragging");
+});
+
+document.addEventListener("drop", (event) => {
+  const dropzone = event.target.closest?.("[data-image-dropzone]");
+  if (!dropzone) return;
+  event.preventDefault();
+  state.sellerImageDropActive = false;
+  dropzone.classList.remove("is-dragging");
+  void appendSellerImageFiles(Array.from(event.dataTransfer?.files || []));
 });
 
 document.addEventListener("submit", (event) => {
@@ -438,6 +513,7 @@ async function boot() {
   if (!usesDemoSellerContext()) {
     await loadSellerSession();
   }
+  hydrateSellerCreateResume();
   hydrateForm();
   render();
   registerNativeDeepLinks();
@@ -546,6 +622,7 @@ function parseRoute(path) {
     ["contact", /^\/app\/contact$/],
     ["seller", /^\/app\/seller$/],
     ["seller-new", /^\/app\/seller\/new$/],
+    ["seller-edit", /^\/app\/seller\/deals\/([^/]+)\/edit$/],
     ["seller-deal", /^\/app\/seller\/deals\/([^/]+)$/],
     ["affiliate", /^\/app\/affiliate$/],
     ["admin", /^\/app\/admin$/],
@@ -574,8 +651,10 @@ function parseRoute(path) {
 }
 
 function navigate(path, push = true) {
-  if (push) history.pushState({}, "", path);
-  state.route = parseRoute(path);
+  const target = new URL(path || "/app", location.origin);
+  const safePath = `${target.pathname}${target.search}${target.hash}`;
+  if (push) history.pushState({}, "", safePath);
+  state.route = parseRoute(target.pathname);
   state.error = null;
   state.banner = null;
   render();
@@ -608,6 +687,7 @@ async function runRoute() {
   if (route.name === "recovery") return loadRecovery(route.participantId);
   if (route.name === "seller") return loadSeller();
   if (route.name === "seller-new") return prepareSellerNew();
+  if (route.name === "seller-edit") return prepareSellerEdit(route.dealId);
   if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
   if (route.name === "affiliate") return loadAffiliate();
   if (route.name === "admin") return loadAdmin(state.form.adminQuery);
@@ -681,7 +761,15 @@ async function loadDeal(dealId) {
     state.dealPayload = await api(`/api/deals/${encodeURIComponent(dealId)}/public`);
     await loadDealChat(dealId, false);
     state.form.qty = String(getFlow(dealId)?.qty || 1);
+    state.form.deliveryOptionId = getFlow(dealId)?.deliveryOptionId || "";
     void recordAffiliateVisit(dealId);
+    if (currentMallSource()) {
+      postMallEvent("organic_deal_entry", {
+        deal_id: state.dealPayload?.deal?.deal_id || dealId,
+        deal_type: state.dealPayload?.deal?.deal_type,
+        mall_status: mallStatusFromDealState(state.dealPayload?.deal?.state)
+      });
+    }
   }, "לא הצלחנו לטעון את העסקה.");
 }
 
@@ -773,11 +861,185 @@ async function submitRecoveryRequest(participantId) {
 }
 
 async function loadHome() {
-  await busy("טוען את האתר הראשי של C-ton...", async () => {
-    state.homePayload = await api("/api/site/home");
+  state.mallFilters = readMallFilters();
+  await busy("טוען את הקניון של C-ton...", async () => {
+    const [siteResult, mallResult] = await Promise.allSettled([
+      api("/api/site/home"),
+      api(buildMallDealsUrl(state.mallFilters))
+    ]);
+    state.homePayload = siteResult.status === "fulfilled" ? siteResult.value : null;
     state.sellerAuth = state.homePayload?.site?.seller_auth || state.sellerAuth;
-    syncSellerContext(state.homePayload?.site?.seller_context || null);
-  }, "לא הצלחנו לטעון את האתר הראשי של C-ton.");
+    if (state.homePayload?.site?.seller_context) syncSellerContext(state.homePayload.site.seller_context);
+    if (mallResult.status === "rejected") throw mallResult.reason;
+    applyMallPayload(mallResult.value, false);
+    state.mallError = null;
+    if (!state.mallSessionRecorded) {
+      state.mallSessionRecorded = true;
+      postMallEvent("mall_session");
+    }
+  }, "לא הצלחנו לטעון את העסקאות בקניון. אפשר לנסות שוב בעוד רגע.");
+}
+
+function currentMallSource() {
+  return new URLSearchParams(location.search).get("source") === "mall" ? "mall" : "";
+}
+
+function mallSessionId() {
+  try {
+    const existing = String(sessionStorage.getItem(MALL_SESSION_KEY) || "");
+    if (/^[0-9a-f-]{20,64}$/i.test(existing)) return existing;
+    const created = globalThis.crypto?.randomUUID?.() || `00000000-0000-4000-8000-${Math.random().toString(16).slice(2).padEnd(12, "0").slice(0, 12)}`;
+    sessionStorage.setItem(MALL_SESSION_KEY, created);
+    return created;
+  } catch {
+    return globalThis.crypto?.randomUUID?.() || "00000000-0000-4000-8000-000000000000";
+  }
+}
+
+function mallEventDealContext(element) {
+  return {
+    deal_id: String(element?.dataset?.mallDealId || "").slice(0, 80),
+    deal_type: MALL_TYPES.has(String(element?.dataset?.mallDealType || "")) ? element.dataset.mallDealType : undefined,
+    mall_status: MALL_STATUSES.has(String(element?.dataset?.mallStatus || "")) ? element.dataset.mallStatus : undefined
+  };
+}
+
+function postMallEvent(eventType, context = {}) {
+  if (!MALL_EVENT_TYPES.has(eventType) || state.mallEventCount >= 120) return;
+  state.mallEventCount += 1;
+  const payload = {
+    event_type: eventType,
+    source: "mall",
+    session_id: mallSessionId()
+  };
+  if (context.deal_id) payload.deal_id = String(context.deal_id).slice(0, 80);
+  if (MALL_TYPES.has(String(context.deal_type || ""))) payload.deal_type = context.deal_type;
+  if (MALL_STATUSES.has(String(context.mall_status || ""))) payload.mall_status = context.mall_status;
+  try {
+    void fetch(resolveApiUrl("/api/mall/events"), {
+      method: "POST",
+      credentials: "include",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch {}
+}
+
+function observeMallCards() {
+  if (state.route.name !== "home") return;
+  const cards = Array.from(document.querySelectorAll("[data-mall-card]"));
+  const record = (card) => {
+    const context = mallEventDealContext(card);
+    if (!context.deal_id || state.mallSeenDealIds.has(context.deal_id) || state.mallSeenDealIds.size >= 96) return;
+    state.mallSeenDealIds.add(context.deal_id);
+    postMallEvent("card_impression", context);
+  };
+  if (!("IntersectionObserver" in globalThis)) {
+    cards.slice(0, 24).forEach(record);
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      record(entry.target);
+      observer.unobserve(entry.target);
+    }
+  }, { threshold: 0.35 });
+  cards.forEach((card) => observer.observe(card));
+}
+
+async function loadMoreMallDeals() {
+  if (state.mallLoadingMore || !state.mallPage?.has_more || !state.mallPage?.next_cursor) return;
+  state.mallLoadingMore = true;
+  state.mallError = null;
+  render();
+  try {
+    const payload = await api(buildMallDealsUrl(state.mallFilters, state.mallPage.next_cursor));
+    applyMallPayload(payload, true);
+  } catch (error) {
+    state.mallError = friendlyError(error, "לא הצלחנו לטעון עסקאות נוספות.");
+  } finally {
+    state.mallLoadingMore = false;
+    render();
+  }
+}
+
+function applyMallPayload(payload, append) {
+  const incoming = Array.isArray(payload?.deals) ? payload.deals.map(normalizeMallDeal).filter(Boolean) : [];
+  const existing = append ? state.mallDeals : [];
+  const byId = new Map(existing.map((deal) => [deal.deal_id, deal]));
+  for (const deal of incoming) byId.set(deal.deal_id, deal);
+  state.mallDeals = Array.from(byId.values()).slice(0, 240);
+  state.mallPage = {
+    limit: Math.max(1, Math.min(48, Number(payload?.page?.limit || MALL_PAGE_LIMIT))),
+    has_more: Boolean(payload?.page?.has_more),
+    next_cursor: typeof payload?.page?.next_cursor === "string" ? payload.page.next_cursor.slice(0, 1000) : null
+  };
+}
+
+function normalizeMallDeal(value) {
+  const dealId = String(value?.deal_id || "").trim();
+  if (!dealId || dealId.length > 80) return null;
+  const dealType = MALL_TYPES.has(String(value?.deal_type || "")) ? String(value.deal_type) : "physical_product";
+  const canonicalState = String(value?.state || value?.canonical_state || "PendingTarget");
+  const mallStatus = MALL_STATUSES.has(String(value?.mall_status || "")) ? String(value.mall_status) : mallStatusFromDealState(canonicalState);
+  const imageUrl = String(value?.primary_image?.url || value?.primary_thumbnail_url || value?.primary_image_url || "").trim();
+  const joinedUnits = Math.max(0, Number(value?.joined_units || 0));
+  const thresholdUnits = Math.max(1, Number(value?.threshold_units || 1));
+  return {
+    ...value,
+    deal_id: dealId,
+    title: String(value?.title || "עסקה ב-C-ton").slice(0, 200),
+    description_excerpt: String(value?.description_excerpt || "").slice(0, 420),
+    deal_type: dealType,
+    state: canonicalState,
+    mall_status: mallStatus,
+    primary_image: imageUrl ? { ...value.primary_image, url: imageUrl } : null,
+    joined_units: joinedUnits,
+    threshold_units: thresholdUnits,
+    max_units: Math.max(1, Number(value?.max_units || value?.threshold_units || 1)),
+    progress_to_target_pct: Math.max(0, Math.min(100, Number(value?.progress_to_target_pct ?? ((joinedUnits / thresholdUnits) * 100)))),
+    availability: {
+      ...(value?.availability || {}),
+      can_join: Boolean(value?.availability?.can_join ?? value?.is_joinable)
+    }
+  };
+}
+
+function mallStatusFromDealState(dealState) {
+  return ({ PendingTarget: "underway", TargetReached: "reached_target", Completed: "succeeded", Failed: "failed", Cancelled: "cancelled" })[String(dealState || "")] || "underway";
+}
+
+function readMallFilters() {
+  const params = new URLSearchParams(location.search);
+  const type = MALL_TYPES.has(String(params.get("type") || "")) ? String(params.get("type")) : null;
+  const status = MALL_STATUSES.has(String(params.get("status") || "")) ? String(params.get("status")) : null;
+  const sort = MALL_SORTS.has(String(params.get("sort") || "")) ? String(params.get("sort")) : "newest";
+  return { type, status, sort };
+}
+
+function buildMallDealsUrl(filters, cursor = "") {
+  const params = new URLSearchParams({ sort: filters?.sort || "newest", limit: String(MALL_PAGE_LIMIT) });
+  if (filters?.type) params.set("type", filters.type);
+  if (filters?.status) params.set("status", filters.status);
+  if (cursor) params.set("cursor", String(cursor).slice(0, 1000));
+  return `/api/mall/deals?${params.toString()}`;
+}
+
+function applyMallFilter(filterName, rawValue) {
+  if (!new Set(["type", "status", "sort"]).has(filterName)) return;
+  const value = String(rawValue || "");
+  const next = { ...state.mallFilters };
+  if (filterName === "type") next.type = MALL_TYPES.has(value) ? value : null;
+  if (filterName === "status") next.status = MALL_STATUSES.has(value) ? value : null;
+  if (filterName === "sort") next.sort = MALL_SORTS.has(value) ? value : "newest";
+  const params = new URLSearchParams();
+  if (next.type) params.set("type", next.type);
+  if (next.status) params.set("status", next.status);
+  if (next.sort !== "newest") params.set("sort", next.sort);
+  const suffix = params.toString();
+  navigate(`/app${suffix ? `?${suffix}` : ""}`);
 }
 
 async function loadSeller() {
@@ -881,6 +1143,84 @@ async function prepareSellerNew() {
     state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
   }
   render();
+}
+
+async function prepareSellerEdit(dealId) {
+  await busy("טוען את הטיוטה לעריכה...", async () => {
+    const payload = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/draft`);
+    hydrateSellerDraftEditor(payload?.draft, payload?.editor_version);
+    state.sellerAuth = payload?.seller_auth || state.sellerAuth;
+  }, "לא הצלחנו לטעון את הטיוטה לעריכה.");
+}
+
+function hydrateSellerDraftEditor(draft, editorVersion = "") {
+  if (!draft || String(draft.state || "") !== "Draft") {
+    throw Object.assign(new Error("draft is not editable"), { status: 409, code: "DEAL_NOT_EDITABLE" });
+  }
+  state.sellerDraftId = String(draft.deal_id || "");
+  state.sellerDraftRequestKey = "";
+  state.sellerDraftEditorVersion = String(editorVersion || draft.updated_at || "");
+  state.form.sellerTitle = String(draft.title || "");
+  state.form.sellerDescription = String(draft.description || "");
+  state.form.sellerDealType = MALL_TYPES.has(String(draft.deal_type || "")) ? String(draft.deal_type) : "physical_product";
+  state.form.sellerPrice = String(Number(draft.price_per_unit || 0));
+  state.form.sellerMinUnits = String(Number(draft.min_units || 0));
+  state.form.sellerMaxUnits = String(Number(draft.max_units || 0));
+  state.form.sellerDeadline = toDatetimeLocal(String(draft.deadline || ""));
+
+  const voucher = draft.voucher_terms || {};
+  state.form.sellerVoucherFaceValue = voucher.face_value_amount == null ? "" : String(voucher.face_value_amount);
+  state.form.sellerVoucherValidUntil = voucher.valid_until ? toDatetimeLocal(String(voucher.valid_until)) : "";
+  state.form.sellerVoucherLocation = String(voucher.redemption_location || "");
+  state.form.sellerVoucherInstructions = String(voucher.redemption_instructions || "");
+  state.form.sellerVoucherTerms = String(voucher.terms || "");
+
+  const ticket = draft.ticket_terms || {};
+  state.form.sellerTicketEventName = String(ticket.event_name || "");
+  state.form.sellerTicketStartsAt = ticket.event_starts_at ? toDatetimeLocal(String(ticket.event_starts_at)) : "";
+  state.form.sellerTicketEndsAt = ticket.event_ends_at ? toDatetimeLocal(String(ticket.event_ends_at)) : "";
+  state.form.sellerTicketVenueName = String(ticket.venue_name || "");
+  state.form.sellerTicketVenueAddress = String(ticket.venue_address || "");
+  state.form.sellerTicketVenueCity = String(ticket.venue_city || "");
+  state.form.sellerTicketEntryInstructions = String(ticket.entry_instructions || "");
+
+  for (let slot = 1; slot <= 5; slot += 1) {
+    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl"]) {
+      state.form[`sellerDelivery${suffix}${slot}`] = suffix === "Cost" ? "0" : "";
+    }
+  }
+  const options = Array.isArray(draft.delivery_options) ? draft.delivery_options.slice(0, 5) : [];
+  const firstType = String(options[0]?.option_type || "delivery");
+  state.form.sellerFulfillmentType = ["delivery", "pickup", "distribution_point"].includes(firstType) ? firstType : "delivery";
+  options.forEach((option, index) => {
+    const slot = index + 1;
+    const optionType = ["delivery", "pickup", "distribution_point"].includes(String(option.option_type))
+      ? String(option.option_type)
+      : state.form.sellerFulfillmentType;
+    const parsedLabel = parseDistributionPointLabel(String(option.label || ""));
+    state.form[`sellerDeliveryType${slot}`] = optionType;
+    state.form[`sellerDeliveryLabel${slot}`] = parsedLabel.title || String(option.label || "");
+    state.form[`sellerDeliveryPointName${slot}`] = parsedLabel.title;
+    state.form[`sellerDeliveryAddress${slot}`] = parsedLabel.address;
+    state.form[`sellerDeliveryCity${slot}`] = parsedLabel.city;
+    state.form[`sellerDeliveryInstructions${slot}`] = parsedLabel.instructions;
+    state.form[`sellerDeliveryLocationUrl${slot}`] = parsedLabel.locationUrl;
+    state.form[`sellerDeliveryCost${slot}`] = String(Number(option.cost || 0));
+  });
+
+  setSellerImages((Array.isArray(draft.images) ? draft.images : []).map((image) => ({
+    dataUrl: String(image.url || ""),
+    filename: `deal-image-${String(image.image_id || "").slice(0, 8)}`,
+    mimeType: String(image.mime_type || ""),
+    size: Number(image.size_bytes || 0),
+    isPrimary: Boolean(image.is_primary),
+    persistedImageId: String(image.image_id || ""),
+    uploadState: "uploaded"
+  })));
+  state.form.sellerFinalTerms = "";
+  state.form.sellerFinalConfirm = "";
+  state.createDealFieldErrors = {};
+  persistSellerCreateResume();
 }
 
 async function loadSellerDeal(dealId) {
@@ -1091,7 +1431,7 @@ function currentPollKey() {
   if (route.name === "tracking") return `tracking:${route.participantId}`;
   if (route.name === "recovery") return `recovery:${route.participantId}`;
   if (route.name === "seller") return "seller";
-  if (route.name === "seller-new") return "";
+  if (route.name === "seller-new" || route.name === "seller-edit") return "";
   if (route.name === "seller-deal") return `seller-deal:${route.dealId}:${currentSellerContext().seller_id}`;
   if (route.name === "admin") return "admin";
   if (route.name === "admin-support") return "admin-support";
@@ -1344,6 +1684,8 @@ function startJoin() {
     deliveryMethodLabel: selectedDelivery.label,
     deliveryCost: Number(selectedDelivery.cost || 0),
     affiliateRef: currentAffiliateRef() || getFlow(payload.deal.deal_id)?.affiliateRef || "",
+    trafficSource: currentMallSource() || getFlow(payload.deal.deal_id)?.trafficSource || "",
+    mallSessionId: currentMallSource() ? mallSessionId() : getFlow(payload.deal.deal_id)?.mallSessionId || "",
     estimatedTotal: calcHoldTotal(payload, qty, selectedDelivery),
     startedAt: new Date().toISOString()
   });
@@ -1520,6 +1862,8 @@ async function payAndJoin(form) {
       authorizationId: authorization.authorization_id,
       authorizationProvider: authorization.provider,
       authorizationCorrelationId: authorization.correlation_id,
+      trafficSource: flow.trafficSource,
+      mallSessionId: flow.mallSessionId,
       paymentDisclosureAccepted: true
     });
     saveFlow(route.dealId, {
@@ -1585,6 +1929,8 @@ async function completePendingHostedPayment(dealId, flow) {
     authorizationId: status.authorization_id,
     authorizationProvider: status.provider,
     authorizationCorrelationId: status.correlation_id,
+    trafficSource: flow.trafficSource,
+    mallSessionId: flow.mallSessionId,
     paymentDisclosureAccepted: true
   });
   saveFlow(dealId, {
@@ -1613,9 +1959,10 @@ async function createDeal(form) {
   const minUnits = Number(minUnitsRaw);
   const maxUnits = Number(maxUnitsRaw);
   const deadline = String(formData.get("sellerDeadline") || "").trim();
+  const dealType = MALL_TYPES.has(String(formData.get("sellerDealType") || "")) ? String(formData.get("sellerDealType")) : "physical_product";
   const finalTerms = formData.get("sellerFinalTerms") === "on";
   const finalConfirm = formData.get("sellerFinalConfirm") === "on";
-  const deliveryResult = collectSellerDeliveryOptions(formData);
+  const deliveryResult = dealType === "physical_product" ? collectSellerDeliveryOptions(formData) : { options: [], errors: [], fieldErrors: {} };
   const validationErrors = [];
   const fieldErrors = {};
   if (!title) {
@@ -1660,7 +2007,27 @@ async function createDeal(form) {
   }
   Object.assign(fieldErrors, deliveryResult.fieldErrors || {});
   validationErrors.push(...deliveryResult.errors);
-  if (!deliveryResult.options.length) validationErrors.push("אופן קבלה");
+  if (dealType === "physical_product" && !deliveryResult.options.length) validationErrors.push("אופן קבלה");
+  if (dealType === "voucher" && (!Number.isFinite(Number(state.form.sellerVoucherFaceValue)) || Number(state.form.sellerVoucherFaceValue) <= 0)) {
+    fieldErrors.sellerVoucherFaceValue = "יש להזין שווי חיובי לשובר.";
+    validationErrors.push("שווי שובר");
+  }
+  if (dealType === "voucher" && state.form.sellerVoucherValidUntil && !Number.isFinite(new Date(state.form.sellerVoucherValidUntil).getTime())) {
+    fieldErrors.sellerVoucherValidUntil = "יש להזין תאריך תוקף תקין.";
+    validationErrors.push("תוקף שובר תקין");
+  }
+  if (dealType === "ticket" && !String(state.form.sellerTicketEventName || "").trim()) {
+    fieldErrors.sellerTicketEventName = "יש להזין שם אירוע.";
+    validationErrors.push("שם אירוע");
+  }
+  if (dealType === "ticket" && !Number.isFinite(new Date(String(state.form.sellerTicketStartsAt || "")).getTime())) {
+    fieldErrors.sellerTicketStartsAt = "יש להזין מועד אירוע תקין.";
+    validationErrors.push("מועד אירוע");
+  }
+  if (dealType === "ticket" && state.form.sellerTicketEndsAt && !Number.isFinite(new Date(state.form.sellerTicketEndsAt).getTime())) {
+    fieldErrors.sellerTicketEndsAt = "יש להזין מועד סיום תקין.";
+    validationErrors.push("מועד סיום תקין");
+  }
   if (!finalTerms) validationErrors.push("אישור תקנון ותנאי שימוש");
   if (!finalConfirm) validationErrors.push("אישור שהתנאים הקריטיים סופיים");
   if (validationErrors.length) {
@@ -1672,39 +2039,62 @@ async function createDeal(form) {
   }
   state.createDealFieldErrors = {};
   const deliveryOptions = deliveryResult.options;
-  const sellerImages = readSellerImages();
+  let sellerImages = readSellerImages();
 
   await busy("יוצר טיוטת עסקה...", async () => {
     const sellerContext = currentSellerContext();
-    const response = await api("/deals", {
-      method: "POST",
-      headers: {
-        "x-request-id": `seller:${Date.now()}`,
-        "idempotency-key": `seller-create:${Date.now()}`
-      },
-      body: json(buildCreateDealPayload({
-        title,
-        description,
-        price,
-        minUnits,
-        maxUnits,
-        deadline,
-        sellerContext,
-        deliveryOptions
-      }))
-    });
+    const draftPayload = buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType });
+    let dealId = state.sellerDraftId;
+    if (dealId) {
+      const response = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/draft`, {
+        method: "PATCH",
+        body: json({ ...draftPayload, expected_updated_at: state.sellerDraftEditorVersion || undefined })
+      });
+      state.sellerDraftEditorVersion = String(response?.draft?.updated_at || state.sellerDraftEditorVersion || "");
+      persistSellerCreateResume();
+    } else {
+      state.sellerDraftRequestKey = state.sellerDraftRequestKey || `seller-create:${globalThis.crypto?.randomUUID?.() || Date.now()}`;
+      persistSellerCreateResume();
+      const response = await api("/deals", {
+        method: "POST",
+        headers: {
+          "x-request-id": `seller:${Date.now()}`,
+          "idempotency-key": state.sellerDraftRequestKey
+        },
+        body: json(draftPayload)
+      });
+      dealId = String(response?.deal_id || "");
+      if (!dealId) throw Object.assign(new Error("draft id missing"), { status: 502, code: "draft_id_missing" });
+      state.sellerDraftId = dealId;
+      persistSellerCreateResume();
+    }
     if (sellerImages.length) {
       try {
         for (const [index, image] of sellerImages.entries()) {
-          await uploadSellerDealImage(response.deal_id, { ...image, sortOrder: index });
+          if (image.persistedImageId) continue;
+          state.sellerImageUploadStatus = "loading";
+          state.sellerImageUploadError = `שומר תמונה ${index + 1} מתוך ${sellerImages.length}…`;
+          render();
+          const uploaded = await uploadSellerDealImage(dealId, { ...image, sortOrder: index });
+          sellerImages[index] = {
+            ...image,
+            persistedImageId: String(uploaded?.image?.image_id || ""),
+            uploadState: "uploaded"
+          };
+          setSellerImages(sellerImages);
         }
+        state.sellerImageUploadStatus = "idle";
+        state.sellerImageUploadError = "";
+        await persistSellerImageOrder(true);
       } catch (error) {
-        const err = new Error(`שמירת הטיוטה הצליחה, אבל שמירת התמונות נכשלה (${friendlyApiCode(error)}). נסו להעלות JPG, PNG או WebP עד 2MB ולשמור שוב.`);
+        state.sellerImageUploadStatus = "error";
+        const err = new Error(`שמירת הטיוטה הצליחה, אבל לא כל התמונות נשמרו. הטיוטה הקיימת תישמר לניסיון חוזר (${friendlyApiCode(error)}).`);
         err.statusCode = error?.statusCode || error?.status || 400;
+        err.status = error?.status || error?.statusCode || 400;
         err.code = "draft_images_not_persisted";
         throw err;
       }
-      const persisted = await api(`/api/seller/deals/${encodeURIComponent(response.deal_id)}`);
+      const persisted = await api(`/api/seller/deals/${encodeURIComponent(dealId)}`);
       const persistedImages = Array.isArray(persisted?.deal?.images) ? persisted.deal.images : [];
       if (persistedImages.length < sellerImages.length) {
         const err = new Error("שמירת הטיוטה הצליחה, אבל לא כל התמונות נשמרו. נסו לשמור שוב לפני פרסום.");
@@ -1719,7 +2109,8 @@ async function createDeal(form) {
       title: "הטיוטה נשמרה",
       message: "טיוטת העסקה נשמרה. עכשיו אפשר לעבור עליה, לפרסם את הדף הציבורי, ואז להפיץ את הלינק הישיר."
     };
-    navigate(`/app/seller/deals/${encodeURIComponent(response.deal_id)}`);
+    clearSellerCreateResume();
+    navigate(`/app/seller/deals/${encodeURIComponent(dealId)}`);
   }, "יצירת העסקה נכשלה.");
   if (state.error) {
     const code = friendlyApiCode(state.error);
@@ -1736,8 +2127,8 @@ async function createDeal(form) {
   }
 }
 
-function buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions }) {
-  return {
+function buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType = "physical_product" }) {
+  const payload = {
     title: String(title || "").trim(),
     description: String(description || "").trim(),
     price_per_unit: price,
@@ -1746,8 +2137,37 @@ function buildCreateDealPayload({ title, description, price, minUnits, maxUnits,
     deadline: new Date(deadline).toISOString(),
     seller_id: sellerContext.seller_id,
     seller_display_name: sellerContext.display_name,
+    deal_type: dealType,
     delivery_options: deliveryOptions
   };
+  if (dealType === "voucher") {
+    payload.voucher_terms = {
+      face_value_amount: Number(state.form.sellerVoucherFaceValue || 0),
+      currency: "ILS",
+      valid_until: state.form.sellerVoucherValidUntil ? new Date(state.form.sellerVoucherValidUntil).toISOString() : null,
+      redemption_location: String(state.form.sellerVoucherLocation || "").trim(),
+      redemption_instructions: String(state.form.sellerVoucherInstructions || "").trim(),
+      terms: String(state.form.sellerVoucherTerms || "").trim(),
+      is_single_use: true,
+      allow_partial_redemption: false,
+      voucher_code_mode: "system_generated"
+    };
+  }
+  if (dealType === "ticket") {
+    payload.ticket_terms = {
+      event_name: String(state.form.sellerTicketEventName || "").trim(),
+      event_starts_at: new Date(state.form.sellerTicketStartsAt).toISOString(),
+      event_ends_at: state.form.sellerTicketEndsAt ? new Date(state.form.sellerTicketEndsAt).toISOString() : null,
+      venue_name: String(state.form.sellerTicketVenueName || "").trim(),
+      venue_address: String(state.form.sellerTicketVenueAddress || "").trim(),
+      venue_city: String(state.form.sellerTicketVenueCity || "").trim(),
+      entry_instructions: String(state.form.sellerTicketEntryInstructions || "").trim(),
+      ticket_type: "general_admission",
+      seat_mode: "general_admission",
+      transfer_allowed: false
+    };
+  }
+  return payload;
 }
 
 const CREATE_DEAL_TITLE_FIELDS = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
@@ -1762,8 +2182,13 @@ function readCreateDealTitle(formData) {
 
 async function uploadSellerDealImage(dealId, image) {
   if (!dealId || !image?.dataUrl) return null;
+  const uploadRequestKey = String(image.uploadRequestKey || `seller-image:${globalThis.crypto?.randomUUID?.() || Date.now()}`);
   return api(`/api/seller/deals/${encodeURIComponent(dealId)}/images`, {
     method: "POST",
+    headers: {
+      "idempotency-key": uploadRequestKey,
+      "x-request-id": uploadRequestKey
+    },
     body: json({
       image_data_url: image.dataUrl,
       original_filename: image.filename || "",
@@ -1878,7 +2303,7 @@ async function saveSellerContextFromForm(form) {
       title: "זהות המוכר נשמרה",
       message: `העבודה בניהול העסקאות תתבצע עכשיו תחת ${sellerContext.display_name}.`
     };
-    if (["home", "seller", "seller-new"].includes(state.route.name)) {
+    if (["home", "seller", "seller-new", "seller-edit"].includes(state.route.name)) {
       await runRoute();
     } else {
       render();
@@ -1904,25 +2329,34 @@ async function loginSellerFromForm(form) {
     });
     state.sellerAuth = payload?.seller_auth || null;
     syncSellerContext(payload?.seller_auth?.seller_context || null);
+    hydrateSellerCreateResume();
     state.form.sellerAccessCode = "";
     state.banner = {
       tone: "success",
       title: "ניהול העסקאות נפתח",
       message: `העבודה בניהול העסקאות מתבצעת עכשיו תחת ${state.sellerAuth?.seller_context?.display_name || sellerId}.`
     };
-    await runRoute();
+    const returnTo = consumeSellerReturnTo();
+    if (returnTo) navigate(returnTo);
+    else await runRoute();
   }, "הכניסה לניהול העסקאות נכשלה.");
 }
 
 async function logoutSeller() {
   await busy("סוגר את ניהול העסקאות...", async () => {
     const payload = await api("/api/seller/session/logout", {
-      method: "POST"
+      method: "POST",
+      body: json({})
     });
     state.sellerAuth = payload?.seller_auth || null;
     state.sellerPayload = null;
     state.sellerDealPayload = null;
     state.sellerContext = null;
+    clearSellerCreateResume();
+    for (const key of sellerCreateResumeFields()) state.form[key] = "";
+    state.form.sellerImagesJson = "[]";
+    state.form.sellerImageDataUrl = "";
+    state.form.sellerImageName = "";
     state.banner = {
       tone: "success",
       title: "הגישה של המוכר נסגרה",
@@ -1950,12 +2384,16 @@ async function cloneSellerDeal(dealId) {
 
 async function handleSellerImageSelection(input) {
   const files = Array.from(input.files || []);
+  input.value = "";
+  await appendSellerImageFiles(files);
+}
+
+async function appendSellerImageFiles(files) {
   if (!files.length) return;
   const existingImages = readSellerImages();
   const remainingSlots = Math.max(0, 5 - existingImages.length);
   const nextFiles = files.slice(0, remainingSlots);
   if (!nextFiles.length) {
-    input.value = "";
     state.sellerImageUploadStatus = "error";
     state.sellerImageUploadError = "אפשר להעלות עד 5 תמונות לעסקה.";
     render();
@@ -1963,14 +2401,12 @@ async function handleSellerImageSelection(input) {
   }
   for (const file of nextFiles) {
     if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
-      input.value = "";
       state.sellerImageUploadStatus = "error";
       state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
       render();
       return;
     }
     if (file.size > 2 * 1024 * 1024) {
-      input.value = "";
       state.sellerImageUploadStatus = "error";
       state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
       render();
@@ -1985,11 +2421,13 @@ async function handleSellerImageSelection(input) {
     const normalized = normalizeSellerImages([...existingImages, ...images]);
     setSellerImages(normalized);
     state.sellerImageUploadStatus = "idle";
+    if (files.length > nextFiles.length) {
+      state.banner = { tone: "warning", title: "נבחרו יותר מדי תמונות", message: "נשמרו רק התמונות שנכנסו למגבלה של 5 תמונות לעסקה." };
+    }
   } catch {
     state.sellerImageUploadStatus = "error";
     state.sellerImageUploadError = "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.";
   } finally {
-    input.value = "";
     render();
   }
 }
@@ -2063,7 +2501,10 @@ function readSellerImages() {
         filename: String(image.filename || image.name || "product-image"),
         mimeType: String(image.mimeType || ""),
         size: Number(image.size || 0),
-        isPrimary: Boolean(image.isPrimary || image.is_primary)
+        isPrimary: Boolean(image.isPrimary || image.is_primary),
+        persistedImageId: String(image.persistedImageId || image.image_id || ""),
+        uploadState: String(image.uploadState || "pending"),
+        uploadRequestKey: String(image.uploadRequestKey || "")
       })));
   } catch {
     return state.form.sellerImageDataUrl
@@ -2082,7 +2523,10 @@ function normalizeSellerImages(images) {
       filename: String(image.filename || image.name || "product-image"),
       mimeType: String(image.mimeType || ""),
       size: Number(image.size || 0),
-      isPrimary: hasExplicitPrimary ? Boolean(image.isPrimary || image.is_primary) : index === 0
+      isPrimary: hasExplicitPrimary ? Boolean(image.isPrimary || image.is_primary) : index === 0,
+      persistedImageId: String(image.persistedImageId || image.image_id || ""),
+      uploadState: String(image.uploadState || (image.persistedImageId || image.image_id ? "uploaded" : "pending")),
+      uploadRequestKey: String(image.uploadRequestKey || `seller-image:${globalThis.crypto?.randomUUID?.() || Date.now()}-${index}`)
     }));
   const primaryIndex = normalized.findIndex((image) => image.isPrimary);
   normalized.forEach((image, index) => { image.isPrimary = index === (primaryIndex >= 0 ? primaryIndex : 0); });
@@ -2095,16 +2539,32 @@ function setSellerImages(images) {
   const primary = getSellerPrimaryImage(normalized);
   state.form.sellerImageDataUrl = primary?.dataUrl || "";
   state.form.sellerImageName = primary?.filename || "";
+  persistSellerCreateResume();
 }
 
 function getSellerPrimaryImage(images = readSellerImages()) {
   return images.find((image) => image.isPrimary) || images[0] || null;
 }
 
-function removeSellerImage(index) {
+async function removeSellerImage(index) {
   const images = readSellerImages();
-  images.splice(Number(index || 0), 1);
+  const [removed] = images.splice(Number(index || 0), 1);
+  if (removed?.persistedImageId && state.sellerDraftId) {
+    state.sellerImageUploadStatus = "loading";
+    state.sellerImageUploadError = "";
+    render();
+    try {
+      await api(`/api/seller/deals/${encodeURIComponent(state.sellerDraftId)}/images/${encodeURIComponent(removed.persistedImageId)}`, { method: "DELETE" });
+    } catch (error) {
+      images.splice(Number(index || 0), 0, removed);
+      state.sellerImageUploadStatus = "error";
+      state.sellerImageUploadError = friendlyError(error, "לא הצלחנו למחוק את התמונה מהטיוטה.").message;
+      render();
+      return;
+    }
+  }
   setSellerImages(images);
+  state.sellerImageUploadStatus = "idle";
   state.banner = {
     tone: "warning",
     title: "התמונה הוסרה",
@@ -2119,6 +2579,7 @@ function makeSellerImagePrimary(index) {
   const selected = images[selectedIndex];
   if (!selected) return;
   setSellerImages(images.map((image, currentIndex) => ({ ...image, isPrimary: currentIndex === selectedIndex })));
+  void persistSellerImageOrder();
   state.banner = {
     tone: "success",
     title: "התמונה הראשית עודכנה",
@@ -2182,7 +2643,7 @@ function clearCreateDealErrorForField(fieldName) {
 }
 
 function updateSellerCreatePreviewFromState() {
-  if (state.route.name !== "seller-new") return;
+  if (!["seller-new", "seller-edit"].includes(state.route.name)) return;
   const price = Math.max(0, Number(state.form.sellerPrice || 0));
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
   const maxUnits = Math.max(0, Number(state.form.sellerMaxUnits || 0));
@@ -2554,13 +3015,114 @@ function render() {
       ${renderPublicTrustFooter()}
     </div>
   `;
+  if (state.route.name === "home") queueMicrotask(observeMallCards);
+}
+
+function moveSellerImage(index, delta) {
+  const images = readSellerImages();
+  const from = Number(index);
+  const to = from + Number(delta);
+  if (!Number.isInteger(from) || !Number.isInteger(to) || !images[from] || to < 0 || to >= images.length) return;
+  const [moved] = images.splice(from, 1);
+  images.splice(to, 0, moved);
+  setSellerImages(images);
+  void persistSellerImageOrder();
+  render();
+}
+
+async function persistSellerImageOrder(throwOnError = false) {
+  if (!state.sellerDraftId) return;
+  const images = readSellerImages();
+  const orderedIds = images.map((image) => image.persistedImageId).filter(Boolean);
+  if (!orderedIds.length || orderedIds.length !== images.length) return;
+  try {
+    await api(`/api/seller/deals/${encodeURIComponent(state.sellerDraftId)}/images/order`, {
+      method: "PATCH",
+      body: json({
+        ordered_image_ids: orderedIds,
+        primary_image_id: getSellerPrimaryImage(images)?.persistedImageId || orderedIds[0]
+      })
+    });
+  } catch (error) {
+    state.sellerImageUploadStatus = "error";
+    state.sellerImageUploadError = friendlyError(error, "לא הצלחנו לשמור את סדר התמונות.").message;
+    render();
+    if (throwOnError) throw error;
+  }
 }
 
 function syncDocumentFrame() {
   document.documentElement.setAttribute("lang", "he");
   document.documentElement.setAttribute("dir", "rtl");
   document.body.setAttribute("dir", "rtl");
-  document.title = `C-ton | ${getRouteLabel()}`;
+  syncPublicMetadata();
+}
+
+function syncPublicMetadata() {
+  const route = state.route;
+  const deal = route.name === "deal" ? state.dealPayload?.deal : null;
+  const isPublicDeal = Boolean(deal && deal.state !== "Draft");
+  const indexable = route.name === "home" || isPublicDeal || ["terms", "privacy", "refunds", "accessibility", "contact"].includes(route.name);
+  const title = route.name === "home"
+    ? "C-ton | קניון עסקאות קבוצתיות"
+    : deal
+      ? `${String(deal.title || "עסקה").slice(0, 120)} | C-ton`
+      : `C-ton | ${getRouteLabel()}`;
+  const description = route.name === "home"
+    ? "מגלים עסקאות קבוצתיות פעילות, רואים את ההתקדמות ומצטרפים. החיוב מתבצע רק אם העסקה מצליחה."
+    : deal
+      ? String(deal.description || getDealCopy(deal.state).description || "פרטי עסקה קבוצתית ב-C-ton").replace(/\s+/g, " ").trim().slice(0, 200)
+      : getRouteSummary().slice(0, 200);
+  const canonicalPath = route.name === "home"
+    ? "/app"
+    : route.name === "deal" && route.dealId
+      ? `/app/deal/${encodeURIComponent(route.dealId)}`
+      : location.pathname.startsWith("/app/") ? location.pathname : "/app";
+  const canonicalUrl = absoluteUrl(canonicalPath);
+  document.title = title;
+  setMetaContent("name", "description", description);
+  setMetaContent("name", "robots", indexable ? "index,follow" : "noindex,nofollow");
+  setMetaContent("property", "og:site_name", "C-ton");
+  setMetaContent("property", "og:locale", "he_IL");
+  setMetaContent("property", "og:type", isPublicDeal ? "product" : "website");
+  setMetaContent("property", "og:title", title);
+  setMetaContent("property", "og:description", description);
+  setMetaContent("property", "og:url", canonicalUrl);
+  setMetaContent("name", "twitter:card", "summary_large_image");
+  setMetaContent("name", "twitter:title", title);
+  setMetaContent("name", "twitter:description", description);
+  const imageUrl = isPublicDeal ? safeMetadataImageUrl(getPrimaryDealImage(deal)?.url) : "";
+  setMetaContent("property", "og:image", imageUrl);
+  setMetaContent("name", "twitter:image", imageUrl);
+  let canonical = document.querySelector('link[rel="canonical"]');
+  if (!canonical) {
+    canonical = document.createElement("link");
+    canonical.rel = "canonical";
+    document.head.appendChild(canonical);
+  }
+  canonical.href = canonicalUrl;
+}
+
+function setMetaContent(attribute, key, content) {
+  let element = document.head.querySelector(`meta[${attribute}="${key}"]`);
+  if (!element) {
+    element = document.createElement("meta");
+    element.setAttribute(attribute, key);
+    element.dataset.sitonClientMetadata = "true";
+    document.head.appendChild(element);
+  }
+  if (content) element.setAttribute("content", String(content));
+  else element.removeAttribute("content");
+}
+
+function safeMetadataImageUrl(value) {
+  try {
+    const url = new URL(String(value || ""), location.origin);
+    if (url.protocol !== "https:" && url.origin !== location.origin) return "";
+    return url.toString();
+  } catch {
+    return "";
+  }
 }
 
 function getRouteLabel() {
@@ -2578,6 +3140,7 @@ function getRouteSummary() {
     recovery: "מסך השלמת תשלום במצב כשל חיוב, ללא שינוי כמות וללא ביטול.",
     seller: "ניהול העסקאות הפעילות, הטיוטות והפעולות של המוכר במקום אחד.",
     "seller-new": "פתיחת עסקה חדשה במסלול מונחה, בעברית מלאה ובמובייל תחילה.",
+    "seller-edit": "עריכת טיוטה קיימת עם שמירה בטוחה של הפרטים והתמונות.",
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
     affiliate: "מרכז הפצה וייחוס עם מצב אימות וביצועי קמפיינים. המפיץ הוא ערוץ מדידה והפצה בלבד — ללא עמלה או תשלום.",
     admin: "מרכז תפעול, חיפוש, חריגות, תורי אימות ותמונת מערכת.",
@@ -2621,7 +3184,7 @@ function renderCurrentRoute() {
   if (route.name === "distributor-terms") return renderDistributorTermsPage();
   if (route.name === "contact") return renderContactPage();
   if (route.name === "seller") return renderCtonSellerPage();
-  if (route.name === "seller-new") return renderSellerNewPage();
+  if (route.name === "seller-new" || route.name === "seller-edit") return renderSellerNewPage();
   if (route.name === "seller-deal") return renderCtonSellerDealPage();
   if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
@@ -2682,43 +3245,52 @@ function renderCtonProgressCard({ title = "העסקה מתקדמת", stateName, 
 }
 
 function renderCtonHome() {
+  const filters = state.mallFilters || readMallFilters();
+  const deals = Array.isArray(state.mallDeals) ? state.mallDeals : [];
   return `
-    <section class="cton-home-hero">
+    <section class="cton-home-hero cton-mall-hero">
       <div class="cton-hero-copy">
-        <h1>C-ton</h1>
-        <h2>קונים יחד. משלמים רק כשזה קורה.</h2>
-        <p>הופכים ביקוש מפוזר לעסקה אמיתית, בלי לחייב אף אחד לפני שהקבוצה מצליחה.</p>
+        <span class="eyebrow">הקניון של C-ton</span>
+        <h1>קונים יחד.</h1>
+        <h2>עסקאות אמיתיות, במקום אחד.</h2>
+        <p>מגלים עסקאות פעילות, רואים כמה חסר ליעד ונכנסים לאותו דף עסקה ציבורי שאפשר לקבל גם כלינק ישיר.</p>
         <div class="cton-trust-list">
-          <span>${icon("users")} מצטרפים לעסקה</span>
-          <span>${icon("trend")} רואים את ההתקדמות בזמן אמת</span>
+          <span>${icon("trend")} היעד והסטטוס גלויים</span>
           <span>${icon("shield")} החיוב מתבצע רק אם העסקה מצליחה</span>
+          <span>${icon("link")} כל לינק ישיר ממשיך לעבוד</span>
         </div>
         <div class="cton-actions">
-          <a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">פתחו עסקה חדשה</a>
-          <a class="button secondary" href="/app/seller" data-nav="/app/seller">צפו בדמו חי</a>
+          <a class="button primary" href="#mall-deals">לכל העסקאות</a>
+          <a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">יצירת עסקה למוכר</a>
         </div>
       </div>
-      <aside class="cton-live-demo-card">
-        <span class="badge pending">עסקה חיה</span>
-        <h3>מארז קפה שכונתי</h3>
-        <div class="cton-demo-price">₪79</div>
-        ${renderProgressBlock({ stateName: "PendingTarget", currentUnits: 37, targetUnits: 50, percentValue: 74 })}
-        <p class="cton-progress-sentence">עוד 13 יחידות והעסקה יוצאת לפועל</p>
-        <div class="cton-activity-line">${icon("users")} 3 הצטרפו בשעה האחרונה</div>
-        <a class="button primary" href="/app/seller" data-nav="/app/seller">הצטרפו לעסקה</a>
+      <aside class="cton-live-demo-card cton-mall-promise">
+        <span class="badge success">איך זה עובד</span>
+        <h3>מצטרפים עכשיו. משלמים רק כשהיעד קורה.</h3>
+        <p>בשלב ההצטרפות נשמרת תפיסת מסגרת בלבד. אם העסקה לא מצליחה, לא מבוצע חיוב בפועל.</p>
+        <div class="cton-activity-line">${icon("users")} הקהילה עוזרת לעסקאות להגיע ליעד</div>
       </aside>
     </section>
-    <section class="cton-home-cards">
-      <article class="cton-card"><h2>לא קונים לבד</h2><p>העסקה מתקדמת רק כשמספיק אנשים מצטרפים.</p></article>
-      <article class="cton-card"><h2>לא מחויבים לפני הזמן</h2><p>מתבצעת תפיסת מסגרת בלבד עד שהעסקה מצליחה.</p></article>
-      <article class="cton-card"><h2>הכול גלוי</h2><p>היעד, הכמות, הזמן והסטטוס מוצגים בכל רגע.</p></article>
+    <section class="cton-mall" id="mall-deals" aria-labelledby="mall-title">
+      <header class="cton-mall-heading">
+        <div><span class="eyebrow">Mall</span><h2 id="mall-title">עסקאות בקניון</h2><p class="muted">המסננים נשמרים בכתובת, כך שאפשר לשתף את התצוגה בלי לשנות את קישור העסקה עצמה.</p></div>
+        <span class="route-chip">${num(deals.length)} מוצגות</span>
+      </header>
+      <nav class="cton-mall-filters" aria-label="סינון עסקאות">
+        ${renderMallFilterGroup("סוג", "type", [["", "הכול"], ["physical_product", "מוצרים"], ["voucher", "שוברים"], ["ticket", "כרטיסים"]], filters.type || "")}
+        ${renderMallFilterGroup("מצב", "status", [["", "הכול"], ["underway", "בדרך ליעד"], ["reached_target", "היעד הושג"], ["succeeded", "הושלמו"], ["failed", "לא הצליחו"], ["cancelled", "בוטלו"]], filters.status || "")}
+        ${renderMallFilterGroup("סדר", "sort", [["newest", "חדשות קודם"], ["oldest", "ישנות קודם"]], filters.sort || "newest")}
+      </nav>
+      ${deals.length ? `<div class="cton-mall-grid">${deals.map(renderMallDealCard).join("")}</div>` : state.loading ? `<div class="cton-mall-loading" aria-live="polite">טוען עסקאות…</div>` : `<div class="cton-card empty-surface"><strong>אין כרגע עסקאות במסנן הזה</strong><p class="muted">אפשר לבחור מסנן אחר או לחזור בהמשך. לא מוצגות עסקאות מומצאות.</p></div>`}
+      ${state.mallError ? `<div class="info-strip tone-warning"><strong>${esc(state.mallError.title)}</strong><p>${esc(state.mallError.message)}</p></div>` : ""}
+      ${state.mallPage?.has_more ? `<div class="cton-mall-more"><button class="button secondary" type="button" data-inline-action="mall-load-more" ${state.mallLoadingMore ? "disabled" : ""}>${state.mallLoadingMore ? "טוען…" : "הצגת עסקאות נוספות"}</button></div>` : ""}
     </section>
     <section class="cton-card cton-how">
-      <h2>איך זה עובד</h2>
+      <h2>גם בקניון, אותו מסלול אמין</h2>
       <div class="cton-steps">
-        <article><span>1</span>${icon("link")}<strong>יוצרים לינק לעסקה</strong></article>
-        <article><span>2</span>${icon("users")}<strong>אנשים מצטרפים ומשתפים</strong></article>
-        <article><span>3</span>${icon("check")}<strong>אם היעד מושג, העסקה יוצאת לפועל</strong></article>
+        <article><span>1</span>${icon("trend")}<strong>רואים יעד וסטטוס</strong></article>
+        <article><span>2</span>${icon("users")}<strong>נכנסים לדף העסקה ומצטרפים</strong></article>
+        <article><span>3</span>${icon("check")}<strong>חיוב רק אחרי הצלחה</strong></article>
       </div>
     </section>
     <footer class="cton-mini-footer">
@@ -2730,6 +3302,75 @@ function renderCtonHome() {
       <a href="/legal/affiliates">תנאי מפיצים</a>
     </footer>
   `;
+}
+
+function renderMallFilterGroup(label, name, options, current) {
+  return `<div class="cton-mall-filter-group"><strong>${esc(label)}</strong><div>${options.map(([value, title]) => `<button type="button" class="${current === value ? "active" : ""}" data-inline-action="mall-filter" data-mall-filter="${esc(name)}" data-mall-value="${esc(value)}" aria-pressed="${current === value ? "true" : "false"}">${esc(title)}</button>`).join("")}</div></div>`;
+}
+
+function renderMallDealCard(deal) {
+  const href = `/app/deal/${encodeURIComponent(deal.deal_id)}?source=mall`;
+  const canJoin = Boolean(deal.availability?.can_join);
+  const statusLabel = mallStatusLabel(deal.mall_status);
+  const remaining = Math.max(0, Number(deal.threshold_units || 0) - Number(deal.joined_units || 0));
+  const cta = canJoin ? "לפרטי העסקה ולהצטרפות" : "לצפייה בפרטי העסקה";
+  const eventAttrs = `data-mall-deal-id="${esc(deal.deal_id)}" data-mall-deal-type="${esc(deal.deal_type)}" data-mall-status="${esc(deal.mall_status)}"`;
+  return `
+    <article class="cton-mall-card" data-mall-card ${eventAttrs}>
+      <a class="cton-mall-card-image" href="${href}" data-nav="${href}" data-mall-deal ${eventAttrs} aria-label="${esc(`פתיחת העסקה ${deal.title}`)}">
+        ${deal.primary_image?.url ? `<img src="${esc(deal.primary_image.url)}" alt="${esc(deal.title)}" loading="lazy" />` : `<div class="cton-mall-placeholder">${icon(deal.deal_type === "ticket" ? "card" : "package")}<span>התמונה תתווסף על ידי המוכר</span></div>`}
+      </a>
+      <div class="cton-mall-card-body">
+        <div class="cton-mall-card-badges"><span class="badge ${DEAL_TONE[deal.state] || (deal.mall_status === "succeeded" ? "success" : deal.mall_status === "failed" || deal.mall_status === "cancelled" ? "danger" : "pending")}">${esc(statusLabel)}</span><span class="badge closed">${esc(dealTypeLabel(deal.deal_type))}</span></div>
+        <h3><a href="${href}" data-nav="${href}" data-mall-deal ${eventAttrs}>${esc(deal.title)}</a></h3>
+        <p class="muted">${esc(deal.description_excerpt || "כל הפרטים המלאים מופיעים בדף העסקה.")}</p>
+        <div class="cton-mall-seller"><span>${icon("users")} ${esc(deal.seller_business_name || "מוכר C-ton")}</span><strong>${currency(deal.price_per_unit)}</strong></div>
+        ${renderProgressBlock({ stateName: deal.state, currentUnits: deal.joined_units, targetUnits: deal.threshold_units, percentValue: deal.progress_to_target_pct })}
+        <p class="cton-progress-sentence">${canJoin ? remaining ? `עוד ${num(remaining)} יחידות ליעד` : "היעד הושג והעסקה עדיין פתוחה" : `מצב העסקה: ${esc(statusLabel)}`}</p>
+        <div class="cton-mall-card-footer"><span>${deal.deadline ? `עד ${dt(deal.deadline)}` : "ללא מועד מוצג"}</span><a class="button ${canJoin ? "primary" : "secondary"}" href="${href}" data-nav="${href}" data-mall-deal ${eventAttrs}>${cta}</a></div>
+      </div>
+    </article>
+  `;
+}
+
+function mallStatusLabel(status) {
+  return ({ underway: "בדרך ליעד", reached_target: "היעד הושג", succeeded: "הושלמה", failed: "לא הצליחה", cancelled: "בוטלה" })[String(status || "")] || "בדרך ליעד";
+}
+
+function dealTypeLabel(dealType) {
+  return ({ physical_product: "מוצר", voucher: "שובר", ticket: "כרטיס" })[String(dealType || "")] || "מוצר";
+}
+
+function renderDealTypeDetails(deal) {
+  const dealType = MALL_TYPES.has(String(deal?.deal_type || "")) ? String(deal.deal_type) : "physical_product";
+  if (dealType === "voucher") {
+    const terms = deal.voucher_terms || {};
+    return `
+      <section class="cton-card deal-type-details">
+        <div class="cton-section-head"><h2>פרטי השובר</h2><span class="badge closed">שובר דיגיטלי</span></div>
+        <div class="cton-data-grid">
+          <div><span>שווי</span><strong>${currency(terms.face_value_amount || deal.price_per_unit)}</strong></div>
+          <div><span>תוקף עד</span><strong>${terms.valid_until ? dt(terms.valid_until) : "לפי תנאי העסקה"}</strong></div>
+          <div><span>מימוש</span><strong>${esc(terms.redemption_location || "פרטים יימסרו אחרי הצלחה")}</strong></div>
+        </div>
+        ${terms.redemption_instructions ? `<p>${esc(terms.redemption_instructions)}</p>` : ""}
+        ${terms.terms ? `<p class="small muted">${esc(terms.terms)}</p>` : ""}
+      </section>`;
+  }
+  if (dealType === "ticket") {
+    const terms = deal.ticket_terms || {};
+    return `
+      <section class="cton-card deal-type-details">
+        <div class="cton-section-head"><h2>פרטי הכרטיס</h2><span class="badge closed">כרטיס לאירוע</span></div>
+        <div class="cton-data-grid">
+          <div><span>אירוע</span><strong>${esc(terms.event_name || deal.title)}</strong></div>
+          <div><span>מועד</span><strong>${terms.event_starts_at ? dt(terms.event_starts_at) : "לפי תנאי העסקה"}</strong></div>
+          <div><span>מקום</span><strong>${esc([terms.venue_name, terms.venue_city].filter(Boolean).join(" · ") || "יעודכן על ידי המוכר")}</strong></div>
+        </div>
+        ${terms.entry_instructions ? `<p>${esc(terms.entry_instructions)}</p>` : ""}
+      </section>`;
+  }
+  return "";
 }
 
 function renderCtonDealPage() {
@@ -2750,7 +3391,7 @@ function renderCtonDealPageView(payloadOverride = null, options = {}) {
   const holdTotal = calcHoldTotal(payload, qty, selectedDelivery);
   const remainingToTarget = Math.max(0, Number(deal.threshold_units || 0) - Number(metrics.joined_units || 0));
   const isDraft = deal.state === "Draft";
-  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
+  const isShareable = !isDraft;
   const cta = availability.canJoin
     ? remainingToTarget > 0 ? `הצטרפו עכשיו – עוד ${num(remainingToTarget)} יחידות ליעד` : "הצטרפו עכשיו – העסקה יוצאת לפועל"
     : "העסקה כבר סגורה";
@@ -2762,7 +3403,7 @@ function renderCtonDealPageView(payloadOverride = null, options = {}) {
         </div>
         ${renderDealImageGallery(deal)}
         <section class="cton-card cton-deal-intro">
-          <span class="badge ${dealCopy.badgeTone}">${esc(dealCopy.label)}</span>
+          <div class="cton-mall-card-badges"><span class="badge ${dealCopy.badgeTone}">${esc(dealCopy.label)}</span><span class="badge closed">${esc(dealTypeLabel(deal.deal_type))}</span>${currentMallSource() ? `<span class="badge pending">נמצא בקניון</span>` : ""}</div>
           <h1>${esc(deal.title)}</h1>
           <p class="muted">${esc(availability.message || dealCopy.description)}</p>
           <div class="cton-meta-row">
@@ -2782,6 +3423,7 @@ function renderCtonDealPageView(payloadOverride = null, options = {}) {
           <h2>מה מקבלים</h2>
           <p>${esc(deal.description || "דף העסקה מרכז את הפרטים, הכמות, קצב ההצטרפות ואופן הקבלה במקום אחד ברור.")}</p>
         </section>
+        ${renderDealTypeDetails(deal)}
         ${preview ? `<section class="cton-card cton-share-box"><strong>תצוגה מקדימה בלבד</strong><p class="muted">לא נוצרה עסקה, לא בוצע פרסום, ולא הופעלו שיתוף או הצטרפות.</p></section>` : isShareable ? `<section class="cton-card cton-share-box">${renderShareActions(`/app/deal/${deal.deal_id}`, deal.title)}</section>` : `<section class="cton-card cton-share-box"><strong>העסקה עדיין בטיוטה</strong><p class="muted">פרסום ושיתוף יהיו זמינים רק אחרי שהמוכר מפרסם את העסקה.</p></section>`}
       </article>
       <aside class="cton-join-card">
@@ -3002,6 +3644,8 @@ function renderCtonSellerPage() {
         <h2>${riskDeals.length ? "שאר העסקאות" : "כל העסקאות"}</h2>
         <div class="cton-deal-list">${regularDeals.length ? regularDeals.map(renderCtonSellerDealCard).join("") : `<div class="empty-surface">אין עסקאות נוספות להצגה.</div>`}</div>
       </section>
+      ${renderSellerProfileSection()}
+      ${renderSellerAnalyticsSection()}
     </section>
   `;
 }
@@ -3021,7 +3665,7 @@ function renderCtonSellerDealCard(item) {
       ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(item.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
       <div class="cton-seller-deal-main">
         <h3>${esc(item.title)}</h3>
-        <span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span>
+        <div class="cton-mall-card-badges"><span class="badge ${DEAL_TONE[item.state] || "warning"}">${esc(getDealCopy(item.state).label)}</span><span class="badge closed">${esc(dealTypeLabel(item.deal_type))}</span></div>
         ${renderProgressBlock({ stateName: item.state, currentUnits: item.metrics?.joined_units || 0, targetUnits: item.threshold_units, percentValue: progressPct, atRiskUnits: pendingUnits })}
       </div>
       <div class="cton-seller-money">
@@ -3057,17 +3701,19 @@ function renderCtonSellerDealPage() {
   const outcomeTone = willSucceed ? "success" : "danger";
   const image = getPrimaryDealImage(deal);
   const isDraft = deal.state === "Draft";
-  const isShareable = !isDraft && ["PendingTarget", "TargetReached"].includes(deal.state);
+  const isShareable = !isDraft;
+  const publicStateSummary = sellerPublicStateSummary(deal.state);
   const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(payload.seller_profile?.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active");
   const publicDealPath = `/app/deal/${encodeURIComponent(deal.deal_id)}`;
   return `
     <section class="cton-seller-live">
       <header class="cton-card cton-live-header">
         ${image?.url ? `<img src="${esc(image.url)}" alt="${esc(deal.title)}" />` : `<div class="cton-thumb">${icon("package")}</div>`}
-        <div><h1>${esc(deal.title)}</h1><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><p class="muted">${isDraft ? "טיוטה פנימית - עדיין לא פתוחה לקונים" : "מעודכן לפני רגע"}</p></div>
+        <div><h1>${esc(deal.title)}</h1><div class="cton-mall-card-badges"><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><span class="badge closed">${esc(dealTypeLabel(deal.deal_type))}</span></div><p class="muted">${isDraft ? "טיוטה פנימית - עדיין לא פתוחה לקונים" : "מעודכן לפני רגע"}</p></div>
       </header>
       ${renderDealImageGallery(deal)}
-      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">${renderSellerPublishLegalAcceptance()}<button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel tone-success"><h2>העסקה פורסמה והיא פתוחה להצטרפות</h2><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
+      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">${renderSellerPublishLegalAcceptance()}<button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel ${publicStateSummary.tone}"><h2>${esc(publicStateSummary.title)}</h2><p>${esc(publicStateSummary.message)}</p><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
+      ${renderDealTypeDetails(deal)}
       <section class="cton-kpi-grid six">
         <article class="cton-kpi"><span>כמות נוכחית</span><strong>${num(deal.metrics?.joined_units || 0)}</strong></article>
         <article class="cton-kpi"><span>מינימום</span><strong>${num(deal.threshold_units)}</strong></article>
@@ -4501,7 +5147,13 @@ function buildSellerPreviewPayload() {
   const slots = fulfillmentType === "delivery" ? [1] : activeSellerPickupSlots();
   const deliveryOptions = slots.map((slot, index) => {
     if (fulfillmentType === "delivery") {
-      return { option_id: "preview-delivery", option_type: "delivery", label: "משלוח", cost: 0, sort_order: 0 };
+      return {
+        option_id: "preview-delivery",
+        option_type: "delivery",
+        label: state.form.sellerDeliveryLabel1 || "משלוח",
+        cost: Math.max(0, Number(state.form.sellerDeliveryCost1 || 0)),
+        sort_order: 0
+      };
     }
     const type = fulfillmentType === "distribution_point" ? "distribution_point" : "pickup";
     return {
@@ -4532,12 +5184,29 @@ function buildSellerPreviewPayload() {
       deal_id: "preview-only",
       title: state.form.sellerTitle || "שם העסקה יופיע כאן",
       description: state.form.sellerDescription || "תיאור העסקה יופיע כאן כפי שהקונה יקרא אותו.",
+      deal_type: MALL_TYPES.has(String(state.form.sellerDealType || "")) ? state.form.sellerDealType : "physical_product",
       state: "Draft",
       price_per_unit: Math.max(0, Number(state.form.sellerPrice || 0)),
       threshold_units: threshold,
       max_units: maxUnits,
       deadline: state.form.sellerDeadline || null,
-      delivery_options: deliveryOptions,
+      delivery_options: state.form.sellerDealType === "physical_product" || !state.form.sellerDealType ? deliveryOptions : [],
+      voucher_terms: state.form.sellerDealType === "voucher" ? {
+        face_value_amount: Number(state.form.sellerVoucherFaceValue || 0),
+        valid_until: state.form.sellerVoucherValidUntil || null,
+        redemption_location: state.form.sellerVoucherLocation,
+        redemption_instructions: state.form.sellerVoucherInstructions,
+        terms: state.form.sellerVoucherTerms
+      } : null,
+      ticket_terms: state.form.sellerDealType === "ticket" ? {
+        event_name: state.form.sellerTicketEventName,
+        event_starts_at: state.form.sellerTicketStartsAt || null,
+        event_ends_at: state.form.sellerTicketEndsAt || null,
+        venue_name: state.form.sellerTicketVenueName,
+        venue_address: state.form.sellerTicketVenueAddress,
+        venue_city: state.form.sellerTicketVenueCity,
+        entry_instructions: state.form.sellerTicketEntryInstructions
+      } : null,
       images,
       seller: { business_name: currentSellerContext().display_name || "מוכר C-ton" }
     },
@@ -4594,7 +5263,9 @@ function renderSellerNewPage() {
   const maxUnits = Math.max(0, Number(state.form.sellerMaxUnits || 0));
   const sellerImages = readSellerImages();
   const primarySellerImage = getSellerPrimaryImage(sellerImages);
+  const sellerDealType = MALL_TYPES.has(String(state.form.sellerDealType || "")) ? state.form.sellerDealType : "physical_product";
   const fulfillmentType = state.form.sellerFulfillmentType || "delivery";
+  const isEditingDraft = state.route.name === "seller-edit";
   const pickupSlots = activeSellerPickupSlots();
   const deliveryOptionsCount = fulfillmentType === "delivery" ? 1 : pickupSlots.length;
   const fieldErrors = state.createDealFieldErrors || {};
@@ -4605,8 +5276,9 @@ function renderSellerNewPage() {
     <section class="hero seller-create-hero">
       <article class="card hero-main stack hero-emphasis">
         <span class="eyebrow">C-ton למוכרים</span>
-        <h1>יצירת עסקה חדשה</h1>
+        <h1>${isEditingDraft ? "עריכת טיוטת עסקה" : "יצירת עסקה חדשה"}</h1>
         <p class="muted">בנו עסקה קבוצתית, שתפו לינק, ותנו לקונים להצטרף רק אם הקבוצה מצליחה.</p>
+        ${state.sellerDraftId ? `<div class="info-strip tone-info"><strong>ממשיכים את הטיוטה שכבר נוצרה</strong><p class="small">מזהה הטיוטה נשמר כדי שניסיון חוזר לא ייצור עסקה כפולה: <span class="mono">${esc(state.sellerDraftId)}</span>.</p></div>` : ""}
         ${state.error ? `<section class="error-card validation-summary create-deal-alert" role="alert" tabindex="-1" data-create-deal-alert>
           <strong>${esc(state.error.title || "לא ניתן ליצור את העסקה עדיין.")}</strong>
           <p>${esc(state.error.message || "חסרים פרטים בטופס.")}</p>
@@ -4632,25 +5304,43 @@ function renderSellerNewPage() {
             </div>
             <div class="${fieldClass("sellerTitle")}"><label for="sellerTitle">שם העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" aria-invalid="${fieldErrors.sellerTitle ? "true" : "false"}" />${fieldError("sellerTitle")}</div>
             <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
+            <div class="field"><label for="sellerDealType">סוג העסקה</label><select id="sellerDealType" name="sellerDealType"><option value="physical_product" ${sellerDealType === "physical_product" ? "selected" : ""}>מוצר פיזי</option><option value="voucher" ${sellerDealType === "voucher" ? "selected" : ""}>שובר דיגיטלי</option><option value="ticket" ${sellerDealType === "ticket" ? "selected" : ""}>כרטיס לאירוע</option></select><small class="muted">הסוג קובע אילו פרטי מימוש או אירוע יוצגו לקונה.</small></div>
+            ${sellerDealType === "voucher" ? `
+              <div class="form-option-card stack deal-type-editor">
+                <h3>תנאי השובר</h3>
+                <div class="inline-fields"><div class="${fieldClass("sellerVoucherFaceValue")}"><label for="sellerVoucherFaceValue">שווי השובר</label><input id="sellerVoucherFaceValue" name="sellerVoucherFaceValue" type="number" min="0.01" step="0.01" value="${esc(state.form.sellerVoucherFaceValue)}" />${fieldError("sellerVoucherFaceValue")}</div><div class="${fieldClass("sellerVoucherValidUntil")}"><label for="sellerVoucherValidUntil">תוקף עד</label><input id="sellerVoucherValidUntil" name="sellerVoucherValidUntil" type="datetime-local" value="${esc(state.form.sellerVoucherValidUntil)}" />${fieldError("sellerVoucherValidUntil")}</div></div>
+                <div class="field"><label for="sellerVoucherLocation">איפה מממשים</label><input id="sellerVoucherLocation" name="sellerVoucherLocation" type="text" maxlength="500" value="${esc(state.form.sellerVoucherLocation)}" /></div>
+                <div class="field"><label for="sellerVoucherInstructions">הוראות מימוש</label><textarea id="sellerVoucherInstructions" name="sellerVoucherInstructions" rows="3" maxlength="1000">${esc(state.form.sellerVoucherInstructions)}</textarea></div>
+                <div class="field"><label for="sellerVoucherTerms">תנאים נוספים</label><textarea id="sellerVoucherTerms" name="sellerVoucherTerms" rows="3" maxlength="2000">${esc(state.form.sellerVoucherTerms)}</textarea></div>
+              </div>` : ""}
+            ${sellerDealType === "ticket" ? `
+              <div class="form-option-card stack deal-type-editor">
+                <h3>פרטי האירוע</h3>
+                <div class="${fieldClass("sellerTicketEventName")}"><label for="sellerTicketEventName">שם האירוע</label><input id="sellerTicketEventName" name="sellerTicketEventName" type="text" maxlength="200" value="${esc(state.form.sellerTicketEventName)}" />${fieldError("sellerTicketEventName")}</div>
+                <div class="inline-fields"><div class="${fieldClass("sellerTicketStartsAt")}"><label for="sellerTicketStartsAt">מתחיל</label><input id="sellerTicketStartsAt" name="sellerTicketStartsAt" type="datetime-local" value="${esc(state.form.sellerTicketStartsAt)}" />${fieldError("sellerTicketStartsAt")}</div><div class="${fieldClass("sellerTicketEndsAt")}"><label for="sellerTicketEndsAt">מסתיים, אופציונלי</label><input id="sellerTicketEndsAt" name="sellerTicketEndsAt" type="datetime-local" value="${esc(state.form.sellerTicketEndsAt)}" />${fieldError("sellerTicketEndsAt")}</div></div>
+                <div class="inline-fields"><div class="field"><label for="sellerTicketVenueName">שם המקום</label><input id="sellerTicketVenueName" name="sellerTicketVenueName" type="text" value="${esc(state.form.sellerTicketVenueName)}" /></div><div class="field"><label for="sellerTicketVenueCity">עיר</label><input id="sellerTicketVenueCity" name="sellerTicketVenueCity" type="text" value="${esc(state.form.sellerTicketVenueCity)}" /></div></div>
+                <div class="field"><label for="sellerTicketVenueAddress">כתובת</label><input id="sellerTicketVenueAddress" name="sellerTicketVenueAddress" type="text" value="${esc(state.form.sellerTicketVenueAddress)}" /></div>
+                <div class="field"><label for="sellerTicketEntryInstructions">הוראות כניסה</label><textarea id="sellerTicketEntryInstructions" name="sellerTicketEntryInstructions" rows="3" maxlength="1000">${esc(state.form.sellerTicketEntryInstructions)}</textarea></div>
+              </div>` : ""}
             <div class="deal-image-field">
               <div>
                 <h3>תמונת העסקה</h3>
-                <p class="small muted">העלו תמונה ברורה של המוצר. מומלץ יחס 16:9.</p>
+                <p class="small muted">גררו לכאן או בחרו עד 5 תמונות JPG, PNG או WebP, עד 2MB לכל תמונה. מומלץ יחס 16:9.</p>
               </div>
               <input class="visually-hidden-file" id="sellerImage" name="sellerImage" type="file" accept="image/png,image/jpeg,image/webp" multiple />
-              <div class="product-image-upload-card ${primarySellerImage?.dataUrl ? "has-image" : ""}">
+              <div class="product-image-upload-card image-dropzone ${primarySellerImage?.dataUrl ? "has-image" : ""} ${state.sellerImageDropActive ? "is-dragging" : ""}" data-image-dropzone tabindex="0" role="group" aria-label="אזור העלאת תמונות לעסקה">
                 ${primarySellerImage?.dataUrl ? `<img src="${esc(primarySellerImage.dataUrl)}" alt="תמונה ראשית לתצוגה מקדימה של העסקה" />` : `
                   <div class="product-image-placeholder">
                     <span class="package-icon" aria-hidden="true">□</span>
-                    <strong>תמונת העסקה תופיע כאן</strong>
-                    <span class="small muted">אפשר להעלות עד 5 תמונות. תמונה אחת תסומן כראשית.</span>
+                    <strong>גררו תמונות לכאן</strong>
+                    <span class="small muted">או בחרו קבצים. תמונה אחת תסומן כראשית ואפשר לשנות את הסדר.</span>
                     <label class="button primary image-upload-button" for="sellerImage">בחרו תמונות</label>
                     ${globalThis.SitonMobile?.isNative ? `<button class="button secondary" type="button" data-inline-action="capture-native-image">מצלמה או ספריית תמונות</button>` : ""}
                   </div>
                 `}
                 ${primarySellerImage?.dataUrl && sellerImages.length < 5 ? `<label class="button secondary image-replace-button" for="sellerImage">הוספת תמונות</label>` : ""}
                 ${primarySellerImage?.dataUrl && sellerImages.length < 5 && globalThis.SitonMobile?.isNative ? `<button class="button secondary" type="button" data-inline-action="capture-native-image">מצלמה או ספרייה</button>` : ""}
-                ${state.sellerImageUploadStatus === "loading" ? `<div class="image-upload-overlay">מעלה תמונה...</div>` : ""}
+                ${state.sellerImageUploadStatus === "loading" ? `<div class="image-upload-overlay"><span class="image-upload-spinner" aria-hidden="true"></span>${esc(state.sellerImageUploadError || "מכין את התמונות…")}</div>` : ""}
               </div>
               ${sellerImages.length ? `
                 <div class="seller-image-gallery" aria-label="תמונות העסקה">
@@ -4659,6 +5349,8 @@ function renderSellerNewPage() {
                       <img src="${esc(image.dataUrl)}" alt="תמונה ${index + 1} לעסקה" />
                       <div class="seller-image-thumb-actions">
                         <span class="badge ${image.isPrimary ? "pending" : ""}">${image.isPrimary ? "תמונה ראשית" : `תמונה ${index + 1}`}</span>
+                        <button class="secondary tiny-button" type="button" data-inline-action="move-product-image" data-image-index="${index}" data-image-delta="-1" ${index === 0 ? "disabled" : ""} aria-label="הזזת תמונה ${index + 1} ימינה">↑</button>
+                        <button class="secondary tiny-button" type="button" data-inline-action="move-product-image" data-image-index="${index}" data-image-delta="1" ${index === sellerImages.length - 1 ? "disabled" : ""} aria-label="הזזת תמונה ${index + 1} שמאלה">↓</button>
                         ${image.isPrimary ? "" : `<button class="secondary tiny-button" type="button" data-inline-action="make-product-image-primary" data-image-index="${index}">הגדר כראשית</button>`}
                         <button class="secondary tiny-button" type="button" data-inline-action="remove-product-image" data-image-index="${index}">מחיקה</button>
                       </div>
@@ -4666,7 +5358,7 @@ function renderSellerNewPage() {
                   `).join("")}
                 </div>
               ` : ""}
-              ${state.sellerImageUploadStatus === "error" ? `<div class="image-upload-error" role="alert">${esc(state.sellerImageUploadError || "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.")}</div>` : ""}
+              ${state.sellerImageUploadStatus === "error" ? `<div class="image-upload-error" role="alert"><span>${esc(state.sellerImageUploadError || "לא הצלחנו להעלות את התמונה. נסו קובץ JPG, PNG או WebP עד 2MB.")}</span>${state.sellerDraftId ? `<button class="secondary tiny-button" type="button" data-inline-action="retry-seller-images">ניסיון שמירה נוסף</button>` : `<label class="button secondary tiny-button" for="sellerImage">בחירת קבצים מחדש</label>`}</div>` : ""}
             </div>
             <div class="inline-fields">
               <div class="${fieldClass("sellerPrice")}"><label for="sellerPrice">מחיר ליחידה</label><input id="sellerPrice" name="sellerPrice" type="number" step="0.01" value="${esc(state.form.sellerPrice)}" aria-invalid="${fieldErrors.sellerPrice ? "true" : "false"}" />${fieldError("sellerPrice")}</div>
@@ -4692,11 +5384,12 @@ function renderSellerNewPage() {
               <p class="small muted">כדאי שהמינימום יהיה יעד שאפשר להגיע אליו, שהמקסימום לא ירגיש מנותק מההפצה, ושהדדליין ייצור דחיפות בלי לבלבל את הקונה.</p>
             </div>
           </section>
-          <section class="form-section-card stack">
+          <section class="form-section-card stack ${sellerDealType === "physical_product" ? "" : "deal-type-physical-only"}">
             <div class="form-section-header">
-              <h3>אפשרויות קבלה</h3>
-              <p class="small muted">בחרו איך הקונים יקבלו את המוצר. מיקומי איסוף ונקודות חלוקה נוצרים רק בלחיצה מפורשת.</p>
+              <h3>${sellerDealType === "physical_product" ? "אפשרויות קבלה" : "מסירה דיגיטלית"}</h3>
+              <p class="small muted">${sellerDealType === "physical_product" ? "בחרו איך הקונים יקבלו את המוצר. מיקומי איסוף ונקודות חלוקה נוצרים רק בלחיצה מפורשת." : "השובר או הכרטיס יונפקו רק אחרי השלמת העסקה וחיוב תקין; אין צורך להגדיר משלוח."}</p>
             </div>
+            ${sellerDealType !== "physical_product" ? `<div class="info-strip tone-success"><strong>${sellerDealType === "voucher" ? "שובר דיגיטלי" : "כרטיס דיגיטלי"}</strong><p class="small">המסירה מתבצעת דרך מסלול המימוש הקיים לאחר הצלחת העסקה. לא מוצגת לקונה אפשרות משלוח.</p></div><div class="deal-type-hidden-fields">` : ""}
             <div class="${fieldClass("sellerFulfillmentType")} fulfillment-choice-grid" role="radiogroup" aria-label="אופן קבלה">
               ${["delivery", "pickup", "distribution_point"].map((option) => `
                 <label class="choice fulfillment-choice ${fulfillmentType === option ? "selected" : ""}">
@@ -4710,6 +5403,10 @@ function renderSellerNewPage() {
             </div>
             ${fulfillmentType === "delivery" ? `
               <div class="info-strip tone-success"><strong>משלוח נבחר</strong><p class="small">לא נפתחו נקודות חלוקה אוטומטיות. הקונה יראה אפשרות משלוח ברורה בדף העסקה.</p></div>
+              <div class="inline-fields">
+                <div class="field"><label for="sellerDeliveryLabel1">שם אפשרות המשלוח</label><input id="sellerDeliveryLabel1" name="sellerDeliveryLabel1" type="text" maxlength="160" value="${esc(state.form.sellerDeliveryLabel1 || "משלוח")}" /></div>
+                <div class="${fieldClass("sellerDeliveryCost1")}"><label for="sellerDeliveryCost1">עלות משלוח</label><input id="sellerDeliveryCost1" name="sellerDeliveryCost1" type="number" min="0" step="0.01" value="${esc(state.form.sellerDeliveryCost1 || "0")}" />${fieldError("sellerDeliveryCost1")}</div>
+              </div>
             ` : `
               <div class="actions spread">
                 <div>
@@ -4739,6 +5436,7 @@ function renderSellerNewPage() {
                 </div>
               `).join("") : `<div class="empty-surface"><strong>עדיין אין מיקומי איסוף</strong><p class="small muted">לחיצה על "הוסף מיקום איסוף" תפתח כרטיס מיקום אחד בלבד.</p></div>`}
             `}
+            ${sellerDealType !== "physical_product" ? `</div>` : ""}
           </section>
           <section class="form-section-card stack">
             <div class="form-section-header">
@@ -4749,14 +5447,14 @@ function renderSellerNewPage() {
               <div class="summary-item"><span class="muted">כותרת</span><strong data-create-summary-title>${esc(state.form.sellerTitle || "עדיין חסרה")}</strong></div>
               <div class="summary-item"><span class="muted">מחיר</span><strong data-create-summary-price>${currency(price)}</strong></div>
               <div class="summary-item"><span class="muted">מינימום / מקסימום</span><strong data-create-summary-units>${num(minUnits)} / ${num(maxUnits)}</strong></div>
-              <div class="summary-item"><span class="muted">אופן קבלה</span><strong>${num(deliveryOptionsCount || 1)} אפשרויות</strong></div>
+              <div class="summary-item"><span class="muted">סוג וקבלה</span><strong>${sellerDealType === "physical_product" ? `${num(deliveryOptionsCount || 1)} אפשרויות קבלה` : dealTypeLabel(sellerDealType)}</strong></div>
             </div>
             <label class="check-row"><input type="checkbox" name="sellerFinalTerms" ${state.form.sellerFinalTerms === "on" ? "checked" : ""} /> <span>קראתי ואישרתי את <a href="/app/seller-terms" data-nav="/app/seller-terms">תקנון השימוש למוכרים</a> ואת <a href="/app/refunds" data-nav="/app/refunds">מדיניות הביטולים וההחזרים</a>, כולל אחריותי לתיאור המוצר, אספקתו ושירות לאחר השלמת העסקה.</span></label>
             <label class="check-row"><input type="checkbox" name="sellerFinalConfirm" ${state.form.sellerFinalConfirm === "on" ? "checked" : ""} /> <span>אני מאשר שהתנאים סופיים.</span></label>
           </section>
           <div class="actions">
             <button class="secondary" type="button" data-inline-action="seller-preview-open">תצוגה מקדימה מלאה לקונה</button>
-            <button class="primary" type="submit">יצירת טיוטה</button>
+            <button class="primary" type="submit">${isEditingDraft ? "שמירת השינויים בטיוטה" : "יצירת טיוטה"}</button>
             <a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לניהול העסקאות שלי</a>
           </div>
         </form>
@@ -5003,7 +5701,7 @@ function renderSellerDealPage() {
               <button class="primary" type="submit">פרסם עסקה</button>
             </form>
           ` : payload.seller_actions.can_publish && publishBlockedByStatus ? `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>` : ""}
-          ${isDraft ? `<a class="button secondary" href="/app/seller/new" data-nav="/app/seller/new">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a>` : ""}
+          ${isDraft ? `<a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a>` : ""}
           ${isShareable ? `<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a>` : ""}
           <button class="secondary" type="button" ${cloneBlockedByStatus ? "disabled" : `data-inline-action="seller-clone" data-deal-id="${esc(deal.deal_id)}"`}>צור עסקה דומה</button>
         </div>
@@ -5605,8 +6303,8 @@ function renderDemoReadinessSection(dr) {
   ].join(" · ");
   const demoDataIssues = warnings.filter((w) => w.includes("deal") || w.includes("seller"));
 
-  const contractOk = pc.platform_fee_8_percent && pc.link_only_no_marketplace;
-  const contractEvidence = `עמלה: ${pc.platform_fee_rate !== undefined ? (pc.platform_fee_rate * 100).toFixed(0) + "%" : "לא ידוע"} · קישור בלבד: כן · attribution בלבד: כן`;
+  const contractOk = pc.platform_fee_8_percent && pc.direct_links_first_class && pc.public_mall_discovery && pc.mall_owns_state_or_money === false;
+  const contractEvidence = `עמלה: ${pc.platform_fee_rate !== undefined ? (pc.platform_fee_rate * 100).toFixed(0) + "%" : "לא ידוע"} · Mall וקישורים ישירים: כן · ה-Mall אינו בעלים של state או כסף`;
 
   return `<section class="card section stack">
     <div class="section-header">
@@ -7698,7 +8396,23 @@ async function api(url, options = {}) {
   const text = await response.text();
   const payload = text ? parseJson(text) : null;
   if (response.ok) return payload;
-  const error = new Error(payload?.message || payload?.error || fallbackStatus(response.status) || "request_failed");
+  const normalizedUrl = String(url || "");
+  const sellerMutationRequest = normalizedUrl.includes("/seller/")
+    || (normalizedUrl === "/deals" && String(options.method || "GET").toUpperCase() === "POST")
+    || (/^\/deals\/[^/]+\/(?:publish|clone)$/.test(normalizedUrl));
+  if ([401, 403].includes(response.status) && sellerMutationRequest) {
+    rememberSellerReturnTo();
+    if (["seller-new", "seller-edit"].includes(state.route.name)) persistSellerCreateResume();
+    if (response.status === 401 && !String(url || "").endsWith("/session/login")) {
+      state.sellerAuth = { ...(state.sellerAuth || {}), configured: state.sellerAuth?.configured !== false, authenticated: false, seller_context: null };
+    }
+  }
+  const transportMessage = response.status === 401
+    ? "authentication_required"
+    : response.status === 403
+      ? "access_forbidden"
+      : payload?.message || payload?.error || fallbackStatus(response.status) || "request_failed";
+  const error = new Error(transportMessage);
   error.status = response.status;
   error.code = payload?.code || payload?.error || fallbackStatus(response.status) || "request_failed";
   error.payload = payload;
@@ -7745,7 +8459,7 @@ const paymentService = {
 };
 
 const buyerFlowService = {
-  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, buyerName, deliveryAddress, deliveryCity, deliveryNote, otpToken, otpChallengeId, authorizationId, authorizationProvider, authorizationCorrelationId, paymentDisclosureAccepted }) {
+  joinDeal(dealId, { buyerId, qty, affiliateRef, deliveryOptionId, buyerName, deliveryAddress, deliveryCity, deliveryNote, otpToken, otpChallengeId, authorizationId, authorizationProvider, authorizationCorrelationId, trafficSource, mallSessionId, paymentDisclosureAccepted }) {
     return api(`/deals/${encodeURIComponent(dealId)}/join`, {
       method: "POST",
       headers: {
@@ -7766,6 +8480,8 @@ const buyerFlowService = {
         authorization_id: authorizationId || undefined,
         authorization_provider: authorizationProvider || undefined,
         authorization_correlation_id: authorizationCorrelationId || undefined,
+        source: trafficSource === "mall" ? "mall" : undefined,
+        mall_session_id: trafficSource === "mall" ? mallSessionId || undefined : undefined,
         payment_disclosure_accepted: paymentDisclosureAccepted === true
       })
     });
@@ -7776,6 +8492,7 @@ function friendlyError(error, fallback) {
   const message = String(error?.message || fallback || "");
   const lower = message.toLowerCase();
   const status = Number(error?.status || 0);
+  const code = String(error?.code || "");
 
   if (status === 404 && lower.includes("deal not found")) {
     return { title: "העסקה לא נמצאה", message: "הקישור הזה לא מצביע לעסקה קיימת. כדאי לוודא שקיבלת מזהה עסקה תקין." };
@@ -7783,10 +8500,10 @@ function friendlyError(error, fallback) {
   if (status === 404 && lower.includes("participant not found")) {
     return { title: "לא מצאנו את ההשתתפות", message: "קישור המעקב הזה כבר לא תקין או שאינו שייך להשתתפות קיימת." };
   }
-  if (status === 401 && lower.includes("seller session is required")) {
-    return { title: "נדרשת כניסת מוכר", message: "המשך העבודה בניהול העסקאות מחייב כניסה מחדש עם פרטי הגישה של המוכר." };
+  if (status === 401 && (["SELLER_AUTH_REQUIRED", "SELLER_SESSION_EXPIRED", "seller_auth_required", "seller_session_expired", "seller_session_required"].includes(code) || lower.includes("seller session"))) {
+    return { title: code === "SELLER_SESSION_EXPIRED" || code === "seller_session_expired" ? "החיבור שלך פג" : "נדרשת כניסת מוכר", message: "הפרטים הבטוחים של הטיוטה נשמרו. יש להתחבר מחדש כדי להמשיך מאותו מסך." };
   }
-  if (status === 401 && lower.includes("seller id or access code is invalid")) {
+  if (status === 401 && (code === "seller_credentials_invalid" || code === "seller_auth_invalid" || lower.includes("seller id or access code is invalid"))) {
     return { title: "פרטי הגישה לא נכונים", message: "מזהה המוכר או קוד הגישה לא תואמים לרשימת המוכרים המורשים של סביבת ה-launch." };
   }
   if (status === 403 && lower.includes("manual seller context switching is disabled")) {
@@ -7816,6 +8533,12 @@ function friendlyError(error, fallback) {
   if (lower.includes("title is required") || String(error?.code || "") === "title_required") {
     return { title: "חסר שם לעסקה.", message: "אנא הזן שם קצר וברור לעסקה. לא נשלח request תקין בלי שם עסקה." };
   }
+  if (status === 401) {
+    return { title: "נדרשת התחברות מחדש", message: "החיבור הקודם כבר אינו פעיל. לא בוצע שינוי, ואפשר להתחבר מחדש ולהמשיך בבטחה." };
+  }
+  if (status === 403) {
+    return { title: "אין הרשאה לפעולה", message: "החשבון הפעיל אינו מורשה לבצע את הפעולה הזו. לא בוצע שינוי." };
+  }
   if (status >= 500) {
     return { title: "המערכת כרגע לא זמינה", message: `לא הצלחנו להשלים את הפעולה בגלל בעיית שרת. קוד: ${friendlyApiCode(error)}. כדאי לנסות שוב בעוד רגע.` };
   }
@@ -7844,13 +8567,27 @@ function validateQty(payload, qty) {
 }
 
 function getDeliveryOptions(payload) {
-  return payload?.deal?.delivery_options || [];
+  const options = Array.isArray(payload?.deal?.delivery_options) ? payload.deal.delivery_options : [];
+  if (options.length) return options;
+  const dealType = String(payload?.deal?.deal_type || "physical_product");
+  if (dealType === "voucher") return [{ option_id: "", option_type: "voucher", label: "שובר דיגיטלי לאחר השלמת העסקה", cost: 0, virtual: true }];
+  if (dealType === "ticket") return [{ option_id: "", option_type: "ticket", label: "כרטיס דיגיטלי לאחר השלמת העסקה", cost: 0, virtual: true }];
+  return [];
+}
+
+function sellerPublicStateSummary(dealState) {
+  if (["PendingTarget", "TargetReached"].includes(dealState)) return { tone: "tone-success", title: "העסקה פורסמה ופתוחה להצטרפות", message: "הדף הציבורי פעיל ואפשר לשתף אותו כעת." };
+  if (dealState === "Completed") return { tone: "tone-success", title: "העסקה הושלמה", message: "הדף הציבורי נשאר זמין לצפייה ושיקוף התוצאה, אך ההצטרפות סגורה." };
+  if (["Failed", "Cancelled"].includes(dealState)) return { tone: "tone-warning", title: dealState === "Cancelled" ? "העסקה בוטלה" : "העסקה לא הושלמה", message: "הדף הציבורי נשאר זמין לצפייה בתוצאה, ללא הצטרפות חדשה." };
+  return { tone: "tone-warning", title: "העסקה נמצאת בתהליך סגירה", message: "הדף הציבורי זמין לצפייה, אך ההצטרפות כבר סגורה." };
 }
 
 function formatDeliveryTypeLabel(type) {
   if (type === "pickup") return "איסוף עצמי";
   if (type === "delivery") return "משלוח";
   if (type === "distribution_point") return "נקודת חלוקה";
+  if (type === "voucher") return "שובר דיגיטלי";
+  if (type === "ticket") return "כרטיס דיגיטלי";
   return type || "לא צוין";
 }
 
@@ -7870,8 +8607,9 @@ function renderDeliveryOptionDetails(option) {
 function getSelectedDeliveryOption(payload, selectedId) {
   const options = getDeliveryOptions(payload);
   if (!options.length) return null;
+  if (options.length === 1) return options[0];
   if (selectedId) return options.find((option) => option.option_id === selectedId) || null;
-  return options.length === 1 ? options[0] : null;
+  return null;
 }
 
 function validateDeliveryChoice(payload, selectedId) {
@@ -7893,10 +8631,18 @@ function collectSellerDeliveryOptions(formData) {
   const fieldErrors = {};
   const fulfillmentType = String(formData.get("sellerFulfillmentType") || state.form.sellerFulfillmentType || "delivery").trim();
   if (fulfillmentType === "delivery") {
+    const label = String(formData.get("sellerDeliveryLabel1") || state.form.sellerDeliveryLabel1 || "משלוח").trim() || "משלוח";
+    const rawCost = String(formData.get("sellerDeliveryCost1") || state.form.sellerDeliveryCost1 || "0").trim();
+    const cost = Number(rawCost || 0);
+    if (!Number.isFinite(cost) || cost < 0) {
+      errors.push("עלות המשלוח אינה תקינה.");
+      fieldErrors.sellerDeliveryCost1 = "עלות המשלוח חייבת להיות מספר לא שלילי.";
+      return { options, errors, fieldErrors };
+    }
     options.push({
       option_type: "delivery",
-      label: "משלוח",
-      cost: 0,
+      label,
+      cost,
       sort_order: 0
     });
     return { options, errors, fieldErrors };
@@ -7982,6 +8728,113 @@ function rememberSellerCreateForm(formData) {
   }
   state.form.sellerFinalTerms = formData.get("sellerFinalTerms") === "on" ? "on" : "";
   state.form.sellerFinalConfirm = formData.get("sellerFinalConfirm") === "on" ? "on" : "";
+  persistSellerCreateResume();
+}
+
+function parseDistributionPointLabel(value) {
+  const parts = String(value || "").split(" · ").map((part) => part.trim()).filter(Boolean);
+  const title = String(parts.shift() || "");
+  let address = "";
+  let city = "";
+  let instructions = "";
+  let locationUrl = "";
+  for (const part of parts) {
+    if (part.startsWith("הוראות: ")) instructions = part.slice("הוראות: ".length).trim();
+    else if (part.startsWith("קישור מיקום: ")) locationUrl = part.slice("קישור מיקום: ".length).trim();
+    else if (!address && !city) {
+      const addressParts = part.split(",").map((item) => item.trim());
+      address = String(addressParts.shift() || "");
+      city = addressParts.join(", ");
+    }
+  }
+  return { title, address, city, instructions, locationUrl };
+}
+
+function sellerCreateResumeFields() {
+  const fields = [
+    "sellerTitle", "sellerDescription", "sellerDealType", "sellerPrice", "sellerMinUnits", "sellerMaxUnits", "sellerDeadline", "sellerFulfillmentType",
+    "sellerVoucherFaceValue", "sellerVoucherValidUntil", "sellerVoucherLocation", "sellerVoucherInstructions", "sellerVoucherTerms",
+    "sellerTicketEventName", "sellerTicketStartsAt", "sellerTicketEndsAt", "sellerTicketVenueName", "sellerTicketVenueAddress", "sellerTicketVenueCity", "sellerTicketEntryInstructions"
+  ];
+  for (let slot = 1; slot <= 5; slot += 1) {
+    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl"]) fields.push(`sellerDelivery${suffix}${slot}`);
+  }
+  return fields;
+}
+
+function persistSellerCreateResume() {
+  try {
+    const fields = {};
+    for (const key of sellerCreateResumeFields()) {
+      const limit = /Description|Instructions|Terms/.test(key) ? 2000 : 500;
+      fields[key] = String(state.form[key] || "").slice(0, limit);
+    }
+    const record = {
+      _v: SELLER_CREATE_RESUME_SCHEMA_VERSION,
+      updated_at: new Date().toISOString(),
+      draft_id: String(state.sellerDraftId || "").slice(0, 80),
+      request_key: String(state.sellerDraftRequestKey || "").slice(0, 120),
+      editor_version: String(state.sellerDraftEditorVersion || "").slice(0, 80),
+      seller_id: currentSellerAuth().authenticated ? String(currentSellerContext().seller_id || "").slice(0, 120) : "",
+      had_local_images: readSellerImages().some((image) => !image.persistedImageId),
+      fields
+    };
+    const serialized = JSON.stringify(record);
+    if (serialized.length <= 20_000) localStorage.setItem(SELLER_CREATE_RESUME_KEY, serialized);
+  } catch {}
+}
+
+function hydrateSellerCreateResume() {
+  try {
+    const auth = currentSellerAuth();
+    if (!usesDemoSellerContext() && !auth.authenticated) return;
+    const record = JSON.parse(localStorage.getItem(SELLER_CREATE_RESUME_KEY) || "null");
+    const age = Date.now() - new Date(record?.updated_at || 0).getTime();
+    if (!record || record._v !== SELLER_CREATE_RESUME_SCHEMA_VERSION || !Number.isFinite(age) || age > SELLER_CREATE_RESUME_TTL_MS) {
+      localStorage.removeItem(SELLER_CREATE_RESUME_KEY);
+      return;
+    }
+    const activeSellerId = String(currentSellerContext().seller_id || "");
+    if (!record.seller_id || String(record.seller_id) !== activeSellerId) {
+      localStorage.removeItem(SELLER_CREATE_RESUME_KEY);
+      return;
+    }
+    for (const key of sellerCreateResumeFields()) {
+      if (Object.prototype.hasOwnProperty.call(record.fields || {}, key)) state.form[key] = String(record.fields[key] || "");
+    }
+    state.sellerDraftId = /^[0-9a-f-]{20,80}$/i.test(String(record.draft_id || "")) ? String(record.draft_id) : "";
+    state.sellerDraftRequestKey = String(record.request_key || "").slice(0, 120);
+    state.sellerDraftEditorVersion = String(record.editor_version || "").slice(0, 80);
+    if (record.had_local_images && !readSellerImages().length) {
+      state.sellerImageUploadStatus = "error";
+      state.sellerImageUploadError = "פרטי הטיוטה נשמרו, אך קובצי תמונה מקומיים אינם נשמרים בדפדפן מטעמי פרטיות. יש לבחור אותם שוב.";
+    }
+  } catch {
+    try { localStorage.removeItem(SELLER_CREATE_RESUME_KEY); } catch {}
+  }
+}
+
+function clearSellerCreateResume() {
+  state.sellerDraftId = "";
+  state.sellerDraftRequestKey = "";
+  state.sellerDraftEditorVersion = "";
+  try { localStorage.removeItem(SELLER_CREATE_RESUME_KEY); } catch {}
+}
+
+function rememberSellerReturnTo() {
+  if (!String(location.pathname || "").startsWith("/app/seller")) return;
+  const returnTo = `${location.pathname}${location.search}`.slice(0, 2048);
+  try { sessionStorage.setItem(SELLER_RETURN_TO_KEY, returnTo); } catch {}
+}
+
+function consumeSellerReturnTo() {
+  try {
+    const value = String(sessionStorage.getItem(SELLER_RETURN_TO_KEY) || "");
+    sessionStorage.removeItem(SELLER_RETURN_TO_KEY);
+    return value.startsWith("/app/seller") && value.length <= 2048 ? value : "";
+  } catch {
+    return "";
+  }
 }
 
 function friendlyApiCode(error) {
@@ -8064,6 +8917,8 @@ function nativePendingPaymentProjection(dealId, flow) {
     deliveryMethodLabel: text(flow?.deliveryMethodLabel, 160),
     deliveryCost: Number(flow?.deliveryCost || 0),
     affiliateRef: text(flow?.affiliateRef, 240),
+    trafficSource: flow?.trafficSource === "mall" ? "mall" : "",
+    mallSessionId: text(flow?.mallSessionId, 64),
     estimatedTotal: Number(flow?.estimatedTotal || 0),
     otpToken: text(flow?.otpToken, 2048),
     otpChallengeId: text(flow?.otpChallengeId, 240),
@@ -8153,7 +9008,7 @@ function readFlow() {
 function safeResumeProjection(dealId, flow) {
   const allowed = [
     "dealTitle", "qty", "deliveryOptionId", "deliveryMethodType",
-    "deliveryMethodLabel", "deliveryCost", "affiliateRef", "estimatedTotal",
+    "deliveryMethodLabel", "deliveryCost", "affiliateRef", "trafficSource", "mallSessionId", "estimatedTotal",
     "startedAt"
   ];
   const projected = {
@@ -8354,6 +9209,7 @@ function hydrateFormFromFlow(flow) {
 }
 
 function renderSellerAuthGate() {
+  rememberSellerReturnTo();
   const auth = currentSellerAuth();
   const configured = auth.configured !== false;
   return `
@@ -8618,7 +9474,7 @@ function failValidation(title, items) {
     items
   };
   render();
-  if (state.route.name === "seller-new") focusCreateDealError();
+  if (["seller-new", "seller-edit"].includes(state.route.name)) focusCreateDealError();
 }
 
 function esc(value) {

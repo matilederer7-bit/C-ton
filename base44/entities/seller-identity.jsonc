@@ -1,0 +1,50 @@
+{
+  "name": "SellerIdentity",
+  "description": "Base44 login-to-canonical-seller binding and onboarding status; no payout or settlement data.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "base44_user_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    },
+    "seller_account_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    },
+    "business_name": { "type": "string", "minLength": 1, "maxLength": 160 },
+    "verification_status": {
+      "type": "string",
+      "enum": ["pending", "approved", "rejected"],
+      "default": "pending",
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    },
+    "onboarding_status": {
+      "type": "string",
+      "enum": ["started", "profile_complete", "approved", "rejected"],
+      "default": "started",
+      "rls": { "write": { "user_condition": { "role": "admin" } } }
+    }
+  },
+  "required": ["base44_user_id", "seller_account_id", "business_name", "verification_status", "onboarding_status"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": {
+      "$or": [
+        { "data.base44_user_id": "{{user.id}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "update": {
+      "$or": [
+        { "data.base44_user_id": "{{user.id}}" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

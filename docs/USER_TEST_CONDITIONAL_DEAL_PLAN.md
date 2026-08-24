@@ -1,5 +1,8 @@
 # Conditional Deal User Test Plan
 
+> **V1.1 product-scope notice (2026-08-23):** the user test must now cover both
+> direct-link and organic Mall discovery. All real-money restrictions remain.
+
 Status: required before any real-money pilot. This is a human research plan, not a code readiness claim.
 
 ## Goal

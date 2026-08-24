@@ -1,5 +1,9 @@
 # [HISTORICAL] Pass 2 Backend + DB Alignment
 
+> **V1.1 clarification (2026-08-23):** the 2026-04 no-Mall conclusion below was
+> superseded by the canonical focused Mall decision. This pass remains
+> historical database evidence.
+
 > **Note 2026-04-22:** references below to `/app/marketplace` as a "compatibility route and legacy wording" reflect Apr 2026 state. The canonical current product has no public marketplace route at all. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md).
 
 Last updated: 2026-04-09 (historical)

@@ -1,5 +1,9 @@
 # Money Pilot Scope
 
+> **V1.1 product-scope notice (2026-08-23):** references that assume a
+> direct-link-only product are historical. The Mall is a read/discovery layer
+> and does not change any money-pilot boundary in this document.
+
 Status: narrow pilot proposal only. This does not declare live-money readiness.
 Do not run this as a real-money pilot until provider sandbox dry-run evidence,
 admin/debug production guards, export consistency, and the conditional-deal user

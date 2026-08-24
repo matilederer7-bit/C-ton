@@ -72,15 +72,20 @@ import { buildPayoutProvider } from "./payout_provider.js";
 import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
 import {
   SELLER_SESSION_COOKIE,
+  hasSellerSessionCookie,
   hashSellerSessionToken,
   normalizeSellerDisplayName,
   normalizeSellerId,
-  parseCookies
+  parseCookies,
+  safeSellerReturnTo,
+  sellerAuthFailurePayload,
+  type SellerAuthFailureReason
 } from "./seller_auth.js";
 import { ensureAdminControlPlaneTables, safeHeaderId } from "./admin_control_plane.js";
 import { ensureAdminIdentityTables } from "./admin_identity.js";
 import { ensureParticipantTrackingTables, issueParticipantTrackingToken } from "./participant_tracking_security.js";
 import { ensureAdminInterventionTables, isFlagActive } from "./admin_intervention.js";
+import { mallStatusForState } from "./mall_read_model.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -118,6 +123,50 @@ function hashOptional(value: unknown): string | null {
 
 function hashJoinRequestPayload(payload: Record<string, unknown>): string {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? "null" : serialized;
+  }
+  if (Array.isArray(value)) return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(",")}}`;
+}
+
+function deterministicUuid(input: string): string {
+  const bytes = Buffer.from(createHash("sha256").update(input).digest().subarray(0, 16));
+  bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x50;
+  bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+  const hex = bytes.toString("hex");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+}
+
+function normalizeJoinAcquisition(body: Record<string, unknown>): {
+  requestedSource: "direct" | "mall";
+  mallSessionId: string | null;
+} {
+  const rawSource = String(body.source || "").trim();
+  if (rawSource && rawSource !== "direct" && rawSource !== "mall") {
+    const err: any = new Error("source must be direct or mall");
+    err.statusCode = 400;
+    err.code = "acquisition_source_invalid";
+    throw err;
+  }
+  if (rawSource !== "mall") return { requestedSource: "direct", mallSessionId: null };
+
+  const mallSessionId = String(body.mall_session_id || "").trim();
+  if (!/^[A-Za-z0-9:_-]{8,100}$/.test(mallSessionId)) {
+    const err: any = new Error("mall_session_id must be an opaque 8-100 character token");
+    err.statusCode = 400;
+    err.code = "mall_session_id_invalid";
+    throw err;
+  }
+  return { requestedSource: "mall", mallSessionId };
 }
 
 async function ensureLegalAcceptanceTables(withTxFn: <T>(fn: (c: PoolClient) => Promise<T>) => Promise<T>) {
@@ -222,9 +271,35 @@ async function ensureSellerActionAllowed(c: any, sellerId: string, action: Selle
   );
   const status = result.rowCount ? String(result.rows[0].seller_status || "Active") : "Active";
   if (!sellerStatusBlocksAction(status, action)) return status;
-  const err: any = new Error(sellerStatusMessage(status));
-  err.statusCode = 403;
-  err.code = sellerStatusErrorCode(status);
+  throwSellerAuthFailure("forbidden", null, "/app/seller", 403, {
+    message: sellerStatusMessage(status),
+    reasonCode: sellerStatusErrorCode(status)
+  });
+}
+
+function sellerReturnTo(req: any, fallback = "/app/seller") {
+  return safeSellerReturnTo(req?.headers?.["x-siton-return-to"], fallback);
+}
+
+function throwSellerAuthFailure(
+  reason: SellerAuthFailureReason,
+  req: any,
+  fallback: string,
+  statusCode: number,
+  options?: { message?: string; reasonCode?: string }
+): never {
+  const failure = sellerAuthFailurePayload(reason, {
+    returnTo: sellerReturnTo(req, fallback),
+    ...(options?.message ? { message: options.message } : {}),
+    ...(options?.reasonCode ? { reasonCode: options.reasonCode } : {})
+  });
+  const err: any = new Error(failure.message);
+  err.statusCode = statusCode;
+  err.code = failure.code;
+  err.productCode = failure.product_code;
+  err.publicError = failure.error;
+  err.reasonCode = failure.reason_code;
+  err.sellerAuth = failure.seller_auth;
   throw err;
 }
 
@@ -233,17 +308,16 @@ async function requireSellerAuthority(req: any, c: any) {
     return sellerAuthorityFromDemoRequest(req);
   }
   if (!SELLER_SESSION_SECRET) {
-    const err: any = new Error("seller auth is not configured for this non-demo runtime");
-    err.statusCode = 503;
-    err.code = "seller_auth_unavailable";
-    throw err;
+    throwSellerAuthFailure("unavailable", req, "/app/seller", 503);
   }
   const session = await sellerSessionContext(req, c);
   if (!session) {
-    const err: any = new Error("seller session is required for this non-demo runtime");
-    err.statusCode = 401;
-    err.code = "seller_auth_required";
-    throw err;
+    throwSellerAuthFailure(
+      hasSellerSessionCookie(req.headers?.cookie) ? "expired" : "required",
+      req,
+      req.routerPath === "/deals" || req.routeOptions?.url === "/deals" ? "/app/seller/new" : "/app/seller",
+      401
+    );
   }
   return {
     seller_id: session.seller_id,
@@ -2423,11 +2497,25 @@ app.setErrorHandler((error: any, _req, reply) => {
   if (httpStatus >= 500) {
     app.log.error({ err: error }, "unhandled route error");
   }
-  const payload: { ok: false; error: string; code?: string } = {
+  const hasSafeProductEnvelope = Boolean(error.publicError || error.productCode);
+  const exposeDetails = httpStatus < 500 || hasSafeProductEnvelope;
+  const payload: {
+    ok: false;
+    error: string;
+    message?: string;
+    code?: string;
+    product_code?: string;
+    reason_code?: string;
+    seller_auth?: Record<string, unknown>;
+  } = {
     ok: false,
-    error: error.message || "internal_error"
+    error: exposeDetails ? (error.publicError || error.message || "request_failed") : "internal_error"
   };
-  if (error.code) payload.code = String(error.code);
+  if (exposeDetails && error.publicError && error.message) payload.message = String(error.message);
+  if (exposeDetails && error.code) payload.code = String(error.code);
+  if (exposeDetails && error.productCode) payload.product_code = String(error.productCode);
+  if (exposeDetails && error.reasonCode) payload.reason_code = String(error.reasonCode);
+  if (exposeDetails && error.sellerAuth && typeof error.sellerAuth === "object") payload.seller_auth = error.sellerAuth;
   return reply.code(httpStatus).send(payload);
 });
 
@@ -2462,7 +2550,10 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
   requireUuid(imageId, "image_id");
   const row = await withTx(async (c) => {
     const result = await c.query(
-      `SELECT storage_key, mime_type FROM siton.deal_images WHERE image_id=$1`,
+      `SELECT i.storage_key, i.mime_type, d.state, d.published_at, d.seller_id
+       FROM siton.deal_images i
+       JOIN siton.deals d ON d.deal_id=i.deal_id
+       WHERE i.image_id=$1`,
       [imageId]
     );
     if (!result.rowCount) {
@@ -2470,12 +2561,21 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
       err.statusCode = 404;
       throw err;
     }
-    return result.rows[0];
+    const image = result.rows[0];
+    if (!image.published_at) {
+      const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+      if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) {
+        const err: any = new Error("image not found");
+        err.statusCode = 404;
+        throw err;
+      }
+    }
+    return image;
   });
   const file = await readDealImage(String(row.storage_key));
   return reply
     .header("content-type", String(row.mime_type))
-    .header("cache-control", "public, max-age=31536000, immutable")
+    .header("cache-control", row.published_at ? "public, max-age=31536000, immutable" : "private, no-store")
     .send(file);
 });
 
@@ -2575,15 +2675,62 @@ app.post("/deals", async (req: any) => {
   }
   const deadlineIso = new Date(deadlineMs).toISOString();
 
+  const createIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
+  if (createIdempotencyKey && !/^[A-Za-z0-9:_-]{8,160}$/.test(createIdempotencyKey)) {
+    throw Object.assign(new Error("idempotency key is invalid"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
+  }
+  const createRequestHash = createHash("sha256")
+    .update(canonicalJson({
+      title,
+      description,
+      price_per_unit: priceRaw,
+      min_units: minUnits,
+      max_units: maxUnits,
+      threshold_units: draftThreshold,
+      deadline: body.deadline === undefined || body.deadline === null || body.deadline === "" ? null : deadlineIso,
+      deal_type: dealType,
+      delivery_options: dealType === "physical_product" ? deliveryOptions : [],
+      voucher_terms: dealType === "voucher" ? voucherTermsInput : null,
+      ticket_terms: dealType === "ticket" ? ticketTermsInput : null
+    }))
+    .digest("hex");
+
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
+    const stableDealId = createIdempotencyKey
+      ? deterministicUuid(`seller_deal_create:${sellerAuthority.seller_id}:${createIdempotencyKey}`)
+      : randomUUID();
+    if (createIdempotencyKey) {
+      await c.query("SET LOCAL lock_timeout = '20s'");
+      await c.query(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+        [`seller_deal_create:${sellerAuthority.seller_id}:${createIdempotencyKey}`]
+      );
+      const prior = await c.query(
+        `SELECT request_hash, response_jsonb
+         FROM siton.idempotency_log
+         WHERE entity_type='deal' AND entity_id=$1
+           AND action_name='seller_deal_create' AND idempotency_key=$2`,
+        [stableDealId, createIdempotencyKey]
+      );
+      if (prior.rowCount) {
+        if (String(prior.rows[0].request_hash || "") !== createRequestHash) {
+          throw Object.assign(new Error("idempotency key was already used with a different Draft payload"), {
+            statusCode: 409,
+            code: "IDEMPOTENCY_PAYLOAD_MISMATCH"
+          });
+        }
+        return prior.rows[0].response_jsonb;
+      }
+    }
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (title, description, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+       (deal_id, title, description, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
        RETURNING deal_id, state, deal_type`,
       [
+        stableDealId,
         title,
         description || null,
         priceRaw,
@@ -2611,9 +2758,130 @@ app.post("/deals", async (req: any) => {
     if (dealType === "ticket" && ticketTermsInput) {
       await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
     }
+    if (createIdempotencyKey) {
+      await c.query(
+        `INSERT INTO siton.idempotency_log
+           (entity_type, entity_id, action_name, idempotency_key, request_hash, response_code, response_jsonb)
+         VALUES ('deal',$1,'seller_deal_create',$2,$3,'OK',$4)`,
+        [deal.deal_id, createIdempotencyKey, createRequestHash, JSON.stringify(deal)]
+      );
+    }
     return deal;
   }, true);
   return r;
+});
+
+app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  await ensureDealTypeTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
+  const titleFields = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
+  const hasTitle = titleFields.some(hasOwn);
+  const hasEditableField = hasTitle || ["description", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
+  if (!hasEditableField) {
+    throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
+  }
+
+  return withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    const currentResult = await c.query(
+      `SELECT deal_id, seller_id, state, title, description, price_per_unit,
+              min_units, max_units, threshold_units, deadline, deal_type, updated_at
+       FROM siton.deals
+       WHERE deal_id=$1
+       FOR UPDATE`,
+      [dealId]
+    );
+    if (!currentResult.rowCount || normalizeSellerId(currentResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    const current = currentResult.rows[0];
+    if (String(current.state) !== "Draft") {
+      throw Object.assign(new Error("only a Draft can be edited"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
+    }
+    const expectedUpdatedAt = String(body.expected_updated_at || "").trim();
+    if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== new Date(String(current.updated_at)).getTime()) {
+      throw Object.assign(new Error("Draft changed since it was loaded"), { statusCode: 409, code: "DRAFT_EDITOR_STALE" });
+    }
+    if (hasOwn("deal_type") && normalizeDealType(body.deal_type, String(current.deal_type) as DealType) !== String(current.deal_type)) {
+      throw Object.assign(new Error("deal_type cannot be changed by the generic Draft editor"), { statusCode: 409, code: "DEAL_TYPE_EDIT_REQUIRES_TERMS" });
+    }
+    if (hasOwn("voucher_terms") && String(current.deal_type) !== "voucher") {
+      throw Object.assign(new Error("voucher_terms can only update a voucher Draft"), { statusCode: 409, code: "DEAL_TYPE_TERMS_MISMATCH" });
+    }
+    if (hasOwn("ticket_terms") && String(current.deal_type) !== "ticket") {
+      throw Object.assign(new Error("ticket_terms can only update a ticket Draft"), { statusCode: 409, code: "DEAL_TYPE_TERMS_MISMATCH" });
+    }
+    if (hasOwn("voucher_terms") && (!body.voucher_terms || typeof body.voucher_terms !== "object" || Array.isArray(body.voucher_terms))) {
+      throw Object.assign(new Error("voucher_terms must be an object"), { statusCode: 400, code: "voucher_terms_invalid" });
+    }
+    if (hasOwn("ticket_terms") && (!body.ticket_terms || typeof body.ticket_terms !== "object" || Array.isArray(body.ticket_terms))) {
+      throw Object.assign(new Error("ticket_terms must be an object"), { statusCode: 400, code: "ticket_terms_invalid" });
+    }
+
+    const title = hasTitle ? readCreateDealTitle(body) : String(current.title || "").trim();
+    if (!title) throw Object.assign(new Error("title is required"), { statusCode: 400, code: "title_required" });
+    if (title.length > 200) throw Object.assign(new Error("title must be 200 characters or fewer"), { statusCode: 400, code: "title_too_long" });
+    const description = hasOwn("description") ? String(body.description || "").trim() : String(current.description || "");
+    if (description.length > 420) throw Object.assign(new Error("description must be 420 characters or fewer"), { statusCode: 400, code: "description_too_long" });
+    const price = hasOwn("price_per_unit") ? Number(body.price_per_unit) : Number(current.price_per_unit);
+    if (!Number.isFinite(price) || price <= 0) throw Object.assign(new Error("price_per_unit must be a positive number"), { statusCode: 400, code: "price_invalid" });
+    const minUnits = hasOwn("min_units") ? Number(body.min_units) : Number(current.min_units);
+    const maxUnits = hasOwn("max_units") ? Number(body.max_units) : Number(current.max_units);
+    if (!Number.isInteger(minUnits) || minUnits < 1) throw Object.assign(new Error("min_units must be a positive integer"), { statusCode: 400, code: "min_units_invalid" });
+    if (!Number.isInteger(maxUnits) || maxUnits < minUnits) throw Object.assign(new Error("max_units must be an integer at least min_units"), { statusCode: 400, code: "max_units_invalid" });
+    let deadline = new Date(current.deadline).toISOString();
+    if (hasOwn("deadline")) {
+      const deadlineMs = new Date(body.deadline).getTime();
+      if (!Number.isFinite(deadlineMs)) throw Object.assign(new Error("deadline must be a valid ISO date"), { statusCode: 400, code: "deadline_invalid" });
+      const deadlineDiffMs = deadlineMs - Date.now();
+      if (deadlineDiffMs < DEADLINE_MIN_MS) throw Object.assign(new Error("deadline must be at least 2 hours in the future"), { statusCode: 400, code: "deadline_below_minimum" });
+      if (deadlineDiffMs > DEADLINE_MAX_MS) throw Object.assign(new Error("deadline must be within 7 days from now"), { statusCode: 400, code: "deadline_above_maximum" });
+      deadline = new Date(deadlineMs).toISOString();
+    }
+
+    const updated = await c.query(
+      `UPDATE siton.deals
+       SET title=$2, description=$3, price_per_unit=$4, min_units=$5, max_units=$6,
+           threshold_units=$7, deadline=$8, updated_at=now()
+       WHERE deal_id=$1
+       RETURNING deal_id, state, title, description, price_per_unit, min_units,
+                 max_units, threshold_units, deadline, deal_type, updated_at`,
+      [dealId, title, description || null, price, minUnits, maxUnits, Math.ceil(0.9 * minUnits), deadline]
+    );
+
+    if (hasOwn("delivery_options")) {
+      if (!Array.isArray(body.delivery_options) || body.delivery_options.length > 5) {
+        throw Object.assign(new Error("delivery_options must contain at most 5 options"), { statusCode: 400, code: "delivery_options_invalid" });
+      }
+      const options = body.delivery_options.map((option: any, index: number) => ({
+        option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
+        label: String(option?.label || "").trim().slice(0, 160),
+        cost: Number(option?.cost || 0),
+        sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index
+      }));
+      if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
+        throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
+      }
+      await c.query(`DELETE FROM siton.deal_delivery_options WHERE deal_id=$1`, [dealId]);
+      if (String(current.deal_type) === "physical_product") {
+        for (const option of options) {
+          await c.query(
+            `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
+             VALUES ($1,$2,$3,$4,$5)`,
+            [dealId, option.option_type, option.label, option.cost, option.sort_order]
+          );
+        }
+      }
+    }
+    if (hasOwn("voucher_terms")) await upsertVoucherTerms(c, dealId, body.voucher_terms);
+    if (hasOwn("ticket_terms")) await upsertTicketTerms(c, dealId, body.ticket_terms);
+    return { ok: true, reused_draft: true, draft: updated.rows[0] };
+  });
 });
 
 function readCreateDealTitle(body: Record<string, any>) {
@@ -2645,9 +2913,9 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
     }
     const sourceDeal = source.rows[0];
     if (normalizeSellerId(sourceDeal.seller_id) !== sellerAuthority.seller_id) {
-      const err: any = new Error("seller is not authorized for this deal");
-      err.statusCode = 403;
-      err.code = "seller_deal_forbidden";
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      err.code = "deal_not_found";
       throw err;
     }
 
@@ -2709,6 +2977,21 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   const body = req.body || {};
   const parsed = parseImageUploadBody(body);
   const originalFilename = String(body.original_filename || body.filename || "").trim() || null;
+  const imageIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
+  if (imageIdempotencyKey.length > 200) {
+    throw Object.assign(new Error("idempotency key is too long"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
+  }
+  const imageRequestHash = createHash("sha256")
+    .update(parsed.mimeType)
+    .update("\0")
+    .update(parsed.base64Data)
+    .update("\0")
+    .update(originalFilename || "")
+    .update("\0")
+    .update(String(Boolean(isAccepted(body.is_primary))))
+    .update("\0")
+    .update(String(body.sort_order ?? ""))
+    .digest("hex");
 
   const response = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
@@ -2726,8 +3009,8 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
     }
     const deal = dealResult.rows[0];
     if (normalizeSellerId(deal.seller_id) !== sellerAuthority.seller_id) {
-      const err: any = new Error("seller is not authorized for this deal");
-      err.statusCode = 403;
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
       throw err;
     }
     if (String(deal.state) !== "Draft") {
@@ -2735,6 +3018,28 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       err.statusCode = 409;
       err.code = "deal_already_published";
       throw err;
+    }
+    if (imageIdempotencyKey) {
+      const prior = await c.query(
+        `SELECT request_hash, response_jsonb
+         FROM siton.idempotency_log
+         WHERE entity_type='deal' AND entity_id=$1
+           AND action_name='seller_deal_image_upload' AND idempotency_key=$2
+         LIMIT 1`,
+        [dealId, imageIdempotencyKey]
+      );
+      if (prior.rowCount) {
+        if (String(prior.rows[0].request_hash || "") !== imageRequestHash) {
+          throw Object.assign(new Error("idempotency key was already used with a different image payload"), {
+            statusCode: 409,
+            code: "IDEMPOTENCY_PAYLOAD_MISMATCH"
+          });
+        }
+        const replay = prior.rows[0].response_jsonb && typeof prior.rows[0].response_jsonb === "object"
+          ? prior.rows[0].response_jsonb
+          : {};
+        return { ...replay, idempotent_replay: true };
+      }
     }
     const existingImages = await c.query(
       `SELECT image_id, is_primary FROM siton.deal_images WHERE deal_id=$1 ORDER BY sort_order ASC, created_at ASC`,
@@ -2757,12 +3062,12 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       base64Data: parsed.base64Data
     });
 
-    let inserted;
+    let responsePayload: any;
     try {
       if (requestedPrimary) {
         await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
       }
-      inserted = await c.query(
+      const inserted = await c.query(
         `INSERT INTO siton.deal_images
            (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, checksum_sha256, sort_order, is_primary)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
@@ -2779,6 +3084,28 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
           requestedPrimary
         ]
       );
+      const image = inserted.rows[0];
+      responsePayload = {
+        ok: true,
+        image: {
+          image_id: image.image_id,
+          deal_id: image.deal_id,
+          public_url: getDealImagePublicUrl(image),
+          image_url: getDealImagePublicUrl(image),
+          mime_type: image.mime_type,
+          size_bytes: Number(image.size_bytes),
+          is_primary: Boolean(image.is_primary),
+          sort_order: Number(image.sort_order || 0)
+        }
+      };
+      if (imageIdempotencyKey) {
+        await c.query(
+          `INSERT INTO siton.idempotency_log
+             (entity_type, entity_id, action_name, idempotency_key, request_hash, response_code, response_jsonb)
+           VALUES ('deal',$1,'seller_deal_image_upload',$2,$3,'OK',$4)`,
+          [dealId, imageIdempotencyKey, imageRequestHash, JSON.stringify(responsePayload)]
+        );
+      }
     } catch (error) {
       try {
         await deleteDealImageFile(saved.storage_key);
@@ -2789,10 +3116,86 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       }
       throw error;
     }
-    const image = inserted.rows[0];
+    return responsePayload;
+  });
+
+  // A successful write must not be visible to the client before COMMIT.
+  await hitTestFault("http.upload.after_commit_before_response");
+  return reply.code(201).send(response);
+});
+
+app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const body = req.body || {};
+  const requestedOrder = Array.isArray(body.ordered_image_ids)
+    ? body.ordered_image_ids.map((value: unknown) => String(value || "").trim())
+    : null;
+  const requestedPrimary = body.primary_image_id === null || body.primary_image_id === undefined
+    ? null
+    : String(body.primary_image_id || "").trim();
+  if (requestedOrder && requestedOrder.length > 5) {
+    throw Object.assign(new Error("deal can have up to 5 images"), { statusCode: 400, code: "deal_image_limit" });
+  }
+  for (const imageId of requestedOrder || []) requireUuid(imageId, "image_id");
+  if (requestedPrimary) requireUuid(requestedPrimary, "primary_image_id");
+  if (requestedOrder && new Set(requestedOrder).size !== requestedOrder.length) {
+    throw Object.assign(new Error("ordered_image_ids must not contain duplicates"), { statusCode: 400, code: "DEAL_IMAGE_ORDER_INVALID" });
+  }
+
+  return withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
+    const dealResult = await c.query(`SELECT seller_id, state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
+    if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    if (String(dealResult.rows[0].state) !== "Draft") {
+      throw Object.assign(new Error("deal already published"), { statusCode: 409, code: "deal_already_published" });
+    }
+    const existing = await c.query(
+      `SELECT image_id, mime_type, size_bytes, is_primary, sort_order
+       FROM siton.deal_images
+       WHERE deal_id=$1
+       ORDER BY sort_order ASC, created_at ASC
+       FOR UPDATE`,
+      [dealId]
+    );
+    const existingIds = existing.rows.map((row: any) => String(row.image_id));
+    const orderedIds = requestedOrder || existingIds;
+    if (orderedIds.length !== existingIds.length || orderedIds.some((imageId: string) => !existingIds.includes(imageId))) {
+      throw Object.assign(new Error("ordered_image_ids must contain every current deal image exactly once"), {
+        statusCode: 409,
+        code: "DEAL_IMAGE_ORDER_STALE"
+      });
+    }
+    const currentPrimary = existing.rows.find((row: any) => Boolean(row.is_primary));
+    const primaryImageId = requestedPrimary || String(currentPrimary?.image_id || orderedIds[0] || "");
+    if (primaryImageId && !existingIds.includes(primaryImageId)) {
+      throw Object.assign(new Error("primary_image_id must belong to this Draft"), { statusCode: 400, code: "DEAL_IMAGE_PRIMARY_INVALID" });
+    }
+
+    await c.query(`UPDATE siton.deal_images SET is_primary=false WHERE deal_id=$1`, [dealId]);
+    for (const [sortOrder, imageId] of orderedIds.entries()) {
+      await c.query(
+        `UPDATE siton.deal_images
+         SET sort_order=$3, is_primary=($2=$4)
+         WHERE deal_id=$1 AND image_id=$2`,
+        [dealId, imageId, sortOrder, primaryImageId || null]
+      );
+    }
+    const updated = await c.query(
+      `SELECT image_id, deal_id, mime_type, size_bytes, is_primary, sort_order
+       FROM siton.deal_images
+       WHERE deal_id=$1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [dealId]
+    );
     return {
       ok: true,
-      image: {
+      images: updated.rows.map((image: any) => ({
         image_id: image.image_id,
         deal_id: image.deal_id,
         public_url: getDealImagePublicUrl(image),
@@ -2801,13 +3204,9 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
         size_bytes: Number(image.size_bytes),
         is_primary: Boolean(image.is_primary),
         sort_order: Number(image.sort_order || 0)
-      }
+      }))
     };
   });
-
-  // A successful write must not be visible to the client before COMMIT.
-  await hitTestFault("http.upload.after_commit_before_response");
-  return reply.code(201).send(response);
 });
 
 app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: any) => {
@@ -2827,7 +3226,7 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
     );
     if (!result.rowCount) throw Object.assign(new Error("deal image not found"), { statusCode: 404, code: "deal_image_not_found" });
     const image = result.rows[0];
-    if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) throw Object.assign(new Error("seller is not authorized for this deal"), { statusCode: 403 });
+    if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) throw Object.assign(new Error("deal image not found"), { statusCode: 404, code: "deal_image_not_found" });
     if (String(image.state) !== "Draft") throw Object.assign(new Error("deal already published"), { statusCode: 409, code: "deal_already_published" });
     await c.query(`DELETE FROM siton.deal_images WHERE image_id=$1`, [imageId]);
     if (image.is_primary) {
@@ -2991,6 +3390,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const deliveryAddress = String(body.delivery_address || "").trim() || null;
   const deliveryCity = String(body.delivery_city || "").trim() || null;
   const deliveryNotes = String(body.delivery_notes || "").trim() || null;
+  const acquisition = normalizeJoinAcquisition(body);
   if (deliveryNotes && deliveryNotes.length > 200) {
     const err: any = new Error("delivery_notes must be 200 characters or less");
     err.statusCode = 400;
@@ -3061,6 +3461,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     delivery_city: deliveryCity,
     delivery_notes: deliveryNotes,
     affiliate_ref: String(body.affiliate_ref || "").trim().slice(0, 120),
+    acquisition_source: acquisition.requestedSource,
+    mall_session_id: acquisition.mallSessionId,
     payment_disclosure_accepted: true
   });
   await ensureAdminControlPlaneTables(withTx);
@@ -3097,7 +3499,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
     // Lock the deal row to prevent concurrent over-booking
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units, seller_id, title, price_per_unit FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      `SELECT deal_id, state, max_units, seller_id, title, price_per_unit, deal_type, published_at
+       FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
     );
     if (!dealRow.rowCount) {
@@ -3183,9 +3586,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
          deal_id, buyer_id, qty, buyer_state, money_state,
          delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
          buyer_name, buyer_phone, buyer_email,
-         delivery_address, delivery_city, delivery_notes
+         delivery_address, delivery_city, delivery_notes, acquisition_source
        )
-       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
        RETURNING participant_id`,
       [
         dealId,
@@ -3200,7 +3603,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         buyerEmail,
         deliveryAddress,
         deliveryCity,
-        deliveryNotes
+        deliveryNotes,
+        acquisition.requestedSource
       ]
     );
     const pid = ins.rows[0].participant_id as string;
@@ -3209,8 +3613,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
 
     const affiliateRef = String(body.affiliate_ref || "").trim().slice(0, 120);
+    let acquisitionSource: "direct" | "mall" | "distributor" = acquisition.requestedSource;
     if (affiliateRef) {
-      await c.query(
+      const attribution = await c.query(
         `INSERT INTO siton.affiliate_attributions
            (affiliate_id, deal_id, participant_id, share_code)
          SELECT source.affiliate_id, $1, $2, $3
@@ -3224,9 +3629,31 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
            WHERE source_code=$3 AND deal_id=$1 AND disabled_at IS NULL
            LIMIT 1
          ) source
-         ON CONFLICT (participant_id) DO NOTHING`,
+         ON CONFLICT (participant_id) DO NOTHING
+         RETURNING attribution_id`,
         [dealId, pid, affiliateRef]
       );
+      if (attribution.rowCount) {
+        acquisitionSource = "distributor";
+        await c.query(
+          `UPDATE siton.participants SET acquisition_source='distributor' WHERE participant_id=$1`,
+          [pid]
+        );
+      }
+    }
+
+    if (acquisitionSource === "mall" && acquisition.mallSessionId && dealRow.rows[0].published_at) {
+      const mallStatus = mallStatusForState(String(dealRow.rows[0].state));
+      if (mallStatus) {
+        const mallJoinRetryToken = `evt_${createHash("sha256").update(acquisition.mallSessionId).digest("hex")}`;
+        await c.query(
+          `INSERT INTO siton.discovery_events
+             (event_type, client_event_id, deal_id, deal_type, mall_status, acquisition_source)
+           VALUES ('mall_join',$1,$2,$3,$4,'mall')
+           ON CONFLICT DO NOTHING`,
+          [mallJoinRetryToken, dealId, dealRow.rows[0].deal_type, mallStatus]
+        );
+      }
     }
 
     const authorizationPayload = authorizationId
@@ -3312,6 +3739,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       delivery_method_type: selectedDelivery?.option_type ?? null,
       delivery_method_label: selectedDelivery?.label ?? null,
       delivery_cost: deliveryCost,
+      acquisition_source: acquisitionSource,
       hold_total: Number(qty) * Number(dealRow.rows[0].price_per_unit || 0) + deliveryCost
     };
 
@@ -3348,7 +3776,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         delivery_option_id: selectedDelivery?.option_id ?? null,
         delivery_method_type: selectedDelivery?.option_type ?? null,
         delivery_method_label: selectedDelivery?.label ?? null,
-        delivery_cost: deliveryCost
+        delivery_cost: deliveryCost,
+        acquisition_source: acquisitionSource
       },
       response: canonicalResponse
     };

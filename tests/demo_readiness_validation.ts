@@ -17,8 +17,9 @@ check("demo-readiness route is registered", () => {
   assert.match(frontendRuntime, /app\.get\(["']\/api\/admin\/demo-readiness["']/);
 });
 
-// No marketplace / search / catalog route added
-check("no marketplace route added", () => {
+// One bounded Mall exists; duplicate/free-text catalog routes stay absent.
+check("canonical bounded Mall route is present without duplicate search APIs", () => {
+  assert.match(frontendRuntime, /app\.get\(["']\/api\/mall\/deals["']/i);
   assert.doesNotMatch(frontendRuntime, /app\.\w+\(["']\/api\/(marketplace|catalog|search)["']/i);
 });
 
@@ -183,11 +184,13 @@ try {
     assert.equal(body.product_contract.buyer_repeat_purchase_allowed, true);
   });
 
-  // 9. Product contract — no marketplace
-  await run("product_contract.link_only_no_marketplace is true", async () => {
+  // 9. Product contract — direct links plus bounded public Mall.
+  await run("product_contract keeps direct links and public Mall separate from state or money", async () => {
     const res = await app.inject({ method: "GET", url: "/api/admin/demo-readiness", headers: ADMIN_H });
     const body = res.json() as any;
-    assert.equal(body.product_contract.link_only_no_marketplace, true);
+    assert.equal(body.product_contract.direct_links_first_class, true);
+    assert.equal(body.product_contract.public_mall_discovery, true);
+    assert.equal(body.product_contract.mall_owns_state_or_money, false);
   });
 
   // 10. No state was mutated by the call (deals count unchanged)

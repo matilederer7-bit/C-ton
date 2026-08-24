@@ -1,5 +1,9 @@
 # RC Staging Deploy Smoke (LEGACY RENDER EVIDENCE)
 
+> **V1.1 product-scope notice (2026-08-23):** product statements in this
+> legacy Render evidence predate the canonical Mall decision. Render remains
+> legacy and this file is not an activation runbook.
+
 > Historical only. This report describes a superseded Render preview and is
 > not an activation runbook. Siton V1 production is Base44 + Supabase; use
 > `docs/EXTERNAL_ACTIVATION_CHECKLIST.md` for the current process.

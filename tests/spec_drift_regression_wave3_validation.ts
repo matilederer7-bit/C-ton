@@ -8,7 +8,7 @@
  *
  * The five invariants:
  *
- *   D1. No buyer-facing search / marketplace / catalog surfaces.
+ *   D1. One bounded public Mall at /app; no duplicate/free-text catalog API.
  *   D2. No 5% / 0.05 platform fee anywhere in live settlement code.
  *   D3. Fee base includes delivery (qty * price + delivery, excl. VAT).
  *   D4. A buyer can repeat-purchase the same deal (no UNIQUE (deal_id, buyer_id)).
@@ -34,37 +34,34 @@ async function run(name: string, fn: () => void | Promise<void>): Promise<void> 
   }
 }
 
-// ─── D1: no buyer-facing marketplace / search / catalog surfaces ───────────
+// ─── D1: canonical bounded Mall, without duplicate search/catalog truth ────
 
-await run("D1 — buyer-facing client has no marketplace/catalog/search route handlers", () => {
+await run("D1 — /app is the canonical Mall and duplicate discovery routes stay absent", () => {
   const app = read("frontend/app.js");
-  // Admin omnisearch action is allowed; buyer-facing marketplace routes are not.
+  assert.match(app, /mall/i, "frontend/app.js must render the Siton Mall at /app");
   assert.ok(
     !/case\s+['"]\/app\/marketplace['"]/.test(app),
-    "buyer-facing /app/marketplace route was re-introduced in frontend/app.js"
+    "duplicate /app/marketplace route was introduced"
   );
   assert.ok(
     !/case\s+['"]\/app\/catalog['"]/.test(app),
-    "buyer-facing /app/catalog route was re-introduced in frontend/app.js"
+    "duplicate /app/catalog route was introduced"
   );
   assert.ok(
     !/case\s+['"]\/app\/discover['"]/.test(app),
-    "buyer-facing /app/discover route was re-introduced in frontend/app.js"
+    "duplicate /app/discover route was introduced"
   );
 });
 
-await run("D1 — no buyer-facing search input bound as primary product nav", () => {
-  const app = read("frontend/app.js");
-  // Admin-search action is legitimate (admin omnisearch). Buyer-facing
-  // `searchTerm` / `searchQuery` state would indicate a public search input.
-  assert.ok(
-    !/\bbuyerSearchQuery\b/.test(app),
-    "buyerSearchQuery identifier appeared in frontend/app.js"
-  );
-  assert.ok(
-    !/\bpublicDealsSearch\b/.test(app),
-    "publicDealsSearch identifier appeared in frontend/app.js"
-  );
+await run("D1 — Mall uses bounded filters and has no arbitrary public text search", () => {
+  const runtime = read("src/frontend_runtime.ts");
+  const mall = read("src/mall_read_model.ts");
+  assert.match(runtime, /\/api\/mall\/deals/);
+  assert.match(mall, /physical_product/);
+  assert.match(mall, /voucher/);
+  assert.match(mall, /ticket/);
+  assert.ok(!/app\.get\(["']\/api\/(search|deals\/search|catalog\/search)/i.test(runtime));
+  assert.ok(!/query\?\.q|query\?\.search/i.test(mall), "Mall read model must not accept free-text SQL input");
 });
 
 // ─── D2: no 5% / 0.05 platform fee in live settlement code ─────────────────

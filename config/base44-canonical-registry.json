@@ -47,5 +47,23 @@
     { "canonical": "DealComment", "legacy": "deal-comment" },
     { "canonical": "OtpDeliveryAttempt", "legacy": "otp-delivery-attempt" },
     { "canonical": "DistributionEvent", "legacy": "distribution-event" }
-  ]
+  ],
+  "extensions": {
+    "mall_v1_1": {
+      "authority": "derived-read-and-identity-resources-only",
+      "functions": [
+        { "domain": "mall_discovery", "canonical": "list-mall-deals", "authority": "public_read" },
+        { "domain": "mall_measurement", "canonical": "record-mall-event", "authority": "pii_free_telemetry" },
+        { "domain": "seller_identity", "canonical": "siton-seller-bootstrap", "authority": "identity_bootstrap" },
+        { "domain": "mall_projection", "canonical": "project-mall-deal", "authority": "derived_projection" }
+      ],
+      "entities": [
+        { "canonical": "MallDealProjection", "file": "base44/entities/mall-deal-projection.jsonc", "authority": "public_read_projection" },
+        { "canonical": "DiscoveryEvent", "file": "base44/entities/discovery-event.jsonc", "authority": "pii_free_telemetry" },
+        { "canonical": "DealImage", "file": "base44/entities/deal-image.jsonc", "authority": "seller_owned_image_metadata" },
+        { "canonical": "SellerIdentity", "file": "base44/entities/seller-identity.jsonc", "authority": "identity_binding" }
+      ],
+      "forbidden_authority": ["deal_state", "buyer_state", "money", "payment", "payout", "commission"]
+    }
+  }
 }

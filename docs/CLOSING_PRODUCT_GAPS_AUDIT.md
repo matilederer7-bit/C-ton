@@ -1,5 +1,9 @@
 # Closing Product Gaps Audit — RC Gate
 
+> **V1.1 product-scope notice (2026-08-23):** the earlier direct-link-only
+> conclusion is historical and superseded by the canonical Siton Mall decision
+> in `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`.
+
 **Date:** 2026-04-29  
 **Auditor:** Claude (Sonnet 4.6) — automated audit  
 **Base commit:** 116a025 feat(delivery): add lean seller delivery data handoff  

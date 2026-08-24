@@ -1,5 +1,9 @@
 # Platform Fee Payments - 8 Percent Before VAT, Plus VAT On Siton Fee
 
+> **V1.1 product-scope notice (2026-08-23):** the public Mall does not change
+> this money canon. The fee remains exactly 8% including delivery/shipping and
+> excluding VAT; distributor commission remains 0.
+
 ## Official money model
 
 Siton charges a fixed 8% platform fee on money actually collected from buyers,

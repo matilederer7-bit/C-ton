@@ -18,6 +18,8 @@ contract-proving harness. They do not create a second production architecture.
 | Concern | V1 authority | Execution/storage boundary |
 |---|---|---|
 | Deals | Base44 `Deal` | Base44 entity; transitions only through `siton-transition-engine-v3` |
+| Public Mall | Base44 `MallDealProjection` | Disposable public-only read projection of published deals; `/app` and direct links open the same canonical deal page |
+| Discovery measurement | Base44 `DiscoveryEvent` | Aggregate non-PII evidence only; never state, money, inventory, settlement, or distributor attribution authority |
 | Participants | Base44 `Participant` | Base44 entity and canonical backend functions |
 | Inventory | Supabase inventory authority | Called only through `siton-inventory-bridge`; Base44 Deal fields are projections, never an excuse to guess through disagreement |
 | State transitions | Base44 transition engine | `siton-transition-engine-v3`, with constitution, idempotency, and Audit evidence |
@@ -25,6 +27,7 @@ contract-proving harness. They do not create a second production architecture.
 | Outbox / DLQ | Base44 `OutboxEvent` / `OutboxDeadLetter` | Claimed in bounded batches; replay and UNKNOWN require idempotency/reconciliation |
 | Audit | Base44 `DealAudit` and control/audit entities | Append-only business and control evidence |
 | Seller data | Base44 `SellerAccount`, `SellerSettlement`, documents | Server-authorized tenant scope |
+| Seller identity | Base44 authenticated user + `SellerIdentity` mapping | Backend function derives the immutable user subject; browser-supplied seller IDs never authorize mutation |
 | Distributor attribution | Base44 distribution entities | Measurement only; commission, wallet, payout, and entitlement are zero |
 | Buyer sessions | Hashed, bounded server sessions | HttpOnly cookie to backend; safe resume allowlist only |
 
@@ -33,6 +36,20 @@ database-grade proof consumed by the bridge. It is not called by the browser.
 When Base44 and its inventory projection disagree with Supabase evidence, the
 operation fails closed and is reconciled; no layer chooses a winner from time
 order or convenience.
+
+## Public discovery boundary
+
+`/app` is the single public Mall/landing route. Published physical-product,
+voucher, and ticket deals are projected automatically; `Draft` is never
+eligible. Mall filters are bounded read classifications over canonical Deal
+states and `published_at`, not new DealStates. Every Mall card navigates to the
+existing canonical public deal route.
+
+The projection is explicitly allowlisted and excludes buyer identity/contact/
+delivery fields, seller private account fields, payment/provider references,
+ledger/audit details, and object-storage keys. Organic source `mall` remains
+separate from distributor references. A Mall event or card can never authorize
+Join or change availability; the canonical backend revalidates both.
 
 ## Request and worker lifecycle
 
@@ -60,7 +77,7 @@ mobile projects, logs, Git, and callback URLs contain no server credential.
 
 | Classification | Artifacts |
 |---|---|
-| CANONICAL | `base44/config.jsonc`, `base44/runtime-manifest.json`, `base44/functions/siton-worker-tick/`, canonical Base44 registry/callers, Supabase inventory bridge contract |
+| CANONICAL | `base44/config.jsonc`, `base44/runtime-manifest.json`, checked-in Base44 entity schemas, seller bootstrap, Mall projection/read/event functions, `base44/functions/siton-worker-tick/`, canonical Base44 registry/callers, Supabase inventory bridge contract |
 | SUPPORTING | `src/`, `db/migrations/`, `Dockerfile`, Compose, portable Web/Worker, operational scanners and isolated migration/test harnesses |
 | TEST-ONLY | synthetic provider, mock provider transports, fixtures, MinIO/Docker CI, `.tmp*`, `.demo_dist`, `.mobile_dist`, copied Capacitor web assets |
 | LEGACY | everything under `legacy/render/`, including the renamed manifest, Procfile, gate, and historical deployment reports |

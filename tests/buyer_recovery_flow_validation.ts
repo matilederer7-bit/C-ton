@@ -626,7 +626,7 @@ async function main() {
     assert.match(appJs, /loadRecovery\b/);
     assert.match(appJs, /submitRecoveryRequest\b/);
     assert.match(appJs, /data-action="recovery-submit"/);
-    // Recovery surface must not introduce marketplace / catalog / commission concepts.
+    // Recovery stays focused; Mall navigation belongs to /app, not money repair.
     const recoverySlice = appJs.slice(appJs.indexOf("function renderRecoveryPage"), appJs.indexOf("function renderHome()"));
     assert.doesNotMatch(recoverySlice, /marketplace|catalog|public discovery|commission|payout/i);
     // Recovery surface must not capture raw card data.

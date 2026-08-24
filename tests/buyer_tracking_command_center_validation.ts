@@ -286,7 +286,7 @@ async function main() {
     assert.equal(normal.tracking.personal_status.action_required, false);
   });
 
-  await runTest("frontend tracking command center renders live, chart, activity, and no fake discovery", async () => {
+  await runTest("frontend tracking command center renders live, chart, activity, and no duplicate discovery", async () => {
     const [appJs, stylesCss] = await Promise.all([
       readFile("frontend/app.js", "utf8"),
       readFile("frontend/styles.css", "utf8")

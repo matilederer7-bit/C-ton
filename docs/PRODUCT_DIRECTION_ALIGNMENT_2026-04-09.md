@@ -1,34 +1,46 @@
 # Siton Product Direction Alignment
 
-Last updated: 2026-04-09
+Last updated: 2026-08-23
+
+The 2026-04 direct-link-only decision was valid for the prior V1 definition
+and is intentionally superseded by Siton V1.1.
 
 ## Canonical Decision
 
-- Siton is a link-first group-deal platform.
-- The main public surface is a strong Siton brand site, not a public marketplace.
-- The main site must let any seller or deal initiator create a deal, generate a personal public deal page, and distribute a direct link.
-- Buyers should enter a deal through the direct deal link.
-- Public catalog browsing, searchable public discovery, and mall-style marketplace framing are out of scope for the current product direction.
+- Siton is a group-deal platform with two first-class entry paths: direct deal
+  links and the public Siton Mall.
+- `/app` is the single public Mall/landing surface; it must communicate the
+  product clearly and discover published deals without duplicating Deal Details.
+- Publishing automatically makes a deal eligible for discovery. Drafts never
+  appear. Historical published outcomes remain visible as honest seller/deal
+  evidence.
+- Direct deal links remain first-class and open the same canonical deal page as
+  Mall cards.
+- The Mall is a public read projection. It never owns deal state, inventory,
+  money, settlement, payment, or distributor attribution.
 - Core deal logic stays strict: no new states, no weakening of money-state or buyer-state rules, no weakening of the 90% rule, no confusion between authorization and actual charge, and no return of per-buyer purchase caps beyond total `max_units`.
 
 ## What Stays
 
 - Direct-link public deal page
+- Public Mall discovery of published physical-product, voucher, and ticket deals
 - Buyer OTP flow
 - Authorization-only payment join flow
 - Buyer tracking page
 - Seller draft creation and basic deal management
 - Strict state, audit, idempotency, locking, completion-window, and inventory enforcement
 
-## What Drops Or Weakens Now
+## What Remains Out Of Scope
 
-- Public marketplace search
-- Public catalog framing on the main site
-- Marketplace-expansion positioning in canonical status docs
+- A second Mall-specific Deal Details implementation
+- Arbitrary free-text public search or unbounded filters in V1.1
+- A second state, inventory, money, settlement, or attribution truth
+- Distributor commission, wallet, balance, payout, or entitlement
 
 ## Current V1
 
 - Strong Siton main site
+- Focused Siton Mall with bounded type/outcome filters and publication ordering
 - Seller deal creation
 - Personal public deal page
 - Direct distribution link
@@ -38,9 +50,5 @@ Last updated: 2026-04-09
 - Buyer tracking
 - Basic seller management
 
-## Out Of Scope Right Now
-
-- Public marketplace
-- Public searchable discovery
-- Mall / Amazon-style browsing
-- Secondary expansion features before the core loop is fully aligned and hardened
+The detailed binding decision is
+`docs/SITON_V1_1_MALL_PRODUCT_DIRECTION.md`.

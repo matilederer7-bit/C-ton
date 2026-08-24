@@ -12,6 +12,79 @@ export const SELLER_SESSION_TTL_SECONDS = 60 * 60 * 12;
 export const SELLER_SESSION_LAST_SEEN_THROTTLE_MS = 60_000;
 export const SELLER_AUTH_SECRET_MIN_LENGTH = 8;
 
+export const SELLER_AUTH_PRODUCT_CODES = {
+  required: "SELLER_AUTH_REQUIRED",
+  expired: "SELLER_SESSION_EXPIRED",
+  forbidden: "SELLER_FORBIDDEN",
+  unavailable: "SELLER_AUTH_UNAVAILABLE"
+} as const;
+
+export type SellerAuthFailureReason = keyof typeof SELLER_AUTH_PRODUCT_CODES;
+
+const SELLER_RETURN_PATH = /^\/app\/seller(?:\/new|\/deals\/[0-9a-f-]{36}(?:\/edit)?)?\/?$/i;
+
+/**
+ * Authentication continuations are product navigation hints, never authority.
+ * Keep them same-origin and inside the seller surface so an API caller cannot
+ * turn a login response into an open redirect.
+ */
+export function safeSellerReturnTo(value: unknown, fallback = "/app/seller") {
+  const safeFallback = SELLER_RETURN_PATH.test(String(fallback || "")) ? String(fallback) : "/app/seller";
+  const raw = String(value || "").trim();
+  if (!raw || raw.includes("\\") || raw.startsWith("//") || /[\u0000-\u001f\u007f]/.test(raw)) return safeFallback;
+  try {
+    const parsed = new URL(raw, "https://siton.invalid");
+    if (parsed.origin !== "https://siton.invalid" || !SELLER_RETURN_PATH.test(parsed.pathname)) return safeFallback;
+    const query = parsed.search.length <= 300 ? parsed.search : "";
+    const hash = parsed.hash === "#seller-profile-section" ? parsed.hash : "";
+    return `${parsed.pathname}${query}${hash}`;
+  } catch {
+    return safeFallback;
+  }
+}
+
+export function hasSellerSessionCookie(cookieHeader: unknown) {
+  return Boolean(String(parseCookies(cookieHeader)[SELLER_SESSION_COOKIE] || "").trim());
+}
+
+export function sellerAuthFailurePayload(
+  reason: SellerAuthFailureReason,
+  options?: { returnTo?: unknown; message?: string; reasonCode?: string }
+) {
+  const legacyError = {
+    required: "seller_auth_required",
+    expired: "seller_session_expired",
+    forbidden: "seller_forbidden",
+    unavailable: "seller_auth_unavailable"
+  }[reason];
+  const message = options?.message || {
+    required: "seller session is required for this non-demo runtime",
+    expired: "seller session has expired or is no longer valid",
+    forbidden: "seller account is not allowed to perform this action",
+    unavailable: "seller auth is not configured for this non-demo runtime"
+  }[reason];
+  return {
+    ok: false as const,
+    error: legacyError,
+    code: reason === "forbidden" && options?.reasonCode?.startsWith("SELLER_")
+      ? options.reasonCode
+      : SELLER_AUTH_PRODUCT_CODES[reason],
+    product_code: SELLER_AUTH_PRODUCT_CODES[reason],
+    ...(options?.reasonCode ? { reason_code: options.reasonCode } : {}),
+    message,
+    seller_auth: {
+      authenticated: false,
+      reason,
+      reauthentication_required: reason === "expired",
+      return_to: safeSellerReturnTo(options?.returnTo),
+      onboarding: {
+        required: false,
+        next_path: "/app/seller#seller-profile-section"
+      }
+    }
+  };
+}
+
 export function normalizeSellerId(value: unknown) {
   const normalized = String(value || "")
     .trim()

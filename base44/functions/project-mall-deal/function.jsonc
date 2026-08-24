@@ -1,0 +1,22 @@
+{
+  "name": "project-mall-deal",
+  "entry": "index.ts",
+  "automations": [
+    {
+      "name": "Refresh Mall projection when Deal changes",
+      "description": "Derived read projection only. The automation creator must retain admin role.",
+      "type": "entity",
+      "entity_name": "Deal",
+      "event_types": ["create", "update", "delete"],
+      "is_active": true
+    },
+    {
+      "name": "Refresh Mall projection when DealImage changes",
+      "description": "Refreshes public image URLs without changing canonical Deal or money state. The automation creator must retain admin role.",
+      "type": "entity",
+      "entity_name": "DealImage",
+      "event_types": ["create", "update", "delete"],
+      "is_active": true
+    }
+  ]
+}

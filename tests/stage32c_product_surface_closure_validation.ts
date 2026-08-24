@@ -181,7 +181,8 @@ async function main() {
       assert.match(frontend, new RegExp(marker));
     }
     assert.match(styles, /@media \(max-width: 768px\)/);
-    assert.doesNotMatch(frontend, /\/app\/(marketplace|catalog|discover)/);
+    assert.match(frontend, /\/api\/mall\/deals/);
+    assert.doesNotMatch(frontend, /\/app\/(marketplace|mall|catalog|discover)/);
   });
 }
 

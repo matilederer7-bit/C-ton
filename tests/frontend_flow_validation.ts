@@ -94,7 +94,7 @@ async function main() {
 
     assert.equal(response.statusCode, 200);
     assert.match(response.body, /<html lang="he" dir="rtl">/);
-    assert.match(response.body, /<title>C-ton<\/title>/);
+    assert.match(response.body, /<title>C-ton \| קניון עסקאות קבוצתיות<\/title>/);
     assert.match(response.body, /C-ton - /);
   });
 

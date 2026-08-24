@@ -2,9 +2,18 @@
 
 Date: `2026-04-18`
 
+V1.1 product-scope amendment: `2026-08-23`.
+
 ## Binding Decision
 
 The foundation documents under [docs/foundation-canonical-2026-04-18](/c:/Users/Lenovo/Documents/C-ton/docs/foundation-canonical-2026-04-18) are now the binding source of truth for Siton.
+
+The owner intentionally superseded one product-scope clause in V1.1: Siton is
+no longer direct-link-only. It now supports direct deal links plus the public
+Siton Mall described in `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`. The binary
+foundation documents remain unmodified historical source artifacts; their
+no-catalog/no-browse wording is not current product canon. Their state, money,
+idempotency, atomicity, security, and 90% rules remain binding.
 
 These files supersede older repository foundation documents anywhere there is contradiction, ambiguity, duplication, or drift:
 
@@ -17,7 +26,9 @@ These files supersede older repository foundation documents anywhere there is co
 
 Use the new canonical set by domain:
 
-- Product scope, business model, user roles, and what exists in the product: the updated product spec and UX are authoritative.
+- Product scope and public discovery: the V1.1 Mall decision is authoritative
+  where it conflicts with the 2026-04 pack. Other business-model and role rules
+  continue to come from the updated foundation pack.
 - System invariants, state discipline, idempotency, atomicity, and backend rules: the updated system spec and constitution/checklist are authoritative.
 - Older `.docx` and `.md` files in `docs/` may remain useful as historical reference, but they no longer override this canonical set.
 

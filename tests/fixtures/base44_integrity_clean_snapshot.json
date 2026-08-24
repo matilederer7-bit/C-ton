@@ -45,5 +45,68 @@
       "audit_id": "00000000-0000-4000-8000-000000000011",
       "deal_id": "00000000-0000-4000-8000-000000000001"
     }
+  ],
+  "mall_projections": [
+    {
+      "deal_id": "00000000-0000-4000-8000-000000000001",
+      "title": "Public fixture deal",
+      "description_excerpt": "Allowlisted public summary",
+      "deal_type": "physical_product",
+      "canonical_state": "TargetReached",
+      "mall_status": "reached_target",
+      "price_per_unit": 25,
+      "seller_business_name": "Fixture seller",
+      "primary_image_url": "https://example.invalid/deal.webp",
+      "primary_thumbnail_url": "https://example.invalid/deal-thumb.webp",
+      "joined_units": 2,
+      "participants_count": 1,
+      "threshold_units": 2,
+      "max_units": 10,
+      "remaining_units": 8,
+      "is_joinable": true,
+      "has_delivery": false,
+      "deadline": "2026-08-30T12:00:00.000Z",
+      "published_at": "2026-08-13T10:00:00.000Z",
+      "terminal_at": null,
+      "source_updated_at": "2026-08-13T11:00:00.000Z",
+      "projection_version": 1,
+      "visibility": "public"
+    }
+  ],
+  "discovery_events": [
+    {
+      "event_id": "00000000-0000-4000-8000-000000000041",
+      "event_type": "mall_deal_click",
+      "client_event_id": "fixture_event_0001",
+      "deal_id": "00000000-0000-4000-8000-000000000001",
+      "deal_type": "physical_product",
+      "mall_status": "reached_target",
+      "acquisition_source": "mall",
+      "occurred_at": "2026-08-13T11:30:00.000Z"
+    }
+  ],
+  "seller_identities": [
+    {
+      "id": "00000000-0000-4000-8000-000000000051",
+      "base44_user_id": "fixture-user",
+      "seller_account_id": "fixture-seller",
+      "business_name": "Fixture seller",
+      "verification_status": "approved",
+      "onboarding_status": "approved"
+    }
+  ],
+  "deal_images": [
+    {
+      "id": "00000000-0000-4000-8000-000000000061",
+      "deal_id": "00000000-0000-4000-8000-000000000001",
+      "seller_user_id": "fixture-user",
+      "storage_object_ref": "private/fixture/deal.webp",
+      "public_url": "https://example.invalid/deal.webp",
+      "mime_type": "image/webp",
+      "size_bytes": 1024,
+      "sort_order": 0,
+      "is_primary": true,
+      "is_published": true
+    }
   ]
 }

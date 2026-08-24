@@ -420,8 +420,8 @@ function assertHealthyHebrewDom(dom: string, label: string) {
 
 async function assertFrontendAssetsHealthy() {
   const checks = [
-    { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "<title>C-ton</title>", "/app/assets/app.js", "/app/assets/styles.css"] },
-    { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "renderProgressBlock", "פתחו עסקה חדשה", "C-ton"] },
+    { path: "/app", contentType: "text/html", expect: ["charset=utf-8", "<title>C-ton | קניון עסקאות קבוצתיות</title>", "/app/assets/app.js", "/app/assets/styles.css"] },
+    { path: "/app/assets/app.js", contentType: "application/javascript", expect: ["charset=utf-8", "renderProgressBlock", "הקניון של C-ton", "C-ton"] },
     { path: "/app/assets/styles.css", contentType: "text/css", expect: ["charset=utf-8", "Heebo", "#C65A1E", "#FAF7F2"] }
   ];
 
@@ -477,7 +477,8 @@ async function assertSellerCreateUxContract() {
 
   assert.match(source, /const CREATE_DEAL_TITLE_FIELDS = \["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"\]/, "create deal should define one canonical title field contract");
   assert.match(source, /const title = readCreateDealTitle\(formData\)/, "create deal submit should read title through the canonical contract");
-  assert.match(source, /body: json\(buildCreateDealPayload/, "create deal submit should use one canonical payload builder");
+  assert.match(source, /const draftPayload = buildCreateDealPayload/, "create deal submit should use one canonical payload builder");
+  assert.match(source, /body: json\(draftPayload\)/, "create and edit should send that canonical payload");
   assert.match(source, /name="sellerTitle"/, "visible seller title input should remain the connected user-facing field");
   assert.match(source, /title: String\(title \|\| ""\)\.trim\(\)[\s\S]*price_per_unit/s, "trimmed seller title must be sent to backend payload");
   assert.match(source, /name="sellerImage"[^>]+multiple/, "seller create should allow selecting multiple images");
@@ -1257,7 +1258,7 @@ async function main() {
       {
         name: "home",
         path: "/app",
-        expect: ["C-ton", "קונים יחד. משלמים רק כשזה קורה.", "פתחו עסקה חדשה", "צפו בדמו חי"]
+        expect: ["C-ton", "הקניון של C-ton", "עסקאות אמיתיות, במקום אחד.", "עסקאות בקניון"]
       },
       {
         name: "public deal",
@@ -1330,7 +1331,7 @@ async function main() {
       {
         name: "home mobile",
         path: "/app",
-        expect: ["C-ton", "קונים יחד. משלמים רק כשזה קורה.", "פתחו עסקה חדשה"]
+        expect: ["C-ton", "הקניון של C-ton", "עסקאות אמיתיות, במקום אחד.", "עסקאות בקניון"]
       },
       {
         name: "public deal mobile",

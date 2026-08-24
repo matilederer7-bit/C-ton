@@ -1,5 +1,13 @@
 # TEST INVENTORY — Unit Mapping
 
+> **V1.1 amendment (2026-08-23):** the public-search regression described in
+> this historical inventory is narrowed to forbid arbitrary free-text/duplicate
+> catalog APIs, not the canonical bounded Siton Mall. Current gates require the
+> Mall API/read model, privacy allowlist, Base44 resources, seller identity
+> bootstrap, Draft/image workflow, SEO/PWA/mobile contracts, and real-browser
+> Mall/auth/image proof. The exact final inventory count is recorded by
+> `npm run test:all` and in `PROJECT_STATUS.md` after closure.
+
 **תאריך:** 2026-05-04
 **Branch:** master
 **Commit נוכחי:** 31a7fea — docs(rc): add static test results table to RC closure status

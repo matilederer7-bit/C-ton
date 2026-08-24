@@ -221,7 +221,7 @@ try {
     assert.equal(Number(count.rows[0].count), 1);
   });
 
-  await run("guardrails: no marketplace/search/catalog, affiliate payout, or request-thread money action added", async () => {
+  await run("guardrails: no duplicate catalog/search API, affiliate payout, or request-thread money action", async () => {
     const [frontendRuntime, appTs, appJs] = await Promise.all([
       readFile("src/frontend_runtime.ts", "utf8"),
       readFile("src/app.ts", "utf8"),
@@ -229,6 +229,7 @@ try {
     ]);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/marketplace/i);
     assert.doesNotMatch(frontendRuntime, /app\.get\(["']\/api\/catalog/i);
+    assert.match(frontendRuntime, /app\.get\(["']\/api\/mall\/deals/i);
     assert.doesNotMatch(frontendRuntime, /affiliate.*commission/i);
     assert.doesNotMatch(frontendRuntime, /affiliate-payout/i);
     assert.doesNotMatch(appJs, /manual_refund_enabled:\s*true|manual_capture_enabled:\s*true|manual_void_enabled:\s*true|manual_payout_enabled:\s*true/i);

@@ -1,5 +1,9 @@
 # Siton V1 Final Zero-Development Closure
 
+> **SUPERSEDED PRODUCT SCOPE (2026-08-23):** this closure is preserved as the
+> valid baseline for the previous definition. The owner intentionally reopened
+> V1 development for the focused Siton Mall and seller-creation closure.
+
 Status: `ZERO_DEVELOPMENT_CLOSURE_PASS` on
 `agent/final-zero-development-closure`; no deployment or external write.
 

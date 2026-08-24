@@ -1,0 +1,23 @@
+{
+  "name": "DiscoveryEvent",
+  "description": "PII-free, idempotent Mall discovery measurement. It never grants attribution or money authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "event_key": { "type": "string", "minLength": 8, "maxLength": 220 },
+    "event_type": { "type": "string", "enum": ["mall_session", "card_impression", "mall_deal_click", "organic_deal_entry", "mall_join"] },
+    "client_event_id": { "type": "string", "minLength": 8, "maxLength": 100, "pattern": "^[A-Za-z0-9:_-]+$" },
+    "deal_id": { "type": "string", "format": "uuid" },
+    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket"] },
+    "mall_status": { "type": "string", "enum": ["underway", "reached_target", "succeeded", "failed", "cancelled"] },
+    "acquisition_source": { "type": "string", "enum": ["mall"], "default": "mall" },
+    "occurred_at": { "type": "string", "format": "date-time" }
+  },
+  "required": ["event_key", "event_type", "client_event_id", "acquisition_source", "occurred_at"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": { "user_condition": { "role": "admin" } },
+    "update": false,
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

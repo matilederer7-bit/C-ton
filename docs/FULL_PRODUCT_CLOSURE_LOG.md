@@ -1,5 +1,9 @@
 # [SUPERSEDED — NOT CANONICAL] FULL PRODUCT CLOSURE LOG
 
+> **V1.1 clarification (2026-08-23):** this remains a historical log. Its
+> no-public-discovery conclusion was superseded by the focused Mall decision in
+> `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`.
+
 > **STATUS: SUPERSEDED 2026-04-22.** The "Public marketplace expansion: STARTED" framing below was **reverted** by the canonical product direction adopted on 2026-04-18. Siton has no public marketplace, no catalog, no search, no browse surface. Distributor economic subsystems referenced here were dismantled in Wave 2.5. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit) for current truth.
 
 ## Before This Pass

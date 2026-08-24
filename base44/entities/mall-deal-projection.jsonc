@@ -1,0 +1,61 @@
+{
+  "name": "MallDealProjection",
+  "description": "Public, allowlisted Mall card projection derived from canonical Deal state. It has no money or transition authority.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "source_deal_record_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "rls": {
+        "read": { "user_condition": { "role": "admin" } },
+        "write": { "user_condition": { "role": "admin" } }
+      }
+    },
+    "source_image_record_id": {
+      "type": "string",
+      "maxLength": 160,
+      "default": "",
+      "rls": {
+        "read": { "user_condition": { "role": "admin" } },
+        "write": { "user_condition": { "role": "admin" } }
+      }
+    },
+    "deal_id": { "type": "string", "format": "uuid" },
+    "title": { "type": "string", "maxLength": 160 },
+    "description_excerpt": { "type": "string", "maxLength": 180 },
+    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket"] },
+    "canonical_state": { "type": "string", "enum": ["PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow", "Completed", "Failed", "Cancelled"] },
+    "mall_status": { "type": "string", "enum": ["underway", "reached_target", "succeeded", "failed", "cancelled"] },
+    "price_per_unit": { "type": "number", "minimum": 0 },
+    "seller_business_name": { "type": "string", "maxLength": 160 },
+    "primary_image_url": { "type": "string", "maxLength": 2048, "default": "" },
+    "primary_thumbnail_url": { "type": "string", "maxLength": 2048, "default": "" },
+    "joined_units": { "type": "integer", "minimum": 0 },
+    "participants_count": { "type": "integer", "minimum": 0 },
+    "threshold_units": { "type": "integer", "minimum": 1 },
+    "max_units": { "type": "integer", "minimum": 1 },
+    "remaining_units": { "type": "integer", "minimum": 0 },
+    "is_joinable": { "type": "boolean" },
+    "has_delivery": { "type": "boolean" },
+    "deadline": { "type": "string", "format": "date-time" },
+    "published_at": { "type": "string", "format": "date-time" },
+    "terminal_at": { "type": "string", "maxLength": 40, "default": "" },
+    "source_updated_at": { "type": "string", "format": "date-time" },
+    "projection_version": { "type": "integer", "minimum": 1 },
+    "visibility": { "type": "string", "enum": ["public", "hidden"] }
+  },
+  "required": ["source_deal_record_id", "source_image_record_id", "deal_id", "title", "description_excerpt", "deal_type", "canonical_state", "mall_status", "price_per_unit", "seller_business_name", "primary_image_url", "primary_thumbnail_url", "joined_units", "participants_count", "threshold_units", "max_units", "remaining_units", "is_joinable", "has_delivery", "deadline", "published_at", "terminal_at", "source_updated_at", "projection_version", "visibility"],
+  "rls": {
+    "create": { "user_condition": { "role": "admin" } },
+    "read": {
+      "$or": [
+        { "data.visibility": "public" },
+        { "user_condition": { "role": "admin" } }
+      ]
+    },
+    "update": { "user_condition": { "role": "admin" } },
+    "delete": { "user_condition": { "role": "admin" } }
+  }
+}

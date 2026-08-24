@@ -1,5 +1,9 @@
 # Demo / Preview Deployment Log
 
+> **Historical product-scope notice (2026-08-23):** this log predates the
+> binding V1.1 Siton Mall decision. It is deployment evidence, not current
+> product-direction canon.
+
 ## Phase A - Demo Deployment Surface Audit
 
 - Display surfaces mapped for preview:

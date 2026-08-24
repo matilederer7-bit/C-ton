@@ -1,5 +1,9 @@
 # [SUPERSEDED — NOT CANONICAL] MORNING HANDOFF FULL PRODUCT CLOSURE
 
+> **V1.1 clarification (2026-08-23):** the later no-Mall conclusion quoted
+> below was superseded. See `SITON_V1_1_MALL_PRODUCT_DIRECTION.md` for the
+> current focused Mall scope.
+
 > **STATUS: SUPERSEDED 2026-04-22.** The "marketplace expansion" framing in this handoff was reverted by the canonical product direction adopted on 2026-04-18. Siton is link-only, with no public marketplace / catalog / search / discovery surface. Do NOT use this document to guide current scope decisions. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit) for current truth.
 
 ## What Was Checked

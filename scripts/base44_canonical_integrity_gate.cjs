@@ -13,6 +13,91 @@ function canonicalResources(registry) {
   return new Set(registry.functions.map((entry) => entry.canonical));
 }
 
+const EXPECTED_MALL_FUNCTIONS = [
+  "list-mall-deals",
+  "record-mall-event",
+  "siton-seller-bootstrap",
+  "project-mall-deal"
+];
+const EXPECTED_MALL_ENTITIES = [
+  "MallDealProjection",
+  "DiscoveryEvent",
+  "DealImage",
+  "SellerIdentity"
+];
+
+function sameStringSet(actual, expected) {
+  return actual.length === expected.length
+    && new Set(actual).size === expected.length
+    && expected.every((entry) => actual.includes(entry));
+}
+
+function validateMallExtension(registry, callers) {
+  const findings = [];
+  const extension = registry.extensions?.mall_v1_1;
+  const callerExtension = callers.extensions?.mall_v1_1;
+  const functions = extension?.functions || [];
+  const entities = extension?.entities || [];
+  const functionNames = functions.map((entry) => entry.canonical);
+  const entityNames = entities.map((entry) => entry.canonical);
+  if (!sameStringSet(functionNames, EXPECTED_MALL_FUNCTIONS)) {
+    findings.push({ code: "invalid_mall_function_registry", detail: functionNames });
+  }
+  if (!sameStringSet(entityNames, EXPECTED_MALL_ENTITIES)) {
+    findings.push({ code: "invalid_mall_entity_registry", detail: entityNames });
+  }
+  if (extension?.authority !== "derived-read-and-identity-resources-only"
+    || !Array.isArray(extension?.forbidden_authority)
+    || !["deal_state", "buyer_state", "money", "payment", "payout", "commission"]
+      .every((entry) => extension.forbidden_authority.includes(entry))) {
+    findings.push({ code: "invalid_mall_authority_boundary" });
+  }
+
+  const classifiedFunctions = [
+    ...(callerExtension?.public_entrypoints || []),
+    ...(callerExtension?.authenticated_entrypoints || []),
+    ...(callerExtension?.admin_projection_functions || [])
+  ];
+  if (!sameStringSet(classifiedFunctions, EXPECTED_MALL_FUNCTIONS)) {
+    findings.push({ code: "invalid_mall_caller_classification", detail: classifiedFunctions });
+  }
+
+  for (const entity of entities) {
+    const file = typeof entity.file === "string" ? path.resolve(ROOT, entity.file) : "";
+    if (!file || !fs.existsSync(file)) {
+      findings.push({ code: "missing_mall_entity_schema", entity: entity.canonical, file: entity.file || null });
+      continue;
+    }
+    const schema = readJson(file);
+    if (schema.name !== entity.canonical || schema.type !== "object" || !schema.rls) {
+      findings.push({ code: "invalid_mall_entity_schema", entity: entity.canonical });
+    }
+  }
+  for (const functionName of functionNames) {
+    const configPath = path.join(ROOT, "base44", "functions", functionName, "function.jsonc");
+    const entryPath = path.join(ROOT, "base44", "functions", functionName, "index.ts");
+    if (!fs.existsSync(configPath) || !fs.existsSync(entryPath)) {
+      findings.push({ code: "missing_mall_function_resource", function_name: functionName });
+      continue;
+    }
+    const config = readJson(configPath);
+    if (config.name !== functionName || config.entry !== "index.ts") {
+      findings.push({ code: "invalid_mall_function_config", function_name: functionName });
+    }
+    if (functionName === "project-mall-deal") {
+      const hooks = Array.isArray(config.automations) ? config.automations : [];
+      const hookEntities = hooks.map((hook) => hook.entity_name);
+      const exactEvents = hooks.every((hook) => hook.type === "entity"
+        && hook.is_active === true
+        && sameStringSet(hook.event_types || [], ["create", "update", "delete"]));
+      if (!sameStringSet(hookEntities, ["Deal", "DealImage"]) || !exactEvents) {
+        findings.push({ code: "invalid_mall_projection_automations", detail: hookEntities });
+      }
+    }
+  }
+  return findings;
+}
+
 function validateRegistry(registry, callers) {
   const findings = [];
   const canonical = [...canonicalResources(registry)];
@@ -29,6 +114,7 @@ function validateRegistry(registry, callers) {
   for (const target of Object.keys(callers.callers || {})) {
     if (!canonicalResources(registry).has(target)) findings.push({ code: "legacy_caller_target", target });
   }
+  findings.push(...validateMallExtension(registry, callers));
   return findings;
 }
 
@@ -124,11 +210,41 @@ function evaluateSnapshot(snapshot) {
       findings.push({ code: "dead_letter_without_dlq", event_uuid: event.event_uuid });
     }
   }
+  const forbiddenProjectionFields = new Set([
+    "seller_id", "seller_user_id", "buyer_id", "buyer_name", "buyer_phone", "buyer_email",
+    "delivery_address", "delivery_notes", "storage_key", "storage_object_ref", "payment_reference",
+    "ledger_id", "auth_secret_hash", "payout_details_masked", "admin_note",
+    "source_deal_record_id", "source_image_record_id"
+  ]);
+  const mallStatusByState = {
+    PendingTarget: "underway",
+    TargetReached: "reached_target",
+    ClosedForJoining: "reached_target",
+    ReadyForCharging: "reached_target",
+    Charging: "reached_target",
+    CompletionWindow: "reached_target",
+    Completed: "succeeded",
+    Failed: "failed",
+    Cancelled: "cancelled"
+  };
+  for (const projection of snapshot.mall_projections || []) {
+    const leaked = Object.keys(projection).find((field) => forbiddenProjectionFields.has(field));
+    if (leaked) findings.push({ code: "mall_projection_private_field", deal_id: projection.deal_id, field: leaked });
+    if (projection.visibility === "public"
+      && (!projection.published_at || mallStatusByState[projection.canonical_state] !== projection.mall_status)) {
+      findings.push({ code: "mall_projection_state_mismatch", deal_id: projection.deal_id });
+    }
+  }
+  const forbiddenTelemetryFields = ["ip", "ip_address", "user_agent", "buyer_id", "email", "phone", "payment_reference"];
+  for (const event of snapshot.discovery_events || []) {
+    const leaked = forbiddenTelemetryFields.find((field) => Object.hasOwn(event, field));
+    if (leaked) findings.push({ code: "discovery_event_pii_field", event_id: event.event_id, field: leaked });
+  }
   return findings;
 }
 
 function parseArgs(argv) {
-  const result = { snapshot: null, roots: ["src", "frontend", "scripts", "tests", ".github", "package.json"] };
+  const result = { snapshot: null, roots: ["src", "frontend", "base44", "scripts", "tests", ".github", "package.json"] };
   for (let index = 0; index < argv.length; index += 1) {
     if (argv[index] === "--snapshot") result.snapshot = argv[++index];
     else if (argv[index] === "--source-root") result.roots.push(argv[++index]);
@@ -150,5 +266,5 @@ function main() {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-module.exports = { evaluateSnapshot, scanLegacyReferences, validateRegistry };
+module.exports = { evaluateSnapshot, scanLegacyReferences, validateMallExtension, validateRegistry };
 if (require.main === module) main();

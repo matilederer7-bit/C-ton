@@ -1,4 +1,4 @@
-const CACHE_VERSION = "siton-shell-v1";
+const CACHE_VERSION = "siton-shell-v2-mall";
 const SHELL = [
   "/app/offline",
   "/app/assets/styles.css",

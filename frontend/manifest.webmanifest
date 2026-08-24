@@ -1,7 +1,7 @@
 {
   "name": "Siton",
   "short_name": "Siton",
-  "description": "עסקאות קבוצתיות בקישור ישיר",
+  "description": "קניון עסקאות קבוצתיות וקישורי עסקה ישירים, עם חיוב רק אחרי הצלחה",
   "lang": "he-IL",
   "dir": "rtl",
   "start_url": "/app?source=pwa",
@@ -10,64 +10,19 @@
   "orientation": "portrait-primary",
   "background_color": "#faf7f2",
   "theme_color": "#0f766e",
-  "categories": [
-    "shopping",
-    "business"
-  ],
+  "categories": ["shopping", "business"],
   "icons": [
-    {
-      "src": "/app/icons/icon-48.png",
-      "type": "image/png",
-      "sizes": "48x48",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-72.png",
-      "type": "image/png",
-      "sizes": "72x72",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-96.png",
-      "type": "image/png",
-      "sizes": "96x96",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-128.png",
-      "type": "image/png",
-      "sizes": "128x128",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-192.png",
-      "type": "image/png",
-      "sizes": "192x192",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-256.png",
-      "type": "image/png",
-      "sizes": "256x256",
-      "purpose": "any maskable"
-    },
-    {
-      "src": "/app/icons/icon-512.png",
-      "type": "image/png",
-      "sizes": "512x512",
-      "purpose": "any maskable"
-    }
+    { "src": "/app/icons/icon-48.png", "type": "image/png", "sizes": "48x48", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-72.png", "type": "image/png", "sizes": "72x72", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-96.png", "type": "image/png", "sizes": "96x96", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-128.png", "type": "image/png", "sizes": "128x128", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-256.png", "type": "image/png", "sizes": "256x256", "purpose": "any maskable" },
+    { "src": "/app/icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
   ],
   "shortcuts": [
-    {
-      "name": "מעקב רכישה",
-      "short_name": "מעקב",
-      "url": "/app?intent=tracking"
-    },
-    {
-      "name": "כניסת מוכר",
-      "short_name": "מוכר",
-      "url": "/app/seller"
-    }
+    { "name": "קניון העסקאות", "short_name": "קניון", "url": "/app?source=pwa_shortcut" },
+    { "name": "מעקב רכישה", "short_name": "מעקב", "url": "/app?intent=tracking" },
+    { "name": "כניסת מוכר", "short_name": "מוכר", "url": "/app/seller" }
   ]
 }

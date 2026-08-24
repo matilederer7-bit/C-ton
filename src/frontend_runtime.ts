@@ -62,6 +62,7 @@ import {
 import {
   SELLER_SESSION_COOKIE,
   createSellerSessionToken,
+  hasSellerSessionCookie,
   hashSellerAccessSecret,
   hashSellerSessionToken,
   SELLER_SESSION_TTL_SECONDS,
@@ -69,6 +70,8 @@ import {
   normalizeSellerId,
   normalizeSellerLoginEmail,
   parseCookies,
+  safeSellerReturnTo,
+  sellerAuthFailurePayload,
   serializeExpiredSellerSessionCookie,
   serializeSellerSessionCookie,
   verifySellerAccessSecret
@@ -161,6 +164,7 @@ import {
 import { getDealImageStorageAdapter } from "./product_image_storage.js";
 import {
   ensureDealTypeTables,
+  normalizeDealType,
   readVoucherTerms,
   readTicketTerms,
   decideFulfillmentIssuance,
@@ -172,6 +176,14 @@ import {
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 import { InfrastructureMetricsCollector, applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { SupabaseComputeManager } from "./infrastructure_compute.js";
+import {
+  buildMallDiscoveryQuery,
+  buildMallListEnvelope,
+  mallStatusForState,
+  parseMallQuery,
+  projectMallRow,
+  sanitizeMallEvent
+} from "./mall_read_model.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -343,6 +355,8 @@ function mapSellerProfile(profile: any, contextSource: string) {
     display_name: String(profile.display_name || profile.seller_id),
     login_email: profile.login_email ? String(profile.login_email) : null,
     auth_enabled: Boolean(profile.auth_enabled),
+    business_name: profile.business_name ? String(profile.business_name) : "",
+    has_support_contact: Boolean(String(profile.support_email || profile.support_phone || "").trim()),
     verification_status: String(profile.verification_status || "approved"),
     settlement_status: String(profile.settlement_status || "active"),
     payout_method: String(profile.payout_method || "bank_transfer"),
@@ -368,6 +382,7 @@ async function findSellerLoginAccount(c: any, identifier: string) {
   const loginEmail = normalizeSellerLoginEmail(normalizedIdentifier);
   const result = await c.query(
     `SELECT seller_id, display_name, login_email, auth_secret_hash, auth_enabled,
+            business_name, support_email, support_phone,
             verification_status, settlement_status, payout_method, payout_details_masked,
             admin_note, seller_status, seller_status_reason, seller_status_updated_at,
             seller_status_updated_by, created_at, updated_at, last_login_at
@@ -426,6 +441,9 @@ async function readSellerSessionContext(req: any, c: any) {
             a.display_name,
             a.login_email,
             a.auth_enabled,
+            a.business_name,
+            a.support_email,
+            a.support_phone,
             a.verification_status,
             a.settlement_status,
             a.payout_method,
@@ -1561,12 +1579,25 @@ export function registerFrontendExperience(
     return identity;
   }
 
-  function sellerAuthSummary(sellerContext?: any) {
+  function sellerAuthSummary(
+    sellerContext?: any,
+    options?: { reason?: "required" | "expired" | "forbidden" | "unavailable"; returnTo?: unknown }
+  ) {
+    const onboardingRequired = Boolean(
+      sellerContext && !deps.isDemoPreview && (!String(sellerContext.business_name || "").trim() || !sellerContext.has_support_contact)
+    );
     return {
       mode: deps.isDemoPreview ? "demo-context" : SELLER_AUTH_MODE,
       configured: deps.isDemoPreview ? true : SELLER_AUTH_CONFIGURED,
       authenticated: deps.isDemoPreview ? true : Boolean(sellerContext),
       allow_manual_context_switch: deps.isDemoPreview,
+      reason: options?.reason || null,
+      reauthentication_required: options?.reason === "expired",
+      return_to: safeSellerReturnTo(options?.returnTo),
+      onboarding: {
+        required: onboardingRequired,
+        next_path: "/app/seller#seller-profile-section"
+      },
       seller_context: sellerContext
         ? {
             seller_id: sellerContext.seller_id,
@@ -1589,17 +1620,26 @@ export function registerFrontendExperience(
     };
   }
 
-  function rejectSellerAuthUnavailable(reply: FastifyReply) {
+  function sellerRequestReturnTo(req: any, fallback = "/app/seller") {
+    return safeSellerReturnTo(req?.headers?.["x-siton-return-to"], fallback);
+  }
+
+  function rejectSellerAuthUnavailable(reply: FastifyReply, req?: any, fallback = "/app/seller") {
+    const returnTo = sellerRequestReturnTo(req, fallback);
+    const failure = sellerAuthFailurePayload("unavailable", { returnTo });
     return reply.code(503).send({
-      error: "seller_auth_unavailable",
-      message: "seller auth is not configured for this non-demo runtime"
+      ...failure,
+      seller_auth: sellerAuthSummary(undefined, { reason: "unavailable", returnTo })
     });
   }
 
-  function rejectSellerAuthRequired(reply: FastifyReply) {
+  function rejectSellerAuthRequired(reply: FastifyReply, req: any, fallback = "/app/seller") {
+    const reason = hasSellerSessionCookie(req?.headers?.cookie) ? "expired" : "required";
+    const returnTo = sellerRequestReturnTo(req, fallback);
+    const failure = sellerAuthFailurePayload(reason, { returnTo });
     return reply.code(401).send({
-      error: "seller_auth_required",
-      message: "seller session is required for this non-demo runtime"
+      ...failure,
+      seller_auth: sellerAuthSummary(undefined, { reason, returnTo })
     });
   }
 
@@ -1620,12 +1660,14 @@ export function registerFrontendExperience(
     );
     const status = result.rowCount ? normalizeSellerStatus(result.rows[0].seller_status) : "Active";
     if (!sellerStatusBlocksAction(status, action)) return true;
+    const failure = sellerAuthFailurePayload("forbidden", {
+      message: sellerStatusMessage(status),
+      reasonCode: sellerStatusErrorCode(status)
+    });
     void reply.code(403).send({
-      ok: false,
-      error: sellerStatusErrorCode(status),
-      code: sellerStatusErrorCode(status),
+      ...failure,
       seller_status: status,
-      message: sellerStatusMessage(status)
+      seller_auth: sellerAuthSummary(undefined, { reason: "forbidden" })
     });
     return false;
   }
@@ -1639,12 +1681,12 @@ export function registerFrontendExperience(
   async function resolveRequiredSellerContext(req: any, reply: FastifyReply, c: any, options?: { autoCreate?: boolean }) {
     if (deps.isDemoPreview) return resolveSellerContext(req, c, options);
     if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) {
-      rejectSellerAuthUnavailable(reply);
+      rejectSellerAuthUnavailable(reply, req);
       return null;
     }
     const sellerContext = await readSellerSessionContext(req, c);
     if (!sellerContext) {
-      rejectSellerAuthRequired(reply);
+      rejectSellerAuthRequired(reply, req);
       return null;
     }
     return sellerContext;
@@ -1684,16 +1726,19 @@ export function registerFrontendExperience(
       await ensureProductSurfaces();
       const sellerContext = await resolveOptionalSellerContext(req, c, { autoCreate: true });
       if (!deps.isDemoPreview && !SELLER_AUTH_CONFIGURED) {
-        return reply.code(503).send({
-          ok: false,
-          seller_auth: sellerAuthSummary(),
-          error: "seller_auth_unavailable",
-          message: "seller auth is not configured for this non-demo runtime"
-        });
+        return rejectSellerAuthUnavailable(reply, req);
       }
+      const unauthenticatedReason = sellerContext
+        ? undefined
+        : hasSellerSessionCookie(req.headers?.cookie)
+          ? "expired" as const
+          : "required" as const;
       return {
         ok: true,
-        seller_auth: sellerAuthSummary(sellerContext)
+        seller_auth: sellerAuthSummary(sellerContext, {
+          ...(unauthenticatedReason ? { reason: unauthenticatedReason } : {}),
+          returnTo: sellerRequestReturnTo(req)
+        })
       };
     });
   });
@@ -1707,7 +1752,7 @@ export function registerFrontendExperience(
       });
     }
     if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) {
-      return rejectSellerAuthUnavailable(reply);
+      return rejectSellerAuthUnavailable(reply, req);
     }
 
     return deps.withTx(async (c) => {
@@ -1719,14 +1764,20 @@ export function registerFrontendExperience(
         return reply.code(401).send({
           ok: false,
           error: "seller_auth_invalid_credentials",
+          code: "SELLER_AUTH_INVALID_CREDENTIALS",
           message: "seller identifier or password is invalid"
         });
       }
       if (String(sellerAccount.verification_status || "") === "rejected" || String(sellerAccount.settlement_status || "") === "hold") {
+        const returnTo = sellerRequestReturnTo(req);
+        const failure = sellerAuthFailurePayload("forbidden", {
+          returnTo,
+          message: "seller account is blocked from login",
+          reasonCode: "seller_auth_blocked"
+        });
         return reply.code(403).send({
-          ok: false,
-          error: "seller_auth_blocked",
-          message: "seller account is blocked from login"
+          ...failure,
+          seller_auth: sellerAuthSummary(undefined, { reason: "forbidden", returnTo })
         });
       }
       const session = await issueSellerSession(c, req, sellerAccount);
@@ -2139,6 +2190,98 @@ export function registerFrontendExperience(
     });
   });
 
+  app.get("/api/mall/deals", async (req: any, reply: any) => {
+    const query = parseMallQuery(req.query || {});
+    const discoveryQuery = buildMallDiscoveryQuery(query);
+    const rows = await deps.withTx(async (c) => {
+      const result = await c.query(discoveryQuery.text, discoveryQuery.values);
+      return result.rows.map((row: any) => {
+        const imageId = row.primary_image_id ? String(row.primary_image_id) : null;
+        const fallbackImageUrl = imageId ? getDealImagePublicUrl({ image_id: imageId }) : null;
+        const projected = projectMallRow({
+          ...row,
+          primary_image_url: row.primary_image_url || fallbackImageUrl,
+          primary_thumbnail_url: row.primary_thumbnail_url || row.primary_image_url || fallbackImageUrl
+        }) as any;
+        const joinedUnits = Number(projected.joined_units || 0);
+        const thresholdUnits = Math.max(1, Number(projected.threshold_units || 1));
+        const remainingUnits = Number(projected.remaining_units || 0);
+        const canJoin = Boolean(projected.is_joinable);
+        const imageUrl = String(projected.primary_thumbnail_url || projected.primary_image_url || "").trim();
+        return {
+          ...projected,
+          state: String(projected.canonical_state),
+          primary_image: imageUrl
+            ? {
+                image_id: imageId,
+                url: imageUrl,
+                mime_type: row.primary_image_mime_type ? String(row.primary_image_mime_type) : null
+              }
+            : null,
+          progress_to_target_pct: Math.max(0, Math.min(100, (joinedUnits / thresholdUnits) * 100)),
+          availability: {
+            can_join: canJoin,
+            reason_code: canJoin
+              ? null
+              : remainingUnits <= 0
+                ? "capacity_reached"
+                : "deal_not_open"
+          }
+        };
+      });
+    });
+    reply.header("cache-control", "public, max-age=30, stale-while-revalidate=60");
+    reply.header("pragma", "");
+    reply.header("expires", "");
+    return { ok: true, ...buildMallListEnvelope(query, rows) };
+  });
+
+  app.post("/api/mall/events", async (req: any, reply: any) => {
+    const body = req.body && typeof req.body === "object" && !Array.isArray(req.body)
+      ? req.body as Record<string, unknown>
+      : {};
+    const source = String(body.source || "mall").trim();
+    if (source !== "mall") {
+      const err: any = new Error("source must be mall");
+      err.statusCode = 400;
+      err.code = "mall_event_source_invalid";
+      throw err;
+    }
+    const event = sanitizeMallEvent({
+      ...body,
+      client_event_id: body.client_event_id || body.session_id
+    });
+    const retryToken = `evt_${createHash("sha256").update(event.client_event_id).digest("hex")}`;
+
+    const accepted = await deps.withTx(async (c) => {
+      let dealType: string | null = null;
+      let mallStatus: string | null = null;
+      if (event.deal_id) {
+        const canonicalDeal = await c.query(
+          `SELECT deal_type, state::text AS state
+           FROM siton.deals
+           WHERE deal_id=$1 AND published_at IS NOT NULL`,
+          [event.deal_id]
+        );
+        if (!canonicalDeal.rowCount) return false;
+        dealType = String(canonicalDeal.rows[0].deal_type || "");
+        mallStatus = mallStatusForState(String(canonicalDeal.rows[0].state));
+        if (!mallStatus) return false;
+      }
+      await c.query(
+        `INSERT INTO siton.discovery_events
+           (event_type, client_event_id, deal_id, deal_type, mall_status, acquisition_source)
+         VALUES ($1,$2,$3,$4,$5,'mall')
+         ON CONFLICT DO NOTHING`,
+        [event.event_type, retryToken, event.deal_id, dealType, mallStatus]
+      );
+      return true;
+    });
+    reply.code(202);
+    reply.header("cache-control", "no-store");
+    return { ok: true, accepted };
+  });
+
   app.get("/api/site/home", async (req: any) => {
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
@@ -2157,11 +2300,11 @@ export function registerFrontendExperience(
         ok: true,
         site: {
           brand: "Siton",
-          product_direction: "link-first-group-deals",
+          product_direction: "mall-and-direct-group-deals",
           positioning:
-            "Commercial main site for opening a deal, publishing a personal deal page, and sharing a direct buyer link.",
+            "Public Mall discovery and direct deal links lead into the same canonical Siton group-deal flow.",
           buyer_entry_note:
-            "Buyers should enter through a direct deal link that the seller shares directly with them.",
+            "Buyers may discover a published deal in the Mall or open the seller's direct deal link.",
           seller_entry: {
             create_deal_url: "/app/seller/new",
             manage_deals_url: "/app/seller"
@@ -2178,9 +2321,9 @@ export function registerFrontendExperience(
             : null,
           seller_auth: sellerAuthSummary(sellerContext),
           core_surfaces: [
-            "אתר מותג ודף פתיחה למוכרים",
+            "קניון ציבורי לגילוי עסקאות וקישורי עסקה ישירים",
             "יצירת עסקה וניהול עסקה למוכר",
-            "דף עסקה ציבורי מבוסס לינק",
+            "דף עסקה ציבורי קנוני מהקניון או מקישור ישיר",
             "מסלול הצטרפות קונה עם אימות והרשאה",
             "מסך מעקב לקונה",
             "ניהול בסיסי לעסקאות מוכר"
@@ -2266,7 +2409,8 @@ export function registerFrontendExperience(
                 sa.business_name, sa.support_phone, sa.support_email, sa.business_description
          FROM siton.deals d
          LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
-         WHERE d.deal_id=$1`,
+         WHERE d.deal_id=$1
+           AND d.published_at IS NOT NULL`,
         [dealId]
       );
 
@@ -2277,9 +2421,11 @@ export function registerFrontendExperience(
       }
 
       const aggregate = await c.query(
-        `SELECT COALESCE(SUM(qty),0) AS joined_units, COUNT(*)::int AS participants_count
+        `SELECT COALESCE(SUM(qty),0) AS joined_units,
+                COUNT(*)::int AS participants_count
          FROM siton.participants
-         WHERE deal_id=$1`,
+         WHERE deal_id=$1
+           AND buyer_state NOT IN ('NotJoined','DealFailed','Dropped')`,
         [dealId]
       );
       const deliveryOptions = await c.query(
@@ -2677,6 +2823,85 @@ export function registerFrontendExperience(
       const sellerContext = await resolveRequiredSellerContext(sellerContextRequest, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
       return buildSellerAnalytics(c, sellerContext.seller_id, period);
+    });
+  });
+
+  app.get("/api/seller/deals/:id/draft", async (req: any, reply: any) => {
+    const dealId = String(req.params.id);
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    await ensureDealTypeTables(deps.withTx);
+
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const result = await c.query(
+        `SELECT deal_id, seller_id, state, title, description, price_per_unit,
+                min_units, max_units, threshold_units, deadline, deal_type,
+                created_at, updated_at
+         FROM siton.deals
+         WHERE deal_id=$1 AND seller_id=$2
+         LIMIT 1`,
+        [dealId, sellerContext.seller_id]
+      );
+      if (!result.rowCount) {
+        throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+      }
+      const draft = result.rows[0];
+      if (String(draft.state) !== "Draft") {
+        throw Object.assign(new Error("only a Draft can be edited"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
+      }
+      const [deliveryOptions, images] = await Promise.all([
+        c.query(
+          `SELECT option_id, option_type, label, cost, sort_order
+           FROM siton.deal_delivery_options
+           WHERE deal_id=$1
+           ORDER BY sort_order ASC, created_at ASC`,
+          [dealId]
+        ),
+        c.query(
+          `SELECT image_id, mime_type, size_bytes, is_primary, sort_order
+           FROM siton.deal_images
+           WHERE deal_id=$1
+           ORDER BY sort_order ASC, created_at ASC`,
+          [dealId]
+        )
+      ]);
+      const dealType = normalizeDealType(draft.deal_type, "physical_product");
+      return {
+        ok: true,
+        editor_version: String(draft.updated_at),
+        draft: {
+          deal_id: String(draft.deal_id),
+          state: "Draft",
+          title: String(draft.title || ""),
+          description: String(draft.description || ""),
+          price_per_unit: Number(draft.price_per_unit),
+          min_units: Number(draft.min_units),
+          max_units: Number(draft.max_units),
+          threshold_units: Number(draft.threshold_units),
+          deadline: String(draft.deadline),
+          deal_type: dealType,
+          delivery_options: deliveryOptions.rows.map((row: any) => ({
+            option_id: row.option_id,
+            option_type: row.option_type,
+            label: row.label,
+            cost: Number(row.cost || 0),
+            sort_order: Number(row.sort_order || 0)
+          })),
+          voucher_terms: dealType === "voucher" ? await readVoucherTerms(c, dealId) : null,
+          ticket_terms: dealType === "ticket" ? await readTicketTerms(c, dealId) : null,
+          images: images.rows.map((row: any) => ({
+            image_id: row.image_id,
+            url: getDealImagePublicUrl(row),
+            mime_type: row.mime_type,
+            size_bytes: Number(row.size_bytes || 0),
+            is_primary: Boolean(row.is_primary),
+            sort_order: Number(row.sort_order || 0)
+          }))
+        },
+        seller_auth: sellerAuthSummary(sellerContext, { returnTo: `/app/seller/deals/${dealId}/edit` })
+      };
     });
   });
 
@@ -4972,7 +5197,7 @@ export function registerFrontendExperience(
         exception_cards: exceptionCards,
         omnisearch: {
           scope: "admin_only_operational_search",
-          public_marketplace: false,
+          public_discovery_scope: "separate_mall_read_surface",
           query: q,
           results: searchRows.rows.map((row: any) => ({
             entity_type: String(row.entity_type),
@@ -8207,7 +8432,9 @@ export function registerFrontendExperience(
         has_failed_deal:    hasFailedDeal
       },
       product_contract: {
-        link_only_no_marketplace:      true,
+        direct_links_first_class:       true,
+        public_mall_discovery:          true,
+        mall_owns_state_or_money:       false,
         distributor_attribution_only:  true,
         platform_fee_8_percent:        feeRateOk,
         platform_fee_rate:             SITON_PLATFORM_FEE_RATE,
@@ -8248,8 +8475,73 @@ export function registerFrontendExperience(
     sendFrontendFile(reply, "offline.html", "text/html; charset=utf-8")
   );
 
-  const sendShell = async (_req: any, reply: FastifyReply) =>
-    sendFrontendFile(reply, "index.html", "text/html; charset=utf-8");
+  const sendShell = async (req: any, reply: FastifyReply) => {
+    const pathOnly = String(req.raw?.url || req.url || "/app").split("?", 1)[0] || "/app";
+    let title = "Siton | אפליקציית עסקאות קבוצתיות";
+    let description = "Siton מאפשרת לגלות ולנהל עסקאות קבוצתיות בבטחה.";
+    let canonicalPath = "/app";
+    let robots = "noindex,nofollow";
+    let ogImage = "";
+
+    if (pathOnly === "/app" || pathOnly === "/app/") {
+      title = "Siton | קניון עסקאות קבוצתיות";
+      description = "מגלים עסקאות קבוצתיות פעילות, רואים את ההתקדמות ומצטרפים רק למסלול הקנוני של העסקה.";
+      robots = "index,follow";
+    } else {
+      const match = pathOnly.match(/^\/app\/deal\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i);
+      if (match) {
+        const dealId = String(match[1]);
+        const publicDeal = await deps.withTx(async (c) => {
+          const result = await c.query(
+            `SELECT d.title, d.description, image.image_id
+             FROM siton.deals d
+             LEFT JOIN LATERAL (
+               SELECT i.image_id
+               FROM siton.deal_images i
+               WHERE i.deal_id=d.deal_id
+               ORDER BY i.is_primary DESC, i.sort_order ASC, i.created_at ASC
+               LIMIT 1
+             ) image ON true
+             WHERE d.deal_id=$1 AND d.published_at IS NOT NULL AND d.state <> 'Draft'
+             LIMIT 1`,
+            [dealId]
+          );
+          return result.rows[0] || null;
+        });
+        if (publicDeal) {
+          const publicTitle = String(publicDeal.title || "עסקה קבוצתית").trim().slice(0, 200);
+          const publicDescription = String(publicDeal.description || "").trim().slice(0, 220);
+          title = `${publicTitle} | Siton`;
+          description = publicDescription || `צפו בפרטי העסקה הקבוצתית ${publicTitle}, בהתקדמות ובסטטוס הקנוני שלה.`;
+          canonicalPath = `/app/deal/${dealId}`;
+          robots = "index,follow";
+          if (publicDeal.image_id) ogImage = getDealImagePublicUrl({ image_id: String(publicDeal.image_id) });
+        }
+      }
+    }
+
+    let html = await readFile(join(frontendDir, "index.html"), "utf8");
+    const safeTitle = escapeHtml(title);
+    const safeDescription = escapeHtml(description);
+    const safeCanonical = escapeHtml(canonicalPath);
+    const safeImage = escapeHtml(ogImage);
+    html = html
+      .replace(/<title>[^<]*<\/title>/, `<title>${safeTitle}</title>`)
+      .replace(/<meta name="description" content="[^"]*" \/>/, `<meta name="description" content="${safeDescription}" />`)
+      .replace(/<meta name="robots" content="[^"]*" \/>/, `<meta name="robots" content="${robots}" />`)
+      .replace(/<meta property="og:title" content="[^"]*" \/>/, `<meta property="og:title" content="${safeTitle}" />`)
+      .replace(/<meta property="og:description" content="[^"]*" \/>/, `<meta property="og:description" content="${safeDescription}" />`)
+      .replace(/<meta property="og:url" content="[^"]*" \/>/, `<meta property="og:url" content="${safeCanonical}" />`)
+      .replace(/<meta property="og:image" content="[^"]*" \/>/, `<meta property="og:image" content="${safeImage}" />`)
+      .replace(/<meta name="twitter:title" content="[^"]*" \/>/, `<meta name="twitter:title" content="${safeTitle}" />`)
+      .replace(/<meta name="twitter:description" content="[^"]*" \/>/, `<meta name="twitter:description" content="${safeDescription}" />`)
+      .replace(/<link rel="canonical" href="[^"]*" \/>/, `<link rel="canonical" href="${safeCanonical}" />`);
+    return reply
+      .header("cache-control", "no-store")
+      .header("x-robots-tag", robots)
+      .type("text/html; charset=utf-8")
+      .send(html);
+  };
 
   app.get("/", async (_req, reply) => reply.redirect("/app", 302));
   app.get("/legal/:slug", async (req: any, reply) => {
@@ -8276,6 +8568,7 @@ export function registerFrontendExperience(
   app.get("/app/recovery/:participantId", sendShell);
   app.get("/app/seller", sendShell);
   app.get("/app/seller/new", sendShell);
+  app.get("/app/seller/deals/:dealId/edit", sendShell);
   app.get("/app/seller/deals/:dealId", sendShell);
   app.get("/app/affiliate", sendShell);
   app.get("/app/admin", sendShell);

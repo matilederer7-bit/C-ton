@@ -3,8 +3,12 @@
 ## What Was Checked
 
 - public deal page
+- public Siton Mall with multiple types/outcomes, filters, newest ordering, and
+  canonical deal navigation
 - seller workspace
 - seller deal page
+- signed-out seller entry, authentication/reauthentication, owner-bound Draft,
+  image previews and persisted editing
 - buyer tracking
 - admin dashboard
 - admin deal page
@@ -16,14 +20,17 @@
 - Desktop route open:
   open each central surface in a real headless browser and verify hydrated DOM contains the screen-specific hierarchy and primary action language.
 - Mobile route open:
-  repeat the critical routes on a narrow viewport and verify the main title, status framing, and CTA copy remain present after hydration.
+  repeat the critical routes at 390px and common iPhone/Android widths and
+  verify touch filters, cards, image controls, titles, state framing, and CTAs
+  remain present without horizontal overflow.
 - Fallback sanity:
   open not-found, missing tracking, and missing participant-ops routes and verify they render readable empty/error states instead of a broken shell.
 
 ## Evidence Baseline
 
 - The smoke suite uses a temporary local app runtime.
-- It seeds one published deal and one joined participant.
+- It seeds physical-product, voucher, and ticket deals across active,
+  target-reached, Completed, and Failed outcomes plus a joined participant.
 - It opens the routes with Edge headless and validates the rendered DOM after hydration.
 
 ## What This Pass Proves
@@ -38,8 +45,10 @@
 - `participant ops` now has a real browser shell route at `/app/admin/participants/:participantId` instead of falling through to a raw Fastify 404.
 - unknown `/app/*` routes now fall back into the SPA shell, so not-found browser states render through the frontend instead of leaking raw JSON.
 
-## What Remains Open
+## External proof that remains
 
-- This is a focused smoke pass, not a full browser lab.
-- It does not add visual diffing or pixel-level clipping detection.
-- If we later need deeper browser confidence, the next step is a small dedicated screenshot or interaction suite for seller/admin drill-downs.
+- Repository browser proof is synthetic and local. Final Base44 domain metadata,
+  social previews, native camera/share behavior, and real-device rendering must
+  be verified only after separately approved publication/domain activation.
+- Screenshot evidence is written only to ignored `.ci-artifacts/`; it is test
+  evidence, not a production-data capture channel.

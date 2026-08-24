@@ -1,5 +1,9 @@
 # [HISTORICAL] Product Surface Focus Pass
 
+> **V1.1 clarification (2026-08-23):** the no-public-discovery product decision
+> below is historical. `/app` is now the single canonical Siton Mall/landing
+> surface.
+
 > **Note 2026-04-22:** references below to `/app/marketplace` and "legacy marketplace compatibility routes" describe a prior state. The canonical current product has no public marketplace / search / catalog surface at all, including no compatibility route. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md).
 
 Date: 2026-04-09 (historical)

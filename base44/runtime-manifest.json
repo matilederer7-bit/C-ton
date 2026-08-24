@@ -6,6 +6,17 @@
   "canonical_data_store": "base44_entities",
   "supabase_role": "inventory_authority_and_proof_connector",
   "scheduled_worker": "siton-worker-tick",
+  "seller_identity_function": "siton-seller-bootstrap",
+  "public_discovery": {
+    "route": "/app",
+    "projection_entity": "MallDealProjection",
+    "list_function": "list-mall-deals",
+    "event_entity": "DiscoveryEvent",
+    "event_function": "record-mall-event",
+    "projection_function": "project-mall-deal",
+    "owns_state_or_money": false,
+    "direct_links_first_class": true
+  },
   "legacy_runtime": "render",
   "publish_required": true,
   "publish_performed": false

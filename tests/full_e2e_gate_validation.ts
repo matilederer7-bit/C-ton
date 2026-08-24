@@ -274,7 +274,9 @@ try {
     assert.equal(publicDeal.statusCode, 200, publicDeal.body);
     const publicJson = publicDeal.json() as any;
     assert.equal(publicJson.availability.canJoin, true);
-    assert.ok(!publicDeal.body.includes("marketplace"));
+    for (const privateKey of ["buyer_id", "payment_provider_reference", "delivery_address", "storage_key"]) {
+      assert.ok(!Object.prototype.hasOwnProperty.call(publicJson.deal, privateKey));
+    }
 
     const joined = await joinDeal(primaryDealId, "primary-buyer", 1);
     assert.equal(joined.response.statusCode, 200, joined.response.body);

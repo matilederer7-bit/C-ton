@@ -1,5 +1,10 @@
 # [SUPERSEDED — NOT CANONICAL] REMAINING PRODUCT SURFACES DECISION
 
+> **V1.1 clarification (2026-08-23):** the broad historical marketplace plan
+> below is still not restored wholesale, but the later ban on all discovery was
+> superseded. Current canon is the disciplined Mall defined in
+> `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`; distributor payout remains excluded.
+
 > **STATUS: SUPERSEDED 2026-04-22.** This decision listed "Affiliate verification and payout readiness" and "Public marketplace search and discovery / Marketplace / mall / Amazon-style catalog experience" as live scope. Both are **NOT part of the current product**. Affiliate economic subsystem was dismantled in Wave 2.5; public marketplace/search was never part of the canonical 2026-04-18 spec. See [PROJECT_STATUS.md](/c:/Users/Lenovo/Documents/C-ton/PROJECT_STATUS.md) (Wave 4 Final Audit).
 
 ## Executive Decision (historical)

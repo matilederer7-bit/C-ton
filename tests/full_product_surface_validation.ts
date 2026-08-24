@@ -143,7 +143,7 @@ async function main() {
     assert.equal(response.statusCode, 200);
     const payload = response.json() as any;
     assert.equal(payload.ok, true);
-    assert.equal(payload.site.product_direction, "link-first-group-deals");
+    assert.equal(payload.site.product_direction, "mall-and-direct-group-deals");
     assert.equal(payload.site.seller_entry.create_deal_url, "/app/seller/new");
   });
 

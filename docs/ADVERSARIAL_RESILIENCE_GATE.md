@@ -1,5 +1,10 @@
 # Adversarial Resilience Gate
 
+> **V1.1 product-scope notice (2026-08-23):** any direct-link-only or
+> no-marketplace conclusion below is historical and is superseded by
+> `SITON_V1_1_MALL_PRODUCT_DIRECTION.md`. Security, state, money, and failure
+> boundaries remain binding.
+
 Date: 2026-05-07
 
 Scope: defensive local/test/staging validation only. No production, no third-party attack traffic, no external aggressive tooling.
