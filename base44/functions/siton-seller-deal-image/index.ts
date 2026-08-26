@@ -94,6 +94,22 @@ Deno.serve(async (req) => {
     if (!deal) return response("deal_not_found", 404);
     const images = await ownerImages(base44, dealId, String(authority.userId));
 
+    if (action === "list") {
+      return Response.json({
+        ok: true,
+        editable: true,
+        images: images.map((image) => ({
+          image_id: image.id,
+          file_url: image.public_url,
+          thumbnail_url: image.thumbnail_url,
+          mime_type: image.mime_type,
+          size_bytes: image.size_bytes,
+          sort_order: image.sort_order,
+          is_primary: image.is_primary === true
+        }))
+      });
+    }
+
     if (action === "delete") {
       const imageId = String(input.image_id ?? "").trim();
       const image = images.find((row) => String(row.id ?? "") === imageId);

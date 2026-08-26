@@ -1,5 +1,18 @@
 # PROJECT STATUS
 
+## SITON V1.1 - INTERRUPTED LIVE-CLOSURE RESUMPTION (2026-08-26)
+
+- Verdict: **V1.1_LIVE_CLOSURE_BLOCKED**. The interrupted run was recovered without repeating hosted business-data writes. Repository engineering and local browser proof are green, and the canonical V1.1 Base44 source/resource subset was synchronized, but the public deployment, hosted Supabase ledger, and complete worker set cannot be proved.
+- Recovery baseline: local `master` started clean at `bb013a852afeb20d3ab59052ae3f34cd6fb7c043`, matched freshly fetched `origin/master` with divergence `0/0`, and had no stash, staged/untracked/deleted paths, or secondary worktree. Remote Base44 was the older Stage 32A state with 57 schemas and 69 function directories.
+- Base44 target: app `6a79b3ce58f678716af8d295` (`ראש גשר`). Four canonical schemas and five canonical functions are present after synchronization, bringing the observed totals to 61 schemas and 74 function directories. The final build-clean source checkpoint is `6a8ebebb7f38534cdc72f958` / remote commit `be1dc07e8d0a2a836063c86c199222a2d9834372`.
+- Remote validation passed build, lint, typecheck, canonical integrity, and canonical-integrity tests. No public app URL or active deployment metadata was available, and `VITE_BASE44_APP_BASE_URL` was unset, so synchronized source is not claimed as a published/live-site result.
+- `siton-worker-tick` is absent: Base44 rejected the recurring privileged payment/notification/reconciliation workflow and the safety gate was not bypassed. The pre-existing `seller-deal-images` function remains because safe retirement was rejected as potentially breaking unknown consumers; current UI source calls only `siton-seller-deal-image`.
+- Duplication audit: no second V1.1 schema/function was created, SellerAccount stayed at one, and no seller/deal was created remotely. Twenty-five uppercase/kebab entity pairs and the legacy image function were classified as pre-existing Stage 32A overlap.
+- Supabase: the connector is active, but the hosted project ref, migration ledger/checksums/drift, RLS state, and recovery point were not exposed. Hosted migrations applied: **none**. Local 45-migration proof is not treated as hosted authority.
+- Local exact-tree proof: `npm run test:all` passed **140 files, 10/10 groups, 0 failures** in `535068 ms`, including real Edge V1.1 evidence. Isolated migrations passed 45/45; lint, architecture, Base44 canonical integrity, TypeScript/focused suites, and diff hygiene passed.
+- Live proof for the V1.1 UI, hosted `401` removal, seller Draft create/return/edit, hosted image upload/rendering, and public Mall is **not provable**. Local equivalents passed but are not substituted for hosted evidence.
+- No Render action, production Supabase write, hosted migration, Grow/provider/payment action, money movement, SMS, email, invoice action, DNS/store action, or remote seller/deal creation occurred. Detailed evidence: `docs/V1_1_RESUMED_LIVE_CLOSURE_2026-08-26.md`.
+
 ## SITON V1.1 — ACTIVATION GATE 1: BASE44 + SUPABASE (2026-08-24)
 
 - Status: **BLOCKED before any hosted write**. The frozen release remains `master` commit `7ab6a61861a87bcaf6be4759912564a3abbbf043`; freshly fetched `origin/master` matched it with divergence `0/0`, and the working tree was clean at activation start.

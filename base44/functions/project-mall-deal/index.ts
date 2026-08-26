@@ -92,11 +92,9 @@ async function existingProjection(base44: any, dealId: string) {
   );
   const rows = Array.isArray(records) ? records as Record<string, unknown>[] : [];
   if (rows.length > 1) {
-    const keeperId = String(rows[0]?.id ?? "");
-    const duplicateIds = rows.slice(1).map((row) => String(row.id ?? "")).filter((id) => id && id !== keeperId);
-    for (const duplicateId of duplicateIds) {
-      await base44.asServiceRole.entities.MallDealProjection.delete(duplicateId);
-    }
+    // Derived projections must never perform destructive cleanup implicitly.
+    // Fail closed and leave any anomaly for an explicit, audited repair.
+    throw new Error("mall_projection_ambiguous");
   }
   return rows[0] ?? null;
 }
@@ -176,9 +174,9 @@ Deno.serve(async (req) => {
     }
 
     const dealFields = [
-      "id", "deal_id", "title", "description", "deal_type", "state", "price_per_unit",
-      "threshold_units", "max_units", "reserved_units", "participants_count", "deadline",
-      "published_at", "updated_date", "seller_id", "has_delivery"
+      "id", "deal_id", "title", "short_description", "deal_type", "state", "price_per_unit",
+      "threshold_units", "max_units", "reserved_units", "join_reservations", "deadline",
+      "published_at", "updated_date", "seller_id", "delivery_options"
     ];
     const deals = await base44.asServiceRole.entities.Deal.filter({ deal_id: dealId }, "-updated_date", 1, 0, dealFields);
     if (!Array.isArray(deals) || deals.length === 0) {
@@ -233,13 +231,6 @@ Deno.serve(async (req) => {
         ["id", "public_url", "thumbnail_url", "is_primary", "is_published", "sort_order"]
       ) : [];
     const images = Array.isArray(imageRows) ? imageRows as Record<string, unknown>[] : [];
-    const unpublishedImages = images.filter((entry) => entry.id && entry.is_published !== true);
-    if (unpublishedImages.length > 0) {
-      await base44.asServiceRole.entities.DealImage.bulkUpdate(
-        unpublishedImages.map((entry) => ({ id: entry.id, is_published: true }))
-      );
-      for (const entry of unpublishedImages) entry.is_published = true;
-    }
     const image = images.find((entry: Record<string, unknown>) => entry.is_primary === true) ?? images[0] ?? null;
     const seller = Array.isArray(sellerRows) && sellerRows.length > 0 ? sellerRows[0] as Record<string, unknown> : null;
     const sellerName = String(seller?.business_name ?? "").trim()
@@ -248,6 +239,15 @@ Deno.serve(async (req) => {
     const maxUnits = nonNegative(deal.max_units);
     const joinedUnits = Math.min(maxUnits, nonNegative(deal.reserved_units));
     const remainingUnits = Math.max(0, maxUnits - joinedUnits);
+    const joinReservations = Array.isArray(deal.join_reservations)
+      ? deal.join_reservations as Record<string, unknown>[]
+      : [];
+    const participantsCount = joinReservations.filter((reservation) =>
+      !["NotJoined", "DealFailed", "Dropped"].includes(String(reservation.buyer_state ?? ""))
+    ).length;
+    const deliveryOptions = Array.isArray(deal.delivery_options)
+      ? deal.delivery_options as Record<string, unknown>[]
+      : [];
     const sourceUpdatedAt = String(deal.updated_date ?? new Date().toISOString());
     const priorVersion = existing ? nonNegative(existing.projection_version) : 0;
     const projection = {
@@ -256,7 +256,7 @@ Deno.serve(async (req) => {
       published_sort_key: `${publishedAt}|${dealId}`,
       deal_id: dealId,
       title: String(deal.title ?? "").trim().slice(0, 160),
-      description_excerpt: excerpt(deal.description),
+      description_excerpt: excerpt(deal.short_description),
       deal_type: dealType,
       canonical_state: state,
       mall_status: mallStatus,
@@ -265,12 +265,12 @@ Deno.serve(async (req) => {
       primary_image_url: String(image?.public_url ?? ""),
       primary_thumbnail_url: String(image?.thumbnail_url ?? image?.public_url ?? ""),
       joined_units: joinedUnits,
-      participants_count: nonNegative(deal.participants_count),
+      participants_count: participantsCount,
       threshold_units: nonNegative(deal.threshold_units),
       max_units: maxUnits,
       remaining_units: remainingUnits,
       is_joinable: ["PendingTarget", "TargetReached"].includes(state) && remainingUnits > 0,
-      has_delivery: deal.has_delivery === true,
+      has_delivery: deliveryOptions.some((option) => String(option.option_type ?? "") === "delivery"),
       deadline: deal.deadline,
       published_at: publishedAt,
       terminal_at: ["Completed", "Failed", "Cancelled"].includes(state) ? sourceUpdatedAt : "",
@@ -283,8 +283,8 @@ Deno.serve(async (req) => {
     } else {
       const created = await base44.asServiceRole.entities.MallDealProjection.create(projection);
       // Base44 entity schemas do not expose a portable unique-index declaration.
-      // Re-read after create so concurrent automation deliveries converge on the
-      // oldest projection row instead of leaving duplicate public cards behind.
+      // Re-read after create and fail closed if concurrent automation produced
+      // ambiguity. Destructive cleanup belongs to an explicit audited repair.
       const keeper = await existingProjection(base44, dealId);
       if (keeper?.id && String(keeper.id) !== String(created?.id ?? "")) {
         await base44.asServiceRole.entities.MallDealProjection.update(keeper.id, projection);

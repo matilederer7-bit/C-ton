@@ -12,7 +12,7 @@ const IDENTITY_FIELDS = [
   "id", "base44_user_id", "business_name", "seller_account_id", "verification_status",
   "onboarding_status", "created_date", "updated_date"
 ] as const;
-const SELLER_ACCOUNT_FIELDS = ["id", "seller_id", "business_name", "display_name"] as const;
+const SELLER_ACCOUNT_FIELDS = ["id", "seller_id", "business_name", "display_name", "owner_user_id"] as const;
 
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
@@ -89,30 +89,32 @@ async function deterministicSellerId(userId: string) {
   return `b44_${hex.slice(0, 32)}`;
 }
 
-async function findSellerAccount(base44: any, sellerId: string) {
+async function findSellerAccount(base44: any, sellerId: string, userId: string) {
   const accounts = await base44.asServiceRole.entities.SellerAccount.filter(
     { seller_id: sellerId }, "-updated_date", 2, 0, [...SELLER_ACCOUNT_FIELDS]
   );
   if (!Array.isArray(accounts) || accounts.length === 0) return null;
   if (accounts.length > 1) throw new Error(FORBIDDEN_IDENTITY_CODE);
+  if (String(accounts[0]?.owner_user_id ?? "") !== userId) throw new Error(FORBIDDEN_IDENTITY_CODE);
   return accounts[0] as Record<string, unknown>;
 }
 
-async function ensureSellerAccount(base44: any, sellerId: string, businessName: string) {
-  const existing = await findSellerAccount(base44, sellerId);
+async function ensureSellerAccount(base44: any, sellerId: string, businessName: string, userId: string) {
+  const existing = await findSellerAccount(base44, sellerId, userId);
   if (existing) return { account: existing, created: false };
   try {
     const created = await base44.asServiceRole.entities.SellerAccount.create({
       seller_id: sellerId,
       display_name: businessName,
       business_name: businessName,
+      owner_user_id: userId,
       verification_status: "pending",
       seller_status: "Active"
     });
     return { account: created as Record<string, unknown>, created: true };
   } catch (error) {
     if (isForbiddenError(error)) throw new Error(FORBIDDEN_IDENTITY_CODE);
-    const raced = await findSellerAccount(base44, sellerId);
+    const raced = await findSellerAccount(base44, sellerId, userId);
     if (raced) return { account: raced, created: false };
     throw new Error("seller_account_bootstrap_unavailable");
   }
@@ -172,11 +174,11 @@ Deno.serve(async (req) => {
     let accountCreated = false;
     let sellerAccountId = String(identities.find((row) => row.seller_account_id)?.seller_account_id ?? "").trim();
     if (sellerAccountId) {
-      const boundAccount = await findSellerAccount(base44, sellerAccountId);
+      const boundAccount = await findSellerAccount(base44, sellerAccountId, userId);
       if (!boundAccount) return forbiddenIdentity(req);
     } else {
       sellerAccountId = await deterministicSellerId(userId);
-      const ensured = await ensureSellerAccount(base44, sellerAccountId, businessName);
+      const ensured = await ensureSellerAccount(base44, sellerAccountId, businessName, userId);
       accountCreated = ensured.created;
     }
 

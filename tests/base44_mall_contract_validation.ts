@@ -74,6 +74,8 @@ for (const forbidden of ["ip_address", "user_agent", "buyer_email", "buyer_phone
 assert.match(read("base44/functions/siton-seller-bootstrap/index.ts"), /base44\.auth\.me\(\)/);
 const sellerBootstrap = read("base44/functions/siton-seller-bootstrap/index.ts");
 assert.match(sellerBootstrap, /entities\.SellerAccount\.create/);
+assert.match(sellerBootstrap, /owner_user_id:\s*userId/);
+assert.match(sellerBootstrap, /owner_user_id\s*\?\?\s*""\)\s*!==\s*userId/);
 assert.match(sellerBootstrap, /seller_identity_forbidden/);
 for (const stableCode of ["SELLER_AUTH_REQUIRED", "SELLER_SESSION_EXPIRED", "SELLER_FORBIDDEN", "SELLER_AUTH_UNAVAILABLE"]) {
   assert.match(sellerBootstrap, new RegExp(stableCode));
@@ -101,6 +103,7 @@ assert.match(sellerImageSource, /bytesMatchMime/);
 assert.match(sellerImageSource, /MAX_IMAGES\s*=\s*5/);
 assert.match(sellerImageSource, /MAX_IMAGE_BYTES\s*=\s*2\s*\*\s*1024\s*\*\s*1024/);
 assert.match(sellerImageSource, /integrations\.Core\.UploadFile/);
+assert.match(sellerImageSource, /action === "list"/);
 assert.match(sellerImageSource, /primaryCount[^]*image_primary_invalid[^]*DealImage\.bulkUpdate/);
 assert.doesNotMatch(sellerImageSource, /input\.(?:user_id|base44_user_id|seller_id|seller_account_id)/);
 const projectionConfig = json("base44/functions/project-mall-deal/function.jsonc");
@@ -119,8 +122,8 @@ assert.match(projectSource, /source_deal_record_id/);
 assert.match(projectSource, /source_image_record_id/);
 assert.match(projectSource, /participants_count/);
 assert.match(projectSource, /business_name.*display_name/s);
-assert.match(projectSource, /DealImage\.bulkUpdate/);
-assert.match(projectSource, /is_published:\s*true/);
+assert.doesNotMatch(projectSource, /DealImage\.bulkUpdate/);
+assert.doesNotMatch(projectSource, /is_published:\s*true/);
 assert.match(projectSource, /published_sort_key:\s*`\$\{publishedAt\}\|\$\{dealId\}`/);
 assert.match(projectSource, /const keeper = await existingProjection\(base44, dealId\)/);
 assert.match(eventSource, /input\.client_event_id \?\? input\.session_id/);

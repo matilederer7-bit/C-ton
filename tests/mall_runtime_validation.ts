@@ -220,7 +220,10 @@ await run("M2 Mall filters and opaque cursor pagination are bounded and stable",
   for (const filterCase of filterCases) {
     const filtered = await app.inject({
       method: "GET",
-      url: `/api/mall/deals?type=${filterCase.type}&status=${filterCase.status}&sort=oldest&limit=48`
+      // Repeated local runs intentionally retain synthetic rows. Use newest
+      // here so this run's fixtures cannot be pushed beyond the bounded page.
+      // Oldest ordering and cursor stability are exercised independently below.
+      url: `/api/mall/deals?type=${filterCase.type}&status=${filterCase.status}&sort=newest&limit=48`
     });
     assert.equal(filtered.statusCode, 200, filtered.body);
     assert.ok(filtered.json().deals.some((row: any) => row.deal_id === filterCase.dealId));
