@@ -13,6 +13,7 @@ async function main() {
   await client.connect();
   const ledger = await client.query("SELECT COUNT(*)::int AS total, COUNT(*) FILTER (WHERE status='succeeded')::int AS succeeded FROM siton.migration_ledger");
   const objects = await client.query(`SELECT
+    (SELECT COUNT(*)::int FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='siton' AND c.relkind IN ('r','p')) AS tables,
     (SELECT COUNT(*)::int FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='siton') AS functions,
     (SELECT COUNT(*)::int FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='siton' AND NOT t.tgisinternal) AS triggers,
     (SELECT COUNT(*)::int FROM pg_constraint WHERE connamespace='siton'::regnamespace) AS constraints,
@@ -21,7 +22,7 @@ async function main() {
   await client.end();
   const report = { expected_migrations: MIGRATIONS.length, ...ledger.rows[0], ...objects.rows[0], rerun: "pass" };
   if (report.total !== MIGRATIONS.length || report.succeeded !== MIGRATIONS.length) throw new Error("migration ledger is incomplete");
-  for (const key of ["functions", "triggers", "constraints", "indexes", "foreign_keys"]) if (Number(report[key]) < 1) throw new Error(`missing ${key}`);
+  for (const key of ["tables", "functions", "triggers", "constraints", "indexes", "foreign_keys"]) if (Number(report[key]) < 1) throw new Error(`missing ${key}`);
   fs.mkdirSync(path.join(process.cwd(), ".ci-artifacts"), { recursive: true });
   fs.writeFileSync(path.join(process.cwd(), ".ci-artifacts", "migration-report.json"), JSON.stringify(report, null, 2));
   console.log("CI_MIGRATION_REPORT_PASS", JSON.stringify(report));

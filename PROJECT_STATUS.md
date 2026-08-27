@@ -1,5 +1,18 @@
 # PROJECT STATUS
 
+## SITON ARCHITECTURE REBASE — STAGE R1 (2026-08-27)
+
+- **Verdict:** `R1_BLOCKED`. R0 remains 100% complete; R1 repository preparation is approximately 45% complete, while live Supabase staging activation/proof is 0%. Render implementation/deployment, Grow activation and production cutover remain 0% and were not started.
+- **Authority unchanged:** Base44 remains active and authoritative. `siton-stage31` and production Supabase were read-only; no new `siton-staging` project was created because this session exposed no callable authenticated Supabase project/database tool, local CLI session, management token or safe credential channel.
+- **Completed in Git:** deterministic extraction of the complete five-table `siton_inventory` schema/RPC/append-only hardening; Auth identity bindings for seller/admin/distributor; fail-closed RLS and browser grants; private `deal-images` Storage contract; read-only verification SQL; Base44 data census; and versioned R1 architecture/evidence documentation.
+- **Canonical DB proof:** disposable local PostgreSQL applied all 45 migrations and replayed them successfully with checksum ledger and drift 0. Result: 63 `siton` tables including `migration_ledger` (62 business/operational), 15 functions, 12 non-internal triggers, 899 constraints, 210 indexes and 56 foreign keys. The workstation's historical local DB correctly failed closed on an old checksum at `045`; it was not reset, repaired or used as evidence.
+- **Base44 census:** 31 queryable types, 36 records, heuristically 6 real-review candidates and 30 system/proof/scaffold records, plus four source-only unavailable types. No raw PII was exported or committed; Base44 writes/deletes were 0/0.
+- **Verification:** the restricted `npm run test:all` discovered 143 files and reported 8/10 groups in 490,598 ms. The two failed groups contained Windows sandbox `spawn EPERM` child-process denials. In the permitted process context, `failure` passed 9/9 and `e2e` passed 13/13; combined exact-tree evidence covers 143/143, but no single-run 10/10 result is claimed. Focused R1 security contract 7/7, DB 5/5, concurrency 4/4, payments 24/24, security 15/15, TypeScript and isolated migrations passed.
+- **Open live gates:** create `siton-staging` in Frankfurt; apply and replay the Git migrations; prove hosted counts/checksums/drift, RLS/grants/Auth/Storage; reproduce inventory 7/7 and the 20-way last-unit race with cleanup; run and classify security/performance advisors; align the app's current 5 MiB image limit with the proposed 2 MiB bucket limit.
+- **Safety:** Grow calls 0; authorization/charge/refund 0/0/0; real SMS/email/invoice/payout 0/0/0/0; Base44 writes/deletes 0/0; production Supabase writes 0; Stage31 writes 0; new staging writes 0.
+- **Next step:** resume R1 only after an authenticated Supabase management/database channel is exposed, complete every hosted gate, and obtain separate authorization before R2. Do not start R2, deploy Render, migrate Base44 data or activate money/providers.
+- **Binding evidence:** `docs/ARCHITECTURE_REBASE_R1_SUPABASE_STAGING.md` and `docs/BASE44_DATA_MIGRATION_CENSUS_R1.md`.
+
 ## SITON ARCHITECTURE REBASE — STAGE R0 (2026-08-27)
 
 - **Decision:** `RECOMMEND_MIGRATE_TO_RENDER_SUPABASE`. This is an architecture recommendation and roadmap, not migration or cutover authorization.
