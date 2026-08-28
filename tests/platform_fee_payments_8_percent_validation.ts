@@ -165,19 +165,19 @@ await runTest("canonical 1000 gross computes 8% platform fee plus VAT and seller
   assert.equal(money.seller_net_amount, 905.6);
 });
 
-await runTest("VAT input is tracked but does not reduce the platform fee gross base", () => {
+await runTest("buyer-side VAT is tracked and excluded from the platform fee base", () => {
   const money = calculatePlatformFeeMoney({
     grossAmount: 118,
     vatAmount: 18
   });
   assert.equal(money.gross_amount, 118);
   assert.equal(money.vat_amount, 18);
-  assert.equal(money.fee_base_amount, 118);
-  assert.equal(money.platform_fee_base_amount, 9.44);
-  assert.equal(money.platform_fee_vat_amount, 1.7);
-  assert.equal(money.platform_fee_total_amount, 11.14);
-  assert.equal(money.platform_fee_amount, 11.14);
-  assert.equal(money.seller_net_amount, 106.86);
+  assert.equal(money.fee_base_amount, 100);
+  assert.equal(money.platform_fee_base_amount, 8);
+  assert.equal(money.platform_fee_vat_amount, 1.44);
+  assert.equal(money.platform_fee_total_amount, 9.44);
+  assert.equal(money.platform_fee_amount, 9.44);
+  assert.equal(money.seller_net_amount, 108.56);
   assert.ok(!Object.prototype.hasOwnProperty.call(money, "affiliate_fee_amount"));
 });
 

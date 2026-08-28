@@ -22,6 +22,15 @@ await run("platform fee canon: gross 1000 -> 80 + VAT -> seller net 905.6", () =
   assert.equal(money.seller_net_amount, 905.6);
 });
 
+await run("buyer VAT is excluded from the 8% fee base", () => {
+  const money = calculatePlatformFeeMoney({ grossAmount: 118, vatAmount: 18 });
+  assert.equal(money.fee_base_amount, 100);
+  assert.equal(money.platform_fee_base_amount, 8);
+  assert.equal(money.platform_fee_vat_amount, 1.44);
+  assert.equal(money.platform_fee_total_amount, 9.44);
+  assert.equal(money.seller_net_amount, 108.56);
+});
+
 await run("shipping is included in charged gross and fee base", () => {
   const product = 900;
   const shipping = 100;

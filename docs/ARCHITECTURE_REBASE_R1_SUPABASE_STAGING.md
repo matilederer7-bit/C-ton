@@ -150,7 +150,7 @@ Buyer guest/session + OTP remains intact. No buyer `auth_user_id` is introduced 
 
 Supabase documents S3-compatible standard uploads, deletes and AWS SigV4 presigning, and private objects can be delivered by signed URL: [S3 compatibility](https://supabase.com/docs/guides/storage/s3/compatibility), [private/signed downloads](https://supabase.com/docs/guides/storage/serving/downloads). S3 object versioning is not supported, so deletion/cleanup must remain explicit and auditable.
 
-No bucket or synthetic object was created because no staging project exists. A code/config mismatch is intentionally open: the current repository upload constant allows 5 MiB, while this R1 staging contract is 2 MiB. The bucket fails closed at 2 MiB, but UI/backend limits must be aligned before R2 product traffic.
+Live R1 created the private `deal-images` bucket in `siton-staging` with a 2 MiB limit and no synthetic object. The repository upload constant and focused tests now use the same 2 MiB limit, matching the current Base44 seller-image contract and the staging bucket before R2 product traffic.
 
 ## 8. Inventory 7/7 reproduction
 
@@ -191,7 +191,7 @@ The binding detail is in `docs/BASE44_DATA_MIGRATION_CENSUS_R1.md`.
 | Stage31 inventory source vs extracted Git SQL | deterministic extraction, static contract 7/7 pass |
 | Hosted `siton-staging` expected vs actual | unavailable; project not created |
 | Local historical DB vs current checksums | mismatch at `045`; quarantined from evidence |
-| Storage size contract | open mismatch: bucket 2 MiB vs current app 5 MiB |
+| Storage size contract | resolved at 2 MiB across bucket, application constant, and focused tests |
 
 ## 12. Security advisor results
 
@@ -242,7 +242,7 @@ All business-critical schema/config source is now in Git. The operational answer
 3. Inventory 7/7 and the 20-participant race were not reproduced on new staging.
 4. Security/performance advisors were not run.
 5. Hosted counts, database version, replay ledger, drift and cleanup are unavailable.
-6. Current 5 MiB application upload validation must be aligned to the chosen 2 MiB Storage contract.
+6. Resolved in live R1: application upload validation and the private staging bucket both enforce 2 MiB.
 
 ## 17. R2 entry criteria
 

@@ -34,7 +34,7 @@ export function calculatePlatformFeeMoney(args: {
 }): PlatformFeeMoneySnapshot {
   const grossAmount = roundMoney(Number(args.grossAmount || 0));
   const vatAmount = roundMoney(Math.max(0, Number(args.vatAmount || 0)));
-  const feeBaseAmount = roundMoney(Math.max(0, grossAmount));
+  const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
   const platformFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
   const platformFeeVatAmount = roundMoney(platformFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
   const platformFeeTotalAmount = roundMoney(platformFeeBaseAmount + platformFeeVatAmount);

@@ -20,6 +20,8 @@ This document is the canonical C-ton decision for money, tax, invoices, refunds,
 - `shipping_amount`: delivery amount actually charged for the participant.
 - `buyer_authorization_total`: expected hold amount at join time, `unit_price * quantity + shipping_amount`.
 - `charged_gross_total`: actual collected buyer money only, product plus shipping, counted only from `ChargedSuccess` and `RecoveredCharge`.
+- `buyer_vat_amount`: the buyer-side VAT component already included in the charged gross, supplied by authoritative tax/provider truth and otherwise `0`.
+- `fee_calculation_base`: charged gross less buyer-side VAT, never below `0`.
 - `platform_fee_base`: C-ton platform fee before VAT.
 - `platform_fee_vat`: VAT charged by C-ton to the seller on the platform fee.
 - `platform_fee_total`: total C-ton fee charged to the seller, including VAT.
@@ -31,7 +33,8 @@ This document is the canonical C-ton decision for money, tax, invoices, refunds,
 ## Formulas
 
 ```text
-platform_fee_base = charged_gross_total * 0.08
+fee_calculation_base = max(0, charged_gross_total - buyer_vat_amount)
+platform_fee_base = fee_calculation_base * 0.08
 platform_fee_vat = platform_fee_base * VAT_RATE
 platform_fee_total = platform_fee_base + platform_fee_vat
 seller_net = charged_gross_total - platform_fee_total
@@ -40,15 +43,17 @@ seller_net = charged_gross_total - platform_fee_total
 Example:
 
 ```text
-charged_gross_total = 1000
+charged_gross_total = 118
+buyer_vat_amount = 18
+fee_calculation_base = 100
 VAT_RATE = 0.18
-platform_fee_base = 80
-platform_fee_vat = 14.40
-platform_fee_total = 94.40
-seller_net = 905.60
+platform_fee_base = 8
+platform_fee_vat = 1.44
+platform_fee_total = 9.44
+seller_net = 108.56
 ```
 
-Shipping is included in `charged_gross_total`. If product is 900 and shipping is 100, the platform fee is calculated on 1000.
+Shipping is included in `charged_gross_total` before buyer-side VAT is removed. For example, product plus shipping of 118 with an authoritative buyer VAT component of 18 produces a fee calculation base of 100.
 
 ## VAT Rule
 
@@ -126,6 +131,7 @@ The canonical source for calculations is `src/platform_fee_money.ts`. Stored `pl
 - Platform fee rate: `SITON_PLATFORM_FEE_RATE = 0.08` in `src/platform_fee_money.ts`.
 - Platform fee VAT rate: `SITON_PLATFORM_FEE_VAT_RATE`, default `0.18`, in `src/runtime_config.ts`.
 - Collected gross: `qty * price_per_unit + delivery_cost`.
+- Fee calculation base: `max(0, gross_amount - vat_amount)`.
 - Counted collected-money states: `ChargedSuccess`, `RecoveredCharge`.
 - Excluded non-revenue states: `Dropped`, `AuthReleased`, `ChargeFailedRecovery`, and authorization-only states.
 - Seller analytics, seller Excel export, invoice document preparation, and payout settlement use the canonical calculation or stored platform-fee ledger rows.

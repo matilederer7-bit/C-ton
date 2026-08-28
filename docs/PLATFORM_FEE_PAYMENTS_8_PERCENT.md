@@ -25,7 +25,8 @@ For a buyer participation, the canonical amount inputs are rigid DB values:
 - `delivery_cost`: `siton.deal_delivery_options.cost`, selected by
   `delivery_option_id`; client-sent `delivery_cost` is not authoritative
 - `gross_amount`: `qty * price_per_unit + delivery_cost`
-- `platform_fee_base_amount`: `gross_amount - vat_amount`
+- `fee_base_amount`: `gross_amount - vat_amount`
+- `platform_fee_base_amount`: `fee_base_amount * 0.08`
 - `platform_fee_vat_amount`: VAT on Siton's fee only
 - `platform_fee_total_amount`: `platform_fee_base_amount + platform_fee_vat_amount`
 - `seller_net_amount`: `gross_amount - platform_fee_total_amount`

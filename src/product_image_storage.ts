@@ -2,7 +2,7 @@ import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { buildStorageAdapter, type StorageAdapter } from "./storage_adapter.js";
 
-export const DEAL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
+export const DEAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const DEAL_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export type DealImageUploadInput = {

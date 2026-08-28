@@ -1,5 +1,21 @@
 # PROJECT STATUS
 
+## SITON ARCHITECTURE REBASE — STAGE R1 LIVE SUPABASE ACTIVATION (2026-08-28)
+
+- Verdict: `R1_SUPABASE_STAGING_READY`. The live R1 staging activation is 100% complete. R2, Render, Grow, Base44 migration and production cutover remain 0% and were not started.
+- Target: only Supabase project `hnptacfzuqebfgeshadq` (`siton-staging`, `eu-central-1`, `ACTIVE_HEALTHY`) was modified. `siton-stage31` and the inactive Mumbai project were not modified.
+- Completed: all 45 ordered canonical `siton` migrations, the five repository-controlled staging migrations, 63 `siton` tables, five `siton_inventory` tables, Auth identity foundations, private Storage, fail-closed browser grants, and pinned function search paths are live.
+- Migration and rebuild proof: canonical ledger 45/45 with checksum mismatch 0 and dirty count 0; replay skip-safe; Supabase migration history 50/50; repository-controlled missing/extra divergence 0/0. Rebuild is YES for schemas, functions, triggers, grants, Auth bindings and Storage foundation.
+- Inventory proof: hosted 7/7 passed for sync, hold, idempotent replay, concurrent exhaustion, atomic commit, idempotent release and cleanup. A strict 20-participant concurrent race produced exactly 7 held units and 13 `inventory_exhausted` results against max 7, with no over-reservation and zero synthetic residue.
+- Security: RLS is enabled and `anon`/`authenticated` retain zero schema usage and zero table privileges. The 15 mutable-search-path WARN findings were fixed and the rerun has 0 WARN. The remaining 68 `rls_enabled_no_policy` INFO findings are INTENTIONAL fail-closed notices; no permissive policy was added.
+- Performance: 18 unindexed-foreign-key INFO findings are DEFERRED to workload-led R2 tuning; 99 unused-index INFO findings are INTENTIONAL on a fresh zero-traffic staging database and canonical indexes were preserved.
+- Auth and Storage: seller/admin/distributor identities are bound to `auth.users.id`; guest/session/OTP buyer flow remains available; no real user was created. Bucket `deal-images` is private, allows JPEG/PNG/WebP, uses opaque keys, and is resolved at 2 MiB across the bucket, application constant and focused tests.
+- Financial structure: the canonical calculator and tests now enforce a fixed 8% Siton fee on charged product plus delivery after excluding authoritative buyer-side VAT. Distributor attribution remains measurement-only with commission, balance, payout and entitlement all zero.
+- Tested: live target identity, hosted schema counts, checksum ledger and replay, RLS/grants, Auth FKs, Storage configuration, function hardening, inventory 7/7, strict 20-way concurrency, append-only audit rejection, financial synthetic arithmetic, provider-row census, advisors, cleanup and repository drift.
+- Safety: real authorization/charge/refund 0/0/0; real SMS/email/invoice/payout 0/0/0/0; Base44 writes/deletes 0/0; real users 0; real images 0; Render/Grow calls 0.
+- Open: no R1 blocker. Performance INFO items remain classified above and must be revisited with real workload evidence. Provider activation, application connection, Base44 migration and every R2 action require separate authorization.
+- Next step: stop after durable Git closure. Do not start R2.
+
 ## SITON ARCHITECTURE REBASE — STAGE R1 (2026-08-27)
 
 - **Verdict:** `R1_BLOCKED`. R0 remains 100% complete; R1 repository preparation is approximately 45% complete, while live Supabase staging activation/proof is 0%. Render implementation/deployment, Grow activation and production cutover remain 0% and were not started.

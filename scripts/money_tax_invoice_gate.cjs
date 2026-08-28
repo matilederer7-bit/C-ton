@@ -50,7 +50,8 @@ assert(/SITON_PLATFORM_FEE_VAT_RATE\s*=\s*readNumberEnv\("SITON_PLATFORM_FEE_VAT
 
 const feeSourceCount = (platformFee.match(/export const SITON_PLATFORM_FEE_RATE\s*=\s*0\.08/g) || []).length;
 assert(feeSourceCount === 1, `expected one platform fee rate source export, found ${feeSourceCount}`);
-assert(/feeBaseAmount\s*=\s*roundMoney\(Math\.max\(0,\s*grossAmount\)\)/.test(platformFee), "platform fee base must use charged gross, not gross minus VAT");
+assert(/feeBaseAmount\s*=\s*roundMoney\(Math\.max\(0,\s*grossAmount\s*-\s*vatAmount\)\)/.test(platformFee), "platform fee base must exclude buyer-side VAT from charged gross");
+assert(canon.includes("fee_calculation_base = max(0, charged_gross_total - buyer_vat_amount)"), "canon must exclude buyer-side VAT from the fee calculation base");
 assert(/platformFeeVatAmount\s*=\s*roundMoney\(platformFeeBaseAmount\s*\*\s*SITON_PLATFORM_FEE_VAT_RATE\)/.test(platformFee), "platform fee VAT must use VAT_RATE constant");
 assert(/sellerNetAmount\s*=\s*roundMoney\(grossAmount\s*-\s*platformFeeTotalAmount\)/.test(platformFee), "seller_net must subtract fee total including VAT");
 
