@@ -3365,6 +3365,28 @@ app.post("/deals/:id/publish", async (req: any) => {
   return result;
 });
 
+async function tryTargetReached(dealId: string, requestId: string) {
+  try {
+    await atomicTransition({
+      entityType: "deal",
+      entityId: dealId,
+      dealId,
+      stateType: "deal_state",
+      fromState: "PendingTarget",
+      toState: "TargetReached",
+      actionName: "deal.target_reached",
+      requestId,
+      idempotencyKey: `target-reached:${dealId}`,
+      outbox: null,
+      payload: {}
+    });
+  } catch (error: any) {
+    const message = String(error?.message || error || "");
+    if (message.includes("State mismatch deal")) return;
+    throw error;
+  }
+}
+
 app.post("/deals/:id/join", async (req: any, reply: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
@@ -4212,5 +4234,4 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
-
 
