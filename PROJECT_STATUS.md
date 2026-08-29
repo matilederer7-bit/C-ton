@@ -1,5 +1,19 @@
 # PROJECT STATUS
 
+## SITON ARCHITECTURE REBASE — STAGE R2 CANONICAL POSTGRES RUNTIME (2026-08-29)
+
+- Verdict: `R2_BLOCKED`. Repository implementation is complete enough for review, but the persistent runtime role migration, literal Fastify staging boot and live cross-schema proof are not complete. R3 was not started.
+- Completed: one internal transaction-scoped PostgreSQL inventory repository; Fastify Join now uses canonical `sync/hold/commit` on the same client as `siton.*`; atomic target transition; `/readiness`; shared Web/Worker pool construction; parameter-free SQL diagnostics; cross-schema reservation foreign key draft; operation-specific Web/Worker grant draft; browser roles remain fail-closed.
+- Tested: the staging SQL passed two full `BEGIN ... ROLLBACK` preflights. Added isolated tests for runtime roles, Fastify health/readiness and safe database failure, cross-schema rollback in both failure directions, audit atomicity, duplicate idempotency and capacity, plus fee/VAT authority regression. Full CI is pending the Git commit.
+- Live staging: no R2 DDL persisted and no synthetic operational data created. The available change-control reviewer rejected the role matrix because the monolithic Fastify and Worker require a large sensitive table surface.
+- Money: Siton fee remains exactly 8 percent of the server-authoritative fee base; product and shipping are included; authoritative buyer VAT is excluded; client VAT is not authoritative; distributor commission is zero.
+- Base44: absent from the target inventory repository and Join path. Existing Base44 production and historical files remain intentionally untouched until a later authorized cutover.
+- Safety: authorization/charge/refund 0/0/0; real SMS/email/invoice/payout 0/0/0/0; Base44 writes/deletes 0/0; Render deploys 0; Grow calls 0.
+- Advisors: unchanged R1 state because no R2 DDL persisted. Security 0 WARN and 68 intentional fail-closed INFO notices. Performance 18 unindexed-foreign-key INFO notices and 99 unused-index INFO notices.
+- Open: redesign or explicitly approve the exact runtime permission matrix; apply it; provision external Web/Worker database login secrets; boot Fastify against staging; run live atomicity/cleanup; rerun Advisors after persistent DDL.
+- Progress: repository implementation 90 percent; live staging activation and proof 0 percent; weighted R2 completion 70 percent.
+- Next step: close the least-privilege role design and the missing credential channel, then resume R2 only. Do not start R3.
+
 ## SITON ARCHITECTURE REBASE — STAGE R1 LIVE SUPABASE ACTIVATION (2026-08-28)
 
 - Verdict: `R1_SUPABASE_STAGING_READY`. The live R1 staging activation is 100% complete. R2, Render, Grow, Base44 migration and production cutover remain 0% and were not started.

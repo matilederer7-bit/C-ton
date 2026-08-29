@@ -1,4 +1,3 @@
-import pg from "pg";
 import pino from "pino";
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
@@ -13,10 +12,9 @@ import {
 } from "./app.js";
 import { runScheduledWorkerBatch } from "./worker_scheduler.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
+import { createRuntimePool } from "./db.js";
 
-const { Pool } = pg;
 const logger = pino({ level: process.env.LOG_LEVEL || "info" });
-const DATABASE_URL = process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
 const WORKER_ID = getWorkerIdentity();
 const POLL_MS = Math.max(50, Number(process.env.OUTBOX_POLL_MS || 1_000));
 const CONCURRENCY = Math.max(1, Math.min(32, Number(process.env.WORKER_CONCURRENCY || 4)));
@@ -28,7 +26,7 @@ const STUCK_TIMEOUT_MS = Math.max(5_000, Number(process.env.WORKER_STUCK_TIMEOUT
 const HEARTBEAT_MS = Math.max(1_000, Number(process.env.WORKER_HEARTBEAT_MS || 10_000));
 const SHUTDOWN_TIMEOUT_MS = Math.max(1_000, Number(process.env.WORKER_SHUTDOWN_TIMEOUT_MS || 30_000));
 
-const controlPool = new Pool({ connectionString: DATABASE_URL, max: 2 });
+const controlPool = createRuntimePool("worker", 2);
 let accepting = true;
 let activeCycle: Promise<void> | null = null;
 let heartbeatTimer: NodeJS.Timeout | null = null;
@@ -155,3 +153,4 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
+

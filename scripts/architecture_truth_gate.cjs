@@ -29,4 +29,27 @@ const automation = fs.readFileSync("base44/functions/siton-worker-tick/function.
 assert(automation.includes('"cron_expression": "*/5 * * * *"'), "worker automation is not scheduled at the supported five-minute interval");
 const forbiddenRoot = fs.readdirSync(".").filter((name) => /^render(?:\.|$)/i.test(name));
 assert(forbiddenRoot.length === 0, `Render artifacts left at repository root: ${forbiddenRoot.join(",")}`);
-console.log("ARCHITECTURE_GATE_PASS production=base44 worker=siton-worker-tick render=legacy portable_runtime=supporting");
+const r2Files = [
+  "src/inventory_repository.ts",
+  "src/runtime_database_boundary.ts",
+  "supabase/staging/006_canonical_postgres_runtime_boundary.sql",
+  "docs/ARCHITECTURE_REBASE_R2_CANONICAL_POSTGRES.md"
+];
+for (const filePath of r2Files) assert(fs.existsSync(filePath), `R2 artifact missing: ${filePath}`);
+
+const inventoryRepository = fs.readFileSync("src/inventory_repository.ts", "utf8");
+const appSource = fs.readFileSync("src/app.ts", "utf8");
+const workerSource = fs.readFileSync("src/worker.ts", "utf8");
+const boundarySql = fs.readFileSync("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8");
+assert(inventoryRepository.includes("public.siton_inventory_rpc"), "inventory repository is not canonical RPC-backed");
+assert(!/base44|https?:\/\/|\bfetch\s*\(|\baxios\s*\(/i.test(inventoryRepository), "inventory repository contains an external bridge");
+assert(appSource.includes("buildInventoryRepository(c)"), "Fastify Join does not use the internal inventory repository");
+assert(appSource.includes('app.get("/readiness"'), "Fastify readiness route missing");
+assert(workerSource.includes('createRuntimePool("worker", 2)'), "Worker database boundary is not explicit");
+assert(/CREATE ROLE siton_web_runtime NOLOGIN NOINHERIT/.test(boundarySql), "Web access profile is not NOLOGIN");
+assert(/CREATE ROLE siton_worker_runtime NOLOGIN NOINHERIT/.test(boundarySql), "Worker access profile is not NOLOGIN");
+assert(!/FOR ALL TO siton_(?:web|worker)_runtime/.test(boundarySql), "runtime RLS policies must be operation-specific");
+assert(/REVOKE ALL ON SCHEMA siton, siton_inventory FROM anon, authenticated/.test(boundarySql), "browser schema access is not fail-closed");
+
+console.log("ARCHITECTURE_GATE_PASS production=base44 worker=siton-worker-tick render=legacy target_inventory=canonical_postgres");
+

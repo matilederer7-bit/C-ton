@@ -1,6 +1,14 @@
-import { assertDatabaseSchema, assertRequiredTables } from "./schema_contract.js";
+import { assertRequiredTables } from "./schema_contract.js";
 import Fastify from "fastify";
-import pg from "pg"; const { Pool } = pg; type PoolClient = any;
+import { pool } from "./db.js";
+import { assertCanonicalRuntimeReady } from "./runtime_database_boundary.js";
+import {
+  buildInventoryRepository,
+  canonicalInventoryKey,
+  inventorySha256,
+  InventoryRepositoryError
+} from "./inventory_repository.js";
+type PoolClient = any;
 import { createHash, randomUUID } from "crypto";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -90,9 +98,6 @@ dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
 const HOST = String(process.env.HOST || "0.0.0.0");
-const DATABASE_URL =
-  process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton";
-
 // Per spec (C6): completion window is 24 hours (1440 minutes) — the time buyers have
 // to update a failed payment method after Charging → CompletionWindow.
 const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES || 1440);
@@ -205,11 +210,6 @@ async function recordLegalAcceptance(args: {
   );
 }
 const SELLER_SESSION_SECRET = String(process.env.SELLER_SESSION_SECRET || "").trim();
-
-const pool = new Pool({
-  connectionString: DATABASE_URL,
-  ...(process.env.NODE_ENV === "test" ? { idleTimeoutMillis: 100 } : {})
-});
 
 function debugSurfaceAccessKey() {
   return String(process.env.DEBUG_SURFACES_ACCESS_KEY || "").trim();
@@ -2321,7 +2321,7 @@ export async function runWorkerMaintenance() {
 }
 
 export async function assertWorkerDatabaseReady() {
-  await assertDatabaseSchema(pool);
+  await assertCanonicalRuntimeReady(pool, "worker");
 }
 
 export function getWorkerIdentity() {
@@ -2520,6 +2520,14 @@ app.setErrorHandler((error: any, _req, reply) => {
 });
 
 app.get("/health", async () => ({ ok: true }));
+
+app.get("/readiness", async (_req: any, reply: any) => {
+  try {
+    return await assertCanonicalRuntimeReady(pool, "web");
+  } catch {
+    return reply.code(503).send({ ok: false, code: "not_ready" });
+  }
+});
 
 function parseImageUploadBody(body: any) {
   const dataUrl = String(body?.image_data_url || body?.data_url || "").trim();
@@ -3354,28 +3362,6 @@ app.post("/deals/:id/publish", async (req: any) => {
   return result;
 });
 
-async function tryTargetReached(dealId: string, requestId: string) {
-  try {
-    await atomicTransition({
-      entityType: "deal",
-      entityId: dealId,
-      dealId,
-      stateType: "deal_state",
-      fromState: "PendingTarget",
-      toState: "TargetReached",
-      actionName: "deal.target_reached",
-      requestId,
-      idempotencyKey: `target-reached:${dealId}`,
-      outbox: null,
-      payload: {}
-    });
-  } catch (e: any) {
-    const msg = String(e?.message || e || "");
-    if (msg.includes("State mismatch deal")) return;
-    throw e;
-  }
-}
-
 app.post("/deals/:id/join", async (req: any, reply: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
@@ -3499,7 +3485,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
     // Lock the deal row to prevent concurrent over-booking
     const dealRow = await c.query(
-      `SELECT deal_id, state, max_units, seller_id, title, price_per_unit, deal_type, published_at
+      `SELECT deal_id, state, max_units, threshold_units, seller_id, title, price_per_unit, deal_type, published_at
        FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
     );
@@ -3510,6 +3496,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     }
     const dealState = String(dealRow.rows[0].state) as DealState;
     const maxUnits = Number(dealRow.rows[0].max_units);
+    const thresholdUnits = Number(dealRow.rows[0].threshold_units);
     const dealSellerId = String(dealRow.rows[0].seller_id || "");
 
     if (!["PendingTarget", "TargetReached"].includes(dealState)) {
@@ -3557,25 +3544,47 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       throw err;
     }
 
-    // Count ALL active units on this deal (all buyers) to enforce max_units ceiling
-    const reservedRow = await c.query(
-      `SELECT COALESCE(SUM(qty), 0) AS total
-       FROM siton.participants
-       WHERE deal_id=$1
-         AND buyer_state NOT IN ('DealFailed','Dropped')`,
-      [dealId]
-    );
-    const alreadyReserved = Number(reservedRow.rows[0].total);
-    const remaining = maxUnits - alreadyReserved;
-
-    if (qty > remaining) {
-      const err: any = new Error(
-        `requested quantity (${qty}) exceeds available inventory (${Math.max(0, remaining)})`
-      );
-      err.statusCode = 409;
-      err.code = "max_units_exceeded";
-      throw err;
+    const inventory = buildInventoryRepository(c);
+    const inventoryJoinKey = canonicalInventoryKey("join", {
+      deal_id: dealId,
+      buyer_id,
+      idempotency_key: idem
+    });
+    await inventory.sync({
+      dealId,
+      maxUnits,
+      minUnits: thresholdUnits,
+      idempotencyKey: `runtime-sync:${dealId}`
+    });
+    let inventoryHold: Record<string, unknown>;
+    try {
+      inventoryHold = await inventory.hold({
+        dealId,
+        qty,
+        idempotencyKey: inventoryJoinKey,
+        requestHash: joinRequestHash
+      });
+    } catch (error) {
+      if (error instanceof InventoryRepositoryError && error.code === "inventory_exhausted") {
+        (error as any).code = "max_units_exceeded";
+      }
+      throw error;
     }
+    const inventoryReservationId = String(inventoryHold.reservation_id || "");
+    requireUuid(inventoryReservationId, "inventory_reservation_id");
+    const authorizationPayload = authorizationId
+      ? {
+          authorization: "provider_authorized",
+          authorization_id: authorizationId,
+          authorization_provider: authorizationProvider || "unknown",
+          authorization_correlation_id: authorizationCorrelationId || null
+        }
+      : { authorization: "mock_success" };
+    const authorizationEvidenceHash = inventorySha256({
+      deal_id: dealId,
+      buyer_id,
+      authorization: authorizationPayload
+    });
 
     // INSERT participant, then immediately apply state transitions + write audit + idem_log
     // all within the same deal-locked transaction. This prevents the race where concurrent
@@ -3586,9 +3595,10 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
          deal_id, buyer_id, qty, buyer_state, money_state,
          delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
          buyer_name, buyer_phone, buyer_email,
-         delivery_address, delivery_city, delivery_notes, acquisition_source
+         delivery_address, delivery_city, delivery_notes, acquisition_source,
+         inventory_reservation_id
        )
-       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+       VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
        RETURNING participant_id`,
       [
         dealId,
@@ -3604,12 +3614,24 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         deliveryAddress,
         deliveryCity,
         deliveryNotes,
-        acquisition.requestedSource
+        acquisition.requestedSource,
+        inventoryReservationId
       ]
     );
     const pid = ins.rows[0].participant_id as string;
-    if (joinTestFailurePoint === "after_participant_before_commit") {
-      throw new Error("join_test_failure_after_participant_before_commit");
+    if (
+      joinTestFailurePoint === "after_participant_before_commit"
+      || joinTestFailurePoint === "after_business_mutation_before_inventory_commit"
+    ) {
+      throw new Error("join_test_failure_after_business_mutation_before_inventory_commit");
+    }
+
+    const inventoryCommit = await inventory.commit({
+      reservationId: inventoryReservationId,
+      authorizationEvidenceHash
+    });
+    if (joinTestFailurePoint === "after_inventory_commit_before_business_audit") {
+      throw new Error("join_test_failure_after_inventory_commit_before_business_audit");
     }
 
     const affiliateRef = String(body.affiliate_ref || "").trim().slice(0, 120);
@@ -3656,15 +3678,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       }
     }
 
-    const authorizationPayload = authorizationId
-      ? {
-          authorization: "provider_authorized",
-          authorization_id: authorizationId,
-          authorization_provider: authorizationProvider || "unknown",
-          authorization_correlation_id: authorizationCorrelationId || null
-        }
-      : { authorization: "mock_success" };
-
     // Set session config expected by audit/outbox trigger guards
     await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
     await c.query(`SELECT set_config('siton.action_name', 'participant.join_authorize', true)`);
@@ -3696,6 +3709,35 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       [pid]
     );
     if (msUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NoFinancial`);
+
+    if (inventoryCommit.target_transitioned === true && dealState === "PendingTarget") {
+      await c.query(`SELECT set_config('siton.action_name', 'deal.target_reached', true)`);
+      await c.query(`SELECT set_config('siton.audit_written', '0', true)`);
+      await c.query(
+        `INSERT INTO siton.audit_log
+         (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, correlation_id, idempotency_key, payload)
+         VALUES ('deal',$1,$1,'deal_state','PendingTarget','TargetReached','deal.target_reached',$2,$3,$4,$5)`,
+        [
+          dealId,
+          requestId,
+          correlationId,
+          `target-reached:${dealId}`,
+          JSON.stringify({
+            source_inventory_reservation_id: inventoryReservationId,
+            committed_units: inventoryCommit.committed_units,
+            threshold_units: thresholdUnits
+          })
+        ]
+      );
+      await c.query(`SELECT set_config('siton.audit_written', '1', true)`);
+      const targetUpdate = await c.query(
+        `UPDATE siton.deals SET state='TargetReached' WHERE deal_id=$1 AND state='PendingTarget'`,
+        [dealId]
+      );
+      if (targetUpdate.rowCount !== 1) {
+        throw new Error(`State mismatch deal ${dealId} expected PendingTarget`);
+      }
+    }
 
     await recordLegalAcceptance({
       c,
@@ -3733,6 +3775,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     const response = {
       ok: true,
       participant_id: pid,
+      inventory_reservation_id: inventoryReservationId,
       tracking_access_token: trackingAccess.token,
       tracking_url: `/app/track/${encodeURIComponent(pid)}?t=${encodeURIComponent(trackingAccess.token)}`,
       delivery_option_id: selectedDelivery?.option_id ?? null,
@@ -3771,6 +3814,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       replayed: false as const,
       participant: {
         participant_id: pid,
+        inventory_reservation_id: inventoryReservationId,
         buyer_state: "JoinedAuthorized" as BuyerState,
         money_state: "AuthHeld" as MoneyState,
         delivery_option_id: selectedDelivery?.option_id ?? null,
@@ -3784,21 +3828,6 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   });
 
   if (joinResult.replayed) return joinResult.response;
-  const participant = joinResult.participant;
-
-  const targetAttempt = await withTx(async (c) => {
-    const d = await c.query(`SELECT state, threshold_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
-    if (!d.rowCount) throw new Error("deal not found");
-    const state = d.rows[0].state as DealState;
-    const threshold = Number(d.rows[0].threshold_units);
-    const total = await sumJoinedUnits(c, dealId);
-    return { state, threshold, total };
-  });
-
-  if (targetAttempt.state === "PendingTarget" && targetAttempt.total >= targetAttempt.threshold) {
-    await tryTargetReached(dealId, requestId);
-  }
-
   await hitTestFault("http.join.after_commit_before_response");
   return joinResult.response;
 });
@@ -3809,9 +3838,9 @@ app.post("/deals/:id/close_joining", async (req: any) => {
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}`;
 
-  await withTx(async (c) => {
+  const closeContext = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
-    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const r = await c.query(`SELECT seller_id, max_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
       err.statusCode = 404;
@@ -3822,6 +3851,7 @@ app.post("/deals/:id/close_joining", async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
+    return { maxUnits: Number(r.rows[0].max_units) };
   });
 
   return atomicTransition({
@@ -3835,7 +3865,17 @@ app.post("/deals/:id/close_joining", async (req: any) => {
     requestId,
     idempotencyKey: idem,
     outbox: null,
-    payload: {}
+    payload: {},
+    insideTx: async (c) => {
+      await buildInventoryRepository(c).close({
+        dealId,
+        maxUnits: closeContext.maxUnits,
+        idempotencyKey: canonicalInventoryKey("close", {
+          deal_id: dealId,
+          idempotency_key: idem
+        })
+      });
+    }
   });
 });
 
@@ -4075,7 +4115,7 @@ registerFrontendExperience(app, {
 
 export async function startApplication() {
   assertProductionRuntimeGuards("web");
-  await assertDatabaseSchema(pool);
+  await assertCanonicalRuntimeReady(pool, "web");
   await app.listen({ port: PORT, host: HOST });
 
   /*
@@ -4116,5 +4156,6 @@ if (entryPath === import.meta.url) {
     process.exitCode = 1;
   });
 }
+
 
 

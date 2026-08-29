@@ -37,8 +37,10 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
   if (missingMigrations.length) throw new Error(`database migrations are incomplete: missing ${missingMigrations.join(", ")}`);
 
   const tables = await db.query(
-    `SELECT table_name FROM information_schema.tables
-     WHERE table_schema='siton' AND table_type='BASE TABLE'`
+    `SELECT table_name
+     FROM unnest($1::text[]) AS required(table_name)
+     WHERE to_regclass(format('siton.%I', table_name)) IS NOT NULL`,
+    [REQUIRED_TABLES]
   );
   const present = new Set(tables.rows.map((row: any) => String(row.table_name)));
   const missing = REQUIRED_TABLES.filter((table) => !present.has(table));
@@ -86,8 +88,9 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
 
 export async function assertRequiredTables(db: Db, tables: readonly string[]): Promise<void> {
   const result = await db.query(
-    `SELECT table_name FROM information_schema.tables
-     WHERE table_schema='siton' AND table_name = ANY($1::text[])`,
+    `SELECT table_name
+     FROM unnest($1::text[]) AS required(table_name)
+     WHERE to_regclass(format('siton.%I', table_name)) IS NOT NULL`,
     [tables]
   );
   const present = new Set(result.rows.map((row: any) => String(row.table_name)));
