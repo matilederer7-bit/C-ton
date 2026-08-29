@@ -27,7 +27,13 @@ await pool.query(`
 await pool.query(await readFile("supabase/staging/001_siton_inventory_v1.sql", "utf8"));
 await pool.query(await readFile("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8"));
 
-const deals = Array.from({ length: 5 }, () => randomUUID());
+const deals = [
+  randomUUID(),
+  randomUUID(),
+  randomUUID(),
+  randomUUID(),
+  randomUUID()
+] as const;
 for (const dealId of deals) {
   await pool.query(
     `INSERT INTO siton.deals
