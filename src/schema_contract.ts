@@ -2,6 +2,23 @@ type Db = {
   query(sql: string, params?: unknown[]): Promise<{ rows: any[]; rowCount?: number | null }>;
 };
 
+async function queryRequiredTables(db: Db, tables: readonly string[]) {
+  if (process.env.CANONICAL_POSTGRES_RUNTIME === "1") {
+    return db.query(
+      `SELECT table_name
+       FROM unnest($1::text[]) AS required(table_name)
+       WHERE to_regclass(format('siton.%I', table_name)) IS NOT NULL`,
+      [tables]
+    );
+  }
+  return db.query(
+    `SELECT table_name
+     FROM information_schema.tables
+     WHERE table_schema='siton' AND table_name=ANY($1::text[])`,
+    [tables]
+  );
+}
+
 export const REQUIRED_TABLES = [
   "deals", "participants", "audit_log", "idempotency_log", "outbox_events", "outbox_dlq",
   "payment_attempts", "webhook_events", "seller_accounts", "seller_sessions",
@@ -36,12 +53,7 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
   const missingMigrations = REQUIRED_MIGRATION_IDS.filter((id) => !applied.has(id));
   if (missingMigrations.length) throw new Error(`database migrations are incomplete: missing ${missingMigrations.join(", ")}`);
 
-  const tables = await db.query(
-    `SELECT table_name
-     FROM unnest($1::text[]) AS required(table_name)
-     WHERE to_regclass(format('siton.%I', table_name)) IS NOT NULL`,
-    [REQUIRED_TABLES]
-  );
+  const tables = await queryRequiredTables(db, REQUIRED_TABLES);
   const present = new Set(tables.rows.map((row: any) => String(row.table_name)));
   const missing = REQUIRED_TABLES.filter((table) => !present.has(table));
   if (missing.length) {
@@ -87,12 +99,7 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
 }
 
 export async function assertRequiredTables(db: Db, tables: readonly string[]): Promise<void> {
-  const result = await db.query(
-    `SELECT table_name
-     FROM unnest($1::text[]) AS required(table_name)
-     WHERE to_regclass(format('siton.%I', table_name)) IS NOT NULL`,
-    [tables]
-  );
+  const result = await queryRequiredTables(db, tables);
   const present = new Set(result.rows.map((row: any) => String(row.table_name)));
   const missing = tables.filter((table) => !present.has(table));
   if (missing.length) throw new Error(`database migrations are incomplete: missing ${missing.join(", ")}`);
