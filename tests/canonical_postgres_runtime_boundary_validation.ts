@@ -19,6 +19,7 @@ await adminPool.query(await readFile("supabase/staging/001_siton_inventory_v1.sq
 await adminPool.query(await readFile("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8"));
 await adminPool.query(await readFile("supabase/staging/007_runtime_role_admin_set_proof.sql", "utf8"));
 await adminPool.query(await readFile("supabase/staging/008_runtime_trigger_helper_execute.sql", "utf8"));
+await adminPool.query(await readFile("supabase/staging/009_runtime_function_public_fail_closed.sql", "utf8"));
 
 const roles = await adminPool.query(`
   SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolreplication, rolbypassrls, rolinherit

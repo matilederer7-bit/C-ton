@@ -126,3 +126,5 @@ current two-process runtime exactly.
   `siton_inventory`.
 - `anon` and `authenticated` retain no direct access to `siton`,
   `siton_inventory`, or the canonical inventory RPC.
+- `PUBLIC`, `anon`, and `authenticated` retain no ambient EXECUTE path to
+  `siton` functions; the runtime roles receive only the seven listed helpers.

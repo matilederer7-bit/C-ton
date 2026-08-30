@@ -35,6 +35,7 @@ const r2Files = [
   "supabase/staging/006_canonical_postgres_runtime_boundary.sql",
   "supabase/staging/007_runtime_role_admin_set_proof.sql",
   "supabase/staging/008_runtime_trigger_helper_execute.sql",
+  "supabase/staging/009_runtime_function_public_fail_closed.sql",
   "docs/R2_RUNTIME_PERMISSION_AUDIT.md",
   "docs/ARCHITECTURE_REBASE_R2_CANONICAL_POSTGRES.md"
 ];
@@ -46,6 +47,7 @@ const workerSource = fs.readFileSync("src/worker.ts", "utf8");
 const boundarySql = fs.readFileSync("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8");
 const adminSetSql = fs.readFileSync("supabase/staging/007_runtime_role_admin_set_proof.sql", "utf8");
 const triggerHelperSql = fs.readFileSync("supabase/staging/008_runtime_trigger_helper_execute.sql", "utf8");
+const functionFailClosedSql = fs.readFileSync("supabase/staging/009_runtime_function_public_fail_closed.sql", "utf8");
 assert(inventoryRepository.includes("public.siton_inventory_rpc"), "inventory repository is not canonical RPC-backed");
 assert(!/base44|https?:\/\/|\bfetch\s*\(|\baxios\s*\(/i.test(inventoryRepository), "inventory repository contains an external bridge");
 assert(appSource.includes("buildInventoryRepository(c)"), "Fastify Join does not use the internal inventory repository");
@@ -58,5 +60,6 @@ assert(/REVOKE ALL ON SCHEMA siton, siton_inventory FROM anon, authenticated/.te
 assert(/WITH SET TRUE, INHERIT FALSE/.test(adminSetSql), "administrative SET ROLE proof is not non-inheriting");
 assert(/siton\.is_valid_action_name\(text\)/.test(triggerHelperSql), "trigger helper execution surface missing");
 assert(!/GRANT EXECUTE ON ALL FUNCTIONS/.test(triggerHelperSql), "trigger helper execution surface is not operation-specific");
+assert(/REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA siton\s+FROM PUBLIC, anon, authenticated/.test(functionFailClosedSql), "siton functions are not fail-closed on clean replay");
 
 console.log("ARCHITECTURE_GATE_PASS production=base44 worker=siton-worker-tick render=legacy target_inventory=canonical_postgres");

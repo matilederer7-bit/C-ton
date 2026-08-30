@@ -68,6 +68,7 @@ The live staging migration history now includes:
 - `r2_canonical_postgres_runtime_boundary`
 - `r2_runtime_role_admin_set_proof`
 - `r2_runtime_trigger_helper_execute`
+- `r2_runtime_function_public_fail_closed`
 
 The second migration permits the existing `postgres` administrative owner to
 use `SET ROLE` while keeping role membership non-inheriting. This adds no
