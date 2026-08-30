@@ -12,6 +12,9 @@ BEGIN
 END
 $roles$;
 
+-- Supabase migration principals are not SUPERUSER and therefore cannot spell
+-- ALTER ROLE ... NOSUPERUSER/NOBYPASSRLS. CREATE ROLE defaults those flags to
+-- false; the safety block below asserts every flag and aborts on drift.
 ALTER ROLE siton_web_runtime NOLOGIN NOINHERIT;
 ALTER ROLE siton_worker_runtime NOLOGIN NOINHERIT;
 
@@ -123,8 +126,9 @@ DECLARE
   ];
   web_update_tables text[] := ARRAY[
     'admin_actions','admin_control_flags','admin_mfa_challenges','admin_mfa_factors','admin_sessions',
-    'admin_users','affiliate_accounts','buyer_resume_contexts','buyer_sessions','deal_images','deals',
-    'distributor_sessions','fulfillment_units','infrastructure_change_audit','invoice_documents',
+    'admin_users','affiliate_accounts','buyer_payment_methods','buyer_resume_contexts','buyer_sessions',
+    'deal_images','deal_ticket_terms','deal_voucher_terms','deals','distributor_sessions',
+    'fulfillment_units','infrastructure_change_audit','invoice_document_attempts','invoice_documents',
     'invoice_reconciliation_cases','invoice_webhook_events','notification_events','operational_cases',
     'otp_challenges','outbox_events','participant_tracking_tokens','participants','payment_attempts',
     'seller_accounts','seller_sessions','storage_cleanup_tasks','support_tickets','webhook_events'
@@ -133,31 +137,28 @@ DECLARE
   -- Worker SELECT is limited to queue, money, invoice, payout, recovery and
   -- readiness tables. UPDATE predicate dependencies are included explicitly.
   worker_select_tables text[] := ARRAY[
-    'admin_control_flags','affiliate_accounts','affiliate_links','audit_log',
-    'buyer_resume_contexts','deal_delivery_options','deal_images','deals','idempotency_log',
+    'admin_control_flags','audit_log','deals','fulfillment_units','idempotency_log',
     'invoice_document_attempts','invoice_documents','invoice_reconciliation_cases',
-    'join_idempotency_results','migration_ledger','notification_attempts','notification_events',
+    'migration_ledger','notification_events',
     'operational_recovery_audit','outbox_dlq','outbox_events','participants','payment_attempts',
     'platform_fee_money_events','seller_accounts','seller_payout_attempts',
     'seller_payout_batch_items','seller_payout_batches','seller_payout_reconciliation_cases',
-    'seller_sessions','seller_settlements','storage_cleanup_tasks','worker_heartbeats'
+    'seller_settlements','storage_cleanup_tasks','worker_heartbeats'
   ];
   worker_insert_tables text[] := ARRAY[
-    'affiliate_attributions','audit_log','deal_delivery_options','deal_images','deals','discovery_events',
-    'idempotency_log','invoice_document_attempts','invoice_documents','invoice_reconciliation_cases',
-    'join_idempotency_results','legal_acceptances','notification_attempts','notification_events',
-    'operational_case_events','operational_cases','operational_recovery_audit','outbox_dlq',
-    'outbox_events','participants','payment_attempts','platform_fee_money_events',
+    'audit_log','fulfillment_units','idempotency_log','invoice_document_attempts','invoice_documents',
+    'invoice_reconciliation_cases','notification_attempts','notification_events',
+    'operational_recovery_audit','outbox_dlq','outbox_events','payment_attempts','platform_fee_money_events',
     'seller_payout_attempts','seller_payout_batch_items','seller_payout_batches',
     'seller_payout_reconciliation_cases','seller_settlements','storage_cleanup_tasks','worker_heartbeats'
   ];
   worker_update_tables text[] := ARRAY[
-    'buyer_resume_contexts','deal_images','deals','invoice_documents','invoice_reconciliation_cases',
-    'notification_events','outbox_events','participants','payment_attempts','seller_payout_batch_items',
-    'seller_payout_batches','seller_payout_reconciliation_cases','seller_settlements',
+    'deals','invoice_document_attempts','invoice_documents','invoice_reconciliation_cases',
+    'notification_events','outbox_events','participants','payment_attempts','seller_payout_attempts',
+    'seller_payout_batch_items','seller_payout_batches','seller_payout_reconciliation_cases','seller_settlements',
     'storage_cleanup_tasks','worker_heartbeats'
   ];
-  worker_delete_tables text[] := ARRAY['deal_delivery_options','deal_images','outbox_events'];
+  worker_delete_tables text[] := ARRAY['outbox_events'];
 BEGIN
   FOREACH v_table IN ARRAY web_select_tables LOOP
     EXECUTE format('GRANT SELECT ON siton.%I TO siton_web_runtime', v_table);

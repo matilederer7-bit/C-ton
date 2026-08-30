@@ -26,6 +26,8 @@ await pool.query(`
 `);
 await pool.query(await readFile("supabase/staging/001_siton_inventory_v1.sql", "utf8"));
 await pool.query(await readFile("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8"));
+await pool.query(await readFile("supabase/staging/007_runtime_role_admin_set_proof.sql", "utf8"));
+await pool.query(await readFile("supabase/staging/008_runtime_trigger_helper_execute.sql", "utf8"));
 
 const deals = [
   randomUUID(),

@@ -1,113 +1,183 @@
 # SITON ARCHITECTURE REBASE — R2 CANONICAL POSTGRES RUNTIME
 
-Date: 2026-08-29  
+Date: 2026-08-30  
 Target: `siton-staging` / `hnptacfzuqebfgeshadq` / `eu-central-1`  
-Baseline: `be868ddd177ff3365f79fafbdfd35b8ddcd32f2e`
+Baseline: `3a1eb2e499b7c9fd6dbd249d1de9045a71b65c22`
 
 ## Verdict
 
-`R2_BLOCKED`.
+`R2_CANONICAL_POSTGRES_READY`.
 
-The repository-side canonical Postgres boundary is implemented and test coverage is versioned. The persistent least-privilege role migration was not applied to staging because the available change-control path rejected its Web and Worker grant surface as too broad for a permanent security-boundary change. The SQL passed transaction-wrapped staging preflight and was rolled back. No role, grant, policy, column, constraint or synthetic operational row from R2 was persisted.
+The repository-controlled runtime boundary is persistent on staging. The
+NOLOGIN Web and Worker profiles passed live positive and negative `SET ROLE`
+tests. The canonical Join and inventory repository passed live cross-schema
+transaction, rollback, audit, idempotency, capacity and foreign-key proofs with
+zero synthetic residue. R3 was not started.
 
 ## Runtime database model
 
-Fastify Web and the continuous Worker use PostgreSQL through `pg` pools created by `src/db.ts`. Credentials remain external to Git and logs. Canonical mode is enabled only with `CANONICAL_POSTGRES_RUNTIME=1`.
+Fastify Web and the continuous Worker use PostgreSQL through separate `pg`
+pools created by `src/db.ts`. Canonical mode is enabled only with
+`CANONICAL_POSTGRES_RUNTIME=1`.
 
-The intended deployed model uses a dedicated external LOGIN credential for each process and an effective database access profile:
+- Web access profile: `siton_web_runtime`
+- Worker access profile: `siton_worker_runtime`
+- Both profiles: `NOLOGIN`, `NOINHERIT`, `NOSUPERUSER`, `NOCREATEDB`,
+  `NOCREATEROLE`, `NOREPLICATION`, and `NOBYPASSRLS`
+- Neither profile owns a canonical schema or receives schema `CREATE`
+- Neither profile receives direct `siton_inventory` schema or table access
+- Inventory access is only `public.siton_inventory_rpc(text,jsonb)`
+- `anon` and `authenticated` have no direct canonical schema, table, sequence,
+  or inventory RPC access
+- LOGIN principals, passwords and `DATABASE_URL` provisioning are R3 work and
+  do not exist in Git
 
-- Web effective role: `siton_web_runtime`
-- Worker effective role: `siton_worker_runtime`
-- Both profiles: `NOLOGIN`, `NOINHERIT`, no superuser, database creation, role creation, replication or RLS bypass
-- Persistent processes: direct Supabase Postgres connection where IPv6 is available, or the session pooler where IPv4 is required
-- TLS and credentials: connection-string secret supplied by the runtime platform, never committed or emitted in SQL logs
-- Forbidden application identities: `postgres`, `supabase_admin`, `service_role`, `anon`, and `authenticated`
+The exact operation-level table, sequence, function and classification matrix
+is versioned in `docs/R2_RUNTIME_PERMISSION_AUDIT.md`.
 
-Canonical readiness fails closed unless the effective role exactly matches the process profile and `public.siton_inventory_rpc('probe', '{}')` succeeds.
+## Permission audit result
 
-## Canonical inventory path
+The monolithic process boundary was retained. No per-route role architecture
+was introduced.
 
-`src/inventory_repository.ts` is the single target-runtime adapter. It invokes `public.siton_inventory_rpc(text,jsonb)` on the transaction's existing `PoolClient`. It contains no Base44 import, Base44 SDK call, HTTPS bridge, `fetch`, or Axios call.
+The source audit removed 22 unnecessary Worker operation-level table
+privileges:
 
-The repository preserves:
+- 8 SELECT privileges
+- 10 INSERT privileges
+- 2 UPDATE privileges
+- 2 DELETE privileges
 
-- `sync`
-- `hold`
-- `commit`
-- `release`
-- `lookup`
-- reservation status
-- deal status
-- close
-- stable request hashing
-- idempotency
-- capacity enforcement
-- canonical inventory audit
+The same audit corrected missing operations that current runtime code already
+performs:
 
-Fastify Join no longer calculates inventory availability from a separate sum of `siton.participants`.
+- Web UPDATE for four `ON CONFLICT DO UPDATE` tables
+- Worker SELECT and INSERT on `fulfillment_units`
+- Worker UPDATE on two `ON CONFLICT DO UPDATE` tables
+- Web and Worker EXECUTE on seven non-mutating helpers called by state and
+  audit triggers
 
-## Cross-schema transaction
+No mutating or security-definer `siton` function was granted directly.
 
-The target Join order is:
+## Persistent migrations
 
-1. Lock the business deal and business idempotency key.
-2. Sync and Hold through the canonical inventory RPC on the same client.
-3. Insert the business participant with `inventory_reservation_id`.
-4. Commit the inventory reservation and its append-only inventory audits.
-5. Write business audits and update buyer and money states.
-6. If the inventory target transitioned, update the business deal and audit it.
-7. Store the business idempotency result.
-8. Commit once.
+The live staging migration history now includes:
 
-Failure injection exists after the business mutation and after the inventory commit. Because both schemas use the same PostgreSQL transaction and client, either failure rolls back business rows, inventory rows and both audit streams together. The new tests also cover duplicate idempotency replay and `max_units` exhaustion.
+- `r2_canonical_postgres_runtime_boundary`
+- `r2_runtime_role_admin_set_proof`
+- `r2_runtime_trigger_helper_execute`
 
-This behavior is covered in an isolated PostgreSQL test, but it was not executed against live staging because the runtime role migration was not persisted.
+The second migration permits the existing `postgres` administrative owner to
+use `SET ROLE` while keeping role membership non-inheriting. This adds no
+application authority because that administrator already owns both canonical
+schemas. It provides a reproducible administrative proof path.
 
-## Fastify readiness
+## Live role proofs
 
-- `/health` is liveness only and does not depend on PostgreSQL.
-- `/readiness` checks the complete canonical schema contract, exact effective runtime role and inventory RPC probe.
-- A database failure returns HTTP 503 with the safe body `{"ok":false,"code":"not_ready"}`.
-- Startup fails before listening if readiness fails.
-- Schema checks use catalog lookups and contain no runtime DDL.
-- SQL debug logging records duration and error code only, not SQL parameters.
+The Web role succeeded at schema readiness, inventory RPC probe, business
+INSERT and UPDATE, and its permitted DELETE surface. It was denied:
 
-The test suite boots Fastify against an isolated migrated PostgreSQL database under `SET ROLE siton_web_runtime`. A literal Fastify process could not be booted against `siton-staging` because this chat has no database password or temporary secret channel and the persistent access profiles were not approved for activation.
+- schema DDL
+- schema ownership change
+- direct inventory table read
+- granting its role to `authenticated`
+- Worker-only outbox DELETE
+
+The Worker role succeeded at schema readiness, inventory RPC probe, heartbeat
+INSERT with conflict UPDATE, and outbox DELETE. It was denied:
+
+- schema DDL
+- schema ownership change
+- direct inventory table read
+- granting its role to `authenticated`
+- Web-only Deal INSERT
+- Web-only seller-session read
+
+Every role-proof transaction was rolled back.
+
+## Canonical inventory and cross-schema transaction
+
+`src/inventory_repository.ts` is the single target-runtime adapter. It invokes
+the inventory RPC on the transaction's existing PostgreSQL client and contains
+no Base44 import, Base44 SDK call, HTTPS bridge, `fetch`, or Axios call.
+
+The live staging proof used the same transaction semantics as the repository
+and passed:
+
+- participant Join mutation and committed reservation observed together
+- forced failure after business mutation rolled back business and inventory
+- forced failure after inventory mutation rolled back inventory, business and
+  both audit streams
+- duplicate idempotency replay returned the same reservation and reserved units
+  once
+- an over-capacity hold returned `inventory_exhausted`; reserved units remained
+  4 of 5
+- the participant reservation foreign key joined to the committed reservation
+- a dangling reservation foreign key was rejected
+- final synthetic residue count across business, inventory and audit tables was
+  zero
+
+The earlier R1 strict 20-participant capacity race was not repeated. R2 reused
+the same canonical RPC and proved its transaction-scoped runtime call path;
+repository concurrency regression remains part of full CI.
+
+## Fastify stage boundary
+
+R2 evidence combines the prior isolated full-PostgreSQL Fastify proof with the
+new live staging role and atomicity proof:
+
+- `/health` returns 200
+- `/readiness` returns 200 with the canonical schema, inventory contract and
+  effective Web role
+- database loss makes readiness return 503 while health remains 200
+- schema checks are read-only and no runtime DDL exists
+- canonical inventory operations do not depend on Base44
+
+A literal network Fastify boot against staging is intentionally the first R3
+deployment gate. R2 does not create external LOGIN roles, passwords or
+`DATABASE_URL` secrets merely to repeat the already-proven process behavior.
 
 ## Money authority
 
-The existing server-side money authority remains canonical:
+No provider call was made. Existing regression tests reconfirm:
 
-- Siton fee rate: exactly 8 percent
-- Gross source: database quantity multiplied by database unit price, plus database delivery cost
-- Shipping: included in the fee base
-- Buyer-side VAT: excluded from the fee base only when supplied by authoritative server/provider truth
-- Current no-tax-provider fallback: authoritative VAT is zero
-- Client VAT fields: not authoritative and not passed into fee calculation
-- Distributor commission: zero; attribution remains measurement-only
-- Real provider calls in R2: zero
+- Siton fee is exactly 8 percent
+- the fee base includes product and delivery or shipping
+- authoritative buyer-side VAT is excluded
+- client-supplied VAT is never authoritative
+- distributor commission and payout entitlement are zero
 
-## Base44 disposition
+## Advisors
 
-No Base44 dependency exists in the target Fastify inventory repository or canonical Join path. Base44 source files, deployed production functions and the current production runtime manifest remain in the repository because R2 does not authorize production cutover, production data migration or deletion. They are historical/current-production dependencies only, not dependencies of the Render/Supabase target inventory path.
+Post-DDL Security Advisors:
 
-## Migration and security status
+- WARN: 0
+- INFO: 5 `rls_enabled_no_policy` notices on the five inventory tables
+- Classification: `INTENTIONAL`; private inventory tables remain fail-closed
+  and are available only through the security-definer canonical RPC
 
-`supabase/staging/006_canonical_postgres_runtime_boundary.sql` is a reviewed draft with operation-specific grants and policies. It also adds the cross-schema reservation foreign key and retains zero direct inventory-table access for Web, Worker and browser roles.
+Post-DDL Performance Advisors:
 
-Two transaction-wrapped staging preflights succeeded and rolled back. Persistent application was rejected by the available safety reviewer due to the size and sensitivity of the Fastify monolith's required table surface. No workaround was used.
+- WARN: 0
+- INFO: 18 unindexed foreign keys
+- INFO: 98 unused indexes
+- Classification: `DEFERRED`; no new R2 performance finding was introduced,
+  and fresh-staging usage statistics are not evidence for dropping canonical
+  indexes. Revisit with representative R3 workload evidence.
 
-Because no R2 DDL was persisted, the advisor run describes the unchanged R1 database: Security has 0 WARN and 68 intentional fail-closed `rls_enabled_no_policy` INFO notices. Performance has 18 unindexed-foreign-key INFO notices and 99 unused-index INFO notices. The remediation reference for the intentional security notice is [Supabase database linter 0008](https://supabase.com/docs/guides/database/database-linter?lint=0008_rls_enabled_no_policy).
+## External activity
 
-## Open gate and next step
+- Grow calls: 0
+- real authorizations, charges, refunds and payouts: 0
+- real SMS, emails and invoices: 0
+- Render deploys: 0
+- Base44 writes and deletes: 0
+- production data migration: 0
 
-R2 can close only after the access surface is split into narrower database capabilities, or the exact operation-level role matrix receives explicit security approval, followed by:
+## Next step
 
-- persistent staging migration
-- real Web and Worker credentials through a secret channel
-- literal Fastify staging boot
-- live cross-schema synthetic proof and cleanup
-- post-DDL Security and Performance Advisors
-- full green regression suite
-
-Do not deploy Render or start R3 before those gates pass.
+R3 may begin only as a separately authorized stage. Its first gate is Render Web
+runtime deployment with secure LOGIN-principal and `DATABASE_URL` provisioning,
+followed by literal network health and readiness verification. Do not activate
+Grow, migrate Base44 production data, send real communications or execute real
+money without their later explicit gates.

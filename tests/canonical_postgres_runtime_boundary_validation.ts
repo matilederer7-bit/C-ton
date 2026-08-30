@@ -17,6 +17,8 @@ await adminPool.query(`
 `);
 await adminPool.query(await readFile("supabase/staging/001_siton_inventory_v1.sql", "utf8"));
 await adminPool.query(await readFile("supabase/staging/006_canonical_postgres_runtime_boundary.sql", "utf8"));
+await adminPool.query(await readFile("supabase/staging/007_runtime_role_admin_set_proof.sql", "utf8"));
+await adminPool.query(await readFile("supabase/staging/008_runtime_trigger_helper_execute.sql", "utf8"));
 
 const roles = await adminPool.query(`
   SELECT rolname, rolsuper, rolcreatedb, rolcreaterole, rolcanlogin, rolreplication, rolbypassrls, rolinherit
@@ -38,22 +40,54 @@ for (const role of roles.rows) {
 const grants = await adminPool.query(`
   SELECT
     has_table_privilege('siton_web_runtime','siton.participants','SELECT') AS web_business_select,
+    has_table_privilege('siton_web_runtime','siton.buyer_payment_methods','UPDATE') AS web_payment_method_upsert,
+    has_table_privilege('siton_web_runtime','siton.deal_ticket_terms','UPDATE') AS web_ticket_terms_upsert,
+    has_table_privilege('siton_web_runtime','siton.deal_voucher_terms','UPDATE') AS web_voucher_terms_upsert,
+    has_table_privilege('siton_web_runtime','siton.invoice_document_attempts','UPDATE') AS web_invoice_attempt_upsert,
     has_table_privilege('siton_worker_runtime','siton.outbox_events','UPDATE') AS worker_outbox_update,
+    has_table_privilege('siton_worker_runtime','siton.fulfillment_units','SELECT,INSERT') AS worker_fulfillment_issue,
+    has_table_privilege('siton_worker_runtime','siton.invoice_document_attempts','UPDATE') AS worker_invoice_attempt_upsert,
+    has_table_privilege('siton_worker_runtime','siton.seller_payout_attempts','UPDATE') AS worker_payout_attempt_upsert,
+    has_table_privilege('siton_worker_runtime','siton.deals','INSERT') AS worker_deal_insert,
+    has_table_privilege('siton_worker_runtime','siton.participants','INSERT') AS worker_participant_insert,
+    has_table_privilege('siton_worker_runtime','siton.deal_images','DELETE') AS worker_image_delete,
+    has_table_privilege('siton_worker_runtime','siton.notification_attempts','SELECT') AS worker_notification_attempt_read,
+    has_table_privilege('siton_worker_runtime','siton.seller_sessions','SELECT') AS worker_seller_session_read,
     has_table_privilege('siton_web_runtime','siton_inventory.inventory_deals','SELECT') AS web_inventory_direct,
     has_table_privilege('siton_worker_runtime','siton_inventory.inventory_reservations','UPDATE') AS worker_inventory_direct,
     has_table_privilege('anon','siton.participants','SELECT') AS anon_business_direct,
     has_table_privilege('authenticated','siton_inventory.inventory_deals','SELECT') AS authenticated_inventory_direct,
     has_function_privilege('siton_web_runtime','public.siton_inventory_rpc(text,jsonb)','EXECUTE') AS web_rpc,
-    has_function_privilege('siton_worker_runtime','public.siton_inventory_rpc(text,jsonb)','EXECUTE') AS worker_rpc
+    has_function_privilege('siton_worker_runtime','public.siton_inventory_rpc(text,jsonb)','EXECUTE') AS worker_rpc,
+    has_function_privilege('siton_web_runtime','siton.is_valid_action_name(text)','EXECUTE') AS web_trigger_helper,
+    has_function_privilege('siton_worker_runtime','siton.require_action_name()','EXECUTE') AS worker_trigger_helper,
+    has_function_privilege('siton_web_runtime','siton.audit_log_before_insert_enforce()','EXECUTE') AS web_trigger_body_direct,
+    has_function_privilege('siton_worker_runtime','siton.participants_before_update_enforce()','EXECUTE') AS worker_trigger_body_direct
 `);
 assert.equal(grants.rows[0].web_business_select, true);
+assert.equal(grants.rows[0].web_payment_method_upsert, true);
+assert.equal(grants.rows[0].web_ticket_terms_upsert, true);
+assert.equal(grants.rows[0].web_voucher_terms_upsert, true);
+assert.equal(grants.rows[0].web_invoice_attempt_upsert, true);
 assert.equal(grants.rows[0].worker_outbox_update, true);
+assert.equal(grants.rows[0].worker_fulfillment_issue, true);
+assert.equal(grants.rows[0].worker_invoice_attempt_upsert, true);
+assert.equal(grants.rows[0].worker_payout_attempt_upsert, true);
+assert.equal(grants.rows[0].worker_deal_insert, false);
+assert.equal(grants.rows[0].worker_participant_insert, false);
+assert.equal(grants.rows[0].worker_image_delete, false);
+assert.equal(grants.rows[0].worker_notification_attempt_read, false);
+assert.equal(grants.rows[0].worker_seller_session_read, false);
 assert.equal(grants.rows[0].web_inventory_direct, false);
 assert.equal(grants.rows[0].worker_inventory_direct, false);
 assert.equal(grants.rows[0].anon_business_direct, false);
 assert.equal(grants.rows[0].authenticated_inventory_direct, false);
 assert.equal(grants.rows[0].web_rpc, true);
 assert.equal(grants.rows[0].worker_rpc, true);
+assert.equal(grants.rows[0].web_trigger_helper, true);
+assert.equal(grants.rows[0].worker_trigger_helper, true);
+assert.equal(grants.rows[0].web_trigger_body_direct, false);
+assert.equal(grants.rows[0].worker_trigger_body_direct, false);
 
 const runtimeUrl = new URL(adminUrl);
 runtimeUrl.searchParams.set("options", "-c role=siton_web_runtime");
