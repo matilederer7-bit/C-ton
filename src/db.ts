@@ -17,6 +17,15 @@ export function createRuntimePool(kind: "web" | "worker" = "web", max?: number) 
   });
 
   runtimePool.on("connect", decorateClientQuery);
+  runtimePool.on("error", (err: any) => {
+    // Idle pooled connections can be terminated by the server (failover,
+    // restart, administrator command). That must degrade to readiness
+    // failures on the next query, never crash the process.
+    console.error("[db.pool.error]", {
+      kind,
+      code: String(err?.code || "unknown")
+    });
+  });
   return runtimePool;
 }
 

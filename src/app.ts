@@ -40,6 +40,7 @@ import {
 import { registerFrontendExperience } from "./frontend_runtime.js";
 import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
+import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
 import { hitTestFault } from "./fault_injection.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
@@ -2338,7 +2339,14 @@ export async function closeWorkerDatabase() {
 const RECLAIM_EVERY_N_POLLS = 10;
 
 
-const app = Fastify({ logger: true, trustProxy: true, bodyLimit: 8 * 1024 * 1024 });
+const app = Fastify({
+  logger: true,
+  trustProxy: true,
+  bodyLimit: 8 * 1024 * 1024,
+  rewriteUrl(req) {
+    return rewriteCanonicalApiAlias(String(req.url || "/"));
+  }
+});
 
 function applySecurityHeaders(reply: any) {
   reply.header("x-content-type-options", "nosniff");
