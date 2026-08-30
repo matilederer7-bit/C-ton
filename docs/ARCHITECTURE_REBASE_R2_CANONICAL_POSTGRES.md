@@ -1,7 +1,9 @@
 # SITON ARCHITECTURE REBASE — R2 CANONICAL POSTGRES RUNTIME
 
-Date: 2026-08-30  
-Target: `siton-staging` / `hnptacfzuqebfgeshadq` / `eu-central-1`  
+Date: 2026-08-30
+
+Target: `siton-staging` / `hnptacfzuqebfgeshadq` / `eu-central-1`
+
 Baseline: `3a1eb2e499b7c9fd6dbd249d1de9045a71b65c22`
 
 ## Verdict
