@@ -2123,6 +2123,15 @@ async function workerProcessEvent(event: {
 
     if (deal.state !== "PendingTarget") return;
 
+    // A deadline check may only fail a deal AFTER its deadline has passed. If the
+    // deadline is still in the future (e.g. this check was enqueued at publish
+    // time and processed immediately by the continuous worker), defer it until
+    // the deadline instead of failing a freshly published, still-joinable deal.
+    const deadlineMs = new Date(String(deal.deadline || "")).getTime();
+    if (Number.isFinite(deadlineMs) && Date.now() < deadlineMs) {
+      throw new DeferredEventError("deadline_not_reached", new Date(deadlineMs));
+    }
+
     const total = await withTx(async (c) => sumJoinedUnits(c, dealId));
     if (total >= Number(deal.threshold_units)) return;
 
@@ -3378,6 +3387,11 @@ app.post("/deals/:id/publish", async (req: any) => {
     }
   });
 
+  // Schedule the deadline check to run AT the deadline, not immediately. With a
+  // continuous worker an available_at of now() would fail a freshly published
+  // deal before anyone can join; the handler also defers early runs defensively.
+  const publishDeadlineRow = await pool.query(`SELECT deadline FROM siton.deals WHERE deal_id=$1`, [dealId]);
+  const publishDeadlineAt = publishDeadlineRow.rows[0]?.deadline ? new Date(publishDeadlineRow.rows[0].deadline) : undefined;
   const result = await atomicTransition({
     entityType: "deal",
     entityId: dealId,
@@ -3392,7 +3406,8 @@ app.post("/deals/:id/publish", async (req: any) => {
       event_type: "deadline_check",
       aggregate_type: "deal",
       aggregate_id: dealId,
-      payload: { deal_id: dealId }
+      payload: { deal_id: dealId },
+      ...(publishDeadlineAt ? { available_at: publishDeadlineAt } : {})
     },
     insideTx: async (c) => {
       const r = await c.query(`SELECT min_units, deadline FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);

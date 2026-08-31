@@ -834,10 +834,19 @@ try {
     const failDealId = String(created.body.deal_id);
     await publishDeal(failDealId, failSellerId, "fail-voucher");
 
-    // Process the deadline_check outbox event. handleDeadlineCheck does NOT
-    // compare against the deal's deadline column ג€” it transitions
-    // PendingTarget ג†’ Failed whenever total joined < threshold. With 0 buyers
-    // and threshold=ceil(0.9*5)=5, the deal fails.
+    // A deadline check only fails a deal AFTER its deadline. Simulate the
+    // deadline passing by aging it into the past (the deadline is immutable
+    // after publish in production, so bypass the trigger on a single connection
+    // via session_replication_role). Before this fix the check failed a deal
+    // regardless of its deadline — a bug the live worker exposed in R6.
+    const ageClient = await pool.connect();
+    try {
+      await ageClient.query(`SET session_replication_role = replica`);
+      await ageClient.query(`UPDATE siton.deals SET deadline = now() - interval '1 hour' WHERE deal_id=$1`, [failDealId]);
+    } finally {
+      await ageClient.query(`SET session_replication_role = origin`).catch(() => {});
+      ageClient.release();
+    }
     const dl = await pool.query(
       `SELECT event_uuid FROM siton.outbox_events
         WHERE aggregate_id=$1 AND event_type='deadline_check' AND status='pending'
@@ -845,6 +854,9 @@ try {
       [failDealId]
     );
     assert.equal(dl.rowCount, 1, "expected pending deadline_check event after publish");
+    // The check is now scheduled for the (original) deadline; make it due so the
+    // worker can claim it, mirroring the deadline actually arriving.
+    await pool.query(`UPDATE siton.outbox_events SET available_at = now() WHERE event_uuid=$1`, [String(dl.rows[0].event_uuid)]);
     await processOutboxEventById(String(dl.rows[0].event_uuid));
     const after = await pool.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [failDealId]);
     assert.equal(String(after.rows[0].state), "Failed", `expected Failed, got ${after.rows[0].state}`);
