@@ -8394,7 +8394,7 @@ export function registerFrontendExperience(
 
   // ═══ R6 — commerce viral graph + owner control-center surfaces ═══════════
   // Growth analytics only: nothing below creates or moves money, and
-  // distributor commission remains ZERO by product constitution.
+  // sharers/links earn NOTHING through the system, by product constitution.
 
   // Public, PII-free funnel events (deal_view / share_button_click /
   // join_started). Client retries deduplicate on client_event_id.

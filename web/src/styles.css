@@ -503,6 +503,8 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 /* ── responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
   .deal-layout { grid-template-columns: 1fr; }
+  /* mobile-first: status/price/meter/join before the gallery column */
+  .deal-layout > div:first-child { order: 2; }
   .admin-shell { grid-template-columns: 1fr; }
   .admin-nav { flex-direction: row; overflow-x: auto; padding: 8px; position: sticky; top: 59px; z-index: 30; }
   .admin-nav-title { display: none; }

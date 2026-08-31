@@ -33,7 +33,13 @@ await runTest("security_admin_auth_validation", async () => {
   assert.match(runtime, /admin_key_not_configured/);
   assert.match(runtime, /timingSafeEqual/);
   assert.match(runtime, /app\.get\("\/api\/admin\/mission-control"/);
-  assert.ok((runtime.match(/requireAdminKey\(req as FastifyRequest, reply as FastifyReply\)/g) || []).length >= 10);
+  // R6: admin READ surfaces gate through requireAdminRead (named identity via
+  // Supabase/cookie, or the timing-safe ops key inside requireAdminKey).
+  assert.match(runtime, /function requireAdminRead/);
+  assert.ok((runtime.match(/await requireAdminRead\(req, reply\)/g) || []).length >= 10);
+  // the key check still backs the read guard (fail-closed when unconfigured in
+  // production-like environments)
+  assert.match(runtime, /return requireAdminKey\(req as FastifyRequest, reply as FastifyReply\);/);
 });
 
 await runTest("security_admin_actions_forbidden_validation", async () => {
