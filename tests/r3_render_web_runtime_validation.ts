@@ -28,7 +28,12 @@ assert.match(blueprint, /CANONICAL_POSTGRES_RUNTIME/);
 assert.match(blueprint, /region:\s*frankfurt/);
 assert.doesNotMatch(blueprint, /postgres(?:ql)?:\/\/\S*@/);
 assert.doesNotMatch(blueprint, /base44/i);
-assert.doesNotMatch(blueprint, /type:\s*worker/i);
+// R4: the canonical blueprint now declares exactly one continuous Background
+// Worker (started via npm run start:worker:prod, RUNTIME_ROLE=worker), still
+// secret-free. Both the Web and Worker DATABASE_URL stay external (sync: false).
+assert.equal((blueprint.match(/type:\s*worker/gi) || []).length, 1, "blueprint must declare exactly one Background Worker");
+assert.match(blueprint, /dockerCommand:\s*npm run start:worker:prod/);
+assert.match(blueprint, /value:\s*worker\b/);
 
 const dockerfile = await readFile("Dockerfile", "utf8");
 assert.match(dockerfile, /^FROM node:22/m);
