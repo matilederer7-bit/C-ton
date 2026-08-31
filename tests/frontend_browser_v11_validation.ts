@@ -25,6 +25,9 @@ const browserPath = browserCandidates.find((candidate) => existsSync(candidate))
 const serverPort = 34_000 + (process.pid % 500);
 const baseUrl = `http://127.0.0.1:${serverPort}`;
 const adminKey = "v11-browser-admin-key";
+// R5C — admin mutations require a named admin identity. Established over HTTP
+// against the spawned server before provisioning.
+let namedAdminCookie = "";
 const sellerId = "seller-v11-browser";
 const sellerEmail = "seller-v11-browser@example.test";
 const sellerAccessCode = "v11-browser-access-123";
@@ -62,6 +65,31 @@ async function run<T>(name: string, fn: () => Promise<T>): Promise<T> {
     console.error(`FAIL ${name}`);
     throw error;
   }
+}
+
+async function establishAdminCookieOverHttp(pool: any): Promise<string> {
+  const { hashAdminPassword } = await import("../src/admin_identity.js");
+  const email = `zzz-v11-admin-${Date.now()}@siton.local`;
+  const password = "V11NamedAdminPass123!";
+  const passwordHash = await hashAdminPassword(password);
+  await pool.query(
+    `INSERT INTO siton.admin_users (email, display_name, role, status, password_hash, mfa_required, mfa_enabled)
+     VALUES ($1,$1,'SuperAdmin','Active',$2,true,true)
+     ON CONFLICT (email) DO UPDATE SET status='Active', password_hash=EXCLUDED.password_hash, updated_at=now()`,
+    [email, passwordHash]
+  );
+  const login = await fetch(`${baseUrl}/api/admin/auth/login`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email, password })
+  });
+  const body: any = await login.json();
+  if (body?.mfa_challenge_id) {
+    const verify = await fetch(`${baseUrl}/api/admin/auth/mfa/verify`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ mfa_challenge_id: body.mfa_challenge_id, code: body.dev_code })
+    });
+    return String(verify.headers.get("set-cookie") || "").split(";")[0] || "";
+  }
+  return String(login.headers.get("set-cookie") || "").split(";")[0] || "";
 }
 
 async function fetchJson(path: string, init?: RequestInit) {
@@ -308,6 +336,7 @@ async function provisionSeller() {
       headers: {
         "content-type": "application/json",
         "x-admin-key": adminKey,
+        cookie: namedAdminCookie,
         "x-request-id": requestToken("v11-provision")
       },
       body: JSON.stringify({
@@ -1146,6 +1175,7 @@ async function main() {
 
   try {
     await waitForHealth(() => [serverStdout, serverStderr].filter(Boolean).join("\n"));
+    namedAdminCookie = await establishAdminCookieOverHttp(pool);
     await run("V1.1 local seller identities can be provisioned without exposing credentials", provisionSeller);
     const cookie = await run("V1.1 local seller session succeeds over the server authority", loginSellerOverHttp);
     await run("V1.1 local seller profile is publish-ready for synthetic Mall fixtures", () => completeSellerProfile(cookie));

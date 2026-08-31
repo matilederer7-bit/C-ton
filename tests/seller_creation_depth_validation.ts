@@ -78,6 +78,7 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 4
 });
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
 
 const RAW_DB_MESSAGE = "RAW_DB_DIAGNOSTIC_MUST_NOT_LEAK";
 const RAW_DB_CODE = "23505";
@@ -86,6 +87,11 @@ app.get("/__test/v1-1/internal-error-envelope", async () => {
   error.code = RAW_DB_CODE;
   throw error;
 });
+
+// R5C — seller provisioning is an admin mutation requiring a named admin
+// identity. Established after all test route registration so the first inject
+// (which readies the app) does not block later app.get registration.
+const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 
 function asCookie(value: string | string[] | undefined) {
   return Array.isArray(value) ? String(value[0] || "") : String(value || "");
@@ -98,6 +104,7 @@ async function provisionActiveSeller(prefix: string) {
   const provisioned = await app.inject({
     method: "POST",
     url: `/api/admin/seller-auth/${sellerId}/provision`,
+    headers: { cookie: ADMIN_COOKIE },
     payload: {
       display_name: `Seller ${prefix}`,
       login_email: loginEmail,
@@ -191,6 +198,7 @@ await run("S4 suspended seller gets stable 403 product code without creating a D
   const provisioned = await app.inject({
     method: "POST",
     url: `/api/admin/seller-auth/${sellerId}/provision`,
+    headers: { cookie: ADMIN_COOKIE },
     payload: {
       display_name: "Seller Depth",
       login_email: loginEmail,

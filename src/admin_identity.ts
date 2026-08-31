@@ -2,8 +2,17 @@ import { assertRequiredTables } from "./schema_contract.js";
 import { randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual, createHash } from "crypto";
 import { promisify } from "util";
 import { ADMIN_API_KEY, isProductionLikeEnv } from "./runtime_config.js";
+import { buildSupabaseVerifier } from "./supabase_auth.js";
+import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
 
 const scrypt = promisify(scryptCb);
+
+// Env-gated Supabase verifier (inert unless SUPABASE_URL is configured).
+let _adminSupabaseVerifier: ReturnType<typeof buildSupabaseVerifier> | undefined;
+function adminSupabaseVerifier() {
+  if (_adminSupabaseVerifier === undefined) _adminSupabaseVerifier = buildSupabaseVerifier();
+  return _adminSupabaseVerifier;
+}
 
 export const ADMIN_SESSION_COOKIE = "siton_admin_session";
 export const ADMIN_SESSION_TTL_SECONDS = 8 * 60 * 60;
@@ -180,6 +189,31 @@ export async function issueAdminSession(c: Queryable, adminUserId: string, req: 
 }
 
 export async function resolveAdminIdentity(req: any, c: Queryable): Promise<AdminIdentity | null> {
+  // R5C — a named admin may authenticate through Supabase Auth. The verified sub
+  // is bound to an active admin_users row by auth_user_id; the role/permissions
+  // come from canonical Postgres, never from JWT claims. This is a named
+  // session_identity — the shared bootstrap key never yields one.
+  const verifier = adminSupabaseVerifier();
+  if (verifier && bearerToken(req)) {
+    try {
+      const actor = await resolveSupabaseActor(req, c as any, verifier);
+      if (actor && actor.type === "admin" && actor.admin && actor.admin.status === "Active" && isAdminRole(String(actor.admin.role))) {
+        return {
+          admin_user_id: actor.admin.admin_user_id,
+          email: actor.admin.email,
+          display_name: actor.admin.email,
+          role: actor.admin.role as AdminRole,
+          identity_strength: "session_identity",
+          permissions: [...ROLE_PERMISSIONS[actor.admin.role as AdminRole]],
+          mfa_verified_at: actor.token.aal === "aal2" ? new Date(actor.token.iat * 1000).toISOString() : null
+        };
+      }
+      // A non-admin actor (or inactive admin) is not an admin identity here.
+    } catch {
+      // Invalid/ambiguous Supabase token presented to an admin context → not an
+      // admin identity. Fall through to cookie/key resolution (which denies).
+    }
+  }
   const cookies = parseCookieHeader(req?.headers?.cookie);
   const rawToken = cookies[ADMIN_SESSION_COOKIE];
   if (rawToken) {

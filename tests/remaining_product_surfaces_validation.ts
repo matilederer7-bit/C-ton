@@ -5,13 +5,17 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.ADMIN_API_KEY = "remaining-product-surfaces-admin-key";
 
-const ADMIN_HEADERS = {
-  "x-admin-key": "remaining-product-surfaces-admin-key",
-  "x-admin-user": "remaining-product-surfaces-test"
-};
-
 const { app } = await import("../src/app.js");
 const { pool } = await import("../src/db.js");
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — admin mutations (KYC, support) require a named admin identity.
+const { cookie: RPS_ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
+
+const ADMIN_HEADERS = {
+  "x-admin-key": "remaining-product-surfaces-admin-key",
+  "x-admin-user": "remaining-product-surfaces-test",
+  cookie: RPS_ADMIN_COOKIE
+};
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {

@@ -7,6 +7,14 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 const { app } = await import("../src/app.js");
 const { pool } = await import("../src/db.js");
 const { ensureRemainingProductSurfaceTables } = await import("../src/product_surface_support.js");
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — admin mutations require a named admin identity even for malformed-target
+// rejection (auth is checked before validation).
+let _prelivAdminCookie = "";
+async function preliveAdminCookie(): Promise<string> {
+  if (!_prelivAdminCookie) _prelivAdminCookie = (await establishNamedAdminSession(app, pool)).cookie;
+  return _prelivAdminCookie;
+}
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -141,9 +149,11 @@ async function main() {
   });
 
   await runTest("admin misuse on missing or malformed targets is rejected cleanly", async () => {
+    const adminCookie = await preliveAdminCookie();
     const badAffiliateKyc = await app.inject({
       method: "POST",
       url: "/api/admin/kyc/affiliate/not-a-uuid/decision",
+      headers: { cookie: adminCookie },
       payload: {
         decision: "approve",
         admin_note: "bad target"
@@ -154,6 +164,7 @@ async function main() {
     const missingSellerKyc = await app.inject({
       method: "POST",
       url: "/api/admin/kyc/seller/seller-missing/decision",
+      headers: { cookie: adminCookie },
       payload: {
         decision: "approve",
         admin_note: "missing seller"
@@ -164,6 +175,7 @@ async function main() {
     const missingSupport = await app.inject({
       method: "POST",
       url: "/api/admin/support/00000000-0000-0000-0000-000000000000",
+      headers: { cookie: adminCookie },
       payload: {
         status: "resolved"
       }

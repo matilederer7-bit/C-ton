@@ -109,11 +109,22 @@ async function seed() {
   deliveryOptionId = String(delivery.rows[0].option_id);
 }
 
+// R5C — distributor provisioning is an admin mutation requiring a named admin
+// identity. Established lazily so app route registration completes first.
+let _adminCookie = "";
+async function adminCookie(): Promise<string> {
+  if (!_adminCookie) {
+    const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+    _adminCookie = (await establishNamedAdminSession(app, pool)).cookie;
+  }
+  return _adminCookie;
+}
+
 async function provisionDistributor(affiliateId: string, email: string, accessCode: string) {
   const response = await app.inject({
     method: "POST",
     url: `/api/admin/distributor-auth/${affiliateId}/provision`,
-    headers: { "x-admin-key": "stage32d-admin-key" },
+    headers: { "x-admin-key": "stage32d-admin-key", cookie: await adminCookie() },
     payload: { login_email: email, access_code: accessCode, auth_enabled: true }
   });
   assert.equal(response.statusCode, 200, response.body);

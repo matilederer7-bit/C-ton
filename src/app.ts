@@ -42,6 +42,9 @@ import { applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { assertProductionRuntimeGuards } from "./production_guards.js";
 import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
+import { isBuyerVerificationRequired } from "./buyer_verification_policy.js";
+import { buildSupabaseVerifier, AuthTokenError } from "./supabase_auth.js";
+import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
 import { hitTestFault } from "./fault_injection.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
@@ -307,10 +310,50 @@ function throwSellerAuthFailure(
   throw err;
 }
 
+// Lazily built Supabase access-token verifier. Null (inert) unless SUPABASE_URL
+// is configured, so non-Supabase deployments and the test suite are unaffected.
+let _supabaseVerifier: ReturnType<typeof buildSupabaseVerifier> | undefined;
+function supabaseVerifier() {
+  if (_supabaseVerifier === undefined) _supabaseVerifier = buildSupabaseVerifier();
+  return _supabaseVerifier;
+}
+
+// R5B — a canonical seller may authenticate through Supabase Auth. The verified
+// sub is bound to a seller account by auth_user_id (server-side); a token that
+// resolves to any other actor type cannot act as a seller. Ownership is still
+// enforced downstream against deals.seller_id, so seller A cannot touch B.
+async function supabaseSellerContext(req: any, c: any) {
+  const verifier = supabaseVerifier();
+  if (!verifier || !bearerToken(req)) return null;
+  const actor = await resolveSupabaseActor(req, c, verifier); // throws on invalid/ambiguous
+  if (!actor) return null;
+  if (actor.type !== "seller" || !actor.seller) {
+    throwSellerAuthFailure("forbidden", req, "/app/seller", 403, {
+      message: "this identity is not a seller",
+      reasonCode: "not_a_seller_actor"
+    });
+  }
+  if (!actor.seller.auth_enabled) {
+    throwSellerAuthFailure("forbidden", req, "/app/seller", 403, {
+      message: "seller account is not enabled",
+      reasonCode: "seller_auth_disabled"
+    });
+  }
+  return {
+    seller_id: actor.seller.seller_id,
+    display_name: actor.seller.display_name,
+    seller_status: actor.seller.seller_status || "Active",
+    context_source: "supabase_session"
+  };
+}
+
 async function requireSellerAuthority(req: any, c: any) {
   if (IS_DEMO_PREVIEW) {
     return sellerAuthorityFromDemoRequest(req);
   }
+  // Prefer a Supabase Auth identity when a bearer token is present.
+  const supabaseSeller = await supabaseSellerContext(req, c);
+  if (supabaseSeller) return supabaseSeller;
   if (!SELLER_SESSION_SECRET) {
     throwSellerAuthFailure("unavailable", req, "/app/seller", 503);
   }
@@ -3446,23 +3489,34 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const otpToken = body.otp_token ? String(body.otp_token) : null;
   const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
   let verifiedBuyerIdentityHash = "";
-  try {
-    await withTx(async (c) => {
-      const verified = await ensureJoinOtpVerified(c, {
-        otp_token: otpToken,
-        otp_challenge_id: otpChallengeId,
-        deal_id: dealId
+  // Buyer verification is governed by the single server-side policy boundary.
+  // MVP default: OFF for Join (minimal friction). OTP stays implemented and is
+  // enforced only when the policy requires it — in which case the proof MUST be
+  // bound to the submitted buyer identity (channel+destination) and any failure
+  // fails closed with no fallback to the unverified path. When OFF, the
+  // submitted phone/email is an UNVERIFIED contact and the server still owns the
+  // participation identity via the unguessable tracking credential issued below.
+  if (isBuyerVerificationRequired("join")) {
+    try {
+      await withTx(async (c) => {
+        const verified = await ensureJoinOtpVerified(c, {
+          otp_token: otpToken,
+          otp_challenge_id: otpChallengeId,
+          deal_id: dealId,
+          channel: "sms",
+          destination: buyer_id
+        });
+        verifiedBuyerIdentityHash = verified.destination_hash;
       });
-      verifiedBuyerIdentityHash = verified.destination_hash;
-    });
-  } catch (err: any) {
-    if (err instanceof OtpValidationError) {
-      const e: any = new Error(err.message);
-      e.statusCode = err.statusCode;
-      e.code = err.code;
-      throw e;
+    } catch (err: any) {
+      if (err instanceof OtpValidationError) {
+        const e: any = new Error(err.message);
+        e.statusCode = err.statusCode;
+        e.code = err.code;
+        throw e;
+      }
+      throw err;
     }
-    throw err;
   }
 
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;

@@ -99,10 +99,13 @@ function cookieToken(cookieHeader: string) {
   return match ? decodeURIComponent(String(match[1] || "")) : "";
 }
 
-async function provisionSeller(app: FastifyInstance, sellerId: string, loginEmail: string, password: string) {
+async function provisionSeller(app: FastifyInstance, pool: any, sellerId: string, loginEmail: string, password: string) {
+  const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+  const { cookie } = await establishNamedAdminSession(app, pool);
   const response = await app.inject({
     method: "POST",
     url: `/api/admin/seller-auth/${sellerId}/provision`,
+    headers: { cookie },
     payload: {
       display_name: sellerId === "seller-alpha" ? "Seller Alpha" : "Seller Beta",
       login_email: loginEmail,
@@ -110,7 +113,7 @@ async function provisionSeller(app: FastifyInstance, sellerId: string, loginEmai
       auth_enabled: true
     }
   });
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.statusCode, 200, response.body);
 }
 
 await run("non-demo seller sessions are DB-backed, isolated, revocable, and ignore forged headers", async () => {
@@ -121,8 +124,8 @@ await run("non-demo seller sessions are DB-backed, isolated, revocable, and igno
   });
 
   try {
-    await provisionSeller(app, "seller-alpha", "alpha@example.com", "alpha-pass-123");
-    await provisionSeller(app, "seller-beta", "beta@example.com", "beta-pass-123");
+    await provisionSeller(app, pool, "seller-alpha", "alpha@example.com", "alpha-pass-123");
+    await provisionSeller(app, pool, "seller-beta", "beta@example.com", "beta-pass-123");
 
     const seeded = await withTx(async (c) => {
       const alpha = await c.query(

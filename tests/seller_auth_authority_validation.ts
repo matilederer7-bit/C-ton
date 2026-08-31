@@ -35,9 +35,13 @@ await run("non-demo create publish close prepare charge and cancel derive author
   });
 
   try {
+    const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+    // R5C — seller provisioning requires a named admin identity.
+    const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
     const provisionAlpha = await app.inject({
       method: "POST",
       url: "/api/admin/seller-auth/seller-alpha/provision",
+      headers: { cookie: ADMIN_COOKIE },
       payload: { display_name: "Seller Alpha", login_email: "alpha@example.com", access_code: "alpha-pass-123", auth_enabled: true }
     });
     assert.equal(provisionAlpha.statusCode, 200);
@@ -45,6 +49,7 @@ await run("non-demo create publish close prepare charge and cancel derive author
     const provisionBeta = await app.inject({
       method: "POST",
       url: "/api/admin/seller-auth/seller-beta/provision",
+      headers: { cookie: ADMIN_COOKIE },
       payload: { display_name: "Seller Beta", login_email: "beta@example.com", access_code: "beta-pass-123", auth_enabled: true }
     });
     assert.equal(provisionBeta.statusCode, 200);

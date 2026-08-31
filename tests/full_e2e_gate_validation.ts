@@ -16,10 +16,14 @@ const { pool } = await import("../src/db.js");
 const { hashAdminPassword } = await import("../src/admin_identity.js");
 
 const RUN_ID = `${Date.now()}-${randomUUID().slice(0, 8)}`;
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — admin mutations (KYC, support) require a named admin identity.
+const { cookie: FULL_E2E_ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 const ADMIN_HEADERS = {
   "x-admin-key": "full-e2e-admin-key",
   "x-request-id": `full-e2e-admin-${RUN_ID}`,
-  "x-correlation-id": `corr-full-e2e-${RUN_ID}`
+  "x-correlation-id": `corr-full-e2e-${RUN_ID}`,
+  cookie: FULL_E2E_ADMIN_COOKIE
 };
 
 function hmacHeaders(payload: Record<string, unknown>, secret = "mock-webhook-secret") {

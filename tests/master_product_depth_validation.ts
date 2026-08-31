@@ -5,6 +5,9 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 
 const { app } = await import("../src/app.js");
 const { pool } = await import("../src/db.js");
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — KYC decisions are admin mutations requiring a named admin identity.
+const { cookie: MASTER_ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 
 async function runTest(name: string, fn: () => Promise<void> | void) {
   try {
@@ -208,6 +211,7 @@ async function main() {
     const approve = await app.inject({
       method: "POST",
       url: `/api/admin/kyc/affiliate/${affiliateId}/decision`,
+      headers: { cookie: MASTER_ADMIN_COOKIE },
       payload: {
         decision: "approve",
         admin_note: "master depth approval"

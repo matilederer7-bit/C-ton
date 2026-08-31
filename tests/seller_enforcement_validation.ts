@@ -15,6 +15,9 @@ const pool = new Pool({
 });
 
 const { app } = await import("../src/app.js");
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — admin status mutations require a named admin identity, not the shared key.
+const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 
 async function run(name: string, fn: () => Promise<void> | void) {
   await fn();
@@ -158,7 +161,7 @@ try {
     const missingReason = await app.inject({
       method: "POST",
       url: `/api/admin/sellers/${sellerId}/status`,
-      headers: { "x-admin-key": "seller-enforcement-admin-key" },
+      headers: { "x-admin-key": "seller-enforcement-admin-key", cookie: ADMIN_COOKIE },
       payload: { status: "Restricted" }
     });
     assert.equal(missingReason.statusCode, 400, missingReason.body);
@@ -168,7 +171,8 @@ try {
       url: `/api/admin/sellers/${sellerId}/status`,
       headers: {
         "x-admin-key": "seller-enforcement-admin-key",
-        "x-admin-user": "seller-enforcement-test"
+        "x-admin-user": "seller-enforcement-test",
+        cookie: ADMIN_COOKIE
       },
       payload: { status: "Restricted", reason: "test risk signal" }
     });

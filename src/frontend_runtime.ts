@@ -174,6 +174,7 @@ import {
   type DealType
 } from "./deal_types.js";
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
+import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { InfrastructureMetricsCollector, applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { SupabaseComputeManager } from "./infrastructure_compute.js";
 import {
@@ -1577,6 +1578,22 @@ export function registerFrontendExperience(
       return null;
     }
     return identity;
+  }
+
+  // R5C — administrative MUTATIONS require a named, permissioned admin identity,
+  // never the shared bootstrap key. The bootstrap key resolves only to a
+  // read-only identity (identity_strength=bootstrap_key_only), which
+  // sessionRequired rejects. Resolving in its own transaction lets callers gate
+  // BEFORE any body validation, so an unauthenticated caller learns nothing.
+  // The returned identity is the audit actor — caller-supplied x-admin-user is
+  // never trusted for attribution.
+  async function requireAdminMutation(req: any, reply: any, permission: string, opts?: { recentMfa?: boolean }) {
+    const guardOptions: { sessionRequired: boolean; permission: string; recentMfa?: boolean } = { sessionRequired: true, permission };
+    if (opts?.recentMfa) guardOptions.recentMfa = true;
+    return deps.withTx(async (c: any) => requireAdminAuthContext(req, reply, c, guardOptions));
+  }
+  function adminActorRef(identity: any, fallback = "admin"): string {
+    return String(identity?.email || identity?.admin_user_id || fallback).slice(0, 120) || fallback;
   }
 
   function sellerAuthSummary(
@@ -5731,12 +5748,13 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/sellers/:sellerId/status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "admin_users.manage");
+    if (!adminIdentity) return;
     await ensureProductSurfaces();
     const sellerId = normalizeSellerId(req.params?.sellerId);
     const nextStatus = String(req.body?.status || "").trim();
     const reason = String(req.body?.reason || "").trim();
-    const adminActor = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+    const adminActor = adminActorRef(adminIdentity);
 
     if (!isSellerStatus(nextStatus)) {
       return reply.code(400).send({
@@ -5809,7 +5827,7 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/seller-auth/:sellerId/provision", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
     await ensureProductSurfaces();
     const sellerId = normalizeSellerId(req.params?.sellerId);
     const displayName = normalizeSellerDisplayName(req.body?.display_name, sellerId);
@@ -5862,7 +5880,7 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/distributor-auth/:affiliateId/provision", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
     await ensureProductSurfaces();
     const affiliateId = String(req.params?.affiliateId || "");
     requireUuid(affiliateId, "affiliate_id");
@@ -6839,7 +6857,7 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
     const subjectType = String(req.params.subjectType || "").trim();
     const subjectId = String(req.params.subjectId || "").trim();
     const decision = String(req.body?.decision || "").trim();
@@ -6978,7 +6996,8 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/support-cases", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "support.manage");
+    if (!adminIdentity) return;
     await ensureOperationalCaseTables(deps.withTx);
     const body = req.body || {};
     const caseType = String(body.case_type || "").trim();
@@ -6990,7 +7009,7 @@ export function registerFrontendExperience(
     const sellerId = String(body.seller_id || "").trim() || null;
     const participantId = String(body.participant_id || "").trim() || null;
     const buyerRef = String(body.buyer_ref || "").trim() || null;
-    const openedBy = String(req.headers?.["x-admin-user"] || body.opened_by || "admin").trim().slice(0, 120) || "admin";
+    const openedBy = adminActorRef(adminIdentity, String(body.opened_by || "admin"));
     if (!isOperationalCaseType(caseType)) {
       return reply.code(400).send({ ok: false, error: "invalid_case_type", allowed_case_types: OPERATIONAL_CASE_TYPES });
     }
@@ -7042,7 +7061,8 @@ export function registerFrontendExperience(
   });
 
   app.patch("/api/admin/support-cases/:caseId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "support.manage");
+    if (!adminIdentity) return;
     await ensureOperationalCaseTables(deps.withTx);
     const caseId = String(req.params.caseId || "").trim();
     requireUuid(caseId, "case_id");
@@ -7056,7 +7076,7 @@ export function registerFrontendExperience(
     const assignedTo = hasAssignedTo ? String(body.assigned_to || "").trim() : null;
     const resolutionNote = hasResolutionNote ? String(body.resolution_note || "").trim() : null;
     const reason = String(body.reason || body.resolution_note || "").trim();
-    const actorRef = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+    const actorRef = adminActorRef(adminIdentity);
     if (hasStatus && !isOperationalCaseStatus(status)) {
       return reply.code(400).send({ ok: false, error: "invalid_case_status", allowed_statuses: OPERATIONAL_CASE_STATUSES });
     }
@@ -7133,11 +7153,12 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/support-cases/:caseId/escalate", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "support.manage");
+    if (!adminIdentity) return;
     await ensureOperationalCaseTables(deps.withTx);
     const caseId = String(req.params.caseId || "").trim();
     requireUuid(caseId, "case_id");
-    const actorRef = String(req.headers?.["x-admin-user"] || "admin").trim().slice(0, 120) || "admin";
+    const actorRef = adminActorRef(adminIdentity);
     const reason = String(req.body?.reason || "Escalated by admin").trim();
     return deps.withTx(async (c) => {
       const current = await c.query(`SELECT * FROM siton.operational_cases WHERE case_id=$1 FOR UPDATE`, [caseId]);
@@ -7166,7 +7187,7 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/support", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminMutation(req, reply, "support.manage"))) return;
     await ensureProductSurfaces();
     const scopeType = String(req.body?.scope_type || "").trim();
     const scopeKey = String(req.body?.scope_key || "").trim();
@@ -7201,7 +7222,7 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/support/:ticketId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminMutation(req, reply, "support.manage"))) return;
     await ensureProductSurfaces();
     const ticketId = String(req.params.ticketId || "");
     requireUuid(ticketId, "ticket_id");
@@ -8006,15 +8027,22 @@ export function registerFrontendExperience(
       requireUuid(dealId, "deal_id");
       const qty = parsePositiveIntegerQuantity(body.qty);
 
-      const otpToken = body.otp_token ? String(body.otp_token) : null;
-      const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
-      await deps.withTx(async (c) => {
-        await ensureJoinOtpVerified(c, {
-          otp_token: otpToken,
-          otp_challenge_id: otpChallengeId,
-          deal_id: dealId
+      // Buyer verification for payment is governed by the single policy
+      // boundary. MVP default: OFF. When required, the OTP proof must be bound
+      // to the submitted buyer identity and fails closed.
+      if (isBuyerVerificationRequired("payment")) {
+        const otpToken = body.otp_token ? String(body.otp_token) : null;
+        const otpChallengeId = body.otp_challenge_id ? String(body.otp_challenge_id) : null;
+        await deps.withTx(async (c) => {
+          await ensureJoinOtpVerified(c, {
+            otp_token: otpToken,
+            otp_challenge_id: otpChallengeId,
+            deal_id: dealId,
+            channel: "sms",
+            destination: String(body.buyer_id || "")
+          });
         });
-      });
+      }
 
       const serverMoney = await deps.withTx(async (c) => {
         const dealResult = await c.query(

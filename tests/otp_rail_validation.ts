@@ -25,6 +25,9 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.OTP_PROVIDER = "log";
 process.env.OTP_PROVIDER_MODE = "dev";
 process.env.OTP_TEST_BYPASS_CODE = "424242";
+// This suite exercises the OTP-REQUIRED buyer journey. The MVP default is
+// Join OFF, so opt this file into the ON policy to test the fail-closed path.
+process.env.BUYER_VERIFY_JOIN = "required";
 process.env.PORT = process.env.PORT || "3478";
 delete process.env.NODE_ENV;
 delete process.env.APP_ENV;

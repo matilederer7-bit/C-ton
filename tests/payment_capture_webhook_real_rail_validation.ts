@@ -126,9 +126,13 @@ const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton"
 });
 
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — seller provisioning requires a named admin identity.
+const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 const provisionSeller = await app.inject({
   method: "POST",
   url: "/api/admin/seller-auth/seller-alpha/provision",
+  headers: { cookie: ADMIN_COOKIE },
   payload: {
     display_name: "Seller Alpha",
     login_email: "alpha@example.com",
@@ -136,7 +140,7 @@ const provisionSeller = await app.inject({
     auth_enabled: true
   }
 });
-assert.equal(provisionSeller.statusCode, 200);
+assert.equal(provisionSeller.statusCode, 200, provisionSeller.body);
 
 const sellerLogin = await app.inject({
   method: "POST",

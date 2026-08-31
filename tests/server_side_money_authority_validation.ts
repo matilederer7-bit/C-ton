@@ -6,6 +6,9 @@ import pg from "pg";
 import { registerFrontendExperience } from "../src/frontend_runtime.js";
 
 process.env.APP_DEPLOYMENT_MODE = "demo-preview";
+// This suite asserts the OTP-REQUIRED payment path. MVP default is Payment OFF,
+// so opt this file into the ON policy to exercise the fail-closed behavior.
+process.env.BUYER_VERIFY_PAYMENT = "required";
 
 const { Pool } = pg;
 const pool = new Pool({

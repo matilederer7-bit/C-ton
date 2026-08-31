@@ -15,6 +15,9 @@ const pool = new Pool({
 });
 
 const { app } = await import("../src/app.js");
+const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
+// R5C — admin mutations now require a named admin identity, not the shared key.
+const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 
 async function run(name: string, fn: () => Promise<void> | void) {
   await fn();
@@ -25,6 +28,7 @@ function adminHeaders(extra: Record<string, string> = {}) {
   return {
     "x-admin-key": "admin-support-cases-key",
     "x-admin-user": "admin-support-test",
+    cookie: ADMIN_COOKIE,
     ...extra
   };
 }
