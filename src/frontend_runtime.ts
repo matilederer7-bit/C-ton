@@ -175,6 +175,8 @@ import {
 } from "./deal_types.js";
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
+import { buildSupabaseVerifier } from "./supabase_auth.js";
+import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
 import { InfrastructureMetricsCollector, applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { SupabaseComputeManager } from "./infrastructure_compute.js";
 import {
@@ -275,6 +277,14 @@ const PREVIEW_MIME: Record<string, string> = {
   ".json": "application/json; charset=utf-8",
   ".map": "application/json; charset=utf-8"
 };
+
+// Env-gated Supabase verifier for the frontend seller read surfaces (inert
+// unless SUPABASE_URL is configured).
+let _frontendSupabaseVerifier: ReturnType<typeof buildSupabaseVerifier> | undefined;
+function frontendSupabaseVerifier() {
+  if (_frontendSupabaseVerifier === undefined) _frontendSupabaseVerifier = buildSupabaseVerifier();
+  return _frontendSupabaseVerifier;
+}
 
 async function ensureSellerAccount(c: any, sellerId: string, displayName?: string | null) {
   const normalizedSellerId = normalizeSellerId(sellerId);
@@ -1721,6 +1731,27 @@ export function registerFrontendExperience(
 
   async function resolveRequiredSellerContext(req: any, reply: FastifyReply, c: any, options?: { autoCreate?: boolean }) {
     if (deps.isDemoPreview) return resolveSellerContext(req, c, options);
+    // R5B/R6 — a Supabase seller token (bound by auth_user_id) authenticates the
+    // seller read surfaces too. A non-seller token is rejected as unauthorized.
+    const verifier = frontendSupabaseVerifier();
+    if (verifier && bearerToken(req)) {
+      try {
+        const actor = await resolveSupabaseActor(req, c, verifier);
+        if (actor && actor.type === "seller" && actor.seller && actor.seller.auth_enabled) {
+          return {
+            seller_id: actor.seller.seller_id,
+            display_name: actor.seller.display_name,
+            seller_status: actor.seller.seller_status || "Active",
+            verification_status: "approved",
+            settlement_status: "active",
+            is_default_context: false,
+            context_source: "supabase_session"
+          };
+        }
+      } catch {
+        // fall through to cookie resolution / rejection
+      }
+    }
     if (!SELLER_AUTH_CONFIGURED || !SELLER_SESSION_SECRET) {
       rejectSellerAuthUnavailable(reply, req);
       return null;
