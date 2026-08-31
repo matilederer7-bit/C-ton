@@ -75,8 +75,12 @@ async function proveTwoWebLastUnitHttp(db, origins) {
   const trackingBefore = await requestJson(origins[1], trackingPath);
   if (!trackingBefore.response.ok || trackingBefore.body.tracking?.money_state !== "AuthHeld") throw new Error("HTTP buyer tracking failed before restart");
   docker(["restart", "web"]);
-  origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
-  await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
+  // Same ephemeral-port re-read as the main flow: restart re-allocates the
+  // published port, so resolve it inside the retry.
+  await waitFor(async () => {
+    origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
+    return (await fetch(`${origins[0]}/health`)).ok;
+  });
   const trackingAfter = await requestJson(origins[0], trackingPath);
   const refreshedDeal = await requestJson(origins[0], `/api/deals/${dealId}/public`);
   if (!trackingAfter.response.ok || trackingAfter.body.tracking?.money_state !== "AuthHeld" || Number(refreshedDeal.body.metrics?.remaining_units) !== 0) throw new Error("HTTP buyer persistence failed after Web restart");
@@ -139,8 +143,13 @@ async function main() {
     const uid = docker(["exec", "-T", "web", "id", "-u"]);
     if (String(uid.stdout || "").trim() === "0") throw new Error("web container must run as non-root");
     docker(["restart", "web"]);
-    origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
-    await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
+    // Ephemeral published ports are re-allocated on container restart, and the
+    // new binding can land moments after `restart` returns — re-read the port
+    // inside the retry loop so a stale/late mapping is picked up.
+    await waitFor(async () => {
+      origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
+      return (await fetch(`${origins[0]}/health`)).ok;
+    });
     if (!(await fetch(`${origins[0]}${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
     const countBeforeDelete = objectCount();
     const imageDelete = await fetch(`${origins[0]}/api/seller/deals/${deal.deal_id}/images/${secondImage.image.image_id}`, { method: "DELETE", headers: { "x-seller-id": "seller-default" } });
