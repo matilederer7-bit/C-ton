@@ -15,6 +15,8 @@
 
 # Dependencies (re-installed inside the image)
 node_modules
+web/node_modules
+web/dist
 
 # Build outputs (the image runs `npm run build:demo` itself)
 .demo_dist

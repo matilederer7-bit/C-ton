@@ -252,6 +252,30 @@ const frontendDir =
   frontendDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) ||
   join(process.cwd(), "frontend");
 
+// R6 — the new canonical React frontend (web/dist), served same-origin under
+// /preview by this Web service. The legacy vanilla frontend stays at the root.
+const previewDirCandidates = [
+  join(process.cwd(), "web", "dist"),
+  join(__dirname, "..", "..", "web", "dist"),
+  join(process.cwd(), ".demo_dist", "web", "dist")
+];
+const previewDir =
+  previewDirCandidates.find((candidate) => existsSync(join(candidate, "index.html"))) || "";
+const PREVIEW_MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".ico": "image/x-icon",
+  ".woff2": "font/woff2",
+  ".json": "application/json; charset=utf-8",
+  ".map": "application/json; charset=utf-8"
+};
+
 async function ensureSellerAccount(c: any, sellerId: string, displayName?: string | null) {
   const normalizedSellerId = normalizeSellerId(sellerId);
   const normalizedDisplayName = normalizeSellerDisplayName(displayName, normalizedSellerId);
@@ -1708,6 +1732,46 @@ export function registerFrontendExperience(
     }
     return sellerContext;
   }
+
+  // R6 — public Supabase Auth config for the React seller login (publishable
+  // values only; NEVER the service-role key or JWT secret).
+  app.get("/api/preview/auth-config", async () => {
+    const supabaseUrl = String(process.env.SUPABASE_URL || "").trim().replace(/\/+$/, "");
+    const anonKey = String(process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_PUBLISHABLE_KEY || "").trim();
+    return {
+      ok: true,
+      configured: Boolean(supabaseUrl && anonKey),
+      supabase_url: supabaseUrl,
+      supabase_anon_key: anonKey,
+      buyer_verification: buyerVerificationPolicySummary()
+    };
+  });
+
+  // R6 — serve the new canonical React app (web/dist) same-origin under /preview.
+  async function servePreview(reply: FastifyReply, relPath: string) {
+    if (!previewDir) {
+      return reply.code(404).type("text/html; charset=utf-8").send("<h1>Preview not built</h1>");
+    }
+    const safe = relPath.replace(/\.\.+/g, "").replace(/^\/+/, "");
+    const target = safe && safe !== "index.html" ? join(previewDir, safe) : join(previewDir, "index.html");
+    if (!existsSync(target)) {
+      // SPA fallback: unknown sub-paths render the app shell (hash routing).
+      const index = join(previewDir, "index.html");
+      const html = await readFile(index, "utf8");
+      return reply.header("cache-control", "no-store").type("text/html; charset=utf-8").send(html);
+    }
+    const ext = target.slice(target.lastIndexOf(".")).toLowerCase();
+    const mime = PREVIEW_MIME[ext] || "application/octet-stream";
+    const isHashed = /\/assets\//.test(target);
+    const cache = ext === ".html" ? "no-store" : isHashed ? "public, max-age=31536000, immutable" : "no-cache";
+    const body = mime.startsWith("text/") || mime.includes("json") || mime.includes("svg")
+      ? await readFile(target, "utf8")
+      : await readFile(target);
+    return reply.header("cache-control", cache).type(mime).send(body);
+  }
+  app.get("/preview", async (_req: any, reply: any) => servePreview(reply, "index.html"));
+  app.get("/preview/", async (_req: any, reply: any) => servePreview(reply, "index.html"));
+  app.get("/preview/*", async (req: any, reply: any) => servePreview(reply, String(req.params?.["*"] || "")));
 
   app.get("/api/preview/meta", async () => ({
     ok: true,

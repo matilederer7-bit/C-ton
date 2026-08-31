@@ -23,6 +23,11 @@ ENV PORT=3000
 
 RUN npm run build:demo
 
+# R6 — build the new canonical React frontend (web/) into web/dist, served
+# same-origin under /preview by the Web service. --include=dev is required
+# because NODE_ENV=production would otherwise omit Vite/TypeScript.
+RUN cd web && npm ci --include=dev && npm run build && npm prune --omit=dev
+
 # Run as non-root user.
 RUN useradd -m appuser && mkdir -p /var/lib/siton/uploads/deal-images && chown -R appuser:appuser /var/lib/siton
 ENV DEAL_IMAGE_UPLOAD_DIR=/var/lib/siton/uploads/deal-images
