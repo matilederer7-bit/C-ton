@@ -8882,7 +8882,7 @@ export function registerFrontendExperience(
       const dlqRelated = await c.query(
         `SELECT event_type, aggregate_id, updated_at AS archived_at
          FROM siton.outbox_dlq
-         WHERE aggregate_id IN (SELECT deal_id::text FROM siton.deals WHERE seller_id=$1)
+         WHERE aggregate_id::text IN (SELECT deal_id::text FROM siton.deals WHERE seller_id=$1)
          ORDER BY updated_at DESC NULLS LAST LIMIT 10`,
         [sellerId]
       );
