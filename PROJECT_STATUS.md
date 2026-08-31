@@ -2,9 +2,9 @@
 
 ## SITON R7+R8 PRE-LIVE HARDENING — IN PROGRESS (2026-09-01)
 
-**Stage ladder: R3 = 100%, R4 = 100%, R5 = 100%, R6 = 100%, R7 ≈ 55%, R8 = 0% (not yet started).**
+**Stage ladder: R3 = 100%, R4 = 100%, R5 = 100%, R6 = 100%, R7 ≈ 75%, R8 ≈ 35%.**
 
-Master: `6cd855c` (on top of R6 close `df2e369`). Preview: https://siton-staging-web.onrender.com/preview
+Master: `a77c315` (on top of R6 close `df2e369`). Preview: https://siton-staging-web.onrender.com/preview
 
 ### Checkpoint A — Canonical Supabase Storage — DONE (tested, hosted-proven)
 - **Completed:** `SupabaseBrokerStorageAdapter` (provider `supabase`) implements the full `StorageAdapter` contract over a new `storage-broker` Supabase Edge Function. The Supabase **service-role key never leaves the Edge runtime**; Render Web/Worker hold only a narrowly-scoped broker key (`SITON_STORAGE_BROKER_KEY`, `sync:false`) whose SHA-256 digest is pinned in the deployed function. Bucket-scoped ops only; system-generated UUID object keys (no filename/PII); overwrite protection (`upsert:false`), post-put verification, outcome-unknown PUT reconciliation, idempotent delete, traversal-safe keys, checksum + content-type + size re-validated at the broker. Migration `052` (provider CHECK widened to `local`/`s3`/`supabase`, `public_url` shape) applied to staging (ledger row 48). Staging `015` made the `deal-images` bucket public-read (CDN) while **all mutation stays privileged** (no client storage policies). Published imagery 302s to the CDN; Draft imagery stays behind the authenticated proxy. Cleanup retires unreachable legacy `local` tasks once on a durable provider. Production guards accept `STORAGE_ADAPTER=supabase` (fail-closed config).
@@ -16,8 +16,14 @@ Master: `6cd855c` (on top of R6 close `df2e369`). Preview: https://siton-staging
 - **Completed:** `web/src/images.tsx` — LocalImageManager (wizard) + DraftImageManager (canonical Draft management): file picker (mobile camera/library), drag/drop reorder, choose primary, delete, replace, real XHR upload progress, per-file error + retry. Wizard uploads before publish (failed upload keeps Draft → routes to Draft screen to finish). Seller Draft screen gains a full image panel (Draft-only). All payload builders emit the durable CDN url via `resolveDealImageUrl` (fallback to proxy for legacy rows).
 - **Open:** hosted browser walkthrough of the seller upload UX (folded into Checkpoint D). Hosted seller-authenticated upload through the browser needs the owner-held synthetic seller password (out-of-band; the recorded one is stale and credential resets are correctly guardrailed) — the server code path is instead proven by the Checkpoint A server-path proof.
 
+### Checkpoint C — admin repair + Viral Tree + visual redesign — BUILT (typechecked, queries verified on staging; hosted browser walkthrough in D)
+- **C1 Buyers+email:** endpoint returns name/phone/email + honest OTP-derived verification badges (destination-hash match in Node, never fabricated — false while OTP is off), participant/deal/unit counts, latest buyer+money state, charged amount, last activity. Email/phone labeled admin-only; not leaked to public/seller/viral surfaces.
+- **C2 real Viral Tree:** new `GET /api/admin/deals/:id/viral-tree` over the CANONICAL viral graph (`viral_attributions`+`participants`+`affiliate_links`, no second graph). One level per request, per-node subtree rollups via a bounded recursive descendant walk — verified on staging (gen-2 chains, correct rollups). React explorer: lazy expand/collapse, node details panel (subtree joins/units/charged/GMV, depth, first/last touch, share metrics), TREE vs ANALYTICS modes. Never a full-graph dump.
+- **C3 four broken tabs rebuilt** from raw-`JSON.stringify` dumps into real UIs: Operations (worker heartbeat table, queue/DLQ/stuck stats, ages), Payments (SYNTHETIC/MOCKPAY banner, fee ledger base+VAT, attempts-by-type, recent attempts + fee-ledger rows with correlation ids), Notifications (LOG-ONLY banner, per-event list with adapter/state/retries/last-error + filters), System Health (real health-dot console, explicit safety badges Real Money/Grow/SMS/Email/Invoice all OFF — derived from provider mode, storage + provider panels). Backends enriched accordingly; new `notification_attempts` Web SELECT grant applied to staging + codified (`supabase/staging/016`).
+- **C4 gray+orange redesign:** luxury-gray base + dominant-orange accent via retuned centralized design tokens (one place → whole product: Mall, Deal, seller, admin, auth); status green/red/blue preserved for semantics; RTL intact.
+- **Open:** hosted admin browser walkthrough requires the owner's admin password (out-of-band); SQL correctness of every new query verified directly on staging, and endpoints return 401 (not 500) unauthenticated.
+
 ### Open checkpoints
-- **C** — admin repair (Buyers+email, real Viral Tree, fix Operations/Payments/Notifications/System Health, gray+orange redesign): NOT STARTED.
 - **D** — hosted E2E + concurrency + bounded load: NOT STARTED.
 - **E** — failure recovery + backup/restore + observability + mobile + security: NOT STARTED.
 - **F** — closure + R9 readiness verdict: NOT STARTED.
