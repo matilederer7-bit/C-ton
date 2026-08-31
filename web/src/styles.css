@@ -111,9 +111,10 @@ input:focus, select:focus, textarea:focus, button:focus-visible, a:focus-visible
 }
 .footer a { color: var(--ink-soft); margin: 0 8px; }
 
-/* deliberately subtle admin entries: visual obscurity only — never security */
+/* deliberately subtle admin entries: visual obscurity only — never security.
+   Physically LEFT (owner-specified corners), regardless of RTL flow. */
 .admin-dot {
-  position: fixed; inset-inline-start: 4px; z-index: 60;
+  position: fixed; left: 4px; z-index: 60;
   width: 14px; height: 14px; border-radius: 50%;
   border: none; background: var(--ink-faint); opacity: .18; cursor: pointer;
   padding: 0;

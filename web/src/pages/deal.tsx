@@ -44,7 +44,7 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
           <div className="ticker-item" key={`${j.at}-${i}`}>
             <span className="ticker-avatar">{initialOf(j.display)}</span>
             <span>
-              <b>{j.display}</b> הצטרף{j.qty > 1 ? <>ה עם <b>{num(j.qty)} יחידות</b></> : " לעסקה"}
+              <b>{j.display}</b> הצטרף/ה {j.qty > 1 ? <>עם <b>{num(j.qty)} יחידות</b></> : "לעסקה"}
             </span>
             <span className="ticker-time">{timeAgo(j.at)}</span>
           </div>
@@ -406,6 +406,11 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
           <div className="panel">
             <div className="panel-title">📣 מכירים מישהו שזה יעניין אותו?</div>
             <SharePanel compact dealId={dealId} title={deal.title} code={currentRef()} onCopied={() => showToast("הלינק הועתק")} />
+          </div>
+
+          <div className="panel" style={{ textAlign: "center" }}>
+            <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
+            <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
           </div>
 
           {whatsappSeller ? (

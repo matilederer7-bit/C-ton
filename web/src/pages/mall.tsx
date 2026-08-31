@@ -6,7 +6,7 @@ import { countdownView, dealTypeIcon, dealTypeLabel, ils, num } from "../util";
 type MallDeal = {
   deal_id: string;
   title: string;
-  description?: string;
+  description_excerpt?: string;
   deal_type: string;
   state: string;
   price_per_unit: number;
@@ -56,7 +56,7 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
           </div>
           <StatusPill state={deal.state} />
         </div>
-        <div className="card-desc">{deal.description || ""}</div>
+        <div className="card-desc">{deal.description_excerpt || ""}</div>
         <GroupMeter joined={deal.joined_units} threshold={deal.threshold_units} max={deal.max_units} showFlag={false} />
         <div className="card-price-row">
           <span className="price">{ils(deal.price_per_unit)}</span>
