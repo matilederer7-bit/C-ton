@@ -1,5 +1,31 @@
 # PROJECT STATUS
 
+## SITON R7+R8 PRE-LIVE HARDENING — IN PROGRESS (2026-09-01)
+
+**Stage ladder: R3 = 100%, R4 = 100%, R5 = 100%, R6 = 100%, R7 ≈ 55%, R8 = 0% (not yet started).**
+
+Master: `6cd855c` (on top of R6 close `df2e369`). Preview: https://siton-staging-web.onrender.com/preview
+
+### Checkpoint A — Canonical Supabase Storage — DONE (tested, hosted-proven)
+- **Completed:** `SupabaseBrokerStorageAdapter` (provider `supabase`) implements the full `StorageAdapter` contract over a new `storage-broker` Supabase Edge Function. The Supabase **service-role key never leaves the Edge runtime**; Render Web/Worker hold only a narrowly-scoped broker key (`SITON_STORAGE_BROKER_KEY`, `sync:false`) whose SHA-256 digest is pinned in the deployed function. Bucket-scoped ops only; system-generated UUID object keys (no filename/PII); overwrite protection (`upsert:false`), post-put verification, outcome-unknown PUT reconciliation, idempotent delete, traversal-safe keys, checksum + content-type + size re-validated at the broker. Migration `052` (provider CHECK widened to `local`/`s3`/`supabase`, `public_url` shape) applied to staging (ledger row 48). Staging `015` made the `deal-images` bucket public-read (CDN) while **all mutation stays privileged** (no client storage policies). Published imagery 302s to the CDN; Draft imagery stays behind the authenticated proxy. Cleanup retires unreachable legacy `local` tasks once on a durable provider. Production guards accept `STORAGE_ADAPTER=supabase` (fail-closed config).
+- **Tested:** `tests/r7_supabase_broker_storage_validation.ts` 12/12; isolated migration proof 48/48 (fresh + rerun + checksum); object/atomicity/cleanup/fault/readiness/guard/deal_images tests green; `tsc` clean (backend + web).
+- **Hosted evidence:** direct broker E2E on staging (401 unauth, verified put, 409 duplicate, CDN 200 immutable, idempotent delete, traversal/content-type rejected). Server-path proof (the exact `saveDealImage`/`readDealImage`/`deleteDealImageFile` functions `app.ts` calls) against the REAL staging broker: 11/11 (supabase provider, durable public_url, system key, checksum, byte round-trip, CDN serve, content-spoof + oversize rejected, delete at storage authority, durable multi-instance readiness). Both Render services live on the storage env.
+- **Durability note:** persistence across Web/Worker restart is now an inherent property of Supabase Storage (durable object store, instance-independent), not local disk — proven by CDN serving + storage-authority reads independent of any Render instance.
+
+### Checkpoint B — React media flows — DONE (built, typechecked; hosted browser pass pending Checkpoint D)
+- **Completed:** `web/src/images.tsx` — LocalImageManager (wizard) + DraftImageManager (canonical Draft management): file picker (mobile camera/library), drag/drop reorder, choose primary, delete, replace, real XHR upload progress, per-file error + retry. Wizard uploads before publish (failed upload keeps Draft → routes to Draft screen to finish). Seller Draft screen gains a full image panel (Draft-only). All payload builders emit the durable CDN url via `resolveDealImageUrl` (fallback to proxy for legacy rows).
+- **Open:** hosted browser walkthrough of the seller upload UX (folded into Checkpoint D). Hosted seller-authenticated upload through the browser needs the owner-held synthetic seller password (out-of-band; the recorded one is stale and credential resets are correctly guardrailed) — the server code path is instead proven by the Checkpoint A server-path proof.
+
+### Open checkpoints
+- **C** — admin repair (Buyers+email, real Viral Tree, fix Operations/Payments/Notifications/System Health, gray+orange redesign): NOT STARTED.
+- **D** — hosted E2E + concurrency + bounded load: NOT STARTED.
+- **E** — failure recovery + backup/restore + observability + mobile + security: NOT STARTED.
+- **F** — closure + R9 readiness verdict: NOT STARTED.
+
+**Safety counts unchanged: real money 0; Grow 0; real payment-provider 0; real SMS/email/invoice 0/0/0.**
+
+---
+
 ## SITON R6 — CLOSED (2026-08-31, night)
 
 - **Verdict: `R6_CANONICAL_REACT_PRODUCT_SURFACES_CLOSED` — R6 = 100%.** Stage ladder: **R3 = 100%, R4 = 100%, R5 MVP canonical auth = 100%, R6 = 100%.**
