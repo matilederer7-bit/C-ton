@@ -221,6 +221,18 @@ and the external password step; the pre-entered value must not be treated as
 usable configuration. The `-atp1` service should never receive a working
 secret.
 
+Correction from the fixed diagnostics (2026-08-31, after the autodeploy of
+`5cb9b65`): the live boot now reports `database schema check failed before
+migration inspection (code ECONNREFUSED)`. The pre-entered DATABASE_URL does
+not reach a database at all — the earlier inference that "a connection
+succeeded but the identity could not see the schema" was an artifact of the
+masked error and is withdrawn. Probable causes: the free-tier Supabase
+project is paused, or the URL uses the IPv6-only direct
+`db.<ref>.supabase.co` endpoint that Render egress cannot reach. Both are
+resolved by runbook step 3 (session-mode Supavisor pooler URL) after
+confirming the project is active. Activation must first verify
+`siton-staging` is not paused.
+
 Session constraint recorded 2026-08-31: the Supabase MCP server is configured
 (project-scoped `hnptacfzuqebfgeshadq`) but its tools did not register in the
 running engineering session, and no CLI/token/connection-string channel

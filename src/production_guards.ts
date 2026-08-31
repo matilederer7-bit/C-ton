@@ -35,15 +35,19 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     if (apiKey.startsWith("sk_live_") || (role === "web" && publicKey.startsWith("pk_live_"))) failures.push("Sandbox cannot use live Stripe credentials");
   }
 
+  // A declared runtime role must match the starting process in every mode:
+  // a staging Worker configured as web (or vice versa) must fail closed at
+  // boot, not only in production.
+  const configuredRole = String(env.RUNTIME_ROLE || "").toLowerCase();
+  if (configuredRole && configuredRole !== role) failures.push(`RUNTIME_ROLE=${configuredRole} cannot start the ${role} process`);
+
   if (!productionMode(env)) {
     if (failures.length) throw new Error(`external storage runtime guard failed: ${failures.join("; ")}`);
     return;
   }
   const storage = storageMode;
-  const configuredRole = String(env.RUNTIME_ROLE || "").toLowerCase();
 
   if (!configuredRole) failures.push("RUNTIME_ROLE is required in production");
-  if (configuredRole && configuredRole !== role) failures.push(`RUNTIME_ROLE=${configuredRole} cannot start the ${role} process`);
   if (!paymentProvider) failures.push("PAYMENT_PROVIDER is required in production");
   if (paymentProvider === "mock" || paymentProvider === "mockpay") failures.push("production cannot use a mock PAYMENT_PROVIDER");
   if (["sandbox", "test", "demo"].includes(paymentEnvironment)) failures.push("production cannot use PAYMENT_ENVIRONMENT=sandbox/test/demo");
@@ -62,7 +66,6 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   if (!env.SELLER_SESSION_SECRET) failures.push("SELLER_SESSION_SECRET is required in production");
   if (role === "web" && (!webhookSecret || placeholder.test(webhookSecret))) failures.push("a non-placeholder PAYMENT_WEBHOOK_SECRET is required for the production web role");
   if (role === "web" && env.DISABLE_OUTBOX_WORKER !== "1") failures.push("production web requires DISABLE_OUTBOX_WORKER=1");
-  if (role === "worker" && configuredRole === "web") failures.push("worker cannot start with the web runtime role");
 
   if (failures.length) throw new Error(`production runtime guard failed: ${failures.join("; ")}`);
 }

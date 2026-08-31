@@ -29,7 +29,12 @@ export function createRuntimePool(kind: "web" | "worker" = "web", max?: number) 
   return runtimePool;
 }
 
-export const pool = createRuntimePool("web");
+// The shared application pool is labeled by the declared runtime role so a
+// Worker deployment identifies itself as siton-worker-runtime in
+// pg_stat_activity instead of masquerading as the Web pool.
+export const pool = createRuntimePool(
+  String(process.env.RUNTIME_ROLE || "").toLowerCase() === "worker" ? "worker" : "web"
+);
 
 function decorateClientQuery(client: any) {
   if (!DEBUG_SQL_LOGGING || client.__sqlLoggingWrapped) return;

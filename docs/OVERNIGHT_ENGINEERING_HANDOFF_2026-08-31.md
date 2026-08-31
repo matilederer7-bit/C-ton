@@ -13,11 +13,49 @@ Durable checkpoint for the overnight R3-hosted / R4-worker run. No secrets.
 - R3 verdict tonight: `R3_REPOSITORY_READY_HOSTED_BLOCKED` (Supabase channel). Repo 100%, Render deployment 40%, live DB identity 0%, hosted API proof 0%.
 - Exact next R3 step: session with Supabase MCP registered → apply 010 → external `ALTER ROLE siton_web_login PASSWORD` → replace DATABASE_URL on `srv-daa5o9u7bikc73fgjskg` only (session-mode pooler URL, user `siton_web_login.hnptacfzuqebfgeshadq`) → autoDeploy passes `/readiness` → `node scripts/r3_hosted_proof.cjs --base-url=https://siton-staging-web.onrender.com`.
 
-## Phase B (R4) — in progress after Checkpoint 1
+## Checkpoint 2 — R3 CI green; R4 repository work complete
 
-Per the overnight authorization: R4 repository/local/staging-safe work proceeds;
-no paid Render resource may be created (cost gate). Status recorded in later
-checkpoints below and in `PROJECT_STATUS.md`.
+- Checkpoint-1 commit `5cb9b65` pushed; GitHub Actions BOTH workflows green
+  (Web runtime depth gates run 92, Backend/deployment quality gates).
+- R4A: migration `supabase/staging/011_r4_worker_login_provisioning.sql`
+  (secret-free, symmetric to 010, cross-guards both directions) + green
+  validation test. NOT applied to hosted staging (Supabase channel blocker).
+- R4B: guards now fail closed on RUNTIME_ROLE mismatch in every mode; shared
+  pool labeled by runtime role. Both changes tested.
+- R4C/R4D: new `tests/worker_two_process_fencing_validation.ts` — two REAL
+  worker processes; competing claims, heartbeat renewal under blocked
+  handlers, SIGKILL fencing + reclaim, SIGTERM during ownership + restart,
+  pg_terminate_backend recovery; 44/44 exactly-once, DLQ 0, zero credential
+  leakage. Runs in ~19s inside the workers group.
+- R4E/F: money invariants green via existing suites; finding recorded: the
+  3-attempts-per-30-minutes rule is enforced structurally, not literally —
+  open spec-alignment item, intentionally not changed overnight.
+- R4I + COST GATE: Render Background Workers have NO free tier; smallest
+  plan 0.5 CPU/512 MB = US$7/month prorated. Worker blueprint documented in
+  docs/ARCHITECTURE_REBASE_R4_WORKER.md, deliberately NOT in render.yaml.
+  Paid infrastructure created: 0.
+- R4 verdict: `R4_REPOSITORY_READY_STAGING_AND_PAID_DEPLOYMENT_GATED`.
+- Live correction: the autodeploy of 5cb9b65 booted with the new diagnostics
+  and reports `ECONNREFUSED` — the pre-entered DATABASE_URL reaches no
+  database (paused project or IPv6-only direct endpoint likely). Checkpoint
+  1's "connected but wrong identity" inference is withdrawn in the R3 doc.
+  Activation must first confirm siton-staging is not paused, then use the
+  session-mode pooler URL.
+
+## Checkpoint 3 — full suite verdict and R4 batch commit
+
+- Full repository suite on the R4 tree: 9/10 groups green in one run; the
+  e2e group failed only on `frontend_browser_smoke_validation.ts` at
+  WANDERING checkpoints (a different checkpoint each run). Root cause found:
+  11 stray msedge processes from earlier runs; after killing them the file
+  passed cleanly on the identical tree (54s). Environmental flake with
+  concrete evidence, matching the R3-documented precedent — no regression.
+- Two-process proof extended (P3b): unknown event type is rejected at insert
+  by `outbox_events_event_type_check` (fail-closed boundary); malformed
+  payload is DLQ-archived on first attempt without crash-loop. 10/10 phases
+  green.
+- TypeScript, architecture, enforcement/secret, payment, runtime-DDL gates
+  all green on the final tree.
 
 ## Safety counters (running, whole night)
 

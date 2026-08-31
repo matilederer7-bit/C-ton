@@ -38,4 +38,12 @@ assert.throws(() => assertProductionRuntimeGuards("web", production({ PAYMENT_WE
 assert.throws(() => assertProductionRuntimeGuards("web", production({ RUNTIME_ROLE: "worker" })), /cannot start the web process/);
 assert.throws(() => assertProductionRuntimeGuards("web", production({ DISABLE_OUTBOX_WORKER: "0" })), /DISABLE_OUTBOX_WORKER=1/);
 
+// A declared RUNTIME_ROLE must match the starting process in EVERY mode:
+// a staging Worker misconfigured as web fails closed at boot, not only in
+// production, while an undeclared role stays permissive outside production.
+assert.throws(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "staging", RUNTIME_ROLE: "web" }), /cannot start the worker process/);
+assert.throws(() => assertProductionRuntimeGuards("web", { APP_DEPLOYMENT_MODE: "staging", RUNTIME_ROLE: "worker" }), /cannot start the web process/);
+assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "staging", RUNTIME_ROLE: "worker" }));
+assert.doesNotThrow(() => assertProductionRuntimeGuards("worker", { APP_DEPLOYMENT_MODE: "staging" }));
+
 console.log("PASS production guards reject unsafe live topology and providers without blocking demo/test");
