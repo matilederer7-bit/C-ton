@@ -3,7 +3,7 @@ import { randomBytes, randomUUID, scrypt as scryptCb, timingSafeEqual, createHas
 import { promisify } from "util";
 import { ADMIN_API_KEY, isProductionLikeEnv } from "./runtime_config.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
-import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
+import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 
 const scrypt = promisify(scryptCb);
 
@@ -188,27 +188,64 @@ export async function issueAdminSession(c: Queryable, adminUserId: string, req: 
   return { token, session: row.rows[0] };
 }
 
+// The single canonical Siton owner identity. When set (SITON_OWNER_EMAIL), a
+// VERIFIED Supabase token whose email claim matches is auto-provisioned an
+// active SuperAdmin binding on first contact with the admin surface. Supabase
+// only issues access tokens after the email is confirmed, so possession of a
+// verified token with this email proves inbox ownership. The password itself
+// never transits this codebase: the owner sets it in the Supabase signup flow.
+export function configuredOwnerEmail(): string {
+  return String(process.env.SITON_OWNER_EMAIL || "").trim().toLowerCase();
+}
+
+export async function claimOwnerAdminBinding(c: Queryable, sub: string, email: string): Promise<void> {
+  // Idempotent: binds by unique email; never overwrites a foreign binding.
+  await c.query(
+    `INSERT INTO siton.admin_users (email, display_name, role, status, auth_user_id, mfa_required, provisioned_via, provisioned_at)
+     VALUES ($1, 'Siton Owner', 'SuperAdmin', 'Active', $2, false, 'owner_email_claim', now())
+     ON CONFLICT (email) DO UPDATE
+       SET auth_user_id = EXCLUDED.auth_user_id,
+           status = 'Active',
+           provisioned_via = 'owner_email_claim',
+           provisioned_at = now(),
+           updated_at = now()
+       WHERE siton.admin_users.auth_user_id IS NULL`,
+    [email, sub]
+  );
+}
+
 export async function resolveAdminIdentity(req: any, c: Queryable): Promise<AdminIdentity | null> {
-  // R5C — a named admin may authenticate through Supabase Auth. The verified sub
-  // is bound to an active admin_users row by auth_user_id; the role/permissions
+  // R5C/R6 — a named admin may authenticate through Supabase Auth. The verified
+  // sub is bound to an active admin_users row by auth_user_id; role/permissions
   // come from canonical Postgres, never from JWT claims. This is a named
   // session_identity — the shared bootstrap key never yields one.
+  // R6 capability policy: this surface requires the ADMIN capability
+  // explicitly. A principal that also holds seller/distributor capabilities is
+  // never "downgraded" or guessed about — only its admin binding counts here.
   const verifier = adminSupabaseVerifier();
   if (verifier && bearerToken(req)) {
     try {
-      const actor = await resolveSupabaseActor(req, c as any, verifier);
-      if (actor && actor.type === "admin" && actor.admin && actor.admin.status === "Active" && isAdminRole(String(actor.admin.role))) {
+      let caps = await resolveSupabaseCapabilities(req, c as any, verifier);
+      if (caps && !caps.admin) {
+        const ownerEmail = configuredOwnerEmail();
+        if (ownerEmail && caps.email === ownerEmail) {
+          await claimOwnerAdminBinding(c, caps.sub, caps.email);
+          caps = await resolveSupabaseCapabilities(req, c as any, verifier);
+        }
+      }
+      const admin = caps?.admin || null;
+      if (caps && admin && admin.status === "Active" && isAdminRole(String(admin.role))) {
         return {
-          admin_user_id: actor.admin.admin_user_id,
-          email: actor.admin.email,
-          display_name: actor.admin.email,
-          role: actor.admin.role as AdminRole,
+          admin_user_id: admin.admin_user_id,
+          email: admin.email,
+          display_name: admin.email,
+          role: admin.role as AdminRole,
           identity_strength: "session_identity",
-          permissions: [...ROLE_PERMISSIONS[actor.admin.role as AdminRole]],
-          mfa_verified_at: actor.token.aal === "aal2" ? new Date(actor.token.iat * 1000).toISOString() : null
+          permissions: [...ROLE_PERMISSIONS[admin.role as AdminRole]],
+          mfa_verified_at: caps.token.aal === "aal2" ? new Date(caps.token.iat * 1000).toISOString() : null
         };
       }
-      // A non-admin actor (or inactive admin) is not an admin identity here.
+      // A token without an active admin binding is not an admin identity here.
     } catch {
       // Invalid/ambiguous Supabase token presented to an admin context → not an
       // admin identity. Fall through to cookie/key resolution (which denies).

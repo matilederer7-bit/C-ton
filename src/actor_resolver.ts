@@ -1,26 +1,50 @@
 // Canonical actor resolution for verified Supabase identities.
 //
 // After a Supabase access token is cryptographically verified, the ONLY thing
-// trusted from it is the subject UUID (auth.users.id). Authority is resolved
-// FRESH from canonical Postgres on every request: the sub is looked up against
-// seller_accounts / admin_users / affiliate_accounts by auth_user_id, and the
-// actor's live status is re-checked. JWT role/user_metadata is never consulted.
+// trusted from it is the subject UUID (auth.users.id) and its email claim.
+// Authority is resolved FRESH from canonical Postgres on every request: the sub
+// is looked up against seller_accounts / admin_users / affiliate_accounts by
+// auth_user_id, and each actor's live status is re-checked. JWT role and
+// user_metadata are never consulted.
 //
-// Binding ambiguity policy: a sub that resolves to zero or more than one actor
-// binding fails closed (no actor). One Supabase user is at most one SITON actor.
+// R6 capability policy: one authenticated principal MAY hold more than one
+// Siton application capability (e.g. the owner is an admin and may also hold a
+// seller binding). Authority stays EXPLICIT: a route requiring seller
+// authority reads only the seller capability; a route requiring admin
+// authority reads only the admin capability. Nothing here ever "picks" the
+// most privileged capability on the caller's behalf, and a capability that
+// resolves to more than one row for the same sub still fails closed.
 
 import type { SupabaseVerifier, VerifiedToken } from "./supabase_auth.js";
 import { AuthTokenError } from "./supabase_auth.js";
 
-export type ResolvedActorType = "seller" | "admin" | "distributor";
+export interface SellerCapability {
+  seller_id: string;
+  display_name: string;
+  auth_enabled: boolean;
+  seller_status: string;
+}
 
-export interface ResolvedActor {
-  type: ResolvedActorType;
+export interface AdminCapability {
+  admin_user_id: string;
+  email: string;
+  role: string;
+  status: string;
+}
+
+export interface DistributorCapability {
+  affiliate_id: string;
+  auth_enabled: boolean;
+  verification_status: string;
+}
+
+export interface ResolvedCapabilities {
   sub: string;
+  email: string;
   token: VerifiedToken;
-  seller?: { seller_id: string; display_name: string; auth_enabled: boolean; seller_status: string };
-  admin?: { admin_user_id: string; email: string; role: string; status: string };
-  distributor?: { affiliate_id: string; auth_enabled: boolean; verification_status: string };
+  seller: SellerCapability | null;
+  admin: AdminCapability | null;
+  distributor: DistributorCapability | null;
 }
 
 type Queryable = { query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }> };
@@ -31,14 +55,17 @@ export function bearerToken(req: any): string {
   return header.replace(/^bearer\s+/i, "").trim();
 }
 
-// Resolves a verified Supabase token to at most one canonical actor. Returns
-// null when there is no token. Throws AuthTokenError when a token is present but
-// invalid, or when the binding is ambiguous/absent (fail closed).
-export async function resolveSupabaseActor(
+// Resolves a verified Supabase token to its full capability set. Returns null
+// when there is no token. Throws AuthTokenError when a token is present but
+// invalid, or when any single capability binding is duplicated (fail closed).
+// A token with zero capabilities resolves to an empty set — the route-level
+// requirement ("this route needs seller/admin authority") produces the denial,
+// so an owner mid-provisioning gets a precise error rather than a generic one.
+export async function resolveSupabaseCapabilities(
   req: any,
   db: Queryable,
   verifier: SupabaseVerifier | null
-): Promise<ResolvedActor | null> {
+): Promise<ResolvedCapabilities | null> {
   if (!verifier) return null;
   const token = bearerToken(req);
   if (!token) return null;
@@ -68,26 +95,42 @@ export async function resolveSupabaseActor(
     )
   ]);
 
-  const bindings: ResolvedActor[] = [];
-  if (sellerRes.rowCount) {
-    if (sellerRes.rowCount > 1) throw new AuthTokenError("ambiguous_binding");
-    const r = sellerRes.rows[0];
-    bindings.push({ type: "seller", sub, token: verified, seller: { seller_id: String(r.seller_id), display_name: String(r.display_name || r.seller_id), auth_enabled: Boolean(r.auth_enabled), seller_status: String(r.seller_status) } });
-  }
-  if (adminRes.rowCount) {
-    if (adminRes.rowCount > 1) throw new AuthTokenError("ambiguous_binding");
-    const r = adminRes.rows[0];
-    bindings.push({ type: "admin", sub, token: verified, admin: { admin_user_id: String(r.admin_user_id), email: String(r.email), role: String(r.role), status: String(r.status) } });
-  }
-  if (distRes.rowCount) {
-    if (distRes.rowCount > 1) throw new AuthTokenError("ambiguous_binding");
-    const r = distRes.rows[0];
-    bindings.push({ type: "distributor", sub, token: verified, distributor: { affiliate_id: String(r.affiliate_id), auth_enabled: Boolean(r.auth_enabled), verification_status: String(r.verification_status) } });
+  // A sub bound to two rows of the SAME capability is a data integrity fault:
+  // there is no way to know which seller/admin/distributor the principal is.
+  if ((sellerRes.rowCount ?? 0) > 1 || (adminRes.rowCount ?? 0) > 1 || (distRes.rowCount ?? 0) > 1) {
+    throw new AuthTokenError("ambiguous_binding");
   }
 
-  // Cross-role uniqueness: a sub bound as more than one actor type is a security
-  // error, not a reason to select the most privileged match.
-  if (bindings.length > 1) throw new AuthTokenError("cross_role_binding");
-  if (bindings.length === 0) throw new AuthTokenError("no_actor_binding");
-  return bindings[0] as ResolvedActor;
+  const sellerRow = sellerRes.rows[0];
+  const adminRow = adminRes.rows[0];
+  const distRow = distRes.rows[0];
+
+  return {
+    sub,
+    email: String((verified as any).email || "").toLowerCase(),
+    token: verified,
+    seller: sellerRow
+      ? {
+          seller_id: String(sellerRow.seller_id),
+          display_name: String(sellerRow.display_name || sellerRow.seller_id),
+          auth_enabled: Boolean(sellerRow.auth_enabled),
+          seller_status: String(sellerRow.seller_status)
+        }
+      : null,
+    admin: adminRow
+      ? {
+          admin_user_id: String(adminRow.admin_user_id),
+          email: String(adminRow.email),
+          role: String(adminRow.role),
+          status: String(adminRow.status)
+        }
+      : null,
+    distributor: distRow
+      ? {
+          affiliate_id: String(distRow.affiliate_id),
+          auth_enabled: Boolean(distRow.auth_enabled),
+          verification_status: String(distRow.verification_status)
+        }
+      : null
+  };
 }

@@ -1,18 +1,21 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { resolveSupabaseActor } from "../src/actor_resolver.js";
+import { resolveSupabaseCapabilities } from "../src/actor_resolver.js";
 import { AuthTokenError } from "../src/supabase_auth.js";
 
-// Actor resolution: a verified sub binds to at most ONE canonical actor, freshly
-// from Postgres. Ambiguous / cross-role / absent bindings fail closed. A missing
-// or non-JWT bearer yields no actor (null), never an escalation.
+// R6 capability resolution: a verified sub resolves to its FULL capability set,
+// freshly from Postgres. One principal may hold several capabilities (owner =
+// admin + seller), but authority stays explicit: each route reads only the
+// capability it requires — the resolver never picks one on the caller's
+// behalf. A capability duplicated within one table still fails closed. A
+// missing or non-JWT bearer yields no capabilities (null), never an escalation.
 
-function fakeVerifier(sub: string) {
+function fakeVerifier(sub: string, email = "user@example.com") {
   return {
     issuer: "https://p.supabase.co/auth/v1",
     audience: "authenticated",
     async verify() {
-      return { sub, role: "authenticated", aud: "authenticated", iss: "https://p.supabase.co/auth/v1", exp: 0, iat: 0 } as any;
+      return { sub, email, role: "authenticated", aud: "authenticated", iss: "https://p.supabase.co/auth/v1", exp: 0, iat: 0 } as any;
     }
   };
 }
@@ -36,56 +39,64 @@ async function ok(name: string, fn: () => Promise<void>) {
 }
 
 await ok("no verifier configured → null (inert)", async () => {
-  assert.equal(await resolveSupabaseActor(bearer(), fakeDb({}) as any, null), null);
+  assert.equal(await resolveSupabaseCapabilities(bearer(), fakeDb({}) as any, null), null);
 });
 
 await ok("no bearer token → null", async () => {
-  assert.equal(await resolveSupabaseActor({ headers: {} }, fakeDb({}) as any, fakeVerifier(randomUUID()) as any), null);
+  assert.equal(await resolveSupabaseCapabilities({ headers: {} }, fakeDb({}) as any, fakeVerifier(randomUUID()) as any), null);
 });
 
 await ok("opaque (non-JWT) bearer is left alone → null", async () => {
   const req = { headers: { authorization: "Bearer opaque-tracking-token-abc123" } };
-  assert.equal(await resolveSupabaseActor(req, fakeDb({}) as any, fakeVerifier(randomUUID()) as any), null);
+  assert.equal(await resolveSupabaseCapabilities(req, fakeDb({}) as any, fakeVerifier(randomUUID()) as any), null);
 });
 
-await ok("seller binding resolves to a seller actor", async () => {
+await ok("seller binding resolves the seller capability only", async () => {
   const sub = randomUUID();
-  const actor = await resolveSupabaseActor(bearer(), fakeDb({ seller: [{ seller_id: "seller-x", display_name: "X", auth_enabled: true, seller_status: "Active" }] }) as any, fakeVerifier(sub) as any);
-  assert.equal(actor?.type, "seller");
-  assert.equal(actor?.seller?.seller_id, "seller-x");
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({ seller: [{ seller_id: "seller-x", display_name: "X", auth_enabled: true, seller_status: "Active" }] }) as any, fakeVerifier(sub) as any);
+  assert.equal(caps?.seller?.seller_id, "seller-x");
+  assert.equal(caps?.admin, null);
+  assert.equal(caps?.distributor, null);
+  assert.equal(caps?.sub, sub);
 });
 
-await ok("admin binding resolves to an admin actor", async () => {
-  const actor = await resolveSupabaseActor(bearer(), fakeDb({ admin: [{ admin_user_id: randomUUID(), email: "a@x", role: "OpsAdmin", status: "Active" }] }) as any, fakeVerifier(randomUUID()) as any);
-  assert.equal(actor?.type, "admin");
-  assert.equal(actor?.admin?.role, "OpsAdmin");
+await ok("admin binding resolves the admin capability only", async () => {
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({ admin: [{ admin_user_id: randomUUID(), email: "a@x", role: "OpsAdmin", status: "Active" }] }) as any, fakeVerifier(randomUUID()) as any);
+  assert.equal(caps?.admin?.role, "OpsAdmin");
+  assert.equal(caps?.seller, null);
 });
 
-await ok("distributor binding resolves to a distributor actor", async () => {
-  const actor = await resolveSupabaseActor(bearer(), fakeDb({ distributor: [{ affiliate_id: randomUUID(), auth_enabled: true, verification_status: "verified" }] }) as any, fakeVerifier(randomUUID()) as any);
-  assert.equal(actor?.type, "distributor");
+await ok("distributor binding resolves the distributor capability only", async () => {
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({ distributor: [{ affiliate_id: randomUUID(), auth_enabled: true, verification_status: "verified" }] }) as any, fakeVerifier(randomUUID()) as any);
+  assert.ok(caps?.distributor);
+  assert.equal(caps?.admin, null);
 });
 
-await ok("no binding fails closed", async () => {
-  await assert.rejects(
-    () => resolveSupabaseActor(bearer(), fakeDb({}) as any, fakeVerifier(randomUUID()) as any),
-    (e: any) => e instanceof AuthTokenError && e.reason === "no_actor_binding"
-  );
+await ok("zero bindings → empty capability set (route requirement denies, resolver stays precise)", async () => {
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({}) as any, fakeVerifier(randomUUID()) as any);
+  assert.ok(caps);
+  assert.equal(caps?.seller, null);
+  assert.equal(caps?.admin, null);
+  assert.equal(caps?.distributor, null);
 });
 
-await ok("cross-role binding (seller + admin) fails closed — never picks the most privileged", async () => {
-  await assert.rejects(
-    () => resolveSupabaseActor(bearer(), fakeDb({
-      seller: [{ seller_id: "s", display_name: "s", auth_enabled: true, seller_status: "Active" }],
-      admin: [{ admin_user_id: randomUUID(), email: "a@x", role: "SuperAdmin", status: "Active" }]
-    }) as any, fakeVerifier(randomUUID()) as any),
-    (e: any) => e instanceof AuthTokenError && e.reason === "cross_role_binding"
-  );
+await ok("multi-capability principal (owner: admin + seller) resolves BOTH — neither silently selected", async () => {
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({
+    seller: [{ seller_id: "s", display_name: "s", auth_enabled: true, seller_status: "Active" }],
+    admin: [{ admin_user_id: randomUUID(), email: "owner@x", role: "SuperAdmin", status: "Active" }]
+  }) as any, fakeVerifier(randomUUID()) as any);
+  assert.equal(caps?.seller?.seller_id, "s");
+  assert.equal(caps?.admin?.role, "SuperAdmin");
+});
+
+await ok("verified email claim is exposed lowercased for the owner-claim gate", async () => {
+  const caps = await resolveSupabaseCapabilities(bearer(), fakeDb({}) as any, fakeVerifier(randomUUID(), "Owner@Example.COM") as any);
+  assert.equal(caps?.email, "owner@example.com");
 });
 
 await ok("duplicate binding within one table fails closed", async () => {
   await assert.rejects(
-    () => resolveSupabaseActor(bearer(), fakeDb({
+    () => resolveSupabaseCapabilities(bearer(), fakeDb({
       seller: [
         { seller_id: "s1", display_name: "s1", auth_enabled: true, seller_status: "Active" },
         { seller_id: "s2", display_name: "s2", auth_enabled: true, seller_status: "Active" }

@@ -44,8 +44,14 @@ import { rewriteCanonicalApiAlias } from "./api_route_aliases.js";
 import { ensureJoinOtpVerified, ensureOtpRailTables, OtpValidationError } from "./otp_rail.js";
 import { isBuyerVerificationRequired } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier, AuthTokenError } from "./supabase_auth.js";
-import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
+import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
 import { hitTestFault } from "./fault_injection.js";
+import {
+  recordViralJoinAttribution,
+  recomputeDealViralMetrics,
+  recomputeAggregateViralMetrics,
+  personalShareUrl
+} from "./viral_graph.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import {
@@ -318,20 +324,24 @@ function supabaseVerifier() {
   return _supabaseVerifier;
 }
 
-// R5B — a canonical seller may authenticate through Supabase Auth. The verified
-// sub is bound to a seller account by auth_user_id (server-side); a token that
-// resolves to any other actor type cannot act as a seller. Ownership is still
-// enforced downstream against deals.seller_id, so seller A cannot touch B.
+// R5B/R6 — a canonical seller may authenticate through Supabase Auth. The
+// verified sub is bound to a seller account by auth_user_id (server-side).
+// R6 capability policy: this route requires the SELLER capability explicitly —
+// a token whose principal also holds other capabilities is fine, but a token
+// with no seller binding cannot act as a seller. Ownership is still enforced
+// downstream against deals.seller_id, so seller A cannot touch B.
 async function supabaseSellerContext(req: any, c: any) {
   const verifier = supabaseVerifier();
   if (!verifier || !bearerToken(req)) return null;
-  const actor = await resolveSupabaseActor(req, c, verifier); // throws on invalid/ambiguous
-  if (!actor) return null;
-  if (actor.type !== "seller" || !actor.seller) {
+  const caps = await resolveSupabaseCapabilities(req, c, verifier); // throws on invalid/duplicated binding
+  if (!caps) return null;
+  const actor = { seller: caps.seller };
+  if (!actor.seller) {
     throwSellerAuthFailure("forbidden", req, "/app/seller", 403, {
       message: "this identity is not a seller",
       reasonCode: "not_a_seller_actor"
     });
+    return null;
   }
   if (!actor.seller.auth_enabled) {
     throwSellerAuthFailure("forbidden", req, "/app/seller", 403, {
@@ -2229,6 +2239,21 @@ async function workerProcessEvent(event: {
     return;
   }
 
+  if (event.event_type === "viral_recompute") {
+    // Growth analytics only: recompute the deal's viral tree metrics and roll
+    // them up into the seller + platform caches. Never touches deal, buyer,
+    // money, or notification state.
+    const dealId = event.aggregate_id;
+    const sellerId = await withTx(async (c) => {
+      const metrics = await recomputeDealViralMetrics(c, dealId);
+      return String((metrics as any)?.seller_id || "") || null;
+    });
+    await withTx(async (c) => {
+      await recomputeAggregateViralMetrics(c, sellerId);
+    });
+    return;
+  }
+
   throw new PermanentFailError(`unsupported outbox event type: ${event.event_type}`);
 }
 
@@ -3793,7 +3818,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
            UNION ALL
            SELECT affiliate_id
            FROM siton.affiliate_links
-           WHERE source_code=$3 AND deal_id=$1 AND disabled_at IS NULL
+           -- Distributor links only: participant personal links (R6) have no
+           -- affiliate account and are attributed via viral_attributions.
+           WHERE source_code=$3 AND deal_id=$1 AND disabled_at IS NULL AND affiliate_id IS NOT NULL
            LIMIT 1
          ) source
          ON CONFLICT (participant_id) DO NOTHING
@@ -3808,6 +3835,23 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         );
       }
     }
+
+    // R6 commerce viral graph: resolve the share-chain attribution and ensure
+    // the joining buyer's personal share link — bounded indexed work only; the
+    // heavy subtree aggregation runs asynchronously via 'viral_recompute'.
+    const viralJoin = await recordViralJoinAttribution(c, {
+      deal_id: dealId,
+      participant_id: pid,
+      buyer_id,
+      qty,
+      ref: affiliateRef,
+      first_touch_code: body.viral_first_touch_code,
+      first_touch_at: body.viral_first_touch_at,
+      last_touch_code: body.viral_last_touch_code,
+      last_touch_at: body.viral_last_touch_at,
+      visitor_id: body.viral_visitor_id,
+      session_id: body.viral_session_id
+    });
 
     if (acquisitionSource === "mall" && acquisition.mallSessionId && dealRow.rows[0].published_at) {
       const mallStatus = mallStatusForState(String(dealRow.rows[0].state));
@@ -3928,7 +3972,15 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       delivery_method_label: selectedDelivery?.label ?? null,
       delivery_cost: deliveryCost,
       acquisition_source: acquisitionSource,
-      hold_total: Number(qty) * Number(dealRow.rows[0].price_per_unit || 0) + deliveryCost
+      hold_total: Number(qty) * Number(dealRow.rows[0].price_per_unit || 0) + deliveryCost,
+      viral: {
+        attributed: viralJoin.attributed,
+        generation: viralJoin.generation,
+        personal_share_code: viralJoin.personal_share_code,
+        personal_share_url: viralJoin.personal_share_code
+          ? personalShareUrl(dealId, viralJoin.personal_share_code)
+          : null
+      }
     };
 
     const canonicalResult = await c.query(

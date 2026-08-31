@@ -129,8 +129,10 @@ import {
 } from "./admin_control_plane.js";
 import {
   ADMIN_ACTION_PERMISSION,
+  ADMIN_SESSION_COOKIE,
   HIGH_TRUST_ADMIN_ACTIONS,
   adminPublicIdentity,
+  parseCookieHeader,
   createAdminMfaCode,
   ensureAdminIdentityTables,
   hasAdminPermission,
@@ -176,7 +178,13 @@ import {
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
-import { resolveSupabaseActor, bearerToken } from "./actor_resolver.js";
+import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
+import {
+  recordViralFunnelEvent,
+  readViralMetricsCache,
+  enqueueViralRecompute,
+  getParticipantImpact
+} from "./viral_graph.js";
 import { InfrastructureMetricsCollector, applicationRequestTelemetry } from "./infrastructure_metrics.js";
 import { SupabaseComputeManager } from "./infrastructure_compute.js";
 import {
@@ -1588,6 +1596,24 @@ export function registerFrontendExperience(
     return true;
   }
 
+  // R6 — the admin READ surface accepts either a named admin identity
+  // (verified Supabase token bound to admin_users by auth_user_id, or an admin
+  // session cookie) or the operational x-admin-key. The named path is what the
+  // owner's one-login control center uses; the key remains for ops tooling.
+  async function requireAdminRead(req: any, reply: any): Promise<boolean> {
+    const cookies = parseCookieHeader(req?.headers?.cookie);
+    if (bearerToken(req) || cookies[ADMIN_SESSION_COOKIE]) {
+      try {
+        await ensureAdminIdentity();
+        const identity = await deps.withTx(async (c: any) => resolveAdminIdentity(req, c));
+        if (identity && identity.identity_strength === "session_identity") return true;
+      } catch {
+        // fall through to the key check, which owns the denial response
+      }
+    }
+    return requireAdminKey(req as FastifyRequest, reply as FastifyReply);
+  }
+
   async function requireAdminAuthContext(req: any, reply: any, c: any, options?: {
     permission?: string;
     recentMfa?: boolean;
@@ -1736,12 +1762,14 @@ export function registerFrontendExperience(
     const verifier = frontendSupabaseVerifier();
     if (verifier && bearerToken(req)) {
       try {
-        const actor = await resolveSupabaseActor(req, c, verifier);
-        if (actor && actor.type === "seller" && actor.seller && actor.seller.auth_enabled) {
+        // R6 capability policy: this surface requires the SELLER capability
+        // explicitly; other capabilities on the same principal are ignored.
+        const caps = await resolveSupabaseCapabilities(req, c, verifier);
+        if (caps && caps.seller && caps.seller.auth_enabled) {
           return {
-            seller_id: actor.seller.seller_id,
-            display_name: actor.seller.display_name,
-            seller_status: actor.seller.seller_status || "Active",
+            seller_id: caps.seller.seller_id,
+            display_name: caps.seller.display_name,
+            seller_status: caps.seller.seller_status || "Active",
             verification_status: "approved",
             settlement_status: "active",
             is_default_context: false,
@@ -2881,7 +2909,16 @@ export function registerFrontendExperience(
            img.image_id AS primary_image_id,
            img.mime_type AS primary_image_mime_type,
            COALESCE(SUM(p.qty),0) AS joined_units,
-           COUNT(p.participant_id)::int AS participants_count
+           COUNT(p.participant_id)::int AS participants_count,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.money_state='ChargeFailedRecovery'),0)::int AS recovery_pending_units,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state IN ('Dropped','DealFailed') OR p.money_state='AuthReleased'),0)::int AS dropped_units,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS active_units,
+           COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
+           COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+             FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+           GREATEST(d.updated_at, MAX(p.updated_at)) AS last_update_at
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
          LEFT JOIN LATERAL (
@@ -2898,7 +2935,20 @@ export function registerFrontendExperience(
         [sellerId]
       );
 
-      const deals = (result.rows as DealListRow[]).map(mapDealListRow);
+      // Seller cards need the money story (charged / pending / not-charged)
+      // and the deal-volume figures alongside the shared projection.
+      const deals = (result.rows as DealListRow[]).map((row: any) => ({
+        ...mapDealListRow(row),
+        last_update_at: row.last_update_at ?? row.created_at,
+        money: {
+          charged_units: Number(row.charged_units || 0),
+          recovery_pending_units: Number(row.recovery_pending_units || 0),
+          dropped_units: Number(row.dropped_units || 0),
+          active_units: Number(row.active_units || 0),
+          potential_gross: Number(row.potential_gross || 0),
+          charged_gross: Number(row.charged_gross || 0)
+        }
+      }));
       return {
         ok: true,
         seller_surface: {
@@ -4662,7 +4712,7 @@ export function registerFrontendExperience(
   // ---------------------------------------------------------------------------
 
   app.get("/api/admin/payment-ops-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensurePaymentOpsTables();
     return deps.withTx(async (c) => {
       const [attempts, webhooks, security, methods] = await Promise.all([
@@ -4733,7 +4783,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/overview", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const q = String(req.query?.q || "").trim().slice(0, 200);
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
@@ -4845,7 +4895,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/launch-console", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureProductSurfaces();
     await ensureNotificationTables();
     await ensureLegalAcceptanceTables();
@@ -5056,7 +5106,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/mission-control", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const q = String(req.query?.q || "").trim().slice(0, 200);
     await ensureProductSurfaces();
     await ensurePayoutTables();
@@ -5428,7 +5478,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/mission-control/anomalies", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureProductSurfaces();
     await ensurePayoutTables();
     await ensureNotificationTables();
@@ -5459,35 +5509,35 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/mission-control/deals/:dealId/trace", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const dealId = String(req.params.dealId || "").trim();
     requireUuid(dealId, "deal_id");
     return deps.withTx((c) => buildMissionDealTrace(c, dealId));
   });
 
   app.get("/api/admin/mission-control/participants/:participantId/trace", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const participantId = String(req.params.participantId || "").trim();
     requireUuid(participantId, "participant_id");
     return deps.withTx((c) => buildMissionParticipantTrace(c, participantId));
   });
 
   app.get("/api/admin/mission-control/correlation/:correlationId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const correlationId = String(req.params.correlationId || "").trim().slice(0, 200);
     if (!correlationId) return reply.code(400).send({ ok: false, error: "correlation_id_required" });
     return deps.withTx((c) => buildMissionCorrelationTrace(c, correlationId));
   });
 
   app.get("/api/admin/mission-control/outbox/:eventId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const eventId = String(req.params.eventId || "").trim();
     requireUuid(eventId, "event_id");
     return deps.withTx((c) => buildMissionOutboxTrace(c, eventId));
   });
 
   app.get("/api/admin/mission-control/webhooks/:provider/:eventId", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const provider = String(req.params.provider || "").trim().slice(0, 80);
     const eventId = String(req.params.eventId || "").trim().slice(0, 200);
     if (!provider || !eventId) return reply.code(400).send({ ok: false, error: "provider_and_event_id_required" });
@@ -5670,7 +5720,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/control-flags", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureAdminInterventionTables(deps.withTx);
     const flagType = String(req.query?.flag_type || "").trim();
     const scopeType = String(req.query?.scope_type || "").trim();
@@ -5720,7 +5770,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/storage/orphan-report", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureAdminInterventionTables(deps.withTx);
     const adapter = getDealImageStorageAdapter();
     const summary = adapter.describeForReadiness();
@@ -5783,7 +5833,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/sellers/risk", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureProductSurfaces();
     const rawStatuses = String(req.query?.seller_status || req.query?.status || "").trim();
     const requestedStatuses = rawStatuses
@@ -6025,7 +6075,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/system-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureProductSurfaces();
     await ensurePayoutTables();
     await ensureInvoiceWebhookTables();
@@ -6179,7 +6229,7 @@ export function registerFrontendExperience(
   // Returns per-bucket counts, oldest event ages, stuck candidate count, and
   // workerRunning flag. Safe for dashboards and post-restart health checks.
   app.get("/api/admin/outbox-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const stuckTimeoutMs = deps.workerStuckTimeoutMs ?? 60_000;
     return deps.withTx(async (c) => {
       const [outbox, dlq, workers] = await Promise.all([
@@ -6236,7 +6286,7 @@ export function registerFrontendExperience(
   // Returns per-status counts, oldest ages, unique idempotency-key count, channel breakdown.
   // Safe for dashboards and post-restart health checks.
   const notificationStatusHandler = async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     return deps.withTx(async (c) => {
       const [totals, channels] = await Promise.all([
         c.query(
@@ -6297,7 +6347,7 @@ export function registerFrontendExperience(
   // Returns per-status counts, oldest ages, unique document_key count, type breakdown.
   // Mirrors notifications-status structure. Safe for dashboards and post-restart checks.
   app.get("/api/admin/invoice-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureInvoiceWebhookTables();
     return deps.withTx(async (c) => {
       const [totals, byType, attempts, webhooks, webhookSecurity, reconcileBacklog] = await Promise.all([
@@ -6420,7 +6470,7 @@ export function registerFrontendExperience(
   // Single endpoint aggregating outbox + notifications + invoice pending/failed
   // counts and oldest ages. One read-only call gives full operational picture.
   app.get("/api/admin/payout-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensurePayoutTables();
     if (!deps.payoutRail) {
       return {
@@ -6439,7 +6489,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/payouts/batches/:id", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensurePayoutTables();
     const payoutBatchId = String(req.params.id || "").trim();
     requireUuid(payoutBatchId, "payout_batch_id");
@@ -6461,7 +6511,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/sellers/:id/payout-readiness", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensurePayoutTables();
     const sellerId = String(req.params.id || "").trim();
     if (!sellerId) {
@@ -6487,7 +6537,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/system-ops-status", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensurePayoutTables();
     return deps.withTx(async (c) => {
       const [outboxRow, dlqRow, notifRow, invoiceRow, payoutRow] = await Promise.all([
@@ -6578,7 +6628,7 @@ export function registerFrontendExperience(
   //   - recent outbox events for this participant's deal
   // Use this to diagnose why a participant did not receive a document or notification.
   app.get("/api/admin/participants/:id/ops", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const participantId = String(req.params.id || "").trim();
     requireUuid(participantId, "participant_id");
     return deps.withTx(async (c) => {
@@ -6655,7 +6705,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/deals/:id/profile", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
@@ -6748,7 +6798,7 @@ export function registerFrontendExperience(
   // and outbox events for a single deal. Use this to get a full operational
   // picture of one deal without running multiple queries manually.
   app.get("/api/admin/deals/:id/ops-summary", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const dealId = String(req.params.id || "").trim();
     requireUuid(dealId, "deal_id");
     await ensurePayoutTables();
@@ -6918,7 +6968,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/users/:buyerId/profile", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     const buyerId = String(req.params.buyerId || "").trim();
     if (!buyerId) {
       const err: any = new Error("buyer_id required");
@@ -7008,7 +7058,7 @@ export function registerFrontendExperience(
   });
 
   app.get("/api/admin/support-cases", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
     await ensureAutomaticOperationalCases(deps.withTx);
     const filters = {
       status: String(req.query?.status || "").trim(),
@@ -8342,6 +8392,575 @@ export function registerFrontendExperience(
     });
   });
 
+  // ═══ R6 — commerce viral graph + owner control-center surfaces ═══════════
+  // Growth analytics only: nothing below creates or moves money, and
+  // distributor commission remains ZERO by product constitution.
+
+  // Public, PII-free funnel events (deal_view / share_button_click /
+  // join_started). Client retries deduplicate on client_event_id.
+  app.post("/api/viral/events", async (req: any, reply: any) => {
+    const body = req.body || {};
+    const dealId = String(body.deal_id || "").trim();
+    requireUuid(dealId, "deal_id");
+    const result = await deps.withTx(async (c) =>
+      recordViralFunnelEvent(c, {
+        event_type: String(body.event_type || ""),
+        deal_id: dealId,
+        ref_code: body.ref_code,
+        share_channel: body.share_channel,
+        visitor_id: body.visitor_id,
+        session_id: body.session_id,
+        client_event_id: String(body.client_event_id || "")
+      })
+    );
+    if (!result.recorded && result.reason && result.reason !== "deal_not_found") {
+      return reply.code(400).send({ ok: false, error: result.reason });
+    }
+    return reply.code(202).send({ ok: true, recorded: result.recorded });
+  });
+
+  // Public live-activity feed for the deal page: real joins only, masked to a
+  // first name, plus the live aggregate the progress story needs. No PII.
+  app.get("/api/deals/:dealId/activity", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    reply.header("cache-control", "no-store");
+    return deps.withTx(async (c) => {
+      const deal = await c.query(
+        `SELECT deal_id, state, min_units, max_units, threshold_units, deadline, completion_window_until
+         FROM siton.deals WHERE deal_id=$1 AND published_at IS NOT NULL LIMIT 1`,
+        [dealId]
+      );
+      if (!deal.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const totals = await c.query(
+        `SELECT
+           COALESCE(SUM(qty) FILTER (WHERE buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS joined_units,
+           COUNT(*) FILTER (WHERE buyer_state NOT IN ('NotJoined','DealFailed','Dropped'))::int AS participants,
+           COALESCE(SUM(qty) FILTER (WHERE money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units
+         FROM siton.participants WHERE deal_id=$1`,
+        [dealId]
+      );
+      const recent = await c.query(
+        `SELECT split_part(btrim(COALESCE(buyer_name,'')), ' ', 1) AS first_name, qty, created_at
+         FROM siton.participants
+         WHERE deal_id=$1 AND buyer_state NOT IN ('NotJoined','DealFailed','Dropped')
+         ORDER BY created_at DESC
+         LIMIT 12`,
+        [dealId]
+      );
+      const row = deal.rows[0];
+      const t = totals.rows[0];
+      return {
+        ok: true,
+        deal_id: dealId,
+        state: String(row.state),
+        min_units: Number(row.min_units),
+        max_units: Number(row.max_units),
+        threshold_units: Number(row.threshold_units),
+        deadline: row.deadline,
+        completion_window_until: row.completion_window_until,
+        joined_units: Number(t.joined_units || 0),
+        participants: Number(t.participants || 0),
+        charged_units: Number(t.charged_units || 0),
+        remaining_units: Math.max(0, Number(row.max_units) - Number(t.joined_units || 0)),
+        recent_joins: recent.rows.map((r: any) => ({
+          display: String(r.first_name || "").length > 1 ? String(r.first_name) : "משתתף",
+          qty: Number(r.qty || 0),
+          at: new Date(String(r.created_at)).toISOString()
+        })),
+        server_time: new Date().toISOString()
+      };
+    });
+  });
+
+  // Participant personal impact — safe aggregates only, gated by the same
+  // opaque tracking credential as the tracking screen. No descendant PII.
+  app.get("/api/participants/:participantId/impact", async (req: any, reply: any) => {
+    const participantId = String(req.params.participantId || "");
+    requireUuid(participantId, "participant_id");
+    await ensureParticipantTrackingTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const row = await c.query(
+        `SELECT participant_id, deal_id FROM siton.participants WHERE participant_id=$1 LIMIT 1`,
+        [participantId]
+      );
+      if (!row.rowCount) {
+        const err: any = new Error("participant not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const accessToken = extractTrackingToken(req);
+      if (!accessToken) {
+        const err: any = new Error("tracking_token_required");
+        err.statusCode = 401;
+        throw err;
+      }
+      const access = await verifyParticipantTrackingAccess(c, {
+        participant_id: participantId,
+        deal_id: String(row.rows[0].deal_id),
+        token: accessToken,
+        purposes: ["tracking", "recovery", "support"]
+      });
+      if (!access.ok) {
+        const err: any = new Error(access.error);
+        err.statusCode = 403;
+        throw err;
+      }
+      const impact = await getParticipantImpact(c, participantId);
+      return { ok: true, impact };
+    });
+  });
+
+  // Seller: viral performance for the seller's own deal (cached metrics).
+  app.get("/api/seller/deals/:dealId/viral", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c);
+      if (!sellerContext) return reply;
+      const owned = await c.query(
+        `SELECT deal_id FROM siton.deals WHERE deal_id=$1 AND seller_id=$2 LIMIT 1`,
+        [dealId, sellerContext.seller_id]
+      );
+      if (!owned.rowCount) {
+        // Ownership mismatch is a 404, matching the seller surface convention.
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const cached = await readViralMetricsCache(c, "deal", dealId);
+      return { ok: true, deal_id: dealId, ...cached };
+    });
+  });
+
+  // Admin: platform growth/virality dashboard (cached platform scope).
+  app.get("/api/admin/growth", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    return deps.withTx(async (c) => {
+      const platform = await readViralMetricsCache(c, "platform", "global");
+      const recentEvents = await c.query(
+        `SELECT event_type, COUNT(*)::int AS cnt
+         FROM siton.viral_events
+         WHERE created_at > now() - interval '7 days'
+         GROUP BY event_type`
+      );
+      const recentAttributed = await c.query(
+        `SELECT COUNT(*)::int AS cnt
+         FROM siton.viral_attributions
+         WHERE origin_ref_type <> 'none' AND created_at > now() - interval '7 days'`
+      );
+      return {
+        ok: true,
+        platform,
+        last_7_days: {
+          funnel_events: Object.fromEntries(recentEvents.rows.map((r: any) => [String(r.event_type), Number(r.cnt)])),
+          attributed_joins: Number(recentAttributed.rows[0]?.cnt || 0)
+        }
+      };
+    });
+  });
+
+  // Admin: per-deal viral metrics + tree explorer payload.
+  app.get("/api/admin/deals/:dealId/viral", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    return deps.withTx(async (c) => {
+      const cached = await readViralMetricsCache(c, "deal", dealId);
+      return { ok: true, deal_id: dealId, ...cached };
+    });
+  });
+
+  // Admin: seller-scope viral metrics.
+  app.get("/api/admin/sellers/:sellerId/viral", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const sellerId = String(req.params.sellerId || "").slice(0, 120);
+    return deps.withTx(async (c) => {
+      const cached = await readViralMetricsCache(c, "seller", sellerId);
+      return { ok: true, seller_id: sellerId, ...cached };
+    });
+  });
+
+  // Admin mutation: enqueue a viral recompute for one deal (audited admin
+  // action attribution comes from the named identity, never a header).
+  app.post("/api/admin/viral/recompute", async (req: any, reply: any) => {
+    const identity = await requireAdminMutation(req, reply, "outbox.requeue");
+    if (!identity) return;
+    const dealId = String(req.body?.deal_id || "").trim();
+    requireUuid(dealId, "deal_id");
+    await deps.withTx(async (c) => {
+      const exists = await c.query(`SELECT deal_id FROM siton.deals WHERE deal_id=$1 LIMIT 1`, [dealId]);
+      if (!exists.rowCount) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      await enqueueViralRecompute(c, dealId, `admin:${adminActorRef(identity)}`);
+    });
+    return { ok: true, deal_id: dealId, enqueued: true };
+  });
+
+  // Admin: the R6 global control-center overview — the whole system in one
+  // call. Provisional/potential money is NEVER labeled as charged revenue:
+  // the two families are returned under separate, explicit keys.
+  app.get("/api/admin/r6/overview", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const dealStates = await c.query(
+        `SELECT state::text AS state, COUNT(*)::int AS cnt FROM siton.deals GROUP BY state`
+      );
+      const sellerStats = await c.query(
+        `SELECT COUNT(*)::int AS total,
+                COUNT(*) FILTER (WHERE COALESCE(seller_status,'Active')='Active')::int AS active
+         FROM siton.seller_accounts`
+      );
+      const participantStats = await c.query(
+        `SELECT COUNT(*)::int AS participants,
+                COUNT(DISTINCT buyer_id)::int AS buyers,
+                COALESCE(SUM(qty) FILTER (WHERE buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                COALESCE(SUM(qty) FILTER (WHERE money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                COUNT(*) FILTER (WHERE money_state='ChargeFailedRecovery')::int AS in_recovery,
+                COALESCE(SUM(qty) FILTER (WHERE money_state='ChargeFailedRecovery'),0)::int AS units_in_recovery
+         FROM siton.participants`
+      );
+      const moneyStats = await c.query(
+        `SELECT
+           COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+             FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')), 0)::numeric(14,2) AS potential_gross,
+           COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+             FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')), 0)::numeric(14,2) AS charged_gross
+         FROM siton.participants p
+         JOIN siton.deals d ON d.deal_id = p.deal_id`
+      );
+      const feeActual = await c.query(
+        `SELECT COALESCE(SUM(platform_fee_total_amount),0)::numeric(14,2) AS fee_actual
+         FROM siton.platform_fee_money_events`
+      );
+      const outbox = await c.query(
+        `SELECT
+           COUNT(*) FILTER (WHERE status='pending')::int AS pending,
+           COUNT(*) FILTER (WHERE status='processing')::int AS processing,
+           MIN(available_at) FILTER (WHERE status='pending') AS oldest_pending_at
+         FROM siton.outbox_events`
+      );
+      const dlq = await c.query(`SELECT COUNT(*)::int AS cnt FROM siton.outbox_dlq`);
+      const worker = await c.query(
+        `SELECT worker_id, status, heartbeat_at,
+                EXTRACT(EPOCH FROM (now() - heartbeat_at))::int AS age_seconds
+         FROM siton.worker_heartbeats ORDER BY heartbeat_at DESC LIMIT 3`
+      );
+      const notifications = await c.query(
+        `SELECT status, COUNT(*)::int AS cnt FROM siton.notification_events GROUP BY status`
+      );
+      const recentDlq = await c.query(
+        `SELECT event_type, aggregate_id, updated_at AS archived_at, last_error
+         FROM siton.outbox_dlq ORDER BY updated_at DESC NULLS LAST LIMIT 5`
+      );
+      const recentPaymentFailures = await c.query(
+        `SELECT COUNT(*)::int AS cnt FROM siton.payment_attempts
+         WHERE result_class='permanent_fail' AND created_at > now() - interval '24 hours'`
+      );
+      const openCases = await c.query(
+        `SELECT COUNT(*)::int AS cnt FROM siton.operational_cases WHERE status NOT IN ('Resolved','Closed')`
+      );
+      const openTickets = await c.query(
+        `SELECT COUNT(*)::int AS cnt FROM siton.support_tickets WHERE status <> 'resolved'`
+      );
+      const viralPlatform = await readViralMetricsCache(c, "platform", "global");
+
+      const stateCounts: Record<string, number> = {};
+      for (const r of dealStates.rows) stateCounts[String(r.state)] = Number(r.cnt);
+      const p = participantStats.rows[0];
+      const m = moneyStats.rows[0];
+      const potentialGross = Number(m.potential_gross || 0);
+      return {
+        ok: true,
+        generated_at: new Date().toISOString(),
+        deals: {
+          by_state: stateCounts,
+          total: dealStates.rows.reduce((s: number, r: any) => s + Number(r.cnt), 0),
+          active: (stateCounts["PendingTarget"] || 0) + (stateCounts["TargetReached"] || 0)
+            + (stateCounts["ClosedForJoining"] || 0) + (stateCounts["ReadyForCharging"] || 0)
+            + (stateCounts["Charging"] || 0) + (stateCounts["CompletionWindow"] || 0)
+        },
+        sellers: {
+          total: Number(sellerStats.rows[0].total || 0),
+          active: Number(sellerStats.rows[0].active || 0)
+        },
+        participants: {
+          total: Number(p.participants || 0),
+          distinct_buyers: Number(p.buyers || 0),
+          units_joined: Number(p.units_joined || 0),
+          units_charged: Number(p.units_charged || 0),
+          in_recovery: Number(p.in_recovery || 0),
+          units_in_recovery: Number(p.units_in_recovery || 0)
+        },
+        money: {
+          // Provisional: authorized frames only — NOT revenue.
+          potential_gross_volume: potentialGross,
+          platform_fee_projection: Math.round(potentialGross * SITON_PLATFORM_FEE_RATE * 100) / 100,
+          // Actual: successful charges only (ChargedSuccess/RecoveredCharge).
+          charged_gross_volume: Number(m.charged_gross || 0),
+          platform_fee_actual: Number(feeActual.rows[0].fee_actual || 0)
+        },
+        operations: {
+          outbox_pending: Number(outbox.rows[0].pending || 0),
+          outbox_processing: Number(outbox.rows[0].processing || 0),
+          oldest_pending_at: outbox.rows[0].oldest_pending_at,
+          dlq_size: Number(dlq.rows[0].cnt || 0),
+          workers: worker.rows.map((w: any) => ({
+            worker_id: String(w.worker_id),
+            status: String(w.status),
+            heartbeat_age_seconds: Number(w.age_seconds || 0)
+          })),
+          notifications_by_status: Object.fromEntries(notifications.rows.map((r: any) => [String(r.status), Number(r.cnt)])),
+          open_operational_cases: Number(openCases.rows[0].cnt || 0),
+          open_support_tickets: Number(openTickets.rows[0].cnt || 0),
+          payment_permanent_failures_24h: Number(recentPaymentFailures.rows[0].cnt || 0),
+          recent_dlq: recentDlq.rows.map((r: any) => ({
+            event_type: String(r.event_type),
+            aggregate_id: String(r.aggregate_id),
+            archived_at: r.archived_at,
+            last_error: String(r.last_error || "").slice(0, 300)
+          }))
+        },
+        viral: viralPlatform
+      };
+    });
+  });
+
+  // Admin: global deals list with money + viral rollups.
+  app.get("/api/admin/r6/deals", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const stateFilter = String(req.query?.state || "").trim();
+    const q = String(req.query?.q || "").trim().slice(0, 120);
+    return deps.withTx(async (c) => {
+      const rows = await c.query(
+        `SELECT d.deal_id, d.title, d.state::text AS state, d.deal_type, d.seller_id,
+                sa.business_name, sa.display_name AS seller_display_name,
+                d.price_per_unit, d.min_units, d.max_units, d.threshold_units,
+                d.deadline, d.published_at, d.completion_window_until, d.created_at, d.updated_at,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS joined_units,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
+                COUNT(p.participant_id) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped'))::int AS participants,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                COUNT(va.participant_id) FILTER (WHERE va.origin_ref_type <> 'none')::int AS viral_joins
+         FROM siton.deals d
+         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         LEFT JOIN siton.viral_attributions va ON va.participant_id = p.participant_id
+         WHERE ($1 = '' OR d.state::text = $1)
+           AND ($2 = '' OR d.title ILIKE '%' || $2 || '%' OR d.deal_id::text = $2 OR d.seller_id ILIKE '%' || $2 || '%')
+         GROUP BY d.deal_id, sa.business_name, sa.display_name
+         ORDER BY d.updated_at DESC
+         LIMIT 200`,
+        [stateFilter, q]
+      );
+      return { ok: true, deals: rows.rows };
+    });
+  });
+
+  // Admin: global sellers list with rollups.
+  app.get("/api/admin/r6/sellers", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    return deps.withTx(async (c) => {
+      const rows = await c.query(
+        `SELECT sa.seller_id, sa.display_name, sa.business_name,
+                COALESCE(sa.seller_status,'Active') AS seller_status,
+                sa.login_email, sa.auth_enabled, (sa.auth_user_id IS NOT NULL) AS supabase_bound,
+                sa.created_at,
+                COUNT(DISTINCT d.deal_id)::int AS deals_total,
+                COUNT(DISTINCT d.deal_id) FILTER (WHERE d.state IN ('PendingTarget','TargetReached','ClosedForJoining','ReadyForCharging','Charging','CompletionWindow'))::int AS deals_active,
+                COUNT(DISTINCT d.deal_id) FILTER (WHERE d.state='Completed')::int AS deals_completed,
+                COUNT(DISTINCT d.deal_id) FILTER (WHERE d.state='Failed')::int AS deals_failed,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS joined_units,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                MAX(GREATEST(d.updated_at, p.updated_at)) AS last_activity_at
+         FROM siton.seller_accounts sa
+         LEFT JOIN siton.deals d ON d.seller_id = sa.seller_id
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         GROUP BY sa.seller_id
+         ORDER BY last_activity_at DESC NULLS LAST
+         LIMIT 200`
+      );
+      const feeBySeller = await c.query(
+        `SELECT seller_id, COALESCE(SUM(platform_fee_total_amount),0)::numeric(14,2) AS fee_actual
+         FROM siton.platform_fee_money_events GROUP BY seller_id`
+      );
+      const feeMap = new Map(feeBySeller.rows.map((r: any) => [String(r.seller_id), Number(r.fee_actual)]));
+      return {
+        ok: true,
+        sellers: rows.rows.map((r: any) => ({
+          ...r,
+          platform_fee_actual: feeMap.get(String(r.seller_id)) || 0,
+          platform_fee_projection: Math.round(Number(r.potential_gross || 0) * SITON_PLATFORM_FEE_RATE * 100) / 100
+        }))
+      };
+    });
+  });
+
+  // Admin: full seller drilldown — the complete seller picture.
+  app.get("/api/admin/r6/sellers/:sellerId", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const sellerId = String(req.params.sellerId || "").slice(0, 120);
+    return deps.withTx(async (c) => {
+      const seller = await c.query(
+        `SELECT seller_id, display_name, business_name, business_identifier,
+                support_phone, support_email, business_description,
+                COALESCE(seller_status,'Active') AS seller_status, seller_status_reason,
+                login_email, auth_enabled, (auth_user_id IS NOT NULL) AS supabase_bound,
+                verification_status, created_at, updated_at
+         FROM siton.seller_accounts WHERE seller_id=$1 LIMIT 1`,
+        [sellerId]
+      );
+      if (!seller.rowCount) {
+        const err: any = new Error("seller not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deals = await c.query(
+        `SELECT d.deal_id, d.title, d.state::text AS state, d.deal_type,
+                d.price_per_unit, d.min_units, d.max_units, d.threshold_units,
+                d.deadline, d.published_at, d.completion_window_until, d.created_at, d.updated_at,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS joined_units,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS charged_units,
+                COUNT(p.participant_id) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped'))::int AS participants,
+                COUNT(p.participant_id) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::numeric(14,2) AS potential_gross,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross
+         FROM siton.deals d
+         LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
+         WHERE d.seller_id=$1
+         GROUP BY d.deal_id
+         ORDER BY d.updated_at DESC
+         LIMIT 100`,
+        [sellerId]
+      );
+      const fee = await c.query(
+        `SELECT COALESCE(SUM(platform_fee_total_amount),0)::numeric(14,2) AS fee_actual,
+                COALESCE(SUM(seller_net_amount),0)::numeric(14,2) AS seller_net
+         FROM siton.platform_fee_money_events WHERE seller_id=$1`,
+        [sellerId]
+      );
+      const delivery = await c.query(
+        `SELECT COALESCE(fu.status,'') AS delivery_status, COUNT(*)::int AS cnt
+         FROM siton.fulfillment_units fu
+         JOIN siton.deals d ON d.deal_id = fu.deal_id
+         WHERE d.seller_id=$1
+         GROUP BY 1`,
+        [sellerId]
+      ).catch(() => ({ rows: [] as any[] }));
+      const tickets = await c.query(
+        `SELECT ticket_id, scope_type, scope_key, title, priority, status, created_at
+         FROM siton.support_tickets
+         WHERE (scope_type='seller' AND scope_key=$1)
+            OR (scope_type='deal' AND scope_key IN (SELECT deal_id::text FROM siton.deals WHERE seller_id=$1))
+         ORDER BY created_at DESC LIMIT 20`,
+        [sellerId]
+      );
+      const audit = await c.query(
+        `SELECT audit_id, entity_type, entity_id, state_type, from_state, to_state, action_name, created_at
+         FROM siton.audit_log
+         WHERE deal_id IN (SELECT deal_id FROM siton.deals WHERE seller_id=$1)
+         ORDER BY created_at DESC LIMIT 25`,
+        [sellerId]
+      );
+      const dlqRelated = await c.query(
+        `SELECT event_type, aggregate_id, updated_at AS archived_at
+         FROM siton.outbox_dlq
+         WHERE aggregate_id IN (SELECT deal_id::text FROM siton.deals WHERE seller_id=$1)
+         ORDER BY updated_at DESC NULLS LAST LIMIT 10`,
+        [sellerId]
+      );
+      const viral = await readViralMetricsCache(c, "seller", sellerId);
+      const warnings: string[] = [];
+      for (const d of deals.rows as any[]) {
+        if (d.state === "CompletionWindow") warnings.push(`deal_in_completion_window:${d.deal_id}`);
+        if (Number(d.in_recovery || 0) > 0) warnings.push(`participants_in_recovery:${d.deal_id}:${d.in_recovery}`);
+      }
+      if (dlqRelated.rows.length) warnings.push(`dlq_events_related:${dlqRelated.rows.length}`);
+      return {
+        ok: true,
+        seller: seller.rows[0],
+        deals: deals.rows,
+        money: {
+          platform_fee_actual: Number(fee.rows[0].fee_actual || 0),
+          seller_net_actual: Number(fee.rows[0].seller_net || 0),
+          potential_gross: deals.rows.reduce((s: number, d: any) => s + Number(d.potential_gross || 0), 0),
+          charged_gross: deals.rows.reduce((s: number, d: any) => s + Number(d.charged_gross || 0), 0)
+        },
+        delivery_status_counts: Object.fromEntries((delivery.rows as any[]).map((r) => [r.delivery_status || "unknown", Number(r.cnt)])),
+        support_tickets: tickets.rows,
+        audit_tail: audit.rows,
+        dlq_related: dlqRelated.rows,
+        viral,
+        warnings
+      };
+    });
+  });
+
+  // Admin: global audit tail (read-only, human-readable projection).
+  app.get("/api/admin/r6/audit", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const q = String(req.query?.q || "").trim().slice(0, 120);
+    return deps.withTx(async (c) => {
+      const rows = await c.query(
+        `SELECT a.audit_id, a.entity_type, a.entity_id, a.deal_id, a.state_type,
+                a.from_state, a.to_state, a.action_name, a.correlation_id, a.created_at,
+                d.title AS deal_title
+         FROM siton.audit_log a
+         LEFT JOIN siton.deals d ON d.deal_id = a.deal_id
+         WHERE ($1 = '' OR a.action_name ILIKE '%' || $1 || '%' OR a.deal_id::text = $1 OR a.entity_id::text = $1 OR a.correlation_id ILIKE '%' || $1 || '%')
+         ORDER BY a.created_at DESC
+         LIMIT 120`,
+        [q]
+      );
+      return { ok: true, audit: rows.rows };
+    });
+  });
+
+  // Admin: buyers/participants roster (aggregated by buyer identity).
+  app.get("/api/admin/r6/buyers", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const q = String(req.query?.q || "").trim().slice(0, 120);
+    return deps.withTx(async (c) => {
+      const rows = await c.query(
+        `SELECT p.buyer_id,
+                MAX(p.buyer_name) AS buyer_name,
+                MAX(p.buyer_email) AS buyer_email,
+                COUNT(*)::int AS participations,
+                COUNT(DISTINCT p.deal_id)::int AS deals,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                MAX(p.created_at) AS last_join_at
+         FROM siton.participants p
+         JOIN siton.deals d ON d.deal_id = p.deal_id
+         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%')
+         GROUP BY p.buyer_id
+         ORDER BY last_join_at DESC
+         LIMIT 200`,
+        [q]
+      );
+      return { ok: true, buyers: rows.rows };
+    });
+  });
 
   // ── Demo Readiness Command Center ───────────────────────────────────────
   // Read-only. Returns a structured verdict on whether the demo environment is
@@ -8349,7 +8968,7 @@ export function registerFrontendExperience(
   // Never mutates state, never triggers providers.
   const _demoReadinessStartedAt = new Date().toISOString();
   app.get("/api/admin/demo-readiness", async (req: any, reply: any) => {
-    if (!requireAdminKey(req as FastifyRequest, reply as FastifyReply)) return;
+    if (!(await requireAdminRead(req, reply))) return;
 
     const freshness = deployFreshness();
     const runtimeCommit = freshness.runtime_commit_sha;
