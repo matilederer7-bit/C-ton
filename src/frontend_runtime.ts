@@ -2932,7 +2932,7 @@ export function registerFrontendExperience(
            LIMIT 1
          ) img ON true
          WHERE COALESCE(d.seller_id, $1) = $1
-         GROUP BY d.deal_id, img.image_id, img.mime_type
+         GROUP BY d.deal_id, img.image_id, img.public_url, img.mime_type
          ORDER BY d.created_at DESC
          LIMIT 100`,
         [sellerId]
@@ -3110,7 +3110,7 @@ export function registerFrontendExperience(
          ) img ON true
          WHERE d.deal_id = $1
            AND COALESCE(d.seller_id, $2) = $2
-         GROUP BY d.deal_id, img.image_id, img.mime_type`,
+         GROUP BY d.deal_id, img.image_id, img.public_url, img.mime_type`,
         [dealId, sellerId]
       );
 
