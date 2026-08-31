@@ -43,10 +43,26 @@ export const REQUIRED_MIGRATION_IDS = [
 ] as const;
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {
-  const ledger = await db.query(
-    `SELECT migration_id, status FROM siton.migration_ledger ORDER BY position`
-  ).catch(() => null);
-  if (!ledger) throw new Error("database schema is not migrated: siton.migration_ledger is missing");
+  let ledger: { rows: any[] };
+  try {
+    ledger = await db.query(
+      `SELECT migration_id, status FROM siton.migration_ledger ORDER BY position`
+    );
+  } catch (error) {
+    // Only SQLSTATE codes are surfaced: never connection details or identities.
+    const code = typeof (error as { code?: unknown })?.code === "string"
+      ? (error as { code: string }).code
+      : "";
+    if (code === "42P01" || code === "3F000") {
+      throw new Error("database schema is not migrated: siton.migration_ledger is missing");
+    }
+    if (code === "42501") {
+      throw new Error(
+        "database schema check failed: connected identity lacks privilege on siton.migration_ledger (code 42501)"
+      );
+    }
+    throw new Error(`database schema check failed before migration inspection (code ${code || "unknown"})`);
+  }
   const failed = ledger.rows.find((row: any) => row.status !== "succeeded");
   if (failed) throw new Error(`database migrations are incomplete at ${failed.migration_id}`);
   const applied = new Set(ledger.rows.map((row: any) => String(row.migration_id)));

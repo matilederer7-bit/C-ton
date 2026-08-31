@@ -95,4 +95,44 @@ await run("startup validation refuses schema drift", async () => {
   await assertDatabaseSchema(pool);
 });
 
+await run("startup validation distinguishes missing schema from denied or failed access", async () => {
+  // SQLSTATE routing: only undefined_table / invalid_schema_name may be
+  // reported as an unmigrated schema. Everything else must surface its code
+  // so a wrong DATABASE_URL identity is not misdiagnosed as missing schema.
+  const failingDb = (code: string) => ({
+    query: () => Promise.reject(Object.assign(new Error("probe"), { code }))
+  });
+  await assert.rejects(assertDatabaseSchema(failingDb("42P01")), /migration_ledger is missing/);
+  await assert.rejects(assertDatabaseSchema(failingDb("3F000")), /migration_ledger is missing/);
+  await assert.rejects(assertDatabaseSchema(failingDb("42501")), /lacks privilege on siton\.migration_ledger \(code 42501\)/);
+  await assert.rejects(assertDatabaseSchema(failingDb("42501")), (error: Error) => !/is missing/.test(error.message));
+  await assert.rejects(assertDatabaseSchema(failingDb("ECONNREFUSED")), /schema check failed before migration inspection \(code ECONNREFUSED\)/);
+  await assert.rejects(
+    assertDatabaseSchema({ query: () => Promise.reject(new Error("no code")) }),
+    /schema check failed before migration inspection \(code unknown\)/
+  );
+
+  // Real-database proof: an unprivileged role hitting the live ledger raises
+  // a genuine 42501 and must be reported as denied access, never as missing.
+  await pool.query(`
+    DO $probe_role$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='siton_schema_probe') THEN
+        CREATE ROLE siton_schema_probe NOLOGIN;
+      END IF;
+    END
+    $probe_role$;
+  `);
+  const client = await pool.connect();
+  try {
+    await client.query(`SET ROLE siton_schema_probe`);
+    await assert.rejects(assertDatabaseSchema(client), /code 42501/);
+    await assert.rejects(assertDatabaseSchema(client), (error: Error) => !/is missing/.test(error.message));
+  } finally {
+    await client.query(`RESET ROLE`);
+    client.release();
+  }
+  await assertDatabaseSchema(pool);
+});
+
 await pool.end();

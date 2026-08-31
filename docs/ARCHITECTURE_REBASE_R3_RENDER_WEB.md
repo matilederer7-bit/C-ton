@@ -163,6 +163,71 @@ cleaned (33 dropped, 0 remaining).
 8. Record results here and in `PROJECT_STATUS.md`; only then may R3 be called
    complete.
 
+## Hosted evidence 2026-08-31 (overnight run, Render channel live)
+
+A Render MCP account channel became available. Read/inspect operations were
+performed; no service was created, deleted or reconfigured and no secret was
+read or written.
+
+What the live account shows:
+
+- The blueprint sync of commit `26ccb73` ran on 2026-08-30 16:36 UTC and
+  created **two** Frankfurt free-plan Web services 0.3s apart:
+  `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`) and
+  `siton-staging-web-atp1` (`srv-daa5o9u7bikc73fgjsjg`). The same duplication
+  pattern exists for the older Oregon demo pair (`siton-demo-preview`
+  2026-04-03, `siton-demo-preview-atp1` 2026-05-20), which is strong evidence
+  of **two Blueprint instances** attached to the same repository, each owning
+  one copy. `render.yaml` declares exactly one service named
+  `siton-staging-web`; the `-atp1` name is Render's collision rename.
+  **Canonical: `siton-staging-web` (`srv-daa5o9u7bikc73fgjskg`).**
+  Deleting the `-atp1` service alone is not safe closure: its owning Blueprint
+  instance would recreate it on the next sync. The duplicate Blueprint
+  instance must be disconnected/deleted in the Render dashboard (no MCP tool
+  exposes blueprint management or service deletion), then the `-atp1`
+  services removed. Both duplicates are free-plan and never went live, so no
+  cost and no traffic ambiguity exists tonight.
+- Both services' first deploys (commit `26ccb73`) built the Docker image
+  successfully on Render, booted the app, and the app **failed closed by
+  design**: startup aborted before binding a port, Render's port scan timed
+  out, the deploys are `update_failed`, no instance is live and the public
+  URL serves nothing. Logs contain no credential material; only the sanitized
+  startup error appears.
+- The startup error was `database schema is not migrated:
+  siton.migration_ledger is missing` — which proves a **DATABASE_URL secret
+  was already entered** at blueprint-sync time and a real database connection
+  succeeded. R1 evidence shows the 45-migration ledger IS live on
+  `siton-staging`; `siton_web_login` does not exist yet. The connecting
+  identity therefore could not see schema `siton` (privilege failure), and
+  pre-fix `assertDatabaseSchema` collapsed every error cause into the
+  "missing ledger" message.
+
+Defect found and fixed from this hosted evidence:
+
+- `src/schema_contract.ts` previously swallowed the underlying query error
+  (`.catch(() => null)`), so permission-denied, wrong-database and
+  connection-level failures were all misreported as an unmigrated schema.
+  It now routes by SQLSTATE (code-only, never connection details):
+  `42P01`/`3F000` → genuinely unmigrated; `42501` → connected identity lacks
+  privilege on the ledger; anything else → surfaced with its code.
+  `tests/database_migration_system_validation.ts` proves the routing,
+  including a real 42501 raised through an unprivileged role.
+
+Runbook amendment (applies to steps 3–5): both staging services currently
+hold a DATABASE_URL entered on 2026-08-30 that fails the identity/privilege
+boundary. During activation, the canonical service's DATABASE_URL must be
+**replaced** with the `siton_web_login` session-mode URL after migration 010
+and the external password step; the pre-entered value must not be treated as
+usable configuration. The `-atp1` service should never receive a working
+secret.
+
+Session constraint recorded 2026-08-31: the Supabase MCP server is configured
+(project-scoped `hnptacfzuqebfgeshadq`) but its tools did not register in the
+running engineering session, and no CLI/token/connection-string channel
+exists on the workstation. Runbook steps 1–2 (apply 010, set the login
+password) therefore remain blocked in this session; they unblock by starting
+a session in which the Supabase MCP tools are registered.
+
 ## External activity in this stage so far
 
 - Grow calls: 0. Real authorizations/charges/refunds/payouts: 0.
