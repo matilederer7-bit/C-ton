@@ -57,6 +57,24 @@ Durable checkpoint for the overnight R3-hosted / R4-worker run. No secrets.
 - TypeScript, architecture, enforcement/secret, payment, runtime-DDL gates
   all green on the final tree.
 
+## Checkpoint 4 — R4 batch pushed, CI green, night closed
+
+- Commit `96096d93fabd767dd56addd2d386dc2adaff5bd1` pushed to origin/master.
+- GitHub Actions on `96096d9`: Web runtime depth gates SUCCESS, Backend and
+  deployment quality gates SUCCESS.
+- Final verdicts: R3 `R3_REPOSITORY_READY_HOSTED_BLOCKED` (Supabase channel;
+  see the ECONNREFUSED correction), R4
+  `R4_REPOSITORY_READY_STAGING_AND_PAID_DEPLOYMENT_GATED` (staging role
+  apply shares the R3 blocker; Render Worker instance awaits the recorded
+  US$7/month cost approval).
+- Exact resume steps: (1) start a session where the Supabase MCP tools
+  register; confirm siton-staging is not paused; apply staging 010 and 011;
+  set both login passwords externally; (2) replace DATABASE_URL on
+  srv-daa5o9u7bikc73fgjskg with the siton_web_login session-mode pooler URL;
+  let autoDeploy pass /readiness; run scripts/r3_hosted_proof.cjs; (3) on
+  cost approval, add the documented worker block to render.yaml with the
+  siton_worker_login secret and prove the hosted Worker.
+
 ## Safety counters (running, whole night)
 
 - Real external calls: 0. Money actions: 0. Base44 production mutations: 0.
