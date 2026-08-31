@@ -108,6 +108,14 @@ export function getDealImagePublicUrl(image: { image_id: string }) {
   return `/api/deal-images/${encodeURIComponent(String(image.image_id))}`;
 }
 
+// Prefer the durable storage-CDN URL recorded at upload time; fall back to
+// the server proxy for legacy rows that predate canonical Supabase Storage.
+export function resolveDealImageUrl(image: { image_id: string; public_url?: string | null | undefined }) {
+  const durable = String(image.public_url || "").trim();
+  if (/^https:\/\//.test(durable)) return durable;
+  return getDealImagePublicUrl(image);
+}
+
 export function getDealImageStorageAdapter(): StorageAdapter {
   return adapter();
 }

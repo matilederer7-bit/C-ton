@@ -85,6 +85,7 @@ import {
 import {
   deleteDealImageFile,
   getDealImagePublicUrl,
+  resolveDealImageUrl,
   getDealImageStorageAdapter,
   readDealImage,
   saveDealImage
@@ -3282,7 +3283,7 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
       throw Object.assign(new Error("deal already published"), { statusCode: 409, code: "deal_already_published" });
     }
     const existing = await c.query(
-      `SELECT image_id, mime_type, size_bytes, is_primary, sort_order
+      `SELECT image_id, public_url, mime_type, size_bytes, is_primary, sort_order
        FROM siton.deal_images
        WHERE deal_id=$1
        ORDER BY sort_order ASC, created_at ASC
@@ -3313,7 +3314,7 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
       );
     }
     const updated = await c.query(
-      `SELECT image_id, deal_id, mime_type, size_bytes, is_primary, sort_order
+      `SELECT image_id, deal_id, public_url, mime_type, size_bytes, is_primary, sort_order
        FROM siton.deal_images
        WHERE deal_id=$1
        ORDER BY sort_order ASC, created_at ASC`,
@@ -3324,8 +3325,8 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
       images: updated.rows.map((image: any) => ({
         image_id: image.image_id,
         deal_id: image.deal_id,
-        public_url: getDealImagePublicUrl(image),
-        image_url: getDealImagePublicUrl(image),
+        public_url: resolveDealImageUrl(image),
+        image_url: resolveDealImageUrl(image),
         mime_type: image.mime_type,
         size_bytes: Number(image.size_bytes),
         is_primary: Boolean(image.is_primary),

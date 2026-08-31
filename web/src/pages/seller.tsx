@@ -8,6 +8,7 @@ import {
   failReason, fmtDate, ils, num, stateLabel
 } from "../util";
 import { absoluteShareUrl } from "../viral";
+import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 
 // ── login ──────────────────────────────────────────────────────────────────
 function SellerLogin({ onDone }: { onDone: () => void }) {
@@ -240,7 +241,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
-  const [images, setImages] = useState<{ name: string; mime: string; b64: string }[]>([]);
+  const [images, setImages] = useState<LocalImage[]>([]);
+  const [uploadStatus, setUploadStatus] = useState("");
   // step 2
   const [minUnits, setMinUnits] = useState("10");
   const [maxUnits, setMaxUnits] = useState("50");
@@ -293,16 +295,6 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
     }
   };
 
-  const addImage = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result || "");
-      const b64 = dataUrl.split(",")[1] || "";
-      if (b64) setImages((prev) => [...prev.slice(0, 4), { name: file.name, mime: file.type || "image/jpeg", b64 }]);
-    };
-    reader.readAsDataURL(file);
-  };
-
   const publish = async () => {
     if (busy) return;
     setBusy(true); setError("");
@@ -352,16 +344,31 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       });
       const dealId = created?.deal?.deal_id || created?.deal_id;
       if (!dealId) throw new Error("יצירת העסקה נכשלה");
-      for (const img of images) {
-        await fetch(`/api/seller/deals/${dealId}/images`, {
-          method: "POST",
-          headers: { "content-type": "application/json", authorization: `Bearer ${getSellerToken()}`, "idempotency-key": `img-${dealId}-${img.b64.slice(0, 24)}` },
-          body: JSON.stringify({ mime_type: img.mime, image_base64: img.b64, original_filename: img.name, is_primary: images[0] === img })
-        }).catch(() => undefined);
+      // Upload BEFORE publish (images are editable only while the deal is a
+      // Draft). A failed upload keeps the Draft and sends the seller to the
+      // Draft screen, where the full image manager offers retry.
+      for (let i = 0; i < images.length; i += 1) {
+        const img = images[i];
+        setUploadStatus(`מעלים תמונה ${i + 1} מתוך ${images.length}…`);
+        try {
+          await uploadDealImage(dealId, img, {
+            isPrimary: i === 0,
+            sortOrder: i,
+            onProgress: (pct) => setUploadStatus(`מעלים תמונה ${i + 1} מתוך ${images.length} · ${pct}%`)
+          });
+        } catch (imgErr: any) {
+          setUploadStatus("");
+          setBusy(false);
+          setError(`העסקה נשמרה כטיוטה, אך העלאת "${img.name}" נכשלה: ${imgErr.message}. אפשר להשלים את התמונות במסך הטיוטה ולפרסם משם.`);
+          setTimeout(() => navigate(`#/seller/deal/${dealId}`), 3500);
+          return;
+        }
       }
+      setUploadStatus("");
       await api.publishDeal(dealId);
       navigate(`#/seller/deal/${dealId}`);
     } catch (err: any) {
+      setUploadStatus("");
       setError(err.message || "פרסום נכשל");
       setBusy(false);
     }
@@ -394,8 +401,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             <div className="field"><label>מחיר ליחידה (₪)</label><input data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} /><span className="hint">המחיר יהיה נעול לאחר הפרסום</span></div>
             <div className="field">
               <label>תמונות (עד 5)</label>
-              <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ""; }} />
-              {images.length ? <div className="row">{images.map((img, i) => <span key={i} className="chip">{img.name} <button className="x" style={{ width: 20, height: 20, fontSize: ".7rem" }} onClick={() => setImages(images.filter((_, j) => j !== i))}>✕</button></span>)}</div> : null}
+              <LocalImageManager images={images} onChange={setImages} />
             </div>
           </>
         ) : null}
@@ -496,6 +502,16 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         {step === 4 ? (
           <>
             <h3>כל התנאים הקריטיים</h3>
+            {images.length ? (
+              <div className="img-strip">
+                {images.map((img, i) => (
+                  <span key={img.id} className={`img-strip-thumb${i === 0 ? " primary" : ""}`}>
+                    <img src={img.previewUrl} alt={img.name} />
+                    {i === 0 ? <em>ראשית</em> : null}
+                  </span>
+                ))}
+              </div>
+            ) : <div className="notice info">לעסקה אין תמונות — מומלץ להוסיף לפחות אחת בשלב הראשון.</div>}
             <div className="kv" style={{ marginBottom: 14 }}>
               <span className="k">סוג</span><span className="v">{dealTypeLabel(dealType)}</span>
               <span className="k">שם</span><span className="v">{title}</span>
@@ -527,11 +543,12 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         ) : null}
 
         {error ? <div className="notice err">{error}</div> : null}
+        {uploadStatus ? <div className="notice info">{uploadStatus}</div> : null}
         <div className="wizard-nav">
           {step > 0 ? <button className="btn btn-ghost" onClick={() => setStep(step - 1)}>→ חזרה</button> : <span />}
           {step < 4
             ? <button data-testid="wizard-next" className="btn btn-primary" disabled={!stepValid()} onClick={() => setStep(step + 1)}>המשך ←</button>
-            : <button data-testid="wizard-publish" className="btn btn-danger btn-lg" disabled={!stepValid() || busy} onClick={publish}>{busy ? "מפרסמים…" : "פרסם עסקה"}</button>}
+            : <button data-testid="wizard-publish" className="btn btn-danger btn-lg" disabled={!stepValid() || busy} onClick={publish}>{busy ? (uploadStatus || "מפרסמים…") : "פרסם עסקה"}</button>}
         </div>
       </div>
     </div>
@@ -664,6 +681,20 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           )}
         </div>
       </div>
+
+      {state === "Draft" ? (
+        <div className="panel">
+          <div className="panel-title">🖼️ תמונות העסקה</div>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            תמונות ניתנות לעריכה רק כל עוד העסקה בטיוטה — לאחר הפרסום הגלריה ננעלת (הקונים מצטרפים על בסיס מה שראו).
+          </p>
+          <DraftImageManager
+            dealId={dealId}
+            images={(deal.images || []) as ServerImage[]}
+            onChanged={load}
+          />
+        </div>
+      ) : null}
 
       {closed && state === "Completed" ? (
         <div className="panel">

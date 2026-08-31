@@ -43,7 +43,7 @@ import {
   operationalCaseEventAction,
   recordOperationalCaseEvent
 } from "./operational_cases.js";
-import { getDealImagePublicUrl } from "./product_image_storage.js";
+import { getDealImagePublicUrl, resolveDealImageUrl } from "./product_image_storage.js";
 import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_fee_money.js";
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
@@ -248,6 +248,7 @@ type DealListRow = {
   joined_units: number;
   participants_count: number;
   primary_image_id?: string | null;
+  primary_image_public_url?: string | null;
   primary_image_mime_type?: string | null;
 };
 
@@ -904,7 +905,7 @@ function mapDealListRow(row: DealListRow) {
     platform_fee_rate: Number(row.platform_fee_rate || SITON_PLATFORM_FEE_RATE),
     images: row.primary_image_id ? [{
       image_id: row.primary_image_id,
-      url: getDealImagePublicUrl({ image_id: row.primary_image_id }),
+      url: resolveDealImageUrl({ image_id: row.primary_image_id, public_url: row.primary_image_public_url }),
       is_primary: true,
       sort_order: 0,
       mime_type: row.primary_image_mime_type ?? null
@@ -2576,7 +2577,7 @@ export function registerFrontendExperience(
         [dealId]
       );
       const images = await c.query(
-        `SELECT image_id, mime_type, is_primary, sort_order
+        `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
          WHERE deal_id=$1
          ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
@@ -2668,7 +2669,7 @@ export function registerFrontendExperience(
           fulfillment_copy: fulfillmentCopy,
           images: images.rows.map((row: any) => ({
             image_id: row.image_id,
-            url: getDealImagePublicUrl(row),
+            url: resolveDealImageUrl(row),
             is_primary: Boolean(row.is_primary),
             sort_order: Number(row.sort_order || 0),
             mime_type: row.mime_type
@@ -2907,6 +2908,7 @@ export function registerFrontendExperience(
            d.created_at,
            ${SITON_PLATFORM_FEE_RATE}::numeric AS platform_fee_rate,
            img.image_id AS primary_image_id,
+           img.public_url AS primary_image_public_url,
            img.mime_type AS primary_image_mime_type,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count,
@@ -2922,7 +2924,7 @@ export function registerFrontendExperience(
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
          LEFT JOIN LATERAL (
-           SELECT image_id, mime_type
+           SELECT image_id, public_url, mime_type
            FROM siton.deal_images
            WHERE deal_id = d.deal_id
            ORDER BY is_primary DESC, sort_order ASC, created_at ASC
@@ -3022,7 +3024,7 @@ export function registerFrontendExperience(
           [dealId]
         ),
         c.query(
-          `SELECT image_id, mime_type, size_bytes, is_primary, sort_order
+          `SELECT image_id, public_url, mime_type, size_bytes, is_primary, sort_order
            FROM siton.deal_images
            WHERE deal_id=$1
            ORDER BY sort_order ASC, created_at ASC`,
@@ -3055,7 +3057,7 @@ export function registerFrontendExperience(
           ticket_terms: dealType === "ticket" ? await readTicketTerms(c, dealId) : null,
           images: images.rows.map((row: any) => ({
             image_id: row.image_id,
-            url: getDealImagePublicUrl(row),
+            url: resolveDealImageUrl(row),
             mime_type: row.mime_type,
             size_bytes: Number(row.size_bytes || 0),
             is_primary: Boolean(row.is_primary),
@@ -3092,13 +3094,14 @@ export function registerFrontendExperience(
            d.created_at,
            ${SITON_PLATFORM_FEE_RATE}::numeric AS platform_fee_rate,
            img.image_id AS primary_image_id,
+           img.public_url AS primary_image_public_url,
            img.mime_type AS primary_image_mime_type,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
          LEFT JOIN LATERAL (
-           SELECT image_id, mime_type
+           SELECT image_id, public_url, mime_type
            FROM siton.deal_images
            WHERE deal_id = d.deal_id
            ORDER BY is_primary DESC, sort_order ASC, created_at ASC
@@ -3164,7 +3167,7 @@ export function registerFrontendExperience(
 
       const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
       const dealImages = await c.query(
-        `SELECT image_id, mime_type, is_primary, sort_order
+        `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
          WHERE deal_id=$1
          ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
@@ -3172,7 +3175,7 @@ export function registerFrontendExperience(
       );
       deal.images = dealImages.rows.map((row: any) => ({
         image_id: row.image_id,
-        url: getDealImagePublicUrl(row),
+        url: resolveDealImageUrl(row),
         is_primary: Boolean(row.is_primary),
         sort_order: Number(row.sort_order || 0),
         mime_type: row.mime_type
@@ -4318,7 +4321,7 @@ export function registerFrontendExperience(
            WHERE dp.deal_id=d.deal_id
          ) dm ON true
          LEFT JOIN LATERAL (
-           SELECT image_id, mime_type
+           SELECT image_id, public_url, mime_type
            FROM siton.deal_images
            WHERE deal_id=d.deal_id
            ORDER BY is_primary DESC, sort_order ASC, created_at ASC
@@ -4451,7 +4454,7 @@ export function registerFrontendExperience(
             image: row.image_id ? {
               image_id: row.image_id,
               mime_type: row.mime_type,
-              url: getDealImagePublicUrl({ image_id: String(row.image_id) })
+              url: resolveDealImageUrl({ image_id: String(row.image_id), public_url: row.public_url })
             } : null,
             share_link: `/app/deal/${row.deal_id}?ref=${encodeURIComponent(profile.affiliate_code)}`
           }))
@@ -7498,7 +7501,7 @@ export function registerFrontendExperience(
         [row.deal_id]
       );
       const imageResult = await c.query(
-        `SELECT image_id, mime_type, is_primary, sort_order
+        `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
          WHERE deal_id=$1
          ORDER BY is_primary DESC, sort_order ASC, created_at ASC
@@ -7605,7 +7608,7 @@ export function registerFrontendExperience(
       const primaryImage = imageResult.rows[0]
         ? {
             image_id: imageResult.rows[0].image_id,
-            url: getDealImagePublicUrl(imageResult.rows[0]),
+            url: resolveDealImageUrl(imageResult.rows[0]),
             is_primary: Boolean(imageResult.rows[0].is_primary),
             sort_order: Number(imageResult.rows[0].sort_order || 0),
             mime_type: imageResult.rows[0].mime_type ?? null
@@ -9235,10 +9238,10 @@ export function registerFrontendExperience(
         const dealId = String(match[1]);
         const publicDeal = await deps.withTx(async (c) => {
           const result = await c.query(
-            `SELECT d.title, d.description, image.image_id
+            `SELECT d.title, d.description, image.image_id, image.public_url
              FROM siton.deals d
              LEFT JOIN LATERAL (
-               SELECT i.image_id
+               SELECT i.image_id, i.public_url
                FROM siton.deal_images i
                WHERE i.deal_id=d.deal_id
                ORDER BY i.is_primary DESC, i.sort_order ASC, i.created_at ASC
@@ -9257,7 +9260,7 @@ export function registerFrontendExperience(
           description = publicDescription || `צפו בפרטי העסקה הקבוצתית ${publicTitle}, בהתקדמות ובסטטוס הקנוני שלה.`;
           canonicalPath = `/app/deal/${dealId}`;
           robots = "index,follow";
-          if (publicDeal.image_id) ogImage = getDealImagePublicUrl({ image_id: String(publicDeal.image_id) });
+          if (publicDeal.image_id) ogImage = resolveDealImageUrl({ image_id: String(publicDeal.image_id), public_url: publicDeal.public_url });
         }
       }
     }
