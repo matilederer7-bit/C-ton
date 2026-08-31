@@ -1446,7 +1446,10 @@ async function handleChargeDealEvent(
   for (const p of participants) {
     if (p.buyer_state !== "ChargingAttempt" || p.money_state !== "ChargeAttempt") continue;
 
-    const correlation = `capture:${eventId}:${p.participant_id}`;
+    // The outbox attempt_count is encoded so each real provider retry is a
+    // distinct attempt for the 30-minute charge cap (migration 050), while a
+    // same-claim reprocess keeps the same correlation and stays idempotent.
+    const correlation = `capture:${eventId}:a${event.attempt_count}:${p.participant_id}`;
     await recordAttemptBeforeIo({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -1644,7 +1647,10 @@ async function handleRecoveryDealEvent(
   });
 
   for (const p of participants) {
-    const correlation = `recovery:${eventId}:${p.participant_id}`;
+    // attempt_count-scoped so each real provider retry is a distinct attempt
+    // for the 30-minute charge cap (migration 050); same-claim reprocess stays
+    // idempotent under the same correlation.
+    const correlation = `recovery:${eventId}:a${event.attempt_count}:${p.participant_id}`;
     await recordAttemptBeforeIo({
       participant_id: p.participant_id,
       deal_id: dealId,

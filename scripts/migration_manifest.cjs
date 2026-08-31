@@ -46,7 +46,8 @@ const MIGRATIONS = [
   ["046", "046_distributor_measurement_surfaces.sql"],
   ["047", "047_infrastructure_change_audit.sql"],
   ["048", "048_internal_identity_sessions.sql"],
-  ["049", "049_mall_discovery_read_model.sql"]
+  ["049", "049_mall_discovery_read_model.sql"],
+  ["050", "050_charge_attempt_rate_limit.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
