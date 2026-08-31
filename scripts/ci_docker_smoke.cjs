@@ -11,6 +11,12 @@ function docker(args, options = {}) {
   if (options.allowFailure !== true && result.status !== 0) throw new Error(result.stderr || result.stdout || `docker ${args.join(" ")} failed`);
   return result;
 }
+function publishedPort(service, targetPort) {
+  const result = docker(["port", service, String(targetPort)]);
+  const match = String(result.stdout || "").match(/:(\d+)\s*$/m);
+  if (!match) throw new Error(`published port not found for ${service}:${targetPort}`);
+  return Number(match[1]);
+}
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 function objectCount() {
   const result = docker(["run", "--rm", "-T", "web", "node", "-e", "import('./.demo_dist/src/storage_adapter.js').then(async m=>console.log('OBJECT_COUNT=' + (await m.buildStorageAdapter().listKeys('ci/')).length))"]);
@@ -48,12 +54,11 @@ async function prepareHttpBuyer(origin, dealId, deliveryOptionId, index) {
   return { buyer_id: verify.body.buyer_id, qty: 1, payment_disclosure_accepted: true, delivery_option_id: deliveryOptionId, delivery_address: "CI test address", delivery_city: "CI", otp_token: verify.body.otp_token, otp_challenge_id: verify.body.challenge_id || verify.body.otp_session_id, authorization_id: auth.body.authorization_id, authorization_provider: auth.body.provider, authorization_correlation_id: auth.body.correlation_id };
 }
 
-async function proveTwoWebLastUnitHttp(db) {
+async function proveTwoWebLastUnitHttp(db, origins) {
   const inserted = await db.query(`INSERT INTO siton.deals(title,price_per_unit,min_units,max_units,threshold_units,deadline,seller_id,state,published_at) VALUES ('CI HTTP last unit',100,1,1,1,now()+interval '3 hours','seller-default','PendingTarget',now()) RETURNING deal_id`);
   const dealId = inserted.rows[0].deal_id;
   const option = await db.query(`INSERT INTO siton.deal_delivery_options(deal_id,option_type,label,cost,sort_order) VALUES ($1,'delivery','CI delivery',20,0) RETURNING option_id`, [dealId]);
   const deliveryOptionId = option.rows[0].option_id;
-  const origins = ["http://127.0.0.1:3001", "http://127.0.0.1:3002"];
   const publicRead = await requestJson(origins[0], `/api/deals/${dealId}/public`);
   if (!publicRead.response.ok || !publicRead.body.availability?.canJoin) throw new Error("HTTP race deal is not publicly readable");
   const buyers = await Promise.all(Array.from({ length: 100 }, (_, index) => prepareHttpBuyer(origins[index % 2], dealId, deliveryOptionId, index)));
@@ -83,12 +88,16 @@ async function main() {
   docker(["down", "-v", "--remove-orphans"], { allowFailure: true });
   try {
     docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web", "web-secondary"]);
-    await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
+    const origins = [
+      `http://127.0.0.1:${publishedPort("web", 3000)}`,
+      `http://127.0.0.1:${publishedPort("web-secondary", 3000)}`
+    ];
+    await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
     const minioContract = docker(["run", "--rm", "-T", "web", "node", "scripts/minio_contract_probe.cjs"]);
     if (!String(minioContract.stdout || "").includes("MINIO_CONTRACT_PASS")) throw new Error("MinIO contract probe did not report success");
-    const db = new Client({ connectionString: "postgresql://siton_ci:siton_ci_password@127.0.0.1:55432/siton_ci" });
+    const db = new Client({ connectionString: `postgresql://siton_ci:siton_ci_password@127.0.0.1:${publishedPort("postgres", 5432)}/siton_ci` });
     await db.connect();
-    const created = await fetch("http://127.0.0.1:3001/deals", {
+    const created = await fetch(`${origins[0]}/deals`, {
       method: "POST", headers: { "content-type": "application/json" },
       body: JSON.stringify({ seller_id: "seller-default", title: "CI outbox smoke", price_per_unit: 10, min_units: 2, max_units: 3, deadline: new Date(Date.now() + 3 * 3600000).toISOString() })
     });
@@ -108,7 +117,7 @@ async function main() {
     await db.query(`CREATE OR REPLACE FUNCTION siton.ci_reject_deal_image() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'ci_forced_deal_image_db_failure'; END $$`);
     await db.query(`CREATE TRIGGER trg_ci_reject_deal_image BEFORE INSERT ON siton.deal_images FOR EACH ROW EXECUTE FUNCTION siton.ci_reject_deal_image()`);
     try {
-      await upload("http://127.0.0.1:3001", "db-failure.png", false).then(() => { throw new Error("forced DB failure upload unexpectedly returned 201"); }, (error) => { if (!String(error.message).includes("image upload failed 500")) throw error; });
+      await upload(origins[0], "db-failure.png", false).then(() => { throw new Error("forced DB failure upload unexpectedly returned 201"); }, (error) => { if (!String(error.message).includes("image upload failed 500")) throw error; });
     } finally {
       await db.query(`DROP TRIGGER IF EXISTS trg_ci_reject_deal_image ON siton.deal_images`);
       await db.query(`DROP FUNCTION IF EXISTS siton.ci_reject_deal_image()`);
@@ -116,34 +125,34 @@ async function main() {
     if (objectCount() !== objectCountBeforeDbFailure) throw new Error("DB metadata failure left an object behind");
 
     const [firstImage, secondImage] = await Promise.all([
-      upload("http://127.0.0.1:3001", "same-name.png", true),
-      upload("http://127.0.0.1:3002", "same-name.png", false)
+      upload(origins[0], "same-name.png", true),
+      upload(origins[1], "same-name.png", false)
     ]);
     if (firstImage.image.image_id === secondImage.image.image_id) throw new Error("multi-instance uploads collided");
-    const firstRead = await fetch(`http://127.0.0.1:3002${firstImage.image.public_url}`);
-    const secondRead = await fetch(`http://127.0.0.1:3001${secondImage.image.public_url}`);
+    const firstRead = await fetch(`${origins[1]}${firstImage.image.public_url}`);
+    const secondRead = await fetch(`${origins[0]}${secondImage.image.public_url}`);
     if (!firstRead.ok || !secondRead.ok) throw new Error("shared volume image read failed across web instances");
     docker(["restart", "minio"]);
     docker(["up", "-d", "--wait", "minio"]);
-    if (!(await fetch(`http://127.0.0.1:3002${firstImage.image.public_url}`)).ok) throw new Error("object was lost after MinIO restart");
+    if (!(await fetch(`${origins[1]}${firstImage.image.public_url}`)).ok) throw new Error("object was lost after MinIO restart");
     const uid = docker(["exec", "-T", "web", "id", "-u"]);
     if (String(uid.stdout || "").trim() === "0") throw new Error("web container must run as non-root");
     docker(["restart", "web"]);
-    await waitFor(async () => (await fetch("http://127.0.0.1:3001/health")).ok);
-    if (!(await fetch(`http://127.0.0.1:3001${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
+    await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
+    if (!(await fetch(`${origins[0]}${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
     const countBeforeDelete = objectCount();
-    const imageDelete = await fetch(`http://127.0.0.1:3001/api/seller/deals/${deal.deal_id}/images/${secondImage.image.image_id}`, { method: "DELETE", headers: { "x-seller-id": "seller-default" } });
+    const imageDelete = await fetch(`${origins[0]}/api/seller/deals/${deal.deal_id}/images/${secondImage.image.image_id}`, { method: "DELETE", headers: { "x-seller-id": "seller-default" } });
     const imageDeleteBody = await imageDelete.json();
     if (!imageDelete.ok || imageDeleteBody.deletion !== "deleted") throw new Error(`image deletion failed ${imageDelete.status}`);
     if (objectCount() !== countBeforeDelete - 1) throw new Error("HTTP image deletion did not remove the object");
-    if ((await fetch(`http://127.0.0.1:3002${secondImage.image.public_url}`)).status !== 404) throw new Error("deleted image remained readable");
-    const published = await fetch(`http://127.0.0.1:3001/deals/${deal.deal_id}/publish`, {
+    if ((await fetch(`${origins[1]}${secondImage.image.public_url}`)).status !== 404) throw new Error("deleted image remained readable");
+    const published = await fetch(`${origins[0]}/deals/${deal.deal_id}/publish`, {
       method: "POST", headers: { "content-type": "application/json", "idempotency-key": `ci-publish-${deal.deal_id}` },
       body: JSON.stringify({ seller_id: "seller-default", seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true })
     });
     if (!published.ok) throw new Error(`deal publish failed ${published.status}: ${await published.text()}`);
 
-    const buyerRaceReport = await proveTwoWebLastUnitHttp(db);
+    const buyerRaceReport = await proveTwoWebLastUnitHttp(db, origins);
     const scheduledDeadlineEvent = await db.query(
       `UPDATE siton.outbox_events o
        SET available_at=d.deadline
