@@ -102,6 +102,13 @@ export const api = {
   adminNotificationsStatus: () => req(`/api/admin/notifications-status`, {}, "admin"),
   adminPayoutStatus: () => req(`/api/admin/payout-status`, {}, "admin"),
   adminPaymentOps: () => req(`/api/admin/payment-ops-status`, {}, "admin"),
+  adminDealViralTree: (id: string, params: { parent?: string; depth?: number; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.parent) q.set("parent", params.parent);
+    if (params.depth) q.set("depth", String(params.depth));
+    if (params.limit) q.set("limit", String(params.limit));
+    return req(`/api/admin/deals/${id}/viral-tree?${q.toString()}`, {}, "admin");
+  },
   adminSupportCases: () => req(`/api/admin/support-cases`, {}, "admin"),
   adminMissionControl: () => req(`/api/admin/mission-control`, {}, "admin"),
   adminUserProfile: (buyerId: string) => req(`/api/admin/users/${encodeURIComponent(buyerId)}/profile`, {}, "admin"),

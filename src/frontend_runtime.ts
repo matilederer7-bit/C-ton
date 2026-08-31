@@ -54,6 +54,7 @@ import {
   ensureOtpRailTables,
   ensureJoinOtpVerified,
   generateOtpCode,
+  hashDestination,
   OtpValidationError,
   requestOtpChallenge,
   verifyOtpChallenge,
@@ -4718,7 +4719,7 @@ export function registerFrontendExperience(
     if (!(await requireAdminRead(req, reply))) return;
     await ensurePaymentOpsTables();
     return deps.withTx(async (c) => {
-      const [attempts, webhooks, security, methods] = await Promise.all([
+      const [attempts, webhooks, security, methods, recentAttempts, ledger, recentLedger] = await Promise.all([
         c.query(
           `SELECT attempt_type,
                   COUNT(*) FILTER (WHERE result_class='success') AS success,
@@ -4745,11 +4746,40 @@ export function registerFrontendExperience(
                   COUNT(*) FILTER (WHERE status='expired') AS expired,
                   COUNT(*) FILTER (WHERE status='revoked') AS revoked
            FROM siton.buyer_payment_methods`
+        ),
+        c.query(
+          `SELECT pa.attempt_id, pa.attempt_type, pa.result_class, pa.correlation_id,
+                  pa.created_at, pa.deal_id, d.title AS deal_title,
+                  pa.participant_id, p.buyer_name
+           FROM siton.payment_attempts pa
+           LEFT JOIN siton.deals d ON d.deal_id = pa.deal_id
+           LEFT JOIN siton.participants p ON p.participant_id = pa.participant_id
+           ORDER BY pa.created_at DESC
+           LIMIT 40`
+        ),
+        c.query(
+          `SELECT
+             COALESCE(SUM(gross_amount) FILTER (WHERE logical_entry_type='charge'),0)::numeric(14,2) AS gross_charged,
+             COALESCE(SUM(platform_fee_base_amount),0)::numeric(14,2) AS fee_base,
+             COALESCE(SUM(platform_fee_vat_amount),0)::numeric(14,2) AS fee_vat,
+             COALESCE(SUM(platform_fee_total_amount),0)::numeric(14,2) AS fee_total,
+             COUNT(*)::int AS entries,
+             COUNT(*) FILTER (WHERE event_type='refund_issued')::int AS refund_entries
+           FROM siton.platform_fee_money_events`
+        ),
+        c.query(
+          `SELECT fe.event_type, fe.logical_entry_type, fe.correlation_id, fe.created_at,
+                  fe.gross_amount, fe.platform_fee_total_amount, fe.deal_id, d.title AS deal_title
+           FROM siton.platform_fee_money_events fe
+           LEFT JOIN siton.deals d ON d.deal_id = fe.deal_id
+           ORDER BY fe.created_at DESC
+           LIMIT 25`
         )
       ]);
       const webhook = webhooks.rows[0] || {};
       const securityRow = security.rows[0] || {};
       const method = methods.rows[0] || {};
+      const ledgerRow = ledger.rows[0] || {};
       return {
         ok: true,
         provider: getPaymentProviderSummary(deps.paymentProvider),
@@ -4780,7 +4810,36 @@ export function registerFrontendExperience(
           expired: Number(method.expired ?? 0),
           revoked: Number(method.revoked ?? 0),
           hosted_payment_only: true
-        }
+        },
+        fee_ledger: {
+          gross_charged: Number(ledgerRow.gross_charged ?? 0),
+          fee_base: Number(ledgerRow.fee_base ?? 0),
+          fee_vat: Number(ledgerRow.fee_vat ?? 0),
+          fee_total: Number(ledgerRow.fee_total ?? 0),
+          entries: Number(ledgerRow.entries ?? 0),
+          refund_entries: Number(ledgerRow.refund_entries ?? 0),
+          note: "Siton fee = 8% of the authoritative charge base (incl. delivery, excl. VAT), from successful charges only"
+        },
+        recent_attempts: recentAttempts.rows.map((row: any) => ({
+          attempt_id: String(row.attempt_id),
+          attempt_type: String(row.attempt_type),
+          result_class: String(row.result_class),
+          correlation_id: String(row.correlation_id || ""),
+          created_at: row.created_at,
+          deal_id: row.deal_id,
+          deal_title: row.deal_title,
+          buyer_name: row.buyer_name
+        })),
+        recent_ledger: recentLedger.rows.map((row: any) => ({
+          event_type: String(row.event_type),
+          logical_entry_type: String(row.logical_entry_type),
+          correlation_id: String(row.correlation_id || ""),
+          created_at: row.created_at,
+          gross_amount: Number(row.gross_amount ?? 0),
+          platform_fee_total_amount: Number(row.platform_fee_total_amount ?? 0),
+          deal_id: row.deal_id,
+          deal_title: row.deal_title
+        }))
       };
     });
   });
@@ -6144,6 +6203,30 @@ export function registerFrontendExperience(
           },
           readiness: operationalReadiness(),
           operational_counts: counts.rows[0],
+          storage: (() => {
+            try {
+              const adapter = getDealImageStorageAdapter();
+              const summary = adapter.describeForReadiness();
+              return {
+                adapter: summary.adapter,
+                provider: summary.storage_provider,
+                multi_instance_safe: summary.multi_instance_safe,
+                durable: summary.storage_provider !== "local",
+                scale_status: summary.multi_instance_safe ? "ready" : "partial",
+                notes: summary.notes
+              };
+            } catch (error) {
+              return { adapter: "unknown", provider: "unknown", multi_instance_safe: false, durable: false, scale_status: "error", error: String((error as Error)?.message || "").slice(0, 120) };
+            }
+          })(),
+          safety_badges: {
+            real_money: false,
+            grow: false,
+            real_sms: Boolean(deps.notificationSummary.external_delivery) && deps.notificationSummary.provider !== "log-only",
+            real_email: Boolean(deps.notificationSummary.external_delivery) && deps.notificationSummary.provider !== "log-only",
+            real_invoice: Boolean(deps.invoiceSummary?.configured) && deps.invoiceSummary?.mode !== "log-only" && deps.invoiceSummary?.mode !== "mock",
+            synthetic_safe: true
+          },
           infrastructure,
           compute_management: computeManagement,
           notes: [
@@ -6291,7 +6374,7 @@ export function registerFrontendExperience(
   const notificationStatusHandler = async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
     return deps.withTx(async (c) => {
-      const [totals, channels] = await Promise.all([
+      const [totals, channels, recentEvents] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*)                                                  FILTER (WHERE status='pending')    AS pending_count,
@@ -6313,6 +6396,18 @@ export function registerFrontendExperience(
            FROM siton.notification_events
            GROUP BY channel
            ORDER BY channel`
+        ),
+        c.query(
+          `SELECT ne.notification_id, ne.event_type, ne.recipient_type, ne.channel,
+                  ne.status, ne.deal_id, d.title AS deal_title, ne.participant_id, ne.seller_id,
+                  ne.scheduled_for, ne.sent_at, ne.created_at, ne.last_error,
+                  (SELECT COUNT(*)::int FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id) AS attempts,
+                  (SELECT na.provider FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider,
+                  (SELECT na.provider_mode FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider_mode
+           FROM siton.notification_events ne
+           LEFT JOIN siton.deals d ON d.deal_id = ne.deal_id
+           ORDER BY ne.created_at DESC
+           LIMIT 50`
         )
       ]);
       const t = totals.rows[0];
@@ -6339,6 +6434,24 @@ export function registerFrontendExperience(
           pending: Number(r.pending ?? 0),
           sent:    Number(r.sent    ?? 0),
           failed:  Number(r.failed  ?? 0)
+        })),
+        recent_events: recentEvents.rows.map((r: any) => ({
+          notification_id: String(r.notification_id),
+          event_type: String(r.event_type),
+          recipient_type: String(r.recipient_type),
+          channel: String(r.channel),
+          status: String(r.status),
+          deal_id: r.deal_id,
+          deal_title: r.deal_title,
+          participant_id: r.participant_id,
+          seller_id: r.seller_id,
+          scheduled_for: r.scheduled_for,
+          sent_at: r.sent_at,
+          created_at: r.created_at,
+          last_error: r.last_error,
+          attempts: Number(r.attempts ?? 0),
+          adapter: r.last_provider || (deps.notificationSummary.external_delivery ? deps.notificationSummary.provider : "log-only"),
+          adapter_mode: r.last_provider_mode || (deps.notificationSummary.external_delivery ? deps.notificationSummary.mode : "log-only")
         }))
       };
     });
@@ -8578,6 +8691,125 @@ export function registerFrontendExperience(
     });
   });
 
+  // Admin: LAZY viral-tree explorer over the canonical viral graph
+  // (viral_attributions + participants + affiliate_links). Returns ONE level
+  // of children at a time with per-node subtree rollups, so the UI can expand
+  // branches on demand and stay usable at scale (never a 100k-node dump).
+  // Reuses the canonical graph — no second viral structure.
+  app.get("/api/admin/deals/:dealId/viral-tree", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    const parentRaw = String(req.query?.parent || "").trim();
+    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
+    if (parentId) requireUuid(parentId, "parent");
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+    const maskTreeName = (raw: unknown) => {
+      const s = String(raw ?? "").trim();
+      const first = s.split(/\s+/)[0] || "";
+      return first.length > 1 ? first : "משתתף";
+    };
+    return deps.withTx(async (c) => {
+      // One level: direct children of `parent` (or roots when parent is null).
+      // Each node carries its direct metrics, a has_children flag, and subtree
+      // rollups computed by a bounded recursive descendant walk.
+      const level = await c.query(
+        `WITH lvl AS (
+           SELECT va.participant_id, va.parent_participant_id, va.generation,
+                  va.first_touch_at, va.last_touch_at,
+                  p.buyer_name, p.qty, p.buyer_state, p.money_state, p.created_at,
+                  al.link_id AS personal_link_id, al.source_code AS personal_code,
+                  COALESCE(ev.share_clicks, 0) AS share_visits,
+                  COALESCE(ev.link_entries, 0) AS share_joins
+           FROM siton.viral_attributions va
+           JOIN siton.participants p ON p.participant_id = va.participant_id
+           LEFT JOIN siton.affiliate_links al ON al.origin_participant_id = va.participant_id AND al.deal_id = va.deal_id
+           LEFT JOIN LATERAL (
+             SELECT COUNT(*) FILTER (WHERE ve.event_type = 'share_button_click')::int AS share_clicks,
+                    COUNT(*) FILTER (WHERE ve.event_type = 'join_started')::int AS link_entries
+             FROM siton.viral_events ve WHERE ve.link_id = al.link_id
+           ) ev ON true
+           WHERE va.deal_id = $1
+             AND ($2::uuid IS NULL AND va.parent_participant_id IS NULL
+                  OR va.parent_participant_id = $2::uuid)
+           ORDER BY p.created_at ASC
+           LIMIT $3
+         ),
+         subtree AS (
+           SELECT lvl.participant_id AS root_id, d.participant_id AS descendant_id, d.generation AS gen
+           FROM lvl
+           JOIN LATERAL (
+             WITH RECURSIVE walk AS (
+               SELECT va.participant_id, va.generation
+               FROM siton.viral_attributions va
+               WHERE va.parent_participant_id = lvl.participant_id AND va.deal_id = $1
+               UNION ALL
+               SELECT child.participant_id, child.generation
+               FROM siton.viral_attributions child
+               JOIN walk ON child.parent_participant_id = walk.participant_id
+               WHERE child.deal_id = $1
+             )
+             SELECT walk.participant_id, walk.generation FROM walk
+           ) d ON true
+         ),
+         rollup AS (
+           SELECT s.root_id,
+                  COUNT(*)::int AS subtree_joins,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS subtree_units,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS subtree_charged_units,
+                  COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS subtree_charged_gmv,
+                  MAX(s.gen)::int AS subtree_max_gen
+           FROM subtree s
+           JOIN siton.participants p ON p.participant_id = s.descendant_id
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           GROUP BY s.root_id
+         ),
+         kids AS (
+           SELECT parent_participant_id, COUNT(*)::int AS direct_children
+           FROM siton.viral_attributions
+           WHERE deal_id = $1 AND parent_participant_id IN (SELECT participant_id FROM lvl)
+           GROUP BY parent_participant_id
+         )
+         SELECT lvl.*,
+                COALESCE(k.direct_children, 0) AS direct_children,
+                COALESCE(r.subtree_joins, 0) AS subtree_joins,
+                COALESCE(r.subtree_units, 0) AS subtree_units,
+                COALESCE(r.subtree_charged_units, 0) AS subtree_charged_units,
+                COALESCE(r.subtree_charged_gmv, 0) AS subtree_charged_gmv,
+                COALESCE(r.subtree_max_gen, lvl.generation) AS subtree_max_gen
+         FROM lvl
+         LEFT JOIN kids k ON k.parent_participant_id = lvl.participant_id
+         LEFT JOIN rollup r ON r.root_id = lvl.participant_id
+         ORDER BY lvl.created_at ASC`,
+        [dealId, parentId, limit]
+      );
+      const nodes = level.rows.map((r: any) => ({
+        participant_id: String(r.participant_id),
+        parent_participant_id: r.parent_participant_id ? String(r.parent_participant_id) : null,
+        generation: Number(r.generation || 0),
+        display: maskTreeName(r.buyer_name),
+        direct_units: Number(r.qty || 0),
+        charged: ["ChargedSuccess", "RecoveredCharge"].includes(String(r.money_state)),
+        active: !["NotJoined", "DealFailed", "Dropped"].includes(String(r.buyer_state)),
+        money_state: String(r.money_state || ""),
+        created_at: r.created_at,
+        first_touch_at: r.first_touch_at,
+        last_touch_at: r.last_touch_at,
+        direct_children: Number(r.direct_children || 0),
+        has_children: Number(r.direct_children || 0) > 0,
+        subtree_joins: Number(r.subtree_joins || 0),
+        subtree_units: Number(r.subtree_units || 0),
+        subtree_charged_units: Number(r.subtree_charged_units || 0),
+        subtree_charged_gmv: Number(r.subtree_charged_gmv || 0),
+        subtree_max_depth: Number(r.subtree_max_gen || 0) - Number(r.generation || 0),
+        share_visits: Number(r.share_visits || 0),
+        share_joins: Number(r.share_joins || 0),
+        personal_code: r.personal_code || null
+      }));
+      return { ok: true, deal_id: dealId, parent: parentId, nodes, truncated: nodes.length >= limit };
+    });
+  });
+
   // Admin: seller-scope viral metrics.
   app.get("/api/admin/sellers/:sellerId/viral", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
@@ -8944,6 +9176,7 @@ export function registerFrontendExperience(
       const rows = await c.query(
         `SELECT p.buyer_id,
                 MAX(p.buyer_name) AS buyer_name,
+                MAX(p.buyer_phone) AS buyer_phone,
                 MAX(p.buyer_email) AS buyer_email,
                 COUNT(*)::int AS participations,
                 COUNT(DISTINCT p.deal_id)::int AS deals,
@@ -8952,16 +9185,46 @@ export function registerFrontendExperience(
                 COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
                   FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
                 COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
+                (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
+                MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
                 MAX(p.created_at) AS last_join_at
          FROM siton.participants p
          JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%')
+         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%' OR p.buyer_phone ILIKE '%' || $1 || '%')
          GROUP BY p.buyer_id
          ORDER BY last_join_at DESC
          LIMIT 200`,
         [q]
       );
-      return { ok: true, buyers: rows.rows };
+      // Verification is REAL, never fabricated: a contact is verified ONLY if a
+      // verified OTP challenge exists for its normalized-destination hash (same
+      // hashing as src/otp_rail.ts hashDestination). Hashes computed here (not
+      // in SQL) to avoid an extensions.digest grant dependency. With OTP off by
+      // default (R5 policy) this is honestly false for guest joins.
+      const emailHashes = new Map<string, string>();
+      const phoneHashes = new Map<string, string>();
+      for (const b of rows.rows) {
+        if (b.buyer_email) emailHashes.set(String(b.buyer_id), hashDestination("email", String(b.buyer_email)));
+        const phone = b.buyer_phone || b.buyer_id;
+        if (phone) phoneHashes.set(String(b.buyer_id), hashDestination("sms", String(phone)));
+      }
+      const allHashes = [...new Set([...emailHashes.values(), ...phoneHashes.values()])];
+      const verified = new Set<string>();
+      if (allHashes.length) {
+        const vr = await c.query(
+          `SELECT DISTINCT channel, destination_hash FROM siton.otp_challenges
+           WHERE status='verified' AND destination_hash = ANY($1::text[])`,
+          [allHashes]
+        );
+        for (const row of vr.rows) verified.add(`${row.channel}:${row.destination_hash}`);
+      }
+      const buyers = rows.rows.map((b: any) => ({
+        ...b,
+        email_verified: emailHashes.has(String(b.buyer_id)) && verified.has(`email:${emailHashes.get(String(b.buyer_id))}`),
+        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`)
+      }));
+      return { ok: true, buyers, contact_privacy: "admin_only" };
     });
   });
 

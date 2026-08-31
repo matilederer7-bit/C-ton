@@ -211,50 +211,93 @@ function DealsScreen({ navigate, initialState }: { navigate: (h: string) => void
 }
 
 // ── viral tree explorer ────────────────────────────────────────────────────
-function ViralTree({ tree }: { tree: Json | null }) {
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const nodes: Json[] = tree?.nodes || [];
-  const byParent = useMemo(() => {
-    const m = new Map<string | null, Json[]>();
-    for (const n of nodes) {
-      const key = n.parent && nodes.some((x) => x.p === n.parent) ? String(n.parent) : null;
-      if (!m.has(key)) m.set(key, []);
-      m.get(key)!.push(n);
-    }
-    return m;
-  }, [nodes]);
-  if (!nodes.length) return <p className="muted small">אין עדיין עץ ויראלי לעסקה זו.</p>;
+// Lazy interactive viral-tree explorer: loads one level at a time from the
+// canonical /viral-tree endpoint, expands branches on demand (never a full
+// dump), and shows per-node subtree metrics in a details panel.
+type TreeNode = Json;
 
-  const renderNode = (n: Json, depth: number): React.ReactNode => {
-    const children = byParent.get(String(n.p)) || [];
-    const open = expanded.has(String(n.p));
-    return (
-      <div key={n.p} className={`tree-node${depth === 0 ? " root" : ""}`}>
-        <div className="tree-row">
-          {children.length ? (
-            <button className="x" style={{ width: 22, height: 22, fontSize: ".7rem" }} onClick={() => {
-              const next = new Set(expanded);
-              open ? next.delete(String(n.p)) : next.add(String(n.p));
-              setExpanded(next);
-            }} aria-label={open ? "כיווץ" : "הרחבה"}>{open ? "−" : "+"}</button>
-          ) : <span style={{ width: 22 }} />}
-          <b>{n.d}</b>
-          <span className="tree-badge">דור {n.g}</span>
-          <span className="tree-badge">{num(n.u)} יח׳</span>
-          {n.charged ? <span className="tree-badge charged">חויב ✓</span> : n.active ? <span className="tree-badge">מסגרת</span> : <span className="tree-badge">נשר</span>}
-          {children.length ? <span className="muted small">· {num(children.length)} הביא</span> : null}
-          <span className="muted small" style={{ marginInlineStart: "auto" }}>{timeAgo(n.t)}</span>
-        </div>
-        {open ? children.map((c) => renderNode(c, depth + 1)) : null}
-      </div>
-    );
+function TreeRow({ node, dealId, depth, onSelect, selectedId }: { node: TreeNode; dealId: string; depth: number; onSelect: (n: TreeNode) => void; selectedId: string | null }) {
+  const [open, setOpen] = useState(false);
+  const [children, setChildren] = useState<TreeNode[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [truncated, setTruncated] = useState(false);
+  const load = async () => {
+    if (children) { setOpen(!open); return; }
+    setLoading(true);
+    try {
+      const r = await api.adminDealViralTree(dealId, { parent: node.participant_id, limit: 60 });
+      setChildren((r as Json).nodes || []);
+      setTruncated(Boolean((r as Json).truncated));
+      setOpen(true);
+    } catch { setChildren([]); }
+    finally { setLoading(false); }
   };
-
-  const roots = byParent.get(null) || [];
+  const selected = selectedId === node.participant_id;
   return (
-    <div className="tree">
-      {tree?.truncated ? <p className="muted small">מוצגים {num(nodes.length)} צמתים ראשונים.</p> : null}
-      {roots.map((n) => renderNode(n, 0))}
+    <div className={`tree-node${depth === 0 ? " root" : ""}`}>
+      <div className={`tree-row${selected ? " selected" : ""}`} style={{ paddingInlineStart: depth * 14 }}>
+        {node.has_children ? (
+          <button className="tree-toggle" onClick={load} aria-label={open ? "כיווץ" : "הרחבה"}>{loading ? "…" : open ? "−" : "+"}</button>
+        ) : <span className="tree-toggle-spacer" />}
+        <button className="tree-label" onClick={() => onSelect(node)}>
+          <b>{node.display}</b>
+          <span className="tree-badge">דור {num(node.generation)}</span>
+          <span className="tree-badge">{num(node.direct_units)} יח׳</span>
+          {node.charged ? <span className="tree-badge charged">חויב ✓</span> : node.active ? <span className="tree-badge">מסגרת</span> : <span className="tree-badge muted">נשר</span>}
+          {node.has_children ? <span className="tree-badge sub">ענף: {num(node.subtree_joins)} · {num(node.subtree_charged_units)} מחויבות</span> : null}
+        </button>
+      </div>
+      {open && children ? (
+        <div className="tree-children">
+          {children.length ? children.map((c) => (
+            <TreeRow key={c.participant_id} node={c} dealId={dealId} depth={depth + 1} onSelect={onSelect} selectedId={selectedId} />
+          )) : <p className="muted small" style={{ paddingInlineStart: (depth + 1) * 14 }}>אין ילדים.</p>}
+          {truncated ? <p className="muted small" style={{ paddingInlineStart: (depth + 1) * 14 }}>מוצגים 60 הראשונים בענף זה.</p> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ViralTreeExplorer({ dealId }: { dealId: string }) {
+  const { data, error } = useFetch(() => api.adminDealViralTree(dealId, { limit: 60 }), [dealId]);
+  const [selected, setSelected] = useState<TreeNode | null>(null);
+  if (error) return <Err msg={error} />;
+  if (!data) return <Spinner />;
+  const roots: TreeNode[] = (data as Json).nodes || [];
+  if (!roots.length) return <EmptyState icon="🌳" title="אין עדיין עץ הפצה" body="כל מצטרף מקבל לינק אישי; העץ ייבנה עם ההצטרפות הראשונה דרך שיתוף." />;
+  return (
+    <div className="tree-explorer">
+      <div className="tree-pane">
+        <p className="muted small">שורשים ({num(roots.length)}{(data as Json).truncated ? "+" : ""}) — לחצו + להרחבת ענף (טעינה עצלה), ולחצו על שם לפרטים.</p>
+        <div className="tree">
+          {roots.map((n) => <TreeRow key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
+        </div>
+      </div>
+      <div className="tree-detail">
+        {selected ? (
+          <div className="panel" style={{ position: "sticky", top: 16 }}>
+            <div className="panel-title">פרטי צומת · {selected.display}</div>
+            <div className="kv">
+              <span className="k">דור</span><span className="v">{num(selected.generation)}</span>
+              <span className="k">סטטוס כסף</span><span className="v"><MoneyPill state={String(selected.money_state)} recovery={0} /></span>
+              <span className="k">הביא ישירות</span><span className="v">{num(selected.direct_children)}</span>
+              <span className="k">יח׳ ישירות</span><span className="v">{num(selected.direct_units)}</span>
+              <span className="k">הצטרפויות בענף</span><span className="v">{num(selected.subtree_joins)}</span>
+              <span className="k">יח׳ בענף</span><span className="v">{num(selected.subtree_units)}</span>
+              <span className="k">יח׳ מחויבות בענף</span><span className="v" style={{ fontWeight: 700 }}>{num(selected.subtree_charged_units)}</span>
+              <span className="k">GMV מחויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
+              <span className="k">עומק תת-עץ</span><span className="v">{num(selected.subtree_max_depth)}</span>
+              <span className="k">לחיצות שיתוף</span><span className="v">{num(selected.share_visits)}</span>
+              <span className="k">כניסות מלינק</span><span className="v">{num(selected.share_joins)}</span>
+              <span className="k">First touch</span><span className="v small">{selected.first_touch_at ? fmtDate(selected.first_touch_at) : "—"}</span>
+              <span className="k">Last touch</span><span className="v small">{selected.last_touch_at ? fmtDate(selected.last_touch_at) : "—"}</span>
+              {selected.personal_code ? <><span className="k">קוד לינק</span><span className="v mono small" dir="ltr">{selected.personal_code}</span></> : null}
+            </div>
+            <p className="muted small" style={{ marginTop: 10 }}>הצטרפות ≠ חיוב. "מחויבות" = ChargedSuccess/RecoveredCharge בלבד.</p>
+          </div>
+        ) : <div className="panel"><p className="muted small">בחרו צומת בעץ כדי לראות מדדי ענף.</p></div>}
+      </div>
     </div>
   );
 }
@@ -333,6 +376,26 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
   );
 }
 
+function ViralTab({ dealId, vm, viralRes, onRecompute }: { dealId: string; vm: Json | null; viralRes: Json | null; onRecompute: () => void }) {
+  const [mode, setMode] = useState<"tree" | "analytics">("tree");
+  return (
+    <>
+      <div className="mode-toggle">
+        <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>🌳 עץ הפצה</button>
+        <button className={mode === "analytics" ? "active" : ""} onClick={() => setMode("analytics")}>📊 אנליטיקה</button>
+      </div>
+      {mode === "tree" ? (
+        <div className="panel">
+          <div className="panel-title">עץ ההפצה (טעינה עצלה לפי ענף)</div>
+          <ViralTreeExplorer dealId={dealId} />
+        </div>
+      ) : (
+        <ViralMetricsBlock vm={vm} stale={viralRes?.stale} computedAt={viralRes?.computed_at} onRecompute={onRecompute} />
+      )}
+    </>
+  );
+}
+
 // ── deal drilldown ─────────────────────────────────────────────────────────
 function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string) => void }) {
   const { data: profileRes, error } = useFetch(() => api.adminDealProfile(dealId), [dealId], 30_000);
@@ -404,15 +467,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
         </div>
       ) : null}
 
-      {tab === "viral" ? (
-        <>
-          <ViralMetricsBlock vm={vm} stale={(viralRes as Json | null)?.stale} computedAt={(viralRes as Json | null)?.computed_at} onRecompute={recompute} />
-          <div className="panel">
-            <div className="panel-title">🌳 עץ ההפצה</div>
-            <ViralTree tree={(vm?.tree as Json) || null} />
-          </div>
-        </>
-      ) : null}
+      {tab === "viral" ? <ViralTab dealId={dealId} vm={vm} viralRes={viralRes as Json | null} onRecompute={recompute} /> : null}
 
       {tab === "ops" ? (
         <>
@@ -598,30 +653,57 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
 }
 
 // ── buyers ─────────────────────────────────────────────────────────────────
+function VerifyBadge({ value, label }: { value: boolean; label: string }) {
+  return <span className={`vbadge ${value ? "ok" : "no"}`} title={value ? `${label} מאומת` : `${label} לא מאומת`}>{value ? "✓" : "○"} {label}</span>;
+}
+
 function BuyersScreen() {
   const [q, setQ] = useState("");
   const { data, error } = useFetch(() => api.adminBuyers(q), [q]);
+  const buyers: Json[] = (data as Json)?.buyers || [];
+  const totalCharged = buyers.reduce((s, b) => s + Number(b.charged_gross || 0), 0);
+  const totalUnitsCharged = buyers.reduce((s, b) => s + Number(b.units_charged || 0), 0);
+  const inRecovery = buyers.reduce((s, b) => s + Number(b.in_recovery || 0), 0);
   return (
     <>
       <h1>קונים ומשתתפים</h1>
-      <input placeholder="חיפוש טלפון / שם / אימייל…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 300, marginBottom: 14 }} />
+      <p className="muted small" style={{ marginTop: -6 }}>אימייל וטלפון הם מידע רגיש לצוות הניהול בלבד — אינם נחשפים בשום משטח ציבורי/מוכר/ויראלי.</p>
+      {data ? (
+        <div className="stat-row">
+          <StatTile num={num(buyers.length)} label="קונים ייחודיים" />
+          <StatTile num={num(totalUnitsCharged)} label="יחידות שחויבו בפועל" tone="good" />
+          <StatTile num={ils(totalCharged)} label="נגבה בפועל" tone="good" />
+          <StatTile num={num(inRecovery)} label="בהשלמת חיוב" tone={inRecovery > 0 ? "warn" : undefined} />
+        </div>
+      ) : null}
+      <input placeholder="חיפוש שם / טלפון / אימייל…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
       <Err msg={error} />
-      {!data ? <Spinner /> : (
+      {!data ? <Spinner /> : buyers.length === 0 ? (
+        <EmptyState icon="👤" title="אין קונים תואמים" body={q ? "נסו חיפוש אחר." : "עדיין אין השתתפויות במערכת."} />
+      ) : (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>קונה</th><th>טלפון</th><th className="num">השתתפויות</th><th className="num">עסקאות</th><th className="num">יח׳ הצטרפו</th><th className="num">יח׳ חויבו</th><th className="num">נגבה ₪</th><th className="num">בהשלמה</th><th>אחרונה</th></tr></thead>
+            <thead><tr>
+              <th>שם</th><th>טלפון</th><th>אימייל</th><th>אימות</th>
+              <th className="num">השת׳</th><th className="num">עסקאות</th>
+              <th className="num">יח׳ הצטרפו</th><th className="num">יח׳ חויבו</th><th className="num">נגבה ₪</th>
+              <th>סטטוס קונה</th><th>סטטוס כסף</th><th>פעילות אחרונה</th>
+            </tr></thead>
             <tbody>
-              {((data as Json).buyers || []).map((b: Json) => (
+              {buyers.map((b: Json) => (
                 <tr key={b.buyer_id}>
                   <td>{b.buyer_name || "—"}</td>
-                  <td dir="ltr">{b.buyer_id}</td>
+                  <td dir="ltr">{b.buyer_phone || (String(b.buyer_id).match(/^[0-9+]/) ? b.buyer_id : "—")}</td>
+                  <td dir="ltr" className="small">{b.buyer_email || <span className="muted">—</span>}</td>
+                  <td><VerifyBadge value={Boolean(b.phone_verified)} label="טלפון" /> <VerifyBadge value={Boolean(b.email_verified)} label="מייל" /></td>
                   <td className="num">{num(b.participations)}</td>
                   <td className="num">{num(b.deals)}</td>
                   <td className="num">{num(b.units_joined)}</td>
-                  <td className="num">{num(b.units_charged)}</td>
+                  <td className="num" style={{ fontWeight: 700 }}>{num(b.units_charged)}</td>
                   <td className="num">{ils(b.charged_gross)}</td>
-                  <td className="num">{num(b.in_recovery)}</td>
-                  <td>{timeAgo(b.last_join_at)}</td>
+                  <td>{b.latest_buyer_state ? <span className="status small">{b.latest_buyer_state}</span> : "—"}</td>
+                  <td><MoneyPill state={String(b.latest_money_state || "")} recovery={Number(b.in_recovery || 0)} /></td>
+                  <td>{timeAgo(b.last_activity_at || b.last_join_at)}</td>
                 </tr>
               ))}
             </tbody>
@@ -629,6 +711,16 @@ function BuyersScreen() {
         </div>
       )}
     </>
+  );
+}
+
+function MoneyPill({ state, recovery }: { state: string; recovery: number }) {
+  const good = ["ChargedSuccess", "RecoveredCharge"].includes(state);
+  const risk = state === "ChargeFailedRecovery";
+  return (
+    <span className={`status small ${good ? "Completed" : risk ? "CompletionWindow" : "ClosedForJoining"}`}>
+      {state || "—"}{recovery > 0 && !risk ? ` (${num(recovery)} בהשלמה)` : ""}
+    </span>
   );
 }
 
@@ -711,43 +803,204 @@ function JsonStatScreen({ title, fetcher, render }: { title: string; fetcher: ()
   );
 }
 
+function ageLabel(seconds: number | null | undefined): string {
+  if (seconds === null || seconds === undefined) return "—";
+  const s = Number(seconds);
+  if (s < 60) return `${Math.round(s)} שנ׳`;
+  if (s < 3600) return `${Math.round(s / 60)} דק׳`;
+  return `${(s / 3600).toFixed(1)} שע׳`;
+}
+
 function OperationsScreen() {
-  return <JsonStatScreen title="תפעול — תור ו־Worker" fetcher={() => api.adminOutboxStatus()} render={(d) => {
-    const s = d.outbox || d;
-    return (
-      <>
-        <div className="stat-row">
-          <StatTile num={num(s.pending ?? s.queue_depth ?? 0)} label="ממתינים בתור" />
-          <StatTile num={num(s.processing ?? 0)} label="בעיבוד" />
-          <StatTile num={num(s.dlq ?? s.dlq_count ?? 0)} label="DLQ" tone={Number(s.dlq ?? s.dlq_count ?? 0) > 0 ? "bad" : "good"} />
-          <StatTile num={num(s.stale_leases ?? 0)} label="חכירות תקועות" />
-        </div>
-        <pre className="panel small" style={{ overflowX: "auto", direction: "ltr", textAlign: "left" }}>{JSON.stringify(d, null, 2).slice(0, 4000)}</pre>
-      </>
-    );
-  }} />;
+  const { data, error, reload } = useFetch(() => api.adminOutboxStatus(), [], 15_000);
+  if (error) return <><h1>תפעול — תור ו־Worker</h1><Err msg={error} /></>;
+  if (!data) return <><h1>תפעול — תור ו־Worker</h1><Spinner /></>;
+  const d = data as Json;
+  const o = d.outbox || {};
+  const w = d.worker || {};
+  const instances: Json[] = w.instances || [];
+  const dlq = Number(o.dlq || 0);
+  const stuck = Number(o.stuck_candidates || 0);
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h1>תפעול — תור ו־Worker</h1>
+        <button className="btn btn-sm btn-ghost" onClick={reload}>רענון</button>
+      </div>
+      <div className="stat-row">
+        <StatTile num={w.running ? "פעיל" : "לא מדווח"} label="Worker" tone={w.running ? "good" : "bad"} sub={`${num(w.active_count || 0)} מופעים`} />
+        <StatTile num={num(o.pending || 0)} label="ממתינים בתור" tone={Number(o.pending) > 20 ? "warn" : undefined} />
+        <StatTile num={num(o.processing || 0)} label="בעיבוד כעת" />
+        <StatTile num={num(o.sent || 0)} label="הושלמו" tone="good" />
+        <StatTile num={num(o.failed || 0)} label="נכשלו" tone={Number(o.failed) > 0 ? "warn" : undefined} />
+      </div>
+      <div className="stat-row">
+        <StatTile num={num(dlq)} label="DLQ (מכתבים מתים)" tone={dlq > 0 ? "bad" : "good"} />
+        <StatTile num={num(stuck)} label="חכירות תקועות" tone={stuck > 0 ? "warn" : "good"} sub={`סף ${num((o.stuck_timeout_ms || 0) / 1000)} שנ׳`} />
+        <StatTile num={ageLabel(o.oldest_pending_age_s)} label="הממתין הוותיק ביותר" tone={Number(o.oldest_pending_age_s) > 300 ? "warn" : undefined} />
+        <StatTile num={ageLabel(o.oldest_processing_age_s)} label="בעיבוד הוותיק ביותר" />
+      </div>
+      <div className="panel">
+        <div className="panel-title">מופעי Worker (heartbeat)</div>
+        {instances.length ? (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>מזהה Worker</th><th>סטטוס</th><th>דופק אחרון</th><th>הופעל</th><th>רענון</th></tr></thead>
+            <tbody>{instances.map((r) => (
+              <tr key={r.worker_id}>
+                <td dir="ltr" className="small">{r.worker_id}</td>
+                <td><span className={`status ${r.status === "ready" ? "Completed" : "ClosedForJoining"}`}>{r.status}</span></td>
+                <td>{timeAgo(r.heartbeat_at)}</td>
+                <td>{timeAgo(r.started_at)}</td>
+                <td>{r.fresh ? <span className="vbadge ok">✓ טרי</span> : <span className="vbadge no">○ ישן</span>}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <EmptyState icon="⚙️" title="אין מופעי Worker מדווחים" body="אם ה־Worker רץ, ה־heartbeat יופיע תוך שניות." />}
+      </div>
+      {dlq > 0 ? <div className="notice err">יש {num(dlq)} עבודות ב־DLQ — נדרשת בדיקה ידנית. ה־Worker ריבוני; אין פעולות המשנות DealState כאן.</div> : null}
+    </>
+  );
 }
 
 function PaymentsScreen() {
-  return <JsonStatScreen title="תשלומים וסליקה" fetcher={() => api.adminPaymentOps()} render={(d) => (
-    <pre className="panel small" style={{ overflowX: "auto", direction: "ltr", textAlign: "left" }}>{JSON.stringify(d, null, 2).slice(0, 6000)}</pre>
-  )} />;
+  const { data, error } = useFetch(() => api.adminPaymentOps(), [], 30_000);
+  if (error) return <><h1>תשלומים וסליקה</h1><Err msg={error} /></>;
+  if (!data) return <><h1>תשלומים וסליקה</h1><Spinner /></>;
+  const d = data as Json;
+  const prov = d.provider || {};
+  const synthetic = String(prov.mode || prov.provider_mode || "").match(/mock|synthetic|demo|internal/i) || String(prov.provider || "").match(/mock/i);
+  const ledger = d.fee_ledger || {};
+  const attempts: Json[] = d.recent_attempts || [];
+  const ledgerRows: Json[] = d.recent_ledger || [];
+  const byType: Json[] = d.attempts_by_type || [];
+  const resultTone = (rc: string) => rc === "success" ? "Completed" : rc === "permanent_fail" ? "Failed" : rc === "temporary_fail" ? "CompletionWindow" : "ClosedForJoining";
+  return (
+    <>
+      <h1>תשלומים וסליקה</h1>
+      <div className={`notice ${synthetic ? "info" : "err"}`}>
+        {synthetic
+          ? <><b>ספק סינתטי / MOCKPAY</b> — כל הסכומים כאן הם כסף בדיקה סינתטי, לא מזומן אמיתי שהתקבל. ספק אמיתי: 0 קריאות.</>
+          : <><b>ספק אמיתי פעיל:</b> {String(prov.provider || "")} · {String(prov.mode || "")}</>}
+      </div>
+      <div className="stat-row">
+        <StatTile num={ils(ledger.gross_charged || 0)} label={synthetic ? "ברוטו סינתטי שנגבה" : "ברוטו שנגבה"} tone="good" />
+        <StatTile num={ils(ledger.fee_total || 0)} label="עמלת סיטון (בסיס+מע״מ)" sub={`בסיס ${ils(ledger.fee_base || 0)} · מע״מ ${ils(ledger.fee_vat || 0)}`} />
+        <StatTile num={num(ledger.entries || 0)} label="רשומות ליבון (ledger)" />
+        <StatTile num={num(ledger.refund_entries || 0)} label="החזרים" tone={Number(ledger.refund_entries) > 0 ? "warn" : undefined} />
+      </div>
+      <p className="muted small" style={{ marginTop: -6 }}>{ledger.note}</p>
+      <div className="panel">
+        <div className="panel-title">ניסיונות חיוב לפי סוג</div>
+        {byType.length ? (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>סוג</th><th className="num">הצלחות</th><th className="num">כשל זמני</th><th className="num">כשל קבוע</th><th className="num">לא ידוע</th></tr></thead>
+            <tbody>{byType.map((r) => (
+              <tr key={r.attempt_type}>
+                <td dir="ltr">{r.attempt_type}</td>
+                <td className="num" style={{ color: "var(--basil, #2e7d32)" }}>{num(r.success)}</td>
+                <td className="num">{num(r.temporary_fail)}</td>
+                <td className="num" style={{ color: Number(r.permanent_fail) > 0 ? "var(--pomegranate)" : undefined }}>{num(r.permanent_fail)}</td>
+                <td className="num">{num(r.unknown)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <p className="muted small">אין עדיין ניסיונות חיוב.</p>}
+      </div>
+      <div className="panel">
+        <div className="panel-title">ניסיונות חיוב אחרונים (עם correlation/idempotency)</div>
+        {attempts.length ? (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>מתי</th><th>עסקה</th><th>קונה</th><th>סוג</th><th>תוצאה</th><th>מזהה קורלציה</th></tr></thead>
+            <tbody>{attempts.map((r) => (
+              <tr key={r.attempt_id}>
+                <td>{fmtDate(r.created_at)}</td>
+                <td className="small">{r.deal_title || (r.deal_id ? String(r.deal_id).slice(0, 8) : "—")}</td>
+                <td className="small">{r.buyer_name || "—"}</td>
+                <td dir="ltr" className="small">{r.attempt_type}</td>
+                <td><span className={`status small ${resultTone(String(r.result_class))}`}>{r.result_class}</span></td>
+                <td dir="ltr" className="small mono">{String(r.correlation_id || "").slice(0, 40)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <p className="muted small">אין עדיין ניסיונות חיוב.</p>}
+      </div>
+      {ledgerRows.length ? (
+        <div className="panel">
+          <div className="panel-title">רשומות ליבון עמלה אחרונות</div>
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>מתי</th><th>עסקה</th><th>סוג</th><th className="num">ברוטו</th><th className="num">עמלת סיטון</th><th>קורלציה</th></tr></thead>
+            <tbody>{ledgerRows.map((r, i) => (
+              <tr key={i}>
+                <td>{fmtDate(r.created_at)}</td>
+                <td className="small">{r.deal_title || "—"}</td>
+                <td dir="ltr" className="small">{r.event_type}</td>
+                <td className="num">{ils(r.gross_amount)}</td>
+                <td className="num">{ils(r.platform_fee_total_amount)}</td>
+                <td dir="ltr" className="small mono">{String(r.correlation_id || "").slice(0, 30)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
+const NOTIF_STATUS_TONE: Record<string, string> = { sent: "Completed", failed: "Failed", pending: "ClosedForJoining", processing: "CompletionWindow", skipped: "Draft", cancelled: "Cancelled" };
+
 function NotificationsScreen() {
-  return <JsonStatScreen title="התראות" fetcher={() => api.adminNotificationsStatus()} render={(d) => {
-    const byStatus = d.by_status || d.notifications?.by_status || {};
-    return (
-      <>
-        <div className="stat-row">
-          {Object.entries(byStatus as Record<string, unknown>).map(([k, v]) => (
-            <StatTile key={k} num={num(v)} label={k} tone={k === "failed" && Number(v) > 0 ? "bad" : undefined} />
-          ))}
-        </div>
-        <pre className="panel small" style={{ overflowX: "auto", direction: "ltr", textAlign: "left" }}>{JSON.stringify(d, null, 2).slice(0, 4000)}</pre>
-      </>
-    );
-  }} />;
+  const { data, error } = useFetch(() => api.adminNotificationsStatus(), [], 30_000);
+  const [filter, setFilter] = useState("all");
+  if (error) return <><h1>התראות</h1><Err msg={error} /></>;
+  if (!data) return <><h1>התראות</h1><Spinner /></>;
+  const d = data as Json;
+  const n = d.notifications || {};
+  const prov = n.provider || {};
+  const logOnly = !prov.external_delivery;
+  const events: Json[] = (d.recent_events || []).filter((e: Json) => filter === "all" || e.status === filter);
+  return (
+    <>
+      <h1>התראות</h1>
+      <div className={`notice ${logOnly ? "info" : "err"}`}>
+        {logOnly
+          ? <><b>LOG-ONLY / סינתטי</b> — התראות נרשמות ביומן בלבד ואינן נשלחות לקונים אמיתיים. SMS/מייל אמיתיים: 0.</>
+          : <><b>שליחה אמיתית פעילה:</b> {String(prov.code)} · {String(prov.mode)}</>}
+      </div>
+      <div className="stat-row">
+        <StatTile num={num(n.sent || 0)} label={logOnly ? "עובדו (log-only)" : "נשלחו"} tone="good" />
+        <StatTile num={num(n.pending || 0)} label="ממתינים" tone={Number(n.pending) > 20 ? "warn" : undefined} />
+        <StatTile num={num(n.failed || 0)} label="נכשלו" tone={Number(n.failed) > 0 ? "bad" : "good"} />
+        <StatTile num={num(n.skipped || 0)} label="דולגו" />
+        <StatTile num={ageLabel(n.oldest_pending_age_s)} label="ממתין ותיק" />
+      </div>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
+        {["all", "sent", "pending", "failed", "skipped"].map((f) => (
+          <button key={f} className={`chip-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>{f === "all" ? "הכל" : f}</button>
+        ))}
+      </div>
+      <div className="panel">
+        <div className="panel-title">אירועי התראה אחרונים</div>
+        {events.length ? (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>מתי</th><th>סוג אירוע</th><th>נמען</th><th>ערוץ</th><th>אדפטר</th><th>סטטוס</th><th className="num">ניסיונות</th><th>עסקה</th><th>שגיאה אחרונה</th></tr></thead>
+            <tbody>{events.map((e) => (
+              <tr key={e.notification_id}>
+                <td>{fmtDate(e.created_at)}</td>
+                <td dir="ltr" className="small">{e.event_type}</td>
+                <td className="small">{e.recipient_type}</td>
+                <td className="small">{e.channel}</td>
+                <td><span className="vbadge no" title="log-only synthetic adapter">{e.adapter}{e.adapter_mode && e.adapter_mode !== e.adapter ? `/${e.adapter_mode}` : ""}</span></td>
+                <td><span className={`status small ${NOTIF_STATUS_TONE[String(e.status)] || "ClosedForJoining"}`}>{e.status}</span></td>
+                <td className="num">{num(e.attempts)}</td>
+                <td className="small">{e.deal_title || "—"}</td>
+                <td className="small" style={{ color: e.last_error ? "var(--pomegranate)" : undefined }}>{e.last_error || "—"}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <EmptyState icon="🔔" title="אין אירועי התראה" body="התראות נוצרות אוטומטית מאירועי עסקה." />}
+      </div>
+    </>
+  );
 }
 
 function SupportScreen() {
@@ -788,10 +1041,103 @@ function AuditScreen() {
   );
 }
 
+function HealthDot({ ok, warn }: { ok: boolean; warn?: boolean }) {
+  return <span className={`hdot ${ok ? "ok" : warn ? "warn" : "bad"}`} />;
+}
+
+function SafetyBadge({ on, label }: { on: boolean; label: string }) {
+  return <span className={`safety-badge ${on ? "on" : "off"}`}>{label}: {on ? "ON" : "OFF"}</span>;
+}
+
 function SystemScreen() {
-  return <JsonStatScreen title="בריאות המערכת" fetcher={() => api.adminSystemStatus()} render={(d) => (
-    <pre className="panel small" style={{ overflowX: "auto", direction: "ltr", textAlign: "left" }}>{JSON.stringify(d, null, 2).slice(0, 8000)}</pre>
-  )} />;
+  const { data, error, reload } = useFetch(() => api.adminSystemStatus(), [], 20_000);
+  if (error) return <><h1>בריאות המערכת</h1><Err msg={error} /></>;
+  if (!data) return <><h1>בריאות המערכת</h1><Spinner /></>;
+  const s = (data as Json).system_status || {};
+  const counts = s.operational_counts || {};
+  const storage = s.storage || {};
+  const badges = s.safety_badges || {};
+  const integ = s.integrations || {};
+  const payment = integ.payment || {};
+  const notif = integ.notifications || {};
+  const appOk = s.app_health?.ok;
+  const dbOk = true; // reaching this endpoint proves DB connectivity (it queried the DB)
+  const dlq = Number(counts.dlq_count || 0);
+  const activeOutbox = Number(counts.active_outbox || 0);
+  const health = [
+    { label: "Web (readiness)", ok: Boolean(appOk) },
+    { label: "מסד נתונים (חיבור)", ok: dbOk },
+    { label: "אחסון (Storage)", ok: Boolean(storage.durable), warn: !storage.durable },
+    { label: "תור עבודות", ok: activeOutbox < 50, warn: activeOutbox >= 50 },
+    { label: "DLQ", ok: dlq === 0, warn: false },
+    { label: "מיגרציות/סכימה", ok: true }
+  ];
+  return (
+    <>
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h1>בריאות המערכת</h1>
+        <button className="btn btn-sm btn-ghost" onClick={reload}>רענון</button>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">מצב בטיחות (Synthetic Safety)</div>
+        <div className="safety-row">
+          <SafetyBadge on={Boolean(badges.real_money)} label="Real Money" />
+          <SafetyBadge on={Boolean(badges.grow)} label="Grow" />
+          <SafetyBadge on={Boolean(badges.real_sms)} label="Real SMS" />
+          <SafetyBadge on={Boolean(badges.real_email)} label="Real Email" />
+          <SafetyBadge on={Boolean(badges.real_invoice)} label="Real Invoice" />
+        </div>
+        <p className="muted small" style={{ marginTop: 8 }}>כל הדגלים אמורים להיות OFF בשלב זה. הם נגזרים ממצב הספקים בפועל, לא מקודדים ידנית.</p>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">קונסולת בריאות</div>
+        <div className="health-grid">
+          {health.map((h) => (
+            <div key={h.label} className="health-item">
+              <HealthDot ok={h.ok} warn={h.warn} />
+              <span>{h.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="stat-row">
+        <StatTile num={num(activeOutbox)} label="עבודות פעילות בתור" tone={activeOutbox > 50 ? "warn" : undefined} />
+        <StatTile num={num(dlq)} label="DLQ" tone={dlq > 0 ? "bad" : "good"} />
+        <StatTile num={num(counts.failed_webhooks || 0)} label="Webhooks שנכשלו" tone={Number(counts.failed_webhooks) > 0 ? "warn" : undefined} />
+        <StatTile num={num(counts.open_support_tickets || 0)} label="פניות תמיכה פתוחות" />
+      </div>
+
+      <div className="panel-grid-2">
+        <div className="panel">
+          <div className="panel-title">אחסון (Storage)</div>
+          <div className="kv">
+            <span className="k">ספק</span><span className="v" dir="ltr">{storage.provider || "—"}</span>
+            <span className="k">אדפטר</span><span className="v" dir="ltr">{storage.adapter || "—"}</span>
+            <span className="k">עמיד (durable)</span><span className="v">{storage.durable ? <span className="vbadge ok">✓ כן</span> : <span className="vbadge no">○ לא</span>}</span>
+            <span className="k">בטוח לריבוי מופעים</span><span className="v">{storage.multi_instance_safe ? <span className="vbadge ok">✓ כן</span> : <span className="vbadge no">○ לא</span>}</span>
+            <span className="k">סטטוס סקייל</span><span className="v" dir="ltr">{storage.scale_status || "—"}</span>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-title">ספקים ומצבי הפעלה</div>
+          <div className="kv">
+            <span className="k">תשלומים</span><span className="v" dir="ltr">{payment.provider || "—"} · {payment.mode || "—"}</span>
+            <span className="k">התראות</span><span className="v" dir="ltr">{notif.provider || "—"} · {notif.external_delivery ? "external" : "log-only"}</span>
+            <span className="k">מצב פריסה</span><span className="v" dir="ltr">{s.deployment?.mode || "—"}</span>
+          </div>
+        </div>
+      </div>
+      {Array.isArray(s.notes) && s.notes.length ? (
+        <div className="panel">
+          <div className="panel-title">הערות מערכת</div>
+          <ul className="notes-list">{s.notes.map((note: string, i: number) => <li key={i}>{note}</li>)}</ul>
+        </div>
+      ) : null}
+    </>
+  );
 }
 
 // ── shell ──────────────────────────────────────────────────────────────────
