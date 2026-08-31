@@ -75,6 +75,7 @@ async function proveTwoWebLastUnitHttp(db, origins) {
   const trackingBefore = await requestJson(origins[1], trackingPath);
   if (!trackingBefore.response.ok || trackingBefore.body.tracking?.money_state !== "AuthHeld") throw new Error("HTTP buyer tracking failed before restart");
   docker(["restart", "web"]);
+  origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
   await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
   const trackingAfter = await requestJson(origins[0], trackingPath);
   const refreshedDeal = await requestJson(origins[0], `/api/deals/${dealId}/public`);
@@ -138,6 +139,7 @@ async function main() {
     const uid = docker(["exec", "-T", "web", "id", "-u"]);
     if (String(uid.stdout || "").trim() === "0") throw new Error("web container must run as non-root");
     docker(["restart", "web"]);
+    origins[0] = `http://127.0.0.1:${publishedPort("web", 3000)}`;
     await waitFor(async () => (await fetch(`${origins[0]}/health`)).ok);
     if (!(await fetch(`${origins[0]}${firstImage.image.public_url}`)).ok) throw new Error("uploaded image was lost after web restart");
     const countBeforeDelete = objectCount();
