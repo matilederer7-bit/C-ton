@@ -18,6 +18,14 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
       else if (placeholder.test(value)) failures.push(`${name} cannot use a placeholder value`);
     }
   }
+  if (storageMode === "supabase") {
+    const placeholder = /^(placeholder|changeme|example|dummy|xxx|ci-placeholder)/i;
+    for (const name of ["SUPABASE_URL", "SITON_STORAGE_BROKER_KEY"]) {
+      const value = String(env[name] || "").trim();
+      if (!value) failures.push(`${name} is required for supabase storage`);
+      else if (placeholder.test(value)) failures.push(`${name} cannot use a placeholder value`);
+    }
+  }
   const paymentProvider = String(env.PAYMENT_PROVIDER || "").trim().toLowerCase();
   const paymentMode = String(env.PAYMENT_PROVIDER_MODE || "").trim().toLowerCase();
   const paymentEnvironment = String(env.PAYMENT_ENVIRONMENT || "").trim().toLowerCase();
@@ -60,7 +68,7 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     if (baseUrl !== "https://api.stripe.com") failures.push("production Stripe requires the canonical https://api.stripe.com endpoint");
   }
   if (paymentMode === "mock" || paymentMode === "mock-backed") failures.push("production cannot use PAYMENT_PROVIDER_MODE=mock-backed");
-  if (storage !== "object") failures.push("production requires STORAGE_ADAPTER=object");
+  if (!["object", "supabase"].includes(storage)) failures.push("production requires STORAGE_ADAPTER=object or STORAGE_ADAPTER=supabase");
   if (!env.DATABASE_URL) failures.push("DATABASE_URL is required in production");
   if (!env.ADMIN_API_KEY) failures.push("ADMIN_API_KEY is required in production");
   if (!env.SELLER_SESSION_SECRET) failures.push("SELLER_SESSION_SECRET is required in production");

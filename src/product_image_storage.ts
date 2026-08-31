@@ -1,6 +1,6 @@
 import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { buildStorageAdapter, type StorageAdapter } from "./storage_adapter.js";
+import { buildStorageAdapter, type StorageAdapter, type StorageProviderCode } from "./storage_adapter.js";
 
 export const DEAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const DEAL_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -13,12 +13,13 @@ export type DealImageUploadInput = {
 };
 
 export type DealImageFile = {
-  storage_provider: "local" | "s3";
+  storage_provider: StorageProviderCode;
   storage_key: string;
   original_filename: string | null;
   mime_type: string;
   size_bytes: number;
   checksum_sha256: string;
+  public_url: string | null;
 };
 
 function adapter(): StorageAdapter {
@@ -81,7 +82,8 @@ export async function saveDealImage(input: DealImageUploadInput): Promise<DealIm
   const environmentPrefix = String(process.env.OBJECT_STORAGE_PREFIX || process.env.APP_DEPLOYMENT_MODE || "test").replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64) || "test";
   const storageKey = `${environmentPrefix}/deals/${safeDealSegment}/images/${randomUUID()}${extensionForMime(mimeType)}`;
   const checksumSha256 = createHash("sha256").update(buffer).digest("hex");
-  const stored = await adapter().put(storageKey, buffer, { contentType: mimeType, checksumSha256 });
+  const storage = adapter();
+  const stored = await storage.put(storageKey, buffer, { contentType: mimeType, checksumSha256 });
 
   return {
     storage_provider: stored.storage_provider,
@@ -89,7 +91,8 @@ export async function saveDealImage(input: DealImageUploadInput): Promise<DealIm
     original_filename: originalFilename ? basename(originalFilename) : null,
     mime_type: mimeType,
     size_bytes: stored.size_bytes,
-    checksum_sha256: checksumSha256
+    checksum_sha256: checksumSha256,
+    public_url: storage.publicReadUrl ? storage.publicReadUrl(stored.storage_key) : null
   };
 }
 

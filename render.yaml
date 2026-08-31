@@ -36,6 +36,19 @@ services:
         generateValue: true
       - key: SELLER_SESSION_SECRET
         generateValue: true
+      # R7 — canonical Supabase Storage via the storage-broker Edge Function.
+      # SITON_STORAGE_BROKER_KEY is the narrowly-scoped broker credential
+      # (bucket-scoped storage ops only); its plaintext lives only in Render.
+      - key: STORAGE_ADAPTER
+        value: supabase
+      - key: SUPABASE_URL
+        value: https://hnptacfzuqebfgeshadq.supabase.co
+      - key: SUPABASE_STORAGE_BUCKET
+        value: deal-images
+      - key: OBJECT_STORAGE_PREFIX
+        value: staging
+      - key: SITON_STORAGE_BROKER_KEY
+        sync: false
       # Money, communications and providers stay synthetic/off in staging.
       # Grow activation is a separate explicitly authorized stage.
       - key: PAYMENT_PROVIDER
@@ -77,6 +90,18 @@ services:
         generateValue: true
       - key: SELLER_SESSION_SECRET
         generateValue: true
+      # R7 — the Worker shares the canonical Supabase Storage broker identity
+      # (asynchronous storage cleanup must reach the same durable bucket).
+      - key: STORAGE_ADAPTER
+        value: supabase
+      - key: SUPABASE_URL
+        value: https://hnptacfzuqebfgeshadq.supabase.co
+      - key: SUPABASE_STORAGE_BUCKET
+        value: deal-images
+      - key: OBJECT_STORAGE_PREFIX
+        value: staging
+      - key: SITON_STORAGE_BROKER_KEY
+        sync: false
       # Money, communications and providers stay synthetic/off in staging.
       # Grow activation is a separate explicitly authorized stage.
       - key: PAYMENT_PROVIDER

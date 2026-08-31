@@ -89,6 +89,7 @@ import {
   readDealImage,
   saveDealImage
 } from "./product_image_storage.js";
+import type { StorageProviderCode } from "./storage_adapter.js";
 import { buildPayoutProvider } from "./payout_provider.js";
 import { buildPayoutRail, ensurePayoutRailTables } from "./payout_rail.js";
 import {
@@ -2346,7 +2347,7 @@ function storageCleanupErrorCode(error: unknown) {
   return String(value?.code || value?.name || "storage_cleanup_failed").replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 100);
 }
 
-async function enqueueStorageCleanupTask(storageProvider: "local" | "s3", storageKey: string, reason: string) {
+async function enqueueStorageCleanupTask(storageProvider: StorageProviderCode, storageKey: string, reason: string) {
   await pool.query(
     `INSERT INTO siton.storage_cleanup_tasks(storage_provider, storage_key, reason)
      VALUES ($1,$2,$3)
@@ -2378,7 +2379,20 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
     await hitTestFault("cleanup.after_claim");
     try {
       const storage = getDealImageStorageAdapter();
-      if (storage.providerCode !== task.storage_provider) throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
+      if (storage.providerCode !== task.storage_provider) {
+        // Ephemeral-instance local files are unreachable once the runtime has
+        // moved to a durable provider: there is nothing left to clean.
+        if (String(task.storage_provider) === "local") {
+          await pool.query(
+            `UPDATE siton.storage_cleanup_tasks SET status='completed', completed_at=now(), last_error_code='local_provider_retired', updated_at=now()
+             WHERE task_id=$1 AND status='processing' AND attempt_count=$2`,
+            [task.task_id, task.attempt_count]
+          );
+          processed.push({ task_id: String(task.task_id), status: "completed" });
+          continue;
+        }
+        throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
+      }
       await storage.delete(String(task.storage_key));
       await hitTestFault("cleanup.before_ack");
       await pool.query(
@@ -2652,7 +2666,7 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
   requireUuid(imageId, "image_id");
   const row = await withTx(async (c) => {
     const result = await c.query(
-      `SELECT i.storage_key, i.mime_type, d.state, d.published_at, d.seller_id
+      `SELECT i.storage_key, i.mime_type, i.public_url, d.state, d.published_at, d.seller_id
        FROM siton.deal_images i
        JOIN siton.deals d ON d.deal_id=i.deal_id
        WHERE i.image_id=$1`,
@@ -2674,6 +2688,15 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     }
     return image;
   });
+  // Published imagery with a durable public URL is served straight from the
+  // storage CDN; the proxy remains authoritative for Draft (private) images
+  // and for legacy records without a public URL.
+  const externalPublicUrl = String(row.public_url || "").trim();
+  if (row.published_at && /^https:\/\//.test(externalPublicUrl)) {
+    return reply
+      .header("cache-control", "public, max-age=31536000, immutable")
+      .redirect(externalPublicUrl, 302);
+  }
   const file = await readDealImage(String(row.storage_key));
   return reply
     .header("content-type", String(row.mime_type))
@@ -3171,13 +3194,14 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       }
       const inserted = await c.query(
         `INSERT INTO siton.deal_images
-           (deal_id, storage_provider, storage_key, original_filename, mime_type, size_bytes, checksum_sha256, sort_order, is_primary)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type, size_bytes, checksum_sha256, sort_order, is_primary)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING image_id, deal_id, mime_type, size_bytes, is_primary, sort_order`,
         [
           dealId,
           saved.storage_provider,
           saved.storage_key,
+          saved.public_url,
           saved.original_filename,
           saved.mime_type,
           saved.size_bytes,
@@ -3192,8 +3216,8 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
         image: {
           image_id: image.image_id,
           deal_id: image.deal_id,
-          public_url: getDealImagePublicUrl(image),
-          image_url: getDealImagePublicUrl(image),
+          public_url: saved.public_url || getDealImagePublicUrl(image),
+          image_url: saved.public_url || getDealImagePublicUrl(image),
           mime_type: image.mime_type,
           size_bytes: Number(image.size_bytes),
           is_primary: Boolean(image.is_primary),
@@ -3338,7 +3362,7 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
         [dealId]
       );
     }
-    return { storage_provider: image.storage_provider as "local" | "s3", storage_key: String(image.storage_key) };
+    return { storage_provider: image.storage_provider as StorageProviderCode, storage_key: String(image.storage_key) };
   });
 
   let deletion: "deleted" | "scheduled" = "deleted";

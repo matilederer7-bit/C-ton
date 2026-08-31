@@ -5,7 +5,7 @@ import { DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, ListObjectsV2
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { hitTestFault } from "./fault_injection.js";
 
-export type StorageProviderCode = "local" | "s3";
+export type StorageProviderCode = "local" | "s3" | "supabase";
 export type StorageAdapterMode = "local" | "object";
 export type StorageAdapterCapabilities = { multi_instance_safe: boolean; signed_urls_supported: boolean; immutable_content_addressed: boolean; scale_blocker_for_multi_instance: boolean; scale_notes: string[] };
 export type StoredObject = { storage_provider: StorageProviderCode; storage_key: string; size_bytes: number; checksum_sha256?: string | undefined; content_type?: string | undefined };
@@ -23,6 +23,7 @@ export interface StorageAdapter {
   exists(key: string, signal?: AbortSignal): Promise<boolean>;
   metadata(key: string, signal?: AbortSignal): Promise<StoredObjectMetadata>;
   signedReadUrl?(key: string, expiresInSeconds?: number): Promise<string>;
+  publicReadUrl?(key: string): string;
   listKeys(prefix?: string, limit?: number): Promise<string[]>;
   describeForReadiness(): StorageAdapterSummary;
 }
@@ -120,6 +121,112 @@ export class S3CompatibleStorageAdapter implements StorageAdapter {
   describeForReadiness(): StorageAdapterSummary { return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: true, scale_blocker_for_multi_instance: false, notes: ["private_bucket_required", "s3_compatible_adapter_configured"], root: null, bucket: "<configured>", region: this.config.region, endpoint_configured: Boolean(this.config.endpoint), signed_url_ttl_seconds: this.config.signedUrlTtlSeconds }; }
 }
 
+export type SupabaseBrokerStorageConfig = { brokerUrl: string; brokerKey: string; supabaseUrl: string; bucket: string; timeoutMs: number };
+
+// R7 canonical staging/production media authority: Supabase Storage, reached
+// exclusively through the storage-broker Edge Function. The privileged
+// service-role credential stays inside Supabase's own runtime; this process
+// holds only the narrowly-scoped broker key (bucket-scoped mutations only).
+export class SupabaseBrokerStorageAdapter implements StorageAdapter {
+  readonly mode = "object" as const;
+  readonly providerCode = "supabase" as const;
+  constructor(private readonly config: SupabaseBrokerStorageConfig, private readonly fetchImpl: typeof fetch = fetch) {}
+  capabilities(): StorageAdapterCapabilities { return { multi_instance_safe: true, signed_urls_supported: false, immutable_content_addressed: true, scale_blocker_for_multi_instance: false, scale_notes: ["supabase storage via privileged broker", "public CDN reads for published imagery"] }; }
+
+  private async call(body: Record<string, unknown>, signal?: AbortSignal): Promise<any> {
+    let response: Response;
+    try {
+      response = await this.fetchImpl(this.config.brokerUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-siton-broker-key": this.config.brokerKey },
+        body: JSON.stringify(body),
+        signal: signal || AbortSignal.timeout(this.config.timeoutMs)
+      });
+    } catch (error: any) {
+      const name = String(error?.name || "");
+      if (["TimeoutError", "AbortError"].includes(name)) { const err: any = new Error("storage_timeout"); err.statusCode = 504; err.code = "storage_timeout"; err.cause = error; throw err; }
+      const err: any = new Error("storage_broker_unreachable"); err.statusCode = 503; err.code = "storage_broker_unreachable"; err.cause = error; throw err;
+    }
+    let parsed: any = null;
+    try { parsed = await response.json(); } catch { parsed = null; }
+    if (response.status === 401 || parsed?.code === "broker_unauthorized") { const err: any = new Error("storage_access_denied"); err.statusCode = 503; err.code = "storage_access_denied"; throw err; }
+    if (parsed && parsed.ok === true) return parsed;
+    const code = String(parsed?.code || "storage_broker_error");
+    if (code === "storage_object_exists") { const err: any = new Error("storage_object_exists"); err.statusCode = 409; err.code = code; throw err; }
+    if (code === "storage_object_not_found") { const err: any = new Error("storage_object_not_found"); err.statusCode = 404; err.code = code; throw err; }
+    const err: any = new Error(code); err.statusCode = response.status >= 500 ? 503 : (response.status === 400 ? 400 : 503); err.code = code; throw err;
+  }
+
+  async put(key: string, content: Buffer, options: PutObjectOptions = {}): Promise<StoredObject> {
+    const normalized = validateStorageKey(key);
+    const checksumHex = options.checksumSha256 || createHash("sha256").update(content).digest("hex");
+    try {
+      await hitTestFault("storage.before_put");
+      const result = await this.call({ op: "put", key: normalized, content_base64: content.toString("base64"), content_type: options.contentType || "application/octet-stream", checksum_sha256: checksumHex }, options.signal);
+      await hitTestFault("storage.after_put_before_verify");
+      if (!result.verified || Number(result.size_bytes) !== content.length) { await this.delete(normalized).catch(() => undefined); const err: any = new Error("storage_verification_failed"); err.statusCode = 503; err.code = "storage_verification_failed"; throw err; }
+      return { storage_provider: this.providerCode, storage_key: normalized, size_bytes: content.length, checksum_sha256: checksumHex, content_type: options.contentType };
+    } catch (error: any) {
+      if (String(error?.code) !== "storage_timeout") throw error;
+      // PUT timeouts are outcome-unknown: reconcile the stable key before failing.
+      try {
+        const reconciled = await this.metadata(normalized);
+        if (reconciled.exists && reconciled.size_bytes === content.length) {
+          return { storage_provider: this.providerCode, storage_key: normalized, size_bytes: content.length, checksum_sha256: checksumHex, content_type: options.contentType };
+        }
+      } catch { /* cleanup below is the fail-closed outcome */ }
+      await this.delete(normalized).catch(() => undefined);
+      throw error;
+    }
+  }
+
+  async get(key: string, signal?: AbortSignal): Promise<Buffer> {
+    const result = await this.call({ op: "get", key: validateStorageKey(key) }, signal);
+    return Buffer.from(String(result.content_base64 || ""), "base64");
+  }
+
+  async metadata(key: string, signal?: AbortSignal): Promise<StoredObjectMetadata> {
+    await hitTestFault("storage.before_head");
+    const result = await this.call({ op: "head", key: validateStorageKey(key) }, signal);
+    return { exists: Boolean(result.exists), size_bytes: result.exists ? Number(result.size_bytes || 0) : null, checksum_sha256: null, content_type: result.exists ? (result.content_type || null) : null };
+  }
+
+  async exists(key: string, signal?: AbortSignal): Promise<boolean> { return (await this.metadata(key, signal)).exists; }
+
+  async delete(key: string, signal?: AbortSignal): Promise<void> {
+    await hitTestFault("storage.before_delete");
+    await this.call({ op: "delete", key: validateStorageKey(key) }, signal);
+    await hitTestFault("storage.after_delete");
+  }
+
+  async listKeys(prefix = "", limit = 500): Promise<string[]> {
+    const normalizedPrefix = validateStoragePrefix(prefix).replace(/\/+$/, "");
+    const result = await this.call({ op: "list", prefix: normalizedPrefix, limit: Math.max(1, Math.min(1000, limit)) });
+    return (Array.isArray(result.keys) ? result.keys : []).map((value: unknown) => String(value || "")).filter(Boolean);
+  }
+
+  publicReadUrl(key: string): string {
+    const normalized = validateStorageKey(key);
+    return `${this.config.supabaseUrl.replace(/\/+$/, "")}/storage/v1/object/public/${encodeURIComponent(this.config.bucket)}/${normalized.split("/").map(encodeURIComponent).join("/")}`;
+  }
+
+  describeForReadiness(): StorageAdapterSummary {
+    return { adapter: this.mode, storage_provider: this.providerCode, configured: true, multi_instance_safe: true, scale_blocker_for_multi_instance: false, notes: ["supabase_storage_via_privileged_broker", "no_privileged_storage_secret_in_runtime", "public_cdn_reads_for_published_imagery"], root: null, bucket: this.config.bucket, region: null, endpoint_configured: true, signed_url_ttl_seconds: null };
+  }
+}
+
+function requiredSupabaseBrokerConfig(env: NodeJS.ProcessEnv): SupabaseBrokerStorageConfig {
+  const value = (name: string) => String(env[name] || "").trim();
+  const supabaseUrl = value("SUPABASE_URL");
+  const brokerKey = value("SITON_STORAGE_BROKER_KEY");
+  const forbidden = /^(placeholder|changeme|test|example|dummy|xxx|ci-placeholder)/i;
+  const missing = [!supabaseUrl ? "SUPABASE_URL" : "", !brokerKey ? "SITON_STORAGE_BROKER_KEY" : ""].filter(Boolean);
+  const unsafe = brokerKey && forbidden.test(brokerKey) ? ["SITON_STORAGE_BROKER_KEY"] : [];
+  if (missing.length || unsafe.length) { const err: any = new Error(`supabase storage configuration invalid: missing=${missing.join(",") || "none"}; unsafe=${unsafe.join(",") || "none"}`); err.code = "object_storage_configuration_invalid"; throw err; }
+  const brokerUrl = value("SITON_STORAGE_BROKER_URL") || `${supabaseUrl.replace(/\/+$/, "")}/functions/v1/storage-broker`;
+  return { brokerUrl, brokerKey, supabaseUrl, bucket: value("SUPABASE_STORAGE_BUCKET") || "deal-images", timeoutMs: Math.max(100, Number(value("OBJECT_STORAGE_TIMEOUT_MS") || 15000)) };
+}
+
 function requiredExternalStorageConfig(env: NodeJS.ProcessEnv): S3CompatibleStorageConfig {
   const value = (name: string) => String(env[name] || "").trim();
   const missing = ["OBJECT_STORAGE_REGION", "OBJECT_STORAGE_BUCKET", "OBJECT_STORAGE_ACCESS_KEY_ID", "OBJECT_STORAGE_SECRET_ACCESS_KEY"].filter((name) => !value(name));
@@ -130,6 +237,6 @@ function requiredExternalStorageConfig(env: NodeJS.ProcessEnv): S3CompatibleStor
 }
 
 let cachedAdapter: StorageAdapter | null = null;
-export function buildStorageAdapter(env: NodeJS.ProcessEnv = process.env): StorageAdapter { if (cachedAdapter) return cachedAdapter; const mode = String(env.STORAGE_ADAPTER || "local").trim().toLowerCase(); if (mode === "object" || mode === "s3") { cachedAdapter = new S3CompatibleStorageAdapter(requiredExternalStorageConfig(env)); return cachedAdapter; } if (mode !== "local") { const err: any = new Error("unsupported storage adapter"); err.code = "unsupported_storage_adapter"; throw err; } cachedAdapter = new LocalStorageAdapter(resolve(env.DEAL_IMAGE_UPLOAD_DIR || env.UPLOAD_DIR || join(process.cwd(), "uploads", "deal-images"))); return cachedAdapter; }
+export function buildStorageAdapter(env: NodeJS.ProcessEnv = process.env): StorageAdapter { if (cachedAdapter) return cachedAdapter; const mode = String(env.STORAGE_ADAPTER || "local").trim().toLowerCase(); if (mode === "supabase") { cachedAdapter = new SupabaseBrokerStorageAdapter(requiredSupabaseBrokerConfig(env)); return cachedAdapter; } if (mode === "object" || mode === "s3") { cachedAdapter = new S3CompatibleStorageAdapter(requiredExternalStorageConfig(env)); return cachedAdapter; } if (mode !== "local") { const err: any = new Error("unsupported storage adapter"); err.code = "unsupported_storage_adapter"; throw err; } cachedAdapter = new LocalStorageAdapter(resolve(env.DEAL_IMAGE_UPLOAD_DIR || env.UPLOAD_DIR || join(process.cwd(), "uploads", "deal-images"))); return cachedAdapter; }
 export function resetStorageAdapterForTests() { cachedAdapter = null; }
 export function getStorageReadinessReport(adapter: StorageAdapter, opts: { configured_object_storage_env: boolean; orphan_count_unknown_reason?: string; active_image_keys_count?: number; orphan_keys_count?: number; missing_keys_count?: number }) { const summary = adapter.describeForReadiness(); const blockers = summary.scale_blocker_for_multi_instance ? ["object_storage_required_before_multi_instance"] : []; const warnings = opts.configured_object_storage_env ? [] : ["object_storage_not_configured"]; return { adapter: summary.adapter, storage_provider: summary.storage_provider, configured: summary.configured, multi_instance_safe: summary.multi_instance_safe, scale_status: summary.multi_instance_safe ? "ready" : "partial", notes: summary.notes, blockers, warnings, active_image_keys_count: opts.active_image_keys_count ?? null, orphan_keys_count: opts.orphan_keys_count ?? null, missing_keys_count: opts.missing_keys_count ?? null, orphan_count_unknown_reason: opts.orphan_count_unknown_reason || null, object_storage_configured: opts.configured_object_storage_env, object_storage_live_ready: summary.multi_instance_safe && opts.configured_object_storage_env, public_image_cache_policy: "public, max-age=31536000, immutable for content-addressed image ids" }; }
