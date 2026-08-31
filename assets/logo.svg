@@ -1,7 +1,7 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
   <title id="title">Siton</title>
-  <rect width="1024" height="1024" rx="224" fill="#0f766e"/>
-  <circle cx="512" cy="512" r="304" fill="#faf7f2"/>
-  <path d="M700 330c-49-47-112-72-188-72-142 0-254 108-254 254s112 254 254 254c78 0 143-25 194-76l-92-92c-26 25-59 38-99 38-70 0-124-52-124-124s54-124 124-124c38 0 70 12 96 35z" fill="#0f766e"/>
+  <rect width="1024" height="1024" rx="224" fill="#ec6608"/>
+  <circle cx="512" cy="512" r="304" fill="#eef0f3"/>
+  <path d="M700 330c-49-47-112-72-188-72-142 0-254 108-254 254s112 254 254 254c78 0 143-25 194-76l-92-92c-26 25-59 38-99 38-70 0-124-52-124-124s54-124 124-124c38 0 70 12 96 35z" fill="#ec6608"/>
   <path d="M585 451h202v122H585z" fill="#c65a1e"/>
 </svg>

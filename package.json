@@ -110,7 +110,7 @@
     "mobile:build": "node scripts/build_mobile_bundle.cjs",
     "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
     "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
-    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#0f766e\" --iconBackgroundColorDark \"#0b4f49\" --splashBackgroundColor \"#faf7f2\" --splashBackgroundColorDark \"#102a27\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#0f766e\" --iconBackgroundColorDark \"#0b4f49\" --splashBackgroundColor \"#faf7f2\" --splashBackgroundColorDark \"#102a27\"",
+    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\"",
     "mobile:verify": "npm run mobile:build && npm run mobile:normalize && node scripts/mobile_release_gate.cjs",
     "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs"
   },
