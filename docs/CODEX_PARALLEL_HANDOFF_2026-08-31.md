@@ -10,6 +10,8 @@
 - `PROJECT_STATUS.md` was not edited.
 - No R3 OTP or R4 Render worker source was edited, avoiding the active parallel workstreams.
 
+After the first R5 push, `origin/master` advanced to `9ef4879227c3997bcd33091bf508ded9fa629514` (`R3: hosted Web runtime CLOSED green on live Supabase staging`). The only mainline change from the R5 baseline is `PROJECT_STATUS.md`; it has no file overlap with this branch. The R5 branch was intentionally not rebased or history-rewritten.
+
 ## Deliverables
 
 - `docs/R5_SUPABASE_AUTH_READINESS_AUDIT.md` — current identity/session inventory, Supabase/DB readiness, browser/mobile/server/worker boundaries, Base44 dependency map, prioritized findings, and strict JWT contract.
