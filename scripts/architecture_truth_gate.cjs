@@ -21,7 +21,14 @@ assert(/-\s*key:\s*DATABASE_URL\s*\n\s*sync:\s*false/.test(renderBlueprint), "DA
 assert(!/postgres(?:ql)?:\/\/\S*@/.test(renderBlueprint), "Render blueprint must not embed a database credential");
 assert(/CANONICAL_POSTGRES_RUNTIME/.test(renderBlueprint), "Render blueprint must enable the canonical Postgres runtime");
 assert(!/base44/i.test(renderBlueprint), "Render blueprint must not reference Base44");
-assert(!/type:\s*worker/i.test(renderBlueprint), "continuous Worker deployment is R4, not part of the R3 blueprint");
+// R4: the canonical staging blueprint now declares exactly one continuous
+// Background Worker. It starts via npm run start:worker:prod, runs the worker
+// runtime role, and (like the Web service) carries no embedded credential —
+// its DATABASE_URL is the external siton_worker_login pooler secret.
+const workerDeclarations = (renderBlueprint.match(/type:\s*worker/gi) || []).length;
+assert(workerDeclarations === 1, `the staging blueprint must declare exactly one Background Worker (found ${workerDeclarations})`);
+assert(/dockerCommand:\s*npm run start:worker:prod/.test(renderBlueprint), "the Background Worker must start via npm run start:worker:prod");
+assert(/value:\s*worker\b/.test(renderBlueprint), "the Background Worker must declare RUNTIME_ROLE=worker");
 const requiredClosureDocs = [
   "docs/CANONICAL_ARCHITECTURE_V1.md",
   "docs/FINAL_ZERO_DEVELOPMENT_CLOSURE.md",
