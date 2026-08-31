@@ -38,6 +38,7 @@ const refundDoc = await readFile("docs/REFUND_POLICY.md", "utf8");
 const dealTypeDoc = await readFile("docs/DEAL_TYPES_PHYSICAL_VOUCHER_TICKET.md", "utf8");
 const bootstrap = await readFile("scripts/bootstrap_demo_db.cjs", "utf8");
 const packageJson = await readFile("package.json", "utf8");
+const reactSeller = await readFile("web/src/pages/seller.tsx", "utf8");
 
 await runTest("deal_type_default_physical_validation", async () => {
   // Default value keeps existing deals valid without backfill.
@@ -68,6 +69,21 @@ await runTest("seller_create_ticket_validation", async () => {
   assert.match(dealTypesModule, /event_name is required for ticket deals/);
   // Assigned-seat seating is explicitly rejected (no seating engine yet).
   assert.match(dealTypesModule, /ticket_seat_mode_unsupported/);
+});
+
+await runTest("react_seller_wizard_three_type_payload_validation", async () => {
+  // The canonical React wizard must expose all three types and submit only the
+  // matching fulfillment shape. The same publish-lock API remains in force.
+  assert.match(reactSeller, /type WizardDealType = "physical_product" \| "voucher" \| "ticket"/);
+  assert.match(reactSeller, /deal_type: dealType/);
+  assert.match(reactSeller, /delivery_options: delivery[\s\S]{0,400}\.filter/);
+  assert.match(reactSeller, /dealType === "voucher"[\s\S]{0,1200}voucher_terms:/);
+  assert.match(reactSeller, /voucher_code_mode: "system_generated"/);
+  assert.match(reactSeller, /dealType === "ticket"[\s\S]{0,1200}ticket_terms:/);
+  assert.match(reactSeller, /seat_mode: seatMode/);
+  assert.match(reactSeller, /await api\.publishDeal\(dealId\)/);
+  assert.match(reactSeller, /ack1 && ack2/, "both publish-lock acknowledgements stay mandatory");
+  assert.doesNotMatch(reactSeller, /deal_type:\s*"physical_product"/, "the React wizard must not force every deal to physical_product");
 });
 
 await runTest("public_deal_type_copy_validation", async () => {

@@ -5,8 +5,8 @@
 // synthetic seller creates and publishes a varied catalog with generated
 // imagery, synthetic buyers join through the public Join API — including
 // multi-generation personal-share-link chains — and one small deal is walked
-// through close→prepare→charge so the continuous Worker produces genuine
-// charged money (mockpay). Everything it creates is clearly marked synthetic.
+// through close→prepare→charge so the continuous Worker produces synthetic
+// charged-state outcomes (mockpay). Everything it creates is clearly marked synthetic.
 //
 // Usage:
 //   node scripts/r6_staging_showcase_seed.cjs --base-url=https://siton-staging-web.onrender.com \

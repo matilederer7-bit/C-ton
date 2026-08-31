@@ -31,15 +31,16 @@ evaluate the seller experience).
 ## Synthetic seller (for evaluating the seller UX)
 
 - Email: `r6-showcase-seller@siton-staging.dev`
-- Password: `SitonShowcase-2026!`
-- This is a staging-only demo credential (mock money). It owns the showcase
-  catalog seeded by `scripts/r6_staging_showcase_seed.cjs`.
+- The password is an out-of-band, rotatable staging secret. It must never be
+  committed, pasted into logs, or embedded in the browser bundle.
+- This staging-only identity (mock money) owns the showcase catalog seeded by
+  `scripts/r6_staging_showcase_seed.cjs`.
 
 ## What the seed creates (all through the real hosted APIs)
 
 - ~8 deals with generated imagery across states: Draft, PendingTarget,
   TargetReached, one deal walked through Close→Prepare→Charge so the
-  continuous Worker produces genuine charged money via mockpay.
+  continuous Worker produces synthetic charged-state outcomes via mockpay.
 - Synthetic buyers joining through the public Join API, including
   multi-generation personal-share-link chains (`?ref=` codes), share-click and
   deal-view funnel events — so the viral tree, generation chart and
@@ -52,5 +53,9 @@ Re-run the seed any time:
 node scripts/r6_staging_showcase_seed.cjs \
   --base-url=https://siton-staging-web.onrender.com \
   --seller-email=r6-showcase-seller@siton-staging.dev \
-  --seller-password='SitonShowcase-2026!'
+  --seller-password="$SEED_SELLER_PASSWORD"
 ```
+
+Set `SEED_SELLER_PASSWORD` only in the invoking process or secret manager. Do
+not place it in a repository file. Any credential previously documented in
+plain text must be treated as compromised and rotated after the closure proof.

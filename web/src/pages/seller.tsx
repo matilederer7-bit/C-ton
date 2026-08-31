@@ -227,14 +227,16 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   );
 }
 
-// ── create wizard (5 mandatory steps) ──────────────────────────────────────
-const WIZARD_STEPS = ["פרטי מוצר", "כמויות", "אספקה", "תנאים", "סיכום ואישור"];
+// ── create wizard (5 mandatory steps, one canonical model) ────────────────────
+const WIZARD_STEPS = ["סוג ופרטים", "כמויות", "אספקה / מימוש", "תנאים", "סיכום ואישור"];
+type WizardDealType = "physical_product" | "voucher" | "ticket";
 
 function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // step 1
+  const [dealType, setDealType] = useState<WizardDealType>("physical_product");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
@@ -246,6 +248,21 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [delivery, setDelivery] = useState<{ option_type: string; label: string; cost: string }[]>([
     { option_type: "pickup", label: "איסוף עצמי", cost: "0" }
   ]);
+  const [voucherFaceValue, setVoucherFaceValue] = useState("");
+  const [voucherValidUntil, setVoucherValidUntil] = useState("");
+  const [redemptionLocation, setRedemptionLocation] = useState("");
+  const [redemptionInstructions, setRedemptionInstructions] = useState("");
+  const [voucherTerms, setVoucherTerms] = useState("");
+  const [eventName, setEventName] = useState("");
+  const [eventStartsAt, setEventStartsAt] = useState("");
+  const [eventEndsAt, setEventEndsAt] = useState("");
+  const [venueName, setVenueName] = useState("");
+  const [venueAddress, setVenueAddress] = useState("");
+  const [venueCity, setVenueCity] = useState("");
+  const [entryInstructions, setEntryInstructions] = useState("");
+  const [ticketType, setTicketType] = useState("general_admission");
+  const [seatMode, setSeatMode] = useState("general_admission");
+  const [transferAllowed, setTransferAllowed] = useState(false);
   // step 4
   const [deadlineHours, setDeadlineHours] = useState("72");
   // step 5
@@ -261,7 +278,15 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
     switch (step) {
       case 0: return title.trim().length > 0 && priceNum > 0;
       case 1: return minNum >= 1 && maxNum >= minNum;
-      case 2: return delivery.some((d) => d.label.trim());
+      case 2:
+        if (dealType === "physical_product") return delivery.some((d) => d.label.trim());
+        if (dealType === "voucher") {
+          return Number(voucherFaceValue) > 0 && new Date(`${voucherValidUntil}T23:59:59`).getTime() > Date.now() && Boolean(redemptionLocation.trim())
+            && Boolean(redemptionInstructions.trim()) && Boolean(voucherTerms.trim());
+        }
+        return Boolean(eventName.trim()) && new Date(eventStartsAt).getTime() > Date.now()
+          && Boolean(venueName.trim()) && Boolean(venueCity.trim()) && Boolean(entryInstructions.trim())
+          && (!eventEndsAt || new Date(eventEndsAt).getTime() > new Date(eventStartsAt).getTime());
       case 3: { const h = Number(deadlineHours); return h >= 2 && h <= 24 * 7; }
       case 4: return ack1 && ack2;
       default: return false;
@@ -283,6 +308,38 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
     setBusy(true); setError("");
     try {
       const deadline = new Date(Date.now() + Number(deadlineHours) * 3600_000).toISOString();
+      const typeSpecific = dealType === "voucher" ? {
+        delivery_options: [],
+        voucher_terms: {
+          face_value_amount: Number(voucherFaceValue),
+          currency: "ILS",
+          valid_until: new Date(`${voucherValidUntil}T23:59:59`).toISOString(),
+          redemption_location: redemptionLocation.trim(),
+          redemption_instructions: redemptionInstructions.trim(),
+          terms: voucherTerms.trim(),
+          is_single_use: true,
+          allow_partial_redemption: false,
+          voucher_code_mode: "system_generated"
+        }
+      } : dealType === "ticket" ? {
+        delivery_options: [],
+        ticket_terms: {
+          event_name: eventName.trim(),
+          event_starts_at: new Date(eventStartsAt).toISOString(),
+          event_ends_at: eventEndsAt ? new Date(eventEndsAt).toISOString() : null,
+          venue_name: venueName.trim(),
+          venue_address: venueAddress.trim(),
+          venue_city: venueCity.trim(),
+          entry_instructions: entryInstructions.trim(),
+          ticket_type: ticketType,
+          seat_mode: seatMode,
+          transfer_allowed: transferAllowed
+        }
+      } : {
+        delivery_options: delivery
+          .filter((d) => d.label.trim())
+          .map((d, i) => ({ option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i }))
+      };
       const created = await api.createDeal({
         title: title.trim(),
         description: description.trim(),
@@ -290,10 +347,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         min_units: minNum,
         max_units: maxNum,
         deadline,
-        deal_type: "physical_product",
-        delivery_options: delivery
-          .filter((d) => d.label.trim())
-          .map((d, i) => ({ option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i }))
+        deal_type: dealType,
+        ...typeSpecific
       });
       const dealId = created?.deal?.deal_id || created?.deal_id;
       if (!dealId) throw new Error("יצירת העסקה נכשלה");
@@ -325,9 +380,18 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
 
         {step === 0 ? (
           <>
-            <div className="field"><label>שם העסקה</label><input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="למשל: מארז זיתי סורי 5 ק״ג" /></div>
+            <div className="field">
+              <label>סוג העסקה</label>
+              <select data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
+                <option value="physical_product">מוצר פיזי</option>
+                <option value="voucher">שובר</option>
+                <option value="ticket">כרטיס לאירוע</option>
+              </select>
+              <span className="hint">השלב הבא יבקש רק את פרטי האספקה או המימוש שמתאימים לסוג שנבחר.</span>
+            </div>
+            <div className="field"><label>שם העסקה</label><input data-testid="deal-title" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="למשל: מארז זיתי סורי 5 ק״ג" /></div>
             <div className="field"><label>תיאור קצר</label><textarea rows={3} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={420} placeholder="מה מקבלים, למה זה משתלם" /></div>
-            <div className="field"><label>מחיר ליחידה (₪)</label><input dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} /><span className="hint">המחיר יהיה נעול לאחר הפרסום</span></div>
+            <div className="field"><label>מחיר ליחידה (₪)</label><input data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} /><span className="hint">המחיר יהיה נעול לאחר הפרסום</span></div>
             <div className="field">
               <label>תמונות (עד 5)</label>
               <input type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) addImage(f); e.target.value = ""; }} />
@@ -339,8 +403,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         {step === 1 ? (
           <>
             <div className="field-row">
-              <div className="field"><label>כמות מינימום</label><input dir="ltr" type="number" min={1} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} /><span className="hint">היעד שהקבוצה צריכה להגיע אליו</span></div>
-              <div className="field"><label>כמות מקסימלית (מלאי)</label><input dir="ltr" type="number" min={minNum} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} /><span className="hint">כשמגיעים — המכירה נסגרת</span></div>
+              <div className="field"><label>כמות מינימום</label><input data-testid="deal-min" dir="ltr" type="number" min={1} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} /><span className="hint">היעד שהקבוצה צריכה להגיע אליו</span></div>
+              <div className="field"><label>כמות מקסימלית (מלאי)</label><input data-testid="deal-max" dir="ltr" type="number" min={minNum} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} /><span className="hint">כשמגיעים — המכירה נסגרת</span></div>
             </div>
             <div className="notice info">
               סף ההצלחה הסופי הוא <b>90% מהמינימום</b> ({num(threshold)} יחידות מחויבות בפועל) —
@@ -351,6 +415,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
 
         {step === 2 ? (
           <>
+            {dealType === "physical_product" ? <>
+            <div className="notice info">בחרו לפחות אפשרות אספקה אחת למוצר.</div>
             {delivery.map((d, i) => (
               <div className="row" key={i} style={{ marginBottom: 10, alignItems: "flex-end" }}>
                 <div className="field" style={{ marginBottom: 0, width: 140 }}>
@@ -373,6 +439,37 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
               </div>
             ))}
             {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0" }])}>+ הוספת אפשרות</button> : null}
+            </> : null}
+
+            {dealType === "voucher" ? <>
+              <div className="field-row">
+                <div className="field"><label>שווי נקוב של השובר (₪)</label><input data-testid="voucher-face-value" dir="ltr" type="number" min={1} step="0.5" value={voucherFaceValue} onChange={(e) => setVoucherFaceValue(e.target.value)} /></div>
+                <div className="field"><label>בתוקף עד</label><input data-testid="voucher-valid-until" dir="ltr" type="date" value={voucherValidUntil} onChange={(e) => setVoucherValidUntil(e.target.value)} /></div>
+              </div>
+              <div className="field"><label>מקום מימוש</label><input data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder="בסניפי העסק או באתר" /></div>
+              <div className="field"><label>הוראות מימוש</label><textarea data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder="איך מציגים את הקוד וממשים" /></div>
+              <div className="field"><label>תנאי השובר</label><textarea data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder="הגבלות, כפל מבצעים ומדיניות מימוש" /></div>
+              <div className="notice info">קוד השובר יופק אוטומטית רק לאחר השלמה וגבייה מוצלחת.</div>
+            </> : null}
+
+            {dealType === "ticket" ? <>
+              <div className="field"><label>שם האירוע</label><input data-testid="ticket-event-name" value={eventName} onChange={(e) => setEventName(e.target.value)} maxLength={200} /></div>
+              <div className="field-row">
+                <div className="field"><label>מתי מתחיל</label><input data-testid="ticket-start" dir="ltr" type="datetime-local" value={eventStartsAt} onChange={(e) => setEventStartsAt(e.target.value)} /></div>
+                <div className="field"><label>מתי מסתיים (רשות)</label><input dir="ltr" type="datetime-local" value={eventEndsAt} onChange={(e) => setEventEndsAt(e.target.value)} /></div>
+              </div>
+              <div className="field-row">
+                <div className="field"><label>מקום האירוע</label><input data-testid="ticket-venue" value={venueName} onChange={(e) => setVenueName(e.target.value)} maxLength={200} /></div>
+                <div className="field"><label>עיר</label><input data-testid="ticket-city" value={venueCity} onChange={(e) => setVenueCity(e.target.value)} maxLength={100} /></div>
+              </div>
+              <div className="field"><label>כתובת</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
+              <div className="field"><label>הוראות כניסה</label><textarea data-testid="ticket-entry" rows={3} value={entryInstructions} onChange={(e) => setEntryInstructions(e.target.value)} maxLength={1000} /></div>
+              <div className="field-row">
+                <div className="field"><label>סוג כרטיס</label><select value={ticketType} onChange={(e) => setTicketType(e.target.value)}><option value="general_admission">כניסה כללית</option><option value="vip">VIP</option><option value="reserved_external">מקום שמור במערכת חיצונית</option><option value="other">אחר</option></select></div>
+                <div className="field"><label>אופן הושבה</label><select value={seatMode} onChange={(e) => setSeatMode(e.target.value)}><option value="general_admission">ללא מקום שמור</option><option value="external_seating">שיבוץ במערכת חיצונית</option></select></div>
+              </div>
+              <label className="check"><input type="checkbox" checked={transferAllowed} onChange={(e) => setTransferAllowed(e.target.checked)} /><span>ניתן להעביר את הכרטיס לאדם אחר</span></label>
+            </> : null}
           </>
         ) : null}
 
@@ -400,19 +497,30 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
           <>
             <h3>כל התנאים הקריטיים</h3>
             <div className="kv" style={{ marginBottom: 14 }}>
+              <span className="k">סוג</span><span className="v">{dealTypeLabel(dealType)}</span>
               <span className="k">שם</span><span className="v">{title}</span>
               <span className="k">מחיר ליחידה</span><span className="v">{ils(priceNum)}</span>
               <span className="k">מינימום</span><span className="v">{num(minNum)} יחידות</span>
               <span className="k">מקסימום (מלאי)</span><span className="v">{num(maxNum)} יחידות</span>
               <span className="k">סף הצלחה (90%)</span><span className="v">{num(threshold)} יחידות מחויבות</span>
               <span className="k">דדליין</span><span className="v">בעוד {deadlineHours} שעות מהפרסום</span>
-              <span className="k">אספקה</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => d.label).join(" · ")}</span>
+              {dealType === "physical_product" ? <><span className="k">אספקה</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => d.label).join(" · ")}</span></> : null}
+              {dealType === "voucher" ? <>
+                <span className="k">שווי שובר</span><span className="v">{ils(Number(voucherFaceValue))}</span>
+                <span className="k">מימוש</span><span className="v">{redemptionLocation}</span>
+                <span className="k">בתוקף עד</span><span className="v">{voucherValidUntil}</span>
+              </> : null}
+              {dealType === "ticket" ? <>
+                <span className="k">אירוע</span><span className="v">{eventName}</span>
+                <span className="k">מתי</span><span className="v">{eventStartsAt}</span>
+                <span className="k">מקום</span><span className="v">{venueName} · {venueCity}</span>
+              </> : null}
               <span className="k">עמלת סיטון</span><span className="v">8% + מע״מ מהנגבה בפועל</span>
             </div>
             <div className="publish-warning">
-              <label className="check"><input type="checkbox" checked={ack1} onChange={(e) => setAck1(e.target.checked)} />
+              <label className="check"><input data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => setAck1(e.target.checked)} />
                 <span>קראתי והבנתי כי לאחר פרסום <b>לא ניתן לשנות</b> מחיר, כמות מינימום או מקסימום, דדליין או עמלות.</span></label>
-              <label className="check" style={{ marginBottom: 0 }}><input type="checkbox" checked={ack2} onChange={(e) => setAck2(e.target.checked)} />
+              <label className="check" style={{ marginBottom: 0 }}><input data-testid="publish-lock-threshold" type="checkbox" checked={ack2} onChange={(e) => setAck2(e.target.checked)} />
                 <span>אני מאשר/ת שהתנאים סופיים, כולל כלל ה־90%: העסקה תושלם רק אם יחויבו בפועל לפחות {num(threshold)} יחידות.</span></label>
             </div>
           </>
@@ -422,8 +530,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         <div className="wizard-nav">
           {step > 0 ? <button className="btn btn-ghost" onClick={() => setStep(step - 1)}>→ חזרה</button> : <span />}
           {step < 4
-            ? <button className="btn btn-primary" disabled={!stepValid()} onClick={() => setStep(step + 1)}>המשך ←</button>
-            : <button className="btn btn-danger btn-lg" disabled={!stepValid() || busy} onClick={publish}>{busy ? "מפרסמים…" : "פרסם עסקה"}</button>}
+            ? <button data-testid="wizard-next" className="btn btn-primary" disabled={!stepValid()} onClick={() => setStep(step + 1)}>המשך ←</button>
+            : <button data-testid="wizard-publish" className="btn btn-danger btn-lg" disabled={!stepValid() || busy} onClick={publish}>{busy ? "מפרסמים…" : "פרסם עסקה"}</button>}
         </div>
       </div>
     </div>

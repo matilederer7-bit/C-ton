@@ -14,11 +14,12 @@ process.env.APP_DEPLOYMENT_MODE = "demo-preview";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PORT = process.env.PORT || "3642";
 process.env.ADMIN_API_KEY = process.env.ADMIN_API_KEY || `r6-test-admin-key-${randomUUID()}`;
+process.env.SITON_OWNER_EMAIL = "owner-test@example.com";
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton" });
 const { app } = await import("../src/app.js");
-const { claimOwnerAdminBinding } = await import("../src/admin_identity.js");
+const { claimOwnerAdminBinding, configuredOwnerEmail, isConfiguredOwnerClaimEmail } = await import("../src/admin_identity.js");
 const { resolveSupabaseCapabilities } = await import("../src/actor_resolver.js");
 
 const OWNER_EMAIL = "owner-test@example.com";
@@ -38,6 +39,14 @@ await run("owner claim provisions ONE active SuperAdmin binding, idempotently", 
   assert.equal(rows.rows[0].status, "Active");
   assert.equal(String(rows.rows[0].auth_user_id), sub);
   assert.equal(rows.rows[0].provisioned_via, "owner_email_claim");
+});
+
+await run("only the configured verified email is eligible for owner auto-claim", async () => {
+  assert.equal(configuredOwnerEmail(), OWNER_EMAIL);
+  assert.equal(isConfiguredOwnerClaimEmail(OWNER_EMAIL), true);
+  assert.equal(isConfiguredOwnerClaimEmail(` ${OWNER_EMAIL.toUpperCase()} `), true);
+  assert.equal(isConfiguredOwnerClaimEmail("different-owner@example.com"), false);
+  assert.equal(isConfiguredOwnerClaimEmail(""), false);
 });
 
 await run("owner claim never rebinds an email already bound to another auth user", async () => {
@@ -65,6 +74,17 @@ await run("multi-capability principal (admin + seller) resolves BOTH capabilitie
   assert.ok(caps?.admin, "admin capability present");
   assert.ok(caps?.seller, "seller capability present");
   assert.equal(caps?.seller?.seller_id, sellerId);
+});
+
+await run("owner admin capability retains canonical identity for action attribution", async () => {
+  const owner = await pool.query(`SELECT admin_user_id, auth_user_id, email FROM siton.admin_users WHERE email=$1`, [OWNER_EMAIL]);
+  assert.equal(owner.rowCount, 1);
+  const sub = String(owner.rows[0].auth_user_id);
+  const fakeVerifier = { async verify() { return { sub, email: OWNER_EMAIL, aud: "authenticated", iss: "x", exp: 0, iat: 0 } as any; } };
+  const req = { headers: { authorization: `Bearer ${randomUUID()}.${randomUUID()}.${randomUUID()}` } };
+  const caps = await resolveSupabaseCapabilities(req, pool as any, fakeVerifier as any);
+  assert.equal(caps?.admin?.admin_user_id, String(owner.rows[0].admin_user_id));
+  assert.equal(caps?.admin?.email, OWNER_EMAIL);
 });
 
 await run("admin READ surface denies anonymous, accepts the ops key", async () => {

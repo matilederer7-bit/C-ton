@@ -198,6 +198,11 @@ export function configuredOwnerEmail(): string {
   return String(process.env.SITON_OWNER_EMAIL || "").trim().toLowerCase();
 }
 
+export function isConfiguredOwnerClaimEmail(email: string): boolean {
+  const ownerEmail = configuredOwnerEmail();
+  return Boolean(ownerEmail) && String(email || "").trim().toLowerCase() === ownerEmail;
+}
+
 export async function claimOwnerAdminBinding(c: Queryable, sub: string, email: string): Promise<void> {
   // Idempotent: binds by unique email; never overwrites a foreign binding.
   await c.query(
@@ -227,8 +232,7 @@ export async function resolveAdminIdentity(req: any, c: Queryable): Promise<Admi
     try {
       let caps = await resolveSupabaseCapabilities(req, c as any, verifier);
       if (caps && !caps.admin) {
-        const ownerEmail = configuredOwnerEmail();
-        if (ownerEmail && caps.email === ownerEmail) {
+        if (isConfiguredOwnerClaimEmail(caps.email)) {
           await claimOwnerAdminBinding(c, caps.sub, caps.email);
           caps = await resolveSupabaseCapabilities(req, c as any, verifier);
         }

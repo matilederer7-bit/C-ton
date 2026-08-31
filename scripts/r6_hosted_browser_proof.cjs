@@ -5,6 +5,8 @@
 // --shots=<dir> is provided.
 //
 // Usage: node scripts/r6_hosted_browser_proof.cjs --base-url=https://... [--shots=out]
+// Optional seller closure proof: set SEED_SELLER_EMAIL + SEED_SELLER_PASSWORD
+// out of band. Credentials are never printed or persisted by this script.
 
 const { spawn } = require("node:child_process");
 const { existsSync, mkdirSync, writeFileSync } = require("node:fs");
@@ -17,7 +19,10 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
 }));
 const BASE = (args["base-url"] || "").replace(/\/+$/, "");
 const SHOTS = args.shots || "";
+const SELLER_EMAIL = process.env.SEED_SELLER_EMAIL || "";
+const SELLER_PASSWORD = process.env.SEED_SELLER_PASSWORD || "";
 if (!BASE) { console.error("--base-url required"); process.exit(1); }
+if (Boolean(SELLER_EMAIL) !== Boolean(SELLER_PASSWORD)) { console.error("seller proof requires both SEED_SELLER_EMAIL and SEED_SELLER_PASSWORD"); process.exit(1); }
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 
 const EDGE = ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
@@ -194,6 +199,113 @@ async function main() {
       })()`, 30_000, "seller login");
       await cdp.screenshot("05-seller-login.png");
     });
+
+    if (SELLER_EMAIL && SELLER_PASSWORD) {
+      await run("Synthetic seller signs in through the React surface", async () => {
+        const login = await cdp.evaluate(`(() => {
+          const setValue = (el, value) => {
+            const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+            setter.call(el, value);
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          };
+          const email = document.querySelector('input[type=email]');
+          const password = document.querySelector('input[type=password]');
+          const form = document.querySelector('form');
+          if (!email || !password || !form) return false;
+          setValue(email, ${JSON.stringify(SELLER_EMAIL)});
+          setValue(password, ${JSON.stringify(SELLER_PASSWORD)});
+          form.requestSubmit();
+          return true;
+        })()`);
+        if (!login) throw new Error("seller login form missing");
+        await waitFor(cdp, `document.querySelector('.dash-head') ? {ok:1} : null`, 30_000, "seller dashboard after login");
+      });
+
+      const created = [];
+      for (const type of ["physical_product", "voucher", "ticket"]) {
+        await run(`React seller creates Draft and publishes ${type}`, async () => {
+          const marker = `R6 closure ${type} ${Date.now()}`;
+          await cdp.navigate(`${BASE}/preview/#/seller/new`);
+          await waitFor(cdp, `document.querySelector('[data-testid="deal-type"]') ? {ok:1} : null`, 30_000, `${type} wizard`);
+          const common = await cdp.evaluate(`(() => {
+            const setValue = (selector, value) => {
+              const el = document.querySelector(selector);
+              if (!el) return false;
+              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+              setter.call(el, value);
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+              return true;
+            };
+            return setValue('[data-testid="deal-type"]', ${JSON.stringify(type)})
+              && setValue('[data-testid="deal-title"]', ${JSON.stringify(marker)})
+              && setValue('[data-testid="deal-price"]', '25');
+          })()`);
+          if (!common) throw new Error("common wizard fields missing");
+          await waitFor(cdp, `!document.querySelector('[data-testid="wizard-next"]').disabled ? {ok:1} : null`, 5_000, "step 1 valid");
+          await cdp.evaluate(`document.querySelector('[data-testid="wizard-next"]').click()`);
+          await waitFor(cdp, `document.querySelector('[data-testid="deal-min"]') ? {ok:1} : null`, 5_000, "quantity step");
+          await cdp.evaluate(`(() => {
+            const setValue = (selector, value) => {
+              const el = document.querySelector(selector);
+              const setter = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el), 'value')?.set;
+              setter.call(el, value); el.dispatchEvent(new Event('input', {bubbles:true})); el.dispatchEvent(new Event('change', {bubbles:true}));
+            };
+            setValue('[data-testid="deal-min"]', '2'); setValue('[data-testid="deal-max"]', '8');
+          })()`);
+          await waitFor(cdp, `!document.querySelector('[data-testid="wizard-next"]').disabled ? {ok:1} : null`, 5_000, "step 2 valid");
+          await cdp.evaluate(`document.querySelector('[data-testid="wizard-next"]').click()`);
+
+          if (type === "voucher") {
+            const validUntil = new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10);
+            await waitFor(cdp, `document.querySelector('[data-testid="voucher-face-value"]') ? {ok:1} : null`, 5_000, "voucher fields");
+            await cdp.evaluate(`(() => {
+              const values = ${JSON.stringify({
+                '[data-testid="voucher-face-value"]': '40',
+                '[data-testid="voucher-valid-until"]': validUntil,
+                '[data-testid="voucher-location"]': 'Synthetic staging redemption',
+                '[data-testid="voucher-instructions"]': 'Present the generated code at the synthetic staging desk',
+                '[data-testid="voucher-terms"]': 'Synthetic staging voucher; single use'
+              })};
+              for (const [selector, value] of Object.entries(values)) { const el=document.querySelector(selector); const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set; setter.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+            })()`);
+          } else if (type === "ticket") {
+            const starts = new Date(Date.now() + 14 * 86400_000).toISOString().slice(0, 16);
+            await waitFor(cdp, `document.querySelector('[data-testid="ticket-event-name"]') ? {ok:1} : null`, 5_000, "ticket fields");
+            await cdp.evaluate(`(() => {
+              const values = ${JSON.stringify({
+                '[data-testid="ticket-event-name"]': 'Synthetic staging event',
+                '[data-testid="ticket-start"]': starts,
+                '[data-testid="ticket-venue"]': 'Synthetic Hall',
+                '[data-testid="ticket-city"]': 'Tel Aviv',
+                '[data-testid="ticket-entry"]': 'Present the generated ticket code at entry'
+              })};
+              for (const [selector, value] of Object.entries(values)) { const el=document.querySelector(selector); const setter=Object.getOwnPropertyDescriptor(Object.getPrototypeOf(el),'value')?.set; setter.call(el,value); el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+            })()`);
+          }
+          await waitFor(cdp, `!document.querySelector('[data-testid="wizard-next"]').disabled ? {ok:1} : null`, 5_000, "fulfillment step valid");
+          await cdp.evaluate(`document.querySelector('[data-testid="wizard-next"]').click()`);
+          await waitFor(cdp, `!document.querySelector('[data-testid="wizard-next"]').disabled ? {ok:1} : null`, 5_000, "conditions step valid");
+          await cdp.evaluate(`document.querySelector('[data-testid="wizard-next"]').click()`);
+          await waitFor(cdp, `document.querySelector('[data-testid="publish-lock-terms"]') ? {ok:1} : null`, 5_000, "publish locks");
+          await cdp.evaluate(`for (const el of document.querySelectorAll('[data-testid^="publish-lock-"]')) el.click()`);
+          await waitFor(cdp, `!document.querySelector('[data-testid="wizard-publish"]').disabled ? {ok:1} : null`, 5_000, "publish enabled");
+          await cdp.evaluate(`document.querySelector('[data-testid="wizard-publish"]').click()`);
+          const deal = await waitFor(cdp, `(() => { const m=location.hash.match(/seller\\/deal\\/([0-9a-f-]{36})/); return m ? {id:m[1]} : null; })()`, 30_000, `${type} published route`);
+          const state = await cdp.evaluate(`fetch('/api/seller/deals/${deal.id}', {headers:{authorization:'Bearer '+localStorage.getItem('siton_preview_seller_token')}}).then(r=>r.json()).then(x=>x.deal?.state || '')`);
+          if (!['PendingTarget','TargetReached'].includes(state)) throw new Error(`unexpected published state ${state}`);
+          created.push({ type, id: deal.id, marker });
+        });
+      }
+
+      await run("Mall exposes all three deals published through React", async () => {
+        await cdp.navigate(`${BASE}/preview/#/`);
+        await waitFor(cdp, `document.querySelectorAll('.card').length > 0 ? {ok:1} : null`, 30_000, "mall after seller publish");
+        const visible = await cdp.evaluate(`document.body.textContent || ''`);
+        for (const item of created) if (!visible.includes(item.marker)) throw new Error(`Mall missing ${item.type}`);
+      });
+    }
 
     await run("Admin entry opens the control-center login (auth required, nothing leaks)", async () => {
       await cdp.evaluate(`localStorage.removeItem('siton_preview_admin_token')`);
