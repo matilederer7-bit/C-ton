@@ -315,8 +315,12 @@ async function main() {
     assert.equal(debug.deal.max_units, 10);
     assert.equal(debug.participants.length, 10);
     assert.equal(joinedUnits, 10);
-    assert.equal(debug.outbox.length, 1);
-    assert.equal(debug.outbox[0].event_type, "deadline_check");
+    // R6: each Join also enqueues ONE debounced viral_recompute analytics job
+    // (the one-pending-per-aggregate index collapses concurrent joins to one).
+    const lifecycleEvents = debug.outbox.filter((e: any) => e.event_type !== "viral_recompute");
+    assert.equal(lifecycleEvents.length, 1);
+    assert.equal(lifecycleEvents[0].event_type, "deadline_check");
+    assert.ok(debug.outbox.filter((e: any) => e.event_type === "viral_recompute").length <= 1);
     assert.equal(debug.dlq.length, 0);
 
     const publicDeal = await app.inject({
@@ -363,7 +367,8 @@ async function main() {
     }
 
     const debug = await debugDeal(created.deal_id);
-    assert.equal(debug.outbox.length, 1);
+    assert.equal(debug.outbox.filter((e: any) => e.event_type !== "viral_recompute").length, 1);
+    assert.ok(debug.outbox.filter((e: any) => e.event_type === "viral_recompute").length <= 1);
     assert.equal(debug.dlq.length, 0);
   });
 

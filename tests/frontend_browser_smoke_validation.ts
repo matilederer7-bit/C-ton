@@ -1018,6 +1018,10 @@ async function assertAffiliateAttributedMetrics(internalName: string, sourceCode
     let snapshot: any = null;
     for (let attempt = 0; attempt < 60; attempt += 1) {
       await wait(250);
+      // The page may still be committing its navigation on early attempts —
+      // a relative fetch then throws ("Failed to parse URL"). That is exactly
+      // what this retry loop exists for, so treat it as "not ready yet".
+      try {
       snapshot = await evaluate(`(async () => {
         const response = await fetch('/api/affiliate/overview');
         const payload = await response.json();
@@ -1033,6 +1037,10 @@ async function assertAffiliateAttributedMetrics(internalName: string, sourceCode
           overflow: document.documentElement.scrollWidth - window.innerWidth
         };
       })()`);
+      } catch (error) {
+        if (attempt >= 55) throw error;
+        continue;
+      }
       if (snapshot.attributedBuyers >= 1 && snapshot.rowVisible) break;
     }
     assert.equal(snapshot.attributedBuyers, 1, `the named source should receive the browser join attribution: ${JSON.stringify(snapshot)}`);
