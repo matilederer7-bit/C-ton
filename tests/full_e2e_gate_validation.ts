@@ -385,8 +385,16 @@ try {
       [primaryDealId]
     );
     const eventId = String(outbox.rows[0].event_uuid);
+    // The capture correlation encodes the outbox attempt_count (migration 050):
+    // processOutboxEventById claims the event first, incrementing attempt_count,
+    // so the handler builds `capture:<uuid>:a<stored+1>:<participant>`.
+    const attemptRow = await pool.query(
+      `SELECT attempt_count FROM siton.outbox_events WHERE event_uuid=$1`,
+      [eventId]
+    );
+    const nextAttempt = Number(attemptRow.rows[0].attempt_count) + 1;
     const canProcessDeterministically = participantRows.rows.every((row: any) =>
-      mockCaptureWillSucceed(`capture:${eventId}:${row.participant_id}`)
+      mockCaptureWillSucceed(`capture:${eventId}:a${nextAttempt}:${row.participant_id}`)
     );
     if (canProcessDeterministically) {
       const processed = await processOutboxEventById(eventId);
