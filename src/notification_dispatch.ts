@@ -15,6 +15,9 @@ import {
 
 const { Pool } = pg;
 
+import { evaluateNotificationRecipientSafety } from "./notification_safety.js";
+import { NOTIFICATION_MAX_ATTEMPTS } from "./runtime_config.js";
+
 export type NotificationProviderMode = "dev" | "real" | "disabled" | "log-only";
 export type NotificationResultStatus = "success" | "temporary_fail" | "permanent_fail" | "skipped";
 
@@ -110,8 +113,17 @@ export function buildNotificationProvider(
   const provider = (env.NOTIFICATION_PROVIDER || "log").trim().toLowerCase();
   const mode = (env.NOTIFICATION_PROVIDER_MODE || "dev").trim().toLowerCase();
 
-  if (provider !== "log") {
-    logger.info("[notification] external providers are not enabled; using log/dev provider", { requested_provider: provider });
+  // Fail closed: requesting REAL delivery must never silently degrade to the
+  // log provider. No real adapter exists in R9A, so real mode cannot boot.
+  if (mode === "real") {
+    throw new Error(
+      `NOTIFICATION_PROVIDER_MODE=real requires a verified real notification adapter; provider "${provider}" has none. Real delivery stays disabled until a provider adapter passes the communications safety gate.`
+    );
+  }
+
+  // 'log' and the deployment alias 'log-only' are the same internal provider.
+  if (provider !== "log" && provider !== "log-only") {
+    logger.info("[notification] unsupported NOTIFICATION_PROVIDER in non-real mode; using log/dev provider", { requested_provider: provider });
   }
 
   if (mode === "disabled") return new LogNotificationProvider("disabled", logger);
@@ -148,6 +160,7 @@ export type EnqueueNotificationInput = {
   payload_jsonb?: Record<string, unknown>;
   scheduled_for?: Date | string | null;
   idempotency_key?: string;
+  correlation_id?: string | null;
 };
 
 type LegacyEventType =
@@ -248,8 +261,8 @@ export async function enqueueNotification(
     `INSERT INTO siton.notification_events
        (event_type, recipient_type, recipient_ref, deal_id, participant_id, seller_id,
         channel, template_key, locale, payload_jsonb, status, idempotency_key,
-        scheduled_for, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,$12,now(),now())
+        scheduled_for, correlation_id, created_at, updated_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,$12,$13,now(),now())
      ON CONFLICT (idempotency_key) DO NOTHING`,
     [
       normalized.event_type,
@@ -263,7 +276,8 @@ export async function enqueueNotification(
       validated.locale,
       JSON.stringify(validated.payload_jsonb),
       idempotencyKey,
-      normalized.scheduled_for ? new Date(normalized.scheduled_for).toISOString() : null
+      normalized.scheduled_for ? new Date(normalized.scheduled_for).toISOString() : null,
+      normalized.correlation_id || null
     ]
   );
   return (result.rowCount ?? 0) > 0 ? "queued" : "duplicate";
@@ -271,14 +285,49 @@ export async function enqueueNotification(
 
 const NOTIFICATION_BATCH_SIZE = 20;
 
+function maxNotificationAttempts(): number {
+  const configured = Number(process.env.NOTIFICATION_MAX_ATTEMPTS ?? NOTIFICATION_MAX_ATTEMPTS);
+  return Number.isFinite(configured) && configured >= 1 ? Math.floor(configured) : 3;
+}
+
+function retryBackoffMinutes(attemptCount: number): number {
+  // 1, 2, 4, 8, ... minutes — bounded at 30.
+  return Math.min(30, Math.pow(2, Math.max(0, attemptCount - 1)));
+}
+
+type ClaimedNotification = NotificationForProvider & { attempt_count: number };
+
+async function recordAttempt(
+  pool: pg.Pool,
+  notificationId: string,
+  provider: NotificationProvider,
+  result: { status: string; provider_message_id?: string | null; error_code?: string | null; error_message?: string | null }
+) {
+  await pool.query(
+    `INSERT INTO siton.notification_attempts
+       (notification_id, provider, provider_mode, result_status, provider_message_id,
+        error_code, error_message, created_at)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,now())`,
+    [
+      notificationId,
+      provider.providerCode,
+      provider.mode,
+      result.status,
+      result.provider_message_id || null,
+      result.error_code || null,
+      result.error_message || null
+    ]
+  );
+}
+
 export async function flushPendingNotifications(
   pool: pg.Pool,
   provider: NotificationProvider,
   logger: Pick<Console, "error"> = console
 ): Promise<number> {
-  const claimed = await pool.query<NotificationForProvider>(
+  const claimed = await pool.query<ClaimedNotification>(
     `UPDATE siton.notification_events
-     SET status='processing', updated_at=now()
+     SET status='processing', processing_started_at=now(), updated_at=now()
      WHERE notification_id IN (
        SELECT notification_id FROM siton.notification_events
        WHERE status='pending' AND (scheduled_for IS NULL OR scheduled_for <= now())
@@ -286,59 +335,112 @@ export async function flushPendingNotifications(
        LIMIT $1
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING notification_id, event_type, recipient_type, recipient_ref, channel, template_key, payload_jsonb`,
+     RETURNING notification_id, event_type, recipient_type, recipient_ref, channel, template_key, payload_jsonb, attempt_count`,
     [NOTIFICATION_BATCH_SIZE]
   );
 
   let processed = 0;
+  const maxAttempts = maxNotificationAttempts();
+
+  const applyTemporaryFailure = async (notification: ClaimedNotification, message: string) => {
+    const attemptNumber = Number(notification.attempt_count || 0) + 1;
+    if (attemptNumber >= maxAttempts) {
+      // Bounded retries: terminal failure with visible reason instead of an
+      // unbounded pending/backoff loop.
+      await pool.query(
+        `UPDATE siton.notification_events
+         SET status='failed', attempt_count=$2, processing_started_at=NULL,
+             last_error=$3, updated_at=now()
+         WHERE notification_id=$1`,
+        [notification.notification_id, attemptNumber, `max_attempts_exhausted (${maxAttempts}): ${message}`.slice(0, 500)]
+      );
+      return;
+    }
+    await pool.query(
+      `UPDATE siton.notification_events
+       SET status='pending', attempt_count=$2, processing_started_at=NULL,
+           last_error=$3, scheduled_for=now() + ($4 * interval '1 minute'), updated_at=now()
+       WHERE notification_id=$1`,
+      [notification.notification_id, attemptNumber, String(message).slice(0, 500), retryBackoffMinutes(attemptNumber)]
+    );
+  };
+
   for (const notification of claimed.rows) {
     try {
-      const result = provider.send
-        ? await provider.send(notification)
-        : provider.sendSms
-          ? { status: "success" as const, provider_message_id: (await provider.sendSms(notification.recipient_ref || "", "")).messageId }
-          : { status: "permanent_fail" as const, error_code: "notification_provider_missing_send", error_message: "Provider cannot send notifications" };
-      await pool.query(
-        `INSERT INTO siton.notification_attempts
-           (notification_id, provider, provider_mode, result_status, provider_message_id,
-            error_code, error_message, created_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,now())`,
-        [
-          notification.notification_id,
-          provider.providerCode,
-          provider.mode,
-          result.status,
-          result.provider_message_id || null,
-          result.error_code || null,
-          result.error_message || null
-        ]
-      );
+      // Shared communications safety gate: evaluated BEFORE any provider I/O.
+      // A real-mode provider may only reach an allowlisted/approved recipient;
+      // internal-only modes always pass (they never leave the system).
+      const safety = evaluateNotificationRecipientSafety({
+        channel: notification.channel,
+        recipient: notification.recipient_ref,
+        providerMode: provider.mode
+      });
+      if (!safety.allowed) {
+        await recordAttempt(pool, notification.notification_id, provider, {
+          status: "skipped",
+          error_code: "blocked_by_recipient_safety",
+          error_message: safety.reason
+        });
+        await pool.query(
+          `UPDATE siton.notification_events
+           SET status='blocked', processing_started_at=NULL, last_error=$2, updated_at=now()
+           WHERE notification_id=$1`,
+          [notification.notification_id, `blocked_by_recipient_safety: ${safety.reason}`]
+        );
+        processed++;
+        continue;
+      }
+
+      let result: NotificationProviderResult;
+      if (provider.send) {
+        result = await provider.send(notification);
+      } else if (provider.sendSms) {
+        // Channel-aware fallback: render the actual message body server-side.
+        // An adapter must never be handed an empty body.
+        const rendered = renderNotification(
+          notification.event_type,
+          notification.channel,
+          notification.payload_jsonb,
+          notification.template_key
+        );
+        if (!rendered || !rendered.body) {
+          result = {
+            status: "skipped",
+            error_code: "notification_template_not_supported",
+            error_message: "Template is not compatible with channel"
+          };
+        } else {
+          const sms = await provider.sendSms(notification.recipient_ref || "", rendered.body);
+          result = { status: "success", provider_message_id: sms.messageId };
+        }
+      } else {
+        result = { status: "permanent_fail", error_code: "notification_provider_missing_send", error_message: "Provider cannot send notifications" };
+      }
+
+      await recordAttempt(pool, notification.notification_id, provider, result);
 
       if (result.status === "success") {
         await pool.query(
           `UPDATE siton.notification_events
-           SET status='sent', sent_at=now(), last_error=NULL, updated_at=now()
+           SET status='sent', sent_at=now(), attempt_count=attempt_count+1,
+               processing_started_at=NULL, last_error=NULL, updated_at=now()
            WHERE notification_id=$1`,
           [notification.notification_id]
         );
       } else if (result.status === "skipped") {
         await pool.query(
           `UPDATE siton.notification_events
-           SET status='skipped', last_error=$2, updated_at=now()
+           SET status='skipped', processing_started_at=NULL, last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
           [notification.notification_id, result.error_message || result.error_code || "skipped"]
         );
       } else if (result.status === "temporary_fail") {
-        await pool.query(
-          `UPDATE siton.notification_events
-           SET status='pending', last_error=$2, scheduled_for=now() + interval '1 minute', updated_at=now()
-           WHERE notification_id=$1`,
-          [notification.notification_id, result.error_message || result.error_code || "temporary_fail"]
-        );
+        await applyTemporaryFailure(notification, result.error_message || result.error_code || "temporary_fail");
       } else {
         await pool.query(
           `UPDATE siton.notification_events
-           SET status='failed', last_error=$2, updated_at=now()
+           SET status='failed', attempt_count=attempt_count+1, processing_started_at=NULL,
+               last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
           [notification.notification_id, result.error_message || result.error_code || "permanent_fail"]
         );
@@ -346,24 +448,47 @@ export async function flushPendingNotifications(
       processed++;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      await pool.query(
-        `INSERT INTO siton.notification_attempts
-           (notification_id, provider, provider_mode, result_status, error_code, error_message, created_at)
-         VALUES ($1,$2,$3,'temporary_fail','provider_exception',$4,now())`,
-        [notification.notification_id, provider.providerCode, provider.mode, message]
-      ).catch(() => undefined);
-      await pool.query(
-        `UPDATE siton.notification_events
-         SET status='pending', last_error=$2, scheduled_for=now() + interval '1 minute', updated_at=now()
-         WHERE notification_id=$1`,
-        [notification.notification_id, message]
-      ).catch(() => undefined);
+      await recordAttempt(pool, notification.notification_id, provider, {
+        status: "temporary_fail",
+        error_code: "provider_exception",
+        error_message: message
+      }).catch(() => undefined);
+      await applyTemporaryFailure(notification, message).catch(() => undefined);
       logger.error("[notification.flush] provider exception", { notification_id: notification.notification_id, error: message });
       processed++;
     }
   }
 
   return processed;
+}
+
+/**
+ * Crash recovery: reclaim notifications stranded in 'processing' by a Worker
+ * that died between claim and finalize. The stranded attempt counts toward the
+ * bounded budget (delivery may or may not have happened; a bounded number of
+ * at-least-once retries is the explicit policy for notifications — they never
+ * carry money truth).
+ */
+export async function reclaimStrandedNotifications(
+  pool: pg.Pool,
+  stuckTimeoutMs = 5 * 60_000
+): Promise<number> {
+  const maxAttempts = maxNotificationAttempts();
+  const reclaimed = await pool.query(
+    `UPDATE siton.notification_events
+     SET status=CASE WHEN attempt_count + 1 >= $2 THEN 'failed' ELSE 'pending' END,
+         attempt_count=attempt_count + 1,
+         processing_started_at=NULL,
+         last_error='reclaimed_after_processing_timeout',
+         scheduled_for=now() + interval '1 minute',
+         updated_at=now()
+     WHERE status='processing'
+       AND processing_started_at IS NOT NULL
+       AND processing_started_at < now() - ($1 * interval '1 millisecond')
+     RETURNING notification_id`,
+    [stuckTimeoutMs, maxAttempts]
+  );
+  return reclaimed.rowCount || 0;
 }
 
 export async function ensureNotificationRailTables(withTx: <T>(fn: (c: pg.PoolClient) => Promise<T>) => Promise<T>) {
