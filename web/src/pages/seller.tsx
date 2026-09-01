@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { api, getSellerToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
+import { api, getSellerToken, setAdminToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
+import { adoptCapabilities, clearOwnerSession } from "../ownerMode";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, Spinner, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
@@ -41,6 +42,10 @@ function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?
       }
       const token = await supabaseSignIn(cfg, email.trim(), password);
       setSellerToken(token);
+      // ONE credential, every legitimate experience: the server reports which
+      // capabilities this identity holds (an owner also unlocks the admin
+      // surface + mode switcher; every route still re-authorizes server-side).
+      await adoptCapabilities(token);
       onDone();
     } catch (err: any) {
       setError(err.message || "התחברות נכשלה");
@@ -196,7 +201,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ צור עסקה חדשה</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { setSellerToken(""); window.location.reload(); }}>יציאה</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { setSellerToken(""); setAdminToken(""); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
         </div>
       </div>
 

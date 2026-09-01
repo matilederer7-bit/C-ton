@@ -8,6 +8,7 @@ import { AdminArea } from "./pages/admin";
 import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
+import { enterGuestMode, exitGuestMode, isGuestMode, readOwnerCaps } from "./ownerMode";
 
 // Capture ?ref= share codes once, at boot, before any routing.
 captureRefFromLocation();
@@ -54,6 +55,31 @@ function useRoute(): [Route, (hash: string) => void] {
   return [route, navigate];
 }
 
+// Owner mode switcher — rendered ONLY when the server confirmed this session's
+// ADMIN capability (stored after login). Choosing a mode never grants
+// authority: seller/admin routes re-authorize server-side, and guest mode
+// strictly strips the privileged tokens from every request.
+function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: string) => void }) {
+  if (isGuestMode()) {
+    return (
+      <button className="owner-exit" data-testid="owner-exit-guest" onClick={exitGuestMode}>
+        חזרה לחשבון שלי
+      </button>
+    );
+  }
+  const caps = readOwnerCaps();
+  if (!caps?.admin) return null;
+  const mode = page === "admin" ? "admin" : page === "seller" ? "seller" : "";
+  return (
+    <div className="owner-switch" role="group" aria-label="מצב תצוגה" data-testid="owner-switch">
+      <span className="owner-switch-label">הצג כ:</span>
+      <button data-testid="owner-mode-guest" onClick={enterGuestMode}>אורח</button>
+      <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>מוכר</button>
+      <button data-testid="owner-mode-admin" className={mode === "admin" ? "active" : ""} onClick={() => navigate("#/admin")}>מנהל</button>
+    </div>
+  );
+}
+
 // Deliberately subtle admin entry — visual obscurity ONLY, never security:
 // the control center still requires canonical Supabase auth + server-side
 // admin permission on every request.
@@ -93,6 +119,7 @@ export default function App() {
               <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>העסקאות</a>
             ) : null}
             <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>אזור המוכרים</a>
+            <OwnerModeSwitch page={page} navigate={navigate} />
           </nav>
         </div>
       </header>

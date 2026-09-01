@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { api, getAdminToken, setAdminToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
+import { api, getAdminToken, setAdminToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
+import { adoptCapabilities, clearOwnerSession } from "../ownerMode";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
 import { fmtDate, ils, moneyStateLabel, num, pct, stateLabel, timeAgo } from "../util";
@@ -34,6 +35,9 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
       // authority check: the server validates the ADMIN capability
       const me = await api.adminMe().catch((err: any) => { throw new Error(err.status === 401 || err.status === 403 ? "לחשבון זה אין הרשאת ניהול" : err.message); });
       if (!me?.ok && !me?.identity) throw new Error("לחשבון זה אין הרשאת ניהול");
+      // ONE credential, every legitimate experience (owner also unlocks the
+      // seller surface + mode switcher; server re-authorizes every route).
+      await adoptCapabilities(token);
       onDone();
     } catch (err: any) {
       setAdminToken("");
@@ -1203,7 +1207,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { setAdminToken(""); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
+        <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { setAdminToken(""); setSellerToken(""); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}

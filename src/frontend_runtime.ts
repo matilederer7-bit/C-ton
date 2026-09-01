@@ -135,6 +135,8 @@ import {
   ADMIN_SESSION_COOKIE,
   HIGH_TRUST_ADMIN_ACTIONS,
   adminPublicIdentity,
+  claimOwnerAdminBinding,
+  isConfiguredOwnerClaimEmail,
   parseCookieHeader,
   createAdminMfaCode,
   ensureAdminIdentityTables,
@@ -1886,6 +1888,63 @@ export function registerFrontendExperience(
   app.get("/preview", async (_req: any, reply: any) => servePreview(reply, "index.html"));
   app.get("/preview/", async (_req: any, reply: any) => servePreview(reply, "index.html"));
   app.get("/preview/*", async (req: any, reply: any) => servePreview(reply, String(req.params?.["*"] || "")));
+
+  // OWNER THREE-MODE — the single canonical owner identity may also hold the
+  // SELLER capability. Mirrors claimOwnerAdminBinding's trust model exactly:
+  // a VERIFIED Supabase token whose CONFIRMED email matches SITON_OWNER_EMAIL
+  // (Supabase only issues tokens after confirmation, so this proves inbox
+  // ownership — the email string alone never authorizes anything). Idempotent;
+  // never rebinds a row already bound to a different auth user.
+  async function claimOwnerSellerBinding(c: any, sub: string, email: string) {
+    await c.query(
+      `INSERT INTO siton.seller_accounts
+         (seller_id, display_name, business_name, login_email, verification_status, settlement_status, auth_enabled, auth_user_id, admin_note)
+       VALUES ('c-ton-owner', 'C-ton', 'C-ton', $1, 'approved', 'active', true, $2, 'owner_email_claim')
+       ON CONFLICT (seller_id) DO UPDATE
+         SET auth_user_id = EXCLUDED.auth_user_id,
+             auth_enabled = true,
+             updated_at = now()
+         WHERE siton.seller_accounts.auth_user_id IS NULL`,
+      [email, sub]
+    );
+  }
+
+  // OWNER THREE-MODE — read-only capability discovery for one authenticated
+  // identity. The client uses this ONLY to decide which legitimate experience
+  // to expose (guest/seller/admin); every privileged route keeps authorizing
+  // independently against the canonical capability bindings. The configured
+  // owner email is auto-provisioned its SuperAdmin + owner-seller bindings
+  // here, under the same verified-token trust model as the admin owner claim.
+  app.get("/api/auth/capabilities", async (req: any, reply: any) => {
+    const verifier = frontendSupabaseVerifier();
+    if (!verifier || !bearerToken(req)) {
+      return reply.code(401).send({ ok: false, error: "authentication_required" });
+    }
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      let caps: Awaited<ReturnType<typeof resolveSupabaseCapabilities>> = null;
+      try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
+      if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
+      if (isConfiguredOwnerClaimEmail(caps.email)) {
+        if (!caps.admin) await claimOwnerAdminBinding(c, caps.sub, caps.email);
+        if (!caps.seller) await claimOwnerSellerBinding(c, caps.sub, caps.email);
+        if (!caps.admin || !caps.seller) {
+          try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
+          if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
+        }
+      }
+      return {
+        ok: true,
+        email: caps.email,
+        seller: caps.seller && caps.seller.auth_enabled
+          ? { seller_id: caps.seller.seller_id, display_name: caps.seller.display_name }
+          : null,
+        admin: caps.admin && caps.admin.status === "Active"
+          ? { role: caps.admin.role }
+          : null
+      };
+    });
+  });
 
   // P0 — crawler-readable share route for the canonical React app.
   // Social crawlers never execute the SPA and hash fragments never reach the

@@ -18,13 +18,21 @@ function writeKey(key: string, value: string) {
   try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch { /* noop */ }
 }
 
-export const getSellerToken = () => readKey(SELLER_TOKEN_KEY);
+// Owner "view as guest" — while the flag is set, privileged tokens are never
+// readable and never attached: guest mode may only REMOVE privileges. (Read
+// directly here to avoid an import cycle with ownerMode.ts.)
+function guestModeActive(): boolean {
+  try { return localStorage.getItem("siton_guest_mode_v1") === "1"; } catch { return false; }
+}
+
+export const getSellerToken = () => (guestModeActive() ? "" : readKey(SELLER_TOKEN_KEY));
 export const setSellerToken = (t: string) => writeKey(SELLER_TOKEN_KEY, t);
-export const getAdminToken = () => readKey(ADMIN_TOKEN_KEY);
+export const getAdminToken = () => (guestModeActive() ? "" : readKey(ADMIN_TOKEN_KEY));
 export const setAdminToken = (t: string) => writeKey(ADMIN_TOKEN_KEY, t);
 
 async function req(path: string, init: RequestInit = {}, auth: "none" | "seller" | "admin" = "none"): Promise<Json> {
   const headers: Record<string, string> = { "content-type": "application/json", ...(init.headers as any) };
+  if (guestModeActive()) auth = "none";
   if (auth !== "none") {
     const t = auth === "seller" ? getSellerToken() : getAdminToken();
     if (t) headers["authorization"] = `Bearer ${t}`;
