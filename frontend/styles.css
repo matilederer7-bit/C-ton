@@ -1091,6 +1091,11 @@ a { color: #ff8b40; }
 .brand-wordmark strong { color: #d4d6da; font-size: 25px; font-weight: 700; letter-spacing: .015em; text-shadow: 0 2px 5px #000; }
 .brand-wordmark strong b { color: var(--primary); font-weight: 900; }
 .brand-wordmark small { margin-top: 5px; color: #747982; font-size: 8px; font-weight: 800; letter-spacing: .25em; }
+.brand-lockup.is-compact { width: fit-content; }
+.brand-lockup.is-compact .brand-mark { width: 44px; height: 44px; border-radius: 13px; }
+.brand-lockup.is-compact .brand-wordmark strong { font-size: 20px; }
+.brand-lockup.is-compact .brand-wordmark small { font-size: 7px; }
+.cton-success-card > .brand-lockup { margin-inline: auto; }
 .brand-status-chip i { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 5px rgba(85,217,154,.09), 0 0 13px rgba(85,217,154,.45); }
 .page-nav {
   align-items: center;
@@ -1140,11 +1145,19 @@ a { color: #ff8b40; }
 }
 .brand-loader-mark { width: 88px; height: 88px; z-index: 1; border-radius: 26px; animation: cton-breathe 1.9s ease-in-out infinite; }
 .brand-loader-copy-block { z-index: 1; display: grid; gap: 9px; min-width: min(320px, 62vw); }
+.brand-loader.is-compact { min-height: 116px; justify-content: flex-start; padding: 18px; border-radius: 18px; box-shadow: none; }
+.brand-loader.is-compact .brand-loader-mark { width: 58px; height: 58px; border-radius: 17px; }
+.brand-loader.is-compact .brand-loader-copy-block { min-width: 0; width: min(360px, 100%); }
+.brand-loader.is-compact .brand-loader-wordmark { font-size: 24px; }
 .brand-loader-wordmark { color: #d7d9dd; font-size: 36px; font-weight: 600; line-height: 1; text-shadow: 0 4px 10px #000; }
 .brand-loader-wordmark span { color: var(--primary); font-weight: 900; }
 .brand-loader-copy { color: var(--muted); font-weight: 700; }
 .brand-loader-track { width: 100%; height: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.07); }
 .brand-loader-track i { display: block; width: 38%; height: 100%; border-radius: inherit; background: linear-gradient(90deg, transparent, var(--primary), #ff9d5b, transparent); animation: cton-loader-track 1.55s ease-in-out infinite; }
+.brand-loader-skeleton { display: grid; grid-template-columns: 1.4fr .8fr .55fr; gap: 8px; margin-top: 4px; }
+.brand-loader-skeleton i { height: 9px; overflow: hidden; border-radius: 99px; background: linear-gradient(90deg, rgba(255,255,255,.04), rgba(255,255,255,.11), rgba(255,255,255,.04)); background-size: 220% 100%; animation: cton-skeleton 1.5s ease-in-out infinite; }
+.brand-loader-skeleton i:nth-child(2) { animation-delay: 120ms; }
+.brand-loader-skeleton i:nth-child(3) { animation-delay: 240ms; }
 .brand-boot .brand-loader-mark { width: 108px; height: 108px; border-radius: 30px; }
 .brand-boot .brand-loader-copy { color: var(--muted); }
 @keyframes cton-breathe {
@@ -1152,6 +1165,7 @@ a { color: #ff8b40; }
   50% { transform: scale(1.035); filter: brightness(1.08); box-shadow: 0 20px 42px rgba(0,0,0,.5), 0 0 0 9px rgba(255,107,11,.055); }
 }
 @keyframes cton-loader-track { from { transform: translateX(170%); } to { transform: translateX(-310%); } }
+@keyframes cton-skeleton { from { background-position: 100% 0; } to { background-position: -120% 0; } }
 
 .card, .summary-item, .status-item, .metric, .choice, .kpi-card, .form-section-card,
 .tracking-progress-panel, .tracking-chart-card, .tracking-activity-card, .tracking-personal-card,

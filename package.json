@@ -22,6 +22,7 @@
     "test": "npm run test:all",
     "test:frontend": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_flow_validation.js && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
     "test:frontend-foundation": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/frontend_foundation_rtl_accessibility_validation.js",
+    "test:visual-brand": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/visual_dark_brand_system_validation.js",
     "test:product-surfaces-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/product_surfaces_refinement_validation.js",
     "test:buyer-tracking-refinement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/buyer_tracking_refinement_validation.js",
     "test:buyer-tracking-command-center": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/buyer_tracking_command_center_validation.js",
@@ -110,7 +111,7 @@
     "mobile:build": "node scripts/build_mobile_bundle.cjs",
     "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
     "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
-    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\"",
+    "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#111214\" --iconBackgroundColorDark \"#090a0c\" --splashBackgroundColor \"#111214\" --splashBackgroundColorDark \"#090a0c\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#111214\" --iconBackgroundColorDark \"#090a0c\" --splashBackgroundColor \"#111214\" --splashBackgroundColorDark \"#090a0c\"",
     "mobile:verify": "npm run mobile:build && npm run mobile:normalize && node scripts/mobile_release_gate.cjs",
     "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs"
   },

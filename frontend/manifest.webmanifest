@@ -10,19 +10,69 @@
   "orientation": "portrait-primary",
   "background_color": "#101113",
   "theme_color": "#111214",
-  "categories": ["shopping", "business"],
+  "categories": [
+    "shopping",
+    "business"
+  ],
   "icons": [
-    { "src": "/app/icons/icon-48.png", "type": "image/png", "sizes": "48x48", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-72.png", "type": "image/png", "sizes": "72x72", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-96.png", "type": "image/png", "sizes": "96x96", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-128.png", "type": "image/png", "sizes": "128x128", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-192.png", "type": "image/png", "sizes": "192x192", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-256.png", "type": "image/png", "sizes": "256x256", "purpose": "any maskable" },
-    { "src": "/app/icons/icon-512.png", "type": "image/png", "sizes": "512x512", "purpose": "any maskable" }
+    {
+      "src": "/app/icons/icon-48.png",
+      "type": "image/png",
+      "sizes": "48x48",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-72.png",
+      "type": "image/png",
+      "sizes": "72x72",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-96.png",
+      "type": "image/png",
+      "sizes": "96x96",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-128.png",
+      "type": "image/png",
+      "sizes": "128x128",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-256.png",
+      "type": "image/png",
+      "sizes": "256x256",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/app/icons/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any maskable"
+    }
   ],
   "shortcuts": [
-    { "name": "קניון העסקאות", "short_name": "קניון", "url": "/app?source=pwa_shortcut" },
-    { "name": "מעקב רכישה", "short_name": "מעקב", "url": "/app?intent=tracking" },
-    { "name": "כניסת מוכר", "short_name": "מוכר", "url": "/app/seller" }
+    {
+      "name": "קניון העסקאות",
+      "short_name": "קניון",
+      "url": "/app?source=pwa_shortcut"
+    },
+    {
+      "name": "מעקב רכישה",
+      "short_name": "מעקב",
+      "url": "/app?intent=tracking"
+    },
+    {
+      "name": "כניסת מוכר",
+      "short_name": "מוכר",
+      "url": "/app/seller"
+    }
   ]
 }

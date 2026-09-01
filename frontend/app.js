@@ -3086,6 +3086,7 @@ function renderBrandedLoader(message, { compact = false } = {}) {
         <strong class="brand-loader-wordmark" dir="ltr"><span>C</span>-ton</strong>
         <span class="brand-loader-copy">${esc(message)}</span>
         <span class="brand-loader-track" aria-hidden="true"><i></i></span>
+        ${compact ? `<span class="brand-loader-skeleton" aria-hidden="true"><i></i><i></i><i></i></span>` : ""}
       </div>
     </section>
   `;
@@ -3124,7 +3125,11 @@ function syncPublicMetadata() {
   setMetaContent("name", "twitter:card", "summary_large_image");
   setMetaContent("name", "twitter:title", title);
   setMetaContent("name", "twitter:description", description);
-  const imageUrl = isPublicDeal ? safeMetadataImageUrl(getPrimaryDealImage(deal)?.url) : "";
+  const imageUrl = isPublicDeal
+    ? safeMetadataImageUrl(getPrimaryDealImage(deal)?.url)
+    : route.name === "home"
+      ? absoluteUrl("/app/icons/c-ton-brand-reference.png")
+      : "";
   setMetaContent("property", "og:image", imageUrl);
   setMetaContent("name", "twitter:image", imageUrl);
   let canonical = document.querySelector('link[rel="canonical"]');
@@ -3504,6 +3509,7 @@ function renderCtonOtpPage(dealId) {
   return `
     <section class="cton-center-screen">
       <article class="cton-card cton-auth-card">
+        ${renderBrandLockup({ compact: true })}
         <div class="cton-icon-circle">${icon("lock")}</div>
         <h1>${flow.otpSessionId ? "הזינו את הקוד שקיבלתם" : "אימות קצר כדי להצטרף"}</h1>
         <p>נשלח לך קוד חד־פעמי כדי לשייך את ההצטרפות לעסקה.</p>
@@ -3534,6 +3540,7 @@ function renderCtonPaymentPage(dealId) {
   return `
     <section class="cton-center-screen">
       <article class="cton-card cton-payment-card">
+        ${renderBrandLockup({ compact: true })}
         <span class="eyebrow">הצטרפות לעסקה</span>
         <h1>אישור הצטרפות לעסקה</h1>
         <div class="cton-payment-summary">
@@ -3569,6 +3576,7 @@ function renderCtonConfirmationPage(dealId) {
   return `
     <section class="cton-center-screen">
       <article class="cton-card cton-success-card">
+        ${renderBrandLockup({ compact: true })}
         <div class="cton-success-icon">${icon("check")}</div>
         <h1>הצטרפת בהצלחה</h1>
         <p>המסגרת נתפסה. לא בוצע חיוב בפועל. החיוב יתבצע רק אם העסקה תיסגר בהצלחה.</p>
@@ -4841,6 +4849,7 @@ function renderSellerPage() {
   return `
     <section class="hero">
       <article class="card hero-main stack hero-emphasis">
+        ${renderBrandLockup({ compact: true })}
         <span class="eyebrow">ניהול העסקאות שלי</span>
         <h1>פותחים, מפרסמים ומנהלים כל עסקה ממקום אחד</h1>
         <p class="muted">זהו שער העבודה הראשי למוכר: פותחים טיוטה, מפרסמים דף עסקה חי, מעתיקים לינק ישיר לקונים, ועוקבים אחרי ההצטרפויות בלי להישען על חיפוש ציבורי.</p>
@@ -4934,9 +4943,9 @@ function renderSellerAnalyticsSection() {
         <div class="section-header">
           <div class="stack compact compact-section">
             <h2>ביצועי המוכר</h2>
-            <p class="muted section-intro">טוען את ביצועי המוכר...</p>
           </div>
         </div>
+        ${renderBrandedLoader("טוען את ביצועי המוכר...", { compact: true })}
       </section>
     `;
   }
