@@ -10,7 +10,7 @@ import { getSellerToken } from "./api";
 
 export const IMAGE_MAX_BYTES = 2 * 1024 * 1024;
 export const IMAGE_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"];
-export const IMAGE_LIMIT = 5;
+export const IMAGE_LIMIT = 12;
 
 export type LocalImage = { id: string; name: string; mime: string; b64: string; previewUrl: string };
 export type ServerImage = { image_id: string; url: string; is_primary: boolean; sort_order: number; mime_type?: string };
@@ -162,9 +162,9 @@ export function LocalImageManager({ images, onChange }: { images: LocalImage[]; 
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex.current !== null && dragIndex.current !== i) move(dragIndex.current, i); dragIndex.current = null; }}>
               <img src={img.previewUrl} alt={img.name} />
-              {i === 0 ? <span className="img-primary-badge">ראשית</span> : null}
+              {i === 0 ? <span className="img-primary-badge">תמונה ראשית</span> : null}
               <div className="img-actions">
-                {i !== 0 ? <button type="button" title="קבע כתמונה ראשית" onClick={() => move(i, 0)}>★</button> : null}
+                {i !== 0 ? <button type="button" title="הגדר כתמונה ראשית" aria-label="הגדר כתמונה ראשית" onClick={() => move(i, 0)}>★</button> : null}
                 <button type="button" title="הזז שמאלה" disabled={i === images.length - 1} onClick={() => move(i, i + 1)}>‹</button>
                 <button type="button" title="הזז ימינה" disabled={i === 0} onClick={() => move(i, i - 1)}>›</button>
                 <button type="button" className="danger" title="הסרה" onClick={() => { URL.revokeObjectURL(img.previewUrl); onChange(images.filter((x) => x.id !== img.id)); }}>✕</button>
@@ -190,7 +190,9 @@ export function LocalImageManager({ images, onChange }: { images: LocalImage[]; 
 // ── server mode (Draft deal) ────────────────────────────────────────────────
 type PendingUpload = { id: string; name: string; previewUrl: string; pct: number; error: string; img: { name: string; mime: string; b64: string } };
 
-export function DraftImageManager({ dealId, images, onChanged }: { dealId: string; images: ServerImage[]; onChanged: () => void }) {
+// arrangeOnly — after publication the image SET is locked (buyers joined on
+// what they saw) but reordering and choosing the primary image stay allowed.
+export function DraftImageManager({ dealId, images, onChanged, arrangeOnly = false }: { dealId: string; images: ServerImage[]; onChanged: () => void; arrangeOnly?: boolean }) {
   const [pending, setPending] = useState<PendingUpload[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -256,17 +258,19 @@ export function DraftImageManager({ dealId, images, onChanged }: { dealId: strin
               onDragOver={(e) => e.preventDefault()}
               onDrop={(e) => { e.preventDefault(); e.stopPropagation(); if (dragIndex.current !== null && dragIndex.current !== i) move(dragIndex.current, i); dragIndex.current = null; }}>
               <img src={img.url} alt="" loading="lazy" />
-              {img.is_primary ? <span className="img-primary-badge">ראשית</span> : null}
+              {img.is_primary ? <span className="img-primary-badge">תמונה ראשית</span> : null}
               <div className="img-actions">
-                {!img.is_primary ? <button type="button" disabled={busy} title="קבע כתמונה ראשית" onClick={() => commitOrder(sorted.map((x) => x.image_id), img.image_id)}>★</button> : null}
+                {!img.is_primary ? <button type="button" disabled={busy} title="הגדר כתמונה ראשית" aria-label="הגדר כתמונה ראשית" onClick={() => commitOrder(sorted.map((x) => x.image_id), img.image_id)}>★</button> : null}
                 <button type="button" disabled={busy || i === sorted.length - 1} title="הזז שמאלה" onClick={() => move(i, i + 1)}>‹</button>
                 <button type="button" disabled={busy || i === 0} title="הזז ימינה" onClick={() => move(i, i - 1)}>›</button>
-                <button type="button" className="danger" disabled={busy} title="מחיקה" onClick={async () => {
-                  setBusy(true); setError("");
-                  try { await imageApi.remove(dealId, img.image_id); onChanged(); }
-                  catch (e: any) { setError(e.message); }
-                  finally { setBusy(false); }
-                }}>✕</button>
+                {!arrangeOnly ? (
+                  <button type="button" className="danger" disabled={busy} title="מחיקה" onClick={async () => {
+                    setBusy(true); setError("");
+                    try { await imageApi.remove(dealId, img.image_id); onChanged(); }
+                    catch (e: any) { setError(e.message); }
+                    finally { setBusy(false); }
+                  }}>✕</button>
+                ) : null}
               </div>
             </div>
           ))}
@@ -297,8 +301,12 @@ export function DraftImageManager({ dealId, images, onChanged }: { dealId: strin
         </div>
       )}
       <div className="row" style={{ marginTop: 8 }}>
-        <PickButton disabled={sorted.length + pending.length >= IMAGE_LIMIT} onFiles={addFiles} label="+ הוספת תמונות" />
-        <span className="muted small">{sorted.length + pending.length}/{IMAGE_LIMIT} · עד 2MB · גרירה משנה סדר · ★ קובע ראשית</span>
+        {!arrangeOnly ? <PickButton disabled={sorted.length + pending.length >= IMAGE_LIMIT} onFiles={addFiles} label="+ הוספת תמונות" /> : null}
+        <span className="muted small">
+          {arrangeOnly
+            ? "לאחר הפרסום אפשר לשנות סדר ולבחור תמונה ראשית (★); הוספה ומחיקה נעולות"
+            : `${sorted.length + pending.length}/${IMAGE_LIMIT} · עד 2MB · גרירה משנה סדר · ★ הגדרת תמונה ראשית`}
+        </span>
       </div>
       {error ? <div className="notice err" style={{ marginTop: 8 }}>{error}</div> : null}
     </div>

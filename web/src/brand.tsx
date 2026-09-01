@@ -21,11 +21,18 @@ export function BrandMark({ size = 38 }: { size?: number }) {
   );
 }
 
+// The topbar shows the ACTUAL approved wordmark pixels (cropped + keyed from
+// web/public/brand/c-ton-logo.png) — never a text reconstruction of it.
+const BRAND_WORDMARK_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-wordmark.png`;
+
 export function BrandWordmark() {
   return (
-    <span className="brand-word" translate="no" dir="ltr" aria-label={BRAND_NAME}>
-      <span className="brand-word-c">C-</span>ton
-    </span>
+    <img
+      className="brand-word-img"
+      src={BRAND_WORDMARK_URL}
+      alt={BRAND_NAME}
+      draggable={false}
+    />
   );
 }
 

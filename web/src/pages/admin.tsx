@@ -5,7 +5,8 @@ import { revokeSurface } from "../session";
 import { AuthPanel } from "../auth";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
-import { fmtDate, ils, moneyStateLabel, num, pct, stateLabel, timeAgo } from "../util";
+import { VTreeCanvas } from "../vtree";
+import { buyerStateLabel, fmtDate, ils, moneyStateLabel, NOTIFICATION_STATUS_LABELS, num, pct, stateLabel, timeAgo } from "../util";
 
 // ── login (the shared truthful auth panel + server-side admin verification) ─
 function AdminLogin({ onDone }: { onDone: () => void }) {
@@ -235,9 +236,25 @@ function TreeBranch({ node, dealId, depth, onSelect, selectedId }: { node: TreeN
   );
 }
 
-function ViralTreeExplorer({ dealId }: { dealId: string }) {
+function useIsWide(minWidth = 900): boolean {
+  const [wide, setWide] = useState(() => {
+    try { return window.matchMedia(`(min-width: ${minWidth}px)`).matches; } catch { return true; }
+  });
+  useEffect(() => {
+    try {
+      const mq = window.matchMedia(`(min-width: ${minWidth}px)`);
+      const onChange = () => setWide(mq.matches);
+      mq.addEventListener("change", onChange);
+      return () => mq.removeEventListener("change", onChange);
+    } catch { return undefined; }
+  }, [minWidth]);
+  return wide;
+}
+
+function ViralTreeExplorer({ dealId, dealTitle }: { dealId: string; dealTitle?: string }) {
   const { data, error } = useFetch(() => api.adminDealViralTree(dealId, { limit: 60 }), [dealId]);
   const [selected, setSelected] = useState<TreeNode | null>(null);
+  const wide = useIsWide();
   if (error) return <Err msg={error} />;
   if (!data) return <Spinner />;
   const roots: TreeNode[] = (data as Json).nodes || [];
@@ -245,13 +262,28 @@ function ViralTreeExplorer({ dealId }: { dealId: string }) {
   return (
     <div className="tree-explorer">
       <div className="tree-pane">
-        <p className="muted small">
-          {num(roots.length)}{(data as Json).truncated ? "+" : ""} שורשים (מצטרפים ללא מפנה) —
-          + פותח את הענף של כל משתתף; לחיצה על כרטיס מציגה את מדדי הענף.
-        </p>
-        <div className="vtree">
-          {roots.map((n) => <TreeBranch key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
-        </div>
+        {wide ? (
+          // desktop: the genealogy CANVAS — pan, zoom, fit, expandable branches
+          <VTreeCanvas
+            dealId={dealId}
+            roots={roots}
+            rootTruncated={Boolean((data as Json).truncated)}
+            dealTitle={dealTitle}
+            onSelect={setSelected}
+            selectedId={selected?.participant_id || null}
+          />
+        ) : (
+          // narrow screens: focused branch drilldown
+          <>
+            <p className="muted small">
+              {num(roots.length)}{(data as Json).truncated ? "+" : ""} שורשים (מצטרפים ללא מפנה) —
+              + פותח את הענף של כל משתתף; לחיצה על כרטיס מציגה את מדדי הענף.
+            </p>
+            <div className="vtree">
+              {roots.map((n) => <TreeBranch key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
+            </div>
+          </>
+        )}
       </div>
       <div className="tree-detail">
         {selected ? (
@@ -353,7 +385,7 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
   );
 }
 
-function ViralTab({ dealId, vm, viralRes, onRecompute }: { dealId: string; vm: Json | null; viralRes: Json | null; onRecompute: () => void }) {
+function ViralTab({ dealId, dealTitle, vm, viralRes, onRecompute }: { dealId: string; dealTitle?: string; vm: Json | null; viralRes: Json | null; onRecompute: () => void }) {
   const [mode, setMode] = useState<"tree" | "analytics">("tree");
   return (
     <>
@@ -363,8 +395,8 @@ function ViralTab({ dealId, vm, viralRes, onRecompute }: { dealId: string; vm: J
       </div>
       {mode === "tree" ? (
         <div className="panel">
-          <div className="panel-title">עץ ההפצה (טעינה עצלה לפי ענף)</div>
-          <ViralTreeExplorer dealId={dealId} />
+          <div className="panel-title">עץ ההפצה</div>
+          <ViralTreeExplorer dealId={dealId} dealTitle={dealTitle} />
         </div>
       ) : (
         <ViralMetricsBlock vm={vm} stale={viralRes?.stale} computedAt={viralRes?.computed_at} onRecompute={onRecompute} />
@@ -417,7 +449,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
       </div>
 
       <div className="tabbar">
-        {[["summary", "משתתפים וכסף"], ["viral", "ויראליות ועץ"], ["ops", "תפעול ותור"], ["audit", "Audit"]].map(([k, l]) => (
+        {[["summary", "משתתפים וכסף"], ["viral", "ויראליות ועץ"], ["ops", "תפעול ותור"], ["audit", "יומן פעולות"]].map(([k, l]) => (
           <button key={k} className={`tab${tab === k ? " active" : ""}`} onClick={() => setTab(k!)}>{l}</button>
         ))}
       </div>
@@ -432,7 +464,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
                   <td>{x.buyer_name || "—"}</td>
                   <td dir="ltr">{x.buyer_phone || x.buyer_id}</td>
                   <td className="num">{num(x.qty)}</td>
-                  <td>{x.buyer_state}</td>
+                  <td>{buyerStateLabel(String(x.buyer_state))}</td>
                   <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(x.money_state)) ? "Completed" : String(x.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{moneyStateLabel(String(x.money_state))}</span></td>
                   <td>{x.delivery_method_label || "—"}</td>
                   <td>{x.acquisition_source || "direct"}</td>
@@ -444,7 +476,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
         </div>
       ) : null}
 
-      {tab === "viral" ? <ViralTab dealId={dealId} vm={vm} viralRes={viralRes as Json | null} onRecompute={recompute} /> : null}
+      {tab === "viral" ? <ViralTab dealId={dealId} dealTitle={String(deal.title || "")} vm={vm} viralRes={viralRes as Json | null} onRecompute={recompute} /> : null}
 
       {tab === "ops" ? (
         <>
@@ -465,7 +497,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
             <div className="panel-title">ניסיונות חיוב</div>
             <div className="table-wrap">
               <table className="data">
-                <thead><tr><th>סוג</th><th>תוצאה</th><th>correlation</th><th>מתי</th></tr></thead>
+                <thead><tr><th>סוג</th><th>תוצאה</th><th>מזהה קורלציה</th><th>מתי</th></tr></thead>
                 <tbody>
                   {(p.payment_attempts || []).map((a: Json, i: number) => (
                     <tr key={i}><td>{a.attempt_type}</td><td>{a.result_class}</td><td dir="ltr" className="small">{a.correlation_id}</td><td>{fmtDate(a.created_at)}</td></tr>
@@ -571,7 +603,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
       </div>
 
       <div className="tabbar">
-        {[["deals", "עסקאות"], ["viral", "ויראליות"], ["support", "תמיכה ואספקה"], ["audit", "Audit"]].map(([k, l]) => (
+        {[["deals", "עסקאות"], ["viral", "ויראליות"], ["support", "תמיכה ואספקה"], ["audit", "יומן פעולות"]].map(([k, l]) => (
           <button key={k} className={`tab${tab === k ? " active" : ""}`} onClick={() => setTab(k!)}>{l}</button>
         ))}
       </div>
@@ -678,7 +710,7 @@ function BuyersScreen() {
                   <td className="num">{num(b.units_joined)}</td>
                   <td className="num" style={{ fontWeight: 700 }}>{num(b.units_charged)}</td>
                   <td className="num">{ils(b.charged_gross)}</td>
-                  <td>{b.latest_buyer_state ? <span className="status small">{b.latest_buyer_state}</span> : "—"}</td>
+                  <td>{b.latest_buyer_state ? <span className="status small">{buyerStateLabel(String(b.latest_buyer_state))}</span> : "—"}</td>
                   <td><MoneyPill state={String(b.latest_money_state || "")} recovery={Number(b.in_recovery || 0)} /></td>
                   <td>{timeAgo(b.last_activity_at || b.last_join_at)}</td>
                 </tr>
@@ -887,7 +919,7 @@ function PaymentsScreen() {
         ) : <p className="muted small">אין עדיין ניסיונות חיוב.</p>}
       </div>
       <div className="panel">
-        <div className="panel-title">ניסיונות חיוב אחרונים (עם correlation/idempotency)</div>
+        <div className="panel-title">ניסיונות חיוב אחרונים (עם מזהי קורלציה)</div>
         {attempts.length ? (
           <div className="table-wrap"><table className="data">
             <thead><tr><th>מתי</th><th>עסקה</th><th>קונה</th><th>סוג</th><th>תוצאה</th><th>מזהה קורלציה</th></tr></thead>
@@ -955,7 +987,7 @@ function NotificationsScreen() {
       </div>
       <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {["all", "sent", "pending", "failed", "skipped"].map((f) => (
-          <button key={f} className={`chip-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>{f === "all" ? "הכל" : f}</button>
+          <button key={f} className={`chip-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>{f === "all" ? "הכל" : NOTIFICATION_STATUS_LABELS[f] || f}</button>
         ))}
       </div>
       <div className="panel">
@@ -970,7 +1002,7 @@ function NotificationsScreen() {
                 <td className="small">{e.recipient_type}</td>
                 <td className="small">{e.channel}</td>
                 <td><span className="vbadge no" title="log-only synthetic adapter">{e.adapter}{e.adapter_mode && e.adapter_mode !== e.adapter ? `/${e.adapter_mode}` : ""}</span></td>
-                <td><span className={`status small ${NOTIF_STATUS_TONE[String(e.status)] || "ClosedForJoining"}`}>{e.status}</span></td>
+                <td><span className={`status small ${NOTIF_STATUS_TONE[String(e.status)] || "ClosedForJoining"}`}>{NOTIFICATION_STATUS_LABELS[String(e.status)] || e.status}</span></td>
                 <td className="num">{num(e.attempts)}</td>
                 <td className="small">{e.deal_title || "—"}</td>
                 <td className="small" style={{ color: e.last_error ? "var(--pomegranate)" : undefined }}>{e.last_error || "—"}</td>
@@ -983,15 +1015,58 @@ function NotificationsScreen() {
   );
 }
 
+const CASE_TYPE_HE: Record<string, string> = {
+  RefundRequest: "בקשת החזר",
+  DeliveryIssue: "בעיית אספקה",
+  SellerRisk: "סיכון מוכר",
+  BuyerComplaint: "פניית קונה",
+  PaymentMismatch: "אי-התאמת תשלום",
+  InvoiceIssue: "בעיית חשבונית",
+  ContentReport: "דיווח על תוכן",
+  SystemException: "חריגת מערכת",
+  Other: "אחר"
+};
+const CASE_STATUS_HE: Record<string, string> = {
+  Open: "חדש",
+  NeedsSeller: "ממתין למוכר",
+  NeedsAdmin: "בטיפול",
+  WaitingExternal: "ממתין לגורם חיצוני",
+  Resolved: "נענה",
+  Closed: "נסגר"
+};
+const CASE_PRIORITY_HE: Record<string, string> = { Low: "נמוכה", Normal: "רגילה", High: "גבוהה", Urgent: "דחופה" };
+const CASE_SOURCE_HE: Record<string, string> = { Admin: "צוות", Buyer: "קונה", Seller: "מוכר", System: "מערכת" };
+
 function SupportScreen() {
-  return <JsonStatScreen title="תמיכה" fetcher={() => api.adminSupportCases()} render={(d) => {
+  return <JsonStatScreen title="תמיכה ופניות" fetcher={() => api.adminSupportCases()} render={(d) => {
     const cases: Json[] = d.cases || d.support_cases || [];
-    return cases.length ? (
-      <div className="table-wrap"><table className="data">
-        <thead><tr><th>סוג</th><th>סטטוס</th><th>נושא</th><th>מתי</th></tr></thead>
-        <tbody>{cases.map((c, i) => <tr key={i}><td>{c.case_type}</td><td>{c.status}</td><td>{c.title || c.summary || "—"}</td><td>{fmtDate(c.created_at)}</td></tr>)}</tbody>
-      </table></div>
-    ) : <EmptyState icon="✅" title="אין פניות פתוחות" />;
+    const summary = d.summary || {};
+    return (
+      <>
+        <div className="stat-row">
+          <StatTile num={num(summary.open_count || 0)} label="פניות פתוחות" />
+          <StatTile num={num(summary.needs_admin_count || 0)} label="בטיפול הצוות" tone={Number(summary.needs_admin_count) > 0 ? "warn" : undefined} />
+          <StatTile num={num(summary.urgent_count || 0)} label="דחופות" tone={Number(summary.urgent_count) > 0 ? "bad" : "good"} />
+          <StatTile num={num(summary.older_than_48h_count || 0)} label="ממתינות מעל 48 שעות" tone={Number(summary.older_than_48h_count) > 0 ? "warn" : undefined} />
+        </div>
+        {cases.length ? (
+          <div className="table-wrap"><table className="data">
+            <thead><tr><th>נושא</th><th>קטגוריה</th><th>מקור</th><th>עדיפות</th><th>סטטוס</th><th>פרטים</th><th>מתי</th></tr></thead>
+            <tbody>{cases.map((c, i) => (
+              <tr key={c.case_id || i}>
+                <td><b>{c.subject || "—"}</b>{c.buyer_ref ? <div className="muted small" dir="ltr">{c.buyer_ref}</div> : null}</td>
+                <td>{CASE_TYPE_HE[String(c.case_type)] || c.case_type}</td>
+                <td>{CASE_SOURCE_HE[String(c.source)] || c.source}</td>
+                <td>{CASE_PRIORITY_HE[String(c.priority)] || c.priority}</td>
+                <td><span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`}>{CASE_STATUS_HE[String(c.status)] || c.status}</span></td>
+                <td className="small" style={{ maxWidth: 340, whiteSpace: "pre-wrap" }}>{String(c.description || "").slice(0, 220)}</td>
+                <td>{fmtDate(c.created_at)}</td>
+              </tr>
+            ))}</tbody>
+          </table></div>
+        ) : <EmptyState icon="✅" title="אין פניות פתוחות" />}
+      </>
+    );
   }} />;
 }
 
@@ -1000,7 +1075,7 @@ function AuditScreen() {
   const { data, error } = useFetch(() => api.adminAudit(q), [q]);
   return (
     <>
-      <h1>Audit</h1>
+      <h1>יומן פעולות</h1>
       <input placeholder="חיפוש פעולה / מזהה / correlation…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
       <Err msg={error} />
       {!data ? <Spinner /> : (

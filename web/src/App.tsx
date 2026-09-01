@@ -5,6 +5,8 @@ import { DealPage } from "./pages/deal";
 import { TrackPage } from "./pages/track";
 import { SellerArea } from "./pages/seller";
 import { AdminArea } from "./pages/admin";
+import { SupportPage } from "./pages/support";
+import { getPreviewMeta } from "./previewMeta";
 import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
@@ -27,8 +29,7 @@ function useMallEnabled(): boolean {
   useEffect(() => {
     if (mallFlagCache !== null) return;
     let alive = true;
-    fetch("/api/preview/meta")
-      .then((r) => (r.ok ? r.json() : null))
+    getPreviewMeta()
       .then((meta) => {
         mallFlagCache = Boolean(meta?.public_mall_enabled);
         if (alive) setEnabled(mallFlagCache);
@@ -144,13 +145,15 @@ export default function App() {
           {page === "deal" && route.seg[1] ? <DealPage dealId={route.seg[1]} navigate={navigate} /> : null}
           {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
-          {!["", "deal", "track", "seller"].includes(page) ? <Home navigate={navigate} /> : null}
+          {page === "support" ? <SupportPage /> : null}
+          {!["", "deal", "track", "seller", "support"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 
       {!isAdmin ? (
         <footer className="footer">
           <div>
+            <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>
             <a href="/legal/terms">תקנון ותנאי שימוש</a>
             <a href="/legal/privacy">פרטיות</a>
             <a href="/legal/refunds">מדיניות ביטולים והחזרים</a>

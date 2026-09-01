@@ -332,6 +332,9 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
               <span className="staging-flag">סביבת הדגמה</span>
             </div>
             <h1 className="deal-title" style={{ marginTop: 10, marginBottom: 0 }}>{deal.title}</h1>
+            {deal.description_short ? (
+              <p className="deal-short-desc">{deal.description_short}</p>
+            ) : null}
             {seller.business_name ? (
               <div className="deal-seller-line">🏪 {seller.business_name}</div>
             ) : null}
@@ -413,8 +416,8 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
         {/* secondary content */}
         <div className="deal-area-rest">
           <div className="panel">
-            <div className="panel-title">📦 מה מקבלים</div>
-            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || payload.deal?.fulfillment_copy?.what_you_get || "פרטי המוצר יופיעו כאן."}</p>
+            <div className="panel-title">📦 מידע נוסף</div>
+            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || deal.description_short || payload.deal?.fulfillment_copy?.what_you_get || "פרטי המוצר יופיעו כאן."}</p>
             {deal.voucher_terms ? (
               <div className="kv" style={{ marginTop: 12 }}>
                 <span className="k">שווי השובר</span><span className="v">{ils(deal.voucher_terms.face_value_amount)}</span>

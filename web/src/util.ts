@@ -63,6 +63,33 @@ export function moneyStateLabel(state: string): string {
   return MONEY_STATE_LABELS[state] || state;
 }
 
+// Buyer participation state → product Hebrew (presentation only).
+export const BUYER_STATE_LABELS: Record<string, string> = {
+  Joined: "הצטרף/ה",
+  Active: "פעיל/ה",
+  Locked: "נעול לחיוב",
+  Charged: "חויב/ה",
+  ChargeFailedCompletion: "בהשלמת תשלום",
+  Completed: "הושלם",
+  Dropped: "נשר/ה",
+  DealFailed: "העסקה לא הושלמה"
+};
+
+export function buyerStateLabel(state: string): string {
+  return BUYER_STATE_LABELS[state] || state;
+}
+
+// Notification delivery status → Hebrew (admin surface).
+export const NOTIFICATION_STATUS_LABELS: Record<string, string> = {
+  sent: "נשלחה",
+  pending: "ממתינה",
+  processing: "בשליחה",
+  failed: "נכשלה",
+  skipped: "דולגה",
+  cancelled: "בוטלה",
+  blocked: "נחסמה (בטיחות)"
+};
+
 // Buyer-facing status story for the public deal page.
 export function buyerStateStory(state: string, unitsToTarget: number): string {
   switch (state) {
@@ -147,6 +174,64 @@ export function initialOf(name: string): string {
 
 export function clamp(n: number, lo: number, hi: number): number {
   return Math.max(lo, Math.min(hi, n));
+}
+
+// ── Israel-time deadline helpers (P0.2-F) ──────────────────────────────────
+// The seller picks a calendar date + exact hour:minute in ISRAEL time; the
+// canonical stored value is UTC ISO. DST-aware via a two-pass offset
+// resolution against the IANA zone (no hardcoded offsets).
+const ISRAEL_TZ = "Asia/Jerusalem";
+
+function israelOffsetMs(utcMs: number): number {
+  const dtf = new Intl.DateTimeFormat("en-US", {
+    timeZone: ISRAEL_TZ, hour12: false,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit"
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(new Date(utcMs))) parts[p.type] = p.value;
+  const asUtc = Date.UTC(
+    Number(parts.year), Number(parts.month) - 1, Number(parts.day),
+    Number(parts.hour) % 24, Number(parts.minute), Number(parts.second)
+  );
+  return asUtc - utcMs;
+}
+
+// "2026-09-03" + "20:30" (wall-clock Israel) → UTC ISO string, or null.
+export function israelPartsToUtcIso(dateStr: string, timeStr: string): string | null {
+  const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateStr || "").trim());
+  const tm = /^(\d{1,2}):(\d{2})$/.exec(String(timeStr || "").trim());
+  if (!dm || !tm) return null;
+  const wallUtc = Date.UTC(Number(dm[1]), Number(dm[2]) - 1, Number(dm[3]), Number(tm[1]), Number(tm[2]));
+  // two passes converge across DST boundaries
+  let utc = wallUtc - israelOffsetMs(wallUtc);
+  utc = wallUtc - israelOffsetMs(utc);
+  return new Date(utc).toISOString();
+}
+
+// Human confirmation: "יום חמישי, 3 בספטמבר, 20:30 (שעון ישראל)"
+export function formatIsraelDateTime(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const t = Date.parse(String(iso));
+  if (!Number.isFinite(t)) return "";
+  const text = new Intl.DateTimeFormat("he-IL", {
+    timeZone: ISRAEL_TZ, weekday: "long", day: "numeric", month: "long",
+    hour: "2-digit", minute: "2-digit"
+  }).format(t);
+  return `${text} (שעון ישראל)`;
+}
+
+// Split a UTC ISO back into Israel-local date/time input values.
+export function utcIsoToIsraelParts(iso: string | null | undefined): { date: string; time: string } {
+  const t = Date.parse(String(iso || ""));
+  if (!Number.isFinite(t)) return { date: "", time: "" };
+  const dtf = new Intl.DateTimeFormat("en-CA", {
+    timeZone: ISRAEL_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false
+  });
+  const parts: Record<string, string> = {};
+  for (const p of dtf.formatToParts(new Date(t))) parts[p.type] = p.value;
+  return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${String(Number(parts.hour) % 24).padStart(2, "0")}:${parts.minute}` };
 }
 
 // Warm→green progress color story (spec: hotter far from minimum, gradually

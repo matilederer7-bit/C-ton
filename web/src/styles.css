@@ -111,6 +111,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .brand-word { font-weight: 800; font-size: 1.3rem; letter-spacing: .015em; line-height: 1; display: inline-block; }
 .brand-word-c { color: var(--brand); }
+/* the ACTUAL approved wordmark pixels (keyed crop of the supplied logo) */
+.brand-word-img { height: 22px; width: auto; display: block; }
+@media (max-width: 640px) { .brand-word-img { height: 20px; } }
 .brand-sub { font-size: .7rem; color: var(--ink-faint); margin-top: 3px; }
 .nav-links { display: flex; gap: 4px; margin-inline-start: auto; align-items: center; }
 .nav-link {
@@ -199,7 +202,35 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 
 /* ── landing (seller-first root) ───────────────────────────────────────── */
 .landing { padding-top: 12px; }
-.landing-hero { text-align: center; padding: 26px 0 8px; }
+.landing-hero { text-align: center; padding: 26px 0 8px; position: relative; border-radius: var(--radius-lg); overflow: hidden; }
+.landing-hero-inner { position: relative; z-index: 2; }
+/* hero background-video capability (flag-gated; graphite fallback when off) */
+.hero-video { position: absolute; inset: 0; z-index: 0; }
+.hero-video video { width: 100%; height: 100%; object-fit: cover; }
+.hero-video-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(16,17,20,.72), rgba(16,17,20,.88)); }
+
+.landing-section { max-width: 900px; margin: 40px auto 0; padding: 0 4px; }
+.landing-section h2 { font-size: clamp(1.25rem, 3.4vw, 1.7rem); display: flex; align-items: center; gap: 10px; }
+.landing-section h2::before { content: ""; width: 20px; height: 6px; border-radius: 3px; background: var(--brand); flex: none; }
+.landing-section > p { color: var(--ink-soft); max-width: 720px; }
+.landing-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.landing-col { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-soft); display: grid; gap: 8px; align-content: start; justify-items: start; }
+.landing-col p { color: var(--ink-soft); font-size: .95rem; }
+.landing-faq { display: grid; gap: 8px; }
+.landing-faq-item { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 0 16px; }
+.landing-faq-item summary { cursor: pointer; font-weight: 700; padding: 13px 0; list-style-position: inside; }
+.landing-faq-item[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 10px; }
+.landing-faq-item p { color: var(--ink-soft); font-size: .93rem; padding-bottom: 12px; }
+.landing-cta-final { text-align: center; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 26px 18px; box-shadow: var(--shadow-soft); }
+.landing-cta-final h2 { justify-content: center; }
+.landing-cta-final h2::before { display: none; }
+@media (max-width: 720px) { .landing-cols { grid-template-columns: 1fr; } }
+
+/* ── controlled Hebrew form validation (P0.2-D) ────────────────────────── */
+.req { color: var(--brand-hi); font-weight: 800; }
+input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranate); box-shadow: 0 0 0 3px rgba(240, 86, 58, .18); }
+.field-error { color: var(--pomegranate); font-size: .82rem; font-weight: 600; }
+.form-error-summary { background: var(--pomegranate-tint); border: 1px solid rgba(240,86,58,.35); color: #ff9d8a; border-radius: var(--radius-sm); padding: 10px 14px; font-size: .9rem; margin-bottom: 12px; }
 .landing-logo {
   width: min(340px, 72vw); height: auto; margin: 0 auto 18px;
   border-radius: var(--radius-lg);
@@ -429,6 +460,7 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 .panel-title::before { content: ""; width: 16px; height: 5px; border-radius: 3px; background: var(--brand); flex: none; }
 .deal-title { font-size: clamp(1.3rem, 4.5vw, 1.9rem); font-weight: 800; line-height: 1.2; }
 .deal-seller-line { display: flex; align-items: center; gap: 8px; color: var(--ink-soft); font-size: .92rem; margin: 6px 0 2px; }
+.deal-short-desc { color: var(--ink-soft); font-size: 1rem; margin: 8px 0 2px; }
 .deal-price-hero { display: flex; align-items: baseline; gap: 10px; margin: 10px 0 2px; }
 .deal-price-hero .price { font-size: 2rem; color: var(--brand-hi); }
 .deal-price-was { color: var(--ink-faint); }
@@ -508,6 +540,24 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 @media (max-width: 640px) {
   .wizard-step { font-size: .68rem; }
 }
+
+/* ── seller: draft banner + publish flow + deadline picker ─────────────── */
+.draft-banner {
+  display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap;
+  background: linear-gradient(160deg, var(--brand-tint), var(--surface) 75%);
+  border: 1.5px solid var(--brand); border-radius: var(--radius-lg);
+  padding: 16px 18px; margin-bottom: 14px; box-shadow: var(--shadow-soft);
+}
+.draft-banner .small { color: var(--ink-soft); margin-top: 2px; }
+@media (max-width: 640px) { .draft-banner .btn { width: 100%; } }
+.publish-checklist { display: grid; gap: 6px; }
+.publish-check { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: .95rem; }
+.publish-check.ok { color: var(--success); }
+.publish-check.missing { color: var(--pomegranate); }
+.deadline-row { display: grid; grid-template-columns: 1.4fr 1fr; gap: 10px; }
+.deadline-confirm { color: var(--success); font-weight: 700; font-size: .9rem; }
+.btn-danger-ghost { border-color: rgba(240, 86, 58, .5) !important; color: var(--pomegranate) !important; }
+.btn-danger-ghost:hover { border-color: var(--pomegranate) !important; background: var(--pomegranate-tint) !important; }
 
 /* ── seller dashboard ──────────────────────────────────────────────────── */
 .dash-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
@@ -641,6 +691,38 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
   .vtree-children::before { inset-inline-start: -10px; }
   .vtree-children > .vtree-branch > .vtree-node::before { inset-inline-start: -10px; width: 10px; }
 }
+
+/* ── VIRAL TREE CANVAS (genealogy-style, pan/zoom) ─────────────────────── */
+.vtree-canvas-wrap { position: relative; height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-deep); overflow: hidden; }
+.vtree-canvas { width: 100%; height: 100%; cursor: grab; touch-action: none; display: block; }
+.vtree-canvas:active { cursor: grabbing; }
+.vtree-canvas-controls { position: absolute; top: 10px; inset-inline-end: 10px; z-index: 5; display: flex; gap: 6px; }
+.vtree-canvas-controls button {
+  background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--ink);
+  border-radius: 9px; min-width: 34px; height: 34px; font-weight: 800; cursor: pointer; padding: 0 10px; font-size: .9rem;
+}
+.vtree-canvas-controls button:hover { border-color: var(--brand); color: var(--brand-hi); }
+.vtree-canvas-hint { position: absolute; bottom: 6px; inset-inline-start: 12px; color: var(--ink-faint); font-size: .75rem; margin: 0; pointer-events: none; }
+.vtree-gen-line { stroke: var(--line); stroke-dasharray: 4 6; }
+.vtree-gen-label { fill: var(--ink-faint); font-size: 12px; font-weight: 700; }
+.vtree-edge { fill: none; stroke: var(--line-strong); stroke-width: 2; }
+.vtree-edge.root-edge { stroke: var(--brand); opacity: .55; }
+.vtree-node-deal rect { fill: var(--brand-tint); stroke: var(--brand); stroke-width: 2; }
+.vtree-node-deal .t1 { fill: var(--brand-hi); font-weight: 800; font-size: 14px; }
+.vtree-node-deal .t2 { fill: var(--ink-soft); font-size: 12px; }
+.vtree-node-g { cursor: pointer; }
+.vtree-node-g rect { fill: var(--surface); stroke: var(--line-strong); stroke-width: 1.5; }
+.vtree-node-g.charged rect { stroke: var(--success); }
+.vtree-node-g.dropped rect { opacity: .55; }
+.vtree-node-g.selected rect { stroke: var(--brand); stroke-width: 2.5; fill: var(--brand-tint); }
+.vtree-node-g .t1 { fill: var(--ink); font-weight: 800; font-size: 14px; }
+.vtree-node-g .t2 { fill: var(--ink-soft); font-size: 12px; }
+.vtree-node-g.charged .t2 { fill: var(--success); }
+.vtree-node-g .t3 { fill: var(--brand-hi); font-size: 11px; font-weight: 700; }
+.vtree-expand circle { fill: var(--bg-deep); stroke: var(--brand); stroke-width: 1.5; }
+.vtree-expand text { fill: var(--brand-hi); font-weight: 800; font-size: 12px; }
+.vtree-expand:hover circle { fill: var(--brand); }
+.vtree-expand:hover text { fill: #16130f; }
 
 /* legacy tree row classes kept for compatibility (mode toggle etc.) */
 .mode-toggle { display: inline-flex; gap: 4px; background: var(--bg-deep); padding: 4px; border-radius: 12px; margin-bottom: 14px; border: 1px solid var(--line); }
