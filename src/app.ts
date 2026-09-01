@@ -128,6 +128,13 @@ const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
 // Default deadline when caller does not provide one (sits comfortably inside the 2h–7d window).
 const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
 
+// P0.2 — deal content + media bounds. The short description is the concise
+// sales line (cards/OG/top of the deal page); the long description is the full
+// story rendered lower on the page.
+const DEAL_IMAGE_LIMIT = 12;
+const DESCRIPTION_SHORT_MAX = 200;
+const DESCRIPTION_LONG_MAX = 4000;
+
 // Per spec: Siton's platform commission is a fixed 8% — not per-deal configurable.
 const MOCK_SEED = process.env.MOCK_SEED ? Number(process.env.MOCK_SEED) : null;
 const DEBUG_SURFACES_HEADER = "x-debug-access-key";
@@ -3124,7 +3131,7 @@ const RATE_LIMIT_SENSITIVE_MAX = Number(process.env.RATE_LIMIT_SENSITIVE_MAX ?? 
 export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "single_instance_only";
 
 // Paths that get the tighter per-IP limit (prefix match without trailing slash)
-const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals"];
+const SENSITIVE_PATHS = ["/api/otp", "/api/deals/join", "/api/deals", "/api/support"];
 
 type RateLimitEntry = { count: number; resetAt: number };
 interface RateLimiterStore {
@@ -3345,10 +3352,17 @@ app.post("/deals", async (req: any) => {
     throw err;
   }
   const description = String(body.description || "").trim();
-  if (description.length > 420) {
-    const err: any = new Error("description must be 420 characters or fewer");
+  if (description.length > DESCRIPTION_LONG_MAX) {
+    const err: any = new Error(`description must be ${DESCRIPTION_LONG_MAX} characters or fewer`);
     err.statusCode = 400;
     err.code = "description_too_long";
+    throw err;
+  }
+  const descriptionShort = String(body.description_short || "").trim();
+  if (descriptionShort.length > DESCRIPTION_SHORT_MAX) {
+    const err: any = new Error(`description_short must be ${DESCRIPTION_SHORT_MAX} characters or fewer`);
+    err.statusCode = 400;
+    err.code = "description_short_too_long";
     throw err;
   }
   const priceRaw = Number(body.price_per_unit);
@@ -3411,6 +3425,7 @@ app.post("/deals", async (req: any) => {
     .update(canonicalJson({
       title,
       description,
+      description_short: descriptionShort,
       price_per_unit: priceRaw,
       min_units: minUnits,
       max_units: maxUnits,
@@ -3454,8 +3469,8 @@ app.post("/deals", async (req: any) => {
     }
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (deal_id, title, description, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
+       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10)
        RETURNING deal_id, state, deal_type`,
       [
         stableDealId,
@@ -3467,7 +3482,8 @@ app.post("/deals", async (req: any) => {
         draftThreshold,
         deadlineIso,
         sellerAuthority.seller_id,
-        dealType
+        dealType,
+        descriptionShort || null
       ]
     );
     const deal = ins.rows[0];
@@ -3508,7 +3524,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
   const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const titleFields = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
   const hasTitle = titleFields.some(hasOwn);
-  const hasEditableField = hasTitle || ["description", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
+  const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
   if (!hasEditableField) {
     throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
   }
@@ -3517,7 +3533,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
     const currentResult = await c.query(
-      `SELECT deal_id, seller_id, state, title, description, price_per_unit,
+      `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit,
               min_units, max_units, threshold_units, deadline, deal_type, updated_at
        FROM siton.deals
        WHERE deal_id=$1
@@ -3555,7 +3571,9 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (!title) throw Object.assign(new Error("title is required"), { statusCode: 400, code: "title_required" });
     if (title.length > 200) throw Object.assign(new Error("title must be 200 characters or fewer"), { statusCode: 400, code: "title_too_long" });
     const description = hasOwn("description") ? String(body.description || "").trim() : String(current.description || "");
-    if (description.length > 420) throw Object.assign(new Error("description must be 420 characters or fewer"), { statusCode: 400, code: "description_too_long" });
+    if (description.length > DESCRIPTION_LONG_MAX) throw Object.assign(new Error(`description must be ${DESCRIPTION_LONG_MAX} characters or fewer`), { statusCode: 400, code: "description_too_long" });
+    const descriptionShort = hasOwn("description_short") ? String(body.description_short || "").trim() : String(current.description_short || "");
+    if (descriptionShort.length > DESCRIPTION_SHORT_MAX) throw Object.assign(new Error(`description_short must be ${DESCRIPTION_SHORT_MAX} characters or fewer`), { statusCode: 400, code: "description_short_too_long" });
     const price = hasOwn("price_per_unit") ? Number(body.price_per_unit) : Number(current.price_per_unit);
     if (!Number.isFinite(price) || price <= 0) throw Object.assign(new Error("price_per_unit must be a positive number"), { statusCode: 400, code: "price_invalid" });
     const minUnits = hasOwn("min_units") ? Number(body.min_units) : Number(current.min_units);
@@ -3574,12 +3592,12 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
 
     const updated = await c.query(
       `UPDATE siton.deals
-       SET title=$2, description=$3, price_per_unit=$4, min_units=$5, max_units=$6,
+       SET title=$2, description=$3, description_short=$9, price_per_unit=$4, min_units=$5, max_units=$6,
            threshold_units=$7, deadline=$8, updated_at=now()
        WHERE deal_id=$1
-       RETURNING deal_id, state, title, description, price_per_unit, min_units,
+       RETURNING deal_id, state, title, description, description_short, price_per_unit, min_units,
                  max_units, threshold_units, deadline, deal_type, updated_at`,
-      [dealId, title, description || null, price, minUnits, maxUnits, Math.ceil(0.9 * minUnits), deadline]
+      [dealId, title, description || null, price, minUnits, maxUnits, Math.ceil(0.9 * minUnits), deadline, descriptionShort || null]
     );
 
     if (hasOwn("delivery_options")) {
@@ -3773,15 +3791,15 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
       `SELECT image_id, is_primary FROM siton.deal_images WHERE deal_id=$1 ORDER BY sort_order ASC, created_at ASC`,
       [dealId]
     );
-    if (existingImages.rowCount >= 5) {
-      const err: any = new Error("deal can have up to 5 images");
+    if (existingImages.rowCount >= DEAL_IMAGE_LIMIT) {
+      const err: any = new Error(`deal can have up to ${DEAL_IMAGE_LIMIT} images`);
       err.statusCode = 400;
       err.code = "deal_image_limit";
       throw err;
     }
     const requestedPrimary = isAccepted(body.is_primary) || existingImages.rowCount === 0 || !existingImages.rows.some((row: any) => Boolean(row.is_primary));
     const sortOrderRaw = Number(body.sort_order);
-    const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, 4) : existingImages.rowCount;
+    const sortOrder = Number.isInteger(sortOrderRaw) && sortOrderRaw >= 0 ? Math.min(sortOrderRaw, DEAL_IMAGE_LIMIT - 1) : existingImages.rowCount;
 
     const saved = await saveDealImage({
       dealId,
@@ -3864,8 +3882,8 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
   const requestedPrimary = body.primary_image_id === null || body.primary_image_id === undefined
     ? null
     : String(body.primary_image_id || "").trim();
-  if (requestedOrder && requestedOrder.length > 5) {
-    throw Object.assign(new Error("deal can have up to 5 images"), { statusCode: 400, code: "deal_image_limit" });
+  if (requestedOrder && requestedOrder.length > DEAL_IMAGE_LIMIT) {
+    throw Object.assign(new Error(`deal can have up to ${DEAL_IMAGE_LIMIT} images`), { statusCode: 400, code: "deal_image_limit" });
   }
   for (const imageId of requestedOrder || []) requireUuid(imageId, "image_id");
   if (requestedPrimary) requireUuid(requestedPrimary, "primary_image_id");
@@ -3881,9 +3899,10 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
     if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
       throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
     }
-    if (String(dealResult.rows[0].state) !== "Draft") {
-      throw Object.assign(new Error("deal already published"), { statusCode: 409, code: "deal_already_published" });
-    }
+    // P0.2 — reordering and choosing the primary image are PRESENTATIONAL over
+    // the same locked image set, so they stay allowed after publication too
+    // (adding/removing images remains Draft-only: buyers joined on what they
+    // saw, and this route can neither add nor remove).
     const existing = await c.query(
       `SELECT image_id, public_url, mime_type, size_bytes, is_primary, sort_order
        FROM siton.deal_images
@@ -3978,6 +3997,87 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
   await hitTestFault("http.delete.after_commit_before_response");
   return reply.send({ ok: true, deletion });
 });
+
+// P0.2 — seller deletes an UNUSED deal. Safe canonical semantics:
+//   * the seller owns the deal
+//   * ZERO participation and ZERO financial activity (participants, payment
+//     attempts, authorization bindings, fee-ledger rows, webhook evidence)
+//   * Draft always qualifies; a published deal qualifies only while completely
+//     untouched
+// Anything with history uses the canonical cancellation path instead.
+// audit_log / legal_acceptances / operational_cases rows are deliberately
+// KEPT (soft references — the compliance trail survives the deal row).
+// Storage objects are removed via the canonical cleanup rail.
+app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const result = await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-delete:' || $1, 0))", [dealId]);
+    const dealResult = await c.query(
+      `SELECT deal_id, seller_id, state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      [dealId]
+    );
+    if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    const state = String(dealResult.rows[0].state);
+    const activity = await c.query(
+      `SELECT
+         (SELECT count(*) FROM siton.participants WHERE deal_id=$1) AS participants,
+         (SELECT count(*) FROM siton.payment_attempts WHERE deal_id=$1) AS payment_attempts,
+         (SELECT count(*) FROM siton.payment_authorization_bindings WHERE deal_id=$1) AS bindings,
+         (SELECT count(*) FROM siton.platform_fee_money_events WHERE deal_id=$1) AS fee_events,
+         (SELECT count(*) FROM siton.webhook_events WHERE deal_id=$1) AS webhook_events`,
+      [dealId]
+    );
+    const a = activity.rows[0];
+    const untouched = ["participants", "payment_attempts", "bindings", "fee_events", "webhook_events"]
+      .every((key) => Number(a[key] || 0) === 0);
+    if (!untouched) {
+      throw Object.assign(new Error("deal has participation or financial history and cannot be deleted"), {
+        statusCode: 409,
+        code: "deal_delete_not_allowed"
+      });
+    }
+    // Storage objects: schedule canonical cleanup for every image blob.
+    const images = await c.query(
+      `SELECT storage_provider, storage_key FROM siton.deal_images WHERE deal_id=$1`,
+      [dealId]
+    );
+    for (const row of images.rows) {
+      if (row.storage_key) {
+        await enqueueStorageCleanupTask(String(row.storage_provider || "local") as StorageProviderCode, String(row.storage_key), "seller_deal_deleted");
+      }
+    }
+    // Non-FK rows that must not outlive the deal (a pending deadline_check on
+    // a missing deal, or a create-idempotency replay returning a dangling id).
+    await c.query(`DELETE FROM siton.outbox_events WHERE aggregate_type='deal' AND aggregate_id=$1`, [dealId]);
+    await c.query(`DELETE FROM siton.outbox_dlq WHERE aggregate_type='deal' AND aggregate_id::text=$1::text`, [dealId]);
+    await c.query(`DELETE FROM siton.idempotency_log WHERE entity_type='deal' AND entity_id=$1`, [dealId]);
+    await c.query(`DELETE FROM siton.viral_metrics_cache WHERE scope_type='deal' AND scope_id=$1`, [dealId]);
+    // Tombstone in the audit trail BEFORE the row disappears.
+    await c.query(
+      `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
+       VALUES ('deal',$1,$1,'deal_state',$2,'Deleted','seller_deal_delete',$3,$4,$5)`,
+      [
+        dealId,
+        state,
+        req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`,
+        `seller_deal_delete:${dealId}`,
+        JSON.stringify({ seller_id: sellerAuthority.seller_id, state, image_count: images.rowCount })
+      ]
+    );
+    // The deal row itself — FKs cascade the content tables (images, options,
+    // terms, chat, viral rows); nothing financial exists by the guard above.
+    await c.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    return { ok: true, deleted: true, deal_id: dealId, previous_state: state };
+  }, true);
+  return reply.send(result);
+});
+
 app.post("/deals/:id/publish", async (req: any) => {
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");

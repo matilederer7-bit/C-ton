@@ -1,10 +1,10 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { api, getSellerToken, setAdminToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
-import { adoptCapabilities, clearOwnerSession } from "../ownerMode";
+import { api, clearAuthSession, getSellerToken, Json } from "../api";
+import { clearOwnerSession } from "../ownerMode";
+import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, Spinner, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
-import { BrandMark } from "../brand";
 import {
   CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeIcon, dealTypeLabel,
   failReason, fmtDate, ils, moneyStateLabel, num
@@ -12,71 +12,17 @@ import {
 import { absoluteShareUrl } from "../viral";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 
-// ── login ──────────────────────────────────────────────────────────────────
+// ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
-  const [mode, setMode] = useState<"login" | "signup">(initialMode || "login");
-  // The landing's "פתיחת חשבון מוכר" navigates here with ?signup=1 — honor it
-  // even when the login screen is already mounted.
-  useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode]);
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true); setError(""); setInfo("");
-    try {
-      const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error("התחברות אינה זמינה בסביבה זו");
-      if (mode === "signup") {
-        const r = await supabaseSignUp(cfg, email.trim(), password);
-        if (r.needsConfirmation) {
-          setInfo("נשלח מייל אימות — לחצו על הקישור במייל ואז התחברו כאן.");
-          setMode("login");
-          setBusy(false);
-          return;
-        }
-      }
-      const token = await supabaseSignIn(cfg, email.trim(), password);
-      setSellerToken(token);
-      // ONE credential, every legitimate experience: the server reports which
-      // capabilities this identity holds (an owner also unlocks the admin
-      // surface + mode switcher; every route still re-authorizes server-side).
-      await adoptCapabilities(token);
-      onDone();
-    } catch (err: any) {
-      setError(err.message || "התחברות נכשלה");
-      setBusy(false);
-    }
-  };
-
   return (
-    <div style={{ maxWidth: 420, margin: "40px auto" }}>
-      <div className="panel">
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
-        <h2 style={{ textAlign: "center" }}>אזור המוכרים</h2>
-        <p className="muted small" style={{ textAlign: "center" }}>
-          חשבון אחד לכל C-ton — נהלו עסקאות קבוצתיות, עקבו אחרי כסף והפצה.
-        </p>
-        <form onSubmit={submit}>
-          <div className="field"><label>אימייל</label><input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
-          <div className="field"><label>סיסמה</label><input dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "signup" ? "new-password" : "current-password"} /></div>
-          {error ? <div className="notice err">{error}</div> : null}
-          {info ? <div className="notice ok">{info}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy}>
-            {busy ? "רגע…" : mode === "login" ? "התחברות" : "יצירת חשבון"}
-          </button>
-        </form>
-        <p className="small" style={{ textAlign: "center", marginTop: 12 }}>
-          {mode === "login"
-            ? <>עדיין אין חשבון? <a href="#/seller" onClick={(e) => { e.preventDefault(); setMode("signup"); setError(""); }}>הרשמה</a></>
-            : <>כבר יש חשבון? <a href="#/seller" onClick={(e) => { e.preventDefault(); setMode("login"); setError(""); }}>התחברות</a></>}
-        </p>
-      </div>
-    </div>
+    <AuthPanel
+      surface="seller"
+      title="אזור המוכרים"
+      subtitle="חשבון אחד לכל C-ton — נהלו עסקאות קבוצתיות, עקבו אחרי כסף והפצה."
+      initialMode={initialMode}
+      signupLabel="פתיחת חשבון מוכר"
+      onDone={onDone}
+    />
   );
 }
 
@@ -161,7 +107,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     api.sellerDeals()
       .then((r) => { setSurface(r.seller_surface); setUpdatedAt(Date.now()); setError(""); })
       .catch((e) => {
-        if (e.status === 401 || e.status === 403) { setSellerToken(""); window.location.reload(); }
+        if (e.status === 401 || e.status === 403) { clearAuthSession(); clearOwnerSession(); window.location.reload(); }
         else setError(e.message);
       });
 
@@ -201,7 +147,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ צור עסקה חדשה</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { setSellerToken(""); setAdminToken(""); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
         </div>
       </div>
 

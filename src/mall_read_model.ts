@@ -263,7 +263,7 @@ export function buildMallDiscoveryQuery(query: MallQuery): { text: string; value
   return {
     text: `
 WITH mall_page AS (
-  SELECT d.deal_id, d.title, d.description, d.deal_type,
+  SELECT d.deal_id, d.title, d.description, d.description_short, d.deal_type,
          d.state::text AS canonical_state, d.price_per_unit,
          d.threshold_units, d.max_units, d.deadline, d.published_at,
          d.updated_at AS source_updated_at, d.seller_id
@@ -276,7 +276,7 @@ WITH mall_page AS (
 )
 SELECT p.deal_id::text AS deal_id,
        p.title,
-       left(COALESCE(p.description, ''), 180) AS description_excerpt,
+       left(COALESCE(NULLIF(btrim(p.description_short), ''), p.description, ''), 180) AS description_excerpt,
        p.deal_type,
        p.canonical_state,
        p.price_per_unit,

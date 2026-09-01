@@ -1896,15 +1896,20 @@ export function registerFrontendExperience(
   // ownership — the email string alone never authorizes anything). Idempotent;
   // never rebinds a row already bound to a different auth user.
   async function claimOwnerSellerBinding(c: any, sub: string, email: string) {
+    // support_email is part of the claim: publishing requires a complete
+    // seller profile (business name + support contact), and the owner's
+    // account must be publish-ready out of the box.
     await c.query(
       `INSERT INTO siton.seller_accounts
-         (seller_id, display_name, business_name, login_email, verification_status, settlement_status, auth_enabled, auth_user_id, admin_note)
-       VALUES ('c-ton-owner', 'C-ton', 'C-ton', $1, 'approved', 'active', true, $2, 'owner_email_claim')
+         (seller_id, display_name, business_name, login_email, support_email, verification_status, settlement_status, auth_enabled, auth_user_id, admin_note)
+       VALUES ('c-ton-owner', 'C-ton', 'C-ton', $1, $1, 'approved', 'active', true, $2, 'owner_email_claim')
        ON CONFLICT (seller_id) DO UPDATE
-         SET auth_user_id = EXCLUDED.auth_user_id,
+         SET auth_user_id = COALESCE(siton.seller_accounts.auth_user_id, EXCLUDED.auth_user_id),
+             support_email = COALESCE(NULLIF(siton.seller_accounts.support_email, ''), EXCLUDED.support_email),
              auth_enabled = true,
              updated_at = now()
-         WHERE siton.seller_accounts.auth_user_id IS NULL`,
+         WHERE siton.seller_accounts.auth_user_id IS NULL
+            OR siton.seller_accounts.auth_user_id = EXCLUDED.auth_user_id`,
       [email, sub]
     );
   }
@@ -1963,7 +1968,7 @@ export function registerFrontendExperience(
     const spaPath = `/preview/${refRaw ? `?ref=${encodeURIComponent(refRaw)}` : ""}#/deal/${dealId}`;
     const row = await deps.withTx(async (c) => {
       const result = await c.query(
-        `SELECT d.title, d.description, d.price_per_unit, image.image_id, image.public_url
+        `SELECT d.title, d.description, d.description_short, d.price_per_unit, image.image_id, image.public_url
          FROM siton.deals d
          LEFT JOIN LATERAL (
            SELECT i.image_id, i.public_url
@@ -1982,7 +1987,8 @@ export function registerFrontendExperience(
     const title = `${String(row.title || "עסקה קבוצתית").trim().slice(0, 180)} | C-ton`;
     const price = Number(row.price_per_unit || 0);
     const priceLine = price > 0 ? `₪${price % 1 === 0 ? price.toLocaleString("he-IL") : price.toFixed(2)} ליחידה · ` : "";
-    const description = `${priceLine}${String(row.description || "").trim().slice(0, 160) || "קנייה קבוצתית — החיוב מתבצע רק אם הקבוצה מגיעה ליעד."}`;
+    const shortLine = String(row.description_short || "").trim() || String(row.description || "").trim().slice(0, 160);
+    const description = `${priceLine}${shortLine || "קנייה קבוצתית — החיוב מתבצע רק אם הקבוצה מגיעה ליעד."}`;
     // og:image must be an absolute URL; the canonical primary deal image wins,
     // the brand logo is only the no-image fallback.
     const imageRaw = row.image_id ? resolveDealImageUrl({ image_id: String(row.image_id), public_url: row.public_url }) : "";
@@ -2029,6 +2035,13 @@ export function registerFrontendExperience(
     // the React root stays seller-first and the Mall remains hidden until the
     // owner explicitly enables it.
     public_mall_enabled: ["1", "true"].includes(String(process.env.PUBLIC_MALL_ENABLED || "").trim().toLowerCase()),
+    // P0.2 — homepage hero background-video capability (default OFF until an
+    // approved asset exists) + the public support email (never a fake address:
+    // absent until the owner configures SUPPORT_EMAIL).
+    landing_hero_video_enabled: ["1", "true"].includes(String(process.env.LANDING_HERO_VIDEO_ENABLED || "").trim().toLowerCase()),
+    landing_hero_video_url: String(process.env.LANDING_HERO_VIDEO_URL || "").trim(),
+    landing_hero_video_poster: String(process.env.LANDING_HERO_VIDEO_POSTER || "").trim(),
+    support_email: String(process.env.SUPPORT_EMAIL || "").trim(),
     preview: {
       deployment_mode: deps.deploymentMode,
       is_demo_preview: deps.isDemoPreview,
@@ -2738,7 +2751,7 @@ export function registerFrontendExperience(
 
     return deps.withTx(async (c) => {
       const dealResult = await c.query(
-        `SELECT d.deal_id, d.title, d.description, d.state, d.price_per_unit, d.min_units, d.max_units,
+        `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
                 d.created_at, d.seller_id, d.deal_type,
                 sa.business_name, sa.support_phone, sa.support_email, sa.business_description
@@ -2811,6 +2824,7 @@ export function registerFrontendExperience(
           deal_id: deal.deal_id,
           title: deal.title,
           description: (deal as any).description || "",
+          description_short: (deal as any).description_short || "",
           state: deal.state,
           deal_type: dealType,
           price_per_unit: Number(deal.price_per_unit),
@@ -3277,6 +3291,9 @@ export function registerFrontendExperience(
            d.deal_id,
            COALESCE(d.seller_id, $2) AS seller_id,
            d.title,
+           d.description,
+           d.description_short,
+           d.deal_type,
            d.state,
            d.price_per_unit,
            d.min_units,
@@ -3286,6 +3303,7 @@ export function registerFrontendExperience(
            d.published_at,
            d.completion_window_until,
            d.created_at,
+           d.updated_at,
            ${SITON_PLATFORM_FEE_RATE}::numeric AS platform_fee_rate,
            img.image_id AS primary_image_id,
            img.public_url AS primary_image_public_url,
@@ -3360,6 +3378,11 @@ export function registerFrontendExperience(
       );
 
       const deal = mapDealListRow(dealResult.rows[0] as DealListRow);
+      // P0.2 — the Draft edit panel needs the content fields verbatim.
+      (deal as any).description = (dealResult.rows[0] as any).description || "";
+      (deal as any).description_short = (dealResult.rows[0] as any).description_short || "";
+      (deal as any).deal_type = (dealResult.rows[0] as any).deal_type || "physical_product";
+      (deal as any).updated_at = (dealResult.rows[0] as any).updated_at || null;
       const dealImages = await c.query(
         `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
@@ -7591,6 +7614,71 @@ export function registerFrontendExperience(
         cases: cases.rows
       };
     });
+  });
+
+  // P0.2 — PUBLIC support/contact intake. Creates a canonical operational
+  // case (source='Buyer') that the existing Admin Support screen sees.
+  // No outbound email is sent — the notification safety rail is untouched.
+  // Abuse protection: the global sensitive per-IP bucket (app.ts) plus a
+  // DB-backed per-email and global hourly cap here (multi-instance safe).
+  const PUBLIC_CONTACT_CATEGORIES: Record<string, { case_type: string; label: string }> = {
+    general: { case_type: "Other", label: "שאלה כללית" },
+    deal: { case_type: "BuyerComplaint", label: "בעיה בעסקה" },
+    payment: { case_type: "PaymentMismatch", label: "תשלומים וחיובים" },
+    report: { case_type: "ContentReport", label: "דיווח על תוכן" },
+    seller: { case_type: "Other", label: "שאלת מוכר" }
+  };
+  app.post("/api/support/contact", async (req: any, reply: any) => {
+    await ensureOperationalCaseTables(deps.withTx);
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    // honeypot: bots fill every field — humans never see this one
+    if (String(body.website || "").trim()) {
+      return reply.code(200).send({ ok: true, received: true });
+    }
+    const name = String(body.name || "").trim().slice(0, 120);
+    const email = String(body.email || "").trim().toLowerCase().slice(0, 200);
+    const phone = String(body.phone || "").trim().slice(0, 40);
+    const categoryKey = String(body.category || "general").trim();
+    const message = String(body.message || "").trim();
+    const category = PUBLIC_CONTACT_CATEGORIES[categoryKey];
+    if (!name || name.length < 2) return reply.code(400).send({ ok: false, error: "contact_name_required" });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return reply.code(400).send({ ok: false, error: "contact_email_invalid" });
+    if (!category) return reply.code(400).send({ ok: false, error: "contact_category_invalid" });
+    if (message.length < 10) return reply.code(400).send({ ok: false, error: "contact_message_too_short" });
+    if (message.length > 2000) return reply.code(400).send({ ok: false, error: "contact_message_too_long" });
+
+    const created = await deps.withTx(async (c) => {
+      const counts = await c.query(
+        `SELECT
+           count(*) FILTER (WHERE buyer_ref = $1) AS per_email,
+           count(*) AS total
+         FROM siton.operational_cases
+         WHERE source = 'Buyer' AND opened_by = 'public_contact_form'
+           AND created_at > now() - interval '1 hour'`,
+        [email]
+      );
+      const limits = counts.rows[0] || {};
+      if (Number(limits.per_email || 0) >= 3 || Number(limits.total || 0) >= 30) {
+        throw Object.assign(new Error("support contact rate limited"), { statusCode: 429, code: "support_rate_limited" });
+      }
+      const description = [
+        message,
+        "",
+        `— פרטי הפונה —`,
+        `שם: ${name}`,
+        `אימייל: ${email}`,
+        phone ? `טלפון: ${phone}` : null
+      ].filter((line) => line !== null).join("\n");
+      const inserted = await c.query(
+        `INSERT INTO siton.operational_cases
+           (case_type, status, priority, source, buyer_ref, opened_by, subject, description)
+         VALUES ($1,'Open','Normal','Buyer',$2,'public_contact_form',$3,$4)
+         RETURNING case_id, status, created_at`,
+        [category.case_type, email, `${category.label} — ${name}`.slice(0, 200), description]
+      );
+      return inserted.rows[0];
+    });
+    return reply.code(201).send({ ok: true, case_id: created.case_id, status: created.status });
   });
 
   app.post("/api/admin/support-cases", async (req: any, reply: any) => {

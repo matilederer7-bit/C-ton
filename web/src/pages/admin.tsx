@@ -1,71 +1,29 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
-import { api, getAdminToken, setAdminToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
-import { adoptCapabilities, clearOwnerSession } from "../ownerMode";
+import { api, clearAuthSession, getAdminToken, Json } from "../api";
+import { clearOwnerSession } from "../ownerMode";
+import { revokeSurface } from "../session";
+import { AuthPanel } from "../auth";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
 import { fmtDate, ils, moneyStateLabel, num, pct, stateLabel, timeAgo } from "../util";
 
-// ── login (canonical Supabase owner/admin identity) ────────────────────────
+// ── login (the shared truthful auth panel + server-side admin verification) ─
 function AdminLogin({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"login" | "setup">("login");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [info, setInfo] = useState("");
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (busy) return;
-    setBusy(true); setError(""); setInfo("");
-    try {
-      const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error("התחברות אינה זמינה בסביבה זו");
-      if (mode === "setup") {
-        const r = await supabaseSignUp(cfg, email.trim(), password);
-        if (r.needsConfirmation) {
-          setInfo("נשלח מייל אימות. אשרו אותו ואז התחברו — הרשאות הניהול נקבעות בצד השרת לפי הזהות המאומתת.");
-          setMode("login");
-          setBusy(false);
-          return;
-        }
-      }
-      const token = await supabaseSignIn(cfg, email.trim(), password);
-      setAdminToken(token);
-      // authority check: the server validates the ADMIN capability
-      const me = await api.adminMe().catch((err: any) => { throw new Error(err.status === 401 || err.status === 403 ? "לחשבון זה אין הרשאת ניהול" : err.message); });
-      if (!me?.ok && !me?.identity) throw new Error("לחשבון זה אין הרשאת ניהול");
-      // ONE credential, every legitimate experience (owner also unlocks the
-      // seller surface + mode switcher; server re-authorizes every route).
-      await adoptCapabilities(token);
-      onDone();
-    } catch (err: any) {
-      setAdminToken("");
-      setError(err.message || "התחברות נכשלה");
-      setBusy(false);
-    }
-  };
-
   return (
-    <div style={{ maxWidth: 400, margin: "60px auto" }}>
-      <div className="panel">
-        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
-        <h2 style={{ textAlign: "center" }}>מרכז הבקרה של C-ton</h2>
-        <p className="muted small" style={{ textAlign: "center" }}>כניסה למנהלי מערכת בלבד. כל פעולה מתועדת.</p>
-        <form onSubmit={submit}>
-          <div className="field"><label>אימייל</label><input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
-          <div className="field"><label>סיסמה</label><input dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete={mode === "setup" ? "new-password" : "current-password"} /></div>
-          {error ? <div className="notice err">{error}</div> : null}
-          {info ? <div className="notice ok">{info}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? "רגע…" : mode === "login" ? "כניסה" : "הקמת חשבון בעלים"}</button>
-        </form>
-        <p className="small muted" style={{ textAlign: "center", marginTop: 12 }}>
-          {mode === "login"
-            ? <a href="#/admin" onClick={(e) => { e.preventDefault(); setMode("setup"); setError(""); }}>הקמה ראשונית של חשבון הבעלים</a>
-            : <a href="#/admin" onClick={(e) => { e.preventDefault(); setMode("login"); setError(""); }}>חזרה לכניסה</a>}
-        </p>
-      </div>
-    </div>
+    <AuthPanel
+      surface="admin"
+      title="מרכז הבקרה של C-ton"
+      subtitle="כניסה למנהלי מערכת בלבד. כל פעולה מתועדת."
+      signupLabel="הקמה ראשונית של חשבון הבעלים"
+      verify={async () => {
+        const me = await api.adminMe().catch((err: any) => {
+          if (err.status === 401 || err.status === 403) { revokeSurface("admin"); throw new Error("לחשבון זה אין הרשאת ניהול"); }
+          throw err;
+        });
+        if (!me?.ok && !me?.identity) { revokeSurface("admin"); throw new Error("לחשבון זה אין הרשאת ניהול"); }
+      }}
+      onDone={onDone}
+    />
   );
 }
 
@@ -1179,7 +1137,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
   useEffect(() => {
     if (!authed) return;
     api.adminMe().then(() => setVerified(true)).catch((e: any) => {
-      if (e.status === 401 || e.status === 403) { setAdminToken(""); setAuthed(false); }
+      if (e.status === 401 || e.status === 403) { revokeSurface("admin"); setAuthed(false); }
       else setVerified(true); // network hiccup: keep the shell, screens will surface errors
     });
   }, [authed]);
@@ -1207,7 +1165,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { setAdminToken(""); setSellerToken(""); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
+        <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}

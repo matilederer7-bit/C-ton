@@ -1,48 +1,52 @@
 // Same-origin API client for the canonical Fastify service.
 //
-// One Supabase Auth identity (password grant → access token) may carry more
-// than one capability; each surface sends the token and the SERVER decides
-// authority per route (seller routes require the seller capability, admin
-// routes the admin capability). Tokens are kept per-surface so logging out of
-// one surface never silently logs out another.
+// ONE Supabase session (access + refresh token, see session.ts) may carry more
+// than one capability; each surface sends the same access token and the SERVER
+// decides authority per route (seller routes require the seller capability,
+// admin routes the admin capability). The session refreshes itself via the
+// supported GoTrue refresh grant, so a login stays usable for days on the same
+// device without ever storing the password.
+//
+// Every error surfaced from here is Hebrew (see he.ts) — raw provider/backend
+// text never reaches the user.
+
+import { hebrewError } from "./he";
+import { beginSession, ensureFreshSession, endSession, surfaceAccessToken, type AuthSessionPayload } from "./session";
 
 export type Json = Record<string, any>;
 
-const SELLER_TOKEN_KEY = "siton_preview_seller_token";
-const ADMIN_TOKEN_KEY = "siton_preview_admin_token";
+export const getSellerToken = () => surfaceAccessToken("seller");
+export const getAdminToken = () => surfaceAccessToken("admin");
+// legacy setters kept for the few explicit-logout call sites
+export const clearAuthSession = () => endSession();
 
-function readKey(key: string): string {
-  try { return localStorage.getItem(key) || ""; } catch { return ""; }
-}
-function writeKey(key: string, value: string) {
-  try { value ? localStorage.setItem(key, value) : localStorage.removeItem(key); } catch { /* noop */ }
-}
-
-// Owner "view as guest" — while the flag is set, privileged tokens are never
-// readable and never attached: guest mode may only REMOVE privileges. (Read
-// directly here to avoid an import cycle with ownerMode.ts.)
 function guestModeActive(): boolean {
   try { return localStorage.getItem("siton_guest_mode_v1") === "1"; } catch { return false; }
 }
 
-export const getSellerToken = () => (guestModeActive() ? "" : readKey(SELLER_TOKEN_KEY));
-export const setSellerToken = (t: string) => writeKey(SELLER_TOKEN_KEY, t);
-export const getAdminToken = () => (guestModeActive() ? "" : readKey(ADMIN_TOKEN_KEY));
-export const setAdminToken = (t: string) => writeKey(ADMIN_TOKEN_KEY, t);
-
 async function req(path: string, init: RequestInit = {}, auth: "none" | "seller" | "admin" = "none"): Promise<Json> {
-  const headers: Record<string, string> = { "content-type": "application/json", ...(init.headers as any) };
   if (guestModeActive()) auth = "none";
-  if (auth !== "none") {
-    const t = auth === "seller" ? getSellerToken() : getAdminToken();
-    if (t) headers["authorization"] = `Bearer ${t}`;
+  const buildHeaders = (): Record<string, string> => {
+    const headers: Record<string, string> = { "content-type": "application/json", ...(init.headers as any) };
+    if (auth !== "none") {
+      const t = auth === "seller" ? getSellerToken() : getAdminToken();
+      if (t) headers["authorization"] = `Bearer ${t}`;
+    }
+    return headers;
+  };
+  if (auth !== "none") await ensureFreshSession();
+  let res = await fetch(path, { ...init, headers: buildHeaders() });
+  if (res.status === 401 && auth !== "none") {
+    // access token may have just expired — one forced refresh, one retry
+    const alive = await ensureFreshSession(true);
+    if (alive) res = await fetch(path, { ...init, headers: buildHeaders() });
   }
-  const res = await fetch(path, { ...init, headers });
   const text = await res.text();
   let body: Json = {};
   try { body = text ? JSON.parse(text) : {}; } catch { body = { raw: text }; }
   if (!res.ok) {
-    const err: any = new Error(body?.message || body?.error || `בקשה נכשלה (${res.status})`);
+    const raw: any = { status: res.status, body, message: body?.message || body?.error };
+    const err: any = new Error(hebrewError(raw));
     err.status = res.status; err.body = body;
     throw err;
   }
@@ -69,6 +73,9 @@ export const api = {
     req(`/api/participants/${participantId}/impact`, { headers: { authorization: `Bearer ${token}` } }),
   authConfig: (): Promise<{ ok: boolean; supabase_url: string; supabase_anon_key: string; configured: boolean }> =>
     req(`/api/preview/auth-config`) as any,
+  supportContact: (payload: Json) =>
+    req(`/api/support/contact`, { method: "POST", body: JSON.stringify(payload) }),
+  previewMeta: () => req(`/api/preview/meta`),
 
   // ── seller (Supabase Bearer, seller capability) ─────────────────────────
   sellerContext: () => req(`/api/seller/context`, {}, "seller"),
@@ -87,6 +94,8 @@ export const api = {
     req(`/api/deals/${id}/publish`, { method: "POST", body: JSON.stringify({ seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }) }, "seller"),
   closeJoining: (id: string) =>
     req(`/api/deals/${id}/close_joining`, { method: "POST", body: JSON.stringify({}) }, "seller"),
+  deleteDeal: (id: string) =>
+    req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
 
   // ── admin (Supabase Bearer, admin capability — server-validated) ────────
   adminMe: () => req(`/api/admin/auth/me`, {}, "admin"),
@@ -125,43 +134,89 @@ export const api = {
     req(`/api/admin/viral/recompute`, { method: "POST", body: JSON.stringify({ deal_id: dealId }) }, "admin")
 };
 
-// ── Supabase auth (password grant / signup, public anon key) ──────────────
+// ── Supabase auth (password grant / signup / resend / recovery) ─────────────
 export interface SupabaseCfg { supabase_url: string; supabase_anon_key: string }
 
-export async function supabaseSignIn(cfg: SupabaseCfg, email: string, password: string): Promise<string> {
-  const res = await fetch(`${cfg.supabase_url}/auth/v1/token?grant_type=password`, {
+function authRedirectTo(): string {
+  return `${window.location.origin}/preview/`;
+}
+
+async function authPost(cfg: SupabaseCfg, path: string, payload: Json): Promise<{ res: Response; body: Json }> {
+  const res = await fetch(`${cfg.supabase_url}${path}`, {
     method: "POST",
     headers: { "content-type": "application/json", apikey: cfg.supabase_anon_key },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify(payload)
   });
   const body = await res.json().catch(() => ({}));
+  return { res, body };
+}
+
+// Sign-in returns the FULL session payload (access + refresh) and records it
+// as the canonical client session for the requested surface.
+export async function supabaseSignIn(cfg: SupabaseCfg, email: string, password: string, surface: "seller" | "admin"): Promise<string> {
+  const { res, body } = await authPost(cfg, `/auth/v1/token?grant_type=password`, { email, password });
   if (!res.ok || !body?.access_token) {
-    const msg = String(body?.error_description || body?.msg || "");
-    const err: any = new Error(
-      /not confirmed/i.test(msg) ? "המייל טרם אומת — בדקו את תיבת הדואר ולחצו על קישור האימות"
-      : /invalid/i.test(msg) ? "אימייל או סיסמה שגויים"
-      : msg || "התחברות נכשלה"
-    );
+    const msg = String(body?.error_description || body?.msg || body?.error || "");
+    const err: any = new Error(hebrewError({ status: res.status, message: msg }, "התחברות נכשלה — נסו שוב"));
     err.status = res.status;
     throw err;
   }
+  beginSession(body as AuthSessionPayload, surface);
   return String(body.access_token);
 }
 
-// First-time owner/seller signup: the password is typed by its owner in the
-// browser and goes ONLY to Supabase — it never touches the Siton server.
-export async function supabaseSignUp(cfg: SupabaseCfg, email: string, password: string): Promise<{ needsConfirmation: boolean }> {
-  const res = await fetch(`${cfg.supabase_url}/auth/v1/signup`, {
-    method: "POST",
-    headers: { "content-type": "application/json", apikey: cfg.supabase_anon_key },
-    body: JSON.stringify({ email, password })
+export interface SignUpResult {
+  // "session"  — auto-confirmed, session started
+  // "confirmation_requested" — a NEW account's confirmation request was accepted
+  // "ambiguous" — Supabase deliberately answers repeated/existing signups
+  //               ambiguously; the app must NOT claim an email was sent
+  outcome: "session" | "confirmation_requested" | "ambiguous";
+}
+
+// First-time signup: the password is typed by its owner in the browser and
+// goes ONLY to Supabase — it never touches the C-ton server.
+export async function supabaseSignUp(cfg: SupabaseCfg, email: string, password: string, surface: "seller" | "admin"): Promise<SignUpResult> {
+  const { res, body } = await authPost(cfg, `/auth/v1/signup`, {
+    email, password,
+    options: { email_redirect_to: authRedirectTo() },
+    // GoTrue also accepts top-level redirect for older API shapes
+    email_redirect_to: authRedirectTo()
   });
-  const body = await res.json().catch(() => ({}));
   if (!res.ok) {
-    const msg = String(body?.error_description || body?.msg || "");
-    const err: any = new Error(/already registered/i.test(msg) ? "החשבון כבר קיים — נסו להתחבר" : msg || "הרשמה נכשלה");
+    const msg = String(body?.error_description || body?.msg || body?.error || "");
+    const err: any = new Error(hebrewError({ status: res.status, message: msg }, "הרשמה נכשלה — נסו שוב"));
     err.status = res.status;
     throw err;
   }
-  return { needsConfirmation: !body?.access_token };
+  if (body?.access_token) { beginSession(body as AuthSessionPayload, surface); return { outcome: "session" }; }
+  // A brand-new signup returns identities for the new user; a REPEATED signup
+  // for an existing confirmed account returns an obfuscated user with no
+  // identities. Only claim a confirmation request when it is truthful.
+  const identities = Array.isArray(body?.identities) ? body.identities : (Array.isArray(body?.user?.identities) ? body.user.identities : null);
+  if (identities && identities.length > 0) return { outcome: "confirmation_requested" };
+  return { outcome: "ambiguous" };
+}
+
+// Re-request the signup confirmation email (supported GoTrue resend flow).
+export async function supabaseResendConfirmation(cfg: SupabaseCfg, email: string): Promise<void> {
+  const { res, body } = await authPost(cfg, `/auth/v1/resend`, {
+    type: "signup", email,
+    options: { email_redirect_to: authRedirectTo() }
+  });
+  if (!res.ok) {
+    const msg = String(body?.error_description || body?.msg || body?.error || "");
+    throw new Error(hebrewError({ status: res.status, message: msg }, "שליחת בקשת האימות נכשלה — נסו שוב מאוחר יותר"));
+  }
+}
+
+// Password recovery request.
+export async function supabaseRecoverPassword(cfg: SupabaseCfg, email: string): Promise<void> {
+  const { res, body } = await authPost(cfg, `/auth/v1/recover`, {
+    email,
+    options: { email_redirect_to: authRedirectTo() }
+  });
+  if (!res.ok) {
+    const msg = String(body?.error_description || body?.msg || body?.error || "");
+    throw new Error(hebrewError({ status: res.status, message: msg }, "בקשת איפוס הסיסמה נכשלה — נסו שוב מאוחר יותר"));
+  }
 }

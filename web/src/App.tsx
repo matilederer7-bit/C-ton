@@ -9,9 +9,13 @@ import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
 import { OWNER_CAPS_EVENT, enterGuestMode, exitGuestMode, isGuestMode, readOwnerCaps } from "./ownerMode";
+import { startSessionHeartbeat } from "./session";
 
 // Capture ?ref= share codes once, at boot, before any routing.
 captureRefFromLocation();
+// Keep the Supabase session silently fresh (refresh-token grant) so a login
+// stays usable across reloads and days on the same device.
+startSessionHeartbeat();
 
 // PUBLIC_MALL_ENABLED — the canonical value is a runtime server env exposed at
 // /api/preview/meta (repository convention: env switches, no flag service).
