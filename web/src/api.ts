@@ -27,7 +27,12 @@ function guestModeActive(): boolean {
 async function req(path: string, init: RequestInit = {}, auth: "none" | "seller" | "admin" = "none"): Promise<Json> {
   if (guestModeActive()) auth = "none";
   const buildHeaders = (): Record<string, string> => {
-    const headers: Record<string, string> = { "content-type": "application/json", ...(init.headers as any) };
+    // JSON content-type ONLY when a body is actually sent — Fastify rejects a
+    // bodyless DELETE that declares application/json.
+    const headers: Record<string, string> = {
+      ...(init.body != null ? { "content-type": "application/json" } : {}),
+      ...(init.headers as any)
+    };
     if (auth !== "none") {
       const t = auth === "seller" ? getSellerToken() : getAdminToken();
       if (t) headers["authorization"] = `Bearer ${t}`;
