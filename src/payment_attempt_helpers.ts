@@ -7,7 +7,8 @@ export type AttemptType =
   | "recovery"
   | "refund"
   | "deadline_check"
-  | "cancel_refund";
+  | "cancel_refund"
+  | "release";
 
 export function buildPaymentAttemptHelpers(deps: {
   withTx: WithTx;

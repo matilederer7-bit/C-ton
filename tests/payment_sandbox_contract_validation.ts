@@ -20,9 +20,19 @@ function base(role: "web" | "worker") {
     ADMIN_API_KEY: "contract-admin",
     SELLER_SESSION_SECRET: "contract-session",
     RUNTIME_ROLE: role,
-    DISABLE_OUTBOX_WORKER: role === "web" ? "1" : undefined
+    DISABLE_OUTBOX_WORKER: role === "web" ? "1" : undefined,
+    // R9A: production charging requires the explicit VAT authority.
+    SITON_VAT_MODE: "explicit",
+    SITON_VAT_RATE_PRODUCT: "0.18",
+    SITON_VAT_RATE_DELIVERY: "0.18"
   } as NodeJS.ProcessEnv;
 }
+
+// R9A: production without explicit VAT authority fails closed.
+assert.throws(
+  () => assertProductionRuntimeGuards("web", { ...base("web"), SITON_VAT_MODE: undefined }),
+  /SITON_VAT_MODE=explicit/
+);
 
 const web = base("web");
 assert.doesNotThrow(() => assertProductionRuntimeGuards("web", web));

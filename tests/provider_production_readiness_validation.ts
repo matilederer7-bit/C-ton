@@ -50,7 +50,10 @@ await run("provider readiness status distinguishes mock-backed from live transpo
   const readinessSource = await readFile("src/operational_readiness.ts", "utf8");
   assert.match(providerSource, /mock_backed: provider\.mode === "mock-backed"/);
   assert.match(providerSource, /authorization_transport_live: provider\.mode !== "mock-backed" && provider\.configured/);
-  assert.match(providerSource, /webhook_verification_live: provider\.mode === "stripe" && provider\.configured/);
+  // R9A: readiness flags are truthful capability checks, not mode inferences.
+  assert.match(providerSource, /webhook_verification_live: Boolean\(provider\.verifyWebhook\) && provider\.configured/);
+  assert.match(providerSource, /payment_reconcile_live: Boolean\(provider\.status\) && provider\.mode !== "mock-backed" && provider\.configured/);
+  assert.match(providerSource, /capability_gaps/);
   assert.match(readinessSource, /core-money-rail-ready/);
   assert.match(readinessSource, /can_activate_now: payment\.mode !== "mock-backed" && payment\.configured \? "partially" : "no"/);
   assert.match(readinessSource, /blocked-by-missing-provider-env/);

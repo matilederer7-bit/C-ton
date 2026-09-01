@@ -26,6 +26,12 @@ import { buildGrowPaymentAdapter } from "./grow_payment_adapter.js";
 
 export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail";
 
+// Execution results additionally distinguish UNKNOWN: the provider may or may
+// not have moved money (transport loss after dispatch). UNKNOWN is never
+// blind-retried by the Worker — it is resolved by the payment_reconcile rail
+// through an authoritative provider status lookup.
+export type PaymentExecutionResultClass = PaymentResultClass | "unknown";
+
 export type PaymentTokenizationResult =
   | {
       ok: true;
@@ -69,7 +75,7 @@ export type PaymentAuthorizationResult =
 
 export type PaymentExecutionResult = {
   provider: string;
-  result_class: PaymentResultClass;
+  result_class: PaymentExecutionResultClass;
   retryable: boolean;
   mock: boolean;
   provider_reference?: string | null;
@@ -702,15 +708,14 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
           reconciliation_event_type: classifyCaptureEventType(payload)
         };
-      } catch (error: any) {
-        const timeout =
-          error?.name === "TimeoutError" ||
-          error?.name === "AbortError" ||
-          String(error?.message || "").toLowerCase().includes("timed out");
+      } catch {
+        // Transport loss AFTER the capture request was dispatched: the
+        // provider may have captured. This is UNKNOWN, not temporary_fail —
+        // a blind retry could double-charge. The reconcile rail resolves it.
         return {
           provider: PAYMENT_PROVIDER,
-          result_class: "temporary_fail",
-          retryable: true,
+          result_class: "unknown",
+          retryable: false,
           mock: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId,
@@ -808,10 +813,12 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           reconciliation_event_type: reconciliationEventType
         };
       } catch {
+        // Transport loss after dispatch — provider may have recovered the
+        // charge. UNKNOWN: resolved by reconciliation, never blind-retried.
         return {
           provider: PAYMENT_PROVIDER,
-          result_class: "temporary_fail",
-          retryable: true,
+          result_class: "unknown",
+          retryable: false,
           mock: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId
@@ -876,7 +883,8 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           reconciliation_event_type: "refund_issued"
         };
       } catch {
-        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, correlation_id: correlationId };
+        // Transport loss after dispatch — the refund may have been issued.
+        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, provider_reference: captureReference || authorizationId || null, correlation_id: correlationId };
       }
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
@@ -889,7 +897,8 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         if (!response.ok || payload?.ok === false) return { provider: PAYMENT_PROVIDER, result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
         return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
       } catch {
-        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
+        // Transport loss after dispatch — the release may have happened.
+        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
       }
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
@@ -1138,7 +1147,8 @@ function buildStripePaymentProvider(): PaymentProvider {
           reconciliation_event_type: "charge_captured"
         };
       } catch {
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        // Transport loss after dispatch — Stripe may have captured. UNKNOWN.
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult> {
@@ -1210,7 +1220,8 @@ function buildStripePaymentProvider(): PaymentProvider {
           reconciliation_event_type: "refund_issued"
         };
       } catch {
-        return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        // Transport loss after dispatch — the refund may have been issued.
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
@@ -1224,7 +1235,8 @@ function buildStripePaymentProvider(): PaymentProvider {
         if (state !== "canceled") return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
         return { provider: providerCode, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.id || paymentIntentId), correlation_id: correlationId };
       } catch {
-        return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        // Transport loss after dispatch — the cancellation may have happened.
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
@@ -1260,20 +1272,35 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
     return String(value || `grow_${randomUUID().replace(/-/g, "")}`);
   }
 
-  function executionResult(result: any, correlationId: string, failureEvent: PaymentExecutionResult["reconciliation_event_type"] = null): PaymentExecutionResult {
-    const resultClass: PaymentResultClass = result.result_class === "success"
-      ? "success"
-      : result.result_class === "permanent_fail"
-        ? "permanent_fail"
-        : "temporary_fail";
+  function executionResult(
+    result: any,
+    correlationId: string,
+    events: {
+      success: NonNullable<PaymentExecutionResult["reconciliation_event_type"]> | null;
+      failure: PaymentExecutionResult["reconciliation_event_type"];
+    }
+  ): PaymentExecutionResult {
+    // Adapter UNKNOWN (transport loss after dispatch) stays UNKNOWN: the money
+    // may have moved, so the Worker must reconcile via status, never retry.
+    const resultClass: PaymentExecutionResultClass =
+      result.result_class === "success"
+        ? "success"
+        : result.result_class === "permanent_fail"
+          ? "permanent_fail"
+          : result.result_class === "unknown"
+            ? "unknown"
+            : "temporary_fail";
     return {
       provider: providerCode,
       result_class: resultClass,
-      retryable: result.result_class === "unknown" || result.retryable === true,
+      retryable: resultClass === "temporary_fail",
       mock: false,
       provider_reference: result.provider_reference || null,
       correlation_id: correlationId,
-      reconciliation_event_type: resultClass === "permanent_fail" ? failureEvent : null
+      // A provider-declared outcome maps to exactly one canonical
+      // reconciliation event; UNKNOWN and temporary_fail declare nothing.
+      reconciliation_event_type:
+        resultClass === "success" ? events.success : resultClass === "permanent_fail" ? events.failure ?? null : null
     };
   }
 
@@ -1323,26 +1350,44 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
     async capture(input) {
       const correlationId = correlation(input.correlation_id || input.request_id);
       try {
-        return executionResult(await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId, "charge_failed");
+        return executionResult(
+          await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)),
+          correlationId,
+          { success: "charge_captured", failure: "charge_failed" }
+        );
       } catch {
-        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "charge_failed" };
+        // A throw here happens BEFORE provider I/O (invalid sealed reference /
+        // configuration): no money moved, so a bounded retry is safe and the
+        // outbox attempt cap + DLQ bound it. It is NOT a provider-declared
+        // failure and must not fabricate a charge_failed event.
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async recover(input, withinWindow) {
       const correlationId = correlation(input.correlation_id || input.request_id);
       if (!withinWindow) return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
       try {
-        return executionResult(await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId, "recovery_failed");
+        return executionResult(
+          await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)),
+          correlationId,
+          { success: "recovery_captured", failure: "recovery_failed" }
+        );
       } catch {
-        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
+        // Pre-I/O throw: no provider call happened. See capture().
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async refund(input) {
       const correlationId = correlation(input.correlation_id || input.request_id);
       try {
-        return executionResult(await adapter.refund(String(input.capture_reference || input.authorization_id || ""), Number(input.amount_minor || 0)), correlationId);
+        return executionResult(
+          await adapter.refund(String(input.capture_reference || input.authorization_id || ""), Number(input.amount_minor || 0)),
+          correlationId,
+          { success: "refund_issued", failure: null }
+        );
       } catch {
-        return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.capture_reference || input.authorization_id || null, correlation_id: correlationId };
+        // Pre-I/O throw: no provider call happened. See capture().
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.capture_reference || input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async status(input) {
@@ -1364,11 +1409,59 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
   };
 }
 
+// Capability-level readiness: real-provider activation must reflect what the
+// adapter can actually do, never just configured=true.
+export function paymentProviderCapabilities(provider: PaymentProvider) {
+  return {
+    authorization: true,
+    capture: true,
+    recovery: true,
+    refund: true,
+    release: Boolean(provider.release),
+    status: Boolean(provider.status),
+    webhook_verification: Boolean(provider.verifyWebhook),
+    webhook_parsing: Boolean(provider.parseWebhookEvent),
+    reconciliation: Boolean(provider.status)
+  };
+}
+
+// Capabilities a provider MUST implement natively before it may run against a
+// real (sandbox or live) provider environment. Generic fallbacks (HMAC
+// webhook contract, guessed release semantics) must never silently stand in
+// for a provider-native contract.
+export const MANDATORY_REAL_PROVIDER_CAPABILITIES = [
+  "release",
+  "status",
+  "webhook_verification",
+  "webhook_parsing"
+] as const;
+
+export function missingMandatoryCapabilities(provider: PaymentProvider): string[] {
+  const capabilities = paymentProviderCapabilities(provider) as Record<string, boolean>;
+  return MANDATORY_REAL_PROVIDER_CAPABILITIES.filter((name) => !capabilities[name]);
+}
+
+function isRealProviderEnvironment() {
+  return ["sandbox", "live"].includes(String(PAYMENT_ENVIRONMENT || "").trim().toLowerCase());
+}
+
 export function buildPaymentProvider(): PaymentProvider {
   if (PAYMENT_PROVIDER === "grow" || PAYMENT_PROVIDER_MODE === "grow") {
     const provider = buildGrowCanonicalPaymentProvider();
     if (isProductionRuntime() && !provider.configured) {
       throw new Error("PAYMENT_PROVIDER=grow requires complete Grow server credentials, HTTPS return URLs, and GROW_REFERENCE_ENCRYPTION_KEY in production");
+    }
+    // Fail closed: Grow in any REAL provider environment (sandbox or live)
+    // requires the full Grow-native contract. Generic webhook verification
+    // must never silently become Grow verification, and release/status must
+    // exist before money can be held for real.
+    if (isProductionRuntime() || isRealProviderEnvironment()) {
+      const missing = missingMandatoryCapabilities(provider);
+      if (missing.length) {
+        throw new Error(
+          `PAYMENT_PROVIDER=grow cannot start in a real provider environment without verified Grow-native capabilities: missing ${missing.join(", ")}`
+        );
+      }
     }
     return provider;
   }
@@ -1411,7 +1504,13 @@ export function buildPaymentProvider(): PaymentProvider {
 }
 
 export function getPaymentProviderSummary(provider: PaymentProvider) {
+  const capabilities = paymentProviderCapabilities(provider);
+  const capabilityGaps = missingMandatoryCapabilities(provider);
   return {
+    capabilities,
+    mandatory_real_capabilities: MANDATORY_REAL_PROVIDER_CAPABILITIES,
+    capability_gaps: capabilityGaps,
+    real_activation_ready: provider.configured && capabilityGaps.length === 0 && provider.mode !== "mock-backed",
     provider: provider.providerCode,
     mode: provider.mode,
     environment: PAYMENT_ENVIRONMENT,
@@ -1433,8 +1532,10 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     capture_transport_live: provider.mode !== "mock-backed" && provider.configured,
     recovery_transport_live: provider.mode !== "mock-backed" && provider.configured,
     refund_transport_live: provider.mode !== "mock-backed" && provider.configured,
-    webhook_verification_live: provider.mode === "stripe" && provider.configured,
-    payment_reconcile_live: provider.mode !== "mock-backed",
+    release_transport_live: Boolean(provider.release) && provider.mode !== "mock-backed" && provider.configured,
+    status_transport_live: Boolean(provider.status) && provider.mode !== "mock-backed" && provider.configured,
+    webhook_verification_live: Boolean(provider.verifyWebhook) && provider.configured,
+    payment_reconcile_live: Boolean(provider.status) && provider.mode !== "mock-backed" && provider.configured,
     hosted_payment_required:
       provider.mode === "stripe" ? stripeServerSideRawCardAllowed() : provider.mode !== "mock-backed",
     pci_tokenization_policy:

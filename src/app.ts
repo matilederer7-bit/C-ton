@@ -19,11 +19,14 @@ import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers, OutboxLeaseLostError } from "./outbox_worker_helpers.js";
 import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
+import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
+import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
   enqueueNotification,
   ensureNotificationRailTables,
-  flushPendingNotifications
+  flushPendingNotifications,
+  reclaimStrandedNotifications
 } from "./notification_dispatch.js";
 import {
   enqueueInvoiceDocument,
@@ -607,6 +610,19 @@ const {
 const webhookIngestion = buildWebhookIngestion({ withTx });
 const paymentReconciliation = buildPaymentReconciliation({ withTx });
 const paymentProvider = buildPaymentProvider();
+const paymentBindings = buildPaymentAuthorizationBindings({ withTx });
+
+// Server-authoritative Join binding enforcement:
+// - Any non-mock provider mode is ALWAYS strict — Join only reaches AuthHeld
+//   by consuming a verified server-side authorization binding.
+// - The synthetic mock-backed provider keeps the legacy demo Join contract
+//   unless PAYMENT_BINDING_ENFORCEMENT=strict is set, but even in legacy mode
+//   a binding that EXISTS for the supplied authorization is verified and
+//   consumed — mismatches always fail closed.
+function paymentBindingEnforcementStrict(): boolean {
+  if (String(process.env.PAYMENT_BINDING_ENFORCEMENT || "").trim().toLowerCase() === "strict") return true;
+  return paymentProvider.mode !== "mock-backed";
+}
 const payoutProvider = buildPayoutProvider();
 const payoutRail = buildPayoutRail({
   withTx,
@@ -1336,10 +1352,12 @@ async function handleRefundEvent(
          p.delivery_cost,
          p.money_state,
          d.price_per_unit,
-         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
-         COALESCE(cap.payload->>'provider_reference', auth.payload->>'authorization_id', '') AS capture_reference
+         COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(NULLIF(pab.provider_reference, ''), cap.payload->>'provider_reference', auth.payload->>'authorization_id', '') AS capture_reference
        FROM siton.participants p
        JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab
+         ON pab.consumed_by_participant_id = p.participant_id
        LEFT JOIN LATERAL (
          SELECT payload
          FROM siton.audit_log
@@ -1434,12 +1452,528 @@ async function handleRefundEvent(
       continue;
     }
 
-    if (result.result_class === "success") {
-      throw new Error(`refund_missing_reconciliation_event_type participant ${p.participant_id}`);
-    } else {
-      throw new PermanentFailError(`permanent_fail refund participant ${p.participant_id}`);
+    if (result.result_class === "unknown" || result.result_class === "success") {
+      // The refund may have been issued (transport loss, or a success without
+      // a declared event). Never re-fire the refund blindly — reconcile.
+      await finalizeAttemptResult({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: attemptType,
+        correlation_id: correlation,
+        result_class: "unknown"
+      });
+      await schedulePaymentReconcile({
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        attempt_type: attemptType,
+        correlation_id: correlation,
+        operation: "refund",
+        provider_reference: result.provider_reference || p.capture_reference || p.authorization_id || null,
+        reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
+      });
+      continue;
+    }
+
+    throw new PermanentFailError(`permanent_fail refund participant ${p.participant_id}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// R9A — Worker-owned payment reconciliation + release rail.
+//
+// UNKNOWN is not a terminal business outcome. Whenever a money operation ends
+// without a provider-declared canonical result, the request/worker thread
+// records the durable UNKNOWN attempt and hands resolution to these outbox
+// jobs, which query the provider's authoritative status seam, apply exactly
+// one canonical event, back off within outbox bounds, and fall back to a
+// visible operational case + DLQ when the provider stays ambiguous.
+// ---------------------------------------------------------------------------
+
+type PaymentReconcilePayload = {
+  participant_id: string;
+  deal_id: string;
+  attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release";
+  correlation_id: string;
+  operation: "capture" | "refund" | "release";
+  provider_reference: string | null;
+  reason: string;
+};
+
+async function schedulePaymentReconcile(args: PaymentReconcilePayload) {
+  await withTx(async (c) => {
+    await c.query(
+      `INSERT INTO siton.outbox_events (
+         event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at
+       ) VALUES ('payment_reconcile','participant',$1,$2,'pending',0, now())
+       ON CONFLICT DO NOTHING`,
+      [args.participant_id, JSON.stringify(args)]
+    );
+  });
+}
+
+async function schedulePaymentRelease(args: { participant_id: string; deal_id: string; reason: string }) {
+  await withTx(async (c) => {
+    await c.query(
+      `INSERT INTO siton.outbox_events (
+         event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at
+       ) VALUES ('payment_release','participant',$1,$2,'pending',0, now())
+       ON CONFLICT DO NOTHING`,
+      [args.participant_id, JSON.stringify(args)]
+    );
+  });
+}
+
+/**
+ * Schedule provider-neutral release of every still-held authorization on a
+ * failed/cancelled deal. Idempotent; transitions happen only in the Worker
+ * release handler with authoritative provider proof.
+ */
+async function scheduleAuthorizationReleasesForDeal(dealId: string, reason: string) {
+  const held = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT participant_id
+       FROM siton.participants
+       WHERE deal_id=$1
+         AND money_state IN ('AuthHeld','AuthLocked','ChargeFailedRecovery')`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string }>;
+  });
+  for (const row of held) {
+    await schedulePaymentRelease({ participant_id: row.participant_id, deal_id: dealId, reason }).catch(() => undefined);
+  }
+}
+
+async function openPaymentOperationalCase(args: {
+  autoKey: string;
+  subject: string;
+  description: string;
+  correlationId?: string | null;
+  requestId?: string | null;
+}) {
+  await withTx(async (c) => {
+    await c.query(
+      `INSERT INTO siton.operational_cases
+         (case_type, status, priority, source, subject, description, opened_by, auto_key, correlation_id, request_id)
+       VALUES ('PaymentMismatch','Open','High','System',$1,$2,'worker',$3,$4,$5)
+       ON CONFLICT (auto_key) WHERE auto_key IS NOT NULL AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
+       DO UPDATE SET updated_at=now()`,
+      [
+        args.subject.slice(0, 200),
+        args.description.slice(0, 2000),
+        args.autoKey.slice(0, 200),
+        args.correlationId || null,
+        args.requestId || null
+      ]
+    );
+  }).catch(() => undefined);
+}
+
+async function loadReconcileParticipant(participantId: string, dealId: string) {
+  return withTx(async (c) => {
+    const r = await c.query(
+      `SELECT
+         p.participant_id,
+         p.buyer_id,
+         p.buyer_state,
+         p.money_state,
+         p.qty,
+         p.delivery_cost,
+         d.price_per_unit,
+         d.state AS deal_state,
+         d.completion_window_until,
+         (d.completion_window_until IS NOT NULL AND now() < d.completion_window_until) AS within_window,
+         COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS binding_reference,
+         pab.amount_minor AS binding_amount_minor,
+         pab.currency AS binding_currency
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab
+         ON pab.consumed_by_participant_id = p.participant_id
+       LEFT JOIN LATERAL (
+         SELECT payload
+         FROM siton.audit_log
+         WHERE entity_type = 'participant'
+           AND entity_id = p.participant_id
+           AND action_name = 'participant.join_authorize'
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) auth ON true
+       WHERE p.participant_id=$1 AND p.deal_id=$2`,
+      [participantId, dealId]
+    );
+    return r.rows[0] || null;
+  });
+}
+
+async function handlePaymentReconcileEvent(
+  event: {
+    event_uuid: string;
+    event_type: string;
+    aggregate_type: string;
+    aggregate_id: string;
+    payload: any;
+    attempt_count: number;
+    max_attempts?: number;
+  },
+  eventId: string
+) {
+  const payload = (event.payload || {}) as PaymentReconcilePayload;
+  const participantId = String(payload.participant_id || event.aggregate_id);
+  const dealId = String(payload.deal_id || "");
+  const operation = (payload.operation === "refund" || payload.operation === "release") ? payload.operation : "capture";
+  const attemptType = payload.attempt_type || (operation === "refund" ? "refund" : operation === "release" ? "release" : "charge_start");
+  const correlationId = String(payload.correlation_id || "");
+  if (!dealId) throw new PermanentFailError(`payment_reconcile missing deal_id for participant ${participantId}`);
+
+  const target = await loadReconcileParticipant(participantId, dealId);
+  if (!target) throw new PermanentFailError(`payment_reconcile participant not found ${participantId}`);
+
+  // Already resolved elsewhere (webhook truth, an earlier reconcile run, or a
+  // parallel canonical path): nothing to do — exactly-once is preserved by the
+  // canonical event dedupe, terminal-state protection and idempotent
+  // transitions, not by this job.
+  const waiting =
+    operation === "capture"
+      ? (target.buyer_state === "ChargingAttempt" && target.money_state === "ChargeAttempt") ||
+        (target.buyer_state === "ChargeFailedCompletion" && target.money_state === "ChargeFailedRecovery" && attemptType === "recovery")
+      : operation === "refund"
+        ? ["ChargedSuccess", "RecoveredCharge"].includes(String(target.money_state))
+        : ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state));
+  if (!waiting) return;
+
+  const providerReference = String(payload.provider_reference || target.binding_reference || "").trim();
+  if (!paymentProvider.status) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-unsupported:${participantId}:${attemptType}`,
+      subject: `Payment reconcile unsupported for participant ${participantId}`,
+      description: `Provider ${paymentProvider.providerCode} exposes no status capability; UNKNOWN ${attemptType} attempt ${correlationId} requires manual provider verification. No state was guessed.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_status_unsupported participant ${participantId}`);
+  }
+  if (!providerReference) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-no-reference:${participantId}:${attemptType}`,
+      subject: `Payment reconcile missing provider reference for participant ${participantId}`,
+      description: `UNKNOWN ${attemptType} attempt ${correlationId} has no durable provider reference; manual provider-side verification is required. No state was guessed.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_missing_reference participant ${participantId}`);
+  }
+
+  const statusOperation = operation === "refund" ? "refund" : operation === "release" ? "release" : "capture";
+  const status = await paymentProvider.status({
+    provider_reference: providerReference,
+    operation: statusOperation,
+    correlation_id: correlationId || `reconcile:${eventId}`
+  });
+
+  // Amount safety: an authoritative amount that contradicts the binding is a
+  // mismatch — fail closed into a visible case, never mutate state.
+  const expectedAmountMinor = target.binding_amount_minor !== null && target.binding_amount_minor !== undefined
+    ? Number(target.binding_amount_minor)
+    : paymentMinorAmount({
+        qty: Number(target.qty || 0),
+        pricePerUnit: Number(target.price_per_unit || 0),
+        deliveryCost: Number(target.delivery_cost || 0)
+      });
+  if (
+    status.amount_minor !== null &&
+    Number.isInteger(status.amount_minor) &&
+    operation !== "release" &&
+    Number(status.amount_minor) !== expectedAmountMinor
+  ) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-amount-mismatch:${participantId}:${attemptType}`,
+      subject: `Provider amount mismatch for participant ${participantId}`,
+      description: `Provider reports ${status.amount_minor} minor units for ${attemptType} ${correlationId}; authoritative amount is ${expectedAmountMinor}. State was NOT mutated; manual reconciliation required.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_amount_mismatch participant ${participantId}`);
+  }
+
+  const ingestResolution = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
+    await ingestAndProcessPaymentEvent({
+      provider: paymentProvider.providerCode,
+      event_id: `reconcile:${correlationId || participantId}:${eventType}`,
+      event_type: eventType,
+      correlation_id: correlationId || null,
+      participant_id: participantId,
+      deal_id: dealId,
+      provider_reference: status.provider_reference || providerReference,
+      payload: {
+        source: "payment_reconcile_worker",
+        provider_reference: status.provider_reference || providerReference,
+        provider_state: status.state,
+        provider_final: status.final
+      }
+    });
+    if (status.provider_reference) {
+      await paymentBindings
+        .updateProviderReferenceForParticipant(participantId, status.provider_reference)
+        .catch(() => undefined);
+    }
+  };
+
+  if (operation === "capture") {
+    const isRecovery = attemptType === "recovery";
+    if (status.state === "captured") {
+      await ingestResolution(isRecovery ? "recovery_captured" : "charge_captured");
+      return;
+    }
+    if (status.state === "failed" || (status.state === "authorized" && status.final)) {
+      // Provider says the money was NOT captured (declined, or the hold is
+      // still merely authorized and final): the attempt failed without money
+      // movement.
+      await ingestResolution(isRecovery ? "recovery_failed" : "charge_failed");
+      if (!isRecovery) {
+        // A charge failure resolved late must still get its recovery chance
+        // while the completion window is open.
+        await withTx(async (c) => {
+          const deal = await c.query(
+            `SELECT state, (completion_window_until IS NOT NULL AND now() < completion_window_until) AS within
+             FROM siton.deals WHERE deal_id=$1`,
+            [dealId]
+          );
+          if (deal.rows[0]?.state === "CompletionWindow" && deal.rows[0]?.within) {
+            await c.query(
+              `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+               VALUES ('recovery_deal','deal',$1,$2,'pending',0, now())
+               ON CONFLICT DO NOTHING`,
+              [dealId, JSON.stringify({ deal_id: dealId })]
+            );
+          }
+        }).catch(() => undefined);
+      }
+      return;
+    }
+  } else if (operation === "refund") {
+    if (status.state === "refunded") {
+      await ingestResolution("refund_issued");
+      return;
+    }
+    if ((status.state === "captured") && status.final) {
+      // The refund never executed. Re-arm the deal-scoped refund job; the
+      // UNKNOWN attempt is finalized as permanent_fail for this correlation.
+      await finalizeAttemptResult({
+        participant_id: participantId,
+        deal_id: dealId,
+        attempt_type: attemptType as any,
+        correlation_id: correlationId,
+        result_class: "permanent_fail"
+      });
+      await withTx(async (c) => {
+        await c.query(
+          `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+           VALUES ('refund_issue','deal',$1,$2,'pending',0, now())
+           ON CONFLICT DO NOTHING`,
+          [dealId, JSON.stringify({ deal_id: dealId, reason: "reconcile_refund_not_executed" })]
+        );
+      });
+      return;
+    }
+  } else {
+    // release
+    if (status.state === "released") {
+      await applyAuthorizationRelease(participantId, dealId, `reconcile:${eventId}`, correlationId);
+      await finalizeAttemptResult({
+        participant_id: participantId,
+        deal_id: dealId,
+        attempt_type: "release",
+        correlation_id: correlationId,
+        result_class: "success"
+      });
+      return;
+    }
+    if (status.state === "authorized" && status.final) {
+      // The release never executed; re-arm the release job.
+      await finalizeAttemptResult({
+        participant_id: participantId,
+        deal_id: dealId,
+        attempt_type: "release",
+        correlation_id: correlationId,
+        result_class: "permanent_fail"
+      });
+      await schedulePaymentRelease({ participant_id: participantId, deal_id: dealId, reason: "reconcile_release_not_executed" });
+      return;
+    }
+    if (status.state === "captured") {
+      await openPaymentOperationalCase({
+        autoKey: `payment-reconcile-release-captured:${participantId}`,
+        subject: `Hold intended for release was captured (participant ${participantId})`,
+        description: `Provider reports captured for a hold Siton tried to release (correlation ${correlationId}). Manual reconciliation required; no state was guessed.`,
+        correlationId
+      });
+      throw new PermanentFailError(`payment_reconcile_release_captured participant ${participantId}`);
     }
   }
+
+  // Still ambiguous (pending/unknown or an incompatible non-final state).
+  // Bounded outbox retry with backoff; final exhaustion opens a manual-review
+  // case and lands in the DLQ for operational visibility.
+  const maxAttempts = Number(event.max_attempts || OUTBOX_MAX_ATTEMPTS);
+  if (event.attempt_count + 1 >= maxAttempts) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-unresolved:${participantId}:${attemptType}`,
+      subject: `UNKNOWN payment outcome unresolved for participant ${participantId}`,
+      description: `Reconciliation exhausted ${maxAttempts} status lookups for ${attemptType} ${correlationId} (last provider state: ${status.state}${status.error_code ? `, error ${status.error_code}` : ""}). Manual provider verification required; no state was guessed.`,
+      correlationId
+    });
+  }
+  throw new Error(`payment_reconcile_unresolved participant ${participantId} state=${status.state}`);
+}
+
+/**
+ * Apply the canonical AuthHeld/AuthLocked → AuthReleased transition with the
+ * durable release proof already established by the caller.
+ */
+async function applyAuthorizationRelease(participantId: string, dealId: string, requestId: string, correlationId?: string | null) {
+  const row = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT money_state FROM siton.participants WHERE participant_id=$1 AND deal_id=$2`,
+      [participantId, dealId]
+    );
+    return r.rows[0] || null;
+  });
+  if (!row || !["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(row.money_state))) return false;
+  await atomicTransition({
+    entityType: "participant",
+    entityId: participantId,
+    dealId,
+    stateType: "money_state",
+    fromState: String(row.money_state),
+    toState: "AuthReleased",
+    actionName: "authorization.release",
+    requestId,
+    idempotencyKey: `auth-release:${dealId}:${participantId}`,
+    outbox: null,
+    payload: { correlation_id: correlationId || null }
+  });
+  await paymentBindings.markBindingReleasedForParticipant(participantId, "authorization_released").catch(() => undefined);
+  return true;
+}
+
+async function handlePaymentReleaseEvent(
+  event: {
+    event_uuid: string;
+    event_type: string;
+    aggregate_type: string;
+    aggregate_id: string;
+    payload: any;
+    attempt_count: number;
+    max_attempts?: number;
+  },
+  eventId: string
+) {
+  const payload = (event.payload || {}) as { participant_id?: string; deal_id?: string; reason?: string };
+  const participantId = String(payload.participant_id || event.aggregate_id);
+  const dealId = String(payload.deal_id || "");
+  if (!dealId) throw new PermanentFailError(`payment_release missing deal_id for participant ${participantId}`);
+
+  const target = await loadReconcileParticipant(participantId, dealId);
+  if (!target) throw new PermanentFailError(`payment_release participant not found ${participantId}`);
+  if (!["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state))) return; // already resolved
+
+  const providerReference = String(target.binding_reference || "").trim();
+  const correlation = `release:${eventId}:a${event.attempt_count}:${participantId}`;
+  await recordAttemptBeforeIo({
+    participant_id: participantId,
+    deal_id: dealId,
+    attempt_type: "release",
+    correlation_id: correlation
+  });
+
+  if (!paymentProvider.release) {
+    await finalizeAttemptResult({
+      participant_id: participantId,
+      deal_id: dealId,
+      attempt_type: "release",
+      correlation_id: correlation,
+      result_class: "unknown"
+    });
+    await openPaymentOperationalCase({
+      autoKey: `payment-release-unsupported:${participantId}`,
+      subject: `Release unsupported by provider for participant ${participantId}`,
+      description: `Provider ${paymentProvider.providerCode} exposes no release capability. The held authorization for deal ${dealId} requires the provider-approved cancel/expiry process. AuthReleased was NOT set without proof.`,
+      correlationId: correlation
+    });
+    throw new PermanentFailError(`payment_release_unsupported participant ${participantId}`);
+  }
+
+  const releaseInput: Parameters<NonNullable<typeof paymentProvider.release>>[0] = {
+    authorization_id: providerReference,
+    correlation_id: correlation,
+    participant_id: participantId,
+    deal_id: dealId,
+    buyer_id: String(target.buyer_id || ""),
+    amount_minor: paymentMinorAmount({
+      qty: Number(target.qty || 0),
+      pricePerUnit: Number(target.price_per_unit || 0),
+      deliveryCost: Number(target.delivery_cost || 0)
+    }),
+    currency: "ILS",
+    request_id: `worker:${eventId}`
+  };
+  const result = await paymentProvider.release(releaseInput);
+
+  if (result.result_class === "success") {
+    await finalizeAttemptResult({
+      participant_id: participantId,
+      deal_id: dealId,
+      attempt_type: "release",
+      correlation_id: correlation,
+      result_class: "success"
+    });
+    await applyAuthorizationRelease(participantId, dealId, `worker:${eventId}`, correlation);
+    return;
+  }
+
+  if (result.result_class === "temporary_fail") {
+    await finalizeAttemptResult({
+      participant_id: participantId,
+      deal_id: dealId,
+      attempt_type: "release",
+      correlation_id: correlation,
+      result_class: "temporary_fail"
+    });
+    throw new Error(`temporary_fail release participant ${participantId}`);
+  }
+
+  if (result.result_class === "unknown") {
+    await finalizeAttemptResult({
+      participant_id: participantId,
+      deal_id: dealId,
+      attempt_type: "release",
+      correlation_id: correlation,
+      result_class: "unknown"
+    });
+    await schedulePaymentReconcile({
+      participant_id: participantId,
+      deal_id: dealId,
+      attempt_type: "release",
+      correlation_id: correlation,
+      operation: "release",
+      provider_reference: result.provider_reference || providerReference || null,
+      reason: "release_outcome_unknown"
+    });
+    return;
+  }
+
+  await finalizeAttemptResult({
+    participant_id: participantId,
+    deal_id: dealId,
+    attempt_type: "release",
+    correlation_id: correlation,
+    result_class: "permanent_fail"
+  });
+  await openPaymentOperationalCase({
+    autoKey: `payment-release-failed:${participantId}`,
+    subject: `Provider refused authorization release for participant ${participantId}`,
+    description: `Release attempt ${correlation} permanently failed at provider ${paymentProvider.providerCode}. The hold remains represented as held; manual provider-side action required.`,
+    correlationId: correlation
+  });
+  throw new PermanentFailError(`permanent_fail release participant ${participantId}`);
 }
 
 async function handleChargeDealEvent(
@@ -1466,11 +2000,15 @@ async function handleChargeDealEvent(
          p.buyer_state,
          p.money_state,
          d.price_per_unit,
-         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
-         COALESCE(auth.payload->>'authorization_provider', '') AS authorization_provider,
-         COALESCE(auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
+         COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(pab.provider_code, auth.payload->>'authorization_provider', '') AS authorization_provider,
+         COALESCE(pab.correlation_id, auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
        FROM siton.participants p
        JOIN siton.deals d ON d.deal_id = p.deal_id
+       -- Canonical indexed provider-reference source (R9A); audit JSON stays
+       -- as evidence-only fallback for pre-binding participants.
+       LEFT JOIN siton.payment_authorization_bindings pab
+         ON pab.consumed_by_participant_id = p.participant_id
        LEFT JOIN LATERAL (
          SELECT payload
          FROM siton.audit_log
@@ -1539,7 +2077,7 @@ async function handleChargeDealEvent(
       throw new Error(`temporary_fail capture participant ${p.participant_id}`);
     }
 
-    if (result.reconciliation_event_type) {
+    if (result.reconciliation_event_type && result.result_class !== "unknown") {
       await finalizeAttemptResult({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -1561,9 +2099,18 @@ async function handleChargeDealEvent(
           authorization_id: p.authorization_id || null
         }
       });
+      if (result.result_class === "success" && result.provider_reference) {
+        await paymentBindings
+          .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
+          .catch(() => undefined);
+      }
       continue;
     }
 
+    // No provider-declared canonical outcome (transport UNKNOWN, or a success
+    // without an event type). The provider may have moved money: NEVER retry
+    // blindly — record UNKNOWN durably and hand recovery to the Worker-owned
+    // reconciliation rail, which resolves it via authoritative status lookup.
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -1571,7 +2118,15 @@ async function handleChargeDealEvent(
       correlation_id: correlation,
       result_class: "unknown"
     });
-    throw new Error(`capture_missing_reconciliation_event_type participant ${p.participant_id}`);
+    await schedulePaymentReconcile({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "charge_start",
+      correlation_id: correlation,
+      operation: "capture",
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
+    });
   }
 
   const windowUntil = await withTx(async (c) => {
@@ -1671,10 +2226,12 @@ async function handleRecoveryDealEvent(
          p.qty,
          p.delivery_cost,
          d.price_per_unit,
-         COALESCE(auth.payload->>'authorization_id', '') AS authorization_id,
-         COALESCE(auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
+         COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS authorization_id,
+         COALESCE(pab.correlation_id, auth.payload->>'authorization_correlation_id', '') AS authorization_correlation_id
        FROM siton.participants p
        JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab
+         ON pab.consumed_by_participant_id = p.participant_id
        LEFT JOIN LATERAL (
          SELECT payload
          FROM siton.audit_log
@@ -1742,7 +2299,7 @@ async function handleRecoveryDealEvent(
     }
 
     // Route through the webhook reconciliation truth path when the provider emits an event type
-    if (result.reconciliation_event_type) {
+    if (result.reconciliation_event_type && result.result_class !== "unknown") {
       await finalizeAttemptResult({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -1764,10 +2321,16 @@ async function handleRecoveryDealEvent(
           authorization_id: p.authorization_id || null
         }
       });
+      if (result.result_class === "success" && result.provider_reference) {
+        await paymentBindings
+          .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
+          .catch(() => undefined);
+      }
       continue;
     }
 
-    // Fallback: permanent_fail with no reconciliation event — apply state directly
+    // No provider-declared canonical outcome — durable UNKNOWN, then the
+    // reconciliation rail. Never a blind retry after possible money movement.
     await finalizeAttemptResult({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -1775,7 +2338,15 @@ async function handleRecoveryDealEvent(
       correlation_id: correlation,
       result_class: "unknown"
     });
-    throw new Error(`recovery_missing_reconciliation_event_type participant ${p.participant_id}`);
+    await schedulePaymentReconcile({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      operation: "capture",
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
+    });
   }
 
   return;
@@ -1887,9 +2458,14 @@ async function enqueueChargeReceiptForParticipant(participantId: string, dealId:
     qty: string; money_state: string; delivery_cost: string;
     title: string; price_per_unit: string;
   };
-  // Siton fee base = actual collected gross amount (price x qty + delivery).
-  const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
+  // Siton fee base = actual collected gross amount (price x qty + delivery),
+  // excluding the authoritative VAT portion (explicit VAT authority; 0 only
+  // under declared synthetic_zero configuration).
+  const productGross = Number(r.qty) * Number(r.price_per_unit);
+  const deliveryGross = Number(r.delivery_cost || 0);
+  const grossAmount = productGross + deliveryGross;
+  const vat = computeCustomerChargeVat({ productGrossAmount: productGross, deliveryGrossAmount: deliveryGross });
+  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: vat.vat_amount });
   await enqueueInvoiceDocument({
     documentKey: `charge_receipt:${participantId}`,
     documentType: "charge_receipt",
@@ -1927,9 +2503,13 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
     qty: string; delivery_cost: string; title: string;
     price_per_unit: string;
   };
-  // Refund receipt mirrors charge receipt: fee base = price x qty + delivery.
-  const grossAmount = Number(r.qty) * Number(r.price_per_unit) + Number(r.delivery_cost || 0);
-  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: 0 });
+  // Refund receipt mirrors charge receipt: fee base = price x qty + delivery,
+  // excluding the authoritative VAT portion.
+  const productGross = Number(r.qty) * Number(r.price_per_unit);
+  const deliveryGross = Number(r.delivery_cost || 0);
+  const grossAmount = productGross + deliveryGross;
+  const vat = computeCustomerChargeVat({ productGrossAmount: productGross, deliveryGrossAmount: deliveryGross });
+  const money = calculatePlatformFeeMoney({ grossAmount, vatAmount: vat.vat_amount });
   await enqueueInvoiceDocument({
     documentKey: `refund_receipt:${participantId}`,
     documentType: "refund_receipt",
@@ -2039,6 +2619,9 @@ async function handleFinalizeDealEvent(
     }
 
     await cleanupObsoleteDealOutboxEvents(dealId);
+    // Unrecovered participants on a completed deal still hold an uncaptured
+    // authorization — release it (Worker-owned, provider-proofed).
+    await scheduleAuthorizationReleasesForDeal(dealId, "deal_completed_unrecovered");
 
     // Notify participants: deal_completed for DealCompleted, deal_failed for DealFailed
     const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
@@ -2086,6 +2669,9 @@ async function handleFinalizeDealEvent(
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
+  // Release every still-held (uncaptured) authorization; captured participants
+  // are refunded by the refund_issue job enqueued with the Failed transition.
+  await scheduleAuthorizationReleasesForDeal(dealId, "deal_finalize_failed");
 
   // Notify all participants: deal failed — refund will be issued
   const dealTitleRowFail = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
@@ -2162,6 +2748,9 @@ async function workerProcessEvent(event: {
     });
 
     await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
+    // Release every still-held authorization for the failed deal (Worker-owned;
+    // AuthReleased only with authoritative provider proof).
+    await scheduleAuthorizationReleasesForDeal(dealId, "deal_deadline_failed");
     await cleanupObsoleteDealOutboxEvents(dealId);
 
     // Notify all participants: deadline passed, deal failed
@@ -2183,6 +2772,16 @@ async function workerProcessEvent(event: {
 
   if (event.event_type === "recovery_deal") {
     await handleRecoveryDealEvent(event, eventId);
+    return;
+  }
+
+  if (event.event_type === "payment_reconcile") {
+    await handlePaymentReconcileEvent(event, eventId);
+    return;
+  }
+
+  if (event.event_type === "payment_release") {
+    await handlePaymentReleaseEvent(event, eventId);
     return;
   }
 
@@ -2417,6 +3016,9 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   return processed;
 }
 export async function runWorkerMaintenance() {
+  // Crash recovery for the notification rail: stranded 'processing' rows are
+  // reclaimed with a bounded attempt budget before the next flush.
+  await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);
   await flushPendingNotifications(pool, notificationService, app.log);
   await enqueuePendingInvoiceDocumentOutboxEvents(pool);
   await processStorageCleanupBatch();
@@ -3753,7 +4355,18 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         throw err;
       }
     }
-    const authorizationPayload = authorizationId
+    // Server-authoritative authorization binding (R9A). In strict mode the
+    // browser-supplied authorization_id is only a lookup handle: AuthHeld is
+    // reached exclusively by consuming a server-side binding whose provider,
+    // environment, deal, buyer, quantity and authoritative amount all match.
+    const bindingStrict = paymentBindingEnforcementStrict();
+    if (bindingStrict && !authorizationId) {
+      const err: any = new Error("a server-verified payment authorization is required to join this deal");
+      err.statusCode = 402;
+      err.code = "payment_authorization_required";
+      throw err;
+    }
+    const authorizationPayload: Record<string, unknown> = authorizationId
       ? {
           authorization: "provider_authorized",
           authorization_id: authorizationId,
@@ -3827,6 +4440,52 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       : null;
     if (joinTestFailurePoint === "after_inventory_commit_before_business_audit") {
       throw new Error("join_test_failure_after_inventory_commit_before_business_audit");
+    }
+
+    // Consume the server-side authorization binding atomically with this Join
+    // transaction. Any mismatch (deal, buyer, provider, environment, quantity,
+    // amount, currency, status, prior consumption, expiry) aborts the Join.
+    if (authorizationId) {
+      const authoritativeAmountMinor = paymentMinorAmount({
+        qty,
+        pricePerUnit: Number(dealRow.rows[0].price_per_unit || 0),
+        deliveryCost: Number(selectedDelivery?.cost || 0)
+      });
+      try {
+        const consumedBinding = await paymentBindings.consumeBindingForJoinTx(c, {
+          deal_id: dealId,
+          buyer_id,
+          authorization_id: authorizationId,
+          participant_id: pid,
+          expected_provider_code: paymentProvider.providerCode,
+          expected_provider_mode: paymentProvider.mode,
+          expected_provider_environment: String(process.env.PAYMENT_ENVIRONMENT || "demo"),
+          expected_qty: qty,
+          expected_amount_minor: authoritativeAmountMinor,
+          expected_currency: "ILS"
+        });
+        authorizationPayload.authorization_binding_id = consumedBinding.binding_id;
+        authorizationPayload.authorization_binding_verified = true;
+        authorizationPayload.authorization_correlation_id =
+          authorizationPayload.authorization_correlation_id || consumedBinding.correlation_id;
+      } catch (error) {
+        if (error instanceof PaymentBindingError) {
+          // Legacy demo tolerance: ONLY the synthetic mock-backed provider may
+          // join with an authorization that has no server-side binding at all.
+          // Every other binding error — and every error in strict mode —
+          // fails closed.
+          if (!bindingStrict && error.code === "payment_authorization_not_found") {
+            authorizationPayload.authorization_binding_verified = false;
+          } else {
+            const err: any = new Error(error.message);
+            err.statusCode = error.statusCode;
+            err.code = error.code;
+            throw err;
+          }
+        } else {
+          throw error;
+        }
+      }
     }
 
     const affiliateRef = String(body.affiliate_ref || "").trim().slice(0, 120);

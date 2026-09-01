@@ -3,7 +3,9 @@ import type { OutboxEventRow } from "./outbox_worker_helpers.js";
 export type WorkerLane = "money" | "reconcile" | "invoice" | "default";
 
 export function workerLane(eventType: string): WorkerLane {
-  if (["charge_deal", "recovery_deal", "refund_issue", "cancel_refund"].includes(eventType)) return "money";
+  // payment_reconcile/payment_release run in the money lane: they can apply
+  // canonical money transitions and must serialize with charge processing.
+  if (["charge_deal", "recovery_deal", "refund_issue", "cancel_refund", "payment_reconcile", "payment_release"].includes(eventType)) return "money";
   if (["seller_payout_reconcile", "invoice_document_reconcile"].includes(eventType)) return "reconcile";
   if (["invoice_document_issue"].includes(eventType)) return "invoice";
   return "default";

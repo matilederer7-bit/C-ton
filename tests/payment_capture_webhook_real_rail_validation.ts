@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import http from "node:http";
 import { createHmac, randomUUID } from "node:crypto";
 import pg from "pg";
@@ -58,6 +58,20 @@ async function startProviderStub() {
         url: req.url,
         body
       });
+      if (req.url && req.url.startsWith("/status/")) {
+        // Authoritative status lookup seam used by the payment_reconcile rail.
+        res.setHeader("content-type", "application/json");
+        res.statusCode = 200;
+        res.end(
+          JSON.stringify({
+            state: "captured",
+            final: true,
+            provider_reference: decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!)
+          })
+        );
+        return;
+      }
+
       if (req.url === "/capture") {
         const authorizationId = String(body.authorization_id || "");
         if (authorizationId.includes("timeout")) {
@@ -127,7 +141,7 @@ const pool = new Pool({
 });
 
 const { establishNamedAdminSession } = await import("./helpers/named_admin_session.js");
-// R5C — seller provisioning requires a named admin identity.
+// R5C ג€” seller provisioning requires a named admin identity.
 const { cookie: ADMIN_COOKIE } = await establishNamedAdminSession(app, pool);
 const provisionSeller = await app.inject({
   method: "POST",
@@ -314,29 +328,51 @@ await runTest("capture decline flows through webhook truth into the existing fai
   assert.equal(tracked.tracking.money_state, "ChargeFailedRecovery");
 });
 
-await runTest("capture timeout keeps outbox discipline and does not force an invalid state transition", async () => {
+await runTest("capture timeout becomes durable UNKNOWN + reconcile (no blind provider retry), then resolves to exactly one success", async () => {
   const charging = await createChargingParticipant("timeout", "auth-timeout-1");
-  await ensureOutboxStatus(charging.outboxEventId, "failed");
-  const tracked = await readTracking(charging.participantId);
+  // R9A: transport loss after dispatch is UNKNOWN ג€” the charge event completes
+  // (no retry that could double-charge) and a payment_reconcile job owns
+  // resolution through the authoritative status seam.
+  await ensureOutboxStatus(charging.outboxEventId, "sent");
+  let tracked = await readTracking(charging.participantId);
   assert.equal(tracked.tracking.buyer_state, "ChargingAttempt");
   assert.equal(tracked.tracking.money_state, "ChargeAttempt");
 
-  const outboxResult = await pool.query(
-    `SELECT attempt_count, status, last_error
+  const attempt = await latestChargeAttempt(charging.participantId);
+  assert.equal(attempt?.result_class, "unknown");
+
+  const reconcileRow = await pool.query(
+    `SELECT event_uuid, status
      FROM siton.outbox_events
-     WHERE aggregate_id = $1
-       AND event_type = 'charge_deal'
+     WHERE event_type='payment_reconcile'
+       AND aggregate_id=$1
      ORDER BY created_at DESC
      LIMIT 1`,
-    [charging.dealId]
+    [charging.participantId]
   );
-  const outbox = outboxResult.rows[0] as { attempt_count: number; status: string; last_error: string | null } | undefined;
+  assert.ok(reconcileRow.rowCount, "payment_reconcile job must be scheduled for the UNKNOWN attempt");
 
-  assert.ok(outbox);
-  assert.equal(outbox!.status, "pending");
-  assert.match(String(outbox!.last_error || ""), /temporary_fail/i);
+  const captureCallsBefore = provider.captureCalls.filter(
+    (row) => row.url === "/capture" && row.body?.authorization_id === "auth-timeout-1"
+  ).length;
+
+  await ensureOutboxStatus(String(reconcileRow.rows[0].event_uuid), "sent");
+  tracked = await readTracking(charging.participantId);
+  assert.equal(tracked.tracking.buyer_state, "ChargedSuccess");
+  assert.equal(tracked.tracking.money_state, "ChargedSuccess");
+
+  const captureCallsAfter = provider.captureCalls.filter(
+    (row) => row.url === "/capture" && row.body?.authorization_id === "auth-timeout-1"
+  ).length;
+  assert.equal(captureCallsAfter, captureCallsBefore, "reconciliation must not re-fire the capture call");
+
+  const resolvedAttempt = await latestChargeAttempt(charging.participantId);
+  assert.equal(resolvedAttempt?.result_class, "success");
 });
 
 await provider.close();
 await pool.end();
+// Windows/libuv teardown: let undici sockets from the reconcile status seam
+// finish closing before exit (uv_async close race under process.exit).
+await new Promise((resolve) => setTimeout(resolve, 700));
 process.exit(0);

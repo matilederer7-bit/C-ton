@@ -2,6 +2,7 @@ import { assertRequiredTables } from "./schema_contract.js";
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
 import { SITON_PLATFORM_FEE_VAT_RATE } from "./runtime_config.js";
+import { computeCustomerChargeVat } from "./vat_authority.js";
 
 export const SITON_PLATFORM_FEE_RATE = 0.08;
 
@@ -103,14 +104,22 @@ async function loadParticipantChargeContext(c: any, participantId: string, dealI
   }
 
   const row = result.rows[0];
-  const grossAmount =
-    Number(row.qty || 0) * Number(row.price_per_unit || 0) + Number(row.delivery_cost || 0);
+  const productGross = Number(row.qty || 0) * Number(row.price_per_unit || 0);
+  const deliveryGross = Number(row.delivery_cost || 0);
+  const grossAmount = productGross + deliveryGross;
+  // Canonical VAT authority: explicit configuration decides the VAT portion of
+  // the customer charge; synthetic_zero mode keeps synthetic staging at 0 by
+  // declared policy. The 8% fee base always excludes this VAT amount.
+  const vat = computeCustomerChargeVat({
+    productGrossAmount: productGross,
+    deliveryGrossAmount: deliveryGross
+  });
   return {
     participant_id: String(row.participant_id),
     deal_id: String(row.deal_id),
     seller_id: String(row.seller_id || ""),
     gross_amount: roundMoney(grossAmount),
-    vat_amount: 0
+    vat_amount: vat.vat_amount
   };
 }
 

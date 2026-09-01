@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import http from "node:http";
 import { createHmac, randomUUID } from "node:crypto";
 import pg from "pg";
@@ -61,6 +61,20 @@ async function startProviderStub() {
         url: req.url,
         body
       });
+
+      if (req.url && req.url.startsWith("/status/")) {
+        // Authoritative status lookup seam used by the payment_reconcile rail.
+        res.setHeader("content-type", "application/json");
+        res.statusCode = 200;
+        res.end(
+          JSON.stringify({
+            state: "captured",
+            final: true,
+            provider_reference: decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!)
+          })
+        );
+        return;
+      }
 
       if (req.url === "/recover") {
         const authorizationId = String(body.authorization_id || "");
@@ -318,32 +332,41 @@ await runTest("recovery decline flows through webhook truth into the dropped/aut
   assert.equal(tracked.tracking.money_state, "AuthReleased");
 });
 
-await runTest("recovery timeout keeps outbox discipline and does not force an invalid state transition", async () => {
+await runTest("recovery timeout becomes durable UNKNOWN + reconcile (no blind provider retry), then resolves to exactly one recovery", async () => {
   const recovering = await createRecoveryParticipant({
     suffix: "timeout",
     authorizationId: "auth-recovery-timeout-1",
     withinWindow: true
   });
+  // R9A: transport loss after dispatch is UNKNOWN ג€” the recovery event
+  // completes without a blind retry and payment_reconcile owns resolution.
   const processed = await processOutboxEventById(recovering.outboxEventId);
-  assert.equal(processed?.status, "failed");
-  const tracked = await readTracking(recovering.participantId);
+  assert.equal(processed?.status, "sent");
+  let tracked = await readTracking(recovering.participantId);
   assert.equal(tracked.tracking.buyer_state, "ChargeFailedCompletion");
   assert.equal(tracked.tracking.money_state, "ChargeFailedRecovery");
 
-  const outboxResult = await pool.query(
-    `SELECT attempt_count, status, last_error
+  const reconcileRow = await pool.query(
+    `SELECT event_uuid
      FROM siton.outbox_events
-     WHERE aggregate_id = $1
-       AND event_type = 'recovery_deal'
+     WHERE event_type='payment_reconcile'
+       AND aggregate_id=$1
      ORDER BY created_at DESC
      LIMIT 1`,
-    [recovering.dealId]
+    [recovering.participantId]
   );
-  const outbox = outboxResult.rows[0] as { attempt_count: number; status: string; last_error: string | null } | undefined;
+  assert.ok(reconcileRow.rowCount, "payment_reconcile job must be scheduled for the UNKNOWN recovery attempt");
 
-  assert.ok(outbox);
-  assert.equal(outbox!.status, "pending");
-  assert.match(String(outbox!.last_error || ""), /temporary_fail/i);
+  const recoverCallsBefore = provider.recoveryCalls.filter((row) => row.url === "/recover").length;
+  const reconcileProcessed = await processOutboxEventById(String(reconcileRow.rows[0].event_uuid));
+  assert.equal(reconcileProcessed?.status, "sent");
+
+  tracked = await readTracking(recovering.participantId);
+  assert.equal(tracked.tracking.buyer_state, "Recovered");
+  assert.equal(tracked.tracking.money_state, "RecoveredCharge");
+
+  const recoverCallsAfter = provider.recoveryCalls.filter((row) => row.url === "/recover").length;
+  assert.equal(recoverCallsAfter, recoverCallsBefore, "reconciliation must not re-fire the recovery call");
 });
 
 await runTest("recovery does not run outside the completion window", async () => {
@@ -366,4 +389,7 @@ await runTest("recovery does not run outside the completion window", async () =>
 
 await provider.close();
 await pool.end();
+// Windows/libuv teardown: let undici sockets from the reconcile status seam
+// finish closing before exit (uv_async close race under process.exit).
+await new Promise((resolve) => setTimeout(resolve, 700));
 process.exit(0);

@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import http from "node:http";
 import { createHmac, randomUUID } from "node:crypto";
 import pg from "pg";
@@ -62,6 +62,20 @@ async function startProviderStub() {
         url: req.url,
         body
       });
+
+      if (req.url && req.url.startsWith("/status/")) {
+        // Authoritative status lookup seam used by the payment_reconcile rail.
+        res.setHeader("content-type", "application/json");
+        res.statusCode = 200;
+        res.end(
+          JSON.stringify({
+            state: "refunded",
+            final: true,
+            provider_reference: decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!)
+          })
+        );
+        return;
+      }
 
       if (req.url === "/refund") {
         const refundAnchor = String(body.capture_reference || body.authorization_id || "");
@@ -367,39 +381,46 @@ await runTest("refund failure moves the outbox event to DLQ and preserves the pa
   assert.match(String(dlqRows.rows[0].last_error || ""), /permanent_fail/i);
 });
 
-await runTest("refund timeout keeps outbox discipline and does not force an invalid state transition", async () => {
+await runTest("refund timeout becomes durable UNKNOWN + reconcile (no blind provider retry), then resolves to exactly one refund", async () => {
   const refunding = await createRefundParticipant({
     suffix: "timeout",
     captureReference: "cap-refund-timeout-1"
   });
-  await ensureOutboxStatus(refunding.outboxEventId, "failed");
+  // R9A: transport loss after dispatch is UNKNOWN ג€” the refund may have been
+  // issued, so the refund event completes without a blind re-fire and the
+  // payment_reconcile rail resolves the truth via the status seam.
+  await ensureOutboxStatus(refunding.outboxEventId, "sent");
 
-  const tracked = await waitFor(
-    () => readTracking(refunding.participantId),
-    (row) => row.tracking.money_state === "ChargedSuccess"
-  );
+  let tracked = await readTracking(refunding.participantId);
   assert.equal(tracked.tracking.money_state, "ChargedSuccess");
 
-  const outboxResult = await waitFor(
-    () =>
-      pool.query(
-        `SELECT attempt_count, status, last_error
-         FROM siton.outbox_events
-         WHERE aggregate_id = $1
-           AND event_type = 'refund_issue'
-         ORDER BY created_at DESC
-         LIMIT 1`,
-        [refunding.dealId]
-      ),
-    (result) => result.rowCount === 1
+  const reconcileRow = await pool.query(
+    `SELECT event_uuid
+     FROM siton.outbox_events
+     WHERE event_type='payment_reconcile'
+       AND aggregate_id=$1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [refunding.participantId]
   );
-  const outbox = outboxResult.rows[0] as { attempt_count: number; status: string; last_error: string | null } | undefined;
+  assert.ok(reconcileRow.rowCount, "payment_reconcile job must be scheduled for the UNKNOWN refund attempt");
 
-  assert.ok(outbox);
-  assert.equal(outbox!.status, "pending");
-  assert.match(String(outbox!.last_error || ""), /temporary_fail/i);
+  const refundCallsBefore = provider.refundCalls.filter((row) => row.url === "/refund").length;
+  await ensureOutboxStatus(String(reconcileRow.rows[0].event_uuid), "sent");
+
+  tracked = await waitFor(
+    () => readTracking(refunding.participantId),
+    (row) => row.tracking.money_state === "Refunded"
+  );
+  assert.equal(tracked.tracking.money_state, "Refunded");
+
+  const refundCallsAfter = provider.refundCalls.filter((row) => row.url === "/refund").length;
+  assert.equal(refundCallsAfter, refundCallsBefore, "reconciliation must not re-fire the refund call");
 });
 
 await provider.close();
 await pool.end();
+// Windows/libuv teardown: let undici sockets from the reconcile status seam
+// finish closing before exit (uv_async close race under process.exit).
+await new Promise((resolve) => setTimeout(resolve, 700));
 process.exit(0);

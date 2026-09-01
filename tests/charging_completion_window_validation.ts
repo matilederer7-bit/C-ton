@@ -495,15 +495,19 @@ await runTest("capture without reconciliation truth stays in Charging and marks 
     thresholdUnits: 9
   });
 
+  // R9A: a provider "success" with no canonical reconciliation event is an
+  // UNKNOWN outcome — never guessed and never blind-retried. The charge event
+  // completes (the deal proceeds on its time-driven path) and the durable
+  // payment_reconcile job owns resolution via the provider status seam.
   const processed = await processOutboxEventById(charging.outboxEventId);
-  assert.equal(processed?.status, "failed");
+  assert.equal(processed?.status, "sent");
 
   const deal = await fetchOne<{ state: string; completion_window_until: string | null }>(
     `SELECT state, completion_window_until FROM siton.deals WHERE deal_id=$1`,
     [charging.dealId]
   );
-  const participant = await fetchOne<{ buyer_state: string; money_state: string }>(
-    `SELECT buyer_state, money_state FROM siton.participants WHERE deal_id=$1`,
+  const participant = await fetchOne<{ participant_id: string; buyer_state: string; money_state: string }>(
+    `SELECT participant_id, buyer_state, money_state FROM siton.participants WHERE deal_id=$1`,
     [charging.dealId]
   );
   const attempt = await fetchOne<{ result_class: string }>(
@@ -515,20 +519,21 @@ await runTest("capture without reconciliation truth stays in Charging and marks 
      LIMIT 1`,
     [charging.dealId]
   );
-  const outbox = await fetchOne<{ status: string; last_error: string | null }>(
-    `SELECT status, last_error
+  const reconcile = await fetchOne<{ status: string }>(
+    `SELECT status
      FROM siton.outbox_events
-     WHERE event_uuid=$1`,
-    [charging.outboxEventId]
+     WHERE event_type='payment_reconcile'
+       AND aggregate_id=$1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [participant?.participant_id]
   );
 
-  assert.equal(deal?.state, "Charging");
-  assert.equal(deal?.completion_window_until, null);
+  assert.equal(deal?.state, "CompletionWindow");
   assert.equal(participant?.buyer_state, "ChargingAttempt");
   assert.equal(participant?.money_state, "ChargeAttempt");
   assert.equal(attempt?.result_class, "unknown");
-  assert.equal(outbox?.status, "pending");
-  assert.match(String(outbox?.last_error || ""), /capture_missing_reconciliation_event_type/i);
+  assert.equal(reconcile?.status, "pending");
 });
 
 await runTest("recovery only runs inside CompletionWindow for eligible participants and missing truth stays unknown", async () => {

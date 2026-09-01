@@ -9,6 +9,8 @@ import { fileURLToPath } from "url";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "crypto";
 import { buildOperationalReadinessSummary } from "./operational_readiness.js";
 import { getPaymentProviderSummary, type PaymentProvider } from "./payment_provider.js";
+import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
+import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
 import type { InvoiceProvider } from "./invoice_dispatch.js";
 import {
@@ -1512,6 +1514,8 @@ export function registerFrontendExperience(
   // Webhook ingestion + reconciliation helpers (used by /webhooks/payments)
   const webhookIngestion = buildWebhookIngestion({ withTx: deps.withTx });
   const paymentReconciliation = buildPaymentReconciliation({ withTx: deps.withTx });
+  // Server-authoritative payment authorization bindings (R9A).
+  const paymentBindings = buildPaymentAuthorizationBindings({ withTx: deps.withTx });
 
   /**
    * Verify HMAC-SHA256 webhook signature.
@@ -1527,9 +1531,18 @@ export function registerFrontendExperience(
     signatureHeader: string | undefined,
     timestampHeader: string | undefined
   ): boolean {
+    // A provider that requires its own native verification contract must never
+    // be verified by the generic HMAC fallback. Grow (and any future provider
+    // flagged the same way) fails closed until its verified native
+    // verifyWebhook exists.
+    if (deps.paymentProvider.mode === "grow" && !deps.paymentProvider.verifyWebhook) {
+      return false;
+    }
     if (!PAYMENT_WEBHOOK_SECRET_IS_SAFE || !PAYMENT_WEBHOOK_SECRET) {
-      // Demo/dev mode — skip verification
-      return true;
+      // Skipping verification is legal ONLY for the synthetic mock-backed
+      // provider (demo/staging mockpay). A real provider mode with no safe
+      // secret fails closed instead of silently accepting webhooks.
+      return deps.paymentProvider.mode === "mock-backed";
     }
     if (!signatureHeader) return false;
 
@@ -4917,14 +4930,22 @@ export function registerFrontendExperience(
 
       const rows = deals.rows as DealListRow[];
       const completedDeals = rows.filter((row) => row.state === "Completed");
-      // Fee base = actual collected amount (price × qty + delivery).
-      const sellerSettlementGross = completedDeals.reduce(
-        (sum, row) =>
-          sum
-          + Number(row.price_per_unit || 0) * Number(row.joined_units || 0)
-          + Number((row as any).joined_delivery_cost || 0),
+      // Fee base = actual collected amount (price × qty + delivery), excluding
+      // the authoritative VAT portion (explicit VAT authority; synthetic_zero
+      // keeps staging at 0 by declared policy).
+      const sellerSettlementProductGross = completedDeals.reduce(
+        (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0),
         0
       );
+      const sellerSettlementDeliveryGross = completedDeals.reduce(
+        (sum, row) => sum + Number((row as any).joined_delivery_cost || 0),
+        0
+      );
+      const sellerSettlementGross = sellerSettlementProductGross + sellerSettlementDeliveryGross;
+      const sellerSettlementVat = computeCustomerChargeVat({
+        productGrossAmount: sellerSettlementProductGross,
+        deliveryGrossAmount: sellerSettlementDeliveryGross
+      });
       return {
         ok: true,
         q,
@@ -4945,7 +4966,7 @@ export function registerFrontendExperience(
               gross_amount: sellerSettlementGross,
               platform_fee_amount: summarizeMoney({
                 grossAmount: sellerSettlementGross,
-                vatAmount: 0
+                vatAmount: sellerSettlementVat.vat_amount
               }).siton_fee_amount
             }
           },
@@ -8293,10 +8314,29 @@ export function registerFrontendExperience(
     if (body.correlation_id) authorizeInput.correlation_id = String(body.correlation_id);
     if (body.payment_method_id) authorizeInput.payment_method_id = String(body.payment_method_id);
 
+    let dealAuthorizationContext: {
+      deal_id: string;
+      buyer_id: string;
+      qty: number;
+      amount_minor: number;
+      delivery_option_id: string | null;
+      delivery_cost: number;
+    } | null = null;
+
     if (body.deal_id) {
       const dealId = String(body.deal_id);
       requireUuid(dealId, "deal_id");
       const qty = parsePositiveIntegerQuantity(body.qty);
+
+      // A deal-scoped authorization must bind a buyer identity server-side so
+      // Join can verify it. Mock-backed demo flows may keep the legacy loose
+      // contract; every real provider mode requires the binding.
+      if (deps.paymentProvider.mode !== "mock-backed" && !String(body.buyer_id || "").trim()) {
+        const err: any = new Error("buyer_id is required to authorize a deal payment");
+        err.statusCode = 400;
+        err.code = "buyer_id_required_for_deal_authorization";
+        throw err;
+      }
 
       // Buyer verification for payment is governed by the single policy
       // boundary. MVP default: OFF. When required, the OTP proof must be bound
@@ -8380,17 +8420,52 @@ export function registerFrontendExperience(
         }
 
         const deliveryCost = Number(deliveryOption.rows[0]?.cost || 0);
-        return paymentMinorAmount({
-          qty,
-          pricePerUnit: Number(deal.price_per_unit || 0),
-          deliveryCost
-        });
+        return {
+          amount_minor: paymentMinorAmount({
+            qty,
+            pricePerUnit: Number(deal.price_per_unit || 0),
+            deliveryCost
+          }),
+          delivery_option_id: deliveryOption.rows[0]?.option_id ? String(deliveryOption.rows[0].option_id) : null,
+          delivery_cost: deliveryCost
+        };
       });
 
-      authorizeInput.amount_minor = serverMoney;
+      authorizeInput.amount_minor = serverMoney.amount_minor;
+      dealAuthorizationContext = {
+        deal_id: dealId,
+        buyer_id: String(body.buyer_id || "").trim(),
+        qty,
+        amount_minor: serverMoney.amount_minor,
+        delivery_option_id: serverMoney.delivery_option_id,
+        delivery_cost: serverMoney.delivery_cost
+      };
     }
 
     const result = await deps.paymentProvider.authorize(authorizeInput);
+
+    // Durable server-authoritative binding: the browser only ever gets an
+    // opaque handle back; Join consumes THIS record, never the browser's
+    // claim. Hosted flows persist as pending until an authoritative provider
+    // status lookup confirms the authorization.
+    if (result.ok && dealAuthorizationContext && dealAuthorizationContext.buyer_id) {
+      await paymentBindings.createBinding({
+        provider_code: deps.paymentProvider.providerCode,
+        provider_mode: deps.paymentProvider.mode,
+        provider_environment: String(process.env.PAYMENT_ENVIRONMENT || "demo"),
+        authorization_id: result.authorization_id,
+        provider_reference: result.provider_reference || result.authorization_id,
+        deal_id: dealAuthorizationContext.deal_id,
+        buyer_id: dealAuthorizationContext.buyer_id,
+        qty: dealAuthorizationContext.qty,
+        amount_minor: dealAuthorizationContext.amount_minor,
+        currency: "ILS",
+        delivery_option_id: dealAuthorizationContext.delivery_option_id,
+        delivery_cost: dealAuthorizationContext.delivery_cost,
+        status: result.authorization === "authorized" ? "authorized" : "pending_provider_confirmation",
+        correlation_id: result.correlation_id
+      });
+    }
     if (body.buyer_id && body.payment_method_id) {
       await upsertBuyerPaymentMethod({
         buyer_id: String(body.buyer_id),
@@ -8421,6 +8496,27 @@ export function registerFrontendExperience(
       return reply.code(400).send({ ok: false, error: "payment_status_request_invalid" });
     }
     const result = await deps.paymentProvider.status({ provider_reference: providerReference, correlation_id: correlationId, operation });
+
+    // Hosted-payment completion is asynchronous and server-authoritative: a
+    // pending binding flips to 'authorized' only here (or via a verified
+    // provider webhook) — after THIS server-side provider lookup — never from
+    // browser redirect/query data. Amount mismatch fails the binding closed.
+    if (operation === "authorization" && result.state === "authorized") {
+      try {
+        await paymentBindings.confirmBindingAuthorized({
+          provider_code: deps.paymentProvider.providerCode,
+          authorization_id: providerReference,
+          provider_amount_minor: result.amount_minor,
+          provider_reference: result.provider_reference
+        });
+      } catch (error) {
+        if (error instanceof PaymentBindingError) {
+          return reply.code(409).send({ ok: false, error: error.code, message: error.message });
+        }
+        throw error;
+      }
+    }
+
     return { ok: true, ...result, authorization_id: result.state === "authorized" ? result.provider_reference : undefined };
   });
 
