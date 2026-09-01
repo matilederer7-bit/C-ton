@@ -280,10 +280,11 @@ await run("D8 image upload is blocked after publish", async () => {
   assert.equal(res.json().code, "deal_already_published");
 });
 
-await run("D9 draft deal supports up to five images with one primary image", async () => {
+await run("D9 draft deal supports up to twelve images with one primary image", async () => {
+  // P0.2 — the canonical image capacity is 12 per deal.
   const sellerId = `seller-img-gallery-${randomUUID().slice(0, 8)}`;
   const dealId = await insertDraftDeal(sellerId);
-  for (let index = 0; index < 5; index += 1) {
+  for (let index = 0; index < 12; index += 1) {
     const res = await app.inject({
       method: "POST",
       url: `/api/seller/deals/${dealId}/images`,
@@ -305,18 +306,18 @@ await run("D9 draft deal supports up to five images with one primary image", asy
      WHERE deal_id=$1`,
     [dealId]
   );
-  assert.equal(Number(rows.rows[0].count), 5);
+  assert.equal(Number(rows.rows[0].count), 12);
   assert.equal(Number(rows.rows[0].primary_count), 1);
   assert.equal(Number(rows.rows[0].primary_sort_order), 2);
 
-  const sixth = await app.inject({
+  const thirteenth = await app.inject({
     method: "POST",
     url: `/api/seller/deals/${dealId}/images`,
     headers: { "x-seller-id": sellerId },
-    payload: imagePayload({ original_filename: "product-6.png" })
+    payload: imagePayload({ original_filename: "product-13.png" })
   });
-  assert.equal(sixth.statusCode, 400, `expected 400 for sixth image, got ${sixth.statusCode}: ${sixth.body}`);
-  assert.equal(sixth.json().code, "deal_image_limit");
+  assert.equal(thirteenth.statusCode, 400, `expected 400 for thirteenth image, got ${thirteenth.statusCode}: ${thirteenth.body}`);
+  assert.equal(thirteenth.json().code, "deal_image_limit");
 });
 
 await run("D9b image upload replay is idempotent and rejects payload drift", async () => {

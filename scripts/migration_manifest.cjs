@@ -51,7 +51,8 @@ const MIGRATIONS = [
   ["051", "051_commerce_viral_graph.sql"],
   ["052", "052_r7_supabase_storage_provider.sql"],
   ["053", "053_payment_authorization_bindings.sql"],
-  ["054", "054_notification_reliability.sql"]
+  ["054", "054_notification_reliability.sql"],
+  ["055", "055_deal_short_description.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
