@@ -2107,6 +2107,29 @@ export async function buildAdminMissionControlPayload(deps: MissionDeps) {
       provider: paymentSummary.provider,
       mode: paymentSummary.mode,
       configured: paymentSummary.configured,
+      // R9B — provider environment truth for operators: which environment the
+      // provider runs in (GROW SANDBOX vs REAL MONEY / PRODUCTION), the
+      // provider's honest capability detail (release strategy, callback trust
+      // posture, approve policy) and the capability-level readiness verdict.
+      environment: paymentSummary.environment,
+      environment_label: String(paymentSummary.environment || "").toLowerCase() === "live" ? "REAL MONEY / PRODUCTION" : paymentSummary.provider === "grow" ? "GROW SANDBOX" : String(paymentSummary.environment || "demo").toUpperCase(),
+      provider_detail: paymentSummary.provider_detail,
+      capability_gaps: paymentSummary.capability_gaps,
+      real_activation_ready: paymentSummary.real_activation_ready,
+      // Server-authoritative authorization binding rail (statuses only; the
+      // sealed provider references themselves are never exposed here).
+      authorization_bindings: tables.has("payment_authorization_bindings")
+        ? rowsByKey((await safeQuery(c, "SELECT status, COUNT(*)::int AS count FROM siton.payment_authorization_bindings GROUP BY status")).rows, "status")
+        : {},
+      reconcile_jobs_pending: tables.has("outbox_events")
+        ? safeCount((await safeQuery(c, "SELECT COUNT(*)::int AS n FROM siton.outbox_events WHERE event_type='payment_reconcile' AND status='pending'")).rows[0] || {}, "n")
+        : 0,
+      release_jobs_pending: tables.has("outbox_events")
+        ? safeCount((await safeQuery(c, "SELECT COUNT(*)::int AS n FROM siton.outbox_events WHERE event_type='payment_release' AND status='pending'")).rows[0] || {}, "n")
+        : 0,
+      provider_callback_evidence: tables.has("webhook_events")
+        ? (await safeQuery(c, "SELECT COUNT(*)::int AS total, MAX(received_at) AS last_received_at FROM siton.webhook_events WHERE provider=$1", [paymentSummary.provider])).rows[0] || null
+        : null,
       secret_presence: secretPresence,
       attempts_by_result: tables.has("payment_attempts") ? rowsByKey((await safeQuery(c, "SELECT result_class, COUNT(*)::int AS count FROM siton.payment_attempts GROUP BY result_class")).rows, "result_class") : {},
       unknown_count: safeCount(paymentsRow, "unknown_count"),

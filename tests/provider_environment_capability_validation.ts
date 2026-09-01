@@ -146,12 +146,21 @@ await runTest("capability readiness is truthful: mock has full local capabilitie
   assert.equal(summary.real_activation_ready, false, "mock-backed is never real-activation ready");
   assert.ok(Array.isArray(summary.capability_gaps));
 
+  // R9B: the Grow adapter now implements the full verified native contract —
+  // release (expiry-observation honesty), status, structural callback
+  // verification and callback parsing. The mandatory-capability gate must see
+  // ZERO gaps, and each capability must be a real method, not a flag.
   const grow = providerModule.buildGrowCanonicalPaymentProvider();
   const growGaps = providerModule.missingMandatoryCapabilities(grow);
-  assert.deepEqual(growGaps.sort(), ["release", "webhook_parsing", "webhook_verification"].sort());
+  assert.deepEqual(growGaps, []);
+  const growCapabilities = providerModule.paymentProviderCapabilities(grow);
+  assert.equal(growCapabilities.release, true);
+  assert.equal(growCapabilities.status, true);
+  assert.equal(growCapabilities.webhook_verification, true);
+  assert.equal(growCapabilities.webhook_parsing, true);
 });
 
-await runTest("grow in a real provider environment fails closed without native capabilities", async () => {
+await runTest("grow real-environment startup gate: native capabilities satisfied, configuration still fails closed", async () => {
   // runtime_config captures env at first import, so the grow construction must
   // run in a fresh child process with the grow environment.
   const { spawnSync } = await import("node:child_process");
@@ -160,7 +169,11 @@ await runTest("grow in a real provider environment fails closed without native c
     [
       "-e",
       `import(${JSON.stringify(new URL("../src/payment_provider.js", import.meta.url).href)}).then((m) => {
-         try { m.buildPaymentProvider(); console.log("NO_THROW"); }
+         try {
+           const provider = m.buildPaymentProvider();
+           const gaps = m.missingMandatoryCapabilities(provider);
+           console.log(gaps.length === 0 ? "NO_THROW_NO_GAPS" : "GAPS:" + gaps.join(","));
+         }
          catch (e) { console.log("THREW:" + e.message); }
        }).catch((e) => { console.log("IMPORT_FAIL:" + e.message); process.exit(2); });`
     ],
@@ -175,7 +188,35 @@ await runTest("grow in a real provider environment fails closed without native c
     }
   );
   const output = `${result.stdout || ""}${result.stderr || ""}`;
-  assert.match(output, /THREW:.*cannot start in a real provider environment without verified Grow-native capabilities/, output);
+  // R9B: the mandatory-capability gate passes because the verified Grow-native
+  // contract is implemented — startup no longer refuses on missing capabilities.
+  assert.match(output, /NO_THROW_NO_GAPS/, output);
+
+  // Configuration remains fail-closed at the boot guard: grow without complete
+  // sandbox credentials/URLs (or with a live/sandbox host mix-up) cannot boot.
+  const guards = await import(`../src/production_guards.js?grow-guard-${Date.now()}`);
+  const growEnv = {
+    ...process.env,
+    PAYMENT_PROVIDER: "grow",
+    PAYMENT_PROVIDER_MODE: "grow",
+    PAYMENT_ENVIRONMENT: "sandbox",
+    PAYMENT_PROVIDER_BASE_URL: "https://sandbox.meshulam.co.il/api/light/server/1.0",
+    GROW_USER_ID: "grow-guard-user",
+    GROW_PAGE_CODE: "grow-guard-page",
+    GROW_REFERENCE_ENCRYPTION_KEY: "grow-guard-reference-encryption-key-48-chars!!",
+    GROW_SUCCESS_URL: "https://example.invalid/pay/success",
+    GROW_CANCEL_URL: "https://example.invalid/pay/cancel",
+    GROW_NOTIFY_URL: "https://example.invalid/webhooks/payments/grow"
+  } as NodeJS.ProcessEnv;
+  guards.assertProductionRuntimeGuards("web", growEnv);
+  assert.throws(
+    () => guards.assertProductionRuntimeGuards("web", { ...growEnv, GROW_USER_ID: "" } as NodeJS.ProcessEnv),
+    /GROW_USER_ID/
+  );
+  assert.throws(
+    () => guards.assertProductionRuntimeGuards("web", { ...growEnv, PAYMENT_PROVIDER_BASE_URL: "https://secure.meshulam.co.il/api" } as NodeJS.ProcessEnv),
+    /sandbox\.meshulam\.co\.il/
+  );
 });
 
 await runTest("VAT authority: synthetic zero is explicit, explicit mode computes per-component VAT", async () => {

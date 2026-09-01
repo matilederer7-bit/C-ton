@@ -59,6 +59,17 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
     }
     const baseUrl = String(env.PAYMENT_PROVIDER_BASE_URL || "").trim();
     if (!baseUrl.startsWith("https://")) failures.push("PAYMENT_PROVIDER=grow requires an https PAYMENT_PROVIDER_BASE_URL");
+    // Sandbox/live separation is bidirectional and fail-closed: sandbox may
+    // only target the official Grow sandbox host, and live may never target
+    // it. Credentials for one environment cannot operate against the other.
+    let growHost = "";
+    try { growHost = new URL(baseUrl).hostname.toLowerCase(); } catch { growHost = ""; }
+    if (paymentEnvironment === "sandbox" && growHost !== "sandbox.meshulam.co.il") {
+      failures.push("PAYMENT_ENVIRONMENT=sandbox with PAYMENT_PROVIDER=grow requires the official sandbox.meshulam.co.il base URL");
+    }
+    if (paymentEnvironment === "live" && growHost === "sandbox.meshulam.co.il") {
+      failures.push("PAYMENT_ENVIRONMENT=live with PAYMENT_PROVIDER=grow cannot use the sandbox.meshulam.co.il base URL");
+    }
     for (const name of ["GROW_SUCCESS_URL", "GROW_CANCEL_URL", "GROW_NOTIFY_URL"]) {
       const value = String(env[name] || "").trim();
       if (!value.startsWith("https://")) failures.push(`${name} must be an https URL when PAYMENT_PROVIDER=grow`);

@@ -14,9 +14,38 @@ import {
   GROW_SUCCESS_URL,
   GROW_TRANSACTION_INFO_PATH,
   GROW_USER_ID,
+  PAYMENT_ENVIRONMENT,
   PAYMENT_PROVIDER_BASE_URL,
   PAYMENT_PROVIDER_TIMEOUT_MS
 } from "./runtime_config.js";
+
+// ---------------------------------------------------------------------------
+// Grow (formerly Meshulam) J4/J5 sandbox adapter — OFFICIAL CONTRACT (verified
+// against https://developers.grow.business/ on 2026-09-01):
+//
+// - createPaymentProcess       POST form  {pageCode,userId,sum,chargeType,...}
+//   chargeType=2 is the documented "Suspended Charge" (J5 authorization; the
+//   J5 hold is documented as valid for up to 7 days, auto-released after ~10
+//   days when no J4 is performed).
+// - getPaymentProcessInfo      POST form  {pageCode,processId,processToken}
+//   Response nests transactions under data.transactions[] (array).
+// - getTransactionInfo         POST form  {pageCode,transactionId,transactionToken}
+// - settleSuspendedTransaction POST form  {userId,transactionId,transactionToken,sum}
+//   (J4 capture — identified by TRANSACTION credentials, not process ones.)
+// - refundTransaction          POST form  {userId,transactionId,transactionToken,refundSum[,pageCode]}
+// - approveTransaction         MUST NOT be sent for delayed (J4/J5)
+//   transactions. Official quote: "Do not send this request in the case of
+//   token transactions ... or delayed transactions (J4J5)". This adapter
+//   therefore NEVER calls the approve endpoint; the configured path exists
+//   only for potential future non-J4J5 flows.
+// - notifyUrl callback: plain form POST, NO documented signature/HMAC. The
+//   callback is a hint only; canonical money truth always requires the
+//   server-side authoritative status lookup above.
+// - GROW_API_KEY: the official endpoint references above document NO apiKey
+//   parameter for these methods; the adapter does not transmit it. The env
+//   var remains accepted so Grow-support-instructed credentials can be staged
+//   without a code change (documented decision, R9B).
+// ---------------------------------------------------------------------------
 
 export type GrowResultClass = "success" | "permanent_fail" | "temporary_fail" | "unknown";
 export type GrowTransportRequest = {
@@ -31,6 +60,7 @@ export type GrowTransport = (request: GrowTransportRequest) => Promise<GrowTrans
 
 export type GrowConfig = {
   base_url: string;
+  environment: string;
   user_id: string;
   page_code: string;
   api_key: string;
@@ -81,9 +111,24 @@ function productionLike() {
   return ["production", "prod", "commercial-live"].includes(String(APP_DEPLOYMENT_MODE).toLowerCase());
 }
 
+const GROW_SANDBOX_HOST = "sandbox.meshulam.co.il";
+
+function baseUrlHost(baseUrl: string): string {
+  try {
+    return new URL(String(baseUrl || "")).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
 function centsToIls(amountMinor: number) {
   if (!Number.isInteger(amountMinor) || amountMinor <= 0) throw new Error("grow_amount_minor_invalid");
   return (amountMinor / 100).toFixed(2);
+}
+
+function ilsToCents(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) : null;
 }
 
 function safeText(value: unknown, max = 200) {
@@ -107,7 +152,7 @@ function growError(payload: any) {
 }
 
 export function redactGrowLog(value: unknown): unknown {
-  const sensitive = /token|apikey|api_key|userid|user_id|pagecode|page_code|authorization|secret/i;
+  const sensitive = /token|apikey|api_key|userid|user_id|pagecode|page_code|authorization|secret|cardsuffix|card_suffix|cardexp|payerphone|payer_phone|payeremail|payer_email|fullname|full_name/i;
   if (Array.isArray(value)) return value.map(redactGrowLog);
   if (value && typeof value === "object") {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, sensitive.test(key) ? "[REDACTED]" : redactGrowLog(item)]));
@@ -120,18 +165,58 @@ function classifyHttp(status: number): GrowResultClass {
   return "permanent_fail";
 }
 
-function statusFromData(data: any): {
+type GrowTransactionState = {
   state: "authorized" | "captured" | "refunded" | "failed" | "pending" | "unknown";
   final: boolean;
-} {
-  const code = safeText(data?.statusCode, 20);
-  const label = safeText(data?.status, 100).toLowerCase();
+};
+
+function stateFromStatusCode(code: string, label: string): GrowTransactionState {
+  // Official status vocabulary (verified): statusCode "11" = עסקה מושהית
+  // (suspended / J5 authorized), statusCode "2" = שולם (paid / captured).
+  // Failure-family codes observed in the documented taxonomy map to failed.
+  // Anything undocumented remains honestly pending/unknown — never guessed.
   if (code === "11" || label.includes("מושהית") || label.includes("suspended")) return { state: "authorized", final: true };
   if (code === "2" || label.includes("שולם") || label.includes("paid")) return { state: "captured", final: true };
-  if (["3", "4", "5", "6", "7"].includes(code) || label.includes("failed") || label.includes("נדחה")) {
+  if (label.includes("זוכתה") || label.includes("refund")) return { state: "refunded", final: true };
+  if (["3", "4", "5", "6", "7"].includes(code) || label.includes("failed") || label.includes("נדחה") || label.includes("נכשל")) {
     return { state: "failed", final: true };
   }
   return { state: code ? "pending" : "unknown", final: false };
+}
+
+type GrowTransactionRecord = {
+  transaction_id: string;
+  transaction_token: string;
+  status: GrowTransactionState;
+  amount_minor: number | null;
+};
+
+function readTransactionRecord(raw: any): GrowTransactionRecord {
+  return {
+    transaction_id: safeText(raw?.transactionId, 100),
+    transaction_token: safeText(raw?.transactionToken, 300),
+    status: stateFromStatusCode(safeText(raw?.statusCode, 20), safeText(raw?.status, 100).toLowerCase()),
+    amount_minor: ilsToCents(raw?.sum)
+  };
+}
+
+/**
+ * getPaymentProcessInfo nests transactions as data.transactions[] (official
+ * response shape); getTransactionInfo reports the transaction flat under
+ * data. Normalize both, then pick the authoritative record: captured proof
+ * dominates, then an active suspended authorization, then a declared
+ * failure — never an optimistic guess.
+ */
+function selectAuthoritativeTransaction(data: any): GrowTransactionRecord | null {
+  const list: GrowTransactionRecord[] = Array.isArray(data?.transactions)
+    ? data.transactions.map(readTransactionRecord)
+    : [];
+  if (!list.length && (safeText(data?.statusCode, 20) || safeText(data?.transactionId, 100))) {
+    list.push(readTransactionRecord(data));
+  }
+  if (!list.length) return null;
+  const byState = (state: GrowTransactionState["state"]) => list.find((item) => item.status.state === state);
+  return byState("captured") || byState("refunded") || byState("authorized") || byState("failed") || list[list.length - 1] || null;
 }
 
 function encryptionKey(secret: string) {
@@ -166,6 +251,7 @@ export function openGrowReference(value: string, secret: string): GrowProviderRe
 export function growConfigFromEnv(): GrowConfig {
   return {
     base_url: cleanBaseUrl(PAYMENT_PROVIDER_BASE_URL),
+    environment: String(PAYMENT_ENVIRONMENT || "").trim().toLowerCase(),
     user_id: GROW_USER_ID,
     page_code: GROW_PAGE_CODE,
     api_key: GROW_API_KEY,
@@ -201,10 +287,24 @@ export function assertGrowConfig(config: GrowConfig, requireUrls = true) {
   if (String(config.reference_encryption_key || "").length > 0 && String(config.reference_encryption_key).length < 32) {
     throw new Error("GROW_REFERENCE_ENCRYPTION_KEY_must_be_at_least_32_characters");
   }
+  // Sandbox/live separation is fail-closed in BOTH directions: a declared
+  // sandbox environment may only call the official Grow sandbox host, and a
+  // live environment must never call it. Credentials for one environment can
+  // therefore never operate against the other's endpoints.
+  const host = baseUrlHost(config.base_url);
+  const environment = String(config.environment || "").trim().toLowerCase();
+  if (config.base_url) {
+    if (environment === "sandbox" && host !== GROW_SANDBOX_HOST) {
+      throw new Error("grow_sandbox_environment_requires_sandbox_meshulam_base_url");
+    }
+    if (environment === "live" && host === GROW_SANDBOX_HOST) {
+      throw new Error("grow_live_environment_cannot_use_sandbox_base_url");
+    }
+  }
   if (missing.length) throw new Error(`grow_configuration_missing:${missing.join(",")}`);
 }
 
-export const defaultGrowTransport: GrowTransport = async (request) => {
+export const defaultGrowFetchTransport: GrowTransport = async (request) => {
   const response = await fetch(request.url, {
     method: request.method,
     headers: request.headers,
@@ -215,6 +315,20 @@ export const defaultGrowTransport: GrowTransport = async (request) => {
   let body: unknown = {};
   try { body = raw ? JSON.parse(raw) : {}; } catch { body = { raw_body: raw }; }
   return { status: response.status, body };
+};
+
+/**
+ * Application transport boundary. Non-production test suites may install
+ * `globalThis.__SITON_GROW_TEST_TRANSPORT__` to prove UNKNOWN/transport-loss
+ * behavior end-to-end without any network; production-like deployments
+ * refuse the override so no test seam can ever intercept real money I/O.
+ */
+export const defaultGrowTransport: GrowTransport = async (request) => {
+  const override = (globalThis as Record<string, unknown>).__SITON_GROW_TEST_TRANSPORT__;
+  if (typeof override === "function" && !productionLike()) {
+    return (override as GrowTransport)(request);
+  }
+  return defaultGrowFetchTransport(request);
 };
 
 export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transport?: GrowTransport } = {}) {
@@ -234,6 +348,35 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
     }
   }
 
+  /**
+   * Read-only authoritative lookup for a reference. Used by status() and by
+   * capture() to resolve TRANSACTION credentials before settle (the official
+   * settleSuspendedTransaction contract identifies the money by
+   * transactionId/transactionToken, which only exist after the customer
+   * completed the hosted J5 flow). Never a money movement.
+   */
+  async function lookup(reference: GrowProviderReference): Promise<
+    | { ok: true; transaction: GrowTransactionRecord | null; reference: GrowProviderReference }
+    | { ok: false; result_class: GrowResultClass; error_code: string }
+  > {
+    const response = reference.transaction_id && reference.transaction_token
+      ? await post(config.paths.transaction_info, { pageCode: config.page_code, transactionId: reference.transaction_id, transactionToken: reference.transaction_token })
+      : await post(config.paths.process_info, { pageCode: config.page_code, processId: reference.process_id, processToken: reference.process_token });
+    if (response.status === 0) return { ok: false, result_class: "unknown", error_code: "grow_status_transport_unknown" };
+    if (response.status < 200 || response.status >= 300) {
+      return { ok: false, result_class: classifyHttp(response.status), error_code: growError(response.body) };
+    }
+    const payload: any = response.body;
+    if (!growSucceeded(payload)) return { ok: false, result_class: "permanent_fail", error_code: growError(payload) };
+    const transaction = selectAuthoritativeTransaction(responseData(payload));
+    const updated: GrowProviderReference = {
+      ...reference,
+      ...(transaction?.transaction_id ? { transaction_id: transaction.transaction_id } : {}),
+      ...(transaction?.transaction_token ? { transaction_token: transaction.transaction_token } : {})
+    };
+    return { ok: true, transaction, reference: updated };
+  }
+
   return {
     providerCode: "grow",
     mode: "grow" as const,
@@ -247,7 +390,11 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       const response = await post(config.paths.create, {
         pageCode: config.page_code,
         userId: config.user_id,
-        apiKey: config.api_key || undefined,
+        // chargeType=2 — official "Suspended Charge" (J5). The customer's
+        // hosted completion establishes the authorization; capture happens
+        // ONLY through the server-side J4 settle with Siton's canonical
+        // amount. approveTransaction is intentionally never sent (official
+        // J4/J5 instruction).
         chargeType: 2,
         sum: centsToIls(input.amount_minor),
         successUrl: input.success_url || config.success_url,
@@ -283,21 +430,23 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       let reference: GrowProviderReference;
       try { reference = openGrowReference(referenceValue, config.reference_encryption_key); }
       catch { return { result_class: "permanent_fail" as const, state: "unknown" as const, final: false, error_code: "grow_reference_invalid" }; }
-      const response = reference.transaction_id && reference.transaction_token
-        ? await post(config.paths.transaction_info, { pageCode: config.page_code, transactionId: reference.transaction_id, transactionToken: reference.transaction_token })
-        : await post(config.paths.process_info, { pageCode: config.page_code, processId: reference.process_id, processToken: reference.process_token });
-      if (response.status === 0) return { result_class: "unknown" as const, state: "unknown" as const, final: false, error_code: "grow_status_transport_unknown" };
-      if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), state: "unknown" as const, final: false, error_code: growError(response.body) };
-      const payload: any = response.body;
-      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, state: "failed" as const, final: true, error_code: growError(payload) };
-      const data = responseData(payload);
-      const status = statusFromData(data);
-      const updatedReference: GrowProviderReference = {
-        ...reference,
-        ...(data.transactionId ? { transaction_id: safeText(data.transactionId, 100) } : {}),
-        ...(data.transactionToken ? { transaction_token: safeText(data.transactionToken, 300) } : {})
+      const looked = await lookup(reference);
+      if (!looked.ok) {
+        if (looked.result_class === "permanent_fail" && looked.error_code !== "grow_status_transport_unknown") {
+          // Grow authoritatively rejected the lookup (e.g. unknown process):
+          // report failed truthfully, never a guessed money state.
+          return { result_class: "permanent_fail" as const, state: "failed" as const, final: true, error_code: looked.error_code };
+        }
+        return { result_class: looked.result_class, state: "unknown" as const, final: false, error_code: looked.error_code };
+      }
+      const status: GrowTransactionState = looked.transaction?.status || { state: "pending", final: false };
+      return {
+        result_class: "success" as const,
+        ...status,
+        provider_reference: sealGrowReference(looked.reference, config.reference_encryption_key),
+        amount_minor: looked.transaction?.amount_minor ?? null,
+        error_code: null
       };
-      return { result_class: "success" as const, ...status, provider_reference: sealGrowReference(updatedReference, config.reference_encryption_key), amount_minor: Number.isFinite(Number(data.sum)) ? Math.round(Number(data.sum) * 100) : null, error_code: null };
     },
     normalizeCallback(input: Record<string, unknown>) {
       const processId = safeText(input.processId || input.process_id, 100);
@@ -312,19 +461,44 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         ...(input.transactionToken || input.transaction_token ? { transaction_token: safeText(input.transactionToken || input.transaction_token, 300) } : {})
       };
       const statusCode = safeText(input.statusCode || input.status_code, 20);
+      const customFields = input.customFields && typeof input.customFields === "object" ? input.customFields as Record<string, unknown> : {};
+      const correlationId = safeText(input.cField1 ?? customFields.cField1, 120) || null;
       return {
         valid: true as const,
         event_id: createHash("sha256").update(`${processId}:${reference.transaction_id || ""}:${statusCode}`).digest("hex"),
         provider_reference: sealGrowReference(reference, config.reference_encryption_key),
         reported_status_code: statusCode || null,
+        reported_amount_minor: ilsToCents(input.sum),
+        correlation_id: correlationId,
+        // The official Grow callback carries no signature: it can NEVER be
+        // financial truth on its own. It only points reconciliation at the
+        // authoritative server-side status lookup.
         requires_authoritative_lookup: true as const,
         trusted_money_state: null
       };
     },
     async capture(referenceValue: string, amountMinor: number) {
       assertGrowConfig(config, false);
-      const reference = openGrowReference(referenceValue, config.reference_encryption_key);
-      const response = await post(config.paths.settle, { pageCode: config.page_code, userId: config.user_id, apiKey: config.api_key || undefined, processId: reference.process_id, processToken: reference.process_token, sum: centsToIls(amountMinor) });
+      let reference = openGrowReference(referenceValue, config.reference_encryption_key);
+      if (!reference.transaction_id || !reference.transaction_token) {
+        // Official settle identifies money by transaction credentials. Resolve
+        // them with a READ-ONLY authoritative lookup first (never money I/O);
+        // an unresolvable reference is a safe bounded retry — no money moved.
+        const looked = await lookup(reference);
+        if (!looked.ok) {
+          return { result_class: looked.result_class === "unknown" ? "temporary_fail" as const : looked.result_class, retryable: looked.result_class !== "permanent_fail", error_code: looked.error_code };
+        }
+        reference = looked.reference;
+        if (!reference.transaction_id || !reference.transaction_token) {
+          return { result_class: "temporary_fail" as const, retryable: true, error_code: "grow_capture_transaction_reference_missing" };
+        }
+      }
+      const response = await post(config.paths.settle, {
+        userId: config.user_id,
+        transactionId: reference.transaction_id,
+        transactionToken: reference.transaction_token,
+        sum: centsToIls(amountMinor)
+      });
       if (response.status === 0) return { result_class: "unknown" as const, retryable: true, error_code: "grow_capture_transport_unknown" };
       if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), retryable: classifyHttp(response.status) === "temporary_fail", error_code: growError(response.body) };
       const payload: any = response.body;
@@ -337,7 +511,13 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
       assertGrowConfig(config, false);
       const reference = openGrowReference(referenceValue, config.reference_encryption_key);
       if (!reference.transaction_id || !reference.transaction_token) return { result_class: "permanent_fail" as const, retryable: false, error_code: "grow_refund_transaction_reference_missing" };
-      const response = await post(config.paths.refund, { transactionId: reference.transaction_id, transactionToken: reference.transaction_token, refundSum: centsToIls(amountMinor), userId: config.user_id, pageCode: config.page_code, apiKey: config.api_key || undefined });
+      const response = await post(config.paths.refund, {
+        userId: config.user_id,
+        transactionId: reference.transaction_id,
+        transactionToken: reference.transaction_token,
+        refundSum: centsToIls(amountMinor),
+        pageCode: config.page_code
+      });
       if (response.status === 0) return { result_class: "unknown" as const, retryable: true, error_code: "grow_refund_transport_unknown" };
       if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), retryable: classifyHttp(response.status) === "temporary_fail", error_code: growError(response.body) };
       const payload: any = response.body;
@@ -345,8 +525,62 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         ? { result_class: "success" as const, retryable: false, provider_reference: referenceValue }
         : { result_class: "permanent_fail" as const, retryable: false, error_code: growError(payload) };
     },
+    /**
+     * Release honesty (official contract): Grow documents NO native void for
+     * a J5 hold — "if no J4 transaction is made, J5 will automatically
+     * release after 10 days" (the J5 authorization itself is documented as up
+     * to 7 days). The documented manual alternative (J4 followed by an
+     * immediate refund) MOVES REAL MONEY and is therefore NOT implemented as
+     * an automatic release strategy. This method only OBSERVES authoritative
+     * provider truth; it never fabricates a release.
+     */
+    async observeRelease(referenceValue: string) {
+      assertGrowConfig(config, false);
+      let reference: GrowProviderReference;
+      try { reference = openGrowReference(referenceValue, config.reference_encryption_key); }
+      catch { return { result_class: "permanent_fail" as const, released: false, error_code: "grow_reference_invalid" }; }
+      const looked = await lookup(reference);
+      if (!looked.ok) return { result_class: looked.result_class, released: false, error_code: looked.error_code };
+      const state = looked.transaction?.status.state || "pending";
+      if (state === "failed" || state === "refunded") {
+        // Provider-declared: no active hold remains. This is authoritative
+        // proof that no money is held.
+        return { result_class: "success" as const, released: true, error_code: null, provider_reference: sealGrowReference(looked.reference, config.reference_encryption_key) };
+      }
+      if (state === "captured") {
+        return { result_class: "permanent_fail" as const, released: false, error_code: "grow_release_hold_already_captured" };
+      }
+      if (state === "authorized") {
+        // The hold is still active and Grow exposes no native void: the only
+        // safe path is the documented automatic expiry, observed via later
+        // reconciliation. Reported honestly — never a fake AuthReleased.
+        return { result_class: "permanent_fail" as const, released: false, error_code: "grow_release_pending_automatic_expiry" };
+      }
+      return { result_class: "unknown" as const, released: false, error_code: "grow_release_state_ambiguous" };
+    },
     configurationSummary() {
-      return { provider: "grow", configured, production_fail_closed: productionLike(), base_url_configured: Boolean(config.base_url), user_id_configured: Boolean(config.user_id), page_code_configured: Boolean(config.page_code), api_key_configured: Boolean(config.api_key), encrypted_reference_configured: config.reference_encryption_key.length >= 32, callback_requires_authoritative_status_query: true, browser_receives_process_credentials: false };
+      const environment = String(config.environment || "").trim().toLowerCase();
+      return {
+        provider: "grow",
+        configured,
+        environment,
+        sandbox: environment === "sandbox",
+        sandbox_host_enforced: environment !== "sandbox" || baseUrlHost(config.base_url) === GROW_SANDBOX_HOST,
+        production_fail_closed: productionLike(),
+        base_url_configured: Boolean(config.base_url),
+        user_id_configured: Boolean(config.user_id),
+        page_code_configured: Boolean(config.page_code),
+        api_key_configured: Boolean(config.api_key),
+        api_key_transmitted: false,
+        encrypted_reference_configured: config.reference_encryption_key.length >= 32,
+        callback_requires_authoritative_status_query: true,
+        callback_native_authentication: "none_documented",
+        approve_transaction_policy: "never_sent_for_j4j5",
+        release_strategy: "automatic_expiry_observed_via_status_reconciliation",
+        native_void_endpoint: false,
+        settle_identifier: "transactionId+transactionToken",
+        browser_receives_process_credentials: false
+      };
     }
   };
 }

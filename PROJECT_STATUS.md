@@ -1,5 +1,21 @@
 # PROJECT STATUS
 
+## SITON R9B GROW SANDBOX ACTIVATION — IN PROGRESS (2026-09-01)
+
+**Stage ladder: R3–R8 = 100%, R9A = 100%. R9B: official-contract implementation COMPLETE and fully proven locally; hosted sandbox E2E blocked on external Grow credentials.**
+
+### Checkpoint 1 — official Grow contract verified + adapter/provider/rails implemented — DONE (tested)
+- **Completed:** official Grow documentation (developers.grow.business) verified 2026-09-01 and recorded in `docs/R9B_GROW_SANDBOX_ACTIVATION.md`. Three R9A adapter contract guesses corrected against it: **J4 settle uses `userId+transactionId+transactionToken+sum`** (transaction credentials resolved via READ-ONLY process lookup when the sealed reference lacks them — never a blind settle), **`getPaymentProcessInfo` parses `data.transactions[]`**, and **no `apiKey` is transmitted** (undocumented for these endpoints). Grow-native provider capabilities now complete: honest `release` (no invented void — provider-declared no-hold is the only proof; an active J5 hold stays honestly held with an operational case, automatic ~10-day expiry observed via reconciliation), structural `verifyWebhook` + non-money `parseWebhookEvent` (official callback carries NO signature ⇒ callbacks can NEVER move money; only the authoritative server→Grow status lookup can), `configurationDetail` observability. **approveTransaction is NEVER sent for J4/J5 (official instruction, enforced + tested).** Dedicated `/webhooks/payments/grow` form-callback route: structural validation → binding correlation via `cField1` → deduplicated evidence → immediate authoritative status lookup (which alone may confirm the binding; amount contradiction fails it closed durably). Bidirectional sandbox/live host separation fail-closed at adapter AND boot guards. Fixed a surfaced R9A defect: the binding amount-mismatch fail-closed write used to be rolled back by its own throw; it now commits durably.
+- **Tested:** `grow_payment_adapter_validation` (official-contract unit proof) + **`grow_payment_sandbox_activation_validation` 13/13** — full app + Worker + fresh DB against the documented Grow protocol at the transport boundary: server-only amounts, pending never consumable, forged/pending callback cannot authorize, authoritative confirm, wrong amount/deal fail closed, exactly-once Join consumption → AuthHeld, J4 settle → ChargedSuccess + single ledger + 8% VAT-exclusive fee + seller-net invariant, **UNKNOWN (settled but response lost) → reconcile to exactly ONE success with ZERO extra money calls**, duplicate/late callbacks + repeated reconciliation no-op, release honesty, refund mapping, guards/capability honesty, approve count 0. Full `payments` group green (29 suites); `provider_environment_capability_validation` updated to the R9B capability truth.
+- **Admin observability:** payments section now shows environment label ("GROW SANDBOX" vs "REAL MONEY / PRODUCTION"), provider capability detail (release strategy, callback trust posture, approve policy — no secrets), binding status counts (sealed references never exposed), pending reconcile/release jobs, callback evidence counts.
+
+### Open (external)
+- **`GROW_SANDBOX_CREDENTIAL_BLOCKER`** — no Grow sandbox credentials exist anywhere (repo/.env/Render). Hosted sandbox E2E (steps 1–18 of the mission) requires from Grow support: sandbox `userId` + `pageCode` for a direct business with delayed-charge (J4/J5, chargeType=2) enabled, plus confirmation whether any additional credential is required for settle/refund. Grow sandbox network calls so far: **0**.
+- **EXTERNAL / TIME-BOUND RELEASE PROOF OPEN** — J5 auto-expiry (~10 days documented) is observable only in real time; holds are represented honestly meanwhile.
+- Safety counts unchanged: real money 0 · Grow production calls 0 · real SMS 0 · real email 0 · real invoices 0.
+
+---
+
 ## SITON R9A PAYMENT FOUNDATION HARDENING — CLOSED 100% (2026-09-01, evening)
 
 **Stage ladder: R3 = 100%, R4 = 100%, R5 = 100%, R6 = 100%, R7 = 100%, R8 = 100%, R9A = 100%.**

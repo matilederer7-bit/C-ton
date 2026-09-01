@@ -1363,6 +1363,40 @@ export function registerFrontendExperience(
     requestTelemetry: applicationRequestTelemetry,
     ...(deps.getWorkerRunning ? { getWorkerRunning: deps.getWorkerRunning } : {})
   });
+  // Grow (Meshulam) delivers its server-to-server notifyUrl callback as a
+  // plain form POST (official contract: same encoding as requests to
+  // createPaymentProcess, no JSON). Parse form bodies into plain objects while
+  // preserving the raw body for structural verification. Field-only parsing:
+  // file parts are ignored, bounded by Fastify's body limit.
+  app.addContentTypeParser("application/x-www-form-urlencoded", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    request.rawBody = String(body || "");
+    try {
+      done(null, Object.fromEntries(new URLSearchParams(String(body || ""))));
+    } catch (error) {
+      done(error as Error);
+    }
+  });
+  app.addContentTypeParser("multipart/form-data", { parseAs: "string" }, (request: any, body: string, done: (err: Error | null, result?: unknown) => void) => {
+    request.rawBody = String(body || "");
+    try {
+      const contentType = String(request.headers?.["content-type"] || "");
+      const boundaryMatch = contentType.match(/boundary="?([^";]+)"?/i);
+      const fields: Record<string, string> = {};
+      if (boundaryMatch) {
+        for (const part of String(body || "").split(`--${boundaryMatch[1]}`)) {
+          const nameMatch = part.match(/content-disposition:[^\n]*name="([^"]+)"/i);
+          if (!nameMatch || /filename=/i.test(part)) continue;
+          const valueStart = part.indexOf("\r\n\r\n");
+          if (valueStart === -1) continue;
+          fields[String(nameMatch[1])] = part.slice(valueStart + 4).replace(/\r\n--\s*$/, "").replace(/\r\n$/, "").trim();
+        }
+      }
+      done(null, fields);
+    } catch (error) {
+      done(error as Error);
+    }
+  });
+
   app.addHook("preParsing", (request: any, _reply, payload, done) => {
     const contentType = String(request.headers?.["content-type"] || "").toLowerCase();
     if (!contentType.includes("application/json")) {
@@ -1531,11 +1565,25 @@ export function registerFrontendExperience(
     signatureHeader: string | undefined,
     timestampHeader: string | undefined
   ): boolean {
-    // A provider that requires its own native verification contract must never
-    // be verified by the generic HMAC fallback. Grow (and any future provider
-    // flagged the same way) fails closed until its verified native
-    // verifyWebhook exists.
-    if (deps.paymentProvider.mode === "grow" && !deps.paymentProvider.verifyWebhook) {
+    // A provider-native verification contract always takes precedence over the
+    // generic HMAC fallback and manages its own secret requirements (Stripe
+    // verifies its signed header; Grow's official callback carries no
+    // signature, so its native verification is structural and the callback is
+    // never money truth). A provider that REQUIRES native verification (Grow)
+    // fails closed when none exists.
+    if (deps.paymentProvider.verifyWebhook) {
+      try {
+        return deps.paymentProvider.verifyWebhook({
+          rawBody,
+          ...(signatureHeader ? { signatureHeader } : {}),
+          ...(timestampHeader ? { timestampHeader } : {}),
+          ...(PAYMENT_WEBHOOK_SECRET ? { secret: PAYMENT_WEBHOOK_SECRET } : {})
+        });
+      } catch {
+        return false;
+      }
+    }
+    if (deps.paymentProvider.mode === "grow") {
       return false;
     }
     if (!PAYMENT_WEBHOOK_SECRET_IS_SAFE || !PAYMENT_WEBHOOK_SECRET) {
@@ -1557,14 +1605,6 @@ export function registerFrontendExperience(
     try {
       // Include timestamp in the signed payload when present (prevents replay without timestamp)
       const signingInput = timestampHeader ? `${timestampHeader}.${rawBody}` : rawBody;
-      if (deps.paymentProvider.verifyWebhook) {
-        return deps.paymentProvider.verifyWebhook({
-          rawBody,
-          signatureHeader,
-          ...(timestampHeader ? { timestampHeader } : {}),
-          secret: PAYMENT_WEBHOOK_SECRET
-        });
-      }
       const expected = createHmac("sha256", PAYMENT_WEBHOOK_SECRET).update(signingInput).digest("hex");
       const expectedBuf = Buffer.from(expected, "hex");
       const providedBuf = Buffer.from(signatureHeader.replace(/^sha256=/, ""), "hex");
@@ -4609,6 +4649,112 @@ export function registerFrontendExperience(
   app.post("/webhooks/payments", handleWebhookPayments);
   // Legacy alias kept for backward compatibility with mock provider config
   app.post("/webhooks/payments/mock", handleWebhookPayments);
+
+  // ---------------------------------------------------------------------------
+  // R9B — Grow (Meshulam) server-to-server notifyUrl callback.
+  //
+  // OFFICIAL CONTRACT (developers.grow.business, verified 2026-09-01): the
+  // callback is a plain form POST with NO signature/HMAC — origin cannot be
+  // authenticated. It is therefore a NOTIFICATION HINT ONLY:
+  //   - accepted only when structurally valid AND correlated to an existing
+  //     server-owned payment_authorization_binding;
+  //   - preserved as deduplicated evidence (tokens/PII redacted in reasons);
+  //   - money/binding truth comes ONLY from the immediate authoritative
+  //     server→Grow status lookup performed here — never from callback
+  //     content. A forged/duplicate/late callback can at most trigger a
+  //     redundant authoritative lookup, which is idempotent and fail-closed.
+  // ---------------------------------------------------------------------------
+  app.post("/webhooks/payments/grow", async (req: FastifyRequest, reply: FastifyReply) => {
+    if (deps.paymentProvider.mode !== "grow" || !deps.paymentProvider.parseWebhookEvent) {
+      return reply.code(404).send({ error: "grow_callback_not_active" });
+    }
+    const body = (req.body || {}) as Record<string, unknown>;
+    const event = deps.paymentProvider.parseWebhookEvent(body);
+    if (!event) {
+      await recordWebhookSecurityFailure({
+        provider: "grow",
+        event_id: null,
+        failure_reason: "grow_callback_structurally_invalid",
+        remote_hint: String(req.ip || "")
+      }).catch(() => undefined);
+      return reply.code(400).send({ error: "grow_callback_invalid" });
+    }
+
+    // Correlation to a server-owned binding (cField1 carries the Siton
+    // correlation id we minted at authorization time). An uncorrelated
+    // callback is recorded and does nothing.
+    const binding = event.correlation_id
+      ? await paymentBindings.getBindingByCorrelation(event.correlation_id).catch(() => null)
+      : null;
+
+    const ingested = await webhookIngestion.claimEvent({
+      provider: "grow",
+      event_id: event.event_id,
+      event_type: event.event_type,
+      payload: {
+        event_type: event.event_type,
+        correlation_id: event.correlation_id,
+        provider_reference: event.provider_reference,
+        deal_id: binding?.deal_id ?? null,
+        participant_id: binding?.consumed_by_participant_id ?? null,
+        payload: event.payload
+      },
+      deal_id: binding?.deal_id ?? null,
+      participant_id: binding?.consumed_by_participant_id ?? null
+    });
+    if (ingested.duplicate && !ingested.should_process) {
+      return reply.code(200).send({ ok: true, duplicate: true, status: ingested.status, money_from_callback: false });
+    }
+
+    if (!binding) {
+      await recordWebhookSecurityFailure({
+        provider: "grow",
+        event_id: event.event_id,
+        failure_reason: "grow_callback_unmatched_binding",
+        remote_hint: String(req.ip || "")
+      }).catch(() => undefined);
+      await webhookIngestion.markEvent("grow", event.event_id, "ignored", "no_matching_server_binding");
+      return reply.code(200).send({ ok: true, status: "ignored", reason: "no_matching_server_binding", money_from_callback: false });
+    }
+
+    // Authoritative verification: server→Grow status lookup on the binding's
+    // durable sealed reference. Pending bindings may flip to authorized ONLY
+    // through this lookup (amount contradiction fails the binding closed).
+    let lookupOutcome: string = "not_required";
+    if (binding.status === "pending_provider_confirmation" && deps.paymentProvider.status) {
+      try {
+        const status = await deps.paymentProvider.status({
+          provider_reference: binding.provider_reference || binding.authorization_id,
+          operation: "authorization",
+          correlation_id: `grow-callback:${event.event_id.slice(0, 48)}`
+        });
+        lookupOutcome = `provider_state_${status.state}`;
+        if (status.state === "authorized") {
+          await paymentBindings.confirmBindingAuthorized({
+            provider_code: deps.paymentProvider.providerCode,
+            authorization_id: binding.authorization_id,
+            provider_amount_minor: status.amount_minor,
+            provider_reference: status.provider_reference
+          });
+        }
+      } catch (error) {
+        lookupOutcome = error instanceof PaymentBindingError ? `binding_${error.code}` : "authoritative_lookup_failed";
+      }
+    } else if (binding.status !== "pending_provider_confirmation") {
+      // Post-authorization callbacks (capture/late/duplicate hints) stay
+      // evidence-only: the Worker reconcile rail owns money resolution.
+      lookupOutcome = `binding_${binding.status}_evidence_only`;
+    }
+
+    await webhookIngestion.markEvent("grow", event.event_id, "processed", `callback_hint:${lookupOutcome}`.slice(0, 240));
+    return reply.code(200).send({
+      ok: true,
+      status: "processed",
+      reason: lookupOutcome,
+      money_from_callback: false,
+      authoritative_source: "server_status_lookup"
+    });
+  });
 
   async function handleWebhookInvoices(req: FastifyRequest, reply: FastifyReply) {
     const invoiceProvider = deps.invoiceProvider;

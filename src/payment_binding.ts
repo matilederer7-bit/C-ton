@@ -133,7 +133,13 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     provider_amount_minor?: number | null;
     provider_reference?: string | null;
   }): Promise<PaymentAuthorizationBinding | null> {
-    return deps.withTx(async (c) => {
+    // Errors are thrown AFTER the transaction commits so a fail-closed write
+    // (e.g. the durable provider_amount_mismatch failure) is never rolled
+    // back by its own error signal.
+    const outcome = await deps.withTx(async (c): Promise<
+      | { kind: "ok"; binding: PaymentAuthorizationBinding | null }
+      | { kind: "error"; code: string; message: string }
+    > => {
       const found = await c.query(
         `SELECT ${BINDING_COLUMNS}
          FROM siton.payment_authorization_bindings
@@ -143,14 +149,15 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
          FOR UPDATE`,
         [input.provider_code, input.authorization_id]
       );
-      if (!found.rowCount) return null;
+      if (!found.rowCount) return { kind: "ok", binding: null };
       const binding = toBinding(found.rows[0]);
-      if (binding.status === "authorized" || binding.status === "consumed") return binding;
+      if (binding.status === "authorized" || binding.status === "consumed") return { kind: "ok", binding };
       if (binding.status !== "pending_provider_confirmation") {
-        throw new PaymentBindingError(
-          "payment_binding_not_confirmable",
-          `binding ${binding.binding_id} is ${binding.status}`
-        );
+        return {
+          kind: "error",
+          code: "payment_binding_not_confirmable",
+          message: `binding ${binding.binding_id} is ${binding.status}`
+        };
       }
       if (
         input.provider_amount_minor !== undefined &&
@@ -163,10 +170,11 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
            WHERE binding_id=$1`,
           [binding.binding_id]
         );
-        throw new PaymentBindingError(
-          "payment_binding_amount_mismatch",
-          `provider reported ${input.provider_amount_minor}, binding requires ${binding.amount_minor}`
-        );
+        return {
+          kind: "error",
+          code: "payment_binding_amount_mismatch",
+          message: `provider reported ${input.provider_amount_minor}, binding requires ${binding.amount_minor}`
+        };
       }
       const updated = await c.query(
         `UPDATE siton.payment_authorization_bindings
@@ -177,8 +185,10 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
          RETURNING ${BINDING_COLUMNS}`,
         [binding.binding_id, String(input.provider_reference || "")]
       );
-      return updated.rowCount ? toBinding(updated.rows[0]) : binding;
+      return { kind: "ok", binding: updated.rowCount ? toBinding(updated.rows[0]) : binding };
     });
+    if (outcome.kind === "error") throw new PaymentBindingError(outcome.code, outcome.message);
+    return outcome.binding;
   }
 
   /**
@@ -299,6 +309,24 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     return toBinding(consumed.rows[0]);
   }
 
+  /**
+   * Correlate a provider callback to the server-owned binding it belongs to.
+   * Lookup only — never mutates; callers must still obtain authoritative
+   * provider proof before any status change.
+   */
+  async function getBindingByCorrelation(correlationId: string): Promise<PaymentAuthorizationBinding | null> {
+    if (!String(correlationId || "").trim()) return null;
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `SELECT ${BINDING_COLUMNS}
+         FROM siton.payment_authorization_bindings
+         WHERE correlation_id=$1`,
+        [correlationId]
+      );
+      return r.rowCount ? toBinding(r.rows[0]) : null;
+    });
+  }
+
   async function getConsumedBindingForParticipant(participantId: string): Promise<PaymentAuthorizationBinding | null> {
     return deps.withTx(async (c) => {
       const r = await c.query(
@@ -345,6 +373,7 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     createBinding,
     confirmBindingAuthorized,
     consumeBindingForJoinTx,
+    getBindingByCorrelation,
     getConsumedBindingForParticipant,
     updateProviderReferenceForParticipant,
     markBindingReleasedForParticipant

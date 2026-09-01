@@ -192,6 +192,8 @@ export interface PaymentProvider {
     provider_reference: string | null;
     payload: Record<string, unknown>;
   } | null;
+  /** Provider-specific configuration/capability detail for observability surfaces. Never contains secrets. */
+  configurationDetail?(): Record<string, unknown>;
 }
 
 function hashToUint32(value: string): number {
@@ -1272,6 +1274,35 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
     return String(value || `grow_${randomUUID().replace(/-/g, "")}`);
   }
 
+  function parseGrowCallbackBody(rawBody: string): Record<string, unknown> | null {
+    const text = String(rawBody || "").trim();
+    if (!text) return null;
+    if (text.startsWith("{")) {
+      try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === "object" ? parsed : null;
+      } catch {
+        return null;
+      }
+    }
+    try {
+      return Object.fromEntries(new URLSearchParams(text));
+    } catch {
+      return null;
+    }
+  }
+
+  // Grow status-code → NON-money canonical hint events. A Grow callback has
+  // NO documented signature and therefore may NEVER produce a money-moving
+  // event type (charge_captured / recovery_captured / refund_issued /
+  // charge_failed / recovery_failed): every Grow money transition requires
+  // the authoritative server-side status lookup through the reconcile rail.
+  function growCallbackEventType(statusCode: string | null): string {
+    if (statusCode === "11") return "payment_authorized";
+    if (["3", "4", "5", "6", "7"].includes(String(statusCode || ""))) return "payment_failed";
+    return "grow_callback_hint";
+  }
+
   function executionResult(
     result: any,
     correlationId: string,
@@ -1405,6 +1436,83 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
         final: result.final,
         error_code: result.error_code || null
       };
+    },
+    /**
+     * Grow release honesty: Grow documents NO native J5 void endpoint — a J5
+     * hold auto-releases (documented ~10 days without J4), and the documented
+     * manual cancel path (J4 + immediate refund) moves real money, so it is
+     * NOT used as an automatic strategy. This method only observes
+     * authoritative provider truth: released proof only when Grow declares no
+     * active hold; a still-active hold reports the honest
+     * grow_release_pending_automatic_expiry permanent failure so the hold
+     * stays represented as held and operations stay visible.
+     */
+    async release(input) {
+      const correlationId = correlation(input.correlation_id);
+      try {
+        const observed = await adapter.observeRelease(String(input.authorization_id || ""));
+        const resultClass: PaymentExecutionResultClass =
+          observed.result_class === "success"
+            ? "success"
+            : observed.result_class === "unknown"
+              ? "unknown"
+              : observed.result_class === "temporary_fail"
+                ? "temporary_fail"
+                : "permanent_fail";
+        return {
+          provider: providerCode,
+          result_class: resultClass,
+          retryable: resultClass === "temporary_fail",
+          mock: false,
+          provider_reference: ("provider_reference" in observed ? observed.provider_reference : null) || input.authorization_id || null,
+          correlation_id: correlationId,
+          reconciliation_event_type: null
+        };
+      } catch {
+        // Pre-I/O throw (invalid sealed reference / configuration): no
+        // provider call happened; bounded retry is safe.
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
+      }
+    },
+    /**
+     * Grow-native callback verification. The OFFICIAL Grow server-to-server
+     * callback carries no signature, HMAC, or shared secret (verified against
+     * developers.grow.business, 2026-09-01), so origin authentication is
+     * impossible by contract. Native verification is therefore STRUCTURAL
+     * only — a parseable form/JSON body carrying the server-owned process
+     * credentials — and the callback is never financial truth: money moves
+     * only after the authoritative server-side status lookup. If Grow ever
+     * documents a native authentication mechanism, it must be implemented
+     * here before callbacks gain any additional trust.
+     */
+    verifyWebhook(args) {
+      const body = parseGrowCallbackBody(args.rawBody);
+      if (!body) return false;
+      const normalized = adapter.normalizeCallback(body);
+      return normalized.valid === true;
+    },
+    parseWebhookEvent(body) {
+      const normalized = adapter.normalizeCallback(body || {});
+      if (!normalized.valid) return null;
+      return {
+        provider: providerCode,
+        event_id: `grow_cb_${normalized.event_id}`,
+        event_type: growCallbackEventType(normalized.reported_status_code),
+        correlation_id: normalized.correlation_id,
+        participant_id: null,
+        deal_id: null,
+        provider_reference: normalized.provider_reference,
+        payload: {
+          source: "grow_callback",
+          reported_status_code: normalized.reported_status_code,
+          reported_amount_minor: normalized.reported_amount_minor,
+          requires_authoritative_lookup: true,
+          callback_is_financial_truth: false
+        }
+      };
+    },
+    configurationDetail() {
+      return adapter.configurationSummary();
     }
   };
 }
@@ -1511,6 +1619,9 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
     mandatory_real_capabilities: MANDATORY_REAL_PROVIDER_CAPABILITIES,
     capability_gaps: capabilityGaps,
     real_activation_ready: provider.configured && capabilityGaps.length === 0 && provider.mode !== "mock-backed",
+    // Provider-specific detail (Grow: sandbox/live mode, release strategy
+    // honesty, callback trust posture, masked configuration flags). No secrets.
+    provider_detail: provider.configurationDetail ? provider.configurationDetail() : null,
     provider: provider.providerCode,
     mode: provider.mode,
     environment: PAYMENT_ENVIRONMENT,
