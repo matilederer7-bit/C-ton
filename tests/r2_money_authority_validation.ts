@@ -22,11 +22,12 @@ assert.equal(authoritativeBuyerVatExcluded.fee_base_amount, 120);
 assert.equal(authoritativeBuyerVatExcluded.platform_fee_base_amount, 9.6);
 
 const moneySource = await readFile("src/platform_fee_money.ts", "utf8");
-assert.match(
-  moneySource,
-  /Number\(row\.qty \|\| 0\) \* Number\(row\.price_per_unit \|\| 0\) \+ Number\(row\.delivery_cost \|\| 0\)/
-);
-assert.match(moneySource, /vat_amount: 0/);
+// R9A: the charge base is still qty*price + delivery from server rows, with
+// the VAT portion supplied by the explicit VAT authority (synthetic_zero by
+// declared policy on staging), never a client value.
+assert.match(moneySource, /Number\(row\.qty \|\| 0\) \* Number\(row\.price_per_unit \|\| 0\)/);
+assert.match(moneySource, /Number\(row\.delivery_cost \|\| 0\)/);
+assert.match(moneySource, /computeCustomerChargeVat/);
 assert.doesNotMatch(moneySource, /distributor_commission|commission_rate/i);
 
 const frontendSource = await readFile("src/frontend_runtime.ts", "utf8");

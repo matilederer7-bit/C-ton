@@ -82,6 +82,8 @@ async function deleteDeal(dealId: string) {
   // audit_log has an append-only trigger — cannot delete rows. Rows are left orphaned after cleanup.
   await DB.query(`DELETE FROM siton.legal_acceptances WHERE deal_id=$1`, [dealId]);
   await DB.query(`DELETE FROM siton.idempotency_log WHERE entity_id IN (SELECT participant_id FROM siton.participants WHERE deal_id=$1)`, [dealId]);
+  // R9A: payment bindings reference deal + consumed participant (RESTRICT).
+  await DB.query(`DELETE FROM siton.payment_authorization_bindings WHERE deal_id=$1`, [dealId]);
   await DB.query(`DELETE FROM siton.participants WHERE deal_id=$1`, [dealId]);
   await DB.query(`DELETE FROM siton.deals WHERE deal_id=$1`, [dealId]);
 }

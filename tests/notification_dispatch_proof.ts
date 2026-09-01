@@ -211,7 +211,9 @@ await run("F2 — provider error marks notification with transient failure and r
 
     const failingProvider: NotificationProvider = {
       providerCode: "test-fail",
-      mode: "real",
+      // dev mode: this simulates an adapter exception, not a real-delivery
+      // scenario (real mode is now gated by the R9A recipient-safety layer).
+      mode: "dev",
       async sendSms(_to: string, _body: string): Promise<{ messageId: string }> {
         throw new Error("test_provider_error");
       }
@@ -386,13 +388,20 @@ await run("P2 — log SMS provider mode is non-real and providerCode is 'log'", 
   console.log(`     mode=${provider.mode} code=${provider.providerCode}`);
 });
 
-await run("P3 — provider falls back to log even when external provider requested", async () => {
-  // External providers (Twilio etc.) are not wired up — always falls back to log.
+await run("P3 — requesting REAL delivery fails closed; non-real unknown providers fall back to log", async () => {
+  // R9A: no verified real adapter exists, so real mode must throw instead of
+  // silently degrading to the log provider.
+  assert.throws(
+    () => buildSmsProvider({
+      NOTIFICATION_PROVIDER: "twilio",
+      NOTIFICATION_PROVIDER_MODE: "real"
+    }, console),
+    /requires a verified real notification adapter/
+  );
   const provider = buildSmsProvider({
-    NOTIFICATION_PROVIDER: "twilio",
-    NOTIFICATION_PROVIDER_MODE: "real"
+    NOTIFICATION_PROVIDER: "twilio"
   }, console);
-  assert.equal(provider.providerCode, "log", "external providers fall back to log");
+  assert.equal(provider.providerCode, "log", "unknown providers in non-real mode fall back to log");
   console.log(`     mode=${provider.mode} code=${provider.providerCode}`);
 });
 

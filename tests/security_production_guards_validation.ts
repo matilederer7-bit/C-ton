@@ -20,6 +20,10 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     SELLER_SESSION_SECRET: "placeholder",
     PAYMENT_WEBHOOK_SECRET: "whsec_contract_fixture",
     DISABLE_OUTBOX_WORKER: "1",
+    // R9A: production charging requires the explicit VAT authority.
+    SITON_VAT_MODE: "explicit",
+    SITON_VAT_RATE_PRODUCT: "0.18",
+    SITON_VAT_RATE_DELIVERY: "0.18",
     ...overrides
   };
 }

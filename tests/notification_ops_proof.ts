@@ -1,13 +1,13 @@
-/**
+﻿/**
  * Notification Operations Proof
  *
  * Four targeted tests for the operational surface:
  *
- *   O1 — notification with permanent_fail lands in status='failed', never 'sent'
- *   O2 — duplicate dispatch produces exactly one row per idempotency_key (DB truth)
- *   O3 — /api/admin/notifications-status returns correct counts after known inserts
- *   O4 — a retried notification that succeeds on the second attempt produces exactly
- *        one sent row — no duplicate send
+ *   O1 ג€” notification with permanent_fail lands in status='failed', never 'sent'
+ *   O2 ג€” duplicate dispatch produces exactly one row per idempotency_key (DB truth)
+ *   O3 ג€” /api/admin/notifications-status returns correct counts after known inserts
+ *   O4 ג€” a retried notification that succeeds on the second attempt produces exactly
+ *        one sent row ג€” no duplicate send
  */
 
 import { strict as assert } from "node:assert";
@@ -72,9 +72,9 @@ async function run(name: string, fn: () => Promise<void>) {
 
 const TEST_DEAL_ID = randomUUID();
 
-// ─── O1: permanent_fail → status='failed', never 'sent' ──────────────────────
+// ג”€ג”€ג”€ O1: permanent_fail ג†’ status='failed', never 'sent' ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
-await run("O1 — permanent_fail provider marks status=failed, not sent", async () => {
+await run("O1 ג€” permanent_fail provider marks status=failed, not sent", async () => {
   const idemKey = `test:buyer_deal_failed:o1:${randomUUID()}`;
   try {
     await enqueueNotification({
@@ -89,7 +89,7 @@ await run("O1 — permanent_fail provider marks status=failed, not sent", async 
 
     const permanentFailProvider: NotificationProvider = {
       providerCode: "test-permanent-fail",
-      mode: "real",
+      mode: "dev",
       async send(_: NotificationForProvider): Promise<NotificationProviderResult> {
         return { status: "permanent_fail", error_code: "provider_rejected", error_message: "test_permanent_rejection" };
       }
@@ -103,7 +103,7 @@ await run("O1 — permanent_fail provider marks status=failed, not sent", async 
     const row = await getRow(idemKey);
     console.log(`     status=${row?.status} last_error=${row?.last_error}`);
     assert.equal(row?.status, "failed", `should be failed after permanent_fail, got ${row?.status}`);
-    assert.equal(row?.sent_at, null, "sent_at must be null — not sent");
+    assert.equal(row?.sent_at, null, "sent_at must be null ג€” not sent");
     assert.equal(row?.attempt_count, 1, "permanent failure should record exactly one attempt");
     assert.ok(row?.last_error, "last_error should be set");
   } finally {
@@ -111,9 +111,9 @@ await run("O1 — permanent_fail provider marks status=failed, not sent", async 
   }
 });
 
-// ─── O2: Duplicate dispatch = one row (DB truth) ─────────────────────────────
+// ג”€ג”€ג”€ O2: Duplicate dispatch = one row (DB truth) ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
-await run("O2 — duplicate dispatch for same idempotency_key produces exactly one DB row", async () => {
+await run("O2 ג€” duplicate dispatch for same idempotency_key produces exactly one DB row", async () => {
   const idemKey = `test:buyer_joined_authorized:o2:${randomUUID()}`;
   try {
     const results = await Promise.all(
@@ -144,9 +144,9 @@ await run("O2 — duplicate dispatch for same idempotency_key produces exactly o
   }
 });
 
-// ─── O3: Endpoint returns correct counts ─────────────────────────────────────
+// ג”€ג”€ג”€ O3: Endpoint returns correct counts ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
-await run("O3 — /api/admin/notifications-status returns correct bucket counts", async () => {
+await run("O3 ג€” /api/admin/notifications-status returns correct bucket counts", async () => {
   const idemPending = `test:buyer_deal_target_reached:o3pending:${randomUUID()}`;
   const idemFailed  = `test:buyer_deal_failed:o3failed:${randomUUID()}`;
   try {
@@ -203,9 +203,9 @@ await run("O3 — /api/admin/notifications-status returns correct bucket counts"
   }
 });
 
-// ─── O4: Retry that succeeds = one sent row, no duplicate ────────────────────
+// ג”€ג”€ג”€ O4: Retry that succeeds = one sent row, no duplicate ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
 
-await run("O4 — retry-then-succeed produces exactly one sent row, no duplicate", async () => {
+await run("O4 ג€” retry-then-succeed produces exactly one sent row, no duplicate", async () => {
   const idemKey = `test:buyer_deal_completed:o4:${randomUUID()}`;
   try {
     await enqueueNotification({
@@ -224,7 +224,7 @@ await run("O4 — retry-then-succeed produces exactly one sent row, no duplicate
     let targetCalls = 0;
     const failThenSucceedProvider: NotificationProvider = {
       providerCode: "fail-then-succeed",
-      mode: "real",
+      mode: "dev",
       async send(notification: NotificationForProvider): Promise<NotificationProviderResult> {
         if (notification.notification_id !== targetNotificationId) {
           return { status: "temporary_fail", error_code: "non_target_deferred", error_message: "non-target event deferred by test provider" };
@@ -260,7 +260,7 @@ await run("O4 — retry-then-succeed produces exactly one sent row, no duplicate
 
     console.log(`     target_provider_calls=${targetCalls} rows=${count.rows[0].cnt} status=${row?.status} message_id=${row?.provider_message_id}`);
 
-    assert.equal(Number(count.rows[0].cnt), 1, "exactly 1 row — no duplicates");
+    assert.equal(Number(count.rows[0].cnt), 1, "exactly 1 row ג€” no duplicates");
     assert.equal(row?.status, "sent", `should be sent after successful retry`);
     assert.equal(row?.attempt_count, 2, "retry path should record both attempts");
     assert.equal(targetCalls, 2, "target notification should fail once and then succeed once");

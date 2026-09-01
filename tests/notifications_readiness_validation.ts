@@ -53,9 +53,14 @@ await run("notification_idempotency_validation", async () => {
 });
 
 await run("notification_retry_to_failed_validation", async () => {
+  // R9A: retries are bounded (NOTIFICATION_MAX_ATTEMPTS) with exponential
+  // backoff and a terminal failed status; stranded processing rows reclaim.
   assert.match(dispatch, /temporary_fail/);
-  assert.match(dispatch, /scheduled_for=now\(\) \+ interval '1 minute'/);
-  assert.match(dispatch, /SET status='failed', last_error/);
+  assert.match(dispatch, /maxNotificationAttempts/);
+  assert.match(dispatch, /max_attempts_exhausted/);
+  assert.match(dispatch, /retryBackoffMinutes/);
+  assert.match(dispatch, /reclaimStrandedNotifications/);
+  assert.match(dispatch, /SET status='failed', attempt_count=attempt_count\+1/);
 });
 
 await run("notification_provider_mode_validation", async () => {

@@ -574,8 +574,11 @@ await runTest("recovery only runs inside CompletionWindow for eligible participa
     withinWindow: true,
     participantState: { buyer_state: "ChargeFailedCompletion", money_state: "ChargeFailedRecovery" }
   });
+  // R9A: recovery "success" without a canonical event is a durable UNKNOWN —
+  // the event completes and payment_reconcile owns resolution (never guessed,
+  // never blind-retried).
   const missingTruthProcessed = await processOutboxEventById(missingTruth.outboxEventId);
-  assert.equal(missingTruthProcessed?.status, "failed");
+  assert.equal(missingTruthProcessed?.status, "sent");
   const missingParticipant = await fetchOne<{ buyer_state: string; money_state: string }>(
     `SELECT buyer_state, money_state FROM siton.participants WHERE participant_id=$1`,
     [missingTruth.participantId]
@@ -588,17 +591,19 @@ await runTest("recovery only runs inside CompletionWindow for eligible participa
      LIMIT 1`,
     [missingTruth.dealId]
   );
-  const missingOutbox = await fetchOne<{ status: string; last_error: string | null }>(
-    `SELECT status, last_error
+  const missingReconcile = await fetchOne<{ status: string }>(
+    `SELECT status
      FROM siton.outbox_events
-     WHERE event_uuid=$1`,
-    [missingTruth.outboxEventId]
+     WHERE event_type='payment_reconcile'
+       AND aggregate_id=$1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [missingTruth.participantId]
   );
   assert.equal(missingParticipant?.buyer_state, "ChargeFailedCompletion");
   assert.equal(missingParticipant?.money_state, "ChargeFailedRecovery");
   assert.equal(missingAttempt?.result_class, "unknown");
-  assert.equal(missingOutbox?.status, "pending");
-  assert.match(String(missingOutbox?.last_error || ""), /recovery_missing_reconciliation_event_type/i);
+  assert.equal(missingReconcile?.status, "pending");
 });
 
 await runTest("finalize defers before expiry, replays safely, and enforces the 90 percent rule by threshold_units", async () => {
