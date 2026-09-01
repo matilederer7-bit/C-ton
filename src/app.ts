@@ -4058,16 +4058,19 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
     await c.query(`DELETE FROM siton.outbox_dlq WHERE aggregate_type='deal' AND aggregate_id::text=$1::text`, [dealId]);
     await c.query(`DELETE FROM siton.idempotency_log WHERE entity_type='deal' AND entity_id=$1`, [dealId]);
     await c.query(`DELETE FROM siton.viral_metrics_cache WHERE scope_type='deal' AND scope_id=$1`, [dealId]);
-    // Tombstone in the audit trail BEFORE the row disappears.
+    // Tombstone BEFORE the row disappears. audit_log deliberately enforces the
+    // canonical state machine (a "Deleted" pseudo-state is illegal there), so
+    // the durable evidence lives as a CLOSED operational case — the one record
+    // type designed to survive deletion of what it references.
     await c.query(
-      `INSERT INTO siton.audit_log (entity_type, entity_id, deal_id, state_type, from_state, to_state, action_name, request_id, idempotency_key, payload)
-       VALUES ('deal',$1,$1,'deal_state',$2,'Deleted','seller_deal_delete',$3,$4,$5)`,
+      `INSERT INTO siton.operational_cases
+         (case_type, status, priority, source, deal_id, seller_id, opened_by, subject, description, resolution_note, closed_at)
+       VALUES ('Other','Closed','Low','System',$1,$2,'seller_deal_delete',$3,$4,'seller deleted an unused deal (zero participation, zero financial activity)', now())`,
       [
         dealId,
-        state,
-        req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`,
-        `seller_deal_delete:${dealId}`,
-        JSON.stringify({ seller_id: sellerAuthority.seller_id, state, image_count: images.rowCount })
+        sellerAuthority.seller_id,
+        `מחיקת עסקה ללא פעילות: ${dealId}`,
+        JSON.stringify({ previous_state: state, image_count: images.rowCount, deleted_at: new Date().toISOString() })
       ]
     );
     // The deal row itself — FKs cascade the content tables (images, options,
