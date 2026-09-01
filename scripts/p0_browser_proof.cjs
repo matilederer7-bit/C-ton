@@ -134,12 +134,13 @@ async function main() {
       if (snap.mallGrid) throw new Error("mall deal grid rendered on root");
       if (snap.navLinks.some((t) => /המול|קניון/.test(t))) throw new Error(`mall nav item present: ${snap.navLinks}`);
     });
-    await run("brand name shows C-ton exactly (no Siton wording anywhere)", async () => {
-      const snap = await cdp.evaluate(`(() => ({
-        word: (document.querySelector('.brand-word') || {}).textContent || "",
-        hasSiton: document.body.innerText.includes("סיטון")
-      }))()`);
-      if (snap.word.replace(/\s/g, "") !== "C-ton") throw new Error(`brand word = ${JSON.stringify(snap.word)}`);
+    await run("brand wordmark is the ACTUAL approved logo pixels (no Siton wording)", async () => {
+      const snap = await waitFor(cdp, `(() => {
+        const img = document.querySelector('.brand-word-img');
+        if (!img || !img.complete || img.naturalWidth === 0) return null;
+        return { src: img.currentSrc || img.src, hasSiton: document.body.innerText.includes("סיטון") };
+      })()`, 20000, "wordmark image");
+      if (!/\/brand\/c-ton-wordmark/.test(snap.src)) throw new Error(`wordmark is not the approved asset: ${snap.src}`);
       if (snap.hasSiton) throw new Error("legacy 'סיטון' wording still visible");
     });
     await run("unknown route falls back to the landing, not the Mall", async () => {
@@ -287,7 +288,7 @@ async function main() {
     await cdp.screenshot("seller-login-360.png");
     await run("seller signup entry (?signup=1) opens in signup mode", async () => {
       await cdp.navigate(`${BASE}/preview/#/seller?signup=1`);
-      await waitFor(cdp, `document.body.innerText.includes("יצירת חשבון")`, 15000, "signup mode");
+      await waitFor(cdp, `document.body.innerText.includes("פתיחת חשבון מוכר") || document.body.innerText.includes("יצירת חשבון")`, 15000, "signup mode");
     });
     await run("admin login shell renders (desktop)", async () => {
       await cdp.viewport(1440, 900);
