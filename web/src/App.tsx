@@ -8,7 +8,7 @@ import { AdminArea } from "./pages/admin";
 import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
-import { enterGuestMode, exitGuestMode, isGuestMode, readOwnerCaps } from "./ownerMode";
+import { OWNER_CAPS_EVENT, enterGuestMode, exitGuestMode, isGuestMode, readOwnerCaps } from "./ownerMode";
 
 // Capture ?ref= share codes once, at boot, before any routing.
 captureRefFromLocation();
@@ -60,6 +60,14 @@ function useRoute(): [Route, (hash: string) => void] {
 // authority: seller/admin routes re-authorize server-side, and guest mode
 // strictly strips the privileged tokens from every request.
 function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: string) => void }) {
+  // re-render when capabilities are adopted/cleared (login happens deeper in
+  // the tree; the topbar must reflect it immediately)
+  const [, bump] = useState(0);
+  useEffect(() => {
+    const onChange = () => bump((n) => n + 1);
+    window.addEventListener(OWNER_CAPS_EVENT, onChange);
+    return () => window.removeEventListener(OWNER_CAPS_EVENT, onChange);
+  }, []);
   if (isGuestMode()) {
     return (
       <button className="owner-exit" data-testid="owner-exit-guest" onClick={exitGuestMode}>

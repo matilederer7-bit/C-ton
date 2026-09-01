@@ -18,8 +18,16 @@ const STASH_KEY = "siton_guest_stash_v1";
 
 export interface OwnerCaps { email: string; seller: boolean; admin: boolean }
 
+// UI refresh signal: the topbar switcher listens for this so it appears the
+// moment capabilities are adopted (login happens deeper in the tree).
+export const OWNER_CAPS_EVENT = "siton-owner-caps";
+function notifyCapsChanged(): void {
+  try { window.dispatchEvent(new Event(OWNER_CAPS_EVENT)); } catch { /* noop */ }
+}
+
 export function storeOwnerCaps(caps: OwnerCaps): void {
   try { localStorage.setItem(CAPS_KEY, JSON.stringify(caps)); } catch { /* noop */ }
+  notifyCapsChanged();
 }
 
 export function readOwnerCaps(): OwnerCaps | null {
@@ -38,6 +46,7 @@ export function clearOwnerSession(): void {
     localStorage.removeItem(GUEST_KEY);
     localStorage.removeItem(STASH_KEY);
   } catch { /* noop */ }
+  notifyCapsChanged();
 }
 
 export function isGuestMode(): boolean {
