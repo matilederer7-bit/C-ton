@@ -5605,3 +5605,18 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
   legal/business approval and operational drills remain.
 - The immutable final master SHA is recorded by the Git commit/ref verification
   produced by this repository-lock operation; a commit cannot embed its own SHA.
+
+## Current update: 2026-09-01 (C-ton dark visual rebrand — foundation checkpoint)
+
+- Branch/worktree isolation: visual work is on `codex/visual-rebrand-c-ton`, based on `master` at `408ff8b`. The pre-existing uncommitted `r9a-payment-foundation` payment work remains untouched in the original worktree.
+- Completed: replaced the light/warm visual foundation with a centralized graphite theme in `frontend/styles.css`: dark background and surface tiers, vivid orange action hierarchy, semantic success/warning/error/info tones, tactile borders, elevation, texture, focus states, dense tables, modal treatment, and public/seller/admin surface variants.
+- Completed: rebuilt the SVG application mark around the owner-selected graphite C and orange bar language; updated the favicon source and mobile source logo without changing application behavior.
+- Completed: integrated the exact owner-supplied visual reference as the public Mall hero material artwork and included it in the offline shell cache.
+- Completed: added a reusable C-ton breathing loader with visible mark, wordmark, animated progress rail, reduced-motion behavior, initial HTML boot state, route/data loading state, and branded empty-state treatment.
+- Completed: rebranded the shared header/navigation, PWA theme metadata, manifest identity colors, and offline surface.
+- Tested: `node --check frontend/app.js` PASS; `npx tsc -p tsconfig.json --noEmit` PASS; `npm run test:frontend-foundation` PASS; `npm run test:product-surfaces-refinement` PASS; `git diff --check` PASS.
+- Test environment note: `npm run test:mobile-readiness` did not reach assertions because `.mobile_dist/app/index.html` is not generated in a fresh worktree; run `npm run mobile:build` before repeating it.
+- Intentionally unchanged: backend state machines, payments/providers, Grow, real money, notifications, invoices, database/migrations, and production activation.
+- Open: route-level public/seller/admin polish, mobile/PWA asset generation, browser walkthrough screenshots, final regression gates, commit/push closure.
+- Visual track progress: `38%`.
+- Next step: verify and checkpoint the foundation, then refine public commerce, seller command-center, and admin operations surfaces against the new tokens.

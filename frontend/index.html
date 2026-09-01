@@ -3,9 +3,9 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0f766e" />
+    <meta name="theme-color" content="#111214" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="C-ton" />
     <meta name="siton-api-base-url" content="__SITON_API_BASE_URL__" />
     <meta name="siton-app-link-host" content="__SITON_APP_LINK_HOST__" />
@@ -18,7 +18,7 @@
     <meta property="og:title" content="C-ton | קניון עסקאות קבוצתיות" />
     <meta property="og:description" content="עסקאות קבוצתיות פעילות עם יעד וסטטוס גלויים, וחיוב רק אחרי הצלחה." />
     <meta property="og:url" content="/app" />
-    <meta property="og:image" content="" />
+    <meta property="og:image" content="/app/icons/c-ton-brand-reference.png" />
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:title" content="C-ton | קניון עסקאות קבוצתיות" />
     <meta name="twitter:description" content="עסקאות קבוצתיות פעילות עם יעד וסטטוס גלויים, וחיוב רק אחרי הצלחה." />
@@ -29,7 +29,15 @@
   </head>
   <body>
     <a class="skip-link" href="#main-content">דילוג לתוכן הראשי</a>
-    <div id="app"></div>
+    <div id="app">
+      <div class="brand-boot" role="status" aria-live="polite" aria-label="C-ton נטען">
+        <div class="brand-loader-mark" aria-hidden="true">
+          <img src="/app/icons/logo.svg" alt="" width="96" height="96" />
+        </div>
+        <strong class="brand-loader-wordmark"><span>C</span>-ton</strong>
+        <span class="brand-loader-copy">מכינים את זירת המסחר</span>
+      </div>
+    </div>
     <script type="module" src="/app/assets/mobile-bridge.js?v=__C_TON_ASSET_VERSION__"></script>
     <script type="module" src="/app/assets/app.js?v=__C_TON_ASSET_VERSION__"></script>
   </body>

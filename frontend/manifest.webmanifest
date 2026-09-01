@@ -1,6 +1,6 @@
 {
-  "name": "Siton",
-  "short_name": "Siton",
+  "name": "C-ton",
+  "short_name": "C-ton",
   "description": "קניון עסקאות קבוצתיות וקישורי עסקה ישירים, עם חיוב רק אחרי הצלחה",
   "lang": "he-IL",
   "dir": "rtl",
@@ -8,8 +8,8 @@
   "scope": "/app",
   "display": "standalone",
   "orientation": "portrait-primary",
-  "background_color": "#faf7f2",
-  "theme_color": "#0f766e",
+  "background_color": "#101113",
+  "theme_color": "#111214",
   "categories": ["shopping", "business"],
   "icons": [
     { "src": "/app/icons/icon-48.png", "type": "image/png", "sizes": "48x48", "purpose": "any maskable" },

@@ -1,10 +1,11 @@
-const CACHE_VERSION = "siton-shell-v2-mall";
+const CACHE_VERSION = "siton-shell-v3-dark-brand";
 const SHELL = [
   "/app/offline",
   "/app/assets/styles.css",
   "/app/assets/app.js",
   "/app/assets/mobile-bridge.js",
   "/app/icons/logo.svg",
+  "/app/icons/c-ton-brand-reference.png",
   "/app/icons/icon-192.png",
   "/app/icons/icon-512.png",
   "/app/manifest.webmanifest"

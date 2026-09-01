@@ -2987,15 +2987,18 @@ function render() {
   const routeLabel = getRouteLabel();
   const routeSummary = getRouteSummary();
   root.innerHTML = `
-    <div class="shell app-shell">
+    <div class="shell app-shell" data-app-surface="${esc(getProductSurface())}" ${state.loading ? `aria-busy="true"` : ""}>
       <header class="app-shell-header">
         <section class="shell-surface shell-header-bar" aria-label="כותרת האפליקציה">
-          <div class="shell-brand">
-            <strong>C-ton</strong>
-            <p>${esc(routeSummary)}</p>
+          <div class="shell-brand-wrap">
+            ${renderBrandLockup()}
+            <div class="shell-brand-context">
+              <span>${esc(routeLabel)}</span>
+              <p>${esc(routeSummary)}</p>
+            </div>
           </div>
           <div class="shell-meta">
-            <span class="route-chip">${esc(routeLabel)}</span>
+            <span class="route-chip brand-status-chip"><i aria-hidden="true"></i> מערכת פעילה</span>
             ${INTERNAL_SURFACE_ROUTES.has(state.route.name) ? `<span class="route-chip">משטח תפעולי</span>` : ""}
           </div>
         </section>
@@ -3005,7 +3008,7 @@ function render() {
         ${renderPreviewStrip()}
         ${state.banner ? renderBanner(state.banner) : ""}
         ${state.error ? renderErrorCard(state.error) : ""}
-        ${state.loading ? renderInfoStrip(state.loadingMessage || "טוען...") : ""}
+        ${state.loading ? renderBrandedLoader(state.loadingMessage || "טוען את המידע העדכני...") : ""}
       </div>
       <main id="main-content" class="shell-main" tabindex="-1">
         ${renderCurrentRoute()}
@@ -3055,7 +3058,37 @@ function syncDocumentFrame() {
   document.documentElement.setAttribute("lang", "he");
   document.documentElement.setAttribute("dir", "rtl");
   document.body.setAttribute("dir", "rtl");
+  document.body.dataset.surface = getProductSurface();
+  document.body.dataset.loading = state.loading ? "true" : "false";
   syncPublicMetadata();
+}
+
+function getProductSurface() {
+  if (["admin", "admin-support", "admin-deal", "admin-participant", "admin-user"].includes(state.route.name)) return "admin";
+  if (["seller", "seller-new", "seller-edit", "seller-deal", "affiliate"].includes(state.route.name)) return "seller";
+  return "public";
+}
+
+function renderBrandLockup({ compact = false } = {}) {
+  return `
+    <a class="brand-lockup ${compact ? "is-compact" : ""}" href="/app" data-nav="/app" aria-label="C-ton — חזרה לקניון">
+      <span class="brand-mark" aria-hidden="true"><img src="/app/icons/logo.svg" alt="" width="64" height="64" /></span>
+      <span class="brand-wordmark" dir="ltr"><strong><b>C</b>-ton</strong><small>GROUP COMMERCE</small></span>
+    </a>
+  `;
+}
+
+function renderBrandedLoader(message, { compact = false } = {}) {
+  return `
+    <section class="brand-loader ${compact ? "is-compact" : ""}" role="status" aria-live="polite" aria-label="${esc(message)}">
+      <div class="brand-loader-mark" aria-hidden="true"><img src="/app/icons/logo.svg" alt="" width="88" height="88" /></div>
+      <div class="brand-loader-copy-block">
+        <strong class="brand-loader-wordmark" dir="ltr"><span>C</span>-ton</strong>
+        <span class="brand-loader-copy">${esc(message)}</span>
+        <span class="brand-loader-track" aria-hidden="true"><i></i></span>
+      </div>
+    </section>
+  `;
 }
 
 function syncPublicMetadata() {
@@ -7687,7 +7720,8 @@ function renderRecoveryState(title, message, href) {
 
 function renderEmptyState(title, message) {
   return `
-    <section class="card section stack empty-surface" role="status">
+    <section class="card section stack empty-surface branded-empty-state" role="status">
+      <div class="brand-mark is-muted" aria-hidden="true"><img src="/app/icons/logo.svg" alt="" width="64" height="64" /></div>
       <h2>${esc(title)}</h2>
       <p class="muted">${esc(message)}</p>
       <div class="actions">
