@@ -36,6 +36,19 @@ export function fileToLocalImage(file: File): Promise<LocalImage> {
   });
 }
 
+// Content hash for the upload idempotency key. Length + prefix is NOT enough:
+// every PNG shares the same base64 header, so two different photos of nearly
+// equal size used to collide into one key and the second upload failed 409.
+function contentKey(b64: string): string {
+  let h1 = 5381, h2 = 52711;
+  for (let i = 0; i < b64.length; i++) {
+    const c = b64.charCodeAt(i);
+    h1 = ((h1 << 5) + h1 + c) >>> 0;
+    h2 = ((h2 << 5) + h2 ^ c) >>> 0;
+  }
+  return `${b64.length.toString(36)}-${h1.toString(36)}${h2.toString(36)}`;
+}
+
 // XHR gives real upload progress (fetch cannot report it).
 export function uploadDealImage(dealId: string, img: { name: string; mime: string; b64: string }, opts: { isPrimary?: boolean; sortOrder?: number; onProgress?: (pct: number) => void } = {}): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -43,7 +56,7 @@ export function uploadDealImage(dealId: string, img: { name: string; mime: strin
     xhr.open("POST", `/api/seller/deals/${dealId}/images`);
     xhr.setRequestHeader("content-type", "application/json");
     xhr.setRequestHeader("authorization", `Bearer ${getSellerToken()}`);
-    xhr.setRequestHeader("idempotency-key", `img-${dealId}-${img.b64.length}-${img.b64.slice(0, 24).replace(/[^a-zA-Z0-9]/g, "")}`);
+    xhr.setRequestHeader("idempotency-key", `img-${dealId}-${contentKey(img.b64)}`);
     xhr.upload.onprogress = (e) => { if (e.lengthComputable && opts.onProgress) opts.onProgress(Math.round((e.loaded / e.total) * 100)); };
     xhr.onerror = () => reject(new Error("העלאה נכשלה — בדקו את החיבור ונסו שוב"));
     xhr.ontimeout = () => reject(new Error("ההעלאה נמשכה יותר מדי — נסו שוב"));
