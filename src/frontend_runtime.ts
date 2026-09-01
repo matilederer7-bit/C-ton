@@ -1887,8 +1887,89 @@ export function registerFrontendExperience(
   app.get("/preview/", async (_req: any, reply: any) => servePreview(reply, "index.html"));
   app.get("/preview/*", async (req: any, reply: any) => servePreview(reply, String(req.params?.["*"] || "")));
 
+  // P0 — crawler-readable share route for the canonical React app.
+  // Social crawlers never execute the SPA and hash fragments never reach the
+  // server, so share links point here: the response carries real OG/Twitter
+  // meta with the ACTUAL primary deal image, then instantly forwards human
+  // browsers into the SPA deal page, preserving the personal ?ref= code.
+  app.get("/d/:dealId", async (req: any, reply: any) => {
+    const dealId = String(req.params?.dealId || "").trim().toLowerCase();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(dealId)) {
+      return reply.redirect("/preview/", 302);
+    }
+    const proto = String(req.headers["x-forwarded-proto"] || "").split(",")[0]!.trim() || "https";
+    const host = String(req.headers["x-forwarded-host"] || req.headers.host || "").split(",")[0]!.trim();
+    const origin = host ? `${proto}://${host}` : "";
+    const refRaw = typeof req.query?.ref === "string" ? String(req.query.ref).trim().slice(0, 120) : "";
+    const spaPath = `/preview/${refRaw ? `?ref=${encodeURIComponent(refRaw)}` : ""}#/deal/${dealId}`;
+    const row = await deps.withTx(async (c) => {
+      const result = await c.query(
+        `SELECT d.title, d.description, d.price_per_unit, image.image_id, image.public_url
+         FROM siton.deals d
+         LEFT JOIN LATERAL (
+           SELECT i.image_id, i.public_url
+           FROM siton.deal_images i
+           WHERE i.deal_id=d.deal_id
+           ORDER BY i.is_primary DESC, i.sort_order ASC, i.created_at ASC
+           LIMIT 1
+         ) image ON true
+         WHERE d.deal_id=$1 AND d.published_at IS NOT NULL AND d.state <> 'Draft'
+         LIMIT 1`,
+        [dealId]
+      );
+      return result.rows[0] || null;
+    });
+    if (!row) return reply.redirect(spaPath, 302);
+    const title = `${String(row.title || "עסקה קבוצתית").trim().slice(0, 180)} | C-ton`;
+    const price = Number(row.price_per_unit || 0);
+    const priceLine = price > 0 ? `₪${price % 1 === 0 ? price.toLocaleString("he-IL") : price.toFixed(2)} ליחידה · ` : "";
+    const description = `${priceLine}${String(row.description || "").trim().slice(0, 160) || "קנייה קבוצתית — החיוב מתבצע רק אם הקבוצה מגיעה ליעד."}`;
+    // og:image must be an absolute URL; the canonical primary deal image wins,
+    // the brand logo is only the no-image fallback.
+    const imageRaw = row.image_id ? resolveDealImageUrl({ image_id: String(row.image_id), public_url: row.public_url }) : "";
+    const ogImage = imageRaw
+      ? (imageRaw.startsWith("http") ? imageRaw : `${origin}${imageRaw}`)
+      : `${origin}/preview/brand/c-ton-logo.png`;
+    const safeTitle = escapeHtml(title);
+    const safeDescription = escapeHtml(description);
+    const safeImage = escapeHtml(ogImage);
+    const safeUrl = escapeHtml(`${origin}/d/${dealId}`);
+    const safeSpa = escapeHtml(spaPath);
+    const html = `<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<title>${safeTitle}</title>
+<meta name="description" content="${safeDescription}">
+<meta property="og:site_name" content="C-ton">
+<meta property="og:locale" content="he_IL">
+<meta property="og:type" content="website">
+<meta property="og:title" content="${safeTitle}">
+<meta property="og:description" content="${safeDescription}">
+<meta property="og:url" content="${safeUrl}">
+<meta property="og:image" content="${safeImage}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="${safeTitle}">
+<meta name="twitter:description" content="${safeDescription}">
+<meta name="twitter:image" content="${safeImage}">
+<meta http-equiv="refresh" content="0;url=${safeSpa}">
+<script>window.location.replace(${JSON.stringify(spaPath)});</script>
+<style>body{background:#17181b;color:#eef0f4;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
+</head>
+<body><p><a style="color:#ff8a2e" href="${safeSpa}">מעבירים אתכם לעסקה…</a></p></body>
+</html>`;
+    return reply
+      .header("cache-control", "public, max-age=300")
+      .type("text/html; charset=utf-8")
+      .send(html);
+  });
+
   app.get("/api/preview/meta", async () => ({
     ok: true,
+    // PUBLIC_MALL_ENABLED — runtime env switch (repo convention). Default OFF:
+    // the React root stays seller-first and the Mall remains hidden until the
+    // owner explicitly enables it.
+    public_mall_enabled: ["1", "true"].includes(String(process.env.PUBLIC_MALL_ENABLED || "").trim().toLowerCase()),
     preview: {
       deployment_mode: deps.deploymentMode,
       is_demo_preview: deps.isDemoPreview,

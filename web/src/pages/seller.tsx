@@ -14,6 +14,9 @@ import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage,
 // ── login ──────────────────────────────────────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
   const [mode, setMode] = useState<"login" | "signup">(initialMode || "login");
+  // The landing's "פתיחת חשבון מוכר" navigates here with ?signup=1 — honor it
+  // even when the login screen is already mounted.
+  useEffect(() => { if (initialMode) setMode(initialMode); }, [initialMode]);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);

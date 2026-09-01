@@ -220,7 +220,9 @@ export async function recordViralJoinAttribution(c: Queryable, input: ViralJoinI
 }
 
 export function personalShareUrl(dealId: string, code: string): string {
-  return `/preview/?ref=${encodeURIComponent(code)}#/deal/${encodeURIComponent(dealId)}`;
+  // Crawler-readable share route: /d/:dealId serves real OG meta (with the
+  // actual primary deal image) and forwards humans into the SPA deal page.
+  return `/d/${encodeURIComponent(dealId)}?ref=${encodeURIComponent(code)}`;
 }
 
 // ── Funnel events (public, PII-free, deduplicated) ─────────────────────────

@@ -10,7 +10,9 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": "http://127.0.0.1:3000",
-      "/deals": "http://127.0.0.1:3000"
+      "/deals": "http://127.0.0.1:3000",
+      "/d": "http://127.0.0.1:3000",
+      "/legal": "http://127.0.0.1:3000"
     }
   }
 });
