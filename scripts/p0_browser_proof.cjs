@@ -25,6 +25,8 @@ const BASE = (args["base-url"] || "").replace(/\/+$/, "");
 const SHOTS = args.shots || "";
 const DEAL = args.deal || "d0000000-0000-0000-0000-000000000001";
 const SKIP_JOIN = Boolean(args["skip-join"]);
+const REQUIRE_IMAGES = Boolean(args["require-images"]); // hosted: the deal MUST render real CDN imagery
+const JOIN_WIDTHS = (args["join-widths"] || "320,360,390").split(",").map(Number).filter(Boolean);
 if (!BASE) { console.error("--base-url required"); process.exit(1); }
 if (SHOTS) mkdirSync(SHOTS, { recursive: true });
 const EDGE = ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe", "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe", "/usr/bin/microsoft-edge", "/usr/bin/google-chrome"].find(existsSync);
@@ -92,6 +94,13 @@ async function main() {
       if (!/^https?:\/\//.test(img)) throw new Error(`og:image not absolute: ${img}`);
       console.log(`  og:image = ${img}`);
       if (!html.includes(`#/deal/${DEAL}`)) throw new Error("human redirect target missing");
+      if (REQUIRE_IMAGES) {
+        if (/\/brand\/c-ton-logo/.test(img)) throw new Error("og:image is the brand fallback, not the actual deal image");
+        const head = await fetch(img, { method: "GET" });
+        const type = head.headers.get("content-type") || "";
+        if (!head.ok || !type.startsWith("image/")) throw new Error(`og:image fetch ${head.status} type=${type}`);
+        console.log(`  og:image fetch: ${head.status} ${type}`);
+      }
     });
 
     // ── root = seller-first landing, Mall hidden ─────────────────────────
@@ -104,15 +113,15 @@ async function main() {
         const logo = document.querySelector('.landing-logo');
         const mark = document.querySelector('.brand-mark-img');
         if (!logo || !logo.complete || logo.naturalWidth === 0) return null;
+        if (!mark || !mark.complete || mark.naturalWidth === 0) return null;
         return {
           logoSrc: logo.currentSrc || logo.src,
-          markLoaded: Boolean(mark && mark.complete && mark.naturalWidth > 0),
-          markSrc: mark ? (mark.currentSrc || mark.src) : "",
+          markSrc: mark.currentSrc || mark.src,
           bg: getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
         };
-      })()`, 30000, "landing with loaded logo");
+      })()`, 30000, "landing with loaded logo + mark");
       if (!/\/brand\/c-ton-logo/.test(snap.logoSrc)) throw new Error(`hero logo is not the canonical asset: ${snap.logoSrc}`);
-      if (!snap.markLoaded || !/\/brand\/c-ton-mark/.test(snap.markSrc)) throw new Error(`topbar mark is not the canonical asset: ${snap.markSrc}`);
+      if (!/\/brand\/c-ton-mark/.test(snap.markSrc)) throw new Error(`topbar mark is not the canonical asset: ${snap.markSrc}`);
       if (snap.bg !== "#17181b") throw new Error(`ground is not C-ton graphite: ${snap.bg}`);
     });
     await run("Mall is hidden: no mall copy, no mall nav, no deal grid on root", async () => {
@@ -183,6 +192,21 @@ async function main() {
       if (w === 360 || w === 1440) await cdp.screenshot(`deal-${w}.png`);
     }
 
+    if (REQUIRE_IMAGES) {
+      await run("deal gallery renders REAL images (HTTP success, naturalWidth>0)", async () => {
+        const snap = await waitFor(cdp, `(() => {
+          const imgs = [...document.querySelectorAll('.deal-gallery img')];
+          if (!imgs.length) return null;
+          const loaded = imgs.filter(i => i.complete && i.naturalWidth > 0);
+          if (!loaded.length) return null;
+          const fallback = document.querySelectorAll('.deal-gallery .img-fallback').length;
+          return { total: imgs.length, loaded: loaded.length, fallback, src: (loaded[0].currentSrc || loaded[0].src) };
+        })()`, 30000, "gallery images");
+        if (snap.fallback > 0) throw new Error("gallery shows the error fallback");
+        console.log(`  gallery: ${snap.loaded}/${snap.total} loaded; first = ${snap.src.slice(0, 90)}`);
+      });
+    }
+
     await run("deal share context has exactly ONE copy-link control", async () => {
       const snap = await cdp.evaluate(`(() => {
         const copies = [...document.querySelectorAll('[data-testid=share-copy]')];
@@ -195,7 +219,7 @@ async function main() {
 
     // ── the Join flow: COMPLETE submission from 320/360/390 ──────────────
     if (!SKIP_JOIN) {
-      for (const w of [320, 360, 390]) {
+      for (const w of JOIN_WIDTHS) {
         await run(`join ${w}px: full sheet opens, form fills, submits, success`, async () => {
           await cdp.viewport(w, 740, true);
           // cache-busting query forces a REAL navigation between widths (a
@@ -255,10 +279,10 @@ async function main() {
         const pw = document.querySelector('input[type=password]');
         const mark = document.querySelector('.panel .brand-mark-img');
         if (!pw) return null;
-        return { ok: ${NO_OVERFLOW}, mark: Boolean(mark && mark.complete && mark.naturalWidth > 0) };
-      })()`, 20000, "seller login");
+        if (!mark || !mark.complete || mark.naturalWidth === 0) return null;
+        return { ok: ${NO_OVERFLOW} };
+      })()`, 20000, "seller login with loaded brand mark");
       if (!snap.ok) throw new Error("overflow");
-      if (!snap.mark) throw new Error("brand mark missing on seller login");
     });
     await cdp.screenshot("seller-login-360.png");
     await run("seller signup entry (?signup=1) opens in signup mode", async () => {

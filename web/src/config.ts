@@ -14,4 +14,6 @@ export const PUBLIC_MALL_ENABLED =
 export const BRAND_NAME = "C-ton";
 export const BRAND_LOGO_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-logo-1024.jpg`;
 export const BRAND_LOGO_FULL_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-logo.png`;
-export const BRAND_MARK_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-mark.png`;
+// UI surfaces use the lightweight 180px rendition; the full 512px crop stays
+// canonical for icons/large uses.
+export const BRAND_MARK_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-mark-180.png`;
