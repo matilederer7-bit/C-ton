@@ -4650,6 +4650,26 @@ export function registerFrontendExperience(
   // Legacy alias kept for backward compatibility with mock provider config
   app.post("/webhooks/payments/mock", handleWebhookPayments);
 
+  // R9B — hosted-payment return pages (Grow successUrl/cancelUrl targets).
+  // Pure informational HTML: the browser redirect is NEVER financial truth —
+  // authorization is confirmed only by the server-side status lookup
+  // (callback-triggered or /api/payments/status). No data is read or written.
+  for (const [path, title, message] of [
+    ["/pay/return", "התשלום נקלט", "אישור התשלום נבדק מול ספק הסליקה. ניתן לחזור לאפליקציה — ההצטרפות תושלם רק לאחר אימות מלא בצד השרת."],
+    ["/pay/cancel", "התשלום בוטל", "תהליך התשלום הופסק ולא בוצע חיוב. ניתן לחזור לאפליקציה ולנסות שוב."]
+  ] as const) {
+    app.get(path, async (_req: FastifyRequest, reply: FastifyReply) => {
+      reply.header("cache-control", "no-store");
+      return reply.type("text/html; charset=utf-8").send(
+        `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>` +
+        `<body style="font-family:system-ui,sans-serif;background:#eef0f3;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center">` +
+        `<main style="background:#fff;border-radius:12px;padding:32px;max-width:420px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)">` +
+        `<h1 style="font-size:1.25rem;margin:0 0 12px">${title}</h1><p style="margin:0;color:#444">${message}</p>` +
+        `<p style="margin:16px 0 0"><a href="/app" style="color:#ec6608">חזרה לסיטון</a></p></main></body></html>`
+      );
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // R9B — Grow (Meshulam) server-to-server notifyUrl callback.
   //
