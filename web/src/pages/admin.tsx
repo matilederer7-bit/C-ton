@@ -263,7 +263,7 @@ function ViralTreeExplorer({ dealId, dealTitle }: { dealId: string; dealTitle?: 
     <div className="tree-explorer">
       <div className="tree-pane">
         {wide ? (
-          // desktop: the genealogy CANVAS — pan, zoom, fit, expandable branches
+          // desktop: the genealogy CANVAS — drag, zoom, fit, expandable branches
           <VTreeCanvas
             dealId={dealId}
             roots={roots}

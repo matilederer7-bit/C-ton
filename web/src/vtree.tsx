@@ -3,7 +3,7 @@ import { api, Json } from "./api";
 import { ils, num } from "./util";
 
 // ── Viral tree CANVAS (P0.2-O) — a genealogy-style referral tree ────────────
-// Top-down node-link diagram on a pannable/zoomable SVG canvas: the deal at
+// Top-down node-link diagram on a draggable/zoomable SVG canvas: the deal at
 // the root, generations in horizontal bands beneath it, curved parent→child
 // connectors, expandable descendants (lazy, one level per request against the
 // canonical /viral-tree endpoint), node selection for branch metrics.
@@ -122,7 +122,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
     setExpanded((prev) => new Set(prev).add(id));
   };
 
-  // pan (pointer drag) + zoom (wheel / buttons)
+  // drag-to-move (pointer) + zoom (wheel / buttons)
   const onPointerDown = (e: React.PointerEvent) => {
     (e.target as Element).setPointerCapture?.(e.pointerId);
     drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y };
