@@ -174,10 +174,13 @@ export function recordShareVisit(dealId: string, code: string | null): void {
   } catch { /* best effort */ }
 }
 
+// Share links use the crawler-readable /d/:dealId route: the server returns
+// real OG meta (title, description, the ACTUAL primary deal image) for social
+// crawlers and instantly forwards humans into the SPA deal page, preserving
+// the personal ?ref= code.
 export function absoluteShareUrl(dealId: string, code: string | null): string {
-  const base = `${window.location.origin}/preview/`;
   const ref = code ? `?ref=${encodeURIComponent(code)}` : "";
-  return `${base}${ref}#/deal/${dealId}`;
+  return `${window.location.origin}/d/${dealId}${ref}`;
 }
 
 export interface ShareTarget {

@@ -47,6 +47,22 @@ export function stateLabel(state: string): string {
   return DEAL_STATE_LABELS[state] || state;
 }
 
+// Buyer money-state → product Hebrew (presentation only; canonical backend
+// state names stay untouched underneath).
+export const MONEY_STATE_LABELS: Record<string, string> = {
+  AuthCaptured: "מסגרת נתפסה",
+  ChargedSuccess: "חויב בהצלחה",
+  RecoveredCharge: "חויב בהצלחה (אחרי השלמה)",
+  ChargeFailedRecovery: "ממתין לעדכון אשראי",
+  ChargeFailedFinal: "חיוב נכשל סופית",
+  AuthReleased: "המסגרת שוחררה",
+  Refunded: "הוחזר"
+};
+
+export function moneyStateLabel(state: string): string {
+  return MONEY_STATE_LABELS[state] || state;
+}
+
 // Buyer-facing status story for the public deal page.
 export function buyerStateStory(state: string, unitsToTarget: number): string {
   switch (state) {

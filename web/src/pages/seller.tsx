@@ -1,18 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, getSellerToken, setSellerToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
 import {
-  Countdown, EmptyState, GroupMeter, Modal, SharePanel, Spinner, StatusPill, StatTile, Toast, copyText, useToast
+  BrandLoader, Countdown, EmptyState, GroupMeter, Modal, Spinner, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
+import { BrandMark } from "../brand";
 import {
   CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeIcon, dealTypeLabel,
-  failReason, fmtDate, ils, num, stateLabel
+  failReason, fmtDate, ils, moneyStateLabel, num
 } from "../util";
 import { absoluteShareUrl } from "../viral";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 
 // ── login ──────────────────────────────────────────────────────────────────
-function SellerLogin({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<"login" | "signup">("login");
+function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
+  const [mode, setMode] = useState<"login" | "signup">(initialMode || "login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -47,9 +48,10 @@ function SellerLogin({ onDone }: { onDone: () => void }) {
   return (
     <div style={{ maxWidth: 420, margin: "40px auto" }}>
       <div className="panel">
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
         <h2 style={{ textAlign: "center" }}>אזור המוכרים</h2>
         <p className="muted small" style={{ textAlign: "center" }}>
-          חשבון אחד לכל סיטון — נהלו עסקאות קבוצתיות, עקבו אחרי כסף והפצה.
+          חשבון אחד לכל C-ton — נהלו עסקאות קבוצתיות, עקבו אחרי כסף והפצה.
         </p>
         <form onSubmit={submit}>
           <div className="field"><label>אימייל</label><input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
@@ -173,7 +175,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     return { urgentDeals: urgent, otherDeals: rest };
   }, [deals]);
 
-  if (!surface && !error) return <Spinner label="טוענים את הדשבורד…" />;
+  if (!surface && !error) return <BrandLoader label="טוענים את הדשבורד…" minHeight={420} />;
 
   const stale = now - updatedAt > 60_000;
   const profile = surface?.seller_profile || {};
@@ -425,7 +427,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             <div className="notice info">בחרו לפחות אפשרות אספקה אחת למוצר.</div>
             {delivery.map((d, i) => (
               <div className="row" key={i} style={{ marginBottom: 10, alignItems: "flex-end" }}>
-                <div className="field" style={{ marginBottom: 0, width: 140 }}>
+                <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
                   <label>סוג</label>
                   <select value={d.option_type} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: e.target.value } : x))}>
                     <option value="pickup">איסוף עצמי</option>
@@ -433,11 +435,11 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                     <option value="distribution_point">נקודת חלוקה</option>
                   </select>
                 </div>
-                <div className="field grow" style={{ marginBottom: 0 }}>
+                <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
                   <label>תיאור</label>
                   <input value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
                 </div>
-                <div className="field" style={{ marginBottom: 0, width: 110 }}>
+                <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
                   <label>עלות (₪)</label>
                   <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                 </div>
@@ -494,7 +496,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             </div>
             <div className="notice info">
               חלון השלמה לכשלי חיוב: <b>24 שעות</b> (ברירת מחדל של המערכת).
-              עמלת סיטון: <b>8% + מע״מ</b> מהסכום שנגבה בפועל בלבד.
+              עמלת C-ton: <b>8% + מע״מ</b> מהסכום שנגבה בפועל בלבד.
             </div>
           </>
         ) : null}
@@ -531,7 +533,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                 <span className="k">מתי</span><span className="v">{eventStartsAt}</span>
                 <span className="k">מקום</span><span className="v">{venueName} · {venueCity}</span>
               </> : null}
-              <span className="k">עמלת סיטון</span><span className="v">8% + מע״מ מהנגבה בפועל</span>
+              <span className="k">עמלת C-ton</span><span className="v">8% + מע״מ מהנגבה בפועל</span>
             </div>
             <div className="publish-warning">
               <label className="check"><input data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => setAck1(e.target.checked)} />
@@ -596,7 +598,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   }, [dealId]);
 
   if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את העסקה" body={error} />;
-  if (!payload?.deal) return <Spinner label="טוענים…" />;
+  if (!payload?.deal) return <BrandLoader label="טוענים את העסקה…" minHeight={420} />;
 
   const deal = payload.deal;
   const state = String(deal.state);
@@ -701,7 +703,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           <div className="panel-title">💰 כספים (על בסיס חיובים שבוצעו בפועל)</div>
           <div className="stat-row" style={{ marginBottom: 0 }}>
             <StatTile num={ils(gross)} label="ברוטו שנגבה" tone="good" />
-            <StatTile num={ils(fee)} label="עמלת סיטון (8%)" />
+            <StatTile num={ils(fee)} label="עמלת C-ton (8%)" />
             <StatTile num={ils(Math.round((gross - fee * 1.18) * 100) / 100)} label="נטו משוער למוכר" sub="צפוי להעברה תוך 3–7 ימי עסקים" />
             <StatTile num={num(chargedUnits)} label="יחידות מחויבות" />
           </div>
@@ -721,7 +723,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                     <td dir="ltr">{p.buyer_phone || p.buyer_id}</td>
                     <td className="num">{num(p.qty)}</td>
                     <td>{p.delivery_method_label || "—"}</td>
-                    <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(p.money_state)) ? "Completed" : String(p.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{String(p.money_state)}</span></td>
+                    <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(p.money_state)) ? "Completed" : String(p.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{moneyStateLabel(String(p.money_state))}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -790,9 +792,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 }
 
 // ── entry ──────────────────────────────────────────────────────────────────
-export function SellerArea({ sub, navigate }: { sub: string[]; navigate: (h: string) => void }) {
+export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: URLSearchParams; navigate: (h: string) => void }) {
   const [authed, setAuthed] = useState(Boolean(getSellerToken()));
-  if (!authed) return <SellerLogin onDone={() => setAuthed(true)} />;
+  if (!authed) return <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"} onDone={() => setAuthed(true)} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
   if (sub[0] === "deal" && sub[1]) return <SellerDealScreen dealId={sub[1]} navigate={navigate} />;
   return <SellerDashboard navigate={navigate} />;

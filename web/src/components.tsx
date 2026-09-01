@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { clamp, countdownView, num, progressColor, stateLabel } from "./util";
 import { SHARE_TARGETS, absoluteShareUrl, sendFunnelEvent } from "./viral";
+import { BRAND_MARK_URL } from "./config";
+
+export { BrandLoader } from "./brand";
 
 export function Spinner({ label }: { label?: string }) {
   return (
@@ -9,6 +12,22 @@ export function Spinner({ label }: { label?: string }) {
       {label ? <p style={{ marginTop: 10 }}>{label}</p> : null}
     </div>
   );
+}
+
+// Product image with a branded fallback: a failed load never leaves a blank
+// box — the C-ton mark appears on the dark surface instead.
+export function ProductImg({ src, alt, fallbackText }: { src: string; alt: string; fallbackText?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { setFailed(false); }, [src]);
+  if (!src || failed) {
+    return (
+      <div className="img-fallback">
+        <img src={BRAND_MARK_URL} alt="" aria-hidden="true" />
+        <span>{fallbackText || "התמונה אינה זמינה"}</span>
+      </div>
+    );
+  }
+  return <img src={src} alt={alt} onError={() => setFailed(true)} />;
 }
 
 export function StatusPill({ state, label }: { state: string; label?: string }) {
@@ -90,13 +109,28 @@ export function QtyStepper(props: { value: number; min?: number; max: number; on
   );
 }
 
-export function Modal(props: { title: string; onClose: () => void; children: React.ReactNode; wide?: boolean }) {
+// Modal — on phones it renders as a full-height sheet (see styles):
+// pinned header, scrollable body, and an optional sticky `footer` for the
+// final CTA so it stays reachable above browser chrome and the keyboard.
+export function Modal(props: {
+  title: string;
+  onClose: () => void;
+  children: React.ReactNode;
+  footer?: React.ReactNode;
+  wide?: boolean;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") props.onClose(); };
     document.addEventListener("keydown", onKey);
-    ref.current?.querySelector<HTMLElement>("input, button, select, textarea")?.focus();
-    return () => document.removeEventListener("keydown", onKey);
+    // lock body scroll while the sheet is open (prevents trapped-scroll fights)
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    ref.current?.querySelector<HTMLElement>("input, button:not(.x), select, textarea")?.focus();
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+    };
   }, []);
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose(); }}>
@@ -106,6 +140,7 @@ export function Modal(props: { title: string; onClose: () => void; children: Rea
           <button className="x" onClick={props.onClose} aria-label="סגירה">✕</button>
         </div>
         <div className="modal-body">{props.children}</div>
+        {props.footer ? <div className="modal-foot">{props.footer}</div> : null}
       </div>
     </div>
   );
@@ -138,9 +173,12 @@ export async function copyText(text: string): Promise<boolean> {
   }
 }
 
-// Share panel — every share is a funnel event; the URL carries the sharer's
-// personal code when one exists.
-export function SharePanel(props: {
+// ── ShareActions — THE one canonical share surface ─────────────────────────
+// Exactly ONE copy-link action per share context. On mobile the native share
+// sheet is the primary action; network shortcuts are secondary. Every share
+// is a funnel event; the URL carries the sharer's personal code when one
+// exists.
+export function ShareActions(props: {
   dealId: string;
   title: string;
   code?: string | null;
@@ -148,35 +186,34 @@ export function SharePanel(props: {
   compact?: boolean;
 }) {
   const url = useMemo(() => absoluteShareUrl(props.dealId, props.code || null), [props.dealId, props.code]);
-  const shareTitle = `${props.title} — קנייה קבוצתית בסיטון`;
+  const shareTitle = `${props.title} — קנייה קבוצתית ב-C-ton`;
   const canNative = typeof navigator !== "undefined" && Boolean((navigator as any).share);
   const track = (channel: string) => sendFunnelEvent(props.dealId, "share_button_click", { share_channel: channel });
+  const copy = async () => {
+    track("copy");
+    if (await copyText(url)) props.onCopied?.();
+  };
   return (
-    <div className="stack">
-      <div className="share-grid">
+    <div className="share-actions">
+      <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className="share-btn" onClick={async () => {
+          <button className="btn btn-primary" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, url }); } catch { /* user cancelled */ }
           }}>
-            <span className="share-ico">📲</span>שיתוף
+            📲 שיתוף
           </button>
         ) : null}
-        {SHARE_TARGETS.slice(0, props.compact ? 3 : SHARE_TARGETS.length).map((t) => (
-          <a key={t.key} className="share-btn" href={t.href(url, shareTitle)} target="_blank" rel="noopener noreferrer" onClick={() => track(t.key)}>
-            <span className="share-ico">{t.icon}</span>{t.label}
-          </a>
-        ))}
-        <button className="share-btn" onClick={async () => {
-          track("copy");
-          if (await copyText(url)) props.onCopied?.();
-        }}>
-          <span className="share-ico">🔗</span>העתקת לינק
+        <button className="btn btn-ghost" onClick={copy} data-testid="share-copy">
+          🔗 העתקת קישור
         </button>
       </div>
-      <div className="share-link-box">
-        <code>{url}</code>
-        <button className="btn btn-sm" onClick={async () => { track("copy"); if (await copyText(url)) props.onCopied?.(); }}>העתקה</button>
+      <div className="share-networks">
+        {SHARE_TARGETS.slice(0, props.compact ? 3 : SHARE_TARGETS.length).map((t) => (
+          <a key={t.key} className="share-net" href={t.href(url, shareTitle)} target="_blank" rel="noopener noreferrer" onClick={() => track(t.key)}>
+            <span>{t.icon}</span>{t.label}
+          </a>
+        ))}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
-  Countdown, EmptyState, GroupMeter, Modal, SharePanel, Spinner, StatusPill, QtyStepper, Toast, useToast
+  BrandLoader, Countdown, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, useToast
 } from "../components";
 import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, ils, initialOf, num, timeAgo } from "../util";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId } from "../viral";
@@ -19,13 +19,15 @@ function Gallery({ images, title, type }: { images: { url: string }[]; title: st
   return (
     <div className="deal-gallery">
       <div className="deal-gallery-main">
-        {current ? <img src={current.url} alt={title} /> : <div className="placeholder">{dealTypeIcon(type)}</div>}
+        {current
+          ? <ProductImg src={current.url} alt={title} />
+          : <div className="placeholder">{dealTypeIcon(type)}</div>}
       </div>
       {images.length > 1 ? (
         <div className="deal-thumbs">
           {images.map((img, i) => (
             <button key={i} className={`deal-thumb${i === idx ? " active" : ""}`} onClick={() => setIdx(i)} aria-label={`תמונה ${i + 1}`}>
-              <img src={img.url} alt="" />
+              <img src={img.url} alt="" loading="lazy" />
             </button>
           ))}
         </div>
@@ -101,6 +103,9 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
   );
 }
 
+// Join flow — on phones this renders as a FULL-HEIGHT sheet (via Modal):
+// pinned header, scrollable form body, and a sticky footer CTA that stays
+// reachable with the keyboard open and above browser chrome.
 function JoinModal(props: {
   deal: Json;
   qty: number;
@@ -157,16 +162,27 @@ function JoinModal(props: {
   };
 
   return (
-    <Modal title="אישור הצטרפות לעסקה" onClose={props.onClose}>
-      <form onSubmit={submit}>
+    <Modal
+      title="אישור הצטרפות לעסקה"
+      onClose={props.onClose}
+      footer={
+        <>
+          {error ? <div className="notice err" style={{ marginTop: 0 }}>{error}</div> : null}
+          <button className="btn btn-join btn-block" form="join-form" data-testid="join-submit" disabled={busy}>
+            {busy ? "מצטרפים…" : `אישור הצטרפות · ${ils(total)}`}
+          </button>
+        </>
+      }
+    >
+      <form id="join-form" onSubmit={submit}>
         <div className="order-summary" style={{ borderTop: "none", marginTop: 0, paddingTop: 0, marginBottom: 14 }}>
           <div className="order-row"><span>{deal.title}</span><span>{num(qty)} × {ils(deal.price_per_unit)}</span></div>
           {delivery ? <div className="order-row"><span>{DELIVERY_NAMES[delivery.option_type] || delivery.label}</span><span>{delivery.cost ? ils(delivery.cost) : "חינם"}</span></div> : null}
           <div className="order-row total"><span>סה״כ לתפיסת מסגרת</span><span>{ils(total)}</span></div>
         </div>
-        <div className="field"><label>שם מלא</label><input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
+        <div className="field"><label>שם מלא</label><input data-testid="join-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
         <div className="field-row">
-          <div className="field"><label>טלפון נייד</label><input dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" /></div>
+          <div className="field"><label>טלפון נייד</label><input data-testid="join-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" /></div>
           <div className="field"><label>אימייל <span className="hint">(לא חובה)</span></label><input dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
         </div>
         {needsAddress ? (
@@ -177,18 +193,14 @@ function JoinModal(props: {
         ) : null}
         <div className="field"><label>הערות <span className="hint">(לא חובה)</span></label><input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={200} /></div>
         <label className="check">
-          <input type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} />
+          <input data-testid="join-disclosure" type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} />
           <span>הבנתי: הסכום תופס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה, ואם העסקה לא נסגרת — המסגרת משתחררת אוטומטית.</span>
         </label>
         <label className="check">
-          <input type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
+          <input data-testid="join-terms" type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} />
           <span>קראתי ואני מסכים/ה <a href="/legal/terms" target="_blank" rel="noreferrer">לתקנון</a> ולמדיניות הביטולים.</span>
         </label>
-        {error ? <div className="notice err">{error}</div> : null}
-        <button className="btn btn-join btn-block" disabled={busy}>
-          {busy ? "מצטרפים…" : `הצטרפות · ${ils(total)}`}
-        </button>
-        <p className="muted small" style={{ textAlign: "center", marginTop: 8 }}>
+        <p className="muted small" style={{ textAlign: "center", marginTop: 8, marginBottom: 0 }}>
           סביבת הדגמה — לא מתבצעת סליקת אשראי אמיתית.
         </p>
       </form>
@@ -205,7 +217,7 @@ function JoinSuccess(props: { deal: Json; result: Json; onClose: () => void }) {
     : null;
   return (
     <Modal title="" onClose={props.onClose}>
-      <div className="share-moment">
+      <div className="share-moment" data-testid="join-success">
         <div style={{ fontSize: "2.4rem" }}>🎉</div>
         <h3>הצטרפת בהצלחה!</h3>
         <p>
@@ -213,9 +225,9 @@ function JoinSuccess(props: { deal: Json; result: Json; onClose: () => void }) {
         </p>
         <p style={{ fontWeight: 700 }}>
           עזרת לעסקה להתקדם. עכשיו זה הרגע: שתפו עם חברים כדי שנגיע ליעד ביחד —
-          זה הלינק האישי שלך, וכל מי שיצטרף דרכו נזקף לזכותך.
+          זה הקישור האישי שלך, וכל מי שיצטרף דרכו נזקף לזכותך.
         </p>
-        <SharePanel dealId={deal.deal_id} title={deal.title} code={shareCode} onCopied={() => showToast("הלינק האישי הועתק")} />
+        <ShareActions dealId={deal.deal_id} title={deal.title} code={shareCode} onCopied={() => showToast("הקישור האישי הועתק")} />
         {trackHash ? (
           <a className="btn btn-primary btn-block" style={{ marginTop: 14 }} href={trackHash}>
             למסך המעקב האישי שלי ←
@@ -273,10 +285,10 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
   if (error) {
     return (
       <EmptyState icon="🕐" title="העסקה אינה זמינה" body="ייתכן שהעסקה הסתיימה, בוטלה או שהקישור שגוי."
-        action={<a className="btn btn-primary" href="#/">לכל העסקאות במול</a>} />
+        action={<a className="btn btn-primary" href="#/">לדף הבית</a>} />
     );
   }
-  if (!payload) return <Spinner label="טוענים את העסקה…" />;
+  if (!payload) return <BrandLoader label="טוענים את העסקה…" minHeight={420} />;
 
   const deal = payload.deal;
   const seller = payload.seller || {};
@@ -301,69 +313,58 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
 
   const whatsappSeller = seller.support_phone
-    ? `https://wa.me/${String(seller.support_phone).replace(/[^\d]/g, "").replace(/^0/, "972")}?text=${encodeURIComponent(`היי, אני מעוניין בפרטים נוספים לגבי העסקה "${deal.title}" בסיטון`)}`
+    ? `https://wa.me/${String(seller.support_phone).replace(/[^\d]/g, "").replace(/^0/, "972")}?text=${encodeURIComponent(`היי, אני מעוניין בפרטים נוספים לגבי העסקה "${deal.title}" ב-C-ton`)}`
     : seller.support_email
       ? `mailto:${seller.support_email}?subject=${encodeURIComponent(`שאלה על העסקה ${deal.title}`)}`
       : null;
 
+  // Mobile-first: one column in EXACTLY the decision order a phone buyer
+  // needs — identity, image, price, progress, deadline, quantity, delivery,
+  // CTA — then everything secondary. Desktop rearranges via grid areas.
   return (
     <>
-      <a className="back" href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>→ לכל העסקאות</a>
-      <div className="deal-layout">
-        <div className="stack">
-          <Gallery images={deal.images || []} title={deal.title} type={deal.deal_type} />
-          <div className="panel">
-            <div className="panel-title">📦 מה מקבלים</div>
-            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || payload.deal?.fulfillment_copy?.what_you_get || "פרטי המוצר יופיעו כאן."}</p>
-            {deal.voucher_terms ? (
-              <div className="kv" style={{ marginTop: 12 }}>
-                <span className="k">שווי השובר</span><span className="v">{ils(deal.voucher_terms.face_value_amount)}</span>
-                <span className="k">בתוקף עד</span><span className="v">{fmtDate(deal.voucher_terms.valid_until)}</span>
-                {deal.voucher_terms.redemption_location ? (<><span className="k">מימוש</span><span className="v">{deal.voucher_terms.redemption_location}</span></>) : null}
-              </div>
-            ) : null}
-            {deal.ticket_terms ? (
-              <div className="kv" style={{ marginTop: 12 }}>
-                <span className="k">אירוע</span><span className="v">{deal.ticket_terms.event_name}</span>
-                <span className="k">מתי</span><span className="v">{fmtDate(deal.ticket_terms.event_starts_at)}</span>
-                {deal.ticket_terms.venue_name ? (<><span className="k">איפה</span><span className="v">{deal.ticket_terms.venue_name}</span></>) : null}
-              </div>
-            ) : null}
-          </div>
-          <ActivityTicker activity={activity} />
-          <ChatPanel dealId={dealId} canWrite={OPEN_STATES.includes(state)} />
-        </div>
-
-        <div className="stack">
+      <div className="deal-page">
+        {/* 1 — identity */}
+        <div className="deal-area-head">
           <div className={`panel${celebrated ? " celebrate" : ""}`}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <StatusPill state={state} label={buyerStateStory(state, unitsToTarget)} />
               <span className="staging-flag">סביבת הדגמה</span>
             </div>
-            <h1 className="deal-title" style={{ marginTop: 10 }}>{deal.title}</h1>
+            <h1 className="deal-title" style={{ marginTop: 10, marginBottom: 0 }}>{deal.title}</h1>
             {seller.business_name ? (
               <div className="deal-seller-line">🏪 {seller.business_name}</div>
             ) : null}
-            <div className="deal-price-hero">
+          </div>
+        </div>
+
+        {/* 2 — the real product image */}
+        <div className="deal-area-media">
+          <Gallery images={deal.images || []} title={deal.title} type={deal.deal_type} />
+        </div>
+
+        {/* 3-8 — price → progress → deadline → qty → delivery → CTA */}
+        <div className="deal-area-buy">
+          <div className="panel">
+            <div className="deal-price-hero" style={{ marginTop: 0 }}>
               <span className="price">{ils(deal.price_per_unit)}</span>
               <span className="price-unit">ליחידה · {dealTypeLabel(deal.deal_type)}</span>
             </div>
-            <div style={{ margin: "16px 0 4px" }}>
+            <div style={{ margin: "18px 0 4px" }}>
               <GroupMeter large joined={joined} threshold={Number(deal.threshold_units)} max={Number(deal.max_units)} showFlag />
             </div>
             <div className="kv" style={{ marginTop: 14 }}>
+              <span className="k">דדליין להצטרפות</span>
+              <span className="v"><Countdown until={deal.deadline} overText="הסתיים" /></span>
               <span className="k">משתתפים</span><span className="v">{num(participants)}</span>
               <span className="k">מלאי נותר</span>
               <span className="v" style={remaining <= 5 ? { color: "var(--pomegranate)" } : undefined}>{num(remaining)} מתוך {num(deal.max_units)}</span>
-              <span className="k">מינימום לעסקה</span><span className="v">{num(deal.min_units)} יחידות</span>
-              <span className="k">דדליין</span>
-              <span className="v"><Countdown until={deal.deadline} overText="הסתיים" /></span>
             </div>
           </div>
 
           {isOpen ? (
             <div className="panel">
-              <div className="panel-title">🛒 ההזמנה שלי</div>
+              <div className="panel-title">ההזמנה שלי</div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <span style={{ fontWeight: 700 }}>כמות יחידות</span>
                 <QtyStepper value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
@@ -390,7 +391,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
                 💳 הסכום תופס <b>מסגרת אשראי בלבד</b> — לא מתבצע חיוב בפועל עד
                 שהעסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.
               </div>
-              <button className="btn btn-join btn-block" onClick={() => { sendFunnelEvent(dealId, "join_started"); setJoining(true); }}>
+              <button className="btn btn-join btn-block" data-testid="join-open" onClick={() => { sendFunnelEvent(dealId, "join_started"); setJoining(true); }}>
                 {ctaText}
               </button>
             </div>
@@ -404,15 +405,33 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
           )}
 
           <div className="panel">
-            <div className="panel-title">📣 מכירים מישהו שזה יעניין אותו?</div>
-            <SharePanel compact dealId={dealId} title={deal.title} code={currentRef()} onCopied={() => showToast("הלינק הועתק")} />
+            <div className="panel-title">מכירים מישהו שזה יעניין אותו?</div>
+            <ShareActions compact dealId={dealId} title={deal.title} code={currentRef()} onCopied={() => showToast("הקישור הועתק")} />
           </div>
+        </div>
 
-          <div className="panel" style={{ textAlign: "center" }}>
-            <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
-            <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
+        {/* secondary content */}
+        <div className="deal-area-rest">
+          <div className="panel">
+            <div className="panel-title">📦 מה מקבלים</div>
+            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || payload.deal?.fulfillment_copy?.what_you_get || "פרטי המוצר יופיעו כאן."}</p>
+            {deal.voucher_terms ? (
+              <div className="kv" style={{ marginTop: 12 }}>
+                <span className="k">שווי השובר</span><span className="v">{ils(deal.voucher_terms.face_value_amount)}</span>
+                <span className="k">בתוקף עד</span><span className="v">{fmtDate(deal.voucher_terms.valid_until)}</span>
+                {deal.voucher_terms.redemption_location ? (<><span className="k">מימוש</span><span className="v">{deal.voucher_terms.redemption_location}</span></>) : null}
+              </div>
+            ) : null}
+            {deal.ticket_terms ? (
+              <div className="kv" style={{ marginTop: 12 }}>
+                <span className="k">אירוע</span><span className="v">{deal.ticket_terms.event_name}</span>
+                <span className="k">מתי</span><span className="v">{fmtDate(deal.ticket_terms.event_starts_at)}</span>
+                {deal.ticket_terms.venue_name ? (<><span className="k">איפה</span><span className="v">{deal.ticket_terms.venue_name}</span></>) : null}
+              </div>
+            ) : null}
           </div>
-
+          <ActivityTicker activity={activity} />
+          <ChatPanel dealId={dealId} canWrite={OPEN_STATES.includes(state)} />
           {whatsappSeller ? (
             <div className="panel">
               <div className="panel-title">🏪 המוכר</div>
@@ -421,6 +440,10 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
               <a className="btn btn-ghost" href={whatsappSeller} target="_blank" rel="noreferrer">שאלות? צרו קשר עם המוכר</a>
             </div>
           ) : null}
+          <div className="panel" style={{ textAlign: "center" }}>
+            <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
+            <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
+          </div>
         </div>
       </div>
 

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, getAdminToken, setAdminToken, supabaseSignIn, supabaseSignUp, Json } from "../api";
-import { Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
-import { fmtDate, ils, num, pct, stateLabel, timeAgo } from "../util";
+import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
+import { BrandMark } from "../brand";
+import { fmtDate, ils, moneyStateLabel, num, pct, stateLabel, timeAgo } from "../util";
 
 // ── login (canonical Supabase owner/admin identity) ────────────────────────
 function AdminLogin({ onDone }: { onDone: () => void }) {
@@ -44,7 +45,8 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
   return (
     <div style={{ maxWidth: 400, margin: "60px auto" }}>
       <div className="panel">
-        <h2 style={{ textAlign: "center" }}>מרכז הבקרה של סיטון</h2>
+        <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
+        <h2 style={{ textAlign: "center" }}>מרכז הבקרה של C-ton</h2>
         <p className="muted small" style={{ textAlign: "center" }}>כניסה למנהלי מערכת בלבד. כל פעולה מתועדת.</p>
         <form onSubmit={submit}>
           <div className="field"><label>אימייל</label><input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" /></div>
@@ -89,7 +91,7 @@ function Err({ msg }: { msg: string }) {
 function Overview({ navigate }: { navigate: (h: string) => void }) {
   const { data, error } = useFetch(() => api.adminOverview(), [], 30_000);
   if (error) return <Err msg={error} />;
-  if (!data) return <Spinner />;
+  if (!data) return <BrandLoader minHeight={360} />;
   const d = data as Json;
   const ops = d.operations || {};
   const money = d.money || {};
@@ -111,8 +113,8 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
       <div className="stat-row">
         <StatTile num={ils(money.potential_gross_volume || 0)} label="נפח מסגרות (פוטנציאל — לא הכנסה)" />
         <StatTile num={ils(money.charged_gross_volume || 0)} label="נגבה בפועל" tone="good" />
-        <StatTile num={ils(money.platform_fee_projection || 0)} label="עמלת סיטון — צפי מהמסגרות" />
-        <StatTile num={ils(money.platform_fee_actual || 0)} label="עמלת סיטון בפועל (מכסף שנגבה בלבד)" tone="good" />
+        <StatTile num={ils(money.platform_fee_projection || 0)} label="עמלת C-ton — צפי מהמסגרות" />
+        <StatTile num={ils(money.platform_fee_actual || 0)} label="עמלת C-ton בפועל (מכסף שנגבה בלבד)" tone="good" />
       </div>
       <div className="stat-row">
         <StatTile num={num(ops.outbox_pending || 0)} label="תור עבודות" tone={Number(ops.outbox_pending) > 20 ? "warn" : undefined} />
@@ -210,18 +212,19 @@ function DealsScreen({ navigate, initialState }: { navigate: (h: string) => void
   );
 }
 
-// ── viral tree explorer ────────────────────────────────────────────────────
-// Lazy interactive viral-tree explorer: loads one level at a time from the
-// canonical /viral-tree endpoint, expands branches on demand (never a full
-// dump), and shows per-node subtree metrics in a details panel.
+// ── viral tree explorer — a VISUAL hierarchy ───────────────────────────────
+// The primary view reads as an actual tree: node cards, trunk + elbow
+// connectors, children nested visually beneath their parent, expand/collapse
+// with lazy loading per branch (never a full dump). Node click opens branch
+// metrics in the details panel. Uses only the canonical /viral-tree endpoint.
 type TreeNode = Json;
 
-function TreeRow({ node, dealId, depth, onSelect, selectedId }: { node: TreeNode; dealId: string; depth: number; onSelect: (n: TreeNode) => void; selectedId: string | null }) {
+function TreeBranch({ node, dealId, depth, onSelect, selectedId }: { node: TreeNode; dealId: string; depth: number; onSelect: (n: TreeNode) => void; selectedId: string | null }) {
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<TreeNode[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [truncated, setTruncated] = useState(false);
-  const load = async () => {
+  const toggle = async () => {
     if (children) { setOpen(!open); return; }
     setLoading(true);
     try {
@@ -234,25 +237,36 @@ function TreeRow({ node, dealId, depth, onSelect, selectedId }: { node: TreeNode
   };
   const selected = selectedId === node.participant_id;
   return (
-    <div className={`tree-node${depth === 0 ? " root" : ""}`}>
-      <div className={`tree-row${selected ? " selected" : ""}`} style={{ paddingInlineStart: depth * 14 }}>
-        {node.has_children ? (
-          <button className="tree-toggle" onClick={load} aria-label={open ? "כיווץ" : "הרחבה"}>{loading ? "…" : open ? "−" : "+"}</button>
-        ) : <span className="tree-toggle-spacer" />}
-        <button className="tree-label" onClick={() => onSelect(node)}>
-          <b>{node.display}</b>
-          <span className="tree-badge">דור {num(node.generation)}</span>
-          <span className="tree-badge">{num(node.direct_units)} יח׳</span>
-          {node.charged ? <span className="tree-badge charged">חויב ✓</span> : node.active ? <span className="tree-badge">מסגרת</span> : <span className="tree-badge muted">נשר</span>}
-          {node.has_children ? <span className="tree-badge sub">ענף: {num(node.subtree_joins)} · {num(node.subtree_charged_units)} מחויבות</span> : null}
-        </button>
+    <div className="vtree-branch">
+      <div className="vtree-node">
+        <div
+          className={`vtree-card${selected ? " selected" : ""}${depth === 0 ? " root-card" : ""}`}
+          role="button" tabIndex={0}
+          onClick={() => onSelect(node)}
+          onKeyDown={(e) => { if (e.key === "Enter") onSelect(node); }}
+        >
+          {node.has_children ? (
+            <button className="vtree-toggle" onClick={(e) => { e.stopPropagation(); void toggle(); }} aria-label={open ? "כיווץ ענף" : "הרחבת ענף"} aria-expanded={open}>
+              {loading ? "…" : open ? "−" : "+"}
+            </button>
+          ) : <span className="vtree-leaf-dot" aria-hidden="true">•</span>}
+          <span className="vtree-name">{node.display}</span>
+          <span className="vtree-gen">דור {num(node.generation)}</span>
+          <span className="vtree-badge">{num(node.direct_units)} יח׳</span>
+          {node.charged ? <span className="vtree-badge charged">חויב ✓</span> : node.active ? <span className="vtree-badge">מסגרת</span> : <span className="vtree-badge dropped">נשר</span>}
+          {node.has_children ? (
+            <span className="vtree-badge branch">
+              {num(node.direct_children)} ישירים · ענף: {num(node.subtree_joins)} הצטרפויות / {num(node.subtree_charged_units)} מחויבות
+            </span>
+          ) : null}
+        </div>
       </div>
       {open && children ? (
-        <div className="tree-children">
+        <div className="vtree-children">
           {children.length ? children.map((c) => (
-            <TreeRow key={c.participant_id} node={c} dealId={dealId} depth={depth + 1} onSelect={onSelect} selectedId={selectedId} />
-          )) : <p className="muted small" style={{ paddingInlineStart: (depth + 1) * 14 }}>אין ילדים.</p>}
-          {truncated ? <p className="muted small" style={{ paddingInlineStart: (depth + 1) * 14 }}>מוצגים 60 הראשונים בענף זה.</p> : null}
+            <TreeBranch key={c.participant_id} node={c} dealId={dealId} depth={depth + 1} onSelect={onSelect} selectedId={selectedId} />
+          )) : <p className="muted small">אין מצטרפים דרך הקישור של המשתתף הזה.</p>}
+          {truncated ? <p className="muted small">מוצגים 60 הראשונים בענף זה.</p> : null}
         </div>
       ) : null}
     </div>
@@ -265,38 +279,39 @@ function ViralTreeExplorer({ dealId }: { dealId: string }) {
   if (error) return <Err msg={error} />;
   if (!data) return <Spinner />;
   const roots: TreeNode[] = (data as Json).nodes || [];
-  if (!roots.length) return <EmptyState icon="🌳" title="אין עדיין עץ הפצה" body="כל מצטרף מקבל לינק אישי; העץ ייבנה עם ההצטרפות הראשונה דרך שיתוף." />;
+  if (!roots.length) return <EmptyState icon="🌳" title="אין עדיין עץ הפצה" body="כל מצטרף מקבל קישור אישי; העץ ייבנה עם ההצטרפות הראשונה דרך שיתוף." />;
   return (
     <div className="tree-explorer">
       <div className="tree-pane">
-        <p className="muted small">שורשים ({num(roots.length)}{(data as Json).truncated ? "+" : ""}) — לחצו + להרחבת ענף (טעינה עצלה), ולחצו על שם לפרטים.</p>
-        <div className="tree">
-          {roots.map((n) => <TreeRow key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
+        <p className="muted small">
+          {num(roots.length)}{(data as Json).truncated ? "+" : ""} שורשים (מצטרפים ללא מפנה) —
+          + פותח את הענף של כל משתתף; לחיצה על כרטיס מציגה את מדדי הענף.
+        </p>
+        <div className="vtree">
+          {roots.map((n) => <TreeBranch key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
         </div>
       </div>
       <div className="tree-detail">
         {selected ? (
           <div className="panel" style={{ position: "sticky", top: 16 }}>
-            <div className="panel-title">פרטי צומת · {selected.display}</div>
+            <div className="panel-title">פרטי משתתף · {selected.display}</div>
             <div className="kv">
-              <span className="k">דור</span><span className="v">{num(selected.generation)}</span>
+              <span className="k">דור בשרשרת</span><span className="v">{num(selected.generation)}</span>
               <span className="k">סטטוס כסף</span><span className="v"><MoneyPill state={String(selected.money_state)} recovery={0} /></span>
               <span className="k">הביא ישירות</span><span className="v">{num(selected.direct_children)}</span>
-              <span className="k">יח׳ ישירות</span><span className="v">{num(selected.direct_units)}</span>
+              <span className="k">יחידות שלו</span><span className="v">{num(selected.direct_units)}</span>
               <span className="k">הצטרפויות בענף</span><span className="v">{num(selected.subtree_joins)}</span>
-              <span className="k">יח׳ בענף</span><span className="v">{num(selected.subtree_units)}</span>
-              <span className="k">יח׳ מחויבות בענף</span><span className="v" style={{ fontWeight: 700 }}>{num(selected.subtree_charged_units)}</span>
-              <span className="k">GMV מחויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
-              <span className="k">עומק תת-עץ</span><span className="v">{num(selected.subtree_max_depth)}</span>
-              <span className="k">לחיצות שיתוף</span><span className="v">{num(selected.share_visits)}</span>
-              <span className="k">כניסות מלינק</span><span className="v">{num(selected.share_joins)}</span>
-              <span className="k">First touch</span><span className="v small">{selected.first_touch_at ? fmtDate(selected.first_touch_at) : "—"}</span>
-              <span className="k">Last touch</span><span className="v small">{selected.last_touch_at ? fmtDate(selected.last_touch_at) : "—"}</span>
-              {selected.personal_code ? <><span className="k">קוד לינק</span><span className="v mono small" dir="ltr">{selected.personal_code}</span></> : null}
+              <span className="k">יחידות בענף</span><span className="v">{num(selected.subtree_units)}</span>
+              <span className="k">יחידות מחויבות בענף</span><span className="v" style={{ fontWeight: 700 }}>{num(selected.subtree_charged_units)}</span>
+              <span className="k">ברוטו מחויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
+              <span className="k">עומק הענף (דורות)</span><span className="v">{num(selected.subtree_max_depth)}</span>
+              <span className="k">כניסות מהקישור שלו</span><span className="v">{num(selected.share_visits)}</span>
+              <span className="k">הצטרפויות מהקישור</span><span className="v">{num(selected.share_joins)}</span>
+              {selected.personal_code ? <><span className="k">קוד קישור</span><span className="v mono small" dir="ltr">{selected.personal_code}</span></> : null}
             </div>
-            <p className="muted small" style={{ marginTop: 10 }}>הצטרפות ≠ חיוב. "מחויבות" = ChargedSuccess/RecoveredCharge בלבד.</p>
+            <p className="muted small" style={{ marginTop: 10 }}>הצטרפות ≠ חיוב: "מחויבות" נספרות רק אחרי חיוב שהצליח בפועל.</p>
           </div>
-        ) : <div className="panel"><p className="muted small">בחרו צומת בעץ כדי לראות מדדי ענף.</p></div>}
+        ) : <div className="panel"><p className="muted small">בחרו משתתף בעץ כדי לראות את מדדי הענף שלו.</p></div>}
       </div>
     </div>
   );
@@ -435,7 +450,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
         <StatTile num={num(chargedUnits)} label="יחידות מחויבות בפועל" tone="good" />
         <StatTile num={ils(potential)} label="פוטנציאל (מסגרות)" />
         <StatTile num={ils(gross)} label="נגבה בפועל" tone="good" />
-        <StatTile num={ils(Math.round(gross * 0.08 * 100) / 100)} label="עמלת סיטון (8% מהנגבה)" />
+        <StatTile num={ils(Math.round(gross * 0.08 * 100) / 100)} label="עמלת C-ton (8% מהנגבה)" />
         <StatTile num={<Countdown until={deal.completion_window_until || deal.deadline} overText="עבר" />} label={deal.completion_window_until ? "חלון השלמה" : "דדליין"} />
       </div>
 
@@ -456,7 +471,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
                   <td dir="ltr">{x.buyer_phone || x.buyer_id}</td>
                   <td className="num">{num(x.qty)}</td>
                   <td>{x.buyer_state}</td>
-                  <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(x.money_state)) ? "Completed" : String(x.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{x.money_state}</span></td>
+                  <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(x.money_state)) ? "Completed" : String(x.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{moneyStateLabel(String(x.money_state))}</span></td>
                   <td>{x.delivery_method_label || "—"}</td>
                   <td>{x.acquisition_source || "direct"}</td>
                   <td>{fmtDate(x.created_at)}</td>
@@ -569,7 +584,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
   const { data, error } = useFetch(() => api.adminSellerDetail(sellerId), [sellerId]);
   const [tab, setTab] = useState("deals");
   if (error) return <Err msg={error} />;
-  if (!data) return <Spinner />;
+  if (!data) return <BrandLoader minHeight={360} />;
   const d = data as Json;
   const s = d.seller || {};
   const vm = d.viral?.metrics as Json | null;
@@ -589,7 +604,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
         <StatTile num={num((d.deals || []).length)} label="עסקאות" />
         <StatTile num={ils(d.money?.potential_gross || 0)} label="פוטנציאל (מסגרות)" />
         <StatTile num={ils(d.money?.charged_gross || 0)} label="נגבה בפועל" tone="good" />
-        <StatTile num={ils(d.money?.platform_fee_actual || 0)} label="עמלת סיטון בפועל" />
+        <StatTile num={ils(d.money?.platform_fee_actual || 0)} label="עמלת C-ton בפועל" />
         <StatTile num={ils(d.money?.seller_net_actual || 0)} label="נטו למוכר בפועל" />
       </div>
 
@@ -719,7 +734,7 @@ function MoneyPill({ state, recovery }: { state: string; recovery: number }) {
   const risk = state === "ChargeFailedRecovery";
   return (
     <span className={`status small ${good ? "Completed" : risk ? "CompletionWindow" : "ClosedForJoining"}`}>
-      {state || "—"}{recovery > 0 && !risk ? ` (${num(recovery)} בהשלמה)` : ""}
+      {state ? moneyStateLabel(state) : "—"}{recovery > 0 && !risk ? ` (${num(recovery)} בהשלמה)` : ""}
     </span>
   );
 }
@@ -887,7 +902,7 @@ function PaymentsScreen() {
       </div>
       <div className="stat-row">
         <StatTile num={ils(ledger.gross_charged || 0)} label={synthetic ? "ברוטו סינתטי שנגבה" : "ברוטו שנגבה"} tone="good" />
-        <StatTile num={ils(ledger.fee_total || 0)} label="עמלת סיטון (בסיס+מע״מ)" sub={`בסיס ${ils(ledger.fee_base || 0)} · מע״מ ${ils(ledger.fee_vat || 0)}`} />
+        <StatTile num={ils(ledger.fee_total || 0)} label="עמלת C-ton (בסיס+מע״מ)" sub={`בסיס ${ils(ledger.fee_base || 0)} · מע״מ ${ils(ledger.fee_vat || 0)}`} />
         <StatTile num={num(ledger.entries || 0)} label="רשומות ליבון (ledger)" />
         <StatTile num={num(ledger.refund_entries || 0)} label="החזרים" tone={Number(ledger.refund_entries) > 0 ? "warn" : undefined} />
       </div>
@@ -931,7 +946,7 @@ function PaymentsScreen() {
         <div className="panel">
           <div className="panel-title">רשומות ליבון עמלה אחרונות</div>
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>מתי</th><th>עסקה</th><th>סוג</th><th className="num">ברוטו</th><th className="num">עמלת סיטון</th><th>קורלציה</th></tr></thead>
+            <thead><tr><th>מתי</th><th>עסקה</th><th>סוג</th><th className="num">ברוטו</th><th className="num">עמלת C-ton</th><th>קורלציה</th></tr></thead>
             <tbody>{ledgerRows.map((r, i) => (
               <tr key={i}>
                 <td>{fmtDate(r.created_at)}</td>
@@ -1144,18 +1159,14 @@ function SystemScreen() {
 }
 
 // ── shell ──────────────────────────────────────────────────────────────────
-const NAV: [string, string][] = [
-  ["overview", "תמונת מצב"],
-  ["deals", "עסקאות"],
-  ["sellers", "מוכרים"],
-  ["buyers", "קונים"],
-  ["growth", "צמיחה וויראליות"],
-  ["operations", "תפעול"],
-  ["payments", "תשלומים"],
-  ["notifications", "התראות"],
-  ["support", "תמיכה"],
-  ["audit", "Audit"],
-  ["system", "בריאות מערכת"]
+// Grouped IA: commerce first (the operator's daily work), growth second,
+// platform plumbing last.
+const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
+  { label: "", items: [["overview", "תמונת מצב"]] },
+  { label: "מסחר", items: [["deals", "עסקאות"], ["sellers", "מוכרים"], ["buyers", "קונים"]] },
+  { label: "צמיחה", items: [["growth", "צמיחה וויראליות"]] },
+  { label: "תפעול", items: [["operations", "תור ו-Worker"], ["payments", "תשלומים"], ["notifications", "התראות"], ["support", "תמיכה"]] },
+  { label: "מערכת", items: [["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
 ];
 
 export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: string) => void }) {
@@ -1181,11 +1192,16 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
   return (
     <div className="admin-shell">
       <nav className="admin-nav" aria-label="ניווט ניהול">
-        <div className="admin-nav-title">סיטון · ניהול</div>
-        {NAV.map(([key, label]) => (
-          <button key={key} className={screen.startsWith(key) || (key === "deals" && screen === "deal") || (key === "sellers" && screen === "seller") ? "active" : ""} onClick={() => navigate(`#/admin/${key}`)}>
-            {label}
-          </button>
+        <div className="admin-nav-title"><BrandMark size={26} /> C-ton · ניהול</div>
+        {NAV_GROUPS.map((group) => (
+          <React.Fragment key={group.label || "root"}>
+            {group.label ? <div className="admin-nav-group">{group.label}</div> : null}
+            {group.items.map(([key, label]) => (
+              <button key={key} className={screen.startsWith(key) || (key === "deals" && screen === "deal") || (key === "sellers" && screen === "seller") ? "active" : ""} onClick={() => navigate(`#/admin/${key}`)}>
+                {label}
+              </button>
+            ))}
+          </React.Fragment>
         ))}
         <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { setAdminToken(""); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
       </nav>

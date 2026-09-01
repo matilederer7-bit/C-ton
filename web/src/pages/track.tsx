@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
-import { Countdown, EmptyState, GroupMeter, SharePanel, Spinner, StatusPill, Toast, useToast } from "../components";
+import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, useToast } from "../components";
 import { fmtDate, ils, initialOf, num, timeAgo } from "../util";
 
 // מסך המעקב של הקונה — מקור האמת היחיד מרגע ההצטרפות ועד ההכרעה.
@@ -26,7 +26,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
   }, [participantId, token]);
 
   if (error) return <EmptyState icon="🔒" title="אין גישה למסך המעקב" body={error} />;
-  if (!payload?.tracking) return <Spinner label="טוענים את מסך המעקב…" />;
+  if (!payload?.tracking) return <BrandLoader label="טוענים את מסך המעקב…" minHeight={420} />;
 
   const t = payload.tracking;
   const toneClass = t.tone === "success" ? "ok" : t.tone === "danger" ? "err" : "info";
@@ -126,7 +126,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
               </>
             ) : <p className="muted small">טוען…</p>}
             <div style={{ marginTop: 12 }}>
-              <SharePanel
+              <ShareActions
                 compact
                 dealId={t.deal_id}
                 title={t.deal_title}
