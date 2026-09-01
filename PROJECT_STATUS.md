@@ -1,5 +1,16 @@
 # PROJECT STATUS
 
+## P0 PRODUCT EXPERIENCE RESCUE — IN PROGRESS (2026-09-01)
+
+**New P0 milestone (owner-mandated): mobile-first rebuild + C-ton brand rebuild + critical UX defect closure. R9B is checkpointed and paused (clean tree, pushed, no provider call mid-flight); R10 NOT started.**
+
+### Checkpoint 1 — brand + seller-first root + mall gating + mobile deal/join rebuild — DONE (local browser proof 23/23)
+- **Completed:** owner-supplied C-ton logo ingested verbatim at `web/public/brand/c-ton-logo.png` (+ carefully derived square mark/favicon renditions preserving the C + orange-bar identity); full dark graphite + commercial-orange design system derived from the logo (`web/src/styles.css` rewritten); visible brand is exactly **C-ton** everywhere (zero user-visible "סיטון"/"המול" remain in the React app); `PUBLIC_MALL_ENABLED` runtime env flag (default **OFF**) — root + unknown routes render the new seller-first landing, Mall stays fully implemented but undiscoverable, direct deal links work; branded C-ton loading state (logo pulse, reduced-motion safe); deal page rebuilt mobile-first in the phone decision order (identity→image→price→progress→deadline→qty→delivery→CTA); Join flow rebuilt as a true full-height sheet on phones (pinned header, scrollable body, sticky CTA, 100dvh + safe-area, body-scroll lock); ONE canonical `ShareActions` component (single copy-link control, native share primary on mobile); branded image fallback (no blank boxes); crawler-readable `GET /d/:dealId` share route with real OG/Twitter meta using the ACTUAL primary deal image (brand logo only as no-image fallback) + human redirect preserving `?ref=`; `personalShareUrl` + web share links moved to `/d/`; admin viral tree rebuilt as a visual card hierarchy (trunk/elbow connectors, lazy per-branch expand, branch rollups, node detail panel); admin nav grouped + branded; internal money-state jargon mapped to product Hebrew on seller+admin surfaces.
+- **Tested:** `scripts/p0_browser_proof.cjs` (headless Edge CDP) — **23/23 PASS** against a fresh local DB: crawler-style OG fetch; landing/brand/mall-hidden; unknown-route fallback; RTL no-horizontal-overflow at 320/360/375/390/430; deal hierarchy order at all widths + desktop; ONE copy control; **COMPLETE Join submissions at 320/360/390** through the sheet; seller login (branded, mobile) + `?signup=1`; admin login shell. Flag-ON state browser-verified separately (Mall root + nav restored). Backend scans green (enforcement/payment/DDL), `tsc` full repo clean, screenshots visually reviewed.
+- **Open:** hosted deploy + hosted browser proof (real Supabase imagery, authenticated seller/admin walkthroughs incl. visual viral tree with real generations), Web CI + Backend CI green, PROJECT_STATUS closure. Percentage: ~70%.
+
+---
+
 ## SITON R9B GROW SANDBOX ACTIVATION — IMPLEMENTATION READY, EXTERNALLY BLOCKED (2026-09-01)
 
 **Stage ladder: R3–R8 = 100%, R9A = 100%, R9B = 85%.**
