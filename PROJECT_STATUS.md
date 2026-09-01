@@ -1,5 +1,16 @@
 # PROJECT STATUS
 
+## OWNER THREE-MODE EXPERIENCE — CLOSED (2026-09-01, night, follows P0)
+
+**One canonical owner account (Supabase email/password) opens every gate; three cleanly separated experiences (guest / seller / admin). Verdict: owner acceptance 11/11 + forged-state authority test PASS on live staging. Code SHA `538c862`.**
+
+- **Security model (no bypass):** email/password → Supabase authentication → verified JWT subject → canonical DB capability bindings. `GET /api/auth/capabilities` is read-only discovery; the configured `SITON_OWNER_EMAIL` is auto-provisioned its SuperAdmin binding (existing R6 claim) **and** an owner seller binding (`seller_accounts` row `c-ton-owner`, new `claimOwnerSellerBinding`) under the same verified-confirmed-token trust model. The email string alone never authorizes; no password anywhere in code/env; every privileged route keeps authorizing independently.
+- **One login, all gates:** signing in on either surface adopts every server-confirmed capability (same token, per-surface keys). Owner mode switcher (הצג כ: אורח/מוכר/מנהל) renders only for accounts whose ADMIN capability the server confirmed.
+- **Guest mode strictly removes privileges:** both tokens stashed out of the active keys + the API client refuses to attach auth while active + full reload into the public root; obvious owner-only exit ("חזרה לחשבון שלי"). Logout from either surface ends the whole session.
+- **Proven on staging (real browser + owner credentials supplied privately; never persisted):** one login → seller dashboard (owner-seller binding created live); switcher appears immediately; create-deal flow opens; admin control center opens; guest strips switcher/nav/tokens with **zero authorization headers** on the wire while browsing public pages; seller area shows the plain visitor login in guest; full round trip Admin→Guest→Seller→Guest→Admin; clean visitor discovers no owner controls; garbage token → 401; **forged localStorage caps + forged tokens land on login screens — server denies, forged admin token cleared** (mode selection can never upgrade authority).
+
+---
+
 ## P0 PRODUCT EXPERIENCE RESCUE — CLOSED 100% (2026-09-01, night)
 
 **Verdict: `P0_PRODUCT_EXPERIENCE_RESCUE_CLOSED`. Final code SHA `8838b29` (this docs commit follows it), live at https://siton-staging-web.onrender.com/preview. R9B stays paused at its checkpoint; R10 NOT started.**
