@@ -65,7 +65,12 @@ export function uploadDealImage(dealId: string, img: { name: string; mime: strin
 }
 
 async function sellerReq(path: string, init: RequestInit = {}): Promise<any> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", authorization: `Bearer ${getSellerToken()}`, ...(init.headers as any) } });
+  // Only declare a JSON content-type when a body is actually sent — a bodyless
+  // DELETE with content-type:application/json is rejected by Fastify's JSON body
+  // parser ("Body cannot be empty").
+  const headers: Record<string, string> = { authorization: `Bearer ${getSellerToken()}`, ...(init.headers as any) };
+  if (init.body != null) headers["content-type"] = "application/json";
+  const res = await fetch(path, { ...init, headers });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body?.message || body?.error || `הפעולה נכשלה (${res.status})`);
   return body;
