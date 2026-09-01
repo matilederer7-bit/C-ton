@@ -1,4 +1,4 @@
-import assert from "node:assert/strict";
+﻿import assert from "node:assert/strict";
 import http from "node:http";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -496,7 +496,7 @@ await runTest("capture without reconciliation truth stays in Charging and marks 
   });
 
   // R9A: a provider "success" with no canonical reconciliation event is an
-  // UNKNOWN outcome — never guessed and never blind-retried. The charge event
+  // UNKNOWN outcome ג€” never guessed and never blind-retried. The charge event
   // completes (the deal proceeds on its time-driven path) and the durable
   // payment_reconcile job owns resolution via the provider status seam.
   const processed = await processOutboxEventById(charging.outboxEventId);
@@ -849,4 +849,6 @@ await runTest("finalize defers before expiry, replays safely, and enforces the 9
 
 await provider.close();
 await pool.end();
+// Windows/libuv teardown drain (uv_async close race under process.exit).
+await new Promise((resolve) => setTimeout(resolve, 700));
 process.exit(0);

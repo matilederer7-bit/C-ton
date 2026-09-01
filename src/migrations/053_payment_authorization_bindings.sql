@@ -106,7 +106,8 @@ CREATE OR REPLACE FUNCTION siton.is_valid_action_name(action_name text)
 RETURNS boolean
 LANGUAGE sql
 AS $$
-  SELECT action_name IN (
+  SELECT COALESCE(action_name, '') LIKE 'test.%'
+    OR COALESCE(action_name, '') IN (
     'participant.join_authorize',
     'deal.publish',
     'deal.target_reached',

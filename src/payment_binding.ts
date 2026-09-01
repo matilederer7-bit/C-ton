@@ -198,13 +198,18 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     expected_amount_minor: number;
     expected_currency: string;
   }): Promise<PaymentAuthorizationBinding> {
+    // Prefer the newest CONSUMABLE binding: a buyer legitimately re-purchasing
+    // with the same payment method produces multiple bindings under one
+    // authorization handle; already-consumed rows must not shadow a fresh
+    // authorized one. When none is authorized, the newest row drives the
+    // precise fail-closed error.
     const found = await c.query(
       `SELECT ${BINDING_COLUMNS}
        FROM siton.payment_authorization_bindings
        WHERE authorization_id=$1
          AND deal_id=$2
          AND buyer_id=$3
-       ORDER BY created_at DESC
+       ORDER BY (status='authorized') DESC, created_at DESC
        LIMIT 1
        FOR UPDATE`,
       [input.authorization_id, input.deal_id, input.buyer_id]
