@@ -81,8 +81,11 @@ await runTest("react_seller_wizard_three_type_payload_validation", async () => {
   assert.match(reactSeller, /voucher_code_mode: "system_generated"/);
   assert.match(reactSeller, /dealType === "ticket"[\s\S]{0,1200}ticket_terms:/);
   assert.match(reactSeller, /seat_mode: seatMode/);
-  assert.match(reactSeller, /await api\.publishDeal\(dealId\)/);
-  assert.match(reactSeller, /ack1 && ack2/, "both publish-lock acknowledgements stay mandatory");
+  // P0.2 — publishing moved from the wizard to the deal screen's publish
+  // modal; the canonical publish call + BOTH mandatory publish-lock
+  // acknowledgements now live there (same file, same guarantees).
+  assert.match(reactSeller, /await api\.publishDeal\(/);
+  assert.match(reactSeller, /!ack1 \|\| !ack2/, "both publish-lock acknowledgements stay mandatory");
   assert.doesNotMatch(reactSeller, /deal_type:\s*"physical_product"/, "the React wizard must not force every deal to physical_product");
 });
 
