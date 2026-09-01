@@ -829,17 +829,20 @@ function OperationsScreen() {
       </div>
       <div className="stat-row">
         <StatTile num={w.running ? "פעיל" : "לא מדווח"} label="Worker" tone={w.running ? "good" : "bad"} sub={`${num(w.active_count || 0)} מופעים`} />
-        <StatTile num={num(o.pending || 0)} label="ממתינים בתור" tone={Number(o.pending) > 20 ? "warn" : undefined} />
+        <StatTile num={num(o.due_now ?? o.pending ?? 0)} label="לביצוע עכשיו (תור פעיל)" tone={Number(o.due_now ?? 0) > 20 ? "warn" : undefined} />
+        <StatTile num={num(o.scheduled_future ?? 0)} label="מתוזמן לעתיד" sub={o.next_scheduled_in_s != null ? `הבא בעוד ${ageLabel(o.next_scheduled_in_s)}` : "אין"} />
         <StatTile num={num(o.processing || 0)} label="בעיבוד כעת" />
         <StatTile num={num(o.sent || 0)} label="הושלמו" tone="good" />
-        <StatTile num={num(o.failed || 0)} label="נכשלו" tone={Number(o.failed) > 0 ? "warn" : undefined} />
       </div>
       <div className="stat-row">
+        <StatTile num={num(o.failed || 0)} label="נכשלו" tone={Number(o.failed) > 0 ? "warn" : undefined} />
         <StatTile num={num(dlq)} label="DLQ (מכתבים מתים)" tone={dlq > 0 ? "bad" : "good"} />
         <StatTile num={num(stuck)} label="חכירות תקועות" tone={stuck > 0 ? "warn" : "good"} sub={`סף ${num((o.stuck_timeout_ms || 0) / 1000)} שנ׳`} />
-        <StatTile num={ageLabel(o.oldest_pending_age_s)} label="הממתין הוותיק ביותר" tone={Number(o.oldest_pending_age_s) > 300 ? "warn" : undefined} />
-        <StatTile num={ageLabel(o.oldest_processing_age_s)} label="בעיבוד הוותיק ביותר" />
+        <StatTile num={ageLabel(o.oldest_due_age_s)} label="הממתין הוותיק (לביצוע)" tone={Number(o.oldest_due_age_s) > 300 ? "warn" : undefined} />
       </div>
+      {Number(o.scheduled_future ?? 0) > 0 && Number(o.due_now ?? 0) === 0 ? (
+        <div className="notice info">כל {num(o.scheduled_future)} העבודות הממתינות מתוזמנות לעתיד (למשל בדיקות דדליין) — זו עבודה מתוזמנת, לא צבר תקוע.</div>
+      ) : null}
       <div className="panel">
         <div className="panel-title">מופעי Worker (heartbeat)</div>
         {instances.length ? (

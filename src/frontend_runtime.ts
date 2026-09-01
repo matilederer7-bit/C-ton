@@ -6322,10 +6322,13 @@ export function registerFrontendExperience(
         c.query(
           `SELECT
              COUNT(*)                                              FILTER (WHERE status='pending')    AS pending_count,
+             COUNT(*)                                              FILTER (WHERE status='pending' AND available_at >  now()) AS scheduled_future_count,
+             COUNT(*)                                              FILTER (WHERE status='pending' AND available_at <= now()) AS due_now_count,
              COUNT(*)                                              FILTER (WHERE status='processing') AS processing_count,
              COUNT(*)                                              FILTER (WHERE status='sent')       AS sent_count,
              COUNT(*)                                              FILTER (WHERE status='failed')     AS failed_count,
-             EXTRACT(EPOCH FROM (now() - MIN(available_at)       FILTER (WHERE status='pending')))    AS oldest_pending_age_s,
+             EXTRACT(EPOCH FROM (MIN(available_at) FILTER (WHERE status='pending' AND available_at > now()) - now())) AS next_scheduled_in_s,
+             EXTRACT(EPOCH FROM (now() - MIN(available_at)       FILTER (WHERE status='pending' AND available_at <= now()))) AS oldest_due_age_s,
              EXTRACT(EPOCH FROM (now() - MIN(processing_started_at)
                                                                   FILTER (WHERE status='processing'))) AS oldest_processing_age_s,
              COUNT(*)
@@ -6350,11 +6353,18 @@ export function registerFrontendExperience(
         ok: true,
         outbox: {
           pending:           Number(o.pending_count   ?? 0),
+          // A pending job whose available_at is in the future is SCHEDULED work
+          // (e.g. a deadline_check waiting for the deal deadline), not a
+          // backlog. Only jobs due now count as an actionable queue.
+          scheduled_future:  Number(o.scheduled_future_count ?? 0),
+          due_now:           Number(o.due_now_count ?? 0),
           processing:        Number(o.processing_count ?? 0),
           sent:              Number(o.sent_count       ?? 0),
           failed:            Number(o.failed_count     ?? 0),
           dlq:               Number(dlq.rows[0].dlq_count ?? 0),
-          oldest_pending_age_s:    o.oldest_pending_age_s    != null ? Number(Number(o.oldest_pending_age_s).toFixed(1))    : null,
+          next_scheduled_in_s:     o.next_scheduled_in_s     != null ? Number(Number(o.next_scheduled_in_s).toFixed(1))     : null,
+          oldest_due_age_s:        o.oldest_due_age_s        != null ? Number(Number(o.oldest_due_age_s).toFixed(1))        : null,
+          oldest_pending_age_s:    o.oldest_due_age_s        != null ? Number(Number(o.oldest_due_age_s).toFixed(1))        : null,
           oldest_processing_age_s: o.oldest_processing_age_s != null ? Number(Number(o.oldest_processing_age_s).toFixed(1)) : null,
           stuck_candidates:  Number(o.stuck_candidates ?? 0),
           stuck_timeout_ms:  stuckTimeoutMs
