@@ -909,7 +909,7 @@ function PaymentsScreen() {
             <tbody>{byType.map((r) => (
               <tr key={r.attempt_type}>
                 <td dir="ltr">{r.attempt_type}</td>
-                <td className="num" style={{ color: "var(--basil, #2e7d32)" }}>{num(r.success)}</td>
+                <td className="num" style={{ color: "var(--success)" }}>{num(r.success)}</td>
                 <td className="num">{num(r.temporary_fail)}</td>
                 <td className="num" style={{ color: Number(r.permanent_fail) > 0 ? "var(--pomegranate)" : undefined }}>{num(r.permanent_fail)}</td>
                 <td className="num">{num(r.unknown)}</td>

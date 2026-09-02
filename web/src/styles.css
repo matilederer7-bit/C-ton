@@ -840,8 +840,8 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 /* ── misc ──────────────────────────────────────────────────────────────── */
 .notice { border-radius: var(--radius-sm); padding: 10px 14px; font-size: .92rem; margin: 10px 0; border: 1px solid transparent; }
 .notice.err { background: var(--pomegranate-tint); color: #ff9d8a; border-color: rgba(240, 86, 58, .3); }
-.notice.ok { background: var(--success-tint); color: var(--success); border-color: rgba(62, 207, 122, .3); }
-.notice.info { background: var(--sky-tint); color: #9cc0ff; border-color: rgba(91, 155, 255, .25); }
+.notice.ok { background: var(--success-tint); color: var(--success); border-color: rgba(111, 211, 224, .3); }
+.notice.info { background: var(--sky-tint); color: var(--accent-cyan); border-color: rgba(111, 211, 224, .25); }
 .staging-flag { background: var(--saffron-tint); color: var(--saffron); border-radius: 999px; padding: 2px 12px; font-size: .74rem; font-weight: 700; white-space: nowrap; }
 .muted { color: var(--ink-faint); }
 .small { font-size: .85rem; }
@@ -972,7 +972,7 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 tr.clickable:hover { background: var(--brand-tint); }
 .safety-row { display: flex; flex-wrap: wrap; gap: 8px; }
 .safety-badge { font-size: .8rem; font-weight: 800; padding: 5px 14px; border-radius: 8px; letter-spacing: .02em; }
-.safety-badge.off { background: var(--success-tint); color: var(--success); border: 1.5px solid rgba(62, 207, 122, .3); }
+.safety-badge.off { background: var(--success-tint); color: var(--success); border: 1.5px solid rgba(111, 211, 224, .3); }
 .safety-badge.on { background: var(--pomegranate-tint); color: var(--pomegranate); border: 1.5px solid var(--pomegranate); }
 .health-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
 .health-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; background: var(--surface-warm); border: 1px solid var(--line); border-radius: var(--radius-sm); font-weight: 600; }

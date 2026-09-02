@@ -239,9 +239,12 @@ export function utcIsoToIsraelParts(iso: string | null | undefined): { date: str
 export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
   if (r >= 1) return "linear-gradient(90deg, #45b9c9, #6fd3e0)";
-  // hue 24 (hot orange) → 187 (muted cyan)
-  const hue = Math.round(24 + r * 163);
-  const hue2 = Math.round(Math.min(190, hue + 10));
-  const sat = Math.round(78 - r * 22);
-  return `linear-gradient(90deg, hsl(${hue} ${sat}% 50%), hsl(${hue2} ${Math.max(48, sat - 6)}% 55%))`;
+  // Warm commercial orange deepening to amber; the hue never wanders into
+  // green — near the target only the LEADING EDGE cools into the single cyan
+  // accent (sRGB gradient blend, which passes through neutral, not green).
+  const hue = Math.round(18 + r * 20); // 18 (hot orange) → 38 (amber)
+  const sat = Math.round(82 - r * 10);
+  const base = `hsl(${hue} ${sat}% 50%)`;
+  if (r < 0.75) return `linear-gradient(90deg, ${base}, hsl(${hue + 6} ${Math.max(60, sat - 4)}% 55%))`;
+  return `linear-gradient(90deg, ${base}, #6fd3e0)`;
 }
