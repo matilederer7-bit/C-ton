@@ -228,13 +228,15 @@ export function ShareActions(props: {
         </button>
       </div>
       <div className="share-networks share-icons" role="group" aria-label="שיתוף ברשתות">
+        {/* P0.4-3 — key classes are PREFIXED: the bare "x" key collided with
+            the global .x utility button (36px) and visibly shrank the X icon */}
         {nets.map((n) => n.href ? (
-          <a key={n.key} className={`share-ico-btn ${n.key}`} href={n.href} target="_blank" rel="noopener noreferrer"
+          <a key={n.key} className={`share-ico-btn net-${n.key}`} href={n.href} target="_blank" rel="noopener noreferrer"
             aria-label={n.label} title={n.label} onClick={() => track(n.key)}>
             {n.icon}
           </a>
         ) : (
-          <button key={n.key} className={`share-ico-btn ${n.key}`} aria-label={n.label} title={n.label} onClick={n.onClick}>
+          <button key={n.key} className={`share-ico-btn net-${n.key}`} aria-label={n.label} title={n.label} onClick={n.onClick}>
             {n.icon}
           </button>
         ))}
