@@ -232,7 +232,10 @@ async function driveDealToFinalState(dealId: string, sellerId: string, suffix: s
   // to a future available_at. To keep the test deterministic we reset
   // available_at to now() and re-process up to a small bounded number of
   // attempts. Already-charged participants are skipped on retry.
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  // 8 attempts was observed to exhaust under unlucky temp-fail rolls in CI's
+  // test:all pass — keep the bound generous; charged participants are skipped
+  // on retry so extra attempts cost nothing.
+  for (let attempt = 0; attempt < 25; attempt += 1) {
     const charge = await pool.query(
       `SELECT event_uuid, status FROM siton.outbox_events
         WHERE aggregate_id=$1 AND event_type='charge_deal'
