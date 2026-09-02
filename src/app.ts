@@ -4868,7 +4868,7 @@ app.post("/deals/:id/close_joining", async (req: any) => {
 
   const closeContext = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
-    const r = await c.query(`SELECT seller_id, max_units, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const r = await c.query(`SELECT seller_id, max_units, threshold_units, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
       err.statusCode = 404;
@@ -4879,7 +4879,11 @@ app.post("/deals/:id/close_joining", async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
-    return { maxUnits: Number(r.rows[0].max_units), state: String(r.rows[0].state) };
+    return {
+      maxUnits: Number(r.rows[0].max_units),
+      thresholdUnits: Number(r.rows[0].threshold_units),
+      state: String(r.rows[0].state)
+    };
   });
 
   // P0.3 — a manual pause is legal from BOTH open states. Anything else is an
@@ -4909,7 +4913,17 @@ app.post("/deals/:id/close_joining", async (req: any) => {
         [dealId]
       );
       if (canonicalPostgresRuntimeEnabled()) {
-        await buildInventoryRepository(c).close({
+        const inventoryRepo = buildInventoryRepository(c);
+        // the inventory row is created lazily by join's sync — a zero-join
+        // deal has none yet, and sync is the canonical create/open op; a
+        // fresh per-close key avoids poisoning join's `runtime-sync` key
+        await inventoryRepo.sync({
+          dealId,
+          maxUnits: closeContext.maxUnits,
+          minUnits: closeContext.thresholdUnits,
+          idempotencyKey: `close-sync:${dealId}:${idem}`.slice(0, 200)
+        });
+        await inventoryRepo.close({
           dealId,
           maxUnits: closeContext.maxUnits,
           idempotencyKey: canonicalInventoryKey("close", {
@@ -4994,6 +5008,17 @@ app.post("/deals/:id/reopen_joining", async (req: any) => {
         `UPDATE siton.deals SET close_reason=NULL, closed_for_joining_at=NULL WHERE deal_id=$1`,
         [dealId]
       );
+      if (canonicalPostgresRuntimeEnabled()) {
+        // sync is the canonical open/create op, but it REPLAYS on a used
+        // idempotency key — a fresh per-reopen key is required so the closed
+        // inventory actually flips back to 'open' for future Holds
+        await buildInventoryRepository(c).sync({
+          dealId,
+          maxUnits: Number(ctx.max_units),
+          minUnits: Number(ctx.threshold_units),
+          idempotencyKey: `reopen-sync:${dealId}:${idem}`.slice(0, 200)
+        });
+      }
     }
   });
   return { ok: true, state: toState, result };

@@ -3342,6 +3342,13 @@ export function registerFrontendExperience(
       }
       const bankLast4 = bankAccountNumber ? bankAccountNumber.replace(/\D/g, "").slice(-4) : null;
 
+      // the DB grant makes bank_account_number WRITE-ONLY for the Web runtime,
+      // so the upsert must never READ it (no COALESCE against the stored
+      // value) — an empty input simply leaves the columns out of the update
+      const bankSet = bankAccountNumber
+        ? `bank_account_number=EXCLUDED.bank_account_number,
+           bank_account_last4=EXCLUDED.bank_account_last4,`
+        : "";
       await c.query(
         `INSERT INTO siton.seller_business_profiles
            (seller_id, business_name, legal_name, business_id_number, entity_type, contact_name,
@@ -3363,8 +3370,7 @@ export function registerFrontendExperience(
            bank_account_holder=EXCLUDED.bank_account_holder,
            bank_name=EXCLUDED.bank_name,
            bank_branch=EXCLUDED.bank_branch,
-           bank_account_number=COALESCE(EXCLUDED.bank_account_number, siton.seller_business_profiles.bank_account_number),
-           bank_account_last4=COALESCE(EXCLUDED.bank_account_last4, siton.seller_business_profiles.bank_account_last4),
+           ${bankSet}
            profile_completed_at=COALESCE(siton.seller_business_profiles.profile_completed_at, EXCLUDED.profile_completed_at),
            updated_at=now()`,
         [

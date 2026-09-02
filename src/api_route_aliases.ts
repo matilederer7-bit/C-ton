@@ -7,7 +7,7 @@
 // real routes of their own (/api/deals/:id/public, /api/deals/:id/chat,
 // /api/deal-images/...) never match and are untouched.
 const DEAL_LIFECYCLE_ALIAS =
-  /^\/api(\/deals(?:\/[^/?#]+\/(?:publish|join|close_joining|prepare_charging|charging\/start|cancel))?)([?#].*)?$/;
+  /^\/api(\/deals(?:\/[^/?#]+\/(?:publish|join|close_joining|reopen_joining|prepare_charging|charging\/start|cancel))?)([?#].*)?$/;
 
 export function rewriteCanonicalApiAlias(url: string): string {
   const match = DEAL_LIFECYCLE_ALIAS.exec(url);

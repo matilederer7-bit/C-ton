@@ -114,7 +114,9 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
           {messages.map((m) => (
             <div className="chat-msg" key={m.message_id} data-testid="chat-msg">
               {m.reply_preview ? (
-                <div className="chat-reply-context">בתגובה ל<b>{m.reply_author || "משתתף"}</b>: {m.reply_preview}</div>
+                <div className="chat-reply-context">
+                  בתגובה ל<b>{m.reply_preview.display_name || "משתתף"}</b>: {String(m.reply_preview.body || "").slice(0, 120)}
+                </div>
               ) : null}
               <div className="chat-author">{m.display_name}</div>
               <div>{m.body}</div>
