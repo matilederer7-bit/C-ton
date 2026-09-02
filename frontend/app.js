@@ -14,10 +14,11 @@ const FLOW_TTL_MS = 1000 * 60 * 60 * 6;
 const SAFE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
 const SELLER_CREATE_RESUME_TTL_MS = 1000 * 60 * 60 * 24;
 const MALL_PAGE_LIMIT = 24;
-const MALL_TYPES = new Set(["physical_product", "voucher", "ticket"]);
+const MALL_TYPES = new Set(["physical_product", "voucher", "ticket", "service"]);
 const MALL_STATUSES = new Set(["underway", "reached_target", "succeeded", "failed", "cancelled"]);
 const MALL_SORTS = new Set(["newest", "oldest"]);
 const MALL_EVENT_TYPES = new Set(["mall_session", "card_impression", "mall_deal_click", "organic_deal_entry"]);
+const FUNNEL_EVENT_TYPES = new Set(["deal_view", "share_button_click", "join_started", "otp_started", "otp_completed", "payment_screen_reached", "authorization_attempt", "authorization_success", "joined", "completed_purchase"]);
 const POLL_INTERVAL_MS = 12000;
 const TRACKING_POLL_INTERVAL_MS = 6000;
 const ADMIN_POLL_INTERVAL_MS = 45000;
@@ -50,6 +51,10 @@ const state = {
   recoveryActionMessage: "",
   recoveryActionTone: "",
   sellerPayload: null,
+  sellerProducts: [],
+  sellerProductsLoading: false,
+  sellerProductsError: null,
+  selectedSellerProduct: null,
   sellerAnalyticsPayload: null,
   sellerAnalyticsPeriod: "all",
   sellerAnalyticsLoading: false,
@@ -104,7 +109,15 @@ const state = {
     payerName: "",
     sellerTitle: "",
     sellerDescription: "",
+    sellerProductMode: "new",
+    sellerProductId: "",
+    sellerProductCategory: "",
     sellerDealType: "physical_product",
+    sellerPhysicalStock: "",
+    sellerPhysicalWeightKg: "",
+    sellerPhysicalDimensions: "",
+    sellerPhysicalColor: "",
+    sellerPhysicalSize: "",
     sellerVoucherFaceValue: "",
     sellerVoucherValidUntil: "",
     sellerVoucherLocation: "",
@@ -117,6 +130,13 @@ const state = {
     sellerTicketVenueAddress: "",
     sellerTicketVenueCity: "",
     sellerTicketEntryInstructions: "",
+    sellerServiceLocationMode: "online",
+    sellerServiceLocation: "",
+    sellerServiceValidFrom: "",
+    sellerServiceValidUntil: "",
+    sellerServiceInstructions: "",
+    sellerServiceRestrictions: "",
+    sellerServiceAppointmentRequired: "",
     sellerImageDataUrl: "",
     sellerImageName: "",
     sellerImagesJson: "[]",
@@ -136,6 +156,8 @@ const state = {
     sellerDeliveryCity1: "",
     sellerDeliveryInstructions1: "",
     sellerDeliveryLocationUrl1: "",
+    sellerDeliveryEstimateMin1: "",
+    sellerDeliveryEstimateMax1: "",
     sellerDeliveryType2: "delivery",
     sellerDeliveryLabel2: "",
     sellerDeliveryCost2: "0",
@@ -144,6 +166,8 @@ const state = {
     sellerDeliveryCity2: "",
     sellerDeliveryInstructions2: "",
     sellerDeliveryLocationUrl2: "",
+    sellerDeliveryEstimateMin2: "",
+    sellerDeliveryEstimateMax2: "",
     sellerDeliveryType3: "distribution_point",
     sellerDeliveryLabel3: "",
     sellerDeliveryCost3: "0",
@@ -152,6 +176,8 @@ const state = {
     sellerDeliveryCity3: "",
     sellerDeliveryInstructions3: "",
     sellerDeliveryLocationUrl3: "",
+    sellerDeliveryEstimateMin3: "",
+    sellerDeliveryEstimateMax3: "",
     sellerDeliveryType4: "distribution_point",
     sellerDeliveryLabel4: "",
     sellerDeliveryCost4: "0",
@@ -160,6 +186,8 @@ const state = {
     sellerDeliveryCity4: "",
     sellerDeliveryInstructions4: "",
     sellerDeliveryLocationUrl4: "",
+    sellerDeliveryEstimateMin4: "",
+    sellerDeliveryEstimateMax4: "",
     sellerDeliveryType5: "distribution_point",
     sellerDeliveryLabel5: "",
     sellerDeliveryCost5: "0",
@@ -168,6 +196,8 @@ const state = {
     sellerDeliveryCity5: "",
     sellerDeliveryInstructions5: "",
     sellerDeliveryLocationUrl5: "",
+    sellerDeliveryEstimateMin5: "",
+    sellerDeliveryEstimateMax5: "",
     sellerBizName: "",
     sellerContactName: "",
     sellerSupportPhone: "",
@@ -344,8 +374,14 @@ document.addEventListener("click", (event) => {
     if (action === "restart-flow") restartFlow();
     if (action === "reset-otp") resetOtp();
     if (action === "seller-clone") void cloneSellerDeal(actionTarget.dataset.dealId);
-    if (action === "share-link") void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
-    if (action === "copy-link") void copyLink(actionTarget.dataset.shareUrl);
+    if (action === "share-link") {
+      if (state.route.name === "deal") postFunnelEvent("share_button_click", state.route.dealId, { share_channel: navigator.share ? "native" : "copy" });
+      void shareLink(actionTarget.dataset.shareUrl, actionTarget.dataset.shareTitle);
+    }
+    if (action === "copy-link") {
+      if (state.route.name === "deal") postFunnelEvent("share_button_click", state.route.dealId, { share_channel: "copy" });
+      void copyLink(actionTarget.dataset.shareUrl);
+    }
     if (action === "copy-text") void copyText(actionTarget.dataset.copyText || "");
     if (action === "capture-native-image") void captureNativeSellerImage();
     if (action === "mall-filter") void applyMallFilter(actionTarget.dataset.mallFilter, actionTarget.dataset.mallValue);
@@ -412,6 +448,7 @@ document.addEventListener("click", (event) => {
     if (action === "make-product-image-primary") makeSellerImagePrimary(actionTarget.dataset.imageIndex);
     if (action === "add-pickup-location") addSellerPickupLocation();
     if (action === "remove-pickup-location") removeSellerPickupLocation(actionTarget.dataset.slot);
+    if (action === "seller-product-archive") void archiveSellerProduct(actionTarget.dataset.productId);
   }
 });
 
@@ -456,6 +493,15 @@ document.addEventListener("change", (event) => {
     state.form.sellerDealType = MALL_TYPES.has(target.value) ? target.value : "physical_product";
     render();
   }
+  if (target.name === "sellerProductMode") {
+    state.form.sellerProductMode = target.value === "existing" ? "existing" : "new";
+    if (state.form.sellerProductMode === "new") {
+      state.form.sellerProductId = "";
+      state.selectedSellerProduct = null;
+    }
+    render();
+  }
+  if (target.name === "sellerProductId") void selectSellerProduct(target.value);
   if (target.closest("[data-action='seller-create']")) persistSellerCreateResume();
 });
 
@@ -762,6 +808,7 @@ async function loadDeal(dealId) {
     await loadDealChat(dealId, false);
     state.form.qty = String(getFlow(dealId)?.qty || 1);
     state.form.deliveryOptionId = getFlow(dealId)?.deliveryOptionId || "";
+    postFunnelEvent("deal_view", dealId);
     void recordAffiliateVisit(dealId);
     if (currentMallSource()) {
       postMallEvent("organic_deal_entry", {
@@ -1044,7 +1091,12 @@ function applyMallFilter(filterName, rawValue) {
 
 async function loadSeller() {
   await busy('טוען את ניהול העסקאות...', async () => {
-    state.sellerPayload = await api('/api/seller/deals');
+    const [sellerPayload, productsPayload] = await Promise.all([
+      api('/api/seller/deals'),
+      api('/api/seller/products?status=all')
+    ]);
+    state.sellerPayload = sellerPayload;
+    state.sellerProducts = Array.isArray(productsPayload?.products) ? productsPayload.products : [];
     state.sellerAuth = state.sellerPayload?.seller_surface?.seller_auth || state.sellerAuth;
     syncSellerContext(state.sellerPayload?.seller_surface?.seller_profile || null);
     try {
@@ -1062,6 +1114,104 @@ async function loadSeller() {
     } catch (_) { /* profile fetch failure is non-fatal */ }
     await loadSellerAnalytics(state.sellerAnalyticsPeriod || "all", false);
   }, 'לא הצלחנו לטעון את ניהול העסקאות.');
+}
+
+function postFunnelEvent(eventType, dealId, context = {}) {
+  const id = String(dealId || "").trim();
+  if (!FUNNEL_EVENT_TYPES.has(eventType) || !id) return;
+  const sessionId = mallSessionId();
+  const dedupeKey = `siton:funnel:${id}:${eventType}:${sessionId}`;
+  try {
+    if (sessionStorage.getItem(dedupeKey)) return;
+    sessionStorage.setItem(dedupeKey, "pending");
+  } catch {}
+  const payload = {
+    event_type: eventType,
+    deal_id: id,
+    visitor_id: sessionId,
+    session_id: sessionId,
+    client_event_id: `${eventType}:${sessionId}`.slice(0, 100),
+    ref_code: currentAffiliateRef() || undefined,
+    share_channel: context.share_channel || undefined
+  };
+  try {
+    void fetch(resolveApiUrl("/api/viral/events"), {
+      method: "POST",
+      credentials: "include",
+      keepalive: true,
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(payload)
+    }).then((response) => {
+      if (!response.ok) try { sessionStorage.removeItem(dedupeKey); } catch {}
+    }).catch(() => { try { sessionStorage.removeItem(dedupeKey); } catch {} });
+  } catch { try { sessionStorage.removeItem(dedupeKey); } catch {} }
+}
+
+async function loadSellerProducts() {
+  state.sellerProductsLoading = true;
+  state.sellerProductsError = null;
+  try {
+    const payload = await api('/api/seller/products?status=all');
+    state.sellerProducts = Array.isArray(payload?.products) ? payload.products : [];
+    return state.sellerProducts;
+  } catch (error) {
+    state.sellerProductsError = error;
+    state.sellerProducts = [];
+    return [];
+  } finally {
+    state.sellerProductsLoading = false;
+  }
+}
+
+async function selectSellerProduct(productId) {
+  const id = String(productId || "").trim();
+  state.form.sellerProductId = id;
+  state.selectedSellerProduct = null;
+  if (!id) { render(); return; }
+  await busy("טוען את המוצר...", async () => {
+    const payload = await api(`/api/seller/products/${encodeURIComponent(id)}`);
+    const product = payload?.product || null;
+    if (!product || product.status === "archived") throw Object.assign(new Error("product unavailable"), { code: "product_not_found" });
+    state.selectedSellerProduct = product;
+    state.form.sellerProductMode = "existing";
+    state.form.sellerTitle = String(product.name || "");
+    state.form.sellerDescription = String(product.long_description || product.short_description || "");
+    state.form.sellerDealType = MALL_TYPES.has(String(product.product_type || "")) ? String(product.product_type) : "physical_product";
+    state.form.sellerProductCategory = String(product.category || "");
+    hydrateProductTypeAttributes(product);
+    persistSellerCreateResume();
+  }, "לא הצלחנו לטעון את המוצר שנבחר.");
+}
+
+function hydrateProductTypeAttributes(product) {
+  const attrs = product?.type_attributes || {};
+  const defaults = product?.fulfillment_defaults || {};
+  if (product?.product_type === "voucher") {
+    state.form.sellerVoucherLocation = String(attrs.redemption_location || "");
+    state.form.sellerVoucherInstructions = String(attrs.redemption_instructions || "");
+    state.form.sellerVoucherTerms = String(attrs.usage_restrictions || "");
+    state.form.sellerVoucherValidUntil = attrs.valid_until ? toDatetimeLocal(String(attrs.valid_until)) : "";
+  }
+  if (product?.product_type === "ticket") {
+    state.form.sellerTicketEventName = String(attrs.event_name || "");
+    state.form.sellerTicketStartsAt = attrs.event_starts_at ? toDatetimeLocal(String(attrs.event_starts_at)) : "";
+    state.form.sellerTicketEndsAt = attrs.event_ends_at ? toDatetimeLocal(String(attrs.event_ends_at)) : "";
+    state.form.sellerTicketVenueName = String(attrs.venue_name || "");
+    state.form.sellerTicketVenueAddress = String(attrs.venue_address || "");
+    state.form.sellerTicketVenueCity = String(attrs.venue_city || "");
+    state.form.sellerTicketEntryInstructions = String(attrs.entry_instructions || "");
+  }
+  if (product?.product_type === "service") {
+    state.form.sellerServiceLocationMode = String(attrs.service_location_mode || "online");
+    state.form.sellerServiceLocation = String(attrs.service_location || "");
+    state.form.sellerServiceValidFrom = attrs.valid_from ? toDatetimeLocal(String(attrs.valid_from)) : "";
+    state.form.sellerServiceValidUntil = attrs.valid_until ? toDatetimeLocal(String(attrs.valid_until)) : "";
+    state.form.sellerServiceInstructions = String(attrs.redemption_instructions || "");
+    state.form.sellerServiceRestrictions = String(attrs.usage_restrictions || "");
+    state.form.sellerServiceAppointmentRequired = attrs.appointment_required ? "on" : "";
+  }
+  state.form.sellerDeliveryEstimateMin1 = defaults.estimated_min_business_days == null ? "" : String(defaults.estimated_min_business_days);
+  state.form.sellerDeliveryEstimateMax1 = defaults.estimated_max_business_days == null ? "" : String(defaults.estimated_max_business_days);
 }
 
 async function loadSellerAnalytics(period = "all", shouldRender = true) {
@@ -1142,7 +1292,44 @@ async function prepareSellerNew() {
   if (!state.form.sellerDeadline) {
     state.form.sellerDeadline = toDatetimeLocal(new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString());
   }
-  render();
+  await loadSellerProducts();
+  const requestedProduct = String(new URLSearchParams(location.search).get("product") || state.form.sellerProductId || "");
+  if (requestedProduct) await selectSellerProduct(requestedProduct);
+  else render();
+}
+
+async function updateSellerProduct(form) {
+  const data = new FormData(form);
+  const productId = String(data.get("productId") || "");
+  const name = String(data.get("productName") || "").trim();
+  if (!productId || !name) return fail("חסר שם מוצר", "יש להזין שם לפני שמירת המוצר.");
+  await busy("שומר את המוצר...", async () => {
+    await api(`/api/seller/products/${encodeURIComponent(productId)}`, {
+      method: "PATCH",
+      body: json({
+        name,
+        short_description: String(data.get("productShortDescription") || "").trim(),
+        long_description: String(data.get("productLongDescription") || "").trim(),
+        category: String(data.get("productCategory") || "").trim()
+      })
+    });
+    await loadSellerProducts();
+    state.banner = { tone: "success", title: "המוצר עודכן", message: "עסקאות קיימות נשארו עם ה-snapshot המקורי; עסקאות חדשות יקבלו את הגרסה החדשה." };
+  }, "לא הצלחנו לעדכן את המוצר.");
+}
+
+async function archiveSellerProduct(productId) {
+  const product = state.sellerProducts.find((row) => row.product_id === productId);
+  if (!product) return;
+  const nextStatus = product.status === "archived" ? "active" : "archived";
+  await busy(nextStatus === "archived" ? "מעביר לארכיון..." : "מחזיר לספרייה...", async () => {
+    await api(`/api/seller/products/${encodeURIComponent(productId)}`, {
+      method: "PATCH",
+      body: json({ status: nextStatus })
+    });
+    await loadSellerProducts();
+    state.banner = { tone: "success", title: nextStatus === "archived" ? "המוצר הועבר לארכיון" : "המוצר חזר לספרייה", message: "עסקאות שכבר נוצרו מהמוצר לא השתנו." };
+  }, "לא הצלחנו לעדכן את מצב המוצר.");
 }
 
 async function prepareSellerEdit(dealId) {
@@ -1162,6 +1349,10 @@ function hydrateSellerDraftEditor(draft, editorVersion = "") {
   state.sellerDraftEditorVersion = String(editorVersion || draft.updated_at || "");
   state.form.sellerTitle = String(draft.title || "");
   state.form.sellerDescription = String(draft.description || "");
+  state.form.sellerProductId = String(draft.product_id || "");
+  state.form.sellerProductMode = draft.product_id ? "existing" : "new";
+  state.selectedSellerProduct = draft.product_snapshot || null;
+  state.form.sellerProductCategory = String(draft.product_snapshot?.category || "");
   state.form.sellerDealType = MALL_TYPES.has(String(draft.deal_type || "")) ? String(draft.deal_type) : "physical_product";
   state.form.sellerPrice = String(Number(draft.price_per_unit || 0));
   state.form.sellerMinUnits = String(Number(draft.min_units || 0));
@@ -1184,8 +1375,17 @@ function hydrateSellerDraftEditor(draft, editorVersion = "") {
   state.form.sellerTicketVenueCity = String(ticket.venue_city || "");
   state.form.sellerTicketEntryInstructions = String(ticket.entry_instructions || "");
 
+  const service = draft.service_terms || {};
+  state.form.sellerServiceLocationMode = String(service.service_location_mode || "online");
+  state.form.sellerServiceLocation = String(service.service_location || "");
+  state.form.sellerServiceValidFrom = service.valid_from ? toDatetimeLocal(String(service.valid_from)) : "";
+  state.form.sellerServiceValidUntil = service.valid_until ? toDatetimeLocal(String(service.valid_until)) : "";
+  state.form.sellerServiceInstructions = String(service.redemption_instructions || "");
+  state.form.sellerServiceRestrictions = String(service.usage_restrictions || "");
+  state.form.sellerServiceAppointmentRequired = service.appointment_required ? "on" : "";
+
   for (let slot = 1; slot <= 5; slot += 1) {
-    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl"]) {
+    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl", "EstimateMin", "EstimateMax"]) {
       state.form[`sellerDelivery${suffix}${slot}`] = suffix === "Cost" ? "0" : "";
     }
   }
@@ -1206,6 +1406,8 @@ function hydrateSellerDraftEditor(draft, editorVersion = "") {
     state.form[`sellerDeliveryInstructions${slot}`] = parsedLabel.instructions;
     state.form[`sellerDeliveryLocationUrl${slot}`] = parsedLabel.locationUrl;
     state.form[`sellerDeliveryCost${slot}`] = String(Number(option.cost || 0));
+    state.form[`sellerDeliveryEstimateMin${slot}`] = option.estimated_min_business_days == null ? "" : String(option.estimated_min_business_days);
+    state.form[`sellerDeliveryEstimateMax${slot}`] = option.estimated_max_business_days == null ? "" : String(option.estimated_max_business_days);
   });
 
   setSellerImages((Array.isArray(draft.images) ? draft.images : []).map((image) => ({
@@ -1631,6 +1833,7 @@ async function submitAction(action, form) {
   if (action === "distributor-logout") return logoutDistributor();
   if (action === "seller-publish") return publishDeal(form.dataset.dealId, form);
   if (action === "seller-profile-save") return saveSellerProfile(form);
+  if (action === "seller-product-update") return updateSellerProduct(form);
   if (action === "affiliate-link-create") return createAffiliateLink(form);
   if (action === "recovery-submit") return submitRecoveryRequest(form.dataset.participantId || state.route.participantId);
   if (action === "admin-search") return loadAdmin(state.form.adminQuery);
@@ -1674,6 +1877,7 @@ function startJoin() {
   if (deliveryIssue) return fail("צריך לעדכן את אופן הקבלה", deliveryIssue);
   const selectedDelivery = getSelectedDeliveryOption(payload, state.form.deliveryOptionId);
   if (!selectedDelivery) return fail("לא נבחר אופן קבלה", "יש לבחור אופן קבלה לפני ההמשך.");
+  postFunnelEvent("join_started", payload.deal.deal_id);
 
   const flow = saveFlow(payload.deal.deal_id, {
     dealId: payload.deal.deal_id,
@@ -1704,6 +1908,7 @@ async function otpStart(form) {
       method: "POST",
       body: json({ phone, deal_id: route.dealId })
     });
+    postFunnelEvent("otp_started", route.dealId);
     const flow = saveFlow(route.dealId, {
       phone,
       otpSessionId: response.otp_session_id,
@@ -1748,6 +1953,8 @@ async function otpVerify(form) {
       otpChallengeId: response.challenge_id || response.otp_session_id || "",
       otpVerifiedAt: new Date().toISOString()
     });
+    postFunnelEvent("otp_completed", route.dealId);
+    postFunnelEvent("payment_screen_reached", route.dealId);
     await writeServerResume(route.dealId, getFlow(route.dealId));
     state.banner = {
       tone: "success",
@@ -1831,6 +2038,7 @@ async function payAndJoin(form) {
   if (issue) return fail("חסר אישור מסגרת", issue);
 
   await busy("מאשר את המסגרת ושומר את ההצטרפות...", async () => {
+    postFunnelEvent("authorization_attempt", route.dealId);
     const authorization = await paymentService.authorize(payload);
     if (authorization.authorization === "pending_provider_confirmation" && authorization.payment_url) {
       saveFlow(route.dealId, {
@@ -1848,6 +2056,7 @@ async function payAndJoin(form) {
     }
 
     if (authorization.authorization !== "authorized") throw new Error("payment_authorization_not_final");
+    postFunnelEvent("authorization_success", route.dealId);
     const join = await buyerFlowService.joinDeal(route.dealId, {
       buyerId: flow.buyerId,
       qty: flow.qty,
@@ -1880,6 +2089,7 @@ async function payAndJoin(form) {
       deliveryCost: Number(join.delivery_cost ?? flow.deliveryCost ?? 0),
       estimatedTotal: Number(join.hold_total ?? flow.estimatedTotal ?? 0)
     });
+    postFunnelEvent("joined", route.dealId);
     state.banner = {
       tone: "success",
       title: "ההצטרפות נשמרה",
@@ -1914,6 +2124,7 @@ async function completePendingHostedPayment(dealId, flow) {
     render();
     return;
   }
+  postFunnelEvent("authorization_success", dealId);
   const details = flow.pendingJoinDetails || {};
   const join = await buyerFlowService.joinDeal(dealId, {
     buyerId: flow.buyerId,
@@ -1933,6 +2144,7 @@ async function completePendingHostedPayment(dealId, flow) {
     mallSessionId: flow.mallSessionId,
     paymentDisclosureAccepted: true
   });
+  postFunnelEvent("joined", dealId);
   saveFlow(dealId, {
     providerPaymentPending: false,
     pendingAuthorizationId: "",
@@ -1960,11 +2172,20 @@ async function createDeal(form) {
   const maxUnits = Number(maxUnitsRaw);
   const deadline = String(formData.get("sellerDeadline") || "").trim();
   const dealType = MALL_TYPES.has(String(formData.get("sellerDealType") || "")) ? String(formData.get("sellerDealType")) : "physical_product";
+  const productMode = String(formData.get("sellerProductMode") || state.form.sellerProductMode || "new") === "existing" ? "existing" : "new";
+  const productId = String(formData.get("sellerProductId") || state.form.sellerProductId || "").trim();
   const finalTerms = formData.get("sellerFinalTerms") === "on";
   const finalConfirm = formData.get("sellerFinalConfirm") === "on";
   const deliveryResult = dealType === "physical_product" ? collectSellerDeliveryOptions(formData) : { options: [], errors: [], fieldErrors: {} };
   const validationErrors = [];
   const fieldErrors = {};
+  if (productMode === "existing" && !productId) {
+    fieldErrors.sellerProductId = "יש לבחור מוצר מהספרייה.";
+    validationErrors.push("מוצר מהספרייה");
+  }
+  if (productMode === "new" && readSellerImages().length < 1) {
+    validationErrors.push("לפחות תמונת מוצר אחת");
+  }
   if (!title) {
     fieldErrors.sellerTitle = "חסר שם לעסקה. אנא הזן שם קצר וברור לעסקה.";
     validationErrors.push("שם העסקה");
@@ -2016,6 +2237,14 @@ async function createDeal(form) {
     fieldErrors.sellerVoucherValidUntil = "יש להזין תאריך תוקף תקין.";
     validationErrors.push("תוקף שובר תקין");
   }
+  if (dealType === "voucher" && !String(state.form.sellerVoucherLocation || "").trim()) {
+    fieldErrors.sellerVoucherLocation = "יש להזין מקום מימוש.";
+    validationErrors.push("מקום מימוש השובר");
+  }
+  if (dealType === "voucher" && !String(state.form.sellerVoucherInstructions || "").trim()) {
+    fieldErrors.sellerVoucherInstructions = "יש להזין הוראות מימוש.";
+    validationErrors.push("הוראות מימוש השובר");
+  }
   if (dealType === "ticket" && !String(state.form.sellerTicketEventName || "").trim()) {
     fieldErrors.sellerTicketEventName = "יש להזין שם אירוע.";
     validationErrors.push("שם אירוע");
@@ -2027,6 +2256,26 @@ async function createDeal(form) {
   if (dealType === "ticket" && state.form.sellerTicketEndsAt && !Number.isFinite(new Date(state.form.sellerTicketEndsAt).getTime())) {
     fieldErrors.sellerTicketEndsAt = "יש להזין מועד סיום תקין.";
     validationErrors.push("מועד סיום תקין");
+  }
+  if (dealType === "ticket" && !String(state.form.sellerTicketVenueName || "").trim()) {
+    fieldErrors.sellerTicketVenueName = "יש להזין שם מקום.";
+    validationErrors.push("מקום האירוע");
+  }
+  if (dealType === "ticket" && !String(state.form.sellerTicketEntryInstructions || "").trim()) {
+    fieldErrors.sellerTicketEntryInstructions = "יש להזין הוראות כניסה.";
+    validationErrors.push("הוראות כניסה");
+  }
+  if (dealType === "service" && !["online", "onsite", "customer_location", "hybrid"].includes(String(state.form.sellerServiceLocationMode || ""))) {
+    fieldErrors.sellerServiceLocationMode = "יש לבחור אופן קבלת שירות.";
+    validationErrors.push("אופן קבלת שירות");
+  }
+  if (dealType === "service" && ["onsite", "hybrid"].includes(String(state.form.sellerServiceLocationMode || "")) && !String(state.form.sellerServiceLocation || "").trim()) {
+    fieldErrors.sellerServiceLocation = "יש להזין מיקום לשירות פרונטלי.";
+    validationErrors.push("מיקום השירות");
+  }
+  if (dealType === "service" && !String(state.form.sellerServiceInstructions || "").trim()) {
+    fieldErrors.sellerServiceInstructions = "יש להזין הוראות הזמנה או תיאום.";
+    validationErrors.push("הוראות תיאום השירות");
   }
   if (!finalTerms) validationErrors.push("אישור תקנון ותנאי שימוש");
   if (!finalConfirm) validationErrors.push("אישור שהתנאים הקריטיים סופיים");
@@ -2043,7 +2292,7 @@ async function createDeal(form) {
 
   await busy("יוצר טיוטת עסקה...", async () => {
     const sellerContext = currentSellerContext();
-    const draftPayload = buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType });
+    const draftPayload = buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType, productId: productMode === "existing" ? productId : "" });
     let dealId = state.sellerDraftId;
     if (dealId) {
       const response = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/draft`, {
@@ -2104,6 +2353,13 @@ async function createDeal(form) {
       }
       state.sellerDealPayload = persisted;
     }
+    if (productMode === "new" && !state.form.sellerProductId) {
+      const promoted = await api(`/api/seller/deals/${encodeURIComponent(dealId)}/product`, {
+        method: "POST",
+        body: json(buildProductPromotionPayload({ title, description, dealType, deliveryOptions }))
+      });
+      state.form.sellerProductId = String(promoted?.product?.product_id || "");
+    }
     state.banner = {
       tone: "success",
       title: "הטיוטה נשמרה",
@@ -2127,7 +2383,7 @@ async function createDeal(form) {
   }
 }
 
-function buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType = "physical_product" }) {
+function buildCreateDealPayload({ title, description, price, minUnits, maxUnits, deadline, sellerContext, deliveryOptions, dealType = "physical_product", productId = "" }) {
   const payload = {
     title: String(title || "").trim(),
     description: String(description || "").trim(),
@@ -2140,6 +2396,7 @@ function buildCreateDealPayload({ title, description, price, minUnits, maxUnits,
     deal_type: dealType,
     delivery_options: deliveryOptions
   };
+  if (productId) payload.product_id = productId;
   if (dealType === "voucher") {
     payload.voucher_terms = {
       face_value_amount: Number(state.form.sellerVoucherFaceValue || 0),
@@ -2167,7 +2424,67 @@ function buildCreateDealPayload({ title, description, price, minUnits, maxUnits,
       transfer_allowed: false
     };
   }
+  if (dealType === "service") {
+    payload.service_terms = {
+      service_location_mode: String(state.form.sellerServiceLocationMode || "online"),
+      service_location: String(state.form.sellerServiceLocation || "").trim(),
+      valid_from: state.form.sellerServiceValidFrom ? new Date(state.form.sellerServiceValidFrom).toISOString() : null,
+      valid_until: state.form.sellerServiceValidUntil ? new Date(state.form.sellerServiceValidUntil).toISOString() : null,
+      redemption_instructions: String(state.form.sellerServiceInstructions || "").trim(),
+      usage_restrictions: String(state.form.sellerServiceRestrictions || "").trim(),
+      appointment_required: state.form.sellerServiceAppointmentRequired === "on"
+    };
+  }
   return payload;
+}
+
+function buildProductPromotionPayload({ title, description, dealType, deliveryOptions }) {
+  const typeAttributes = {};
+  if (dealType === "physical_product") {
+    if (state.form.sellerPhysicalStock) typeAttributes.stock_quantity = Number(state.form.sellerPhysicalStock);
+    if (state.form.sellerPhysicalWeightKg) typeAttributes.weight_grams = Number(state.form.sellerPhysicalWeightKg) * 1000;
+    if (state.form.sellerPhysicalDimensions) typeAttributes.dimensions = String(state.form.sellerPhysicalDimensions).trim();
+    if (state.form.sellerPhysicalColor) typeAttributes.color = String(state.form.sellerPhysicalColor).trim();
+    if (state.form.sellerPhysicalSize) typeAttributes.size = String(state.form.sellerPhysicalSize).trim();
+  }
+  if (dealType === "voucher") Object.assign(typeAttributes, {
+    valid_until: state.form.sellerVoucherValidUntil ? new Date(state.form.sellerVoucherValidUntil).toISOString() : null,
+    redemption_location: String(state.form.sellerVoucherLocation || "").trim(),
+    redemption_instructions: String(state.form.sellerVoucherInstructions || "").trim(),
+    usage_restrictions: String(state.form.sellerVoucherTerms || "").trim()
+  });
+  if (dealType === "ticket") Object.assign(typeAttributes, {
+    event_name: String(state.form.sellerTicketEventName || "").trim(),
+    event_starts_at: new Date(state.form.sellerTicketStartsAt).toISOString(),
+    event_ends_at: state.form.sellerTicketEndsAt ? new Date(state.form.sellerTicketEndsAt).toISOString() : null,
+    venue_name: String(state.form.sellerTicketVenueName || "").trim(),
+    venue_address: String(state.form.sellerTicketVenueAddress || "").trim(),
+    venue_city: String(state.form.sellerTicketVenueCity || "").trim(),
+    entry_instructions: String(state.form.sellerTicketEntryInstructions || "").trim()
+  });
+  if (dealType === "service") Object.assign(typeAttributes, {
+    service_location_mode: String(state.form.sellerServiceLocationMode || "online"),
+    service_location: String(state.form.sellerServiceLocation || "").trim(),
+    valid_from: state.form.sellerServiceValidFrom ? new Date(state.form.sellerServiceValidFrom).toISOString() : null,
+    valid_until: state.form.sellerServiceValidUntil ? new Date(state.form.sellerServiceValidUntil).toISOString() : null,
+    redemption_instructions: String(state.form.sellerServiceInstructions || "").trim(),
+    usage_restrictions: String(state.form.sellerServiceRestrictions || "").trim(),
+    appointment_required: state.form.sellerServiceAppointmentRequired === "on"
+  });
+  const firstDelivery = Array.isArray(deliveryOptions) ? deliveryOptions[0] : null;
+  return {
+    name: title,
+    short_description: String(description || "").slice(0, 200),
+    long_description: String(description || ""),
+    product_type: dealType,
+    category: String(state.form.sellerProductCategory || "").trim(),
+    type_attributes: typeAttributes,
+    fulfillment_defaults: {
+      estimated_min_business_days: firstDelivery?.estimated_min_business_days ?? null,
+      estimated_max_business_days: firstDelivery?.estimated_max_business_days ?? null,
+      estimate_anchor: "deal_completed"
+    }
+  };
 }
 
 const CREATE_DEAL_TITLE_FIELDS = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
@@ -3277,7 +3594,7 @@ function renderCtonHome() {
         <span class="route-chip">${num(deals.length)} מוצגות</span>
       </header>
       <nav class="cton-mall-filters" aria-label="סינון עסקאות">
-        ${renderMallFilterGroup("סוג", "type", [["", "הכול"], ["physical_product", "מוצרים"], ["voucher", "שוברים"], ["ticket", "כרטיסים"]], filters.type || "")}
+        ${renderMallFilterGroup("סוג", "type", [["", "הכול"], ["physical_product", "מוצרים"], ["voucher", "שוברים"], ["ticket", "כרטיסים"], ["service", "שירותים"]], filters.type || "")}
         ${renderMallFilterGroup("מצב", "status", [["", "הכול"], ["underway", "בדרך ליעד"], ["reached_target", "היעד הושג"], ["succeeded", "הושלמו"], ["failed", "לא הצליחו"], ["cancelled", "בוטלו"]], filters.status || "")}
         ${renderMallFilterGroup("סדר", "sort", [["newest", "חדשות קודם"], ["oldest", "ישנות קודם"]], filters.sort || "newest")}
       </nav>
@@ -3338,7 +3655,7 @@ function mallStatusLabel(status) {
 }
 
 function dealTypeLabel(dealType) {
-  return ({ physical_product: "מוצר", voucher: "שובר", ticket: "כרטיס" })[String(dealType || "")] || "מוצר";
+  return ({ physical_product: "מוצר", voucher: "שובר", ticket: "כרטיס", service: "שירות" })[String(dealType || "")] || "מוצר";
 }
 
 function renderDealTypeDetails(deal) {
@@ -3370,7 +3687,28 @@ function renderDealTypeDetails(deal) {
         ${terms.entry_instructions ? `<p>${esc(terms.entry_instructions)}</p>` : ""}
       </section>`;
   }
+  if (dealType === "service") {
+    const terms = deal.service_terms || {};
+    const locationMode = ({ online: "אונליין", onsite: "בבית העסק", customer_location: "אצל הלקוח", hybrid: "משולב" })[terms.service_location_mode] || "לפי תיאום";
+    return `
+      <section class="cton-card deal-type-details">
+        <div class="cton-section-head"><h2>פרטי השירות</h2><span class="badge closed">שירות</span></div>
+        <div class="cton-data-grid"><div><span>אופן השירות</span><strong>${esc(locationMode)}</strong></div><div><span>מיקום</span><strong>${esc(terms.service_location || "לפי תיאום")}</strong></div><div><span>חלון מימוש</span><strong>${terms.valid_until ? `עד ${dt(terms.valid_until)}` : "לפי תנאי העסקה"}</strong></div></div>
+        ${terms.redemption_instructions ? `<p>${esc(terms.redemption_instructions)}</p>` : ""}
+        ${terms.usage_restrictions ? `<p class="small muted">${esc(terms.usage_restrictions)}</p>` : ""}
+        ${terms.appointment_required ? `<span class="badge pending">נדרש תיאום מראש</span>` : ""}
+      </section>`;
+  }
   return "";
+}
+
+function deliveryEstimateText(option) {
+  const min = option?.estimated_min_business_days;
+  const max = option?.estimated_max_business_days;
+  if (min == null || max == null) return "";
+  if (Number(min) === 0 && Number(max) === 0) return "זמין מיד לאחר השלמת העסקה";
+  if (Number(min) === Number(max)) return `אספקה משוערת: ${num(min)} ימי עסקים מהשלמת העסקה`;
+  return `אספקה משוערת: ${num(min)}–${num(max)} ימי עסקים מהשלמת העסקה`;
 }
 
 function renderCtonDealPage() {
@@ -3441,6 +3779,7 @@ function renderCtonDealPageView(payloadOverride = null, options = {}) {
                 <input type="radio" name="deliveryOptionId" value="${esc(option.option_id)}" ${selectedDelivery?.option_id === option.option_id ? "checked" : ""} />
                 <strong>${esc(formatDeliveryTypeLabel(option.option_type))}</strong>
                 <span>${esc(option.label)} · ${currency(option.cost || 0)}</span>
+                ${deliveryEstimateText(option) ? `<small>${esc(deliveryEstimateText(option))}</small>` : ""}
                 ${renderDeliveryOptionDetails(option)}
               </label>
             `).join("")}
@@ -3707,6 +4046,7 @@ function renderCtonSellerDealPage() {
   const isShareable = !isDraft;
   const publicStateSummary = sellerPublicStateSummary(deal.state);
   const publishBlockedByStatus = ["Restricted", "Suspended", "Banned"].includes(payload.seller_profile?.seller_status || state.sellerAuth?.seller_context?.seller_status || "Active");
+  const productReadinessBlockers = sellerProductReadinessBlockers(deal);
   const publicDealPath = `/app/deal/${encodeURIComponent(deal.deal_id)}`;
   return `
     <section class="cton-seller-live">
@@ -3715,7 +4055,7 @@ function renderCtonSellerDealPage() {
         <div><h1>${esc(deal.title)}</h1><div class="cton-mall-card-badges"><span class="badge ${copy.badgeTone}">${esc(copy.label)}</span><span class="badge closed">${esc(dealTypeLabel(deal.deal_type))}</span></div><p class="muted">${isDraft ? "טיוטה פנימית - עדיין לא פתוחה לקונים" : "מעודכן לפני רגע"}</p></div>
       </header>
       ${renderDealImageGallery(deal)}
-      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${payload.seller_actions.can_publish && !publishBlockedByStatus ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">${renderSellerPublishLegalAcceptance()}<button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel ${publicStateSummary.tone}"><h2>${esc(publicStateSummary.title)}</h2><p>${esc(publicStateSummary.message)}</p><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
+      ${isDraft ? `<section class="cton-card cton-actions-panel draft-private-notice"><h2>העסקה נשמרה כטיוטה</h2><p>היא עדיין לא פורסמה. כדי שאנשים יוכלו להצטרף, יש לפרסם אותה.</p>${productReadinessBlockers.length ? `<div class="info-strip tone-warning"><strong>חסרים פרטים לפרסום</strong><ul>${productReadinessBlockers.map((item) => `<li>${esc(item)}</li>`).join("")}</ul></div>` : ""}${payload.seller_actions.can_publish && !publishBlockedByStatus && !productReadinessBlockers.length ? `<form data-action="seller-publish" data-deal-id="${esc(deal.deal_id)}" class="stack">${renderSellerPublishLegalAcceptance()}<button class="primary" type="submit">פרסם עסקה</button></form>` : `<button class="primary" type="button" disabled>פרסום חסום זמנית</button>`}<div class="cton-actions compact"><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}/edit">המשך עריכה</a><a class="button secondary" href="/app/seller" data-nav="/app/seller">חזרה לדשבורד</a></div></section>` : `<section class="cton-card cton-actions-panel ${publicStateSummary.tone}"><h2>${esc(publicStateSummary.title)}</h2><p>${esc(publicStateSummary.message)}</p><p class="mono">${esc(absoluteUrl(publicDealPath))}</p>${renderShareActions(publicDealPath, deal.title)}<a class="button primary" href="${publicDealPath}" data-nav="${publicDealPath}">פתיחת הדף הציבורי</a><a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">ניהול עסקה</a></section>`}
       ${renderDealTypeDetails(deal)}
       <section class="cton-kpi-grid six">
         <article class="cton-kpi"><span>כמות נוכחית</span><strong>${num(deal.metrics?.joined_units || 0)}</strong></article>
@@ -4858,6 +5198,7 @@ function renderSellerPage() {
         <div class="summary-item"><span class="muted">כלל העריכה</span><strong>עריכה מלאה רק בטיוטה</strong><p class="small muted">אחרי פרסום, הדף הציבורי והלינק הישיר הופכים למקור האמת הפעיל של העסקה.</p></div>
       </aside>
     </section>
+    ${renderSellerProductLibrary(canOpenNewDeal)}
     ${renderSellerAnalyticsSection()}
     <section class="card section stack">
       <div class="section-header">
@@ -4885,6 +5226,47 @@ function renderSellerPage() {
     </section>
     ${renderSellerProfileSection()}
   `;
+}
+
+function sellerProductReadinessBlockers(deal) {
+  const blockers = [];
+  if (deal?.product_id) {
+    if (!deal.product_snapshot?.content_hash) blockers.push("צילום מצב חתום של המוצר");
+    if (!Array.isArray(deal.product_snapshot?.images) || !deal.product_snapshot.images.length) blockers.push("תמונה בתוך צילום מצב המוצר");
+    if (!Array.isArray(deal.images) || !deal.images.length) blockers.push("תמונת עסקה זמינה לקונה");
+    if (deal.deal_type === "physical_product") {
+      const options = Array.isArray(deal.delivery_options) ? deal.delivery_options : [];
+      if (!options.length) blockers.push("אפשרות קבלה");
+      if (options.some((option) => option.estimated_min_business_days == null || option.estimated_max_business_days == null)) blockers.push("טווח ימי אספקה לכל אפשרות קבלה");
+    }
+  }
+  if (deal?.deal_type === "service" && !deal.service_terms) blockers.push("תנאי שירות ותיאום");
+  return blockers;
+}
+
+function renderSellerProductLibrary(canCreateDeal = true) {
+  const products = Array.isArray(state.sellerProducts) ? state.sellerProducts : [];
+  return `
+    <section class="card section stack seller-product-library">
+      <div class="section-header">
+        <div class="stack compact compact-section"><span class="eyebrow">קטלוג מוכר</span><h2>ספריית המוצרים שלי</h2><p class="muted section-intro">מוצר הוא ישות לשימוש חוזר. כל עסקה שומרת צילום מצב קפוא של גרסת המוצר שנבחרה.</p></div>
+        ${canCreateDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">מוצר ועסקה חדשים</a>` : ""}
+      </div>
+      ${state.sellerProductsError ? `<div class="error-card"><strong>לא הצלחנו לטעון את ספריית המוצרים.</strong></div>` : ""}
+      ${products.length ? `<div class="deal-grid">${products.map((product) => `
+        <article class="deal-card stack ${product.status === "archived" ? "is-muted" : ""}">
+          ${product.primary_image_url ? `<img class="deal-card-image" src="${esc(product.primary_image_url)}" alt="${esc(product.name)}" />` : ""}
+          <div class="actions spread"><span class="badge ${product.status === "active" ? "success" : "closed"}">${product.status === "active" ? "פעיל" : "בארכיון"}</span><span class="small muted">גרסה ${num(product.revision || 1)}</span></div>
+          <h3>${esc(product.name)}</h3>
+          <p class="small muted">${esc(dealTypeLabel(product.product_type))}${product.category ? ` · ${esc(product.category)}` : ""} · ${num(product.deals_count || 0)} עסקאות</p>
+          <p>${esc(product.short_description || product.long_description || "אין עדיין תיאור קצר.")}</p>
+          <div class="actions">
+            ${product.status === "active" && canCreateDeal ? `<a class="button primary" href="/app/seller/new?product=${encodeURIComponent(product.product_id)}" data-nav="/app/seller/new?product=${encodeURIComponent(product.product_id)}">יצירת עסקה מהמוצר</a>` : ""}
+            <button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">${product.status === "active" ? "העברה לארכיון" : "החזרה לפעילות"}</button>
+          </div>
+          <details><summary>פתיחה ועריכת מוצר</summary><form data-action="seller-product-update" class="stack compact"><input type="hidden" name="productId" value="${esc(product.product_id)}" /><div class="field"><label>שם</label><input name="productName" maxlength="200" value="${esc(product.name)}" /></div><div class="field"><label>תיאור קצר</label><input name="productShortDescription" maxlength="200" value="${esc(product.short_description || "")}" /></div><div class="field"><label>תיאור מלא</label><textarea name="productLongDescription" maxlength="4000" rows="4">${esc(product.long_description || "")}</textarea></div><div class="field"><label>קטגוריה</label><input name="productCategory" maxlength="160" value="${esc(product.category || "")}" /></div><button class="primary" type="submit">שמירת גרסה חדשה</button></form></details>
+        </article>`).join("")}</div>` : `<div class="empty-surface stack"><strong>עדיין אין מוצרים בספרייה</strong><p class="small muted">המוצר הראשון יישמר כאן אוטומטית בעת יצירת עסקה חדשה.</p></div>`}
+    </section>`;
 }
 function renderSellerAnalyticsSection() {
   const analytics = state.sellerAnalyticsPayload;
@@ -4934,6 +5316,7 @@ function renderSellerAnalyticsSection() {
     `;
   }
   const overview = analytics.overview || {};
+  const funnel = analytics.funnel || {};
   const deals = Array.isArray(analytics.deals) ? analytics.deals : [];
   const hasPerformanceData = deals.length > 0 || Number(overview.total_joined_units || 0) > 0;
   return `
@@ -4965,6 +5348,13 @@ function renderSellerAnalyticsSection() {
         <div class="table-like">
           <div class="table-row"><div class="table-cell"><span class="muted">ברוטו צפוי</span><strong>${analyticsValue(overview.gross_expected_amount, currency)}</strong></div><div class="table-cell"><span class="muted">ברוטו שנגבה</span><strong>${analyticsValue(overview.gross_collected_amount, currency)}</strong></div></div>
           <div class="table-row"><div class="table-cell"><span class="muted">עמלת C-ton</span><strong>${analyticsValue(overview.platform_fee_total_amount, currency)}</strong></div><div class="table-cell"><span class="muted">נטו למוכר</span><strong>${analyticsValue(overview.seller_net_amount, currency)}</strong></div></div>
+        </div>
+      </article>
+      <article class="summary-item">
+        <h3>משפך ההמרה הקנוני</h3>
+        <p class="small muted">אירועי מסך נמדדים ללא PII ובדה־דופליקציה; הצטרפות ורכישה מושלמת נגזרות ממצבי המשתתף והכסף בשרת.</p>
+        <div class="metric-grid">
+          ${[["צפיות", funnel.views], ["לחיצות שיתוף", funnel.share_clicks], ["התחלת הצטרפות", funnel.join_starts], ["התחלת OTP", funnel.otp_starts], ["השלמת OTP", funnel.otp_completions], ["הגעה לתשלום", funnel.payment_screen_reached], ["ניסיונות אישור", funnel.authorization_attempts], ["אישורי מסגרת", funnel.authorization_successes], ["הצטרפו", funnel.joins], ["רכישות שהושלמו", funnel.completed_purchases]].map(([label, value]) => `<div class="metric"><span class="muted">${esc(label)}</span><strong>${analyticsValue(value, num)}</strong></div>`).join("")}
         </div>
       </article>
       <article class="summary-item">
@@ -5265,7 +5655,10 @@ function renderSellerNewPage() {
   const minUnits = Math.max(0, Number(state.form.sellerMinUnits || 0));
   const maxUnits = Math.max(0, Number(state.form.sellerMaxUnits || 0));
   const sellerImages = readSellerImages();
-  const primarySellerImage = getSellerPrimaryImage(sellerImages);
+  const selectedProduct = state.selectedSellerProduct;
+  const productMode = state.form.sellerProductMode === "existing" ? "existing" : "new";
+  const selectedProductImage = Array.isArray(selectedProduct?.images) ? (selectedProduct.images[0]?.url || selectedProduct.images[0]?.public_url || "") : "";
+  const primarySellerImage = getSellerPrimaryImage(sellerImages) || (selectedProductImage ? { dataUrl: selectedProductImage } : null);
   const sellerDealType = MALL_TYPES.has(String(state.form.sellerDealType || "")) ? state.form.sellerDealType : "physical_product";
   const fulfillmentType = state.form.sellerFulfillmentType || "delivery";
   const isEditingDraft = state.route.name === "seller-edit";
@@ -5303,11 +5696,18 @@ function renderSellerNewPage() {
           <section class="form-section-card stack">
             <div class="form-section-header">
               <h3>מוצר</h3>
-              <p class="small muted">מכאן נקבע איך העסקה תיתפס בעיני הקונה: מה נמכר, בכמה, ומה המרווח של הפלטפורמה.</p>
+              <p class="small muted">בחרו מוצר קיים לשימוש חוזר, או צרו מוצר חדש שיישמר אוטומטית בספרייה.</p>
             </div>
-            <div class="${fieldClass("sellerTitle")}"><label for="sellerTitle">שם העסקה</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" aria-invalid="${fieldErrors.sellerTitle ? "true" : "false"}" />${fieldError("sellerTitle")}</div>
-            <div class="field"><label for="sellerDescription">תיאור קצר לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
-            <div class="field"><label for="sellerDealType">סוג העסקה</label><select id="sellerDealType" name="sellerDealType"><option value="physical_product" ${sellerDealType === "physical_product" ? "selected" : ""}>מוצר פיזי</option><option value="voucher" ${sellerDealType === "voucher" ? "selected" : ""}>שובר דיגיטלי</option><option value="ticket" ${sellerDealType === "ticket" ? "selected" : ""}>כרטיס לאירוע</option></select><small class="muted">הסוג קובע אילו פרטי מימוש או אירוע יוצגו לקונה.</small></div>
+            <div class="fulfillment-choice-grid" role="radiogroup" aria-label="מקור המוצר">
+              <label class="choice ${productMode === "new" ? "selected" : ""}"><input type="radio" name="sellerProductMode" value="new" ${productMode === "new" ? "checked" : ""} ${state.sellerDraftId && state.form.sellerProductId ? "disabled" : ""} /><strong>מוצר חדש</strong><small>יישמר בספרייה ויקושר לטיוטה.</small></label>
+              <label class="choice ${productMode === "existing" ? "selected" : ""}"><input type="radio" name="sellerProductMode" value="existing" ${productMode === "existing" ? "checked" : ""} ${state.sellerDraftId && state.form.sellerProductId ? "disabled" : ""} /><strong>מהספרייה</strong><small>העסקה תקבל snapshot קפוא מהגרסה הנוכחית.</small></label>
+            </div>
+            ${productMode === "existing" ? `<div class="${fieldClass("sellerProductId")}"><label for="sellerProductId">בחירת מוצר</label><select id="sellerProductId" name="sellerProductId" ${state.sellerDraftId && state.form.sellerProductId ? "disabled" : ""}><option value="">בחרו מוצר פעיל</option>${state.sellerProducts.filter((product) => product.status === "active").map((product) => `<option value="${esc(product.product_id)}" ${state.form.sellerProductId === product.product_id ? "selected" : ""}>${esc(product.name)} · ${esc(dealTypeLabel(product.product_type))}</option>`).join("")}</select>${state.sellerDraftId && state.form.sellerProductId ? `<input type="hidden" name="sellerProductId" value="${esc(state.form.sellerProductId)}" />` : ""}${fieldError("sellerProductId")}</div>` : `<div class="field"><label for="sellerProductCategory">קטגוריה, אופציונלי</label><input id="sellerProductCategory" name="sellerProductCategory" type="text" maxlength="160" value="${esc(state.form.sellerProductCategory)}" /></div>`}
+            ${productMode === "existing" && selectedProduct ? `<div class="info-strip tone-info"><strong>פרטי המוצר נעולים לעסקה הזו</strong><p class="small">גרסה ${num(selectedProduct.revision || selectedProduct.product_revision || 1)} תישמר כצילום מצב בלתי משתנה. עריכת המוצר בספרייה לא תשנה עסקה שפורסמה.</p></div>` : ""}
+            <div class="${fieldClass("sellerTitle")}"><label for="sellerTitle">שם המוצר</label><input id="sellerTitle" name="sellerTitle" type="text" value="${esc(state.form.sellerTitle)}" ${productMode === "existing" ? "readonly" : ""} aria-invalid="${fieldErrors.sellerTitle ? "true" : "false"}" />${fieldError("sellerTitle")}</div>
+            <div class="field"><label for="sellerDescription">תיאור לקונה</label><textarea id="sellerDescription" name="sellerDescription" rows="4" maxlength="420" ${productMode === "existing" ? "readonly" : ""} placeholder="מה מקבלים, למי זה מתאים, ומה חשוב לדעת לפני הצטרפות">${esc(state.form.sellerDescription)}</textarea></div>
+            <div class="field"><label for="sellerDealType">סוג המוצר</label><select id="sellerDealType" name="sellerDealType" ${productMode === "existing" ? "disabled" : ""}><option value="physical_product" ${sellerDealType === "physical_product" ? "selected" : ""}>מוצר פיזי</option><option value="voucher" ${sellerDealType === "voucher" ? "selected" : ""}>שובר דיגיטלי</option><option value="ticket" ${sellerDealType === "ticket" ? "selected" : ""}>כרטיס לאירוע</option><option value="service" ${sellerDealType === "service" ? "selected" : ""}>שירות</option></select>${productMode === "existing" ? `<input type="hidden" name="sellerDealType" value="${esc(sellerDealType)}" />` : ""}<small class="muted">הסוג קובע אילו פרטי מימוש יוצגו לקונה.</small></div>
+            ${sellerDealType === "physical_product" && productMode === "new" ? `<div class="form-option-card stack deal-type-editor"><h3>מאפייני מוצר, אופציונלי</h3><div class="inline-fields"><div class="field"><label for="sellerPhysicalWeightKg">משקל בק״ג</label><input id="sellerPhysicalWeightKg" name="sellerPhysicalWeightKg" type="number" min="0.001" step="0.001" value="${esc(state.form.sellerPhysicalWeightKg)}" /></div><div class="field"><label for="sellerPhysicalDimensions">מידות</label><input id="sellerPhysicalDimensions" name="sellerPhysicalDimensions" value="${esc(state.form.sellerPhysicalDimensions)}" placeholder="30×20×10 ס״מ" /></div></div><div class="inline-fields"><div class="field"><label for="sellerPhysicalColor">צבע</label><input id="sellerPhysicalColor" name="sellerPhysicalColor" value="${esc(state.form.sellerPhysicalColor)}" /></div><div class="field"><label for="sellerPhysicalSize">מידה</label><input id="sellerPhysicalSize" name="sellerPhysicalSize" value="${esc(state.form.sellerPhysicalSize)}" /></div></div></div>` : ""}
             ${sellerDealType === "voucher" ? `
               <div class="form-option-card stack deal-type-editor">
                 <h3>תנאי השובר</h3>
@@ -5324,6 +5724,16 @@ function renderSellerNewPage() {
                 <div class="inline-fields"><div class="field"><label for="sellerTicketVenueName">שם המקום</label><input id="sellerTicketVenueName" name="sellerTicketVenueName" type="text" value="${esc(state.form.sellerTicketVenueName)}" /></div><div class="field"><label for="sellerTicketVenueCity">עיר</label><input id="sellerTicketVenueCity" name="sellerTicketVenueCity" type="text" value="${esc(state.form.sellerTicketVenueCity)}" /></div></div>
                 <div class="field"><label for="sellerTicketVenueAddress">כתובת</label><input id="sellerTicketVenueAddress" name="sellerTicketVenueAddress" type="text" value="${esc(state.form.sellerTicketVenueAddress)}" /></div>
                 <div class="field"><label for="sellerTicketEntryInstructions">הוראות כניסה</label><textarea id="sellerTicketEntryInstructions" name="sellerTicketEntryInstructions" rows="3" maxlength="1000">${esc(state.form.sellerTicketEntryInstructions)}</textarea></div>
+              </div>` : ""}
+            ${sellerDealType === "service" ? `
+              <div class="form-option-card stack deal-type-editor">
+                <h3>פרטי השירות</h3>
+                <div class="${fieldClass("sellerServiceLocationMode")}"><label for="sellerServiceLocationMode">אופן קבלת השירות</label><select id="sellerServiceLocationMode" name="sellerServiceLocationMode"><option value="online" ${state.form.sellerServiceLocationMode === "online" ? "selected" : ""}>אונליין</option><option value="onsite" ${state.form.sellerServiceLocationMode === "onsite" ? "selected" : ""}>בבית העסק</option><option value="customer_location" ${state.form.sellerServiceLocationMode === "customer_location" ? "selected" : ""}>אצל הלקוח</option><option value="hybrid" ${state.form.sellerServiceLocationMode === "hybrid" ? "selected" : ""}>משולב</option></select>${fieldError("sellerServiceLocationMode")}</div>
+                <div class="${fieldClass("sellerServiceLocation")}"><label for="sellerServiceLocation">מיקום השירות</label><input id="sellerServiceLocation" name="sellerServiceLocation" type="text" maxlength="500" value="${esc(state.form.sellerServiceLocation)}" placeholder="כתובת או אזור שירות" />${fieldError("sellerServiceLocation")}</div>
+                <div class="inline-fields"><div class="field"><label for="sellerServiceValidFrom">זמין מתאריך</label><input id="sellerServiceValidFrom" name="sellerServiceValidFrom" type="datetime-local" value="${esc(state.form.sellerServiceValidFrom)}" /></div><div class="field"><label for="sellerServiceValidUntil">זמין עד תאריך</label><input id="sellerServiceValidUntil" name="sellerServiceValidUntil" type="datetime-local" value="${esc(state.form.sellerServiceValidUntil)}" /></div></div>
+                <div class="${fieldClass("sellerServiceInstructions")}"><label for="sellerServiceInstructions">הוראות הזמנה ותיאום</label><textarea id="sellerServiceInstructions" name="sellerServiceInstructions" rows="3" maxlength="1000">${esc(state.form.sellerServiceInstructions)}</textarea>${fieldError("sellerServiceInstructions")}</div>
+                <div class="field"><label for="sellerServiceRestrictions">מגבלות ותנאים</label><textarea id="sellerServiceRestrictions" name="sellerServiceRestrictions" rows="3" maxlength="2000">${esc(state.form.sellerServiceRestrictions)}</textarea></div>
+                <label class="check-row"><input type="checkbox" name="sellerServiceAppointmentRequired" ${state.form.sellerServiceAppointmentRequired === "on" ? "checked" : ""} /> <span>נדרש תיאום מועד מראש</span></label>
               </div>` : ""}
             <div class="deal-image-field">
               <div>
@@ -5390,9 +5800,9 @@ function renderSellerNewPage() {
           <section class="form-section-card stack ${sellerDealType === "physical_product" ? "" : "deal-type-physical-only"}">
             <div class="form-section-header">
               <h3>${sellerDealType === "physical_product" ? "אפשרויות קבלה" : "מסירה דיגיטלית"}</h3>
-              <p class="small muted">${sellerDealType === "physical_product" ? "בחרו איך הקונים יקבלו את המוצר. מיקומי איסוף ונקודות חלוקה נוצרים רק בלחיצה מפורשת." : "השובר או הכרטיס יונפקו רק אחרי השלמת העסקה וחיוב תקין; אין צורך להגדיר משלוח."}</p>
+              <p class="small muted">${sellerDealType === "physical_product" ? "בחרו איך הקונים יקבלו את המוצר. מיקומי איסוף ונקודות חלוקה נוצרים רק בלחיצה מפורשת." : "אישור המימוש יונפק רק אחרי השלמת העסקה וחיוב תקין; אין צורך להגדיר משלוח."}</p>
             </div>
-            ${sellerDealType !== "physical_product" ? `<div class="info-strip tone-success"><strong>${sellerDealType === "voucher" ? "שובר דיגיטלי" : "כרטיס דיגיטלי"}</strong><p class="small">המסירה מתבצעת דרך מסלול המימוש הקיים לאחר הצלחת העסקה. לא מוצגת לקונה אפשרות משלוח.</p></div><div class="deal-type-hidden-fields">` : ""}
+            ${sellerDealType !== "physical_product" ? `<div class="info-strip tone-success"><strong>${esc(dealTypeLabel(sellerDealType))}</strong><p class="small">המסירה מתבצעת דרך מסלול המימוש הקיים לאחר הצלחת העסקה. לא מוצגת לקונה אפשרות משלוח.</p></div><div class="deal-type-hidden-fields">` : ""}
             <div class="${fieldClass("sellerFulfillmentType")} fulfillment-choice-grid" role="radiogroup" aria-label="אופן קבלה">
               ${["delivery", "pickup", "distribution_point"].map((option) => `
                 <label class="choice fulfillment-choice ${fulfillmentType === option ? "selected" : ""}">
@@ -5409,6 +5819,10 @@ function renderSellerNewPage() {
               <div class="inline-fields">
                 <div class="field"><label for="sellerDeliveryLabel1">שם אפשרות המשלוח</label><input id="sellerDeliveryLabel1" name="sellerDeliveryLabel1" type="text" maxlength="160" value="${esc(state.form.sellerDeliveryLabel1 || "משלוח")}" /></div>
                 <div class="${fieldClass("sellerDeliveryCost1")}"><label for="sellerDeliveryCost1">עלות משלוח</label><input id="sellerDeliveryCost1" name="sellerDeliveryCost1" type="number" min="0" step="0.01" value="${esc(state.form.sellerDeliveryCost1 || "0")}" />${fieldError("sellerDeliveryCost1")}</div>
+              </div>
+              <div class="inline-fields">
+                <div class="${fieldClass("sellerDeliveryEstimateMin1")}"><label for="sellerDeliveryEstimateMin1">אספקה מינימלית (ימי עסקים)</label><input id="sellerDeliveryEstimateMin1" name="sellerDeliveryEstimateMin1" type="number" min="0" max="365" step="1" value="${esc(state.form.sellerDeliveryEstimateMin1)}" />${fieldError("sellerDeliveryEstimateMin1")}</div>
+                <div class="${fieldClass("sellerDeliveryEstimateMax1")}"><label for="sellerDeliveryEstimateMax1">אספקה מרבית (ימי עסקים)</label><input id="sellerDeliveryEstimateMax1" name="sellerDeliveryEstimateMax1" type="number" min="0" max="365" step="1" value="${esc(state.form.sellerDeliveryEstimateMax1)}" />${fieldError("sellerDeliveryEstimateMax1")}</div>
               </div>
             ` : `
               <div class="actions spread">
@@ -5430,6 +5844,7 @@ function renderSellerNewPage() {
                     <div class="${fieldClass(`sellerDeliveryAddress${slot}`)}"><label for="sellerDeliveryAddress${slot}">כתובת</label><input id="sellerDeliveryAddress${slot}" name="sellerDeliveryAddress${slot}" type="text" value="${esc(state.form[`sellerDeliveryAddress${slot}`])}" placeholder="רחוב ומספר" />${fieldError(`sellerDeliveryAddress${slot}`)}</div>
                     <div class="${fieldClass(`sellerDeliveryCity${slot}`)}"><label for="sellerDeliveryCity${slot}">עיר</label><input id="sellerDeliveryCity${slot}" name="sellerDeliveryCity${slot}" type="text" value="${esc(state.form[`sellerDeliveryCity${slot}`])}" placeholder="עיר" />${fieldError(`sellerDeliveryCity${slot}`)}</div>
                   </div>
+                  <div class="inline-fields"><div class="${fieldClass(`sellerDeliveryEstimateMin${slot}`)}"><label for="sellerDeliveryEstimateMin${slot}">מינימום ימי עסקים</label><input id="sellerDeliveryEstimateMin${slot}" name="sellerDeliveryEstimateMin${slot}" type="number" min="0" max="365" step="1" value="${esc(state.form[`sellerDeliveryEstimateMin${slot}`])}" />${fieldError(`sellerDeliveryEstimateMin${slot}`)}</div><div class="${fieldClass(`sellerDeliveryEstimateMax${slot}`)}"><label for="sellerDeliveryEstimateMax${slot}">מקסימום ימי עסקים</label><input id="sellerDeliveryEstimateMax${slot}" name="sellerDeliveryEstimateMax${slot}" type="number" min="0" max="365" step="1" value="${esc(state.form[`sellerDeliveryEstimateMax${slot}`])}" />${fieldError(`sellerDeliveryEstimateMax${slot}`)}</div></div>
                   <div class="inline-fields">
                     <div class="field"><label for="sellerDeliveryInstructions${slot}">הוראות הגעה, אופציונלי</label><input id="sellerDeliveryInstructions${slot}" name="sellerDeliveryInstructions${slot}" type="text" value="${esc(state.form[`sellerDeliveryInstructions${slot}`])}" placeholder="כניסה מהחניון, קומה 1, ליד שער B" /></div>
                     <div class="${fieldClass(`sellerDeliveryLocationUrl${slot}`)}"><label for="sellerDeliveryLocationUrl${slot}">קישור מיקום, אופציונלי</label><input id="sellerDeliveryLocationUrl${slot}" name="sellerDeliveryLocationUrl${slot}" type="url" data-dir="ltr" value="${esc(state.form[`sellerDeliveryLocationUrl${slot}`])}" placeholder="https://maps.google.com/..." />${fieldError(`sellerDeliveryLocationUrl${slot}`)}</div>
@@ -8575,6 +8990,7 @@ function getDeliveryOptions(payload) {
   const dealType = String(payload?.deal?.deal_type || "physical_product");
   if (dealType === "voucher") return [{ option_id: "", option_type: "voucher", label: "שובר דיגיטלי לאחר השלמת העסקה", cost: 0, virtual: true }];
   if (dealType === "ticket") return [{ option_id: "", option_type: "ticket", label: "כרטיס דיגיטלי לאחר השלמת העסקה", cost: 0, virtual: true }];
+  if (dealType === "service") return [{ option_id: "", option_type: "service", label: "אישור שירות לאחר השלמת העסקה", cost: 0, virtual: true }];
   return [];
 }
 
@@ -8591,6 +9007,7 @@ function formatDeliveryTypeLabel(type) {
   if (type === "distribution_point") return "נקודת חלוקה";
   if (type === "voucher") return "שובר דיגיטלי";
   if (type === "ticket") return "כרטיס דיגיטלי";
+  if (type === "service") return "אישור שירות";
   return type || "לא צוין";
 }
 
@@ -8642,10 +9059,13 @@ function collectSellerDeliveryOptions(formData) {
       fieldErrors.sellerDeliveryCost1 = "עלות המשלוח חייבת להיות מספר לא שלילי.";
       return { options, errors, fieldErrors };
     }
+    const estimate = readSellerDeliveryEstimate(formData, 1, errors, fieldErrors);
+    if (!estimate) return { options, errors, fieldErrors };
     options.push({
       option_type: "delivery",
       label,
       cost,
+      ...estimate,
       sort_order: 0
     });
     return { options, errors, fieldErrors };
@@ -8666,6 +9086,8 @@ function collectSellerDeliveryOptions(formData) {
       fieldErrors[`sellerDeliveryCost${index}`] = "עלות המיקום חייבת להיות מספר לא שלילי.";
       continue;
     }
+    const estimate = readSellerDeliveryEstimate(formData, index, errors, fieldErrors);
+    if (!estimate) continue;
     let finalLabel = label;
     if (type === "distribution_point" || type === "pickup") {
       const locationKind = type === "distribution_point" ? "נקודת חלוקה" : "מיקום איסוף";
@@ -8703,6 +9125,7 @@ function collectSellerDeliveryOptions(formData) {
       option_type: type || "pickup",
       label: finalLabel,
       cost,
+      ...estimate,
       sort_order: options.length
     });
   }
@@ -8711,6 +9134,26 @@ function collectSellerDeliveryOptions(formData) {
     fieldErrors.sellerFulfillmentType = "בחרת איסוף עצמי או נקודת חלוקה. יש להוסיף לפחות מיקום אחד.";
   }
   return { options, errors, fieldErrors };
+}
+
+function readSellerDeliveryEstimate(formData, index, errors, fieldErrors) {
+  const minKey = `sellerDeliveryEstimateMin${index}`;
+  const maxKey = `sellerDeliveryEstimateMax${index}`;
+  const minRaw = String(formData.get(minKey) || state.form[minKey] || "").trim();
+  const maxRaw = String(formData.get(maxKey) || state.form[maxKey] || "").trim();
+  const min = Number(minRaw);
+  const max = Number(maxRaw);
+  if (!minRaw || !Number.isInteger(min) || min < 0 || min > 365) {
+    errors.push(`אפשרות קבלה ${index}: חסר זמן אספקה מינימלי תקין.`);
+    fieldErrors[minKey] = "יש להזין מספר ימי עסקים בין 0 ל-365.";
+    return null;
+  }
+  if (!maxRaw || !Number.isInteger(max) || max < min || max > 365) {
+    errors.push(`אפשרות קבלה ${index}: זמן האספקה המרבי אינו תקין.`);
+    fieldErrors[maxKey] = "יש להזין מספר ימי עסקים שאינו קטן מהמינימום.";
+    return null;
+  }
+  return { estimated_min_business_days: min, estimated_max_business_days: max };
 }
 
 function buildDistributionPointLabel({ label, pointName, address, city, instructions, locationUrl }) {
@@ -8755,12 +9198,14 @@ function parseDistributionPointLabel(value) {
 
 function sellerCreateResumeFields() {
   const fields = [
-    "sellerTitle", "sellerDescription", "sellerDealType", "sellerPrice", "sellerMinUnits", "sellerMaxUnits", "sellerDeadline", "sellerFulfillmentType",
+    "sellerTitle", "sellerDescription", "sellerProductMode", "sellerProductId", "sellerProductCategory", "sellerDealType", "sellerPrice", "sellerMinUnits", "sellerMaxUnits", "sellerDeadline", "sellerFulfillmentType",
+    "sellerPhysicalStock", "sellerPhysicalWeightKg", "sellerPhysicalDimensions", "sellerPhysicalColor", "sellerPhysicalSize",
     "sellerVoucherFaceValue", "sellerVoucherValidUntil", "sellerVoucherLocation", "sellerVoucherInstructions", "sellerVoucherTerms",
-    "sellerTicketEventName", "sellerTicketStartsAt", "sellerTicketEndsAt", "sellerTicketVenueName", "sellerTicketVenueAddress", "sellerTicketVenueCity", "sellerTicketEntryInstructions"
+    "sellerTicketEventName", "sellerTicketStartsAt", "sellerTicketEndsAt", "sellerTicketVenueName", "sellerTicketVenueAddress", "sellerTicketVenueCity", "sellerTicketEntryInstructions",
+    "sellerServiceLocationMode", "sellerServiceLocation", "sellerServiceValidFrom", "sellerServiceValidUntil", "sellerServiceInstructions", "sellerServiceRestrictions", "sellerServiceAppointmentRequired"
   ];
   for (let slot = 1; slot <= 5; slot += 1) {
-    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl"]) fields.push(`sellerDelivery${suffix}${slot}`);
+    for (const suffix of ["Type", "Label", "Cost", "PointName", "Address", "City", "Instructions", "LocationUrl", "EstimateMin", "EstimateMax"]) fields.push(`sellerDelivery${suffix}${slot}`);
   }
   return fields;
 }

@@ -523,7 +523,12 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       `SELECT COUNT(*) FILTER (WHERE ve.event_type='deal_view')::int AS views,
               COUNT(DISTINCT ve.visitor_id) FILTER (WHERE ve.event_type='deal_view')::int AS unique_visitors,
               COUNT(*) FILTER (WHERE ve.event_type='share_button_click')::int AS share_clicks,
-              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts
+              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts,
+              COUNT(*) FILTER (WHERE ve.event_type='otp_started')::int AS otp_starts,
+              COUNT(*) FILTER (WHERE ve.event_type='otp_completed')::int AS otp_completions,
+              COUNT(*) FILTER (WHERE ve.event_type='payment_screen_reached')::int AS payment_screen_reached,
+              COUNT(*) FILTER (WHERE ve.event_type='authorization_attempt')::int AS authorization_attempts,
+              COUNT(*) FILTER (WHERE ve.event_type='authorization_success')::int AS authorization_successes
        FROM siton.viral_events ve
        JOIN siton.deals d ON d.deal_id = ve.deal_id
        WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND ve.created_at >= ${seriesTs}`,
@@ -766,8 +771,14 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       unique_visitors: num(funnelTotals.unique_visitors),
       share_clicks: num(funnelTotals.share_clicks),
       join_starts: num(funnelTotals.join_starts),
+      otp_starts: num(funnelTotals.otp_starts),
+      otp_completions: num(funnelTotals.otp_completions),
+      payment_screen_reached: num(funnelTotals.payment_screen_reached),
+      authorization_attempts: num(funnelTotals.authorization_attempts),
+      authorization_successes: num(funnelTotals.authorization_successes),
       joins: joinsInWindow,
-      charged_buyers: moneyTotals.eligible_buyers
+      charged_buyers: moneyTotals.eligible_buyers,
+      completed_purchases: moneyTotals.eligible_buyers
     },
     share_channels: shareChannelsResult.rows.map((row: any) => ({ channel: String(row.channel), clicks: num(row.clicks) })),
     viral: {

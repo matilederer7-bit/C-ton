@@ -226,7 +226,10 @@ export function personalShareUrl(dealId: string, code: string): string {
 }
 
 // ── Funnel events (public, PII-free, deduplicated) ─────────────────────────
-const FUNNEL_EVENT_TYPES = new Set(["deal_view", "share_button_click", "join_started"]);
+const FUNNEL_EVENT_TYPES = new Set([
+  "deal_view", "share_button_click", "join_started", "otp_started", "otp_completed",
+  "payment_screen_reached", "authorization_attempt", "authorization_success", "joined", "completed_purchase"
+]);
 const SHARE_CHANNELS = new Set(["whatsapp", "telegram", "facebook", "x", "email", "copy", "native", "other"]);
 
 export interface FunnelEventInput {
@@ -571,6 +574,13 @@ export async function recomputeDealViralMetrics(c: Queryable, dealId: string): P
       deal_views: dealViews,
       share_clicks: funnel["share_button_click"] || 0,
       join_started: funnel["join_started"] || 0,
+      otp_started: funnel["otp_started"] || 0,
+      otp_completed: funnel["otp_completed"] || 0,
+      payment_screen_reached: funnel["payment_screen_reached"] || 0,
+      authorization_attempts: funnel["authorization_attempt"] || 0,
+      authorization_successes: funnel["authorization_success"] || 0,
+      joined: funnel["joined"] || 0,
+      completed_purchases: funnel["completed_purchase"] || 0,
       link_clicks: linkClicks,
       link_entries: linkEntries,
       attributed_visits: attributedVisits,
