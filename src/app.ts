@@ -920,6 +920,8 @@ async function applyPaymentWebhookClassification(args: {
   };
 }) {
   if (args.classification.status !== "processed" || !args.target) return;
+  const target = args.target; // narrowed once; closures below cannot re-narrow args.target
+  await ensurePlatformFeeMoneyTables(withTx);
 
   const requestId = `webhook:${args.event.event_id}`;
   const eventPayload = {
@@ -959,17 +961,23 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
-    });
-    await platformFeeMoney.recordProviderFinancialEvent({
-      participant_id: args.target.participant_id,
-      deal_id: args.target.deal_id,
-      event_type: "charge_captured",
-      provider_code: args.event.provider,
-      provider_event_id: args.event.event_id,
-      provider_reference: args.event.provider_reference ?? null,
-      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
-      source_money_state: "ChargedSuccess"
+      outbox: null,
+      // R9C — fee-ledger truth is written INSIDE the state transaction: the
+      // money state and its platform-fee ledger entry commit together or not
+      // at all (a failure here rolls back both; the worker retry converges).
+      insideTx: async (c) => {
+        await hitTestFault("payment.after_state_before_ledger");
+        await platformFeeMoney.recordProviderFinancialEventInTx(c, {
+          participant_id: target.participant_id,
+          deal_id: target.deal_id,
+          event_type: "charge_captured",
+          provider_code: args.event.provider,
+          provider_event_id: args.event.event_id,
+          provider_reference: args.event.provider_reference ?? null,
+          correlation_id: args.event.correlation_id ?? target.correlation_id ?? null,
+          source_money_state: "ChargedSuccess"
+        });
+      }
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: charge succeeded
@@ -1043,17 +1051,23 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
-    });
-    await platformFeeMoney.recordProviderFinancialEvent({
-      participant_id: args.target.participant_id,
-      deal_id: args.target.deal_id,
-      event_type: "recovery_captured",
-      provider_code: args.event.provider,
-      provider_event_id: args.event.event_id,
-      provider_reference: args.event.provider_reference ?? null,
-      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
-      source_money_state: "RecoveredCharge"
+      outbox: null,
+      // R9C — fee-ledger truth is written INSIDE the state transaction: the
+      // money state and its platform-fee ledger entry commit together or not
+      // at all (a failure here rolls back both; the worker retry converges).
+      insideTx: async (c) => {
+        await hitTestFault("payment.after_state_before_ledger");
+        await platformFeeMoney.recordProviderFinancialEventInTx(c, {
+          participant_id: target.participant_id,
+          deal_id: target.deal_id,
+          event_type: "recovery_captured",
+          provider_code: args.event.provider,
+          provider_event_id: args.event.event_id,
+          provider_reference: args.event.provider_reference ?? null,
+          correlation_id: args.event.correlation_id ?? target.correlation_id ?? null,
+          source_money_state: "RecoveredCharge"
+        });
+      }
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
@@ -1108,17 +1122,21 @@ async function applyPaymentWebhookClassification(args: {
       requestId,
       idempotencyKey: `refund-issued:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`,
       outbox: null,
-      payload: eventPayload
-    });
-    await platformFeeMoney.recordProviderFinancialEvent({
-      participant_id: args.target.participant_id,
-      deal_id: args.target.deal_id,
-      event_type: "refund_issued",
-      provider_code: args.event.provider,
-      provider_event_id: args.event.event_id,
-      provider_reference: args.event.provider_reference ?? null,
-      correlation_id: args.event.correlation_id ?? args.target.correlation_id ?? null,
-      source_money_state: args.target.money_state
+      payload: eventPayload,
+      // R9C — refund adjustment ledger truth commits with the Refunded state.
+      insideTx: async (c) => {
+        await hitTestFault("payment.after_state_before_ledger");
+        await platformFeeMoney.recordProviderFinancialEventInTx(c, {
+          participant_id: target.participant_id,
+          deal_id: target.deal_id,
+          event_type: "refund_issued",
+          provider_code: args.event.provider,
+          provider_event_id: args.event.event_id,
+          provider_reference: args.event.provider_reference ?? null,
+          correlation_id: args.event.correlation_id ?? target.correlation_id ?? null,
+          source_money_state: target.money_state
+        });
+      }
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: refund issued
