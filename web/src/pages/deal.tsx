@@ -255,8 +255,8 @@ function JoinModal(props: {
 
         {/* P0.3-5 — payment method. The CHOICE is ours; the sensitive entry
             itself belongs to the secured payment provider (PCI boundary):
-            these are presentation slots only — no card number, expiry or CVV
-            is ever collected, sent or stored by C-ton. */}
+            these are presentation slots only — no raw card details are ever
+            collected, sent or stored by C-ton. */}
         <div className="field" style={{ marginBottom: 4 }}><label>אמצעי תשלום</label></div>
         <div className="pay-methods" role="tablist" aria-label="אמצעי תשלום">
           <button type="button" role="tab" aria-selected={payMethod === "credit_card"} data-testid="pay-credit"
@@ -276,7 +276,7 @@ function JoinModal(props: {
             </div>
             <div className="pay-field-row">
               <div className="field" style={{ marginBottom: 0 }}><label>תוקף</label><input dir="ltr" disabled placeholder="MM/YY" /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>CVV</label><input dir="ltr" disabled placeholder="•••" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>קוד אבטחה</label><input dir="ltr" disabled placeholder="•••" /></div>
               <div className="field" style={{ marginBottom: 0 }}><label>ת״ז</label><input dir="ltr" disabled placeholder="•••••••••" /></div>
             </div>
             <div className="pay-secure-note">🔒 פרטי הכרטיס מוזנים ישירות בסביבת הסליקה המאובטחת בעת סגירת העסקה — הם אינם נשמרים ואינם עוברים דרך C-ton.</div>
