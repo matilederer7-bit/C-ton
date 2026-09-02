@@ -7,6 +7,10 @@ import {
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
 import {
+  GEO_OUTCOME_COPY, GEO_OUTCOME_TEST_ID, browserGeoDeps, geoDiagnosticLine, parseManualCoordinates, recordGeoTrace,
+  requestPickupLocation, type GeoOutcome
+} from "../geo";
+import {
   CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeIcon, dealTypeLabel,
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
 } from "../util";
@@ -319,83 +323,56 @@ const WIZARD_STEPS = ["פרטי העסקה", "כמויות", "אספקה / מי�
 type WizardDealType = "physical_product" | "voucher" | "ticket";
 type DeliveryDraft = { option_type: string; label: string; cost: string; latitude: number | null; longitude: number | null };
 
-// P0.6-2 — pickup GPS with real permission UX. Location is requested ONLY on
-// the seller's explicit click (never on load, never watchPosition). The
-// Permissions API distinguishes prompt/granted/denied; a browser-level DENY
-// cannot be overridden by a website, so denied gets honest recovery steps +
-// re-check — and the manual address field always remains a full fallback.
-function geoDiag(extra: Record<string, unknown> = {}) {
-  try {
-    console.info("[geo]", JSON.stringify({
-      secure: window.isSecureContext,
-      hasGeo: Boolean(navigator.geolocation),
-      hasPermsApi: Boolean((navigator as any).permissions?.query),
-      ...extra
-    }));
-  } catch { /* noop */ }
-}
-
-async function geoPermissionState(): Promise<"prompt" | "granted" | "denied" | "unknown"> {
-  try {
-    const perms = (navigator as any).permissions;
-    if (!perms?.query) return "unknown";
-    const status = await perms.query({ name: "geolocation" });
-    return (status?.state as any) || "unknown";
-  } catch { return "unknown"; }
-}
-
+// P0.6A — pickup GPS with the bounded explicit-click strategy (web/src/geo.ts).
+// Location is requested ONLY on the seller's click (never on load, never
+// watchPosition). Attempt 1 normal accuracy → attempt 2 high accuracy only on
+// TIMEOUT/UNAVAILABLE; a denial never retries. Site-level and OS-level denials
+// get different, honest recovery guidance (a website cannot override either),
+// every failure auto-opens the manual coordinates fallback, and the address
+// field always suffices — the seller is never trapped.
 function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: number | null, lng: number | null) => void }) {
-  const [phase, setPhase] = useState<"idle" | "pending" | "denied" | "error">("idle");
-  const [message, setMessage] = useState("");
+  const [pending, setPending] = useState(false);
+  const [attempt, setAttempt] = useState<{ n: 1 | 2; high: boolean } | null>(null);
+  const [outcome, setOutcome] = useState<GeoOutcome | null>(null);
   const [showManual, setShowManual] = useState(false);
+  const [manualError, setManualError] = useState("");
   const [mLat, setMLat] = useState("");
   const [mLng, setMLng] = useState("");
+  const inFlight = useRef(false);
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   if (row.option_type === "delivery") return null;
 
   const capture = async () => {
-    setMessage("");
-    if (!window.isSecureContext) {
-      geoDiag({ fail: "insecure_context" });
-      setPhase("error");
-      setMessage("איתור מיקום זמין רק בחיבור מאובטח (https).");
+    if (inFlight.current) return; // one bounded request per click, never stacked
+    inFlight.current = true;
+    setOutcome(null); setManualError(""); setAttempt(null); setPending(true);
+    recordGeoTrace({ step: "click" });
+    let result: GeoOutcome;
+    try {
+      result = await requestPickupLocation(browserGeoDeps(), {
+        trace: recordGeoTrace,
+        onAttempt: (n, high) => { if (mounted.current) setAttempt({ n, high }); }
+      });
+    } finally {
+      inFlight.current = false;
+    }
+    if (!mounted.current) return;
+    setPending(false); setAttempt(null);
+    if (result.kind === "success" && result.latitude != null && result.longitude != null) {
+      onSet(result.latitude, result.longitude);
       return;
     }
-    if (!navigator.geolocation) {
-      geoDiag({ fail: "no_api" });
-      setPhase("error");
-      setMessage("הדפדפן לא תומך באיתור מיקום — הזינו כתובת בשדה התיאור.");
-      return;
-    }
-    const state = await geoPermissionState();
-    geoDiag({ permission: state });
-    if (state === "denied") { setPhase("denied"); return; }
-    setPhase("pending");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        geoDiag({ result: "granted_ok" });
-        setPhase("idle");
-        onSet(pos.coords.latitude, pos.coords.longitude);
-      },
-      (geErr) => {
-        geoDiag({ result: "error", code: geErr.code });
-        if (geErr.code === 1) { setPhase("denied"); return; }
-        setPhase("error");
-        setMessage(geErr.code === 3
-          ? "לא הצלחנו לקבל מיקום בזמן. נסו שוב או הזינו כתובת ידנית."
-          : "איתור המיקום נכשל כרגע. נסו שוב או הזינו כתובת ידנית.");
-      },
-      { enableHighAccuracy: true, timeout: 12_000, maximumAge: 60_000 }
-    );
+    setOutcome(result);
+    setShowManual(true); // manual fallback is first-class: never trap the seller
   };
 
   const applyManual = () => {
-    const lat = Number(mLat), lng = Number(mLng);
-    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
-      setMessage("קואורדינטות לא תקינות (קו רוחב עד 90, קו אורך עד 180)");
-      return;
-    }
-    setMessage("");
-    onSet(lat, lng);
+    const parsed = parseManualCoordinates(mLat, mLng);
+    if (!parsed.ok) { setManualError(parsed.error); return; }
+    setManualError("");
+    setOutcome(null);
+    onSet(parsed.latitude, parsed.longitude);
   };
 
   if (row.latitude != null && row.longitude != null) {
@@ -406,55 +383,64 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
           ✓ המיקום נקלט ({row.latitude.toFixed(4)}, {row.longitude.toFixed(4)})
         </span>
         <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">הצגה במפה</a>
-        <button type="button" className="btn btn-sm btn-ghost" onClick={() => onSet(null, null)}>הסרת המיקום</button>
+        <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>הסרת המיקום</button>
       </div>
     );
   }
 
+  const copy = outcome && outcome.kind !== "success" ? GEO_OUTCOME_COPY[outcome.kind] : null;
+  const failureTestId = outcome && outcome.kind !== "success" ? GEO_OUTCOME_TEST_ID[outcome.kind] : "";
+  const pendingLabel = attempt?.n === 2 ? "מנסים שוב במצב מדויק…" : "מבקשים גישה למיקום…";
+
   return (
     <div className="stack" style={{ gap: 6, marginTop: -4, marginBottom: 10 }}>
       <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-        <button type="button" className="btn btn-sm btn-ghost" disabled={phase === "pending"} data-testid="use-my-location"
+        <button type="button" className="btn btn-sm btn-ghost" disabled={pending} data-testid="use-my-location"
+          data-geo-pending={pending ? "1" : "0"} data-geo-attempt={attempt ? String(attempt.n) : ""}
           onClick={() => { void capture(); }}>
-          {phase === "pending" ? "מבקשים גישה למיקום…" : "📍 השתמש במיקום שלי"}
+          {pending ? pendingLabel : "📍 השתמש במיקום שלי"}
         </button>
-        <button type="button" className="btn btn-sm btn-ghost" style={{ opacity: .7 }} onClick={() => setShowManual((v) => !v)}>
+        <button type="button" className="btn btn-sm btn-ghost" style={{ opacity: .7 }} data-testid="geo-manual-toggle"
+          onClick={() => setShowManual((v) => !v)}>
           הזנת קואורדינטות ידנית
         </button>
       </div>
       <span className="hint">לא חובה — מוסיף לקונים כפתור ניווט. הכתובת בשדה התיאור מספיקה תמיד.</span>
 
-      {phase === "denied" ? (
-        <div className="notice err" data-testid="geo-denied" style={{ marginTop: 2 }}>
-          <b>הגישה למיקום חסומה בדפדפן.</b>
+      {copy && outcome ? (
+        <div className={`notice ${copy.denial ? "err" : "info"}`} data-testid={failureTestId} data-geo-kind={outcome.kind} style={{ marginTop: 2 }}>
+          <b>{copy.title}</b>
           <div className="small" style={{ marginTop: 4 }}>
-            אתר אינו יכול לעקוף חסימה כזו. כדי לאפשר:
-            <br />1. לחצו על סמל ההרשאות/מנעול ליד כתובת האתר
-            <br />2. מיקום ← אפשר
-            <br />3. לחצו "בדיקה מחדש"
+            {copy.note ? <div>{copy.note}</div> : null}
+            {copy.steps.map((step, i) => <div key={i}>{i + 1}. {step}</div>)}
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} data-testid="geo-recheck"
-            onClick={() => { void capture(); }}>
-            בדיקה מחדש
-          </button>
+          {copy.retryable ? (
+            <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} disabled={pending}
+              data-testid={copy.denial ? "geo-recheck" : "geo-retry"} onClick={() => { void capture(); }}>
+              {copy.denial ? "בדיקה מחדש" : "ניסיון נוסף"}
+            </button>
+          ) : null}
+          <code className="small" dir="ltr" data-testid="geo-diag"
+            style={{ display: "block", marginTop: 6, opacity: .75, wordBreak: "break-all", textAlign: "left" }}>
+            {geoDiagnosticLine(outcome)}
+          </code>
         </div>
       ) : null}
-      {phase === "error" && message ? <span className="field-error">{message}</span> : null}
-      {phase !== "error" && message ? <span className="field-error">{message}</span> : null}
 
       {showManual ? (
-        <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+        <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }} data-testid="geo-manual">
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
             <label>קו רוחב (lat)</label>
-            <input dir="ltr" inputMode="decimal" value={mLat} onChange={(e) => setMLat(e.target.value)} placeholder="32.0668" />
+            <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lat" value={mLat} onChange={(e) => setMLat(e.target.value)} placeholder="32.0668" />
           </div>
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
             <label>קו אורך (lng)</label>
-            <input dir="ltr" inputMode="decimal" value={mLng} onChange={(e) => setMLng(e.target.value)} placeholder="34.7647" />
+            <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lng" value={mLng} onChange={(e) => setMLng(e.target.value)} placeholder="34.7647" />
           </div>
           <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-manual-apply" onClick={applyManual}>שמירה</button>
         </div>
       ) : null}
+      {manualError ? <span className="field-error" data-testid="geo-manual-error">{manualError}</span> : null}
     </div>
   );
 }
