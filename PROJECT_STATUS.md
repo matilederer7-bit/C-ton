@@ -1,5 +1,25 @@
 # PROJECT STATUS
 
+## P0.5 OWNER ACCEPTANCE REOPEN — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
+
+**Three areas (parallel to Codex Amazon work — its scope untouched; migrations: 060 used, 061 not needed, 062+ reserved for Codex). COMPLETED: 100% of the three areas. TESTED: local 9/9 + hosted 14/14 + mobile sweep. OPEN: owner manual acceptance only. NEXT STEP: owner opens the Preview and judges. `VIRAL_TREE_OWNER_ACCEPTANCE_PENDING` — absolute until the owner says PASS.**
+
+### 1. Hidden Admin entry + password step-up
+The visible "מנהל" button is GONE from the mode switch (אורח/מוכר stay). Admin is entered only through ONE unmarked edge hotspot: first deliberate tap ARMS (nothing happens), second tap within ~2.5s opens the password challenge (explicit tap-state, never native dblclick; desktop+mobile proven). Step-up asks ONLY for the password when the canonical email is known; the password goes solely to Supabase's canonical password grant — never stored/logged/sent to the C-ton backend (hosted storage-scan proof) — and entry additionally requires the server-confirmed Admin capability (wrong password stays out; capability-less accounts stay out). Direct `#/admin` shows the challenge, never the Admin UI (bounded non-secret 30-min unlock marker; forging it changes nothing server-side). Logout/guest/"נעילת מנהל" clear the unlock.
+
+### 2. TRUE viral propagation tree
+Not a cosmetic pass — rebuilt to the owner's mental model over the ONE canonical attribution graph (`viral_attributions.origin_link_id` = branch origin, `parent_participant_id` = who-brought-whom; never timestamp inference): **deal root → ORIGIN SOURCE cards (label, N הצטרפו ישירות, N המשיכו להפיץ — propagation OUTCOME only, branch totals, עומק בדורות) → EVERY joined participant as a node (propagators AND terminal leaves) → next generations recursively**, connected by real genealogy elbow lines. New `/propagation` sources endpoint (admin + seller-own; foreign deal = 404) + additive `source` filter on the existing level query — one engine, no second attribution algorithm. Desktop: drag/zoom/fit/expand/ancestry-highlight canvas with bounded auto-expansion (never thousands of nodes). Mobile: branch drilldown with breadcrumbs (deal → source → participant → children). Empty tree still SHOWS the feature (deal root + "עדיין לא נוצרה שרשרת הפצה"). Deterministic fixture = the owner's example EXACTLY (Source A: 5 direct, 2 continued — A1→3, A3→2, A1.2→1 → 3 generations, 11 in branch; B: 2/1; C: 1/0), seeded synthetically on staging as `[הדגמה] עסקת הוכחת הפצה` (deal 9b79d413, kept for the owner's judgment). Fixed on the way: SVG labels spilled outside nodes under dir=rtl (text-anchor flip). **VIRAL_TREE_OWNER_ACCEPTANCE: PENDING.**
+
+### 3. Support case conversation
+Migration 060: append-thread `siton.support_case_messages` (Customer/Admin/InternalNote; delivery_status Saved/Queued/Sent/Failed/Blocked) + case.reply/case.internal_note audit vocabulary. Admin support: case list → case detail (reference, contact, category, original message) → "שיחה" thread → "הקלדת תשובה…" + "שליחת תשובה" (+ internal-note toggle, admin-eyes-only). A customer reply transactionally persists the message + moves open-ish cases to the answered state (WaitingExternal, shown as "נענה — ממתין לפונה") + records the case event. **Email truth: external outbound email stays DISABLED** — replies stay `Saved`, and both API and UI say so explicitly ("התשובה נשמרה. שליחת מייל חיצונית אינה פעילה כרגע בסביבה זו"); a saved reply is never presented as a delivered email; zero real business email calls. Sellers/public have no read or write path to threads. No public tracking page was built (explicitly out of P0.5 scope).
+
+### Proofs & coordination
+- Local `tests/p05_admin_viral_support_validation.ts` **9/9** (owner-example numbers, terminal leaves, canonical ancestry, seller isolation 404, empty-tree honesty, reply persistence+audit, unauthorized denied, zero external email) + all groups green.
+- Hosted acceptance **14/14** (admin gate ×7 incl. mobile double-tap + storage scan; tree desktop+ancestry+mobile drilldown+empty; support end-to-end incl. reload persistence).
+- Shared files touched (for Amazon-integration reconciliation): `src/frontend_runtime.ts` (additive: propagation sources helper+routes, `source` filter param on viral-tree, support case detail/reply routes), `src/operational_cases.ts` (table assertion += support_case_messages). `src/seller_analytics.ts` untouched in P0.5.
+
+---
+
 ## P0.4 OWNER ACCEPTANCE REOPEN — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
 
 **P0.3 was REOPENED by fresh owner manual acceptance (4 items). Engineering result: P0.4_ENGINEERING_COMPLETE, 100% of the four items; final state stays OWNER_ACCEPTANCE_REQUIRED until the owner uses the deployed Preview. R10 NOT started; real money 0; Grow production 0; fee exactly 8%; distributor 0.**
