@@ -1,5 +1,39 @@
 # PROJECT STATUS
 
+## P0.3 OWNER ACCEPTANCE REOPEN — IN CLOSURE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
+
+**P0.2 was REOPENED by the owner's manual hosted acceptance (the governing rule: the owner's observed behavior overrides automated PASS). 19 issues; engineering work complete and hosted-proven except where explicitly blocked below. Final status stays OWNER_ACCEPTANCE_REQUIRED until the owner confirms each behavior by hand. Safety invariants held: real money 0, Grow production 0, no R10, fee exactly 8%, distributor 0, no PAN/CVV anywhere.**
+
+### Shipped (issue → resolution)
+1. **Auth no-mix:** login is the default and NEVER calls signup; signup is a separate explicit mode with truthful confirmation-requested messaging; ambiguous repeated signup shows a prominent להתחברות CTA. Hosted network proof: owner login = password grant only — zero /signup, zero /resend on the wire.
+2. **Live countdown:** real ticking clock (`web/src/livecountdown.tsx`) — server-time anchored (Date header + performance.now), drift-free, "DD ימים HH:MM:SS" above 1h, "HH:MM:SS:CC" via rAF under 1h, 00:00:00:00 → closed state. Proven ticking on seller + public pages.
+3+15. **Share icons:** recognizable brand SVG icons (WhatsApp/Facebook/X/Telegram/Instagram/native/copy); Instagram = truthful copy+message (no fake deep-share) — proven.
+4. **Chat:** "צ׳אט" with threaded replies (server preview join) + like/dislike toggle reactions; the backend is the single counting authority (migration 057, actor identity = server-side hash of the PII-free visitor id). Proven end-to-end hosted.
+5. **Payment UI:** אשראי/bit tabs in Join; provider-secure entry slots ONLY (disabled placeholders + truthful "not stored, not through C-ton" note); `payment_method` recorded provider-neutrally on the participant (057). NO PAN/CVV is collected or persisted anywhere. Proven: all slot inputs disabled.
+6. **Palette:** graphite+orange dominant + ONE premium muted light-cyan accent (`--accent-cyan #6fd3e0`) replacing every decorative green/blue; red semantic only; progress ramp orange→amber with cyan only at the leading edge near target (never passes green).
+7. **Viral tree:** reworked to the petition-style unified family hierarchy — right-angle genealogy connectors, generation bands, richer participant slots (generation/units/status/branch joins+GMV), ancestry-path highlight to the deal root, focus-branch centering, zoom/drag/fit; mobile drilldown kept. **VIRAL_TREE_OWNER_ACCEPTANCE: PENDING (owner must say PASS).**
+8. **Business onboarding:** `#/seller/profile` — business/legal/ח.פ/entity/contact/finance-email/address/bank; bank account number is WRITE-ONLY at the DB layer (column-level grant excludes web SELECT; only last4 ever returns); statuses separate (profile derived, verification external, settlement derived, Grow onboarding never auto-approved). Migration 058 + grants 019. Hosted-proven incl. no-leak assertion.
+9+12. **Legal:** "חזרה לאתר" → `/preview/` (never /app); legal nav+footer trimmed to תקנון/פרטיות/ביטולים/תמיכה.
+10. **Support overflow:** RTL honeypot offscreen-left was the cause; clip-path visually-hidden fix; proven scrollWidth==clientWidth at 390.
+11. **Password recovery:** full journey implemented — `/auth/v1/recover` with `email_redirect_to=…/preview/`, boot-time fragment capture (`authRedirect.ts`), canonical React reset page (`#/reset-password`) with new-password form → session; invalid links get a truthful screen. **BLOCKED (owner action): Supabase Site URL is still `http://localhost:3000` — MCP cannot change auth config. Fix in Dashboard → Authentication → URL Configuration: Site URL = `https://siton-staging-web.onrender.com/preview/` and add it to Redirect URLs. Until then the EMAIL link points at localhost — this exact subtask stopped per spec, nothing faked.**
+13. **Layout separation:** status stands alone; "סיום ההצטרפות בעוד" + live clock in their own labeled blocks on both seller and public screens — proven.
+14. **Pause/reopen:** manual close is now a reversible pause ("השהיית הצטרפות"/"פתיחת ההצטרפות מחדש"), `close_reason` manual/deadline/capacity distinction (migration 056 extends the 4-layer state machine), guards (manual + deadline future + capacity + nothing charged), deadline authority re-enqueued on reopen. The original "close didn't close" 500 was a hardcoded fromState — fixed. Hosted re-proof surfaced and fixed 3 more REAL defects: inventory row missing on zero-join close, sync idempotency replay never re-opening inventory, missing /api alias for reopen.
+16. **50MB image input:** client decode→orient→resize (~2560 long edge)→WebP/JPEG compress (quality step-down to ≤4MB artifact); truthful Hebrew errors incl. HEIC guidance; server artifact cap 5MB; the stale `IMAGE_MAX_BYTES = 2MB` is gone. Proven: 3.4MB source uploads.
+17. **Star as THE primary control:** ★/☆ on every image card (wizard + deal managers), click ☆ → primary immediately, persists, feeds public+OG; aria "הגדר כתמונה ראשית"/"תמונה ראשית". Proven incl. refresh + OG.
+18. **Pickup GPS:** "השתמש במיקום שלי" (explicit click only) in the wizard delivery rows → lat/lng stored (057); buyers get a free Google-Maps directions action. Proven end-to-end.
+19. **ISSUE_19_NO_CONTENT_PROVIDED** — recorded; nothing invented.
+
+### Real defects found by hosted re-proof (all fixed in 3dba26f)
+- `close_joining` 404 (`inventory_deal_not_found`) on zero-join deals — inventory row is created lazily by join's sync; close now syncs first (fresh per-close key).
+- Inventory `sync` REPLAYS on a used idempotency key — reopen now syncs with a fresh per-reopen key or a reopened deal could never accept joins at the inventory layer.
+- `/api/deals/:id/reopen_joining` missing from the canonical route alias (404).
+- Business-profile upsert READ the write-only `bank_account_number` column (staging 500 under the web role; invisible locally under superuser tests).
+- Chat `reply_preview` is an object — the panel rendered it as a React child and crashed.
+
+**Local gates:** unit/api/integration/db/e2e + frontend suites all green (stale test expectations updated to the intentional new contracts). Migrations 056/057/058 in the manifest; staging applied with ledger rows through position 54; grants 018+019 verified.
+
+---
+
 ## P0.2 OWNER ACCEPTANCE HARDENING — ENGINEERING CLOSED (2026-09-02)
 
 **Driven by REAL owner usage after P0 — 19 owner-reported defects, all addressed and re-proven in the hosted browser. Two items explicitly await owner input: `ABOUT_CONTENT_PENDING_OWNER`, `VIRAL_TREE_OWNER_ACCEPTANCE_PENDING`. R9B stays externally blocked; R10 NOT started; commission 8% / distributor 0 / real money 0 untouched.**

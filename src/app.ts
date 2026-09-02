@@ -4992,21 +4992,27 @@ app.post("/deals/:id/reopen_joining", async (req: any) => {
     actionName: "deal.reopen_joining",
     requestId,
     idempotencyKey: idem,
-    // the deadline authority must keep working after reopen — re-enqueue the
-    // deadline_check at the canonical deadline (the worker treats duplicates
-    // as idempotent no-ops per state)
-    outbox: {
-      event_type: "deadline_check",
-      aggregate_type: "deal",
-      aggregate_id: dealId,
-      payload: { deal_id: dealId },
-      available_at: new Date(ctx.deadline)
-    },
+    outbox: null,
     payload: { reopened_from: "manual_close" },
     insideTx: async (c) => {
       await c.query(
         `UPDATE siton.deals SET close_reason=NULL, closed_for_joining_at=NULL WHERE deal_id=$1`,
         [dealId]
+      );
+      // The deadline authority must keep working after reopen. The publish-time
+      // deadline_check is normally still pending (one-pending-per-aggregate-event
+      // unique index) — insert only if it is somehow gone, never collide.
+      await c.query(
+        `INSERT INTO siton.outbox_events
+           (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+         SELECT 'deadline_check','deal',$1,$2,'pending',0,$3
+         WHERE NOT EXISTS (
+           SELECT 1 FROM siton.outbox_events
+           WHERE event_type='deadline_check' AND aggregate_type='deal'
+             AND aggregate_id=$1 AND status='pending'
+         )
+         ON CONFLICT DO NOTHING`,
+        [dealId, JSON.stringify({ deal_id: dealId }), new Date(ctx.deadline).toISOString()]
       );
       if (canonicalPostgresRuntimeEnabled()) {
         // sync is the canonical open/create op, but it REPLAYS on a used

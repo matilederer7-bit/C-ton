@@ -3356,7 +3356,7 @@ export function registerFrontendExperience(
             bank_account_holder, bank_name, bank_branch,
             bank_account_number, bank_account_last4, profile_completed_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-                 $14, $15, CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END, now())
+                 $14, $15, CASE WHEN $2::text IS NOT NULL THEN now() ELSE NULL END, now())
          ON CONFLICT (seller_id) DO UPDATE SET
            business_name=EXCLUDED.business_name,
            legal_name=EXCLUDED.legal_name,
