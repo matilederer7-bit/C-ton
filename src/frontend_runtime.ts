@@ -8200,6 +8200,120 @@ export function registerFrontendExperience(
     });
   });
 
+  // ── P0.5-3: a support case is a CONVERSATION ──────────────────────────────
+  // GET one case + its full thread. The original customer message lives on
+  // operational_cases.description (unchanged truth); every later message is a
+  // siton.support_case_messages row. Admin-only — sellers and the public have
+  // no read path to support threads.
+  app.get("/api/admin/support-cases/:caseId", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    await ensureOperationalCaseTables(deps.withTx);
+    const caseId = String(req.params.caseId || "").trim();
+    requireUuid(caseId, "case_id");
+    return deps.withTx(async (c) => {
+      const found = await c.query(
+        `SELECT oc.case_id::text, oc.case_type, oc.status, oc.priority, oc.source,
+                oc.deal_id::text, oc.seller_id, oc.participant_id::text, oc.buyer_ref,
+                oc.opened_by, oc.assigned_to, oc.subject, oc.description, oc.resolution_note,
+                oc.created_at, oc.updated_at, oc.closed_at,
+                d.title AS deal_title,
+                COALESCE(sa.business_name, sa.display_name) AS seller_name
+         FROM siton.operational_cases oc
+         LEFT JOIN siton.deals d ON d.deal_id = oc.deal_id
+         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = oc.seller_id
+         WHERE oc.case_id = $1`,
+        [caseId]
+      );
+      if (!found.rowCount) return reply.code(404).send({ ok: false, error: "support_case_not_found" });
+      const messages = await c.query(
+        `SELECT message_id::text, sender_type, sender_ref, body, delivery_status,
+                provider_message_id, created_at
+         FROM siton.support_case_messages
+         WHERE case_id = $1
+         ORDER BY created_at ASC
+         LIMIT 200`,
+        [caseId]
+      );
+      return {
+        ok: true,
+        case: found.rows[0],
+        messages: messages.rows,
+        // truthful delivery reality for the UI — never claim an email was sent
+        email_delivery: { enabled: false, note: "external outbound email is disabled in this environment (notification safety rail)" }
+      };
+    });
+  });
+
+  // POST a reply (or internal note) into the case thread. Transactional:
+  // message persisted + case status truth updated + case event recorded.
+  // Email flow: the approved outbound rail is DISABLED here, so the message
+  // stays delivery_status='Saved' and the response says so honestly — the
+  // reply is never claimed to have reached the customer's inbox.
+  app.post("/api/admin/support-cases/:caseId/reply", async (req: any, reply: any) => {
+    const adminIdentity = await requireAdminMutation(req, reply, "support.manage");
+    if (!adminIdentity) return;
+    await ensureOperationalCaseTables(deps.withTx);
+    const caseId = String(req.params.caseId || "").trim();
+    requireUuid(caseId, "case_id");
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const text = String(body.body || "").trim();
+    const internal = Boolean(body.internal);
+    if (text.length < 2) return reply.code(400).send({ ok: false, error: "reply body is required", code: "support_reply_required" });
+    if (text.length > 4000) return reply.code(400).send({ ok: false, error: "reply body too long", code: "support_reply_too_long" });
+    const actorRef = adminActorRef(adminIdentity);
+    const requestId = String(req.headers?.["x-request-id"] || "");
+
+    return deps.withTx(async (c) => {
+      const current = await c.query(`SELECT case_id, status FROM siton.operational_cases WHERE case_id=$1 FOR UPDATE`, [caseId]);
+      if (!current.rowCount) return reply.code(404).send({ ok: false, error: "support_case_not_found" });
+      const beforeStatus = String(current.rows[0].status);
+
+      const inserted = await c.query(
+        `INSERT INTO siton.support_case_messages (case_id, sender_type, sender_ref, body, delivery_status, request_id)
+         VALUES ($1, $2, $3, $4, 'Saved', $5)
+         RETURNING message_id::text, sender_type, sender_ref, body, delivery_status, created_at`,
+        [caseId, internal ? "InternalNote" : "Admin", actorRef, text, requestId]
+      );
+      const message = inserted.rows[0];
+
+      // A customer-facing reply means the ball moved to the customer's court:
+      // open-ish states become WaitingExternal (presented as "נענה — ממתין
+      // לפונה"). Internal notes never change the case status.
+      let afterStatus = beforeStatus;
+      if (!internal && ["Open", "NeedsAdmin", "NeedsSeller"].includes(beforeStatus)) {
+        afterStatus = "WaitingExternal";
+        await c.query(
+          `UPDATE siton.operational_cases SET status='WaitingExternal', updated_at=now() WHERE case_id=$1`,
+          [caseId]
+        );
+      } else {
+        await c.query(`UPDATE siton.operational_cases SET updated_at=now() WHERE case_id=$1`, [caseId]);
+      }
+
+      await recordOperationalCaseEvent(c, {
+        caseId,
+        eventType: internal ? "case.internal_note" : "case.reply",
+        actorRef,
+        requestId,
+        fromStatus: beforeStatus,
+        toStatus: afterStatus,
+        payload: { message_id: message.message_id, internal }
+      });
+
+      return {
+        ok: true,
+        message,
+        case_status: afterStatus,
+        // honest delivery truth: saved, NOT emailed (rail disabled)
+        email_delivery: {
+          enabled: false,
+          attempted: false,
+          note_he: "התשובה נשמרה. שליחת מייל חיצונית אינה פעילה כרגע בסביבה זו."
+        }
+      };
+    });
+  });
+
   app.post("/api/admin/support-cases/:caseId/escalate", async (req: any, reply: any) => {
     const adminIdentity = await requireAdminMutation(req, reply, "support.manage");
     if (!adminIdentity) return;
@@ -9557,7 +9671,9 @@ export function registerFrontendExperience(
   // affiliate_links): one level of children per request with per-node subtree
   // rollups. Serves BOTH the admin explorer (any deal) and the seller
   // explorer (own deals only — enforced server-side, never in React).
-  async function queryViralTreeLevel(c: any, dealId: string, parentId: string | null, limit: number) {
+  // P0.5-2 — sourceKey narrows a ROOT-level query to one origin source:
+  // 'direct' = roots with no origin link; otherwise the origin link id.
+  async function queryViralTreeLevel(c: any, dealId: string, parentId: string | null, limit: number, sourceKey: string | null = null) {
     const maskTreeName = (raw: unknown) => {
       const s = String(raw ?? "").trim();
       const first = s.split(/\s+/)[0] || "";
@@ -9586,6 +9702,9 @@ export function registerFrontendExperience(
            WHERE va.deal_id = $1
              AND ($2::uuid IS NULL AND va.parent_participant_id IS NULL
                   OR va.parent_participant_id = $2::uuid)
+             AND ($4::text IS NULL
+                  OR ($4::text = 'direct' AND va.origin_link_id IS NULL)
+                  OR va.origin_link_id::text = $4::text)
            ORDER BY p.created_at ASC
            LIMIT $3
          ),
@@ -9635,7 +9754,7 @@ export function registerFrontendExperience(
          LEFT JOIN kids k ON k.parent_participant_id = lvl.participant_id
          LEFT JOIN rollup r ON r.root_id = lvl.participant_id
          ORDER BY lvl.created_at ASC`,
-        [dealId, parentId, limit]
+        [dealId, parentId, limit, sourceKey]
       );
       const nodes = level.rows.map((r: any) => ({
         participant_id: String(r.participant_id),
@@ -9664,15 +9783,158 @@ export function registerFrontendExperience(
     }
   }
 
+  // P0.5-2 — ORIGIN SOURCES summary: the top layer of the propagation tree.
+  // Groups the branch ROOTS (parent IS NULL) by their canonical origin link
+  // ('direct' = no origin), and rolls up the WHOLE branch under each source:
+  // direct joins, how many of them actually caused a downstream join
+  // (propagation OUTCOME, never share-intent), total branch joins/units,
+  // charged/attributed GMV and branch depth in generations of people.
+  async function queryPropagationSources(c: any, dealId: string) {
+    const deal = await c.query(
+      `SELECT deal_id::text, title, state FROM siton.deals WHERE deal_id=$1`,
+      [dealId]
+    );
+    if (!deal.rowCount) return null;
+    const sources = await c.query(
+      `WITH RECURSIVE roots AS (
+         SELECT va.participant_id,
+                COALESCE(va.origin_link_id::text, 'direct') AS source_key,
+                va.generation AS root_generation
+         FROM siton.viral_attributions va
+         WHERE va.deal_id = $1 AND va.parent_participant_id IS NULL
+       ),
+       walk AS (
+         SELECT r.source_key, r.participant_id, r.root_generation, true AS is_root
+         FROM roots r
+         UNION ALL
+         SELECT w.source_key, va.participant_id, w.root_generation, false
+         FROM siton.viral_attributions va
+         JOIN walk w ON va.parent_participant_id = w.participant_id
+         WHERE va.deal_id = $1
+       )
+       SELECT w.source_key,
+              COUNT(*) FILTER (WHERE w.is_root)::int AS direct_joins,
+              COUNT(DISTINCT w.participant_id) FILTER (
+                WHERE w.is_root AND EXISTS (
+                  SELECT 1 FROM siton.viral_attributions ch
+                  WHERE ch.parent_participant_id = w.participant_id AND ch.deal_id = $1
+                )
+              )::int AS propagators,
+              COUNT(*)::int AS branch_joins,
+              COALESCE(SUM(p.qty),0)::int AS branch_units,
+              COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0)),0)::numeric(14,2) AS attributed_gmv,
+              COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0))
+                FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gmv,
+              (COALESCE(MAX(va2.generation),0) - MIN(w.root_generation) + 1)::int AS max_depth
+       FROM walk w
+       JOIN siton.participants p ON p.participant_id = w.participant_id
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       JOIN siton.viral_attributions va2 ON va2.participant_id = w.participant_id
+       GROUP BY w.source_key
+       ORDER BY branch_joins DESC, direct_joins DESC`,
+      [dealId]
+    );
+    // resolve human labels for the origin links (never expose buyer PII here)
+    const linkIds = sources.rows.map((r: any) => String(r.source_key)).filter((k: string) => k !== "direct");
+    const labels = new Map<string, { label: string; ref_type: string; source_code: string | null }>();
+    if (linkIds.length) {
+      const links = await c.query(
+        `SELECT al.link_id::text, al.origin_type, al.source_code,
+                af.display_name AS affiliate_name,
+                p.buyer_name AS origin_buyer_name
+         FROM siton.affiliate_links al
+         LEFT JOIN siton.affiliate_accounts af ON af.affiliate_id = al.affiliate_id
+         LEFT JOIN siton.participants p ON p.participant_id = al.origin_participant_id
+         WHERE al.link_id::text = ANY($1::text[])`,
+        [linkIds]
+      );
+      const maskName = (raw: unknown) => {
+        const first = String(raw ?? "").trim().split(/\s+/)[0] || "";
+        return first.length > 1 ? first : "משתתף";
+      };
+      for (const row of links.rows) {
+        const originType = String(row.origin_type || "");
+        const label =
+          originType === "distributor" ? `מפיץ: ${String(row.affiliate_name || row.source_code || "")}`
+          : originType === "seller" ? "קישור המוכר"
+          : originType === "campaign" ? `קמפיין: ${String(row.source_code || "")}`
+          : originType === "participant" ? `שיתוף של ${maskName(row.origin_buyer_name)}`
+          : String(row.source_code || "מקור");
+        labels.set(String(row.link_id), { label, ref_type: originType, source_code: row.source_code || null });
+      }
+    }
+    return {
+      ok: true,
+      deal: deal.rows[0],
+      sources: sources.rows.map((row: any) => {
+        const key = String(row.source_key);
+        const meta = key === "direct"
+          ? { label: "הצטרפות ישירה", ref_type: "direct", source_code: null }
+          : labels.get(key) || { label: "מקור", ref_type: "unknown", source_code: null };
+        return {
+          source_key: key,
+          label: meta.label,
+          ref_type: meta.ref_type,
+          source_code: meta.source_code,
+          direct_joins: Number(row.direct_joins || 0),
+          propagators: Number(row.propagators || 0),
+          branch_joins: Number(row.branch_joins || 0),
+          branch_units: Number(row.branch_units || 0),
+          attributed_gmv: Number(row.attributed_gmv || 0),
+          charged_gmv: Number(row.charged_gmv || 0),
+          max_depth: Number(row.max_depth || 0)
+        };
+      })
+    };
+  }
+
+  function viralTreeQueryParams(req: any) {
+    const parentRaw = String(req.query?.parent || "").trim();
+    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
+    if (parentId) requireUuid(parentId, "parent");
+    const sourceRaw = String(req.query?.source || "").trim();
+    const sourceKey = sourceRaw ? sourceRaw : null;
+    if (sourceKey && sourceKey !== "direct") requireUuid(sourceKey, "source");
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+    return { parentId, sourceKey, limit };
+  }
+
   app.get("/api/admin/deals/:dealId/viral-tree", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
     const dealId = String(req.params.dealId || "");
     requireUuid(dealId, "deal_id");
-    const parentRaw = String(req.query?.parent || "").trim();
-    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
-    if (parentId) requireUuid(parentId, "parent");
-    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
-    return deps.withTx(async (c) => queryViralTreeLevel(c, dealId, parentId, limit));
+    const { parentId, sourceKey, limit } = viralTreeQueryParams(req);
+    return deps.withTx(async (c) => queryViralTreeLevel(c, dealId, parentId, limit, sourceKey));
+  });
+
+  app.get("/api/admin/deals/:dealId/propagation", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    return deps.withTx(async (c) => {
+      const result = await queryPropagationSources(c, dealId);
+      if (!result) return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
+      return result;
+    });
+  });
+
+  // Seller variant — SAME canonical engine; ownership enforced server-side.
+  app.get("/api/seller/deals/:dealId/propagation", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const own = await c.query(
+        `SELECT 1 FROM siton.deals WHERE deal_id=$1 AND COALESCE(seller_id, $3) = $2`,
+        [dealId, sellerContext.seller_id, DEFAULT_SELLER_ID]
+      );
+      if (!own.rowCount) return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
+      const result = await queryPropagationSources(c, dealId);
+      if (!result) return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
+      return result;
+    });
   });
 
   // P0.4-2E — the seller opens the SAME sophisticated tree for their OWN deal.
@@ -9681,10 +9943,7 @@ export function registerFrontendExperience(
   app.get("/api/seller/deals/:dealId/viral-tree", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
     requireUuid(dealId, "deal_id");
-    const parentRaw = String(req.query?.parent || "").trim();
-    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
-    if (parentId) requireUuid(parentId, "parent");
-    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+    const { parentId, sourceKey, limit } = viralTreeQueryParams(req);
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
@@ -9696,7 +9955,7 @@ export function registerFrontendExperience(
       if (!own.rowCount) {
         return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
       }
-      return queryViralTreeLevel(c, dealId, parentId, limit);
+      return queryViralTreeLevel(c, dealId, parentId, limit, sourceKey);
     });
   });
 

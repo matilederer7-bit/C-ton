@@ -18,6 +18,8 @@ import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
 import { OWNER_CAPS_EVENT, enterGuestMode, exitGuestMode, isGuestMode, readOwnerCaps } from "./ownerMode";
 import { startSessionHeartbeat } from "./session";
+import { isAdminUnlocked } from "./adminGate";
+import { AdminStepUp } from "./adminStepUp";
 
 // Capture ?ref= share codes once, at boot, before any routing.
 captureRefFromLocation();
@@ -88,26 +90,43 @@ function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: strin
   }
   const caps = readOwnerCaps();
   if (!caps?.admin) return null;
-  const mode = page === "admin" ? "admin" : page === "seller" ? "seller" : "";
+  const mode = page === "seller" ? "seller" : "";
+  // P0.5-1: the Admin surface is NEVER advertised — no "מנהל" button anywhere.
+  // Admin is entered only through the hidden two-tap edge gate + password
+  // step-up. The visible modes stay אורח / מוכר.
   return (
     <div className="owner-switch" role="group" aria-label="מצב תצוגה" data-testid="owner-switch">
       <span className="owner-switch-label">הצג כ:</span>
       <button data-testid="owner-mode-guest" onClick={enterGuestMode}>אורח</button>
       <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>מוכר</button>
-      <button data-testid="owner-mode-admin" className={mode === "admin" ? "active" : ""} onClick={() => navigate("#/admin")}>מנהל</button>
     </div>
   );
 }
 
-// Deliberately subtle admin entry — visual obscurity ONLY, never security:
-// the control center still requires canonical Supabase auth + server-side
-// admin permission on every request.
-function AdminDots({ navigate }: { navigate: (h: string) => void }) {
+// P0.5-1 — the deliberate hidden Admin gate. ONE unmarked edge hotspot;
+// a single tap does NOTHING; a second deliberate tap within the arm window
+// opens the Admin password step-up. Explicit tap state (never native
+// dblclick — mobile is inconsistent). Visual obscurity is presentation only:
+// entry still requires the password step-up + server-confirmed capability.
+const ADMIN_ARM_WINDOW_MS = 2500;
+function AdminHotspot({ onActivate }: { onActivate: () => void }) {
+  const armedAt = React.useRef(0);
+  const handleTap = () => {
+    const now = Date.now();
+    if (now - armedAt.current <= ADMIN_ARM_WINDOW_MS && armedAt.current > 0) {
+      armedAt.current = 0;
+      onActivate();
+      return;
+    }
+    armedAt.current = now; // first tap only ARMS; it must never open anything
+  };
   return (
-    <>
-      <button className="admin-dot top" aria-label="כניסת מנהל" title="" onClick={() => navigate("#/admin")} />
-      <button className="admin-dot bottom" aria-label="כניסת מנהל" title="" onClick={() => navigate("#/admin")} />
-    </>
+    <div
+      className="admin-dot top"
+      data-testid="admin-hotspot"
+      aria-hidden="true"
+      onClick={handleTap}
+    />
   );
 }
 
@@ -116,6 +135,11 @@ export default function App() {
   const mallEnabled = useMallEnabled();
   const page = route.page;
   const isAdmin = page === "admin";
+  // P0.5-1 — presentation gate for the Admin surface: a direct #/admin URL
+  // never bypasses the password step-up. (Every admin API route still
+  // authorizes server-side regardless of this flag.)
+  const [adminUnlocked, setAdminUnlocked] = useState(() => isAdminUnlocked());
+  useEffect(() => { if (isAdmin) setAdminUnlocked(isAdminUnlocked()); }, [isAdmin, route]);
 
   // When the Mall is hidden, the root and every unknown route land on the
   // seller-first C-ton landing. Direct deal/track links always work.
@@ -123,7 +147,7 @@ export default function App() {
 
   return (
     <div className="app">
-      <AdminDots navigate={navigate} />
+      <AdminHotspot onActivate={() => { navigate("#/admin"); }} />
       <header className="topbar">
         <div className="topbar-inner">
           <a className="brand" href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>
@@ -144,7 +168,14 @@ export default function App() {
       </header>
 
       {isAdmin ? (
-        <AdminArea sub={route.seg.slice(1)} navigate={navigate} />
+        adminUnlocked ? (
+          <AdminArea sub={route.seg.slice(1)} navigate={navigate} />
+        ) : (
+          <AdminStepUp
+            onUnlocked={() => setAdminUnlocked(true)}
+            onCancel={() => navigate("#/")}
+          />
+        )
       ) : (
         <main className="container">
           {page === "" ? <Home navigate={navigate} /> : null}

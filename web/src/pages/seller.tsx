@@ -13,7 +13,7 @@ import {
 import { absoluteShareUrl } from "../viral";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
-import { VTreeCanvas, type VNode } from "../vtree";
+import { PropagationTree } from "../propagation";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -1205,55 +1205,23 @@ function TypeTermsPanel({ deal }: { deal: Json }) {
   return null;
 }
 
-// ── seller viral tree (P0.4-2E): SAME canonical engine, own deal only ──────
+// ── seller PROPAGATION tree (P0.5-2): SAME canonical engine, own deal only ──
 function SellerViralTreePage({ dealId, navigate }: { dealId: string; navigate: (h: string) => void }) {
-  const [payload, setPayload] = useState<Json | null>(null);
   const [title, setTitle] = useState("");
-  const [error, setError] = useState("");
-  const [selected, setSelected] = useState<VNode | null>(null);
-
   useEffect(() => {
-    api.sellerDealViralTree(dealId, { limit: 60 }).then(setPayload).catch((e) => setError(e.message));
     api.sellerDeal(dealId).then((r) => setTitle(String(r.deal?.title || ""))).catch(() => undefined);
   }, [dealId]);
-
-  if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את העץ" body={error} action={<a className="btn btn-primary" href={`#/seller/deal/${dealId}`}>לעסקה</a>} />;
-  if (!payload) return <BrandLoader label="טוענים את עץ ההפצה…" minHeight={420} />;
-
-  const roots: VNode[] = payload.nodes || [];
   return (
     <>
       <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>
       <div className="panel">
         <div className="panel-title">🌳 עץ ההפצה — {title || "העסקה שלי"}</div>
-        {roots.length === 0 ? (
-          <p className="muted small" style={{ marginBottom: 0 }}>עדיין אין הצטרפויות בעץ — כל מצטרף מקבל קישור אישי אוטומטית.</p>
-        ) : (
-          <VTreeCanvas
-            dealId={dealId}
-            roots={roots}
-            rootTruncated={Boolean(payload.truncated)}
-            dealTitle={title}
-            selectedId={selected ? String(selected.participant_id) : null}
-            onSelect={setSelected}
-            fetchLevel={api.sellerDealViralTree}
-          />
-        )}
+        <PropagationTree
+          dealId={dealId}
+          dealTitle={title}
+          fetchers={{ fetchPropagation: api.sellerDealPropagation, fetchLevel: api.sellerDealViralTree }}
+        />
       </div>
-      {selected ? (
-        <div className="panel" data-testid="tree-node-detail">
-          <div className="panel-title">פרטי ענף — {selected.display}</div>
-          <div className="kv">
-            <span className="k">דור</span><span className="v">{num(selected.generation)}</span>
-            <span className="k">יחידות ישירות</span><span className="v">{num(selected.direct_units)}</span>
-            <span className="k">הביא/ה ישירות</span><span className="v">{num(selected.direct_children)}</span>
-            <span className="k">מצטרפים בכל הענף</span><span className="v">{num(selected.subtree_joins)}</span>
-            <span className="k">יחידות בענף</span><span className="v">{num(selected.subtree_units)}</span>
-            <span className="k">חויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
-            <span className="k">עומק הענף</span><span className="v">{num(selected.subtree_max_depth)} דורות</span>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 }

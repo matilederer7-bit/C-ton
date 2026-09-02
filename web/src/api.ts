@@ -92,12 +92,14 @@ export const api = {
   sellerAnalytics: (period = "all", dealId = "") =>
     req(`/api/seller/analytics?period=${encodeURIComponent(period)}${dealId ? `&deal_id=${encodeURIComponent(dealId)}` : ""}`, {}, "seller"),
   sellerDealViral: (id: string) => req(`/api/seller/deals/${id}/viral`, {}, "seller"),
-  sellerDealViralTree: (id: string, params: { parent?: string; limit?: number } = {}) => {
+  sellerDealViralTree: (id: string, params: { parent?: string; source?: string; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.parent) q.set("parent", params.parent);
+    if (params.source) q.set("source", params.source);
     if (params.limit) q.set("limit", String(params.limit));
     return req(`/api/seller/deals/${id}/viral-tree?${q.toString()}`, {}, "seller");
   },
+  sellerDealPropagation: (id: string) => req(`/api/seller/deals/${id}/propagation`, {}, "seller"),
   updateDealDelivery: (id: string, payload: Json) =>
     req(`/api/seller/deals/${id}/delivery`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),
   createDeal: (payload: Json) =>
@@ -140,14 +142,21 @@ export const api = {
   adminNotificationsStatus: () => req(`/api/admin/notifications-status`, {}, "admin"),
   adminPayoutStatus: () => req(`/api/admin/payout-status`, {}, "admin"),
   adminPaymentOps: () => req(`/api/admin/payment-ops-status`, {}, "admin"),
-  adminDealViralTree: (id: string, params: { parent?: string; depth?: number; limit?: number } = {}) => {
+  adminDealViralTree: (id: string, params: { parent?: string; source?: string; depth?: number; limit?: number } = {}) => {
     const q = new URLSearchParams();
     if (params.parent) q.set("parent", params.parent);
+    if (params.source) q.set("source", params.source);
     if (params.depth) q.set("depth", String(params.depth));
     if (params.limit) q.set("limit", String(params.limit));
     return req(`/api/admin/deals/${id}/viral-tree?${q.toString()}`, {}, "admin");
   },
+  adminDealPropagation: (id: string) => req(`/api/admin/deals/${id}/propagation`, {}, "admin"),
   adminSupportCases: () => req(`/api/admin/support-cases`, {}, "admin"),
+  adminSupportCase: (id: string) => req(`/api/admin/support-cases/${id}`, {}, "admin"),
+  adminSupportReply: (id: string, payload: Json) =>
+    req(`/api/admin/support-cases/${id}/reply`, { method: "POST", body: JSON.stringify(payload) }, "admin"),
+  adminSupportCaseUpdate: (id: string, payload: Json) =>
+    req(`/api/admin/support-cases/${id}`, { method: "PATCH", body: JSON.stringify(payload) }, "admin"),
   adminMissionControl: () => req(`/api/admin/mission-control`, {}, "admin"),
   adminUserProfile: (buyerId: string) => req(`/api/admin/users/${encodeURIComponent(buyerId)}/profile`, {}, "admin"),
   adminAudit: (q = "") => req(`/api/admin/r6/audit?q=${encodeURIComponent(q)}`, {}, "admin"),

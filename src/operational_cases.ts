@@ -52,7 +52,7 @@ export function operationalCaseEventAction(action: string) {
 }
 
 export async function ensureOperationalCaseTables(withTx: WithTx) {
-  await withTx(async c=>assertRequiredTables(c,["operational_cases","operational_case_events"]));
+  await withTx(async c=>assertRequiredTables(c,["operational_cases","operational_case_events","support_case_messages"]));
 }
 
 export async function recordOperationalCaseEvent(c: any, args: {

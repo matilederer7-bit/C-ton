@@ -46,6 +46,7 @@ export function clearOwnerSession(): void {
     localStorage.removeItem(CAPS_KEY);
     localStorage.removeItem(GUEST_KEY);
     localStorage.removeItem("siton_guest_stash_v1"); // legacy stash key
+    sessionStorage.removeItem("siton_admin_unlock_v1"); // P0.5: logout locks Admin
   } catch { /* noop */ }
   notifyCapsChanged();
 }
@@ -57,7 +58,10 @@ export function isGuestMode(): boolean {
 // View-as-guest: mark guest mode and reload into the public root so no
 // privileged state stays mounted. Only removes privileges — grants nothing.
 export function enterGuestMode(): void {
-  try { localStorage.setItem(GUEST_KEY, "1"); } catch { /* noop */ }
+  try {
+    localStorage.setItem(GUEST_KEY, "1");
+    sessionStorage.removeItem("siton_admin_unlock_v1"); // guest strips ALL privileges
+  } catch { /* noop */ }
   window.location.hash = "#/";
   window.location.reload();
 }

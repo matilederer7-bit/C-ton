@@ -1,11 +1,12 @@
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, clearAuthSession, getAdminToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
+import { lockAdmin } from "../adminGate";
 import { revokeSurface } from "../session";
 import { AuthPanel } from "../auth";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
-import { VTreeCanvas } from "../vtree";
+import { PropagationTree } from "../propagation";
 import { buyerStateLabel, fmtDate, ils, moneyStateLabel, NOTIFICATION_STATUS_LABELS, num, pct, stateLabel, timeAgo } from "../util";
 
 // ── login (the shared truthful auth panel + server-side admin verification) ─
@@ -251,63 +252,16 @@ function useIsWide(minWidth = 900): boolean {
   return wide;
 }
 
+// P0.5-2 — the TRUE propagation tree (deal → origin sources → every
+// participant → generations). ONE canonical component serves admin + seller;
+// only the endpoints differ.
 function ViralTreeExplorer({ dealId, dealTitle }: { dealId: string; dealTitle?: string }) {
-  const { data, error } = useFetch(() => api.adminDealViralTree(dealId, { limit: 60 }), [dealId]);
-  const [selected, setSelected] = useState<TreeNode | null>(null);
-  const wide = useIsWide();
-  if (error) return <Err msg={error} />;
-  if (!data) return <Spinner />;
-  const roots: TreeNode[] = (data as Json).nodes || [];
-  if (!roots.length) return <EmptyState icon="🌳" title="אין עדיין עץ הפצה" body="כל מצטרף מקבל קישור אישי; העץ ייבנה עם ההצטרפות הראשונה דרך שיתוף." />;
   return (
-    <div className="tree-explorer">
-      <div className="tree-pane">
-        {wide ? (
-          // desktop: the genealogy CANVAS — drag, zoom, fit, expandable branches
-          <VTreeCanvas
-            dealId={dealId}
-            roots={roots}
-            rootTruncated={Boolean((data as Json).truncated)}
-            dealTitle={dealTitle}
-            onSelect={setSelected}
-            selectedId={selected?.participant_id || null}
-          />
-        ) : (
-          // narrow screens: focused branch drilldown
-          <>
-            <p className="muted small">
-              {num(roots.length)}{(data as Json).truncated ? "+" : ""} שורשים (מצטרפים ללא מפנה) —
-              + פותח את הענף של כל משתתף; לחיצה על כרטיס מציגה את מדדי הענף.
-            </p>
-            <div className="vtree">
-              {roots.map((n) => <TreeBranch key={n.participant_id} node={n} dealId={dealId} depth={0} onSelect={setSelected} selectedId={selected?.participant_id || null} />)}
-            </div>
-          </>
-        )}
-      </div>
-      <div className="tree-detail">
-        {selected ? (
-          <div className="panel" style={{ position: "sticky", top: 16 }}>
-            <div className="panel-title">פרטי משתתף · {selected.display}</div>
-            <div className="kv">
-              <span className="k">דור בשרשרת</span><span className="v">{num(selected.generation)}</span>
-              <span className="k">סטטוס כסף</span><span className="v"><MoneyPill state={String(selected.money_state)} recovery={0} /></span>
-              <span className="k">הביא ישירות</span><span className="v">{num(selected.direct_children)}</span>
-              <span className="k">יחידות שלו</span><span className="v">{num(selected.direct_units)}</span>
-              <span className="k">הצטרפויות בענף</span><span className="v">{num(selected.subtree_joins)}</span>
-              <span className="k">יחידות בענף</span><span className="v">{num(selected.subtree_units)}</span>
-              <span className="k">יחידות מחויבות בענף</span><span className="v" style={{ fontWeight: 700 }}>{num(selected.subtree_charged_units)}</span>
-              <span className="k">ברוטו מחויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
-              <span className="k">עומק הענף (דורות)</span><span className="v">{num(selected.subtree_max_depth)}</span>
-              <span className="k">כניסות מהקישור שלו</span><span className="v">{num(selected.share_visits)}</span>
-              <span className="k">הצטרפויות מהקישור</span><span className="v">{num(selected.share_joins)}</span>
-              {selected.personal_code ? <><span className="k">קוד קישור</span><span className="v mono small" dir="ltr">{selected.personal_code}</span></> : null}
-            </div>
-            <p className="muted small" style={{ marginTop: 10 }}>הצטרפות ≠ חיוב: "מחויבות" נספרות רק אחרי חיוב שהצליח בפועל.</p>
-          </div>
-        ) : <div className="panel"><p className="muted small">בחרו משתתף בעץ כדי לראות את מדדי הענף שלו.</p></div>}
-      </div>
-    </div>
+    <PropagationTree
+      dealId={dealId}
+      dealTitle={dealTitle || ""}
+      fetchers={{ fetchPropagation: api.adminDealPropagation, fetchLevel: api.adminDealViralTree }}
+    />
   );
 }
 
@@ -1030,14 +984,136 @@ const CASE_STATUS_HE: Record<string, string> = {
   Open: "חדש",
   NeedsSeller: "ממתין למוכר",
   NeedsAdmin: "בטיפול",
-  WaitingExternal: "ממתין לגורם חיצוני",
-  Resolved: "נענה",
+  // P0.5: an admin customer-reply moves the case here — presented as answered
+  WaitingExternal: "נענה — ממתין לפונה",
+  Resolved: "נסגר בהצלחה",
   Closed: "נסגר"
 };
 const CASE_PRIORITY_HE: Record<string, string> = { Low: "נמוכה", Normal: "רגילה", High: "גבוהה", Urgent: "דחופה" };
 const CASE_SOURCE_HE: Record<string, string> = { Admin: "צוות", Buyer: "קונה", Seller: "מוכר", System: "מערכת" };
 
+// P0.5-3 — a support case is a conversation: open a case → see the customer's
+// original message + the full thread → reply. A saved reply is presented
+// HONESTLY: external email is disabled in this environment, so the UI never
+// claims the customer received anything.
+function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => void }) {
+  const { data, error, reload } = useFetch(() => api.adminSupportCase(caseId), [caseId]);
+  const [replyText, setReplyText] = useState("");
+  const [internal, setInternal] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [sendError, setSendError] = useState("");
+
+  if (error) return <><button className="btn btn-sm btn-ghost" onClick={onBack}>→ לרשימת הפניות</button><Err msg={error} /></>;
+  if (!data) return <Spinner />;
+  const c = (data as Json).case || {};
+  const messages: Json[] = (data as Json).messages || [];
+
+  const send = async () => {
+    if (busy || replyText.trim().length < 2) return;
+    setBusy(true); setSendError(""); setNotice("");
+    try {
+      const r = await api.adminSupportReply(caseId, { body: replyText.trim(), internal });
+      setReplyText("");
+      setNotice(internal
+        ? "ההערה הפנימית נשמרה."
+        : r.email_delivery?.note_he || "התשובה נשמרה. שליחת מייל חיצונית אינה פעילה כרגע בסביבה זו.");
+      reload();
+    } catch (e: any) { setSendError(e.message || "השליחה נכשלה"); }
+    setBusy(false);
+  };
+
+  const setStatus = async (status: string, resolutionNote?: string) => {
+    setBusy(true); setSendError("");
+    try {
+      await api.adminSupportCaseUpdate(caseId, resolutionNote ? { status, resolution_note: resolutionNote } : { status });
+      reload();
+    } catch (e: any) { setSendError(e.message || "עדכון הסטטוס נכשל"); }
+    setBusy(false);
+  };
+
+  return (
+    <div data-testid="support-case-detail">
+      <button className="btn btn-sm btn-ghost" onClick={onBack}>→ לרשימת הפניות</button>
+      <div className="panel" style={{ marginTop: 10 }}>
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+          <h2 style={{ margin: 0 }}>{c.subject || "פנייה"}</h2>
+          <span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "WaitingExternal" ? "TargetReached" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`} data-testid="case-status">
+            {CASE_STATUS_HE[String(c.status)] || c.status}
+          </span>
+        </div>
+        <div className="kv" style={{ marginTop: 10 }}>
+          <span className="k">מס׳ פנייה</span><span className="v" dir="ltr">{String(c.case_id || "").slice(0, 8)}</span>
+          <span className="k">קטגוריה</span><span className="v">{CASE_TYPE_HE[String(c.case_type)] || c.case_type}</span>
+          <span className="k">מקור</span><span className="v">{CASE_SOURCE_HE[String(c.source)] || c.source}</span>
+          <span className="k">עדיפות</span><span className="v">{CASE_PRIORITY_HE[String(c.priority)] || c.priority}</span>
+          {c.buyer_ref ? (<><span className="k">אימייל הפונה</span><span className="v" dir="ltr">{c.buyer_ref}</span></>) : null}
+          {c.deal_title ? (<><span className="k">עסקה</span><span className="v">{c.deal_title}</span></>) : null}
+          <span className="k">נפתחה</span><span className="v">{fmtDate(c.created_at)}</span>
+        </div>
+        <div className="row" style={{ marginTop: 10, gap: 6, flexWrap: "wrap" }}>
+          {String(c.status) !== "NeedsAdmin" && !["Resolved", "Closed"].includes(String(c.status)) ? (
+            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>סימון בטיפול</button>
+          ) : null}
+          {["Resolved", "Closed"].includes(String(c.status)) ? (
+            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>פתיחה מחדש</button>
+          ) : (
+            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => {
+              const note = window.prompt("הערת סגירה (חובה):", "טופל מול הפונה");
+              if (note && note.trim()) void setStatus("Resolved", note.trim());
+            }}>סגירת הפנייה</button>
+          )}
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">💬 שיחה</div>
+        <div className="case-thread" data-testid="case-thread">
+          <div className="case-msg customer">
+            <div className="case-msg-head">הפונה · {fmtDate(c.created_at)}</div>
+            <div className="case-msg-body">{c.description || "—"}</div>
+          </div>
+          {messages.map((m) => (
+            <div key={m.message_id} className={`case-msg ${m.sender_type === "Admin" ? "admin" : m.sender_type === "InternalNote" ? "internal" : "customer"}`}>
+              <div className="case-msg-head">
+                {m.sender_type === "Admin" ? "צוות C-ton" : m.sender_type === "InternalNote" ? "הערה פנימית (לא נשלחת לפונה)" : "הפונה"}
+                {" · "}{fmtDate(m.created_at)}
+                {m.sender_type === "Admin" ? (
+                  <span className="case-delivery" data-testid="delivery-state">
+                    {" · "}{String(m.delivery_status) === "Sent" ? "נשלח במייל" : String(m.delivery_status) === "Queued" ? "בתור לשליחה" : "נשמר (ללא שליחת מייל)"}
+                  </span>
+                ) : null}
+              </div>
+              <div className="case-msg-body">{m.body}</div>
+            </div>
+          ))}
+        </div>
+        <div className="case-composer">
+          <textarea rows={3} placeholder="הקלדת תשובה…" value={replyText} maxLength={4000}
+            onChange={(e) => setReplyText(e.target.value)} data-testid="reply-input" />
+          <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+            <label className="check" style={{ margin: 0 }}>
+              <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
+              <span>הערה פנימית בלבד (לא מיועדת לפונה)</span>
+            </label>
+            <button className="btn btn-primary" disabled={busy || replyText.trim().length < 2} data-testid="reply-send" onClick={() => { void send(); }}>
+              {busy ? "שולחים…" : internal ? "שמירת הערה" : "שליחת תשובה"}
+            </button>
+          </div>
+          {notice ? <div className="notice info" data-testid="reply-notice">{notice}</div> : null}
+          {sendError ? <div className="notice err">{sendError}</div> : null}
+          <p className="muted small" style={{ margin: "8px 0 0" }}>
+            שליחת מייל חיצונית אינה פעילה בסביבה זו — תשובות נשמרות בשרשור הפנייה בלבד.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SupportScreen() {
+  const [openCaseId, setOpenCaseId] = useState<string | null>(null);
+  if (openCaseId) return <><h1>תמיכה ופניות</h1><SupportCaseDetail caseId={openCaseId} onBack={() => setOpenCaseId(null)} /></>;
   return <JsonStatScreen title="תמיכה ופניות" fetcher={() => api.adminSupportCases()} render={(d) => {
     const cases: Json[] = d.cases || d.support_cases || [];
     const summary = d.summary || {};
@@ -1051,9 +1127,9 @@ function SupportScreen() {
         </div>
         {cases.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>נושא</th><th>קטגוריה</th><th>מקור</th><th>עדיפות</th><th>סטטוס</th><th>פרטים</th><th>מתי</th></tr></thead>
+            <thead><tr><th>נושא</th><th>קטגוריה</th><th>מקור</th><th>עדיפות</th><th>סטטוס</th><th>פרטים</th><th>מתי</th><th /></tr></thead>
             <tbody>{cases.map((c, i) => (
-              <tr key={c.case_id || i}>
+              <tr key={c.case_id || i} className="case-row" onClick={() => setOpenCaseId(String(c.case_id))} style={{ cursor: "pointer" }}>
                 <td><b>{c.subject || "—"}</b>{c.buyer_ref ? <div className="muted small" dir="ltr">{c.buyer_ref}</div> : null}</td>
                 <td>{CASE_TYPE_HE[String(c.case_type)] || c.case_type}</td>
                 <td>{CASE_SOURCE_HE[String(c.source)] || c.source}</td>
@@ -1061,6 +1137,7 @@ function SupportScreen() {
                 <td><span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`}>{CASE_STATUS_HE[String(c.status)] || c.status}</span></td>
                 <td className="small" style={{ maxWidth: 340, whiteSpace: "pre-wrap" }}>{String(c.description || "").slice(0, 220)}</td>
                 <td>{fmtDate(c.created_at)}</td>
+                <td><button className="btn btn-sm btn-ghost" data-testid="case-open" onClick={(e) => { e.stopPropagation(); setOpenCaseId(String(c.case_id)); }}>פתיחה ←</button></td>
               </tr>
             ))}</tbody>
           </table></div>
@@ -1240,7 +1317,8 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
+        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-lock" onClick={() => { lockAdmin(); window.location.hash = "#/"; window.location.reload(); }}>נעילת מנהל</button>
+        <button style={{ opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>יציאה</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}
