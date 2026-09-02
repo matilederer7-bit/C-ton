@@ -40,12 +40,17 @@ await run("legal_distributor_no_commission_copy_validation", async () => {
 });
 
 await run("legal_footer_links_validation", async () => {
+  // P0.3-12: the visible legal footer/nav is trimmed to the core buyer
+  // documents + support; sellers/affiliates pages stay ROUTED (LEGAL_PAGES)
+  // and linked from their own flows, not from the buyer footer.
   assert.match(runtime, /\/legal\/terms/);
   assert.match(runtime, /\/legal\/privacy/);
   assert.match(runtime, /\/legal\/refunds/);
-  assert.match(runtime, /\/legal\/sellers/);
-  assert.match(runtime, /\/legal\/affiliates/);
+  assert.match(runtime, /\/preview\/#\/support/);
   assert.match(runtime, /\/app\/contact/);
+  const legalPages = await readFile("src/legal_pages.ts", "utf8");
+  assert.match(legalPages, /sellers/);
+  assert.match(legalPages, /affiliates/);
 });
 
 await run("legal_recovery_copy_validation", async () => {
