@@ -820,6 +820,13 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 .vtree-node-g .t2 { fill: var(--ink-soft); font-size: 12px; }
 .vtree-node-g.charged .t2 { fill: var(--success); }
 .vtree-node-g .t3 { fill: var(--brand-hi); font-size: 11px; font-weight: 700; }
+/* P0.3-7 — ancestry path highlight: selecting a participant lights the whole
+   chain of elbow connectors back to the deal root; the rest recedes. */
+.vtree-edge { transition: stroke .15s ease, opacity .15s ease; }
+.vtree-edge.on-path { stroke: var(--brand); stroke-width: 3; opacity: 1; }
+.vtree-node-g.on-path rect { stroke: var(--brand); stroke-width: 2; }
+.vtree-node-g.dimmed { opacity: .38; }
+.vtree-node-deal.on-path rect { filter: drop-shadow(0 0 10px var(--brand-glow)); }
 .vtree-expand circle { fill: var(--bg-deep); stroke: var(--brand); stroke-width: 1.5; }
 .vtree-expand text { fill: var(--brand-hi); font-weight: 800; font-size: 12px; }
 .vtree-expand:hover circle { fill: var(--brand); }
