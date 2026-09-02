@@ -1,5 +1,32 @@
 # PROJECT STATUS
 
+## P0.4 OWNER ACCEPTANCE REOPEN — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
+
+**P0.3 was REOPENED by fresh owner manual acceptance (4 items). Engineering result: P0.4_ENGINEERING_COMPLETE, 100% of the four items; final state stays OWNER_ACCEPTANCE_REQUIRED until the owner uses the deployed Preview. R10 NOT started; real money 0; Grow production 0; fee exactly 8%; distributor 0.**
+
+### 1. AUTH — first-submit login is now deterministic
+**Root cause (reproduced hosted):** a stale `siton_guest_mode_v1` flag made the API client strip Authorization AFTER a perfectly successful login → the dashboard's first call 401'd → the 401 handler wiped the fresh session AND the guest flag → back to login; the second attempt "worked". Compounded by a non-transactional finishSignIn (adoptCapabilities could fail silently and navigate anyway).
+**Fix:** transactional login state machine — password once → session stored → stale guest flag cleared IN PLACE → capabilities resolved with bounded backoff (4 attempts) → surfaces granted → navigate. On transient capability failure the session is KEPT and ONE Hebrew message offers "נסו שוב" that retries DISCOVERY only (never the password). Dashboard 401 gets one bounded retry before concluding the session is dead. View-as-Guest for a logged-in owner unchanged (אורח ↔ חזרה לחשבון). Staging-safe auth trace (phases+correlation id, zero secrets) in sessionStorage + `window.__sitonAuthTrace()`.
+**Proof:** 10/10 hosted logins, PASSWORD_SUBMISSIONS=exactly 1 each, zero /signup//resend//verify — across 3 cold browsers, session-clear, reload, STALE-GUEST (the reported ritual — trace shows AUTH_GUEST_MODE_CLEARED), mobile 390, guest→login, direct admin URL. (Earlier "2 password requests" observations were CORS preflight OPTIONS — the proof counts POSTs.)
+
+### 2. SELLER COMMAND CENTER
+Canonical `/api/seller/analytics` EXPANDED (no second analytics universe): `7d` period, optional `deal_id` scope (ownership enforced server-side — foreign deal answers 404 like a missing one), daily series (joins/units/charged-gross/traffic), funnel from canonical `viral_events` (views→unique visitors→join starts→joins→charged buyers; empty shows an honest "no data yet", never fake 0), share-channel attribution, seller-scoped viral aggregate (direct/referred/generations/units/charged GMV/top referrers), recent activity (audit_log deal events + masked joins), action center (deadline-under-target critical, completion-window pending, manual pause, profile/settlement incomplete, unpublished drafts — sorted by urgency), and a server-side expected fee/net PROJECTION from the SAME canonical 8%+VAT function.
+Dashboard rebuilt: KPI strip (POTENTIAL vs CHARGED vs NET differentiated semantically+visually), action center high on page, deal cards, money panel (with "potential is not received money" explanation + staging flag), dependency-free SVG charts with 7ימים/30ימים/כל-התקופה + עסקה-ספציפית filters, funnel, viral panel with "פתיחת העץ הוויראלי", activity stream. ONE bounded aggregate request (no N+1); tree loads lazily on its own page.
+**Seller viral tree:** `#/seller/deal/:id/viral` — the SAME canonical tree engine (one extracted level-query serves admin + seller); seller route enforces deal ownership server-side. **Isolation proven at API level** (tests/p04: seller B → seller A's analytics scope/tree = 404).
+
+### 3. X ICON
+Real root cause found: the share button's bare `x` key class collided with the global `.x` utility (36px close-button) and shrank the whole button. Key classes now prefixed (`net-x`) + the sparse X glyph renders at 26px vs 22px siblings inside the SAME 46px touch target. Hosted-measured: X svg 26px, others 22px, all buttons 46px.
+
+### 4. DELIVERY / PICKUP ON SELLER DEAL MANAGEMENT
+"אספקה ומשלוח" section on EVERY seller deal screen — pickup (label/coords/map preview link), delivery (method/price), digital note for voucher/ticket. ALWAYS visible; locked state shows the explicit Hebrew reason, never hidden. Editing: Draft always; **published editable ONLY while zero reliance** (no participant row EVER, no payment binding) — decided SERVER-side (`seller_actions.delivery_editable`), executed transactionally by `PUT /api/seller/deals/:id/delivery` and recorded in the new append-only `siton.deal_field_change_audit` (migration 059, ledger position 55, grants file 020: web INSERT+SELECT, no DELETE, UPDATE blocked by trigger). GPS "השתמש במיקום שלי" (explicit click only) + map preview of the chosen point only.
+**Create↔edit parity audit:** title/short/long/price/min/max/deadline — view on screen, edit in Draft panel, locked after publish (financial commitments). Delivery — view always, edit per zero-reliance rule. Images+primary star — Draft add/remove, arrange+star in open states. Voucher/ticket terms — NOW visible on management (new panels) and editable in Draft (new edit-panel fields); locked after publish. Deal type — not editable (explicit server guard). Nothing collected at creation is invisible in management anymore.
+
+### Proofs
+- Hosted acceptance **21/21** (incl. AUTH 10/10) + mobile gate **21/21** at 320/360/375/390/430 (command center, deal+delivery, tree page, share icons — zero horizontal overflow); screenshots reviewed.
+- Local: tests/p04_seller_command_delivery_validation.ts 7/7 (isolation, delivery lock+audit append-only, 8% projection) + all groups green (unit/api/integration/db/security/e2e/workers/payments + frontend).
+
+---
+
 ## P0.3 OWNER ACCEPTANCE REOPEN — IN CLOSURE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
 
 **P0.2 was REOPENED by the owner's manual hosted acceptance (the governing rule: the owner's observed behavior overrides automated PASS). 19 issues; engineering work complete and hosted-proven except where explicitly blocked below. Final status stays OWNER_ACCEPTANCE_REQUIRED until the owner confirms each behavior by hand. Safety invariants held: real money 0, Grow production 0, no R10, fee exactly 8%, distributor 0, no PAN/CVV anywhere.**
