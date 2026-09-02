@@ -17,7 +17,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers, OutboxLeaseLostError } from "./outbox_worker_helpers.js";
-import { buildPaymentAttemptHelpers } from "./payment_attempt_helpers.js";
+import { buildPaymentAttemptHelpers, type AttemptType as PaymentAttemptType } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
@@ -599,6 +599,7 @@ const {
   markOutboxSent,
   markOutboxFailed,
   heartbeatOutboxLease,
+  assertLeaseForProviderIo,
   workerId: outboxWorkerId
 } = buildOutboxWorkerHelpers({
   withTx,
@@ -611,8 +612,8 @@ const {
 });
 
 const {
-  recordAttemptBeforeIo,
-  finalizeAttemptResult
+  finalizeAttemptResult,
+  beginProviderAttempt
 } = buildPaymentAttemptHelpers({
   withTx
 });
@@ -1348,6 +1349,7 @@ async function handleRefundEvent(
     aggregate_id: string;
     payload: any;
     attempt_count: number;
+    lease_generation?: number | null;
   },
   eventId: string
 ) {
@@ -1404,21 +1406,36 @@ async function handleRefundEvent(
   });
 
   for (const p of needRefundWithTrace) {
-    const correlation = `${event.event_type}:refund:${eventId}:${p.participant_id}`;
     const attemptType = event.event_type === "cancel_refund" ? "cancel_refund" : "refund";
-    await recordAttemptBeforeIo({
+    const amountMinor = paymentMinorAmount({
+      qty: Number(p.qty || 0),
+      pricePerUnit: Number(p.price_per_unit || 0),
+      deliveryCost: Number(p.delivery_cost || 0)
+    });
+    // R9C — durable identity + reconcile-before-new-operation (see charge rail).
+    const attempt = await beginProviderAttempt({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: attemptType,
-      correlation_id: correlation
+      identity: (logicalAttempt) => `${event.event_type}:refund:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "unresolved") {
+      const resolution = await resolvePriorProviderAttempt({
+        operation: "refund",
+        attempt_type: attemptType,
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        correlation_id: attempt.correlation_id,
+        provider_reference: p.capture_reference || p.authorization_id || null,
+        expected_amount_minor: amountMinor,
+        event_id: eventId
+      });
+      if (resolution !== "reuse") continue;
+    }
+    const correlation = attempt.correlation_id;
 
     const refundInput: Parameters<typeof paymentProvider.refund>[0] = {
-      amount_minor: paymentMinorAmount({
-        qty: Number(p.qty || 0),
-        pricePerUnit: Number(p.price_per_unit || 0),
-        deliveryCost: Number(p.delivery_cost || 0)
-      }),
+      amount_minor: amountMinor,
       currency: "ILS",
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -1428,7 +1445,15 @@ async function handleRefundEvent(
     };
     if (p.authorization_id) refundInput.authorization_id = p.authorization_id;
     if (p.capture_reference) refundInput.capture_reference = p.capture_reference;
+    await hitTestFault("payment.before_provider_io");
+  // R9C fence: the LAST check before external money I/O — a stale worker whose
+  // job was reclaimed must not reach the provider.
+  await assertOutboxLeaseForProviderIo(event);
+    // R9C fence: the LAST check before external money I/O — a stale worker whose
+    // job was reclaimed must not reach the provider.
+    await assertOutboxLeaseForProviderIo(event);
     const result = await paymentProvider.refund(refundInput);
+    await hitTestFault("payment.after_provider_io");
 
     await finalizeAttemptResult({
       participant_id: p.participant_id,
@@ -1625,6 +1650,7 @@ async function handlePaymentReconcileEvent(
     payload: any;
     attempt_count: number;
     max_attempts?: number;
+    lease_generation?: number | null;
   },
   eventId: string
 ) {
@@ -1864,6 +1890,158 @@ async function applyAuthorizationRelease(participantId: string, dealId: string, 
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// R9C — provider-operation identity discipline (every money rail).
+//
+// Before any provider call a rail asks beginProviderAttempt() for ONE durable
+// identity. If an earlier attempt for the same participant/type is UNRESOLVED
+// (recorded before I/O and never finalized — worker crash, stall, lease
+// reclaim — or finalized as success but never persisted into state), the rail
+// must NOT mint a fresh idempotency key: it resolves the prior identity through
+// the provider's authoritative status seam first. Provider says executed →
+// apply the canonical event (no new money call). Provider says the request
+// never executed (final) → the SAME identity is reused, so a stale request that
+// lands later is deduplicated provider-side. Ambiguous → Worker-owned reconcile
+// rail (bounded retries, DLQ + operational case), no money call now.
+//
+// The worker also re-validates its outbox lease immediately before provider
+// I/O (assertOutboxLeaseForProviderIo): a stale worker that resumes after its
+// job was reclaimed is fenced BEFORE it can touch the provider.
+// ---------------------------------------------------------------------------
+
+type PriorAttemptResolution = "applied" | "reuse" | "deferred" | "blocked";
+
+const PROVIDER_IO_LEASE_MARGIN_MS = Number(process.env.PAYMENT_PROVIDER_TIMEOUT_MS || 8_000) + 5_000;
+
+async function assertOutboxLeaseForProviderIo(event: { event_uuid: string; lease_generation?: number | null }) {
+  const generation = Number(event.lease_generation);
+  if (!Number.isInteger(generation) || generation < 1) return; // not running under a worker lease (direct invocation)
+  const owned = await assertLeaseForProviderIo(event.event_uuid, generation, PROVIDER_IO_LEASE_MARGIN_MS);
+  if (!owned) throw new OutboxLeaseLostError(event.event_uuid);
+}
+
+async function resolvePriorProviderAttempt(args: {
+  operation: "capture" | "refund" | "release";
+  attempt_type: PaymentAttemptType;
+  participant_id: string;
+  deal_id: string;
+  correlation_id: string;
+  provider_reference: string | null;
+  expected_amount_minor: number | null;
+  event_id: string;
+}): Promise<PriorAttemptResolution> {
+  const reference = String(args.provider_reference || "").trim();
+  const finalizePrior = (result_class: "success" | "permanent_fail") => finalizeAttemptResult({
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: args.attempt_type,
+    correlation_id: args.correlation_id,
+    result_class
+  });
+  if (!paymentProvider.status || !reference) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-prior-attempt-unverifiable:${args.participant_id}:${args.attempt_type}`,
+      subject: `Unresolved ${args.attempt_type} attempt cannot be verified for participant ${args.participant_id}`,
+      description: `A prior ${args.attempt_type} attempt (${args.correlation_id}) is unresolved and ${paymentProvider.status ? "has no durable provider reference" : `provider ${paymentProvider.providerCode} exposes no status capability`}. No new provider operation was started; manual provider-side verification is required.`,
+      correlationId: args.correlation_id
+    });
+    return "blocked";
+  }
+  const status = await paymentProvider.status({
+    provider_reference: reference,
+    operation: args.operation,
+    correlation_id: args.correlation_id
+  });
+  if (
+    status.amount_minor !== null &&
+    Number.isInteger(status.amount_minor) &&
+    args.operation !== "release" &&
+    args.expected_amount_minor !== null &&
+    Number(status.amount_minor) !== args.expected_amount_minor
+  ) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-amount-mismatch:${args.participant_id}:${args.attempt_type}`,
+      subject: `Provider amount mismatch for participant ${args.participant_id}`,
+      description: `Provider reports ${status.amount_minor} minor units for ${args.attempt_type} ${args.correlation_id}; authoritative amount is ${args.expected_amount_minor}. State was NOT mutated and no new provider operation was started.`,
+      correlationId: args.correlation_id
+    });
+    return "blocked";
+  }
+  const providerReference = status.provider_reference || reference;
+  const ingest = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
+    await ingestAndProcessPaymentEvent({
+      provider: paymentProvider.providerCode,
+      event_id: `reconcile:${args.correlation_id}:${eventType}`,
+      event_type: eventType,
+      correlation_id: args.correlation_id,
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      provider_reference: providerReference,
+      payload: {
+        source: "prior_attempt_resolution",
+        worker_event_id: args.event_id,
+        provider_reference: providerReference,
+        provider_state: status.state,
+        provider_final: status.final
+      }
+    });
+    if (status.provider_reference) {
+      await paymentBindings
+        .updateProviderReferenceForParticipant(args.participant_id, status.provider_reference)
+        .catch(() => undefined);
+    }
+  };
+
+  if (args.operation === "capture") {
+    const isRecovery = args.attempt_type === "recovery";
+    if (status.state === "captured") {
+      await ingest(isRecovery ? "recovery_captured" : "charge_captured");
+      await finalizePrior("success");
+      return "applied";
+    }
+    if (status.state === "failed") {
+      await ingest(isRecovery ? "recovery_failed" : "charge_failed");
+      await finalizePrior("permanent_fail");
+      return "applied";
+    }
+    if (status.state === "authorized" && status.final) return "reuse";
+  } else if (args.operation === "refund") {
+    if (status.state === "refunded") {
+      await ingest("refund_issued");
+      await finalizePrior("success");
+      return "applied";
+    }
+    if (status.state === "captured" && status.final) return "reuse";
+  } else {
+    if (status.state === "released") {
+      await applyAuthorizationRelease(args.participant_id, args.deal_id, `worker:${args.event_id}`, args.correlation_id);
+      await finalizePrior("success");
+      return "applied";
+    }
+    if (status.state === "authorized" && status.final) return "reuse";
+    if (status.state === "captured") {
+      await openPaymentOperationalCase({
+        autoKey: `payment-reconcile-release-captured:${args.participant_id}`,
+        subject: `Hold intended for release was captured (participant ${args.participant_id})`,
+        description: `Provider reports captured for a hold Siton tried to release (correlation ${args.correlation_id}). Manual reconciliation required; no state was guessed.`,
+        correlationId: args.correlation_id
+      });
+      return "blocked";
+    }
+  }
+
+  await schedulePaymentReconcile({
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: args.attempt_type as PaymentReconcilePayload["attempt_type"],
+    correlation_id: args.correlation_id,
+    operation: args.operation,
+    provider_reference: reference,
+    reason: "prior_attempt_unresolved_before_new_operation"
+  });
+  return "deferred";
+}
+
 async function handlePaymentReleaseEvent(
   event: {
     event_uuid: string;
@@ -1873,6 +2051,7 @@ async function handlePaymentReleaseEvent(
     payload: any;
     attempt_count: number;
     max_attempts?: number;
+    lease_generation?: number | null;
   },
   eventId: string
 ) {
@@ -1886,13 +2065,27 @@ async function handlePaymentReleaseEvent(
   if (!["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state))) return; // already resolved
 
   const providerReference = String(target.binding_reference || "").trim();
-  const correlation = `release:${eventId}:a${event.attempt_count}:${participantId}`;
-  await recordAttemptBeforeIo({
+  // R9C — durable identity + reconcile-before-new-operation (see charge rail).
+  const attempt = await beginProviderAttempt({
     participant_id: participantId,
     deal_id: dealId,
     attempt_type: "release",
-    correlation_id: correlation
+    identity: (logicalAttempt) => `release:${eventId}:n${logicalAttempt}:${participantId}`
   });
+  if (attempt.kind === "unresolved") {
+    const resolution = await resolvePriorProviderAttempt({
+      operation: "release",
+      attempt_type: "release",
+      participant_id: participantId,
+      deal_id: dealId,
+      correlation_id: attempt.correlation_id,
+      provider_reference: providerReference || null,
+      expected_amount_minor: null,
+      event_id: eventId
+    });
+    if (resolution !== "reuse") return;
+  }
+  const correlation = attempt.correlation_id;
 
   if (!paymentProvider.release) {
     await finalizeAttemptResult({
@@ -1925,7 +2118,12 @@ async function handlePaymentReleaseEvent(
     currency: "ILS",
     request_id: `worker:${eventId}`
   };
+  await hitTestFault("payment.before_provider_io");
+  // R9C fence: the LAST check before external money I/O — a stale worker whose
+  // job was reclaimed must not reach the provider.
+  await assertOutboxLeaseForProviderIo(event);
   const result = await paymentProvider.release(releaseInput);
+  await hitTestFault("payment.after_provider_io");
 
   if (result.result_class === "success") {
     await finalizeAttemptResult({
@@ -1994,6 +2192,7 @@ async function handleChargeDealEvent(
     aggregate_id: string;
     payload: any;
     attempt_count: number;
+    lease_generation?: number | null;
   },
   eventId: string,
   app: ReturnType<typeof Fastify>
@@ -2049,23 +2248,40 @@ async function handleChargeDealEvent(
   for (const p of participants) {
     if (p.buyer_state !== "ChargingAttempt" || p.money_state !== "ChargeAttempt") continue;
 
-    // The outbox attempt_count is encoded so each real provider retry is a
-    // distinct attempt for the 30-minute charge cap (migration 050), while a
-    // same-claim reprocess keeps the same correlation and stays idempotent.
-    const correlation = `capture:${eventId}:a${event.attempt_count}:${p.participant_id}`;
-    await recordAttemptBeforeIo({
+    const amountMinor = paymentMinorAmount({
+      qty: Number(p.qty || 0),
+      pricePerUnit: Number(p.price_per_unit || 0),
+      deliveryCost: Number(p.delivery_cost || 0)
+    });
+    // R9C — ONE durable provider-operation identity per logical attempt,
+    // minted from the attempts table (never from the outbox attempt_count).
+    // An unresolved prior attempt is reconciled through the provider status
+    // seam BEFORE any fresh money call; a provider-declared failure is the
+    // only thing that mints a new identity (still a distinct attempt for the
+    // 30-minute cap, migration 050).
+    const attempt = await beginProviderAttempt({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
-      correlation_id: correlation
+      identity: (logicalAttempt) => `capture:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "unresolved") {
+      const resolution = await resolvePriorProviderAttempt({
+        operation: "capture",
+        attempt_type: "charge_start",
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        correlation_id: attempt.correlation_id,
+        provider_reference: p.authorization_id || null,
+        expected_amount_minor: amountMinor,
+        event_id: eventId
+      });
+      if (resolution !== "reuse") continue;
+    }
+    const correlation = attempt.correlation_id;
 
     const captureInput: Parameters<typeof paymentProvider.capture>[0] = {
-      amount_minor: paymentMinorAmount({
-        qty: Number(p.qty || 0),
-        pricePerUnit: Number(p.price_per_unit || 0),
-        deliveryCost: Number(p.delivery_cost || 0)
-      }),
+      amount_minor: amountMinor,
       currency: "ILS",
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -2074,7 +2290,15 @@ async function handleChargeDealEvent(
       request_id: `worker:${eventId}`
     };
     if (p.authorization_id) captureInput.authorization_id = p.authorization_id;
+    await hitTestFault("payment.before_provider_io");
+  // R9C fence: the LAST check before external money I/O — a stale worker whose
+  // job was reclaimed must not reach the provider.
+  await assertOutboxLeaseForProviderIo(event);
+    // R9C fence: the LAST check before external money I/O — a stale worker whose
+    // job was reclaimed must not reach the provider.
+    await assertOutboxLeaseForProviderIo(event);
     const result = await paymentProvider.capture(captureInput);
+    await hitTestFault("payment.after_provider_io");
 
     if (result.result_class === "temporary_fail") {
       await finalizeAttemptResult({
@@ -2206,6 +2430,7 @@ async function handleRecoveryDealEvent(
     aggregate_id: string;
     payload: any;
     attempt_count: number;
+    lease_generation?: number | null;
   },
   eventId: string
 ) {
@@ -2269,23 +2494,35 @@ async function handleRecoveryDealEvent(
   });
 
   for (const p of participants) {
-    // attempt_count-scoped so each real provider retry is a distinct attempt
-    // for the 30-minute charge cap (migration 050); same-claim reprocess stays
-    // idempotent under the same correlation.
-    const correlation = `recovery:${eventId}:a${event.attempt_count}:${p.participant_id}`;
-    await recordAttemptBeforeIo({
+    const amountMinor = paymentMinorAmount({
+      qty: Number(p.qty || 0),
+      pricePerUnit: Number(p.price_per_unit || 0),
+      deliveryCost: Number(p.delivery_cost || 0)
+    });
+    // R9C — durable identity + reconcile-before-new-operation (see charge rail).
+    const attempt = await beginProviderAttempt({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "recovery",
-      correlation_id: correlation
+      identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "unresolved") {
+      const resolution = await resolvePriorProviderAttempt({
+        operation: "capture",
+        attempt_type: "recovery",
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        correlation_id: attempt.correlation_id,
+        provider_reference: p.authorization_id || null,
+        expected_amount_minor: amountMinor,
+        event_id: eventId
+      });
+      if (resolution !== "reuse") continue;
+    }
+    const correlation = attempt.correlation_id;
 
     const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
-      amount_minor: paymentMinorAmount({
-        qty: Number(p.qty || 0),
-        pricePerUnit: Number(p.price_per_unit || 0),
-        deliveryCost: Number(p.delivery_cost || 0)
-      }),
+      amount_minor: amountMinor,
       currency: "ILS",
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -2295,7 +2532,15 @@ async function handleRecoveryDealEvent(
       within_window: withinWindow
     };
     if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
+    await hitTestFault("payment.before_provider_io");
+  // R9C fence: the LAST check before external money I/O — a stale worker whose
+  // job was reclaimed must not reach the provider.
+  await assertOutboxLeaseForProviderIo(event);
+    // R9C fence: the LAST check before external money I/O — a stale worker whose
+    // job was reclaimed must not reach the provider.
+    await assertOutboxLeaseForProviderIo(event);
     const result = await paymentProvider.recover(recoverInput, withinWindow);
+    await hitTestFault("payment.after_provider_io");
 
     if (result.result_class === "temporary_fail") {
       await finalizeAttemptResult({
@@ -2546,6 +2791,7 @@ async function handleFinalizeDealEvent(
     aggregate_id: string;
     payload: any;
     attempt_count: number;
+    lease_generation?: number | null;
   },
   eventId: string
 ) {

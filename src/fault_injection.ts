@@ -18,7 +18,11 @@ export type FaultPoint =
   | "http.upload.after_commit_before_response"
   | "http.delete.after_commit_before_response"
   | "http.join.after_commit_before_response"
-  | "http.otp.after_commit_before_response";
+  | "http.otp.after_commit_before_response"
+  // R9C — money rails: the three windows around an external provider call.
+  | "payment.before_provider_io"
+  | "payment.after_provider_io"
+  | "payment.after_state_before_ledger";
 
 export type FaultAction =
   | { kind: "throw"; code: string }
