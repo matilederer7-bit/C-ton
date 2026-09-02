@@ -942,6 +942,10 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 /* ── VIRAL TREE CANVAS (genealogy-style, drag/zoom) ────────────────────── */
 .vtree-canvas-wrap { position: relative; height: 560px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-deep); overflow: hidden; }
 .vtree-canvas { width: 100%; height: 100%; cursor: grab; touch-action: none; display: block; }
+/* P0.5 — SVG text-anchor flips under the document's dir=rtl (end = left),
+   spilling labels outside their boxes. Anchor math runs LTR; the Hebrew
+   strings themselves still render correctly via plaintext bidi. */
+.vtree-canvas text { direction: ltr; unicode-bidi: plaintext; }
 .vtree-canvas:active { cursor: grabbing; }
 .vtree-canvas-controls { position: absolute; top: 10px; inset-inline-end: 10px; z-index: 5; display: flex; gap: 6px; }
 .vtree-canvas-controls button {
