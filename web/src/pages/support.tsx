@@ -107,9 +107,11 @@ export function SupportPage() {
             <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
             {fieldErrors.message ? <span className="field-error">{fieldErrors.message}</span> : null}
           </div>
-          {/* honeypot — hidden from humans, bots fill it */}
+          {/* honeypot — visually hidden WITHOUT offscreen positioning (an
+              offscreen left offset created a huge horizontal scroll in RTL) */}
           <input type="text" value={website} onChange={(e) => setWebsite(e.target.value)} tabIndex={-1} autoComplete="off"
-            aria-hidden="true" style={{ position: "absolute", left: -9999, width: 1, height: 1, opacity: 0 }} name="website" />
+            aria-hidden="true" name="website"
+            style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", border: 0, opacity: 0 }} />
           {error ? <div className="notice err">{error}</div> : null}
           <button className="btn btn-primary btn-block" disabled={busy}>{busy ? "שולחים…" : "שליחת הפנייה"}</button>
         </form>

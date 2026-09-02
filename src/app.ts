@@ -447,11 +447,14 @@ type MoneyState =
 // Must stay in lockstep with siton.is_valid_deal_transition in migrations 008/014.
 // Cancellation is only permitted from Draft; past publish the deal moves through the
 // forward-only lifecycle and can only terminate via Failed or Completed.
+// P0.3 — a MANUAL close is a reversible pause: it is legal from both open
+// states, and a manually-closed deal may reopen (route-guarded: manual reason,
+// deadline not passed, capacity not full, charging not started).
 export const DEAL_TRANSITIONS: Record<string, string[]> = {
   Draft: ["PendingTarget", "Cancelled"],
-  PendingTarget: ["TargetReached", "Failed"],
+  PendingTarget: ["TargetReached", "Failed", "ClosedForJoining"],
   TargetReached: ["ClosedForJoining"],
-  ClosedForJoining: ["ReadyForCharging"],
+  ClosedForJoining: ["ReadyForCharging", "PendingTarget", "TargetReached"],
   ReadyForCharging: ["Charging"],
   Charging: ["CompletionWindow"],
   CompletionWindow: ["Completed", "Failed"],
@@ -3384,7 +3387,8 @@ app.post("/deals", async (req: any) => {
             : "pickup",
           label: String(option?.label || "").trim().slice(0, 160),
           cost: Math.max(0, Number(option?.cost || 0)),
-          sort_order: Number.isFinite(Number(option?.sort_order)) ? Number(option.sort_order) : index
+          sort_order: Number.isFinite(Number(option?.sort_order)) ? Number(option.sort_order) : index,
+          ...normalizeDeliveryCoordinates(option)
         }))
         .filter((option: any) => option.label)
         .slice(0, 5)
@@ -3490,9 +3494,9 @@ app.post("/deals", async (req: any) => {
     if (dealType === "physical_product") {
       for (const option of deliveryOptions) {
         await c.query(
-          `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
-           VALUES ($1,$2,$3,$4,$5)`,
-          [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order]
+          `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
+           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+          [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
         );
       }
     }
@@ -3608,7 +3612,8 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
         option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
         label: String(option?.label || "").trim().slice(0, 160),
         cost: Number(option?.cost || 0),
-        sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index
+        sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
+        ...normalizeDeliveryCoordinates(option)
       }));
       if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
         throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
@@ -3617,9 +3622,9 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
       if (String(current.deal_type) === "physical_product") {
         for (const option of options) {
           await c.query(
-            `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
-             VALUES ($1,$2,$3,$4,$5)`,
-            [dealId, option.option_type, option.label, option.cost, option.sort_order]
+            `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
           );
         }
       }
@@ -3629,6 +3634,17 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     return { ok: true, reused_draft: true, draft: updated.rows[0] };
   });
 });
+
+// P0.3 — pickup coordinates: seller-chosen via explicit browser geolocation.
+// Only finite in-range values persist; anything else stays NULL.
+function normalizeDeliveryCoordinates(option: any): { latitude: number | null; longitude: number | null } {
+  const lat = Number(option?.latitude);
+  const lng = Number(option?.longitude);
+  if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+    return { latitude: Math.round(lat * 1e6) / 1e6, longitude: Math.round(lng * 1e6) / 1e6 };
+  }
+  return { latitude: null, longitude: null };
+}
 
 function readCreateDealTitle(body: Record<string, any>) {
   for (const field of ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"]) {
@@ -4229,6 +4245,17 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   const deliveryCity = String(body.delivery_city || "").trim() || null;
   const deliveryNotes = String(body.delivery_notes || "").trim() || null;
   const acquisition = normalizeJoinAcquisition(body);
+  // P0.3 — payment-method PREFERENCE (presentation/orchestration only; no
+  // provider call, real money stays 0). Sensitive card data never reaches
+  // this route: entry stays inside the provider's secure mechanism.
+  const paymentMethodRaw = String(body.payment_method || "").trim();
+  const paymentMethod = ["credit_card", "bit"].includes(paymentMethodRaw) ? paymentMethodRaw : null;
+  if (paymentMethodRaw && !paymentMethod) {
+    const err: any = new Error("payment_method must be credit_card or bit");
+    err.statusCode = 400;
+    err.code = "payment_method_invalid";
+    throw err;
+  }
   if (deliveryNotes && deliveryNotes.length > 200) {
     const err: any = new Error("delivery_notes must be 200 characters or less");
     err.statusCode = 400;
@@ -4312,6 +4339,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
     affiliate_ref: String(body.affiliate_ref || "").trim().slice(0, 120),
     acquisition_source: acquisition.requestedSource,
     mall_session_id: acquisition.mallSessionId,
+    payment_method: paymentMethod,
     payment_disclosure_accepted: true
   });
   await ensureAdminControlPlaneTables(withTx);
@@ -4501,7 +4529,8 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       deliveryAddress,
       deliveryCity,
       deliveryNotes,
-      acquisition.requestedSource
+      acquisition.requestedSource,
+      paymentMethod
     ];
     const ins = inventoryReservationId
       ? await c.query(
@@ -4510,9 +4539,9 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
              delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
              buyer_name, buyer_phone, buyer_email,
              delivery_address, delivery_city, delivery_notes, acquisition_source,
-             inventory_reservation_id
+             payment_method, inventory_reservation_id
            )
-           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
            RETURNING participant_id`,
           [...participantValues, inventoryReservationId]
         )
@@ -4521,9 +4550,10 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
              deal_id, buyer_id, qty, buyer_state, money_state,
              delivery_option_id, delivery_method_type, delivery_method_label, delivery_cost,
              buyer_name, buyer_phone, buyer_email,
-             delivery_address, delivery_city, delivery_notes, acquisition_source
+             delivery_address, delivery_city, delivery_notes, acquisition_source,
+             payment_method
            )
-           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+           VALUES ($1,$2,$3,'NotJoined','NoFinancial',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
            RETURNING participant_id`,
           participantValues
         );
@@ -4838,7 +4868,7 @@ app.post("/deals/:id/close_joining", async (req: any) => {
 
   const closeContext = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
-    const r = await c.query(`SELECT seller_id, max_units FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const r = await c.query(`SELECT seller_id, max_units, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
       err.statusCode = 404;
@@ -4849,22 +4879,35 @@ app.post("/deals/:id/close_joining", async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
-    return { maxUnits: Number(r.rows[0].max_units) };
+    return { maxUnits: Number(r.rows[0].max_units), state: String(r.rows[0].state) };
   });
 
-  return atomicTransition({
+  // P0.3 — a manual pause is legal from BOTH open states. Anything else is an
+  // explicit product answer, never a generic 500.
+  if (closeContext.state === "ClosedForJoining") {
+    return { ok: true, already_closed: true, state: "ClosedForJoining" };
+  }
+  if (!["PendingTarget", "TargetReached"].includes(closeContext.state)) {
+    throw Object.assign(new Error("deal is not open for joining"), { statusCode: 409, code: "deal_not_open_for_joining" });
+  }
+
+  const result = await atomicTransition({
     entityType: "deal",
     entityId: dealId,
     dealId,
     stateType: "deal_state",
-    fromState: "TargetReached",
+    fromState: closeContext.state,
     toState: "ClosedForJoining",
     actionName: "deal.close_joining",
     requestId,
-    idempotencyKey: idem,
+    idempotencyKey: `${idem}:${closeContext.state}`,
     outbox: null,
-    payload: {},
+    payload: { close_reason: "manual" },
     insideTx: async (c) => {
+      await c.query(
+        `UPDATE siton.deals SET close_reason='manual', closed_for_joining_at=now() WHERE deal_id=$1`,
+        [dealId]
+      );
       if (canonicalPostgresRuntimeEnabled()) {
         await buildInventoryRepository(c).close({
           dealId,
@@ -4877,6 +4920,83 @@ app.post("/deals/:id/close_joining", async (req: any) => {
       }
     }
   });
+  return { ok: true, state: "ClosedForJoining", close_reason: "manual", result };
+});
+
+// P0.3 — reopen a MANUALLY paused deal. Guards (all must hold):
+//   * state is ClosedForJoining with close_reason='manual'
+//   * the deadline has not passed
+//   * capacity is not full
+//   * charging has not begun (guaranteed by the state itself)
+// Destination follows the canonical truth: TargetReached when joined units
+// already meet the threshold, else PendingTarget. A deadline_check outbox
+// event is re-enqueued so the deadline authority keeps working after reopen.
+app.post("/deals/:id/reopen_joining", async (req: any) => {
+  const dealId = String(req.params.id);
+  requireUuid(dealId, "deal_id");
+  const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
+  const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `reopen:${dealId}:${Date.now()}`;
+
+  const ctx = await withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    const r = await c.query(
+      `SELECT d.seller_id, d.state, d.close_reason, d.deadline, d.max_units, d.threshold_units,
+              COALESCE((SELECT SUM(p.qty) FROM siton.participants p
+                        WHERE p.deal_id=d.deal_id
+                          AND p.buyer_state NOT IN ('Dropped','DealFailed')), 0) AS joined_units
+       FROM siton.deals d WHERE d.deal_id=$1`,
+      [dealId]
+    );
+    if (!r.rowCount || normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    return r.rows[0];
+  });
+
+  if (String(ctx.state) !== "ClosedForJoining") {
+    throw Object.assign(new Error("deal joining is not paused"), { statusCode: 409, code: "deal_not_paused" });
+  }
+  if (String(ctx.close_reason || "") !== "manual") {
+    throw Object.assign(new Error("only a manually paused deal can reopen"), { statusCode: 409, code: "deal_reopen_not_allowed" });
+  }
+  if (new Date(ctx.deadline).getTime() <= Date.now()) {
+    throw Object.assign(new Error("deadline has passed"), { statusCode: 409, code: "deal_reopen_deadline_passed" });
+  }
+  const joinedUnits = Number(ctx.joined_units || 0);
+  if (joinedUnits >= Number(ctx.max_units)) {
+    throw Object.assign(new Error("deal is at capacity"), { statusCode: 409, code: "deal_reopen_capacity_full" });
+  }
+  const toState = joinedUnits >= Number(ctx.threshold_units) ? "TargetReached" : "PendingTarget";
+
+  const result = await atomicTransition({
+    entityType: "deal",
+    entityId: dealId,
+    dealId,
+    stateType: "deal_state",
+    fromState: "ClosedForJoining",
+    toState,
+    actionName: "deal.reopen_joining",
+    requestId,
+    idempotencyKey: idem,
+    // the deadline authority must keep working after reopen — re-enqueue the
+    // deadline_check at the canonical deadline (the worker treats duplicates
+    // as idempotent no-ops per state)
+    outbox: {
+      event_type: "deadline_check",
+      aggregate_type: "deal",
+      aggregate_id: dealId,
+      payload: { deal_id: dealId },
+      available_at: new Date(ctx.deadline)
+    },
+    payload: { reopened_from: "manual_close" },
+    insideTx: async (c) => {
+      await c.query(
+        `UPDATE siton.deals SET close_reason=NULL, closed_for_joining_at=NULL WHERE deal_id=$1`,
+        [dealId]
+      );
+    }
+  });
+  return { ok: true, state: toState, result };
 });
 
 app.post("/deals/:id/prepare_charging", async (req: any) => {

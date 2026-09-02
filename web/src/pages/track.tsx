@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+﻿import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, useToast } from "../components";
 import { fmtDate, ils, initialOf, num, timeAgo } from "../util";
@@ -131,7 +131,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
                 dealId={t.deal_id}
                 title={t.deal_title}
                 code={impact?.personal_share_code || null}
-                onCopied={() => showToast("הלינק האישי הועתק")}
+                onNotify={showToast}
               />
             </div>
           </div>

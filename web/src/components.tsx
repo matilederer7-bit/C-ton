@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { clamp, countdownView, num, progressColor, stateLabel } from "./util";
-import { SHARE_TARGETS, absoluteShareUrl, sendFunnelEvent } from "./viral";
+import { absoluteShareUrl, sendFunnelEvent } from "./viral";
 import { BRAND_MARK_URL } from "./config";
+import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
 
 export { BrandLoader } from "./brand";
 
@@ -174,15 +175,16 @@ export async function copyText(text: string): Promise<boolean> {
 }
 
 // ── ShareActions — THE one canonical share surface ─────────────────────────
-// Exactly ONE copy-link action per share context. On mobile the native share
-// sheet is the primary action; network shortcuts are secondary. Every share
-// is a funnel event; the URL carries the sharer's personal code when one
-// exists.
+// Exactly ONE copy-link action per share context; recognizable brand icons
+// with Hebrew accessible labels. On mobile the native share sheet is the
+// primary action. Instagram has no reliable web prefill — it truthfully
+// copies the link and tells the user to paste it (never a silent fail).
+// Every share is a funnel event; the URL carries the sharer's personal code.
 export function ShareActions(props: {
   dealId: string;
   title: string;
   code?: string | null;
-  onCopied?: () => void;
+  onNotify?: (msg: string) => void;
   compact?: boolean;
 }) {
   const url = useMemo(() => absoluteShareUrl(props.dealId, props.code || null), [props.dealId, props.code]);
@@ -191,28 +193,50 @@ export function ShareActions(props: {
   const track = (channel: string) => sendFunnelEvent(props.dealId, "share_button_click", { share_channel: channel });
   const copy = async () => {
     track("copy");
-    if (await copyText(url)) props.onCopied?.();
+    if (await copyText(url)) props.onNotify?.("הקישור הועתק");
+    else props.onNotify?.("ההעתקה נכשלה — סמנו את הקישור והעתיקו ידנית");
   };
+
+  const nets: { key: string; label: string; icon: React.ReactNode; href?: string; onClick?: () => void }[] = [
+    { key: "whatsapp", label: "שיתוף בוואטסאפ", icon: <WhatsAppIcon />, href: `https://wa.me/?text=${encodeURIComponent(`${shareTitle}\n${url}`)}` },
+    { key: "facebook", label: "שיתוף בפייסבוק", icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
+    { key: "x", label: "שיתוף ב-X", icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    { key: "telegram", label: "שיתוף בטלגרם", icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    {
+      key: "instagram", label: "שיתוף באינסטגרם", icon: <InstagramIcon />,
+      onClick: async () => {
+        track("instagram");
+        if (await copyText(url)) props.onNotify?.("הקישור הועתק — אפשר להדביק אותו בסטורי או בהודעה באינסטגרם");
+        else props.onNotify?.("ההעתקה נכשלה — העתיקו את הקישור ידנית ושתפו באינסטגרם");
+      }
+    }
+  ];
+
   return (
     <div className="share-actions">
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className="btn btn-primary" onClick={async () => {
+          <button className="btn btn-primary" aria-label="שיתוף" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, url }); } catch { /* user cancelled */ }
           }}>
-            📲 שיתוף
+            <NativeShareIcon /> שיתוף
           </button>
         ) : null}
-        <button className="btn btn-ghost" onClick={copy} data-testid="share-copy">
-          🔗 העתקת קישור
+        <button className="btn btn-ghost" onClick={copy} data-testid="share-copy" aria-label="העתקת קישור">
+          <CopyLinkIcon /> העתקת קישור
         </button>
       </div>
-      <div className="share-networks">
-        {SHARE_TARGETS.slice(0, props.compact ? 3 : SHARE_TARGETS.length).map((t) => (
-          <a key={t.key} className="share-net" href={t.href(url, shareTitle)} target="_blank" rel="noopener noreferrer" onClick={() => track(t.key)}>
-            <span>{t.icon}</span>{t.label}
+      <div className="share-networks share-icons" role="group" aria-label="שיתוף ברשתות">
+        {nets.map((n) => n.href ? (
+          <a key={n.key} className={`share-ico-btn ${n.key}`} href={n.href} target="_blank" rel="noopener noreferrer"
+            aria-label={n.label} title={n.label} onClick={() => track(n.key)}>
+            {n.icon}
           </a>
+        ) : (
+          <button key={n.key} className={`share-ico-btn ${n.key}`} aria-label={n.label} title={n.label} onClick={n.onClick}>
+            {n.icon}
+          </button>
         ))}
       </div>
     </div>

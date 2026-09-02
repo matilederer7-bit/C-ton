@@ -1052,6 +1052,15 @@ function deployFreshness() {
   };
 }
 
+// P0.3 — chat reaction identity: server-side hash of the PII-free tracked
+// browser visitor id (viral.ts mints it as v_<24 hex>). The raw id never
+// becomes DB authority; a malformed id yields no actor key at all.
+function dealChatActorKey(rawVisitorId: string): string {
+  const visitorId = String(rawVisitorId || "").trim();
+  if (!/^v_[0-9a-f]{16,64}$/.test(visitorId)) return "";
+  return createHash("sha256").update(`deal-chat:${visitorId}`).digest("hex");
+}
+
 function normalizeDealChatText(value: unknown, maxLength: number, fallback = "") {
   const raw = String(value ?? "").replace(/[\u0000-\u001f\u007f]/g, " ").replace(/[<>]/g, "").trim();
   const normalized = raw.replace(/\s+/g, " ");
@@ -2777,7 +2786,7 @@ export function registerFrontendExperience(
         [dealId]
       );
       const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order
+        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
          FROM siton.deal_delivery_options
          WHERE deal_id=$1
          ORDER BY sort_order ASC, created_at ASC`,
@@ -2843,7 +2852,9 @@ export function registerFrontendExperience(
                 option_type: row.option_type,
                 label: row.label,
                 cost: Number(row.cost || 0),
-                sort_order: Number(row.sort_order || 0)
+                sort_order: Number(row.sort_order || 0),
+                latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
+                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
               }))
             : [],
           voucher_terms: voucherTerms
@@ -2925,18 +2936,51 @@ export function registerFrontendExperience(
         return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
       }
 
+      // P0.3 — real chat: reply context, aggregated reactions, and the
+      // viewer's own reaction (keyed by the PII-free tracked visitor id).
+      const viewerKey = dealChatActorKey(String(req.query?.visitor_id || ""));
       const messages = await c.query(
-        `SELECT message_id, deal_id, display_name, body, created_at
-         FROM siton.deal_chat_messages
-         WHERE deal_id=$1 AND status='visible'
-         ORDER BY created_at ASC, message_id ASC
+        `SELECT m.message_id, m.deal_id, m.display_name, m.body, m.created_at,
+                m.reply_to_message_id,
+                r.display_name AS reply_display_name,
+                CASE WHEN r.message_id IS NULL THEN NULL ELSE left(r.body, 120) END AS reply_body,
+                COALESCE(likes.cnt, 0)::int AS likes,
+                COALESCE(dislikes.cnt, 0)::int AS dislikes,
+                viewer.reaction AS viewer_reaction
+         FROM siton.deal_chat_messages m
+         LEFT JOIN siton.deal_chat_messages r
+           ON r.message_id = m.reply_to_message_id AND r.status='visible'
+         LEFT JOIN LATERAL (
+           SELECT count(*) AS cnt FROM siton.deal_chat_message_reactions x
+           WHERE x.message_id = m.message_id AND x.reaction='like'
+         ) likes ON true
+         LEFT JOIN LATERAL (
+           SELECT count(*) AS cnt FROM siton.deal_chat_message_reactions x
+           WHERE x.message_id = m.message_id AND x.reaction='dislike'
+         ) dislikes ON true
+         LEFT JOIN LATERAL (
+           SELECT x.reaction FROM siton.deal_chat_message_reactions x
+           WHERE x.message_id = m.message_id AND x.actor_key = $3
+           LIMIT 1
+         ) viewer ON true
+         WHERE m.deal_id=$1 AND m.status='visible'
+         ORDER BY m.created_at ASC, m.message_id ASC
          LIMIT $2`,
-        [dealId, limit]
+        [dealId, limit, viewerKey || "-"]
       );
 
       return {
         ok: true,
-        messages: messages.rows.map(dealChatMessageFromRow),
+        messages: messages.rows.map((row: any) => ({
+          ...dealChatMessageFromRow(row),
+          reply_to_message_id: row.reply_to_message_id || null,
+          reply_preview: row.reply_to_message_id && row.reply_body
+            ? { display_name: String(row.reply_display_name || "משתתף"), body: String(row.reply_body) }
+            : null,
+          likes: Number(row.likes || 0),
+          dislikes: Number(row.dislikes || 0),
+          viewer_reaction: row.viewer_reaction || null
+        })),
         generated_at: new Date().toISOString()
       };
     });
@@ -2969,17 +3013,120 @@ export function registerFrontendExperience(
         return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
       }
 
+      // optional reply target — must be a visible message of the SAME deal
+      let replyTo: string | null = null;
+      const rawReply = String(req.body?.reply_to_message_id || "").trim();
+      if (rawReply) {
+        requireUuid(rawReply, "reply_to_message_id");
+        const target = await c.query(
+          `SELECT 1 FROM siton.deal_chat_messages WHERE message_id=$1 AND deal_id=$2 AND status='visible' LIMIT 1`,
+          [rawReply, dealId]
+        );
+        if (!target.rowCount) {
+          return reply.code(404).send({ ok: false, error: "reply target not found", code: "chat_reply_target_not_found" });
+        }
+        replyTo = rawReply;
+      }
+
       const inserted = await c.query(
-        `INSERT INTO siton.deal_chat_messages (deal_id, display_name, body)
-         VALUES ($1,$2,$3)
-         RETURNING message_id, deal_id, display_name, body, created_at`,
-        [dealId, displayName, bodyText]
+        `INSERT INTO siton.deal_chat_messages (deal_id, display_name, body, reply_to_message_id)
+         VALUES ($1,$2,$3,$4)
+         RETURNING message_id, deal_id, display_name, body, created_at, reply_to_message_id`,
+        [dealId, displayName, bodyText, replyTo]
       );
 
       return reply.code(201).send({
         ok: true,
-        message: dealChatMessageFromRow(inserted.rows[0])
+        message: {
+          ...dealChatMessageFromRow(inserted.rows[0]),
+          reply_to_message_id: inserted.rows[0].reply_to_message_id || null
+        }
       });
+    });
+  });
+
+  // P0.3 — like/dislike reactions. Toggle-safe and idempotent: sending the
+  // viewer's CURRENT reaction removes it; 'none' clears. One current reaction
+  // per actor per message, enforced by a unique constraint. The actor key is
+  // the server-side hash of the PII-free tracked visitor id (same identity
+  // rail as the viral funnel) — the browser never picks an arbitrary user id.
+  app.post("/api/deals/:dealId/chat/:messageId/reaction", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    const messageId = String(req.params.messageId || "");
+    requireUuid(dealId, "deal_id");
+    requireUuid(messageId, "message_id");
+    const reaction = String(req.body?.reaction || "").trim();
+    if (!["like", "dislike", "none"].includes(reaction)) {
+      return reply.code(400).send({ ok: false, error: "reaction must be like, dislike or none", code: "invalid_reaction" });
+    }
+    const actorKey = dealChatActorKey(String(req.body?.visitor_id || ""));
+    if (!actorKey) {
+      return reply.code(400).send({ ok: false, error: "visitor identity required", code: "reaction_identity_required" });
+    }
+
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      const message = await c.query(
+        `SELECT m.message_id, d.state
+         FROM siton.deal_chat_messages m
+         JOIN siton.deals d ON d.deal_id = m.deal_id
+         WHERE m.message_id=$1 AND m.deal_id=$2 AND m.status='visible'
+         LIMIT 1`,
+        [messageId, dealId]
+      );
+      if (!message.rowCount) {
+        const err: any = new Error("message not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      if (DEAL_CHAT_READ_BLOCKED_STATES.has(String(message.rows[0].state) as DealState)) {
+        return reply.code(403).send({ ok: false, error: "chat closed", code: "chat_closed" });
+      }
+
+      if (reaction === "none") {
+        await c.query(
+          `DELETE FROM siton.deal_chat_message_reactions WHERE message_id=$1 AND actor_key=$2`,
+          [messageId, actorKey]
+        );
+      } else {
+        // toggle: same reaction again removes it; a different one replaces it
+        const existing = await c.query(
+          `SELECT reaction FROM siton.deal_chat_message_reactions WHERE message_id=$1 AND actor_key=$2 LIMIT 1`,
+          [messageId, actorKey]
+        );
+        if (existing.rowCount && String(existing.rows[0].reaction) === reaction) {
+          await c.query(
+            `DELETE FROM siton.deal_chat_message_reactions WHERE message_id=$1 AND actor_key=$2`,
+            [messageId, actorKey]
+          );
+        } else {
+          await c.query(
+            `INSERT INTO siton.deal_chat_message_reactions (message_id, actor_key, reaction)
+             VALUES ($1,$2,$3)
+             ON CONFLICT (message_id, actor_key)
+             DO UPDATE SET reaction=EXCLUDED.reaction, updated_at=now()`,
+            [messageId, actorKey, reaction]
+          );
+        }
+      }
+
+      const counts = await c.query(
+        `SELECT
+           count(*) FILTER (WHERE reaction='like')::int AS likes,
+           count(*) FILTER (WHERE reaction='dislike')::int AS dislikes,
+           max(reaction) FILTER (WHERE actor_key=$2) AS viewer_reaction
+         FROM siton.deal_chat_message_reactions
+         WHERE message_id=$1`,
+        [messageId, actorKey]
+      );
+      const row = counts.rows[0] || {};
+      return {
+        ok: true,
+        message_id: messageId,
+        likes: Number(row.likes || 0),
+        dislikes: Number(row.dislikes || 0),
+        viewer_reaction: row.viewer_reaction || null
+      };
     });
   });
 
@@ -3090,6 +3237,171 @@ export function registerFrontendExperience(
           is_publish_ready: isProfileReady,
           updated_at: row?.updated_at ?? null
         }
+      };
+    });
+  });
+
+  // ── P0.3 — seller BUSINESS onboarding profile ─────────────────────────────
+  // Real business/compliance data for eventual settlement/provider onboarding.
+  // bank_account_number is written but NEVER read back to the browser — every
+  // read surface exposes only bank_account_last4 (and the staging DB grants
+  // exclude the full column from the Web runtime's SELECT).
+  // Filling fields auto-approves NOTHING: verification / settlement /
+  // provider readiness stay separate statuses.
+  const BUSINESS_PROFILE_TEXT_FIELDS = [
+    "business_name", "legal_name", "business_id_number", "contact_name",
+    "contact_phone", "contact_email", "finance_email", "business_address",
+    "bank_account_holder", "bank_name", "bank_branch"
+  ] as const;
+
+  function businessProfileStatuses(row: any, verificationStatus: string) {
+    const profileComplete = Boolean(
+      String(row?.business_name || "").trim() &&
+      String(row?.business_id_number || "").trim() &&
+      String(row?.contact_name || "").trim() &&
+      (String(row?.contact_phone || "").trim() || String(row?.contact_email || "").trim())
+    );
+    const settlementReady = Boolean(
+      String(row?.bank_account_holder || "").trim() &&
+      String(row?.bank_name || "").trim() &&
+      String(row?.bank_branch || "").trim() &&
+      String(row?.bank_account_last4 || "").trim()
+    );
+    return {
+      profile_complete: profileComplete,
+      verification_status: verificationStatus || "pending",
+      settlement_ready: settlementReady,
+      // provider onboarding is a REAL external process — never derived from
+      // form completion
+      grow_onboarding: "not_started"
+    };
+  }
+
+  function maskedBusinessProfile(row: any) {
+    const out: Record<string, unknown> = {};
+    for (const field of BUSINESS_PROFILE_TEXT_FIELDS) out[field] = row?.[field] ?? null;
+    out.entity_type = row?.entity_type ?? null;
+    out.bank_account_last4 = row?.bank_account_last4 ?? null;
+    out.updated_at = row?.updated_at ?? null;
+    return out;
+  }
+
+  app.get("/api/seller/business-profile", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const account = await c.query(
+        `SELECT verification_status FROM siton.seller_accounts WHERE seller_id=$1`,
+        [sellerContext.seller_id]
+      );
+      const profile = await c.query(
+        `SELECT business_name, legal_name, business_id_number, entity_type, contact_name,
+                contact_phone, contact_email, finance_email, business_address,
+                bank_account_holder, bank_name, bank_branch, bank_account_last4, updated_at
+         FROM siton.seller_business_profiles WHERE seller_id=$1`,
+        [sellerContext.seller_id]
+      );
+      const row = profile.rows[0] || null;
+      return {
+        ok: true,
+        business_profile: maskedBusinessProfile(row),
+        statuses: businessProfileStatuses(row, String(account.rows[0]?.verification_status || "pending"))
+      };
+    });
+  });
+
+  app.put("/api/seller/business-profile", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      if (!(await ensureSellerActionAllowed(c, sellerContext.seller_id, "operate", reply))) return reply;
+      const body = (req.body as any) || {};
+
+      const values: Record<string, string | null> = {};
+      for (const field of BUSINESS_PROFILE_TEXT_FIELDS) {
+        values[field] = String(body[field] ?? "").trim().slice(0, 200) || null;
+      }
+      const entityTypeRaw = String(body.entity_type ?? "").trim();
+      const entityType = ["osek_patur", "osek_murshe", "company", "amuta", "partnership", "other"].includes(entityTypeRaw)
+        ? entityTypeRaw : null;
+      for (const emailField of ["contact_email", "finance_email"] as const) {
+        if (values[emailField] && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(values[emailField]!)) {
+          return reply.code(400).send({ ok: false, error: `${emailField} is invalid`, code: "business_profile_email_invalid" });
+        }
+      }
+      // sensitive: full account number is WRITE-ONLY; empty input keeps the
+      // stored value (never echoed back, so the form can't resubmit it)
+      const bankAccountNumber = String(body.bank_account_number ?? "").replace(/[^\d-]/g, "").trim();
+      if (bankAccountNumber && (bankAccountNumber.replace(/\D/g, "").length < 4 || bankAccountNumber.length > 30)) {
+        return reply.code(400).send({ ok: false, error: "bank account number is invalid", code: "bank_account_invalid" });
+      }
+      const bankLast4 = bankAccountNumber ? bankAccountNumber.replace(/\D/g, "").slice(-4) : null;
+
+      await c.query(
+        `INSERT INTO siton.seller_business_profiles
+           (seller_id, business_name, legal_name, business_id_number, entity_type, contact_name,
+            contact_phone, contact_email, finance_email, business_address,
+            bank_account_holder, bank_name, bank_branch,
+            bank_account_number, bank_account_last4, profile_completed_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
+                 $14, $15, CASE WHEN $2 IS NOT NULL THEN now() ELSE NULL END, now())
+         ON CONFLICT (seller_id) DO UPDATE SET
+           business_name=EXCLUDED.business_name,
+           legal_name=EXCLUDED.legal_name,
+           business_id_number=EXCLUDED.business_id_number,
+           entity_type=EXCLUDED.entity_type,
+           contact_name=EXCLUDED.contact_name,
+           contact_phone=EXCLUDED.contact_phone,
+           contact_email=EXCLUDED.contact_email,
+           finance_email=EXCLUDED.finance_email,
+           business_address=EXCLUDED.business_address,
+           bank_account_holder=EXCLUDED.bank_account_holder,
+           bank_name=EXCLUDED.bank_name,
+           bank_branch=EXCLUDED.bank_branch,
+           bank_account_number=COALESCE(EXCLUDED.bank_account_number, siton.seller_business_profiles.bank_account_number),
+           bank_account_last4=COALESCE(EXCLUDED.bank_account_last4, siton.seller_business_profiles.bank_account_last4),
+           profile_completed_at=COALESCE(siton.seller_business_profiles.profile_completed_at, EXCLUDED.profile_completed_at),
+           updated_at=now()`,
+        [
+          sellerContext.seller_id,
+          values.business_name, values.legal_name, values.business_id_number, entityType, values.contact_name,
+          values.contact_phone, values.contact_email, values.finance_email, values.business_address,
+          values.bank_account_holder, values.bank_name, values.bank_branch,
+          bankAccountNumber || null, bankLast4
+        ]
+      );
+
+      // keep the publish-profile basics in sync (business name + support contact)
+      if (values.business_name) {
+        await c.query(
+          `UPDATE siton.seller_accounts
+           SET business_name = COALESCE(NULLIF($2,''), business_name),
+               support_phone = COALESCE(NULLIF($3,''), support_phone),
+               support_email = COALESCE(NULLIF($4,''), support_email),
+               updated_at = now()
+           WHERE seller_id = $1`,
+          [sellerContext.seller_id, values.business_name, values.contact_phone || "", values.contact_email || ""]
+        );
+      }
+
+      const account = await c.query(
+        `SELECT verification_status FROM siton.seller_accounts WHERE seller_id=$1`,
+        [sellerContext.seller_id]
+      );
+      const profile = await c.query(
+        `SELECT business_name, legal_name, business_id_number, entity_type, contact_name,
+                contact_phone, contact_email, finance_email, business_address,
+                bank_account_holder, bank_name, bank_branch, bank_account_last4, updated_at
+         FROM siton.seller_business_profiles WHERE seller_id=$1`,
+        [sellerContext.seller_id]
+      );
+      const row = profile.rows[0] || null;
+      return {
+        ok: true,
+        business_profile: maskedBusinessProfile(row),
+        statuses: businessProfileStatuses(row, String(account.rows[0]?.verification_status || "pending"))
       };
     });
   });
@@ -3295,6 +3607,7 @@ export function registerFrontendExperience(
            d.description_short,
            d.deal_type,
            d.state,
+           d.close_reason,
            d.price_per_unit,
            d.min_units,
            d.max_units,
@@ -3341,7 +3654,7 @@ export function registerFrontendExperience(
         [dealId]
       );
       const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order
+        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
          FROM siton.deal_delivery_options
          WHERE deal_id = $1
          ORDER BY sort_order ASC, created_at ASC`,
@@ -3383,6 +3696,7 @@ export function registerFrontendExperience(
       (deal as any).description_short = (dealResult.rows[0] as any).description_short || "";
       (deal as any).deal_type = (dealResult.rows[0] as any).deal_type || "physical_product";
       (deal as any).updated_at = (dealResult.rows[0] as any).updated_at || null;
+      (deal as any).close_reason = (dealResult.rows[0] as any).close_reason || null;
       const dealImages = await c.query(
         `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
@@ -3451,7 +3765,9 @@ export function registerFrontendExperience(
           option_type: row.option_type,
           label: row.label,
           cost: Number(row.cost || 0),
-          sort_order: Number(row.sort_order || 0)
+          sort_order: Number(row.sort_order || 0),
+          latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
+          longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
         })),
         participants: participants.rows,
         payment_attempts: attempts.rows,

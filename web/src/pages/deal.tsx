@@ -1,8 +1,9 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
-  BrandLoader, Countdown, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, useToast
+  BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, useToast
 } from "../components";
+import { LiveCountdown } from "../livecountdown";
 import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, ils, initialOf, num, timeAgo } from "../util";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId } from "../viral";
 
@@ -227,7 +228,7 @@ function JoinSuccess(props: { deal: Json; result: Json; onClose: () => void }) {
           עזרת לעסקה להתקדם. עכשיו זה הרגע: שתפו עם חברים כדי שנגיע ליעד ביחד —
           זה הקישור האישי שלך, וכל מי שיצטרף דרכו נזקף לזכותך.
         </p>
-        <ShareActions dealId={deal.deal_id} title={deal.title} code={shareCode} onCopied={() => showToast("הקישור האישי הועתק")} />
+        <ShareActions dealId={deal.deal_id} title={deal.title} code={shareCode} onNotify={showToast} />
         {trackHash ? (
           <a className="btn btn-primary btn-block" style={{ marginTop: 14 }} href={trackHash}>
             למסך המעקב האישי שלי ←
@@ -248,6 +249,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
   const [joining, setJoining] = useState(false);
   const [joinResult, setJoinResult] = useState<Json | null>(null);
   const [celebrated, setCelebrated] = useState(false);
+  const [timeUp, setTimeUp] = useState(false);
   const prevState = useRef<string>("");
   const [toast, showToast] = useToast();
 
@@ -297,7 +299,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
   const joined = Number(live.joined_units ?? payload.metrics?.joined_units ?? 0);
   const participants = Number(live.participants ?? payload.metrics?.participants_count ?? 0);
   const remaining = Number(live.remaining_units ?? payload.metrics?.remaining_units ?? 0);
-  const isOpen = OPEN_STATES.includes(state) && remaining > 0;
+  const isOpen = OPEN_STATES.includes(state) && remaining > 0 && !timeUp;
   const maxQty = Math.max(1, Math.min(remaining || 1, 1000));
   const deliveryOptions: DeliveryOption[] = deal.delivery_options || [];
   const delivery = deliveryOptions.find((o) => o.option_id === deliveryId) || null;
@@ -356,9 +358,13 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
             <div style={{ margin: "18px 0 4px" }}>
               <GroupMeter large joined={joined} threshold={Number(deal.threshold_units)} max={Number(deal.max_units)} showFlag />
             </div>
+            {OPEN_STATES.includes(state) ? (
+              <div className="deal-countdown-block" data-testid="deal-countdown">
+                <span className="deal-countdown-label">{timeUp ? "ההצטרפות הסתיימה" : "סיום ההצטרפות בעוד"}</span>
+                <LiveCountdown deadline={deal.deadline} onZero={() => setTimeUp(true)} />
+              </div>
+            ) : null}
             <div className="kv" style={{ marginTop: 14 }}>
-              <span className="k">דדליין להצטרפות</span>
-              <span className="v"><Countdown until={deal.deadline} overText="הסתיים" /></span>
               <span className="k">משתתפים</span><span className="v">{num(participants)}</span>
               <span className="k">מלאי נותר</span>
               <span className="v" style={remaining <= 5 ? { color: "var(--pomegranate)" } : undefined}>{num(remaining)} מתוך {num(deal.max_units)}</span>
@@ -409,7 +415,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
 
           <div className="panel">
             <div className="panel-title">מכירים מישהו שזה יעניין אותו?</div>
-            <ShareActions compact dealId={dealId} title={deal.title} code={currentRef()} onCopied={() => showToast("הקישור הועתק")} />
+            <ShareActions compact dealId={dealId} title={deal.title} code={currentRef()} onNotify={showToast} />
           </div>
         </div>
 

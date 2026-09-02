@@ -2,7 +2,11 @@ import { basename } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { buildStorageAdapter, type StorageAdapter, type StorageProviderCode } from "./storage_adapter.js";
 
-export const DEAL_IMAGE_MAX_BYTES = 2 * 1024 * 1024;
+// P0.3 — the CLIENT accepts sources up to 50MB and compresses them before
+// upload (resize to ~2560px long edge, WebP/JPEG); this server bound caps the
+// stored OPTIMIZED artifact, sized to fit the 8MiB JSON body limit after
+// base64 inflation.
+export const DEAL_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 export const DEAL_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
 export type DealImageUploadInput = {

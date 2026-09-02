@@ -6,7 +6,13 @@ import { TrackPage } from "./pages/track";
 import { SellerArea } from "./pages/seller";
 import { AdminArea } from "./pages/admin";
 import { SupportPage } from "./pages/support";
+import { ResetPasswordPage } from "./pages/reset";
 import { getPreviewMeta } from "./previewMeta";
+import { captureAuthRedirect } from "./authRedirect";
+
+// Supabase auth-email redirects (recovery/confirmation) land in the hash —
+// capture them BEFORE any routing or ref-capture touches the URL.
+captureAuthRedirect();
 import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
@@ -146,7 +152,8 @@ export default function App() {
           {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
           {page === "support" ? <SupportPage /> : null}
-          {!["", "deal", "track", "seller", "support"].includes(page) ? <Home navigate={navigate} /> : null}
+          {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}
+          {!["", "deal", "track", "seller", "support", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 
