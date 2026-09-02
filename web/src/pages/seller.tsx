@@ -5,6 +5,7 @@ import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
+import { LiveCountdown } from "../livecountdown";
 import {
   CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeIcon, dealTypeLabel,
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
@@ -119,6 +120,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [now, setNow] = useState(Date.now());
+  const [bizStatuses, setBizStatuses] = useState<Json | null>(null);
   const [toast, showToast] = useToast();
 
   const load = () =>
@@ -131,6 +133,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
 
   useEffect(() => {
     load();
+    api.sellerBusinessProfile().then((r) => setBizStatuses(r.statuses || null)).catch(() => undefined);
     const id = setInterval(load, 25_000);
     const tick = setInterval(() => setNow(Date.now()), 10_000);
     return () => { clearInterval(id); clearInterval(tick); };
@@ -164,10 +167,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         </div>
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>🏢 פרופיל עסקי</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
           <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
         </div>
       </div>
+
+      {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
+        <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
+          <span>
+            <b>הפרופיל העסקי עדיין לא הושלם</b> — {!bizStatuses.profile_complete ? "חסרים פרטי העסק ואיש הקשר" : "חסרים פרטי חשבון הבנק לקבלת כספים"}.
+          </span>
+          <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>השלמת הפרופיל</button>
+        </div>
+      ) : null}
 
       <div className="stat-row">
         <StatTile num={num(surface?.totals?.live_deals || 0)} label="עסקאות חיות" />
@@ -244,6 +257,42 @@ function validateDeadline(date: string, time: string): { iso: string | null; err
 // ── create wizard — saves a Draft and lands INSIDE the deal (P0.2-G) ───────
 const WIZARD_STEPS = ["פרטי העסקה", "כמויות", "אספקה / מימוש", "מועד סיום", "סיכום ושמירה"];
 type WizardDealType = "physical_product" | "voucher" | "ticket";
+type DeliveryDraft = { option_type: string; label: string; cost: string; latitude: number | null; longitude: number | null };
+
+// P0.3-18 — pickup GPS. Location is captured ONLY on the seller's explicit
+// click (no ambient geolocation), stored as plain lat/lng, no map provider.
+function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: number | null, lng: number | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  if (row.option_type === "delivery") return null;
+  if (row.latitude != null && row.longitude != null) {
+    return (
+      <div className="row" style={{ gap: 8, marginTop: -4, marginBottom: 10 }}>
+        <span className="small" style={{ fontWeight: 700 }}>📍 מיקום נשמר ({row.latitude.toFixed(4)}, {row.longitude.toFixed(4)}) — הקונים יקבלו כפתור ניווט</span>
+        <button type="button" className="btn btn-sm btn-ghost" onClick={() => onSet(null, null)}>הסרת המיקום</button>
+      </div>
+    );
+  }
+  return (
+    <div className="stack" style={{ gap: 4, marginTop: -4, marginBottom: 10 }}>
+      <button type="button" className="btn btn-sm btn-ghost" disabled={busy} data-testid="use-my-location" onClick={() => {
+        setErr("");
+        if (!navigator.geolocation) { setErr("הדפדפן לא תומך באיתור מיקום — אפשר להמשיך בלי"); return; }
+        setBusy(true);
+        navigator.geolocation.getCurrentPosition(
+          (pos) => { setBusy(false); onSet(pos.coords.latitude, pos.coords.longitude); },
+          (geErr) => {
+            setBusy(false);
+            setErr(geErr.code === 1 ? "לא ניתנה הרשאת מיקום — אפשר להמשיך בלי, או לאשר בהגדרות הדפדפן" : "איתור המיקום נכשל — נסו שוב");
+          },
+          { enableHighAccuracy: true, timeout: 15_000 }
+        );
+      }}>{busy ? "מאתרים מיקום…" : "📍 השתמש במיקום שלי"}</button>
+      <span className="hint">לא חובה — מוסיף לקונים כפתור ניווט לנקודת האיסוף.</span>
+      {err ? <span className="field-error">{err}</span> : null}
+    </div>
+  );
+}
 
 function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [step, setStep] = useState(0);
@@ -262,8 +311,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [minUnits, setMinUnits] = useState("10");
   const [maxUnits, setMaxUnits] = useState("50");
   // step 3
-  const [delivery, setDelivery] = useState<{ option_type: string; label: string; cost: string }[]>([
-    { option_type: "pickup", label: "איסוף עצמי", cost: "0" }
+  const [delivery, setDelivery] = useState<DeliveryDraft[]>([
+    { option_type: "pickup", label: "איסוף עצמי", cost: "0", latitude: null, longitude: null }
   ]);
   const [voucherFaceValue, setVoucherFaceValue] = useState("");
   const [voucherValidUntil, setVoucherValidUntil] = useState("");
@@ -373,7 +422,10 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       } : {
         delivery_options: delivery
           .filter((d) => d.label.trim())
-          .map((d, i) => ({ option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i }))
+          .map((d, i) => ({
+            option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i,
+            ...(d.latitude != null && d.longitude != null ? { latitude: d.latitude, longitude: d.longitude } : {})
+          }))
       };
       const created = await api.createDeal({
         title: title.trim(),
@@ -501,27 +553,33 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             <div className="notice info" id="f-delivery" tabIndex={-1}>בחרו לפחות אפשרות אספקה אחת למוצר.</div>
             <FieldError msg={errors.delivery} />
             {delivery.map((d, i) => (
-              <div className="row" key={i} style={{ marginBottom: 10, alignItems: "flex-end" }}>
-                <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
-                  <label>סוג</label>
-                  <select value={d.option_type} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: e.target.value } : x))}>
-                    <option value="pickup">איסוף עצמי</option>
-                    <option value="delivery">משלוח</option>
-                    <option value="distribution_point">נקודת חלוקה</option>
-                  </select>
+              <React.Fragment key={i}>
+                <div className="row" style={{ marginBottom: 10, alignItems: "flex-end" }}>
+                  <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
+                    <label>סוג</label>
+                    <select value={d.option_type} onChange={(e) => {
+                      const t = e.target.value;
+                      setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
+                    }}>
+                      <option value="pickup">איסוף עצמי</option>
+                      <option value="delivery">משלוח</option>
+                      <option value="distribution_point">נקודת חלוקה</option>
+                    </select>
+                  </div>
+                  <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
+                    <label>תיאור</label>
+                    <input value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
+                  </div>
+                  <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
+                    <label>עלות (₪)</label>
+                    <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
+                  </div>
+                  {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
                 </div>
-                <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
-                  <label>תיאור</label>
-                  <input value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
-                </div>
-                <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
-                  <label>עלות (₪)</label>
-                  <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
-                </div>
-                {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
-              </div>
+                <LocationCapture row={d} onSet={(lat, lng) => setDelivery(delivery.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
+              </React.Fragment>
             ))}
-            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0" }])}>+ הוספת אפשרות</button> : null}
+            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null }])}>+ הוספת אפשרות</button> : null}
             </> : null}
 
             {dealType === "voucher" ? <>
@@ -678,7 +736,10 @@ function whatHappensNow(deal: Json, chargedUnits: number): string {
         ? "אם זה יסתיים עכשיו — העסקה תעבור לסגירה."
         : `אם מועד הסיום יגיע עכשיו — העסקה לא תצא לפועל (חסרות ${num(Math.max(0, threshold - joined))} יחידות ליעד).`;
     case "TargetReached": return "המינימום הושג. במועד הסיום (או בסגירה יזומה) העסקה תעבור לחיוב.";
-    case "ClosedForJoining": return "הרשימה נסגרה. המערכת מתכוננת לנעילה ולחיובים — אין צורך לעשות דבר.";
+    case "ClosedForJoining":
+      return String(deal.close_reason || "") === "manual"
+        ? "ההצטרפות מושהית ביוזמתכם — אף קונה לא מחויב. אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר."
+        : "הרשימה נסגרה. המערכת מתכוננת לנעילה ולחיובים — אין צורך לעשות דבר.";
     case "ReadyForCharging": return "העסקה נעולה. החיובים יחלו אוטומטית.";
     case "Charging": return "החיובים מתבצעים כעת. כשלים יקבלו חלון השלמה של 24 שעות.";
     case "CompletionWindow":
@@ -890,6 +951,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
+  const [reopening, setReopening] = useState(false);
   const [toast, showToast] = useToast();
 
   const load = () => api.sellerDeal(dealId).then(setPayload).catch((e) => setError(e.message));
@@ -923,10 +985,44 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   const fee = Math.round(gross * 0.08 * 100) / 100;
   const vm = viral?.metrics as Json | null;
   const deletable = isDraft || (isOpen && participants.length === 0);
+  // P0.3-14 — a MANUAL close is a reversible pause (deadline still ahead,
+  // capacity not full, nothing charged); deadline/capacity/system closes are not.
+  const paused = state === "ClosedForJoining" && String(deal.close_reason || "") === "manual";
+  const canReopen = paused
+    && Date.parse(String(deal.deadline || "")) > Date.now()
+    && joined < Number(deal.max_units || 0);
+
+  const reopen = async () => {
+    if (reopening) return;
+    setReopening(true);
+    try {
+      await api.reopenJoining(dealId);
+      showToast("ההצטרפות נפתחה מחדש");
+      await load();
+    } catch (e: any) { showToast(e.message || "הפתיחה מחדש נכשלה"); }
+    setReopening(false);
+  };
 
   return (
     <>
       <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
+
+      {paused ? (
+        <div className="paused-banner" data-testid="paused-banner">
+          <div>
+            <b>ההצטרפות מושהית.</b>
+            <div className="small">
+              קונים רואים את העסקה אך לא יכולים להצטרף.{" "}
+              {canReopen ? "אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר והמלאי לא הסתיים." : "מועד הסיום עבר או שהמלאי הסתיים — לא ניתן לפתוח מחדש."}
+            </div>
+          </div>
+          {canReopen ? (
+            <button className="btn btn-primary" data-testid="reopen-joining" disabled={reopening} onClick={reopen}>
+              {reopening ? "פותחים…" : "פתיחת ההצטרפות מחדש"}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
 
       {/* Draft: impossible-to-miss banner + dominant publish CTA (P0.2-G/H) */}
       {isDraft ? (
@@ -950,10 +1046,21 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
               <span className="muted small">{dealTypeLabel(String(deal.deal_type || "physical_product"))}</span>
             </div>
           </div>
-          {inWindow || state === "Charging"
-            ? <Countdown until={deal.completion_window_until} label="חלון השלמה:" overText="הסתיים" />
-            : !closed && !isDraft ? <Countdown until={deal.deadline} label="לסגירה:" overText="עבר" /> : null}
         </div>
+
+        {/* P0.3-13 — the status stands alone above; the countdown lives in its
+            own labeled block, never fused into the status sentence. */}
+        {inWindow || state === "Charging" ? (
+          <div className="seller-countdown-block">
+            <span className="lbl">חלון ההשלמה מסתיים בעוד</span>
+            <LiveCountdown deadline={deal.completion_window_until} />
+          </div>
+        ) : isOpen ? (
+          <div className="seller-countdown-block" data-testid="seller-countdown">
+            <span className="lbl">סיום ההצטרפות בעוד</span>
+            <LiveCountdown deadline={deal.deadline} />
+          </div>
+        ) : null}
 
         {!isDraft ? (
           <div style={{ margin: "18px 0 8px" }}>
@@ -993,7 +1100,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                 if (await copyText(absoluteShareUrl(dealId, null))) showToast("הקישור הועתק");
               }}>שיתוף הקישור</button>
               <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">צפייה בדף הציבורי</a>
-              <button className="btn btn-ghost" onClick={() => setConfirmClose(true)}>סגירה להצטרפות</button>
+              <button className="btn btn-ghost" data-testid="pause-joining-open" onClick={() => setConfirmClose(true)}>השהיית הצטרפות</button>
             </>
           ) : isDraft ? (
             <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">תצוגה מקדימה</a>
@@ -1127,14 +1234,15 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       ) : null}
 
       {confirmClose ? (
-        <Modal title="סגירת העסקה להצטרפות חדשה?" onClose={() => setConfirmClose(false)}>
-          <p>לאחר הסגירה לא ניתן לפתוח מחדש. משתתפים קיימים נשארים בעסקה.</p>
+        <Modal title="השהיית ההצטרפות לעסקה?" onClose={() => setConfirmClose(false)}>
+          <p>קונים חדשים לא יוכלו להצטרף. משתתפים קיימים נשארים בעסקה — אף אחד לא מחויב.</p>
+          <p className="muted small">אפשר לפתוח את ההצטרפות מחדש כל עוד מועד הסיום לא עבר והמלאי לא הסתיים.</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn btn-ghost" onClick={() => setConfirmClose(false)}>ביטול</button>
-            <button className="btn btn-danger" onClick={async () => {
-              try { await api.closeJoining(dealId); setConfirmClose(false); showToast("העסקה נסגרה להצטרפות"); load(); }
-              catch (e: any) { showToast(e.message || "הסגירה נכשלה"); setConfirmClose(false); }
-            }}>סגירה עכשיו</button>
+            <button className="btn btn-danger" data-testid="pause-joining-confirm" onClick={async () => {
+              try { await api.closeJoining(dealId); setConfirmClose(false); showToast("ההצטרפות הושהתה"); load(); }
+              catch (e: any) { showToast(e.message || "ההשהיה נכשלה"); setConfirmClose(false); }
+            }}>השהיה עכשיו</button>
           </div>
         </Modal>
       ) : null}
@@ -1160,11 +1268,162 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   );
 }
 
+// ── business onboarding (P0.3-8) ───────────────────────────────────────────
+// Statuses are SEPARATE truths: form completeness is derived, verification
+// and provider onboarding are real external processes — nothing here
+// auto-approves anything. The full bank account number is WRITE-ONLY: the
+// server returns only last4, and an empty input keeps the stored number.
+const ENTITY_TYPES: { value: string; label: string }[] = [
+  { value: "osek_patur", label: "עוסק פטור" },
+  { value: "osek_murshe", label: "עוסק מורשה" },
+  { value: "company", label: "חברה בע״מ" },
+  { value: "amuta", label: "עמותה" },
+  { value: "partnership", label: "שותפות" },
+  { value: "other", label: "אחר" }
+];
+
+const VERIFICATION_LABELS: Record<string, string> = {
+  pending: "בבדיקה", approved: "מאומת", verified: "מאומת", rejected: "נדחה"
+};
+const GROW_LABELS: Record<string, string> = {
+  not_started: "טרם החל", in_progress: "בתהליך", completed: "הושלם"
+};
+
+function StatusBadge({ ok, okText, missingText }: { ok: boolean; okText: string; missingText: string }) {
+  return <span className={`status ${ok ? "Completed" : "ClosedForJoining"}`}>{ok ? okText : missingText}</span>;
+}
+
+function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
+  const [payload, setPayload] = useState<Json | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<Record<string, string>>({});
+  const [bankNumber, setBankNumber] = useState("");
+  const [toast, showToast] = useToast();
+
+  const adopt = (r: Json) => {
+    setPayload(r);
+    const p = r.business_profile || {};
+    setForm({
+      business_name: p.business_name || "", legal_name: p.legal_name || "",
+      business_id_number: p.business_id_number || "", entity_type: p.entity_type || "",
+      contact_name: p.contact_name || "", contact_phone: p.contact_phone || "",
+      contact_email: p.contact_email || "", finance_email: p.finance_email || "",
+      business_address: p.business_address || "", bank_account_holder: p.bank_account_holder || "",
+      bank_name: p.bank_name || "", bank_branch: p.bank_branch || ""
+    });
+    setBankNumber("");
+  };
+
+  useEffect(() => {
+    api.sellerBusinessProfile().then(adopt).catch((e) => setError(e.message));
+  }, []);
+
+  if (error && !payload) return <EmptyState icon="⚠️" title="לא ניתן לטעון את הפרופיל העסקי" body={error} />;
+  if (!payload) return <BrandLoader label="טוענים את הפרופיל העסקי…" minHeight={420} />;
+
+  const statuses = payload.statuses || {};
+  const last4 = payload.business_profile?.bank_account_last4 || "";
+  const set = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+    setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const save = async () => {
+    if (busy) return;
+    setBusy(true); setError("");
+    try {
+      const r = await api.saveSellerBusinessProfile({ ...form, bank_account_number: bankNumber });
+      adopt(r);
+      showToast("הפרופיל העסקי נשמר");
+    } catch (e: any) { setError(e.message || "השמירה נכשלה"); }
+    setBusy(false);
+  };
+
+  return (
+    <div style={{ maxWidth: 680, margin: "0 auto" }}>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
+
+      <div className="panel">
+        <div className="panel-title">🏢 מצב החשבון העסקי</div>
+        <div className="kv">
+          <span className="k">פרטי העסק</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText="הושלמו" missingText="חסרים פרטים" /></span>
+          <span className="k">אימות העסק</span>
+          <span className="v"><span className="status ClosedForJoining">{VERIFICATION_LABELS[String(statuses.verification_status)] || String(statuses.verification_status || "בבדיקה")}</span></span>
+          <span className="k">פרטי התחשבנות</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText="מוכנים" missingText="חסרים פרטי בנק" /></span>
+          <span className="k">חיבור לספק הסליקה</span>
+          <span className="v"><span className="status ClosedForJoining">{GROW_LABELS[String(statuses.grow_onboarding)] || "טרם החל"}</span></span>
+        </div>
+        <p className="muted small" style={{ marginBottom: 0, marginTop: 10 }}>
+          אימות העסק והחיבור לספק הסליקה הם תהליכים נפרדים שמאושרים על ידי הצוות והספק — מילוי הטופס אינו מאשר אותם אוטומטית.
+        </p>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">פרטי העסק</div>
+        <div className="field-row">
+          <div className="field"><label>שם העסק <span className="req">*</span></label><input value={form.business_name || ""} onChange={set("business_name")} maxLength={200} /></div>
+          <div className="field"><label>שם משפטי רשום</label><input value={form.legal_name || ""} onChange={set("legal_name")} maxLength={200} /></div>
+        </div>
+        <div className="field-row">
+          <div className="field"><label>ח.פ / עוסק <span className="req">*</span></label><input dir="ltr" inputMode="numeric" value={form.business_id_number || ""} onChange={set("business_id_number")} maxLength={20} /></div>
+          <div className="field">
+            <label>סוג התאגדות</label>
+            <select value={form.entity_type || ""} onChange={set("entity_type")}>
+              <option value="">בחירה…</option>
+              {ENTITY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+            </select>
+          </div>
+        </div>
+        <div className="field"><label>כתובת העסק</label><input value={form.business_address || ""} onChange={set("business_address")} maxLength={200} /></div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">איש קשר והתחשבנות</div>
+        <div className="field-row">
+          <div className="field"><label>שם איש קשר <span className="req">*</span></label><input value={form.contact_name || ""} onChange={set("contact_name")} maxLength={120} /></div>
+          <div className="field"><label>טלפון</label><input dir="ltr" inputMode="tel" value={form.contact_phone || ""} onChange={set("contact_phone")} maxLength={30} /></div>
+        </div>
+        <div className="field-row">
+          <div className="field"><label>אימייל ליצירת קשר</label><input dir="ltr" inputMode="email" value={form.contact_email || ""} onChange={set("contact_email")} maxLength={200} /></div>
+          <div className="field"><label>אימייל לחשבוניות וכספים</label><input dir="ltr" inputMode="email" value={form.finance_email || ""} onChange={set("finance_email")} maxLength={200} /></div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">🏦 חשבון בנק לקבלת כספים</div>
+        <div className="field-row">
+          <div className="field"><label>שם בעל החשבון</label><input value={form.bank_account_holder || ""} onChange={set("bank_account_holder")} maxLength={120} /></div>
+          <div className="field"><label>בנק</label><input value={form.bank_name || ""} onChange={set("bank_name")} maxLength={100} /></div>
+        </div>
+        <div className="field-row">
+          <div className="field"><label>סניף</label><input dir="ltr" inputMode="numeric" value={form.bank_branch || ""} onChange={set("bank_branch")} maxLength={10} /></div>
+          <div className="field">
+            <label>מספר חשבון</label>
+            <input dir="ltr" inputMode="numeric" autoComplete="off" value={bankNumber} onChange={(e) => setBankNumber(e.target.value)}
+              placeholder={last4 ? `נשמר · מסתיים ב-${last4}` : ""} maxLength={30} />
+            <span className="hint">{last4 ? "המספר המלא שמור ומוצפן — הזינו מספר חדש רק כדי להחליף אותו." : "המספר המלא נשמר בצד השרת בלבד ולעולם לא מוצג חזרה."}</span>
+          </div>
+        </div>
+      </div>
+
+      {error ? <div className="notice err">{error}</div> : null}
+      <div className="row" style={{ justifyContent: "flex-end", marginBottom: 24 }}>
+        <button className="btn btn-primary btn-lg" data-testid="business-profile-save" disabled={busy} onClick={save}>
+          {busy ? "שומרים…" : "שמירת הפרופיל העסקי"}
+        </button>
+      </div>
+      <Toast msg={toast} />
+    </div>
+  );
+}
+
 // ── entry ──────────────────────────────────────────────────────────────────
 export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: URLSearchParams; navigate: (h: string) => void }) {
   const [authed, setAuthed] = useState(Boolean(getSellerToken()));
   if (!authed) return <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"} onDone={() => setAuthed(true)} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
+  if (sub[0] === "profile") return <BusinessProfilePage navigate={navigate} />;
   if (sub[0] === "deal" && sub[1]) return <SellerDealScreen dealId={sub[1]} navigate={navigate} />;
   return <SellerDashboard navigate={navigate} />;
 }

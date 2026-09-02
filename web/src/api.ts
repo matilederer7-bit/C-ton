@@ -68,8 +68,10 @@ export const api = {
   },
   deal: (id: string) => req(`/api/deals/${id}/public`),
   activity: (id: string) => req(`/api/deals/${id}/activity`),
-  chat: (id: string) => req(`/api/deals/${id}/chat?limit=50`),
+  chat: (id: string, visitorId = "") => req(`/api/deals/${id}/chat?limit=100${visitorId ? `&visitor_id=${encodeURIComponent(visitorId)}` : ""}`),
   chatPost: (id: string, payload: Json) => req(`/api/deals/${id}/chat`, { method: "POST", body: JSON.stringify(payload) }),
+  chatReact: (id: string, messageId: string, payload: Json) =>
+    req(`/api/deals/${id}/chat/${messageId}/reaction`, { method: "POST", body: JSON.stringify(payload) }),
   join: (id: string, payload: Json) =>
     req(`/api/deals/${id}/join`, { method: "POST", headers: { "idempotency-key": `preview-join-${id}-${crypto.randomUUID()}` }, body: JSON.stringify(payload) }),
   tracking: (participantId: string, token: string) =>
@@ -99,8 +101,13 @@ export const api = {
     req(`/api/deals/${id}/publish`, { method: "POST", body: JSON.stringify({ seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }) }, "seller"),
   closeJoining: (id: string) =>
     req(`/api/deals/${id}/close_joining`, { method: "POST", body: JSON.stringify({}) }, "seller"),
+  reopenJoining: (id: string) =>
+    req(`/api/deals/${id}/reopen_joining`, { method: "POST", body: JSON.stringify({}) }, "seller"),
   deleteDeal: (id: string) =>
     req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
+  sellerBusinessProfile: () => req(`/api/seller/business-profile`, {}, "seller"),
+  saveSellerBusinessProfile: (payload: Json) =>
+    req(`/api/seller/business-profile`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),
 
   // ── admin (Supabase Bearer, admin capability — server-validated) ────────
   adminMe: () => req(`/api/admin/auth/me`, {}, "admin"),

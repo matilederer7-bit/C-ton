@@ -234,13 +234,14 @@ export function utcIsoToIsraelParts(iso: string | null | undefined): { date: str
   return { date: `${parts.year}-${parts.month}-${parts.day}`, time: `${String(Number(parts.hour) % 24).padStart(2, "0")}:${parts.minute}` };
 }
 
-// Warm→green progress color story (spec: hotter far from minimum, gradually
-// green as the group approaches the target).
+// Warm→cyan progress story (P0.3 palette): hot commercial orange far from the
+// minimum, easing into the single premium cyan accent as the group closes in.
 export function progressColor(ratioToTarget: number): string {
   const r = clamp(ratioToTarget, 0, 1);
-  if (r >= 1) return "linear-gradient(90deg, #178f46, #2fbf6b)";
-  // hue 24 (hot orange) → 152 (green)
-  const hue = Math.round(24 + r * 118);
-  const hue2 = Math.round(hue + 12);
-  return `linear-gradient(90deg, hsl(${hue} 78% 48%), hsl(${hue2} 70% 52%))`;
+  if (r >= 1) return "linear-gradient(90deg, #45b9c9, #6fd3e0)";
+  // hue 24 (hot orange) → 187 (muted cyan)
+  const hue = Math.round(24 + r * 163);
+  const hue2 = Math.round(Math.min(190, hue + 10));
+  const sat = Math.round(78 - r * 22);
+  return `linear-gradient(90deg, hsl(${hue} ${sat}% 50%), hsl(${hue2} ${Math.max(48, sat - 6)}% 55%))`;
 }

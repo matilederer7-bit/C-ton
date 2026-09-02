@@ -213,7 +213,9 @@ await run("D3b declared MIME must match image content", async () => {
 await run("D4 too large image is rejected", async () => {
   const sellerId = `seller-img-large-${randomUUID().slice(0, 8)}`;
   const dealId = await insertDraftDeal(sellerId);
-  const tooLarge = Buffer.alloc(2 * 1024 * 1024 + 1, 1).toString("base64");
+  // P0.3: the server accepts optimized artifacts up to 5MB (the 50MB input
+  // cap lives in the browser pipeline, which compresses before upload).
+  const tooLarge = Buffer.alloc(5 * 1024 * 1024 + 1, 1).toString("base64");
 
   const res = await app.inject({
     method: "POST",

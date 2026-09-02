@@ -31,15 +31,22 @@
   --brand-tint: rgba(236, 102, 8, 0.14);
   --brand-glow: rgba(236, 102, 8, 0.38);
 
-  /* semantic accents tuned for the dark ground */
+  /* P0.3 disciplined palette: graphite + orange dominate. The ONLY permitted
+     accent deviation is a premium muted light-cyan with a restrained glow —
+     it replaces every decorative green/blue. Red stays strictly semantic
+     (errors/destructive); warnings lean orange. */
+  --accent-cyan: #6fd3e0;
+  --accent-cyan-soft: rgba(111, 211, 224, 0.13);
+  --accent-cyan-glow: 0 0 16px rgba(111, 211, 224, 0.22);
   --saffron: #f5a623;
   --saffron-tint: rgba(245, 166, 35, 0.14);
   --pomegranate: #f0563a;
   --pomegranate-tint: rgba(240, 86, 58, 0.14);
-  --success: #3ecf7a;
-  --success-tint: rgba(62, 207, 122, 0.13);
-  --sky: #5b9bff;
-  --sky-tint: rgba(91, 155, 255, 0.13);
+  /* success/positive + informational both resolve to the single cyan accent */
+  --success: var(--accent-cyan);
+  --success-tint: var(--accent-cyan-soft);
+  --sky: var(--accent-cyan);
+  --sky-tint: var(--accent-cyan-soft);
 
   --radius: 14px;
   --radius-sm: 10px;
@@ -519,6 +526,100 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   padding: 22px 18px; text-align: center;
 }
 .share-moment h3 { font-size: 1.4rem; }
+
+/* ── live countdown clock (P0.3) ───────────────────────────────────────── */
+.deal-countdown-block {
+  margin-top: 16px; padding: 12px 14px; border-radius: var(--radius);
+  background: var(--bg-deep); border: 1px solid var(--line);
+  display: grid; gap: 4px; justify-items: center; text-align: center;
+}
+.deal-countdown-label { font-size: .82rem; font-weight: 700; color: var(--ink-soft); }
+.live-countdown {
+  font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .04em;
+  font-size: 1.55rem; color: var(--ink);
+}
+.live-countdown.final { color: var(--accent-cyan); text-shadow: var(--accent-cyan-glow); }
+.seller-countdown-block {
+  margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
+  background: var(--bg-deep); border: 1px solid var(--line);
+  display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap;
+}
+.seller-countdown-block .lbl { font-size: .84rem; font-weight: 700; color: var(--ink-soft); }
+
+/* ── brand share icon buttons (P0.3) ───────────────────────────────────── */
+.share-icons { gap: 10px; }
+.share-ico-btn {
+  width: 46px; height: 46px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: 1.5px solid var(--line-strong); background: var(--surface-warm);
+  color: var(--ink-soft); cursor: pointer; padding: 0;
+  transition: transform .12s ease, border-color .12s ease, color .12s ease;
+}
+.share-ico-btn:hover { transform: translateY(-2px); border-color: var(--brand); color: var(--brand-hi); }
+.share-ico-btn svg { display: block; }
+
+/* ── deal chat (P0.3: replies + reactions) ─────────────────────────────── */
+.chat-reply-context {
+  border-inline-start: 3px solid var(--brand); background: var(--bg-deep);
+  border-radius: 8px; padding: 5px 10px; font-size: .8rem; color: var(--ink-soft);
+  margin-bottom: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%;
+}
+.chat-reply-context b { color: var(--brand-hi); }
+.chat-actions { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
+.chat-action {
+  border: 1px solid var(--line); background: transparent; color: var(--ink-faint);
+  border-radius: 999px; padding: 2px 10px; font-size: .76rem; font-weight: 700; cursor: pointer;
+  display: inline-flex; gap: 4px; align-items: center; min-height: 26px;
+}
+.chat-action:hover { border-color: var(--line-strong); color: var(--ink-soft); }
+.chat-action.active { border-color: var(--accent-cyan); color: var(--accent-cyan); background: var(--accent-cyan-soft); }
+.chat-action.active.dislike { border-color: var(--pomegranate); color: var(--pomegranate); background: var(--pomegranate-tint); }
+.chat-composing-reply {
+  display: flex; gap: 8px; align-items: center; background: var(--bg-deep);
+  border: 1px dashed var(--line-strong); border-radius: 10px; padding: 6px 10px;
+  font-size: .8rem; color: var(--ink-soft); margin-top: 10px;
+}
+.chat-composing-reply .x { width: 24px; height: 24px; font-size: .75rem; }
+
+/* ── payment method choice (P0.3 — UI + orchestration only) ────────────── */
+.pay-methods { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 4px 0 12px; }
+.pay-method {
+  border: 1.5px solid var(--line-strong); background: var(--bg-deep); color: var(--ink);
+  border-radius: var(--radius-sm); padding: 12px; cursor: pointer; font-weight: 800; font-size: 1rem;
+  display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 52px;
+}
+.pay-method.active { border-color: var(--brand); background: var(--brand-tint); color: var(--brand-hi); }
+.pay-bit-logo { font-style: italic; font-weight: 900; letter-spacing: .02em; }
+.pay-secure-slot {
+  border: 1.5px dashed var(--line-strong); border-radius: var(--radius-sm);
+  padding: 12px; display: grid; gap: 10px; margin-bottom: 12px; position: relative;
+}
+.pay-secure-note {
+  font-size: .78rem; color: var(--accent-cyan); background: var(--accent-cyan-soft);
+  border-radius: 8px; padding: 6px 10px; font-weight: 600;
+}
+.pay-secure-slot input[disabled] { opacity: .55; cursor: not-allowed; }
+.pay-field-row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+
+/* ── primary-image star (P0.3-17: the star IS the control) ─────────────── */
+.img-star {
+  position: absolute; top: 6px; inset-inline-start: 6px; z-index: 3;
+  width: 32px; height: 32px; border-radius: 50%; border: none; cursor: pointer;
+  background: rgba(16, 17, 20, .72); color: var(--ink-faint);
+  font-size: 1.15rem; line-height: 1; display: grid; place-items: center;
+  transition: color .12s ease, transform .12s ease;
+}
+.img-star:hover { transform: scale(1.12); color: var(--brand-hi); }
+.img-star.active { color: var(--brand); text-shadow: 0 0 10px var(--brand-glow); }
+.img-star:disabled { opacity: .5; cursor: default; }
+
+/* joining paused banner (P0.3-14) */
+.paused-banner {
+  display: flex; align-items: center; gap: 14px; justify-content: space-between; flex-wrap: wrap;
+  background: var(--saffron-tint); border: 1.5px solid var(--saffron);
+  border-radius: var(--radius-lg); padding: 14px 18px; margin-bottom: 14px;
+}
+@media (max-width: 640px) { .paused-banner .btn { width: 100%; } }
 
 /* ── forms / wizard ────────────────────────────────────────────────────── */
 .field { display: grid; gap: 6px; margin-bottom: 14px; min-width: 0; }

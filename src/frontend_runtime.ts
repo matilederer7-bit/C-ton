@@ -354,7 +354,11 @@ function renderLegalMarkdown(markdown: string) {
 
 function renderLegalHtmlPage(slug: LegalPageSlug) {
   const page = LEGAL_PAGES[slug];
-  const nav = LEGAL_PAGE_ORDER.map((item) => {
+  // P0.3-12 — the visible legal nav stays lean (core buyer documents only);
+  // sellers/affiliates pages remain reachable by direct link from their flows.
+  const CORE_LEGAL_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds"];
+  const navSlugs = CORE_LEGAL_NAV.includes(slug) ? CORE_LEGAL_NAV : [...CORE_LEGAL_NAV, slug];
+  const nav = LEGAL_PAGE_ORDER.filter((item) => navSlugs.includes(item)).map((item) => {
     const target = LEGAL_PAGES[item];
     return `<a href="/legal/${target.slug}"${target.slug === slug ? ` aria-current="page"` : ""}>${escapeHtml(target.navLabel)}</a>`;
   }).join("");
@@ -379,7 +383,7 @@ function renderLegalHtmlPage(slug: LegalPageSlug) {
 <body>
   <div class="shell">
     <header>
-      <div class="brand"><strong>C-ton</strong><a href="/app">חזרה לאתר</a></div>
+      <div class="brand"><strong>C-ton</strong><a href="/preview/">חזרה לאתר</a></div>
       <nav aria-label="ניווט משפטי">${nav}</nav>
     </header>
     <main>
@@ -390,8 +394,7 @@ function renderLegalHtmlPage(slug: LegalPageSlug) {
       <a href="/legal/terms">תקנון</a>
       <a href="/legal/privacy">מדיניות פרטיות</a>
       <a href="/legal/refunds">ביטולים והחזרים</a>
-      <a href="/legal/sellers">תנאי מוכרים</a>
-      <a href="/legal/affiliates">תנאי מפיצים</a>
+      <a href="/preview/#/support">תמיכה</a>
     </footer>
   </div>
 </body>

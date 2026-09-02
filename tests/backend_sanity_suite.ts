@@ -59,10 +59,13 @@ async function main() {
 
   await runTest("deal transitions match DB enforcement (no post-publish Cancelled)", async () => {
     // Cancellation is only permitted from Draft — DB trigger mirrors this.
+    // P0.3 (migration 056): manual joining pause is reversible —
+    // PendingTarget may close early, and a manually ClosedForJoining deal may
+    // reopen to PendingTarget/TargetReached (route-guarded to manual closes).
     assert.deepEqual(DEAL_TRANSITIONS.Draft, ["PendingTarget", "Cancelled"]);
-    assert.deepEqual(DEAL_TRANSITIONS.PendingTarget, ["TargetReached", "Failed"]);
+    assert.deepEqual(DEAL_TRANSITIONS.PendingTarget, ["TargetReached", "Failed", "ClosedForJoining"]);
     assert.deepEqual(DEAL_TRANSITIONS.TargetReached, ["ClosedForJoining"]);
-    assert.deepEqual(DEAL_TRANSITIONS.ClosedForJoining, ["ReadyForCharging"]);
+    assert.deepEqual(DEAL_TRANSITIONS.ClosedForJoining, ["ReadyForCharging", "PendingTarget", "TargetReached"]);
     assert.deepEqual(DEAL_TRANSITIONS.ReadyForCharging, ["Charging"]);
     assert.deepEqual(DEAL_TRANSITIONS.Charging, ["CompletionWindow"]);
     assert.deepEqual(DEAL_TRANSITIONS.CompletionWindow, ["Completed", "Failed"]);

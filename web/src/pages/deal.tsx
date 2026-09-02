@@ -5,11 +5,20 @@ import {
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
 import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, ils, initialOf, num, timeAgo } from "../util";
-import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId } from "../viral";
+import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId, visitorId } from "../viral";
 
 const OPEN_STATES = ["PendingTarget", "TargetReached"];
 
-type DeliveryOption = { option_id: string; option_type: string; label: string; cost: number };
+type DeliveryOption = { option_id: string; option_type: string; label: string; cost: number; latitude?: number | null; longitude?: number | null };
+
+// Free map navigation (no paid provider): a universal Google-Maps directions
+// URL that opens the native map app on phones.
+function mapsNavUrl(option: DeliveryOption | null | undefined): string | null {
+  if (!option || option.latitude == null || option.longitude == null) return null;
+  const lat = Number(option.latitude), lng = Number(option.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
 
 const DELIVERY_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
 const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
@@ -57,12 +66,17 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
   );
 }
 
+// P0.3-4: real chat — threaded replies + like/dislike toggles. The backend is
+// the single authority (aggregated counts + viewer_reaction come from the
+// server; the client never invents totals).
 function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
   const [messages, setMessages] = useState<Json[]>([]);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
-  const load = () => api.chat(dealId).then((r) => setMessages(r.messages || [])).catch(() => undefined);
+  const [replyTo, setReplyTo] = useState<Json | null>(null);
+  const composerRef = useRef<HTMLInputElement>(null);
+  const load = () => api.chat(dealId, visitorId()).then((r) => setMessages(r.messages || [])).catch(() => undefined);
   useEffect(() => {
     load();
     const id = setInterval(load, 20_000);
@@ -73,32 +87,73 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
     if (!body.trim() || busy) return;
     setBusy(true);
     try {
-      await api.chatPost(dealId, { body: body.trim(), display_name: name.trim() || "משתתף" });
+      await api.chatPost(dealId, {
+        body: body.trim(),
+        display_name: name.trim() || "משתתף",
+        ...(replyTo ? { reply_to_message_id: replyTo.message_id } : {})
+      });
       setBody("");
+      setReplyTo(null);
       await load();
     } catch { /* keep text for retry */ }
     setBusy(false);
   };
+  const react = async (m: Json, reaction: "like" | "dislike") => {
+    try {
+      const r = await api.chatReact(dealId, m.message_id, { reaction, visitor_id: visitorId() });
+      setMessages((prev) => prev.map((x) => x.message_id === m.message_id
+        ? { ...x, likes: r.likes, dislikes: r.dislikes, viewer_reaction: r.viewer_reaction }
+        : x));
+    } catch { /* server stays authoritative; next poll corrects */ }
+  };
   return (
     <div className="panel">
-      <div className="panel-title">💬 תגובות ושאלות</div>
-      {messages.length === 0 ? <p className="muted small">עדיין אין תגובות — תהיו הראשונים לשאול.</p> : (
+      <div className="panel-title">💬 צ׳אט</div>
+      {messages.length === 0 ? <p className="muted small">עדיין אין הודעות — תהיו הראשונים לכתוב.</p> : (
         <div className="chat-list">
           {messages.map((m) => (
-            <div className="chat-msg" key={m.message_id}>
+            <div className="chat-msg" key={m.message_id} data-testid="chat-msg">
+              {m.reply_preview ? (
+                <div className="chat-reply-context">בתגובה ל<b>{m.reply_author || "משתתף"}</b>: {m.reply_preview}</div>
+              ) : null}
               <div className="chat-author">{m.display_name}</div>
               <div>{m.body}</div>
-              <div className="chat-time">{timeAgo(m.created_at)}</div>
+              <div className="chat-actions">
+                <button type="button" className={`chat-action${m.viewer_reaction === "like" ? " active" : ""}`}
+                  aria-pressed={m.viewer_reaction === "like"} aria-label="אהבתי" onClick={() => react(m, "like")}>
+                  👍 {Number(m.likes || 0) > 0 ? num(m.likes) : ""}
+                </button>
+                <button type="button" className={`chat-action dislike${m.viewer_reaction === "dislike" ? " active" : ""}`}
+                  aria-pressed={m.viewer_reaction === "dislike"} aria-label="לא אהבתי" onClick={() => react(m, "dislike")}>
+                  👎 {Number(m.dislikes || 0) > 0 ? num(m.dislikes) : ""}
+                </button>
+                {canWrite ? (
+                  <button type="button" className="chat-action" onClick={() => { setReplyTo(m); composerRef.current?.focus(); }}>
+                    ↩ תגובה
+                  </button>
+                ) : null}
+                <span className="chat-time" style={{ marginInlineStart: "auto" }}>{timeAgo(m.created_at)}</span>
+              </div>
             </div>
           ))}
         </div>
       )}
       {canWrite ? (
-        <form className="chat-form" onSubmit={send}>
-          <input placeholder="שם (לא חובה)" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 130 }} />
-          <input placeholder="כתבו תגובה…" value={body} onChange={(e) => setBody(e.target.value)} maxLength={500} />
-          <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()}>שליחה</button>
-        </form>
+        <>
+          {replyTo ? (
+            <div className="chat-composing-reply">
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                עונים ל<b>{replyTo.display_name}</b>: {String(replyTo.body || "").slice(0, 60)}
+              </span>
+              <button type="button" className="chat-action x" aria-label="ביטול תגובה" onClick={() => setReplyTo(null)}>✕</button>
+            </div>
+          ) : null}
+          <form className="chat-form" onSubmit={send}>
+            <input placeholder="שם (לא חובה)" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 130 }} />
+            <input ref={composerRef} placeholder={replyTo ? "כתבו תגובה…" : "כתבו הודעה…"} value={body} onChange={(e) => setBody(e.target.value)} maxLength={500} />
+            <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()}>שליחה</button>
+          </form>
+        </>
       ) : null}
     </div>
   );
@@ -123,6 +178,7 @@ function JoinModal(props: {
   const [notes, setNotes] = useState("");
   const [terms, setTerms] = useState(false);
   const [disclosure, setDisclosure] = useState(false);
+  const [payMethod, setPayMethod] = useState<"credit_card" | "bit">("credit_card");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const needsAddress = delivery?.option_type === "delivery";
@@ -147,6 +203,7 @@ function JoinModal(props: {
         delivery_address: needsAddress ? address.trim() : undefined,
         delivery_city: needsAddress ? city.trim() : undefined,
         delivery_notes: notes.trim() || undefined,
+        payment_method: payMethod,
         buyer_terms_accepted: true,
         payment_disclosure_accepted: true,
         source: currentRef() ? "direct" : undefined,
@@ -193,6 +250,41 @@ function JoinModal(props: {
           </div>
         ) : null}
         <div className="field"><label>הערות <span className="hint">(לא חובה)</span></label><input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={200} /></div>
+
+        {/* P0.3-5 — payment method. The CHOICE is ours; the sensitive entry
+            itself belongs to the secured payment provider (PCI boundary):
+            these are presentation slots only — no card number, expiry or CVV
+            is ever collected, sent or stored by C-ton. */}
+        <div className="field" style={{ marginBottom: 4 }}><label>אמצעי תשלום</label></div>
+        <div className="pay-methods" role="tablist" aria-label="אמצעי תשלום">
+          <button type="button" role="tab" aria-selected={payMethod === "credit_card"} data-testid="pay-credit"
+            className={`pay-method${payMethod === "credit_card" ? " active" : ""}`} onClick={() => setPayMethod("credit_card")}>
+            💳 כרטיס אשראי
+          </button>
+          <button type="button" role="tab" aria-selected={payMethod === "bit"} data-testid="pay-bit"
+            className={`pay-method${payMethod === "bit" ? " active" : ""}`} onClick={() => setPayMethod("bit")}>
+            <span className="pay-bit-logo">bit</span> תשלום ב-bit
+          </button>
+        </div>
+        {payMethod === "credit_card" ? (
+          <div className="pay-secure-slot" data-testid="pay-slot-credit">
+            <div className="field" style={{ marginBottom: 0 }}>
+              <label>מספר כרטיס</label>
+              <input dir="ltr" disabled placeholder="•••• •••• •••• ••••" aria-label="מספר כרטיס — מוזן בסביבת הסליקה המאובטחת" />
+            </div>
+            <div className="pay-field-row">
+              <div className="field" style={{ marginBottom: 0 }}><label>תוקף</label><input dir="ltr" disabled placeholder="MM/YY" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>CVV</label><input dir="ltr" disabled placeholder="•••" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>ת״ז</label><input dir="ltr" disabled placeholder="•••••••••" /></div>
+            </div>
+            <div className="pay-secure-note">🔒 פרטי הכרטיס מוזנים ישירות בסביבת הסליקה המאובטחת בעת סגירת העסקה — הם אינם נשמרים ואינם עוברים דרך C-ton.</div>
+          </div>
+        ) : (
+          <div className="pay-secure-slot" data-testid="pay-slot-bit">
+            <div className="pay-secure-note">🔒 בקשת תשלום ב-bit תישלח למספר הנייד שהזנתם דרך סביבת הסליקה המאובטחת, רק אם העסקה תיסגר בהצלחה. לא מתבצע חיוב עכשיו.</div>
+          </div>
+        )}
+
         <label className="check">
           <input data-testid="join-disclosure" type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} />
           <span>הבנתי: הסכום תופס מסגרת אשראי בלבד. לא מתבצע חיוב בפועל עד סגירת העסקה בהצלחה, ואם העסקה לא נסגרת — המסגרת משתחררת אוטומטית.</span>
@@ -381,13 +473,23 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }}>
                   <span style={{ fontWeight: 700 }}>אופן קבלה</span>
-                  {deliveryOptions.map((o) => (
-                    <label key={o.option_id} className={`delivery-option${o.option_id === deliveryId ? " selected" : ""}`}>
-                      <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
-                      <span>{DELIVERY_ICONS[o.option_type] || "📦"} {o.label || DELIVERY_NAMES[o.option_type]}</span>
-                      <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
-                    </label>
-                  ))}
+                  {deliveryOptions.map((o) => {
+                    const nav = mapsNavUrl(o);
+                    return (
+                      <React.Fragment key={o.option_id}>
+                        <label className={`delivery-option${o.option_id === deliveryId ? " selected" : ""}`}>
+                          <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
+                          <span>{DELIVERY_ICONS[o.option_type] || "📦"} {o.label || DELIVERY_NAMES[o.option_type]}</span>
+                          <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
+                        </label>
+                        {nav && o.option_id === deliveryId ? (
+                          <a className="btn btn-ghost btn-sm" data-testid="pickup-nav" href={nav} target="_blank" rel="noreferrer" style={{ alignSelf: "flex-start" }}>
+                            🧭 ניווט לנקודת האיסוף
+                          </a>
+                        ) : null}
+                      </React.Fragment>
+                    );
+                  })}
                 </div>
               ) : null}
               <div className="order-summary">

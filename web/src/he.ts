@@ -50,7 +50,23 @@ const CODE_MESSAGES: Record<string, string> = {
   contact_message_too_short: "כתבו לנו כמה מילים על הפנייה (לפחות 10 תווים)",
   contact_message_too_long: "תוכן הפנייה ארוך מדי (עד 2000 תווים)",
   contact_category_invalid: "יש לבחור נושא לפנייה",
-  rate_limit_exceeded: "יותר מדי בקשות — נסו שוב בעוד רגע"
+  rate_limit_exceeded: "יותר מדי בקשות — נסו שוב בעוד רגע",
+  // P0.3 — pause/reopen joining
+  deal_not_open_for_joining: "העסקה אינה פתוחה להצטרפות במצבה הנוכחי",
+  deal_not_paused: "ההצטרפות אינה מושהית — אין מה לפתוח מחדש",
+  deal_reopen_not_allowed: "ההצטרפות נסגרה אוטומטית (מועד סיום או מלאי) — לא ניתן לפתוח מחדש",
+  deal_reopen_deadline_passed: "מועד הסיום עבר — לא ניתן לפתוח את ההצטרפות מחדש",
+  deal_reopen_capacity_full: "המלאי הסתיים — לא ניתן לפתוח את ההצטרפות מחדש",
+  // P0.3 — chat
+  chat_closed: "הצ׳אט סגור בעסקה זו",
+  chat_reply_target_not_found: "ההודעה שאליה ניסיתם להגיב כבר לא זמינה",
+  invalid_reaction: "התגובה אינה תקינה",
+  reaction_identity_required: "לא ניתן להגיב כרגע — רעננו את הדף ונסו שוב",
+  // P0.3 — join payment method
+  payment_method_invalid: "יש לבחור אמצעי תשלום: כרטיס אשראי או bit",
+  // P0.3 — business profile
+  business_profile_email_invalid: "אחת מכתובות האימייל בפרופיל העסקי אינה תקינה",
+  bank_account_invalid: "מספר חשבון הבנק אינו תקין"
 };
 
 const PATTERN_MESSAGES: [RegExp, string][] = [

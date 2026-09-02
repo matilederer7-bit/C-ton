@@ -45,7 +45,9 @@ await run("upload_mime_rejection_validation", async () => {
 });
 
 await run("upload_size_limit_validation", async () => {
-  assert.match(productImage, /DEAL_IMAGE_MAX_BYTES = 2 \* 1024 \* 1024/);
+  // P0.3: server-side cap is 5MB per optimized artifact (browser pipeline
+  // accepts up to 50MB input and compresses before upload).
+  assert.match(productImage, /DEAL_IMAGE_MAX_BYTES = 5 \* 1024 \* 1024/);
   assert.match(productImage, /image_too_large/);
 });
 
