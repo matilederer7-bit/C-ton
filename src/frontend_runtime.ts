@@ -3471,7 +3471,7 @@ export function registerFrontendExperience(
                 img.public_url AS primary_image_public_url,
                 img.mime_type AS primary_image_mime_type
            FROM siton.products p
-           LEFT JOIN siton.deals d ON d.product_id=p.product_id
+           LEFT JOIN siton.deals d ON d.product_id=p.product_id AND d.seller_id=p.seller_id
            LEFT JOIN LATERAL (
              SELECT product_image_id, public_url, mime_type
                FROM siton.product_images
@@ -3524,10 +3524,12 @@ export function registerFrontendExperience(
         [productId]
       );
       const deals = await c.query(
-        `SELECT deal_id, title, state, price_per_unit, min_units, max_units, deadline, created_at
-           FROM siton.deals WHERE product_id=$1 AND seller_id=$2 ORDER BY created_at DESC LIMIT 50`,
+        `SELECT deal_id, title, state, price_per_unit, min_units, max_units, deadline,
+                created_at, published_at, product_snapshot_jsonb
+           FROM siton.deals WHERE product_id=$1 AND seller_id=$2 ORDER BY created_at DESC`,
         [productId, sellerContext.seller_id]
       );
+      const currentRevision = Number(result.rows[0].revision || 1);
       return {
         ok: true,
         product: {
@@ -3541,7 +3543,24 @@ export function registerFrontendExperience(
             is_primary: Boolean(row.is_primary),
             sort_order: Number(row.sort_order || 0)
           })),
-          deals: deals.rows
+          deals: deals.rows.map((row: any) => {
+            const snapshotRevision = Number(row.product_snapshot_jsonb?.product_revision || 0);
+            return {
+              deal_id: row.deal_id,
+              title: row.title,
+              state: row.state,
+              price_per_unit: row.price_per_unit,
+              min_units: row.min_units,
+              max_units: row.max_units,
+              deadline: row.deadline,
+              created_at: row.created_at,
+              published_at: row.published_at,
+              product_snapshot_revision: snapshotRevision > 0 ? snapshotRevision : null,
+              current_product_revision: currentRevision,
+              snapshot_status: snapshotRevision === currentRevision ? "current" : snapshotRevision > 0 && snapshotRevision < currentRevision ? "historical" : "unknown",
+              uses_historical_product_version: snapshotRevision > 0 && snapshotRevision < currentRevision
+            };
+          })
         },
         seller_auth: sellerAuthSummary(sellerContext)
       };
@@ -10770,6 +10789,9 @@ export function registerFrontendExperience(
   );
   app.get("/app/assets/app.js", async (_req, reply) =>
     sendFrontendFile(reply, "app.js", "application/javascript; charset=utf-8")
+  );
+  app.get("/app/assets/product-library.js", async (_req, reply) =>
+    sendFrontendFile(reply, "product-library.js", "application/javascript; charset=utf-8")
   );
   app.get("/app/assets/mobile-bridge.js", async (_req, reply) =>
     sendFrontendFile(reply, "mobile-bridge.js", "application/javascript; charset=utf-8")

@@ -1,4 +1,11 @@
 ﻿const root = document.getElementById("app");
+import {
+  applyProductLibraryFilters,
+  normalizeProductLibraryFilters,
+  productDealRevisionStatus,
+  productLibraryEmptyKind
+} from "./product-library.js";
+
 const FLOW_KEY = "siton_flow_v2";
 const FLOW_SCHEMA_VERSION = 2;
 const SAFE_RESUME_KEY = "siton_safe_resume_v1";
@@ -55,6 +62,8 @@ const state = {
   sellerProductsLoading: false,
   sellerProductsError: null,
   selectedSellerProduct: null,
+  sellerProductDetail: null,
+  productLibraryFilters: { query: "", status: "all", type: "all", sort: "updated" },
   sellerAnalyticsPayload: null,
   sellerAnalyticsPeriod: "all",
   sellerAnalyticsLoading: false,
@@ -295,6 +304,7 @@ const MONEY_COPY = {
 const ROUTE_LABELS = {
   seller: "ניהול העסקאות שלי",
   "seller-new": "יצירת עסקה חדשה",
+  "seller-product": "פרטי מוצר",
   "seller-edit": "עריכת טיוטת עסקה",
   "seller-deal": "ניהול עסקה",
   affiliate: "מרכז הפצה",
@@ -449,12 +459,29 @@ document.addEventListener("click", (event) => {
     if (action === "add-pickup-location") addSellerPickupLocation();
     if (action === "remove-pickup-location") removeSellerPickupLocation(actionTarget.dataset.slot);
     if (action === "seller-product-archive") void archiveSellerProduct(actionTarget.dataset.productId);
+    if (action === "seller-product-restore-create") void restoreSellerProductAndCreate(actionTarget.dataset.productId);
+    if (action === "seller-product-filters-reset") {
+      state.productLibraryFilters = { query: "", status: "all", type: "all", sort: "updated" };
+      render();
+    }
   }
 });
 
 document.addEventListener("input", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement || target instanceof HTMLTextAreaElement)) return;
+  if (target.name === "productLibraryQuery") {
+    state.productLibraryFilters = normalizeProductLibraryFilters({ ...state.productLibraryFilters, query: target.value });
+    render();
+    queueMicrotask(() => {
+      const input = document.querySelector('[name="productLibraryQuery"]');
+      if (input instanceof HTMLInputElement) {
+        input.focus();
+        input.setSelectionRange(input.value.length, input.value.length);
+      }
+    });
+    return;
+  }
   if (target.name === "adminSellerStatusReason") {
     state.adminSellerStatusReason = target.value;
     const submit = document.querySelector("[data-admin-seller-status-submit]");
@@ -477,6 +504,12 @@ document.addEventListener("input", (event) => {
 document.addEventListener("change", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+  if (["productLibraryStatus", "productLibraryType", "productLibrarySort"].includes(target.name)) {
+    const key = ({ productLibraryStatus: "status", productLibraryType: "type", productLibrarySort: "sort" })[target.name];
+    state.productLibraryFilters = normalizeProductLibraryFilters({ ...state.productLibraryFilters, [key]: target.value });
+    render();
+    return;
+  }
   if (target instanceof HTMLInputElement && target.name === "sellerImage") void handleSellerImageSelection(target);
   if (target.name in state.form && target.type === "checkbox") {
     state.form[target.name] = target.checked ? "on" : "";
@@ -668,6 +701,7 @@ function parseRoute(path) {
     ["contact", /^\/app\/contact$/],
     ["seller", /^\/app\/seller$/],
     ["seller-new", /^\/app\/seller\/new$/],
+    ["seller-product", /^\/app\/seller\/products\/([^/]+)$/],
     ["seller-edit", /^\/app\/seller\/deals\/([^/]+)\/edit$/],
     ["seller-deal", /^\/app\/seller\/deals\/([^/]+)$/],
     ["affiliate", /^\/app\/affiliate$/],
@@ -686,6 +720,8 @@ function parseRoute(path) {
     }
     return name === "tracking" || name === "recovery"
       ? { name, participantId: decodeURIComponent(match[1]) }
+      : name === "seller-product"
+        ? { name, productId: decodeURIComponent(match[1]) }
       : name === "admin-participant"
         ? { name, participantId: decodeURIComponent(match[1]) }
       : name === "admin-user"
@@ -733,6 +769,7 @@ async function runRoute() {
   if (route.name === "recovery") return loadRecovery(route.participantId);
   if (route.name === "seller") return loadSeller();
   if (route.name === "seller-new") return prepareSellerNew();
+  if (route.name === "seller-product") return loadSellerProduct(route.productId);
   if (route.name === "seller-edit") return prepareSellerEdit(route.dealId);
   if (route.name === "seller-deal") return loadSellerDeal(route.dealId);
   if (route.name === "affiliate") return loadAffiliate();
@@ -1163,6 +1200,17 @@ async function loadSellerProducts() {
   }
 }
 
+async function loadSellerProduct(productId) {
+  const id = String(productId || "").trim();
+  state.sellerProductDetail = null;
+  if (!id) return;
+  await busy("טוען את המוצר והיסטוריית העסקאות...", async () => {
+    const payload = await api(`/api/seller/products/${encodeURIComponent(id)}`);
+    state.sellerProductDetail = payload?.product || null;
+    state.sellerAuth = payload?.seller_auth || state.sellerAuth;
+  }, "לא הצלחנו לטעון את המוצר.");
+}
+
 async function selectSellerProduct(productId) {
   const id = String(productId || "").trim();
   state.form.sellerProductId = id;
@@ -1304,7 +1352,7 @@ async function updateSellerProduct(form) {
   const name = String(data.get("productName") || "").trim();
   if (!productId || !name) return fail("חסר שם מוצר", "יש להזין שם לפני שמירת המוצר.");
   await busy("שומר את המוצר...", async () => {
-    await api(`/api/seller/products/${encodeURIComponent(productId)}`, {
+    const response = await api(`/api/seller/products/${encodeURIComponent(productId)}`, {
       method: "PATCH",
       body: json({
         name,
@@ -1314,12 +1362,18 @@ async function updateSellerProduct(form) {
       })
     });
     await loadSellerProducts();
-    state.banner = { tone: "success", title: "המוצר עודכן", message: "עסקאות קיימות נשארו עם ה-snapshot המקורי; עסקאות חדשות יקבלו את הגרסה החדשה." };
+    if (state.route.name === "seller-product" && state.route.productId === productId) {
+      const detail = await api(`/api/seller/products/${encodeURIComponent(productId)}`);
+      state.sellerProductDetail = detail?.product || null;
+    }
+    const revision = Number(response?.product?.revision || state.sellerProductDetail?.revision || 1);
+    state.banner = { tone: "success", title: "המוצר עודכן · גרסה חדשה נשמרה", message: `גרסה ${revision} היא כעת הגרסה הנוכחית. עסקאות קיימות שפורסמו לא השתנו; עסקאות עתידיות ישתמשו בגרסה ${revision}.` };
   }, "לא הצלחנו לעדכן את המוצר.");
 }
 
 async function archiveSellerProduct(productId) {
-  const product = state.sellerProducts.find((row) => row.product_id === productId);
+  const product = state.sellerProducts.find((row) => row.product_id === productId)
+    || (state.sellerProductDetail?.product_id === productId ? state.sellerProductDetail : null);
   if (!product) return;
   const nextStatus = product.status === "archived" ? "active" : "archived";
   await busy(nextStatus === "archived" ? "מעביר לארכיון..." : "מחזיר לספרייה...", async () => {
@@ -1328,8 +1382,29 @@ async function archiveSellerProduct(productId) {
       body: json({ status: nextStatus })
     });
     await loadSellerProducts();
+    if (state.route.name === "seller-product" && state.route.productId === productId) {
+      const detail = await api(`/api/seller/products/${encodeURIComponent(productId)}`);
+      state.sellerProductDetail = detail?.product || null;
+    }
     state.banner = { tone: "success", title: nextStatus === "archived" ? "המוצר הועבר לארכיון" : "המוצר חזר לספרייה", message: "עסקאות שכבר נוצרו מהמוצר לא השתנו." };
   }, "לא הצלחנו לעדכן את מצב המוצר.");
+}
+
+async function restoreSellerProductAndCreate(productId) {
+  const id = String(productId || "").trim();
+  if (!id) return;
+  let restored = false;
+  await busy("משחזר את המוצר...", async () => {
+    await api(`/api/seller/products/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      body: json({ status: "active" })
+    });
+    restored = true;
+  }, "לא הצלחנו לשחזר את המוצר ולהתחיל עסקה חדשה.");
+  if (!restored) return;
+  navigate(`/app/seller/new?product=${encodeURIComponent(id)}`);
+  state.banner = { tone: "success", title: "המוצר שוחזר", message: "נפתחה טיוטה חדשה מהגרסה הנוכחית של המוצר." };
+  render();
 }
 
 async function prepareSellerEdit(dealId) {
@@ -3457,6 +3532,7 @@ function getRouteSummary() {
     recovery: "מסך השלמת תשלום במצב כשל חיוב, ללא שינוי כמות וללא ביטול.",
     seller: "ניהול העסקאות הפעילות, הטיוטות והפעולות של המוכר במקום אחד.",
     "seller-new": "פתיחת עסקה חדשה במסלול מונחה, בעברית מלאה ובמובייל תחילה.",
+    "seller-product": "פרטי מוצר, גרסה נוכחית והיסטוריית העסקאות שנוצרו ממנו.",
     "seller-edit": "עריכת טיוטה קיימת עם שמירה בטוחה של הפרטים והתמונות.",
     "seller-deal": "דף עסקה למוכר עם תמונת מצב, משתתפים, מסירה ומסמכים.",
     affiliate: "מרכז הפצה וייחוס עם מצב אימות וביצועי קמפיינים. המפיץ הוא ערוץ מדידה והפצה בלבד — ללא עמלה או תשלום.",
@@ -3502,6 +3578,7 @@ function renderCurrentRoute() {
   if (route.name === "contact") return renderContactPage();
   if (route.name === "seller") return renderCtonSellerPage();
   if (route.name === "seller-new" || route.name === "seller-edit") return renderSellerNewPage();
+  if (route.name === "seller-product") return renderSellerProductDetailPage();
   if (route.name === "seller-deal") return renderCtonSellerDealPage();
   if (route.name === "affiliate") return renderAffiliatePage();
   if (route.name === "admin") return renderAdminPage();
@@ -3981,6 +4058,7 @@ function renderCtonSellerPage() {
         <article class="cton-kpi">${icon("trend")}<span>ברוטו פוטנציאלי</span><strong>${currency(potentialGross)}</strong></article>
         <article class="cton-kpi warning">${icon("alert")}<span>עסקאות בסיכון</span><strong>${num(riskDeals.length)}</strong></article>
       </section>
+      ${renderSellerProductLibrary(true)}
       ${riskDeals.length ? `<section class="cton-card cton-attention" aria-labelledby="sellerUrgentDeals"><h2 id="sellerUrgentDeals">דורש תשומת לב עכשיו</h2><p class="muted">עסקאות בחיוב או בחלון השלמה מוצגות ראשונות.</p>${riskDeals.map(renderCtonSellerDealCard).join("")}</section>` : ""}
       <section class="cton-card cton-all-deals">
         <h2>${riskDeals.length ? "שאר העסקאות" : "כל העסקאות"}</h2>
@@ -5246,28 +5324,111 @@ function sellerProductReadinessBlockers(deal) {
 
 function renderSellerProductLibrary(canCreateDeal = true) {
   const products = Array.isArray(state.sellerProducts) ? state.sellerProducts : [];
+  const filters = normalizeProductLibraryFilters(state.productLibraryFilters);
+  const visibleProducts = applyProductLibraryFilters(products, filters);
+  const emptyKind = productLibraryEmptyKind(products, visibleProducts, filters);
+  const productTypeOptions = [
+    ["all", "כל הסוגים"],
+    ["physical_product", "מוצר פיזי"],
+    ["voucher", "שובר"],
+    ["ticket", "כרטיס"],
+    ["service", "שירות"]
+  ];
+  const emptyCopy = emptyKind === "library-empty"
+    ? ["עדיין אין מוצרים בספרייה", "המוצר הראשון יישמר כאן אוטומטית בעת יצירת עסקה חדשה."]
+    : emptyKind === "search-empty"
+      ? ["לא נמצאו מוצרים לחיפוש הזה", "אפשר לשנות את שם המוצר או הקטגוריה שחיפשת, או לנקות את החיפוש."]
+      : ["אין מוצרים שמתאימים לסינון", "אפשר לשנות סטטוס, סוג או מיון כדי לחזור לתמונה המלאה."];
   return `
-    <section class="card section stack seller-product-library">
+    <section class="cton-card seller-product-library stack" aria-labelledby="sellerProductLibraryTitle">
       <div class="section-header">
-        <div class="stack compact compact-section"><span class="eyebrow">קטלוג מוכר</span><h2>ספריית המוצרים שלי</h2><p class="muted section-intro">מוצר הוא ישות לשימוש חוזר. כל עסקה שומרת צילום מצב קפוא של גרסת המוצר שנבחרה.</p></div>
+        <div class="stack compact compact-section"><span class="eyebrow">ספריית המוצרים שלי</span><h2 id="sellerProductLibraryTitle">המוצרים שלי</h2><p class="muted section-intro">מוצר הוא ישות לשימוש חוזר. כל עסקה שומרת צילום מצב קפוא של גרסת המוצר שנבחרה.</p></div>
         ${canCreateDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">מוצר ועסקה חדשים</a>` : ""}
       </div>
       ${state.sellerProductsError ? `<div class="error-card"><strong>לא הצלחנו לטעון את ספריית המוצרים.</strong></div>` : ""}
-      ${products.length ? `<div class="deal-grid">${products.map((product) => `
-        <article class="deal-card stack ${product.status === "archived" ? "is-muted" : ""}">
-          ${product.primary_image_url ? `<img class="deal-card-image" src="${esc(product.primary_image_url)}" alt="${esc(product.name)}" />` : ""}
-          <div class="actions spread"><span class="badge ${product.status === "active" ? "success" : "closed"}">${product.status === "active" ? "פעיל" : "בארכיון"}</span><span class="small muted">גרסה ${num(product.revision || 1)}</span></div>
-          <h3>${esc(product.name)}</h3>
-          <p class="small muted">${esc(dealTypeLabel(product.product_type))}${product.category ? ` · ${esc(product.category)}` : ""} · ${num(product.deals_count || 0)} עסקאות</p>
-          <p>${esc(product.short_description || product.long_description || "אין עדיין תיאור קצר.")}</p>
-          <div class="actions">
-            ${product.status === "active" && canCreateDeal ? `<a class="button primary" href="/app/seller/new?product=${encodeURIComponent(product.product_id)}" data-nav="/app/seller/new?product=${encodeURIComponent(product.product_id)}">יצירת עסקה מהמוצר</a>` : ""}
-            <button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">${product.status === "active" ? "העברה לארכיון" : "החזרה לפעילות"}</button>
+      ${products.length ? `<div class="product-library-controls" aria-label="חיפוש וסינון מוצרים">
+        <label class="product-search-field"><span>חיפוש לפי שם או קטגוריה</span><input name="productLibraryQuery" type="search" maxlength="120" value="${esc(filters.query)}" placeholder="לדוגמה: סדנה או אלקטרוניקה" /></label>
+        <label><span>סטטוס</span><select name="productLibraryStatus"><option value="all" ${filters.status === "all" ? "selected" : ""}>הכל</option><option value="active" ${filters.status === "active" ? "selected" : ""}>פעילים</option><option value="archived" ${filters.status === "archived" ? "selected" : ""}>בארכיון</option></select></label>
+        <label><span>סוג</span><select name="productLibraryType">${productTypeOptions.map(([value, label]) => `<option value="${value}" ${filters.type === value ? "selected" : ""}>${label}</option>`).join("")}</select></label>
+        <label><span>מיון</span><select name="productLibrarySort"><option value="updated" ${filters.sort === "updated" ? "selected" : ""}>עודכנו לאחרונה</option><option value="name" ${filters.sort === "name" ? "selected" : ""}>שם</option><option value="deals" ${filters.sort === "deals" ? "selected" : ""}>הכי הרבה עסקאות</option></select></label>
+      </div>` : ""}
+      ${visibleProducts.length ? `<div class="product-library-grid">${visibleProducts.map((product) => `
+        <article class="product-library-card ${product.status === "archived" ? "is-archived" : ""}">
+          <div class="product-library-image">${product.primary_image_url ? `<img src="${esc(product.primary_image_url)}" alt="${esc(product.name)}" />` : `<span aria-hidden="true">${icon("package")}</span>`}</div>
+          <div class="product-library-main stack compact">
+            <div class="actions spread"><span class="badge ${product.status === "active" ? "success" : "closed"}">${product.status === "active" ? "פעיל" : "בארכיון"}</span><span class="small muted">גרסה נוכחית ${num(product.revision || 1)}</span></div>
+            <div><h3>${esc(product.name)}</h3><p class="small muted">${esc(dealTypeLabel(product.product_type))}${product.category ? ` · ${esc(product.category)}` : ""}</p></div>
+            <div class="product-library-facts"><span><strong>${num(product.deals_count || 0)}</strong> עסקאות מקושרות</span><span>עודכן ${dt(product.updated_at)}</span></div>
+            ${product.status === "archived" ? `<p class="small muted">מוצר בארכיון אינו מתחיל עסקה חדשה עד לשחזור מפורש.</p>` : ""}
           </div>
-          <details><summary>פתיחה ועריכת מוצר</summary><form data-action="seller-product-update" class="stack compact"><input type="hidden" name="productId" value="${esc(product.product_id)}" /><div class="field"><label>שם</label><input name="productName" maxlength="200" value="${esc(product.name)}" /></div><div class="field"><label>תיאור קצר</label><input name="productShortDescription" maxlength="200" value="${esc(product.short_description || "")}" /></div><div class="field"><label>תיאור מלא</label><textarea name="productLongDescription" maxlength="4000" rows="4">${esc(product.long_description || "")}</textarea></div><div class="field"><label>קטגוריה</label><input name="productCategory" maxlength="160" value="${esc(product.category || "")}" /></div><button class="primary" type="submit">שמירת גרסה חדשה</button></form></details>
-        </article>`).join("")}</div>` : `<div class="empty-surface stack"><strong>עדיין אין מוצרים בספרייה</strong><p class="small muted">המוצר הראשון יישמר כאן אוטומטית בעת יצירת עסקה חדשה.</p></div>`}
+          <div class="product-library-actions">
+            <a class="button secondary" href="/app/seller/products/${encodeURIComponent(product.product_id)}" data-nav="/app/seller/products/${encodeURIComponent(product.product_id)}">פתיחה</a>
+            <a class="button secondary" href="/app/seller/products/${encodeURIComponent(product.product_id)}#product-edit" data-nav="/app/seller/products/${encodeURIComponent(product.product_id)}#product-edit">עריכה</a>
+            ${product.status === "active" && canCreateDeal ? `<a class="button primary" href="/app/seller/new?product=${encodeURIComponent(product.product_id)}" data-nav="/app/seller/new?product=${encodeURIComponent(product.product_id)}">צור עסקה חדשה</a>` : ""}
+            ${product.status === "archived" ? `<button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">שחזור</button>${canCreateDeal ? `<button class="primary" type="button" data-inline-action="seller-product-restore-create" data-product-id="${esc(product.product_id)}">שחזור ויצירת עסקה</button>` : ""}` : `<button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">העברה לארכיון</button>`}
+          </div>
+        </article>`).join("")}</div>` : `<div class="empty-surface stack"><strong>${emptyCopy[0]}</strong><p class="small muted">${emptyCopy[1]}</p><div class="actions">${emptyKind === "library-empty" && canCreateDeal ? `<a class="button primary" href="/app/seller/new" data-nav="/app/seller/new">יצירת מוצר ועסקה ראשונים</a>` : `<button class="secondary" type="button" data-inline-action="seller-product-filters-reset">ניקוי חיפוש וסינון</button>`}</div></div>`}
     </section>`;
 }
+
+function renderSellerProductDetailPage() {
+  const auth = currentSellerAuth();
+  if (!usesDemoSellerContext() && !auth.authenticated) return renderSellerAuthGate();
+  const product = state.sellerProductDetail;
+  if (!product && state.loading) return "";
+  if (!product) {
+    return `<section class="cton-card stack"><a href="/app/seller" data-nav="/app/seller">חזרה למוצרים שלי</a>${renderEmptyState("המוצר לא זמין", "לא הצלחנו לטעון את המוצר או שאין לחשבון הפעיל גישה אליו.")}</section>`;
+  }
+  const deals = Array.isArray(product.deals) ? product.deals : [];
+  const currentRevision = Number(product.revision || 1);
+  const activeHistory = deals.filter((deal) => ["Draft", "PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow"].includes(String(deal.state)));
+  const primaryImage = Array.isArray(product.images) ? product.images.find((image) => image.is_primary) || product.images[0] : null;
+  return `
+    <section class="product-detail-page stack">
+      <a class="back-link" href="/app/seller" data-nav="/app/seller">← חזרה למוצרים שלי</a>
+      <header class="cton-card product-detail-header">
+        <div class="product-detail-image">${primaryImage?.url ? `<img src="${esc(primaryImage.url)}" alt="${esc(product.name)}" />` : `<span aria-hidden="true">${icon("package")}</span>`}</div>
+        <div class="stack compact">
+          <div class="actions"><span class="badge ${product.status === "active" ? "success" : "closed"}">${product.status === "active" ? "פעיל" : "בארכיון"}</span><span class="badge closed">${esc(dealTypeLabel(product.product_type))}</span></div>
+          <h1>${esc(product.name)}</h1>
+          <p class="muted">${product.category ? `${esc(product.category)} · ` : ""}עודכן ${dt(product.updated_at)}</p>
+          <div class="product-current-revision"><span>גרסת המוצר הנוכחית</span><strong>${num(currentRevision)}</strong></div>
+        </div>
+        <div class="product-detail-primary-actions">
+          ${product.status === "active" ? `<a class="button primary" href="/app/seller/new?product=${encodeURIComponent(product.product_id)}" data-nav="/app/seller/new?product=${encodeURIComponent(product.product_id)}">צור עסקה חדשה</a><button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">העברה לארכיון</button>` : `<button class="secondary" type="button" data-inline-action="seller-product-archive" data-product-id="${esc(product.product_id)}">שחזור המוצר</button><button class="primary" type="button" data-inline-action="seller-product-restore-create" data-product-id="${esc(product.product_id)}">שחזור ויצירת עסקה</button>`}
+        </div>
+      </header>
+      ${product.status === "archived" ? `<div class="info-strip tone-info"><strong>המוצר נמצא בארכיון</strong><p>כדי ליצור ממנו עסקה חדשה צריך לשחזר אותו במפורש. עסקאות היסטוריות נשארות ללא שינוי.</p></div>` : ""}
+      <section class="cton-card stack" aria-labelledby="productDealHistoryTitle">
+        <div class="section-header"><div><span class="eyebrow">היסטוריה קנונית</span><h2 id="productDealHistoryTitle">עסקאות שנוצרו מהמוצר</h2><p class="small muted">כל עסקה מציגה את גרסת המוצר שקפאה בה מול גרסה ${num(currentRevision)} הנוכחית.</p></div><span class="stat-pill"><span>סה״כ</span><strong>${num(deals.length)}</strong></span></div>
+        ${deals.length && !activeHistory.length ? `<div class="info-strip tone-info"><strong>כל העסקאות המקושרות הן היסטוריות או סגורות</strong><p>${product.status === "active" ? "אפשר ליצור עסקה חדשה מהגרסה העדכנית של המוצר." : "אפשר לשחזר את המוצר ואז ליצור עסקה חדשה מהגרסה העדכנית."}</p></div>` : ""}
+        ${deals.length ? `<div class="product-history-list">${deals.map((deal) => renderProductHistoryDeal(deal, currentRevision)).join("")}</div>` : `<div class="empty-surface stack"><strong>עדיין לא נוצרו עסקאות מהמוצר הזה</strong><p class="small muted">העסקה הראשונה תשתמש בגרסה ${num(currentRevision)} ותשמור אותה כצילום מצב בלתי משתנה.</p><div class="actions">${product.status === "active" ? `<a class="button primary" href="/app/seller/new?product=${encodeURIComponent(product.product_id)}" data-nav="/app/seller/new?product=${encodeURIComponent(product.product_id)}">יצירת העסקה הראשונה</a>` : `<button class="primary" type="button" data-inline-action="seller-product-restore-create" data-product-id="${esc(product.product_id)}">שחזור ויצירת העסקה הראשונה</button>`}</div></div>`}
+      </section>
+      <section class="cton-card stack" id="product-edit">
+        <div><span class="eyebrow">גרסה חדשה</span><h2>עריכת המוצר</h2><p class="small muted">שמירה תיצור revision חדש. עסקאות שכבר פורסמו יישארו עם צילום המצב המקורי שלהן.</p></div>
+        <form data-action="seller-product-update" class="form-shell">
+          <input type="hidden" name="productId" value="${esc(product.product_id)}" />
+          <div class="inline-fields"><div class="field"><label>שם</label><input name="productName" maxlength="200" required value="${esc(product.name)}" /></div><div class="field"><label>קטגוריה</label><input name="productCategory" maxlength="160" value="${esc(product.category || "")}" /></div></div>
+          <div class="field"><label>תיאור קצר</label><input name="productShortDescription" maxlength="200" value="${esc(product.short_description || "")}" /></div>
+          <div class="field"><label>תיאור מלא</label><textarea name="productLongDescription" maxlength="4000" rows="5">${esc(product.long_description || "")}</textarea></div>
+          <div class="actions"><button class="primary" type="submit">שמירת גרסה חדשה</button></div>
+        </form>
+      </section>
+    </section>`;
+}
+
+function renderProductHistoryDeal(deal, currentRevision) {
+  const revision = productDealRevisionStatus(deal, currentRevision);
+  const stateCopy = getDealCopy(String(deal.state || ""));
+  const revisionLabel = revision.isHistorical ? "משתמשת בגרסת מוצר היסטורית" : revision.isCurrent ? "משתמשת בגרסת המוצר הנוכחית" : "גרסת snapshot אינה זמינה";
+  return `<article class="product-history-row">
+    <div class="stack compact"><div class="actions"><span class="badge ${stateCopy.badgeTone}">${esc(stateCopy.label)}</span><span class="badge ${revision.isHistorical ? "pending" : revision.isCurrent ? "success" : "closed"}">${revisionLabel}</span></div><h3>${esc(deal.title || "עסקה ללא שם")}</h3><p class="small muted">נוצרה ${dt(deal.created_at)}${deal.published_at ? ` · פורסמה ${dt(deal.published_at)}` : " · טרם פורסמה"}</p></div>
+    <div class="product-history-revisions"><span>גרסה בעסקה <strong>${revision.snapshotRevision || "—"}</strong></span><span>גרסה נוכחית <strong>${revision.currentRevision}</strong></span></div>
+    ${revision.isHistorical && deal.published_at ? `<div class="info-strip tone-info product-history-note"><p>העסקה פורסמה על בסיס גרסה ${revision.snapshotRevision} של המוצר. עדכונים מאוחרים יותר למוצר אינם משנים עסקה שכבר פורסמה.</p></div>` : ""}
+    <a class="button secondary" href="/app/seller/deals/${encodeURIComponent(deal.deal_id)}" data-nav="/app/seller/deals/${encodeURIComponent(deal.deal_id)}">פתיחת העסקה</a>
+  </article>`;
+}
+
 function renderSellerAnalyticsSection() {
   const analytics = state.sellerAnalyticsPayload;
   const period = state.sellerAnalyticsPeriod || analytics?.period || "all";

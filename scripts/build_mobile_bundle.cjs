@@ -53,7 +53,7 @@ index = index
 
 writeFileSync(join(output, "index.html"), index);
 writeFileSync(join(appOutput, "index.html"), index);
-for (const file of ["app.js", "styles.css", "mobile-bridge.js"]) {
+for (const file of ["app.js", "product-library.js", "styles.css", "mobile-bridge.js"]) {
   cpSync(join(source, file), join(assetsOutput, file));
 }
 for (const file of ["manifest.webmanifest", "offline.html", "service-worker.js"]) {
@@ -61,7 +61,7 @@ for (const file of ["manifest.webmanifest", "offline.html", "service-worker.js"]
 }
 cpSync(join(source, "icons"), join(appOutput, "icons"), { recursive: true });
 
-const bundleText = [index, ...["app.js", "mobile-bridge.js", "manifest.webmanifest"].map((file) =>
+const bundleText = [index, ...["app.js", "product-library.js", "mobile-bridge.js", "manifest.webmanifest"].map((file) =>
   readFileSync(join(file === "manifest.webmanifest" ? appOutput : assetsOutput, file), "utf8")
 )].join("\n");
 for (const forbidden of [

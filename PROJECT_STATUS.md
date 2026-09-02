@@ -1,5 +1,18 @@
 # PROJECT STATUS
 
+## AMAZON BENCHMARK FOLLOW-UP — PRODUCT LIBRARY + REUSE UX (2026-09-02)
+
+Branch: `codex/amazon-benchmark-upgrade`, based on `origin/master` `10185a70`. This follow-up remains isolated; it has not been merged or deployed. No migration was added.
+
+- **COMPLETED:** The canonical Seller Command Center now mounts a dense, responsive Product Library with name/category search, active/archive and four-type filters, updated/name/Deal-count sorting, primary image, revision, linked-Deal count, updated date, and explicit Open/Edit/Create actions. Archived Products require an explicit restore or restore-and-create action.
+- **COMPLETED:** A seller-owned Product detail route now shows every canonically linked Deal, Deal state, creation/publication dates, frozen Product snapshot revision, current Product revision, and calm current/historical messaging. Product edit success identifies the new revision and explains that published Deals stayed unchanged while future Deals use the latest revision.
+- **COMPLETED:** Zero states cover no Products, no search/filter results, no linked Deals, only closed/historical Deals, and archived Products, each with an actionable next step. The existing Deal wizard, autosave/resume, Buyer Preview, readiness, fulfillment, Service fields, and server-authoritative Product snapshot rail are reused.
+- **TESTED:** PASS — focused Amazon Product Catalog contract; deterministic Product Library search/filter/type/sort/revision/zero-state cases; TypeScript no-emit; frontend foundation; Product surfaces refinement; Deal Types; mobile readiness and mobile release gate; production-style demo build; frontend syntax; backend enforcement/lint; runtime-DDL; architecture; payment-compliance.
+- **TESTED:** Authorization/query contracts keep both Product and linked-Deal reads seller-scoped, count Deals with a seller-scoped join, derive revision from immutable `product_snapshot_jsonb`, preserve `product_id IS NULL` legacy Deals, and avoid Product-library N+1 queries.
+- **OPEN:** DB-backed API/browser assertions and hosted UI acceptance were not executed. One browser-smoke attempt stopped before assertions because local PostgreSQL returned the known `28P01` authentication error; credentials were not retried. No hosted environment or Supabase staging was changed.
+- **PERCENTAGE:** 100% of this follow-up's local engineering scope; Amazon branch remains 92% integration/acceptance ready until authorized DB-backed proof and hosted owner acceptance complete.
+- **NEXT STEP:** Integration reviewer runs migration 062 and the seller Product/Deal matrix in an authorized staging database, then performs desktop/mobile owner acceptance before merge. Do not deploy or merge from this branch automatically.
+
 ## AMAZON BENCHMARK PRODUCT UPGRADE — FEATURE BRANCH (2026-09-02)
 
 Branch: `codex/amazon-benchmark-upgrade`. The three logical checkpoints were rebased once onto `origin/master` at `10185a70`; nothing from this branch has been merged to master or deployed.

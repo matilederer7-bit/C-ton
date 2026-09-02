@@ -8,6 +8,7 @@ for (const file of [
   ".mobile_dist/mobile-build.json",
   ".mobile_dist/app/index.html",
   ".mobile_dist/app/assets/app.js",
+  ".mobile_dist/app/assets/product-library.js",
   ".mobile_dist/app/assets/mobile-bridge.js",
   "frontend/manifest.webmanifest",
   "frontend/service-worker.js",

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const [bridge, app, css, worker, manifestRaw, androidManifest, androidGradle, androidTest, iosEntitlements, swiftPackage, capacitor, mobileIndex] = await Promise.all([
+const [bridge, app, productLibrary, css, worker, manifestRaw, androidManifest, androidGradle, androidTest, iosEntitlements, swiftPackage, capacitor, mobileIndex] = await Promise.all([
   readFile("frontend/mobile-bridge.js", "utf8"),
   readFile("frontend/app.js", "utf8"),
+  readFile(".mobile_dist/app/assets/product-library.js", "utf8"),
   readFile("frontend/styles.css", "utf8"),
   readFile("frontend/service-worker.js", "utf8"),
   readFile("frontend/manifest.webmanifest", "utf8"),
@@ -43,6 +44,7 @@ assert.match(app, /clearNativePendingPayment/);
 assert.match(app, /native_api_base_url_not_configured/);
 assert.match(app, /fetch\(resolveApiUrl\(url\)/);
 assert.match(app, /captureNativeSellerImage/);
+assert.match(productLibrary, /applyProductLibraryFilters/);
 assert.match(app, /SitonMobile\.shareDeal/);
 assert.match(app, /status\.state === "pending" \|\| status\.state === "unknown"/);
 assert.match(worker, /url\.pathname\.startsWith\("\/api\/"\)/);

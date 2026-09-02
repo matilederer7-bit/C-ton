@@ -3,6 +3,7 @@ const SHELL = [
   "/app/offline",
   "/app/assets/styles.css",
   "/app/assets/app.js",
+  "/app/assets/product-library.js",
   "/app/assets/mobile-bridge.js",
   "/app/icons/logo.svg",
   "/app/icons/icon-192.png",
