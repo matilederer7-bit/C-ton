@@ -1,5 +1,15 @@
 # PROJECT STATUS
 
+## P0.6 OWNER ACCEPTANCE PATCH — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
+
+**Small patch, 3 owner items. COMPLETED: 100%. TESTED: hosted 17/17 + security/api/unit groups green. OPEN: owner manual acceptance. NEXT STEP: owner re-checks the three behaviors in the Preview. No migrations; no delivery schema/API changes; Codex scope untouched. VIRAL_TREE_OWNER_ACCEPTANCE remains as the owner last left it (PENDING — not silently changed).**
+
+1. **Admin step-up shows email**: the challenge now always displays אימייל (prefilled from the canonical session, editable = switching account, with an explanatory hint) + סיסמה. Same form on direct `#/admin`. Auth unchanged: Supabase password grant + server-side Admin capability; wrong password/non-admin stays out; storage-scan proof — password persisted nowhere.
+2. **"השתמש במיקום שלי" actually works — ROOT CAUSE diagnosed on the hosted preview, not guessed**: the security header sent `permissions-policy: geolocation=()`, which disables the Geolocation API for the page itself — every click failed instantly with PERMISSION_DENIED and no browser prompt could ever appear. Fixed to `geolocation=(self)` (all other capabilities stay off). On top: full permission UX — Permissions API prompt/granted/denied detection, "מבקשים גישה למיקום…" pending state, granted → "✓ המיקום נקלט" + הצגה במפה, denied → honest "הגישה למיקום חסומה בדפדפן" + unblock steps + [בדיקה מחדש] (re-checks without reloading; no fake overrides), bounded 12s timeout with a truthful message, and a manual lat/lng fallback — the address field always suffices. Explicit click only; no load-time capture; no watchPosition. Hosted proof: secure-context+prompt state read, granted captures mock coords, denied shows recovery and manual entry works, re-check after unblocking captures.
+3. **Header spacing**: the hidden hotspot became a 30px tap target pinned to the very corner with a tiny 9px visible dot inside (further left/up), and the RTL nav gained `padding-inline-end` breathing room — Seller controls and the dot no longer crowd each other. Measured hosted at desktop+430/390/375/360/320: zero overlap (gap ≥4px), zero horizontal overflow, double-tap still opens the challenge at every width.
+
+---
+
 ## P0.5 OWNER ACCEPTANCE REOPEN — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
 
 **Three areas (parallel to Codex Amazon work — its scope untouched; migrations: 060 used, 061 not needed, 062+ reserved for Codex). COMPLETED: 100% of the three areas. TESTED: local 9/9 + hosted 14/14 + mobile sweep. OPEN: owner manual acceptance only. NEXT STEP: owner opens the Preview and judges. `VIRAL_TREE_OWNER_ACCEPTANCE_PENDING` — absolute until the owner says PASS.**
