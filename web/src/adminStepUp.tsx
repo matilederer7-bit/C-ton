@@ -59,12 +59,15 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={48} /></div>
           <h2 style={{ textAlign: "center" }}>כניסת מנהל</h2>
           <form onSubmit={submit}>
-            {knownEmail ? null : (
-              <div className="field">
-                <label>אימייל</label>
-                <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
-              </div>
-            )}
+            {/* P0.6-1 — the email is ALWAYS visible so the user sees exactly
+                WHICH account is being authenticated; prefilled from the
+                canonical session and editable (editing = switching account). */}
+            <div className="field">
+              <label>אימייל</label>
+              <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email" data-testid="stepup-email" />
+              {knownEmail ? <span className="hint">זהו החשבון המחובר — אפשר לערוך כדי להתחבר עם חשבון אחר.</span> : null}
+            </div>
             <div className="field">
               <label>סיסמה</label>
               <input dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}

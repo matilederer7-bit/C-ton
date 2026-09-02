@@ -109,6 +109,9 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
 }
 .topbar-inner {
   max-width: var(--max); margin: 0 auto; padding: 9px 16px;
+  /* P0.6-3 (RTL): inline-end = the VISUAL LEFT — extra room keeps the nav
+     controls clear of the hidden corner hotspot's 30px column */
+  padding-inline-end: 38px;
   display: flex; align-items: center; gap: 14px;
 }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; color: var(--ink); min-width: 0; }
@@ -167,17 +170,24 @@ select { appearance: none; background-image: linear-gradient(45deg, transparent 
   .owner-switch button { padding: 4px 8px; font-size: .78rem; }
 }
 
-/* deliberately subtle admin entries: visual obscurity only — never security.
-   Physically LEFT (owner-specified corners), regardless of RTL flow. */
+/* deliberately subtle admin entry: visual obscurity only — never security.
+   Physically LEFT corner (owner-specified), regardless of RTL flow.
+   P0.6-3: the TAP TARGET is a generous 30px pinned to the very corner while
+   the VISIBLE dot stays tiny (9px) tucked into it — moved further left/up so
+   it never crowds the nav controls, yet stays easy to hit. */
 .admin-dot {
-  position: fixed; left: 4px; z-index: 60;
-  width: 14px; height: 14px; border-radius: 50%;
-  border: none; background: var(--ink-faint); opacity: .15; cursor: pointer;
-  padding: 0;
+  position: fixed; left: 0; z-index: 60;
+  width: 30px; height: 30px; border: none; background: transparent;
+  cursor: pointer; padding: 0;
+  display: flex; align-items: center; justify-content: center;
 }
-.admin-dot:hover, .admin-dot:focus-visible { opacity: .55; }
-.admin-dot.top { top: 4px; }
-.admin-dot.bottom { bottom: 4px; }
+.admin-dot::after {
+  content: ""; width: 9px; height: 9px; border-radius: 50%;
+  background: var(--ink-faint); opacity: .15;
+}
+.admin-dot:hover::after, .admin-dot:focus-visible::after { opacity: .5; }
+.admin-dot.top { top: 0; }
+.admin-dot.bottom { bottom: 0; }
 
 /* ── branded loading (the C-ton mark breathing on the dark ground) ─────── */
 .brand-loader {

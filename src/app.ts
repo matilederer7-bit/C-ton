@@ -3062,7 +3062,11 @@ function applySecurityHeaders(reply: any) {
   reply.header("x-content-type-options", "nosniff");
   reply.header("referrer-policy", "no-referrer");
   reply.header("x-frame-options", "DENY");
-  reply.header("permissions-policy", "camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=()");
+  // P0.6-2 ROOT CAUSE: geolocation=() DISABLED the API for the page itself,
+  // so "השתמש במיקום שלי" always failed instantly with PERMISSION_DENIED and
+  // no browser prompt. geolocation=(self) lets OUR page ask the user (the
+  // browser prompt/deny still fully applies); every other capability stays off.
+  reply.header("permissions-policy", "camera=(), microphone=(), geolocation=(self), payment=(), usb=(), serial=()");
 }
 
 function isImmutableDealImageRoute(req: any) {
