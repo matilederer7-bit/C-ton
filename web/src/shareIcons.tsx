@@ -2,8 +2,11 @@ import React from "react";
 
 // ── Recognizable brand share icons (P0.3-3/15) ──────────────────────────────
 // Clean official-style monochrome SVG glyphs (currentColor), sized by CSS.
-const P = (props: { d: string; viewBox?: string }) => (
-  <svg viewBox={props.viewBox || "0 0 24 24"} width="22" height="22" fill="currentColor" aria-hidden="true" focusable="false">
+// `size` is an OPTICAL correction only (P0.4-3): sparse glyphs like the X mark
+// read smaller than full-disk logos at identical px, so they render slightly
+// larger while every button keeps the identical 46px touch target.
+const P = (props: { d: string; viewBox?: string; size?: number }) => (
+  <svg viewBox={props.viewBox || "0 0 24 24"} width={props.size || 22} height={props.size || 22} fill="currentColor" aria-hidden="true" focusable="false">
     <path d={props.d} />
   </svg>
 );
@@ -17,7 +20,7 @@ export const FacebookIcon = () => (
 );
 
 export const XIcon = () => (
-  <P d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
+  <P size={26} d="M18.901 1.153h3.68l-8.04 9.19L24 22.846h-7.406l-5.8-7.584-6.638 7.584H.474l8.6-9.83L0 1.154h7.594l5.243 6.932ZM17.61 20.644h2.039L6.486 3.24H4.298Z" />
 );
 
 export const TelegramIcon = () => (

@@ -87,14 +87,18 @@ function ancestryOf(id: string | null, parentOf: Record<string, string>): Set<st
   return path;
 }
 
-export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect, selectedId }: {
+export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect, selectedId, fetchLevel }: {
   dealId: string;
   roots: VNode[];
   rootTruncated: boolean;
   dealTitle?: string;
   onSelect: (n: VNode) => void;
   selectedId: string | null;
+  // P0.4-2E — the SAME canonical tree engine serves admin (any deal) and
+  // seller (own deal, server-enforced); the caller picks the endpoint.
+  fetchLevel?: (dealId: string, params: { parent?: string; limit?: number }) => Promise<Json>;
 }) {
+  const loadLevel = fetchLevel || api.adminDealViralTree;
   const [data, setData] = useState<TreeData>(() => ({
     byId: Object.fromEntries(roots.map((r) => [String(r.participant_id), r])),
     childrenOf: { root: roots.map((r) => String(r.participant_id)) },
@@ -144,7 +148,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
     if (!data.childrenOf[id]) {
       setLoading(id);
       try {
-        const r = await api.adminDealViralTree(dealId, { parent: id, limit: 60 });
+        const r = await loadLevel(dealId, { parent: id, limit: 60 });
         const kids: VNode[] = (r as Json).nodes || [];
         setData((prev) => ({
           byId: { ...prev.byId, ...Object.fromEntries(kids.map((k) => [String(k.participant_id), k])) },

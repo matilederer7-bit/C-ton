@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { api, supabaseRecoverPassword, supabaseResendConfirmation, supabaseSignIn, supabaseSignUp, type SupabaseCfg } from "./api";
-import { adoptCapabilities } from "./ownerMode";
+import { adoptCapabilities, leaveGuestModeInPlace } from "./ownerMode";
 import { readSession } from "./session";
 import { hebrewError } from "./he";
 import { BrandMark } from "./brand";
+import { beginAuthAttempt, traceAuth } from "./authTrace";
 
 // ── The ONE truthful auth panel (P0.3-1) ────────────────────────────────────
 // SIGN IN, SIGN UP and VERIFY are three separate experiences that never mix:
@@ -37,9 +38,13 @@ export function AuthPanel(props: {
   const [info, setInfo] = useState<React.ReactNode>("");
   const [showResend, setShowResend] = useState(false);
   const [showLoginCta, setShowLoginCta] = useState(false);
+  // P0.4-1: the password was accepted and the session stored, but capability
+  // discovery was temporarily unavailable — "נסו שוב" retries DISCOVERY only,
+  // never the password.
+  const [capsRetryToken, setCapsRetryToken] = useState<string | null>(null);
 
   const switchMode = (m: Mode) => {
-    setMode(m); setError(""); setInfo(""); setShowResend(false); setShowLoginCta(false);
+    setMode(m); setError(""); setInfo(""); setShowResend(false); setShowLoginCta(false); setCapsRetryToken(null);
   };
 
   const cfg = async (): Promise<SupabaseCfg> => {
@@ -48,17 +53,53 @@ export function AuthPanel(props: {
     return c;
   };
 
-  const finishSignIn = async (c: SupabaseCfg) => {
-    const token = await supabaseSignIn(c, email.trim(), password, props.surface);
-    if (props.verify) await props.verify();
-    await adoptCapabilities(token);
+  // Transactional completion (P0.4-1): navigate ONLY once capabilities are
+  // resolved and surfaces granted. A valid session is never discarded because
+  // discovery hiccuped — the user gets one deterministic message + retry.
+  const completeWithCapabilities = async (token: string) => {
+    const adoption = await adoptCapabilities(token);
+    if (adoption.status !== "ok") {
+      setCapsRetryToken(token);
+      setInfo("ההתחברות הצליחה, אך טעינת החשבון נכשלה זמנית. נסו שוב.");
+      setBusy(false);
+      return;
+    }
+    setCapsRetryToken(null);
+    traceAuth("AUTH_SURFACE_GRANTED");
     props.onDone();
+    traceAuth("AUTH_NAVIGATION_COMPLETE");
+  };
+
+  const retryCapabilities = async () => {
+    if (busy || !capsRetryToken) return;
+    setBusy(true); setError(""); setInfo("");
+    try { await completeWithCapabilities(capsRetryToken); }
+    catch (err: any) { setError(hebrewError(err)); setBusy(false); }
+  };
+
+  const finishSignIn = async (c: SupabaseCfg) => {
+    beginAuthAttempt();
+    traceAuth("AUTH_PASSWORD_REQUEST");
+    let token: string;
+    try {
+      token = await supabaseSignIn(c, email.trim(), password, props.surface);
+    } catch (err) {
+      traceAuth("AUTH_PASSWORD_FAILURE");
+      throw err;
+    }
+    traceAuth("AUTH_PASSWORD_SUCCESS");
+    traceAuth("AUTH_SESSION_STORED");
+    // an explicit login intentionally leaves stale Guest view mode — otherwise
+    // the API client would keep stripping Authorization after a perfect login
+    leaveGuestModeInPlace();
+    if (props.verify) { traceAuth("AUTH_VERIFY_SURFACE"); await props.verify(); }
+    await completeWithCapabilities(token);
   };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    setBusy(true); setError(""); setInfo(""); setShowResend(false); setShowLoginCta(false);
+    setBusy(true); setError(""); setInfo(""); setShowResend(false); setShowLoginCta(false); setCapsRetryToken(null);
     try {
       const c = await cfg();
       if (mode === "recover") {
@@ -71,9 +112,9 @@ export function AuthPanel(props: {
       if (mode === "signup") {
         const r = await supabaseSignUp(c, email.trim(), password, props.surface);
         if (r.outcome === "session") {
+          leaveGuestModeInPlace();
           if (props.verify) await props.verify();
-          await adoptCapabilities(readSession()?.access_token || "");
-          props.onDone();
+          await completeWithCapabilities(readSession()?.access_token || "");
           return;
         }
         if (r.outcome === "confirmation_requested") {
@@ -97,6 +138,7 @@ export function AuthPanel(props: {
       // plain LOGIN: /token only — never /signup, never a verification claim
       await finishSignIn(c);
     } catch (err: any) {
+      traceAuth("AUTH_FLOW_ERROR", String(err?.message || err).slice(0, 80));
       const msg = hebrewError(err, mode === "login" ? "התחברות נכשלה — נסו שוב" : "הפעולה נכשלה — נסו שוב");
       setError(msg);
       if (/טרם אומת/.test(msg)) setShowResend(true);
@@ -143,7 +185,7 @@ export function AuthPanel(props: {
           )}
           {error ? <div className="notice err">{error}</div> : null}
           {info ? <div className="notice ok">{info}</div> : null}
-          {showLoginCta ? null : (
+          {showLoginCta || capsRetryToken ? null : (
             <button className="btn btn-primary btn-block" data-testid="auth-submit" disabled={busy}>
               {busy ? "רגע…"
                 : mode === "login" ? "התחברות"
@@ -152,6 +194,12 @@ export function AuthPanel(props: {
             </button>
           )}
         </form>
+        {capsRetryToken ? (
+          <button className="btn btn-primary btn-block" data-testid="auth-caps-retry" disabled={busy}
+            onClick={() => { void retryCapabilities(); }}>
+            {busy ? "רגע…" : "נסו שוב"}
+          </button>
+        ) : null}
         {showLoginCta ? (
           <button className="btn btn-primary btn-block" data-testid="auth-goto-login" onClick={() => { switchMode("login"); }}>
             להתחברות

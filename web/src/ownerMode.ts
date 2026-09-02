@@ -12,6 +12,7 @@
 // changes what the UI shows; every privileged request is still authorized
 // server-side against the canonical capability bindings.
 import { grantSurface } from "./session";
+import { traceAuth } from "./authTrace";
 
 const CAPS_KEY = "siton_owner_caps_v1";
 const GUEST_KEY = "siton_guest_mode_v1";
@@ -69,16 +70,45 @@ export function exitGuestMode(): void {
   window.location.reload();
 }
 
+// P0.4-1 — explicit password login must resolve a stale guest flag WITHOUT a
+// reload (we are mid sign-in flow): otherwise the API client keeps stripping
+// Authorization after a perfectly successful login, the first privileged call
+// 401s, and the "click twice" ritual is born. View-as-guest for an already
+// logged-in owner keeps using enterGuestMode/exitGuestMode above.
+export function leaveGuestModeInPlace(): void {
+  try {
+    if (localStorage.getItem(GUEST_KEY) === "1") {
+      localStorage.removeItem(GUEST_KEY);
+      traceAuth("AUTH_GUEST_MODE_CLEARED", "stale guest flag removed by explicit login");
+    }
+  } catch { /* noop */ }
+}
+
+export type CapabilityAdoption =
+  | { status: "ok"; caps: OwnerCaps }
+  | { status: "unauthorized" } // the token itself was rejected — nothing to adopt
+  | { status: "unavailable" }; // transient: capability service unreachable; session stays valid
+
 // After a successful Supabase sign-in on any surface: ask the server which
 // capabilities this identity holds and expose every legitimate experience for
 // the ONE credential (same session; the server re-authorizes each route
-// independently). One transient retry — a flaky network response must never
-// silently demote the owner.
-export async function adoptCapabilities(token: string): Promise<OwnerCaps | null> {
-  for (let attempt = 0; attempt < 2; attempt++) {
+// independently). Bounded retry with backoff — a flaky response must never
+// silently demote the owner, and a VALID session is never discarded because
+// discovery was temporarily down (P0.4-1: callers distinguish "unavailable"
+// from "unauthorized" and retry DISCOVERY, never the password).
+const ADOPT_BACKOFF_MS = [0, 700, 1400, 2500];
+
+export async function adoptCapabilities(token: string): Promise<CapabilityAdoption> {
+  for (let attempt = 0; attempt < ADOPT_BACKOFF_MS.length; attempt++) {
+    if (ADOPT_BACKOFF_MS[attempt]) await new Promise((r) => setTimeout(r, ADOPT_BACKOFF_MS[attempt]));
+    if (attempt > 0) traceAuth("AUTH_CAPABILITIES_RETRY", `attempt ${attempt + 1}`);
     try {
+      traceAuth("AUTH_CAPABILITIES_REQUEST");
       const res = await fetch("/api/auth/capabilities", { headers: { authorization: `Bearer ${token}` } });
-      if (res.status === 401) return null; // token invalid — nothing to adopt
+      if (res.status === 401) {
+        traceAuth("AUTH_CAPABILITIES_UNAUTHORIZED");
+        return { status: "unauthorized" };
+      }
       if (!res.ok) throw new Error(`capabilities ${res.status}`);
       const body = await res.json();
       if (!body?.ok) throw new Error("capabilities not ok");
@@ -86,11 +116,14 @@ export async function adoptCapabilities(token: string): Promise<OwnerCaps | null
       if (caps.seller) grantSurface("seller");
       if (caps.admin) { grantSurface("admin"); storeOwnerCaps(caps); }
       else { try { localStorage.removeItem(CAPS_KEY); } catch { /* noop */ } notifyCapsChanged(); }
-      return caps;
-    } catch {
-      if (attempt === 0) { await new Promise((r) => setTimeout(r, 800)); continue; }
-      return null;
+      traceAuth("AUTH_CAPABILITIES_SUCCESS", `seller=${caps.seller} admin=${caps.admin}`);
+      return { status: "ok", caps };
+    } catch (e: any) {
+      if (attempt === ADOPT_BACKOFF_MS.length - 1) {
+        traceAuth("AUTH_CAPABILITIES_UNAVAILABLE", String(e?.message || e).slice(0, 80));
+        return { status: "unavailable" };
+      }
     }
   }
-  return null;
+  return { status: "unavailable" };
 }

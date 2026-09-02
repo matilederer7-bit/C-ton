@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearAuthSession, getSellerToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
 import { AuthPanel } from "../auth";
@@ -12,6 +12,8 @@ import {
 } from "../util";
 import { absoluteShareUrl } from "../viral";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
+import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
+import { VTreeCanvas, type VNode } from "../vtree";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -121,14 +123,29 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
   const [now, setNow] = useState(Date.now());
   const [bizStatuses, setBizStatuses] = useState<Json | null>(null);
+  // P0.4-2 — command-center analytics: ONE bounded aggregate call (no N+1)
+  const [analytics, setAnalytics] = useState<Json | null>(null);
+  const [analyticsError, setAnalyticsError] = useState("");
+  const [aPeriod, setAPeriod] = useState<"7d" | "30d" | "all">("all");
+  const [aDeal, setADeal] = useState("");
   const [toast, showToast] = useToast();
 
+  // P0.4-1: a single transient 401 right after login must not nuke a fresh
+  // legitimate session (the api layer already refresh-retries once) — retry
+  // the LOAD once before concluding the session is genuinely dead.
+  const authRetriedRef = useRef(false);
   const load = () =>
     api.sellerDeals()
-      .then((r) => { setSurface(r.seller_surface); setUpdatedAt(Date.now()); setError(""); })
+      .then((r) => { setSurface(r.seller_surface); setUpdatedAt(Date.now()); setError(""); authRetriedRef.current = false; })
       .catch((e) => {
-        if (e.status === 401 || e.status === 403) { clearAuthSession(); clearOwnerSession(); window.location.reload(); }
-        else setError(e.message);
+        if (e.status === 401 || e.status === 403) {
+          if (!authRetriedRef.current) {
+            authRetriedRef.current = true;
+            setTimeout(() => { void load(); }, 1200);
+            return;
+          }
+          clearAuthSession(); clearOwnerSession(); window.location.reload();
+        } else setError(e.message);
       });
 
   useEffect(() => {
@@ -138,6 +155,15 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     const tick = setInterval(() => setNow(Date.now()), 10_000);
     return () => { clearInterval(id); clearInterval(tick); };
   }, []);
+
+  useEffect(() => {
+    let alive = true;
+    setAnalyticsError("");
+    api.sellerAnalytics(aPeriod, aDeal)
+      .then((r) => { if (alive) setAnalytics(r); })
+      .catch((e) => { if (alive) setAnalyticsError(e.message); });
+    return () => { alive = false; };
+  }, [aPeriod, aDeal]);
 
   const deals: Json[] = surface?.deals || [];
   const { urgentDeals, otherDeals } = useMemo(() => {
@@ -182,14 +208,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         </div>
       ) : null}
 
-      <div className="stat-row">
-        <StatTile num={num(surface?.totals?.live_deals || 0)} label="עסקאות חיות" />
-        <StatTile num={ils(totalPotential)} label="נפח עסקאות פעיל (מסגרות)" />
-        <StatTile num={ils(totalCharged)} label="נגבה בפועל" tone="good" />
-        <StatTile num={num(surface?.totals?.completed_deals || 0)} label="הושלמו" />
-      </div>
-
       {error ? <div className="notice err">{error}</div> : null}
+
+      {/* P0.4-2A — global seller KPI strip (canonical analytics; potential vs charged vs net) */}
+      {analytics ? <KpiStrip analytics={analytics} /> : (
+        <div className="stat-row">
+          <StatTile num={num(surface?.totals?.live_deals || 0)} label="עסקאות חיות" />
+          <StatTile num={ils(totalPotential)} label="נפח עסקאות פעיל (מסגרות)" />
+          <StatTile num={ils(totalCharged)} label="נגבה בפועל" tone="good" />
+          <StatTile num={num(surface?.totals?.completed_deals || 0)} label="הושלמו" />
+        </div>
+      )}
+
+      {/* P0.4-2H — action center, high on the page */}
+      {analytics ? <ActionCenterPanel items={analytics.action_center || []} navigate={navigate} /> : null}
 
       {urgentDeals.length ? (
         <>
@@ -209,6 +241,34 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         <div className="sd-grid">
           {otherDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
         </div>
+      )}
+
+      {/* P0.4-2G/C/D/F/I — money, trends, funnel, viral, activity */}
+      {analytics ? (
+        <>
+          <MoneyPanel analytics={analytics} />
+          <div className="panel analytics-filters" data-testid="analytics-filters">
+            <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+              <span style={{ fontWeight: 700 }}>תקופה:</span>
+              {([["7d", "7 ימים"], ["30d", "30 ימים"], ["all", "כל התקופה"]] as const).map(([value, label]) => (
+                <button key={value} className={`btn btn-sm ${aPeriod === value ? "btn-primary" : "btn-ghost"}`} onClick={() => setAPeriod(value)}>{label}</button>
+              ))}
+              <span style={{ fontWeight: 700, marginInlineStart: 12 }}>עסקה:</span>
+              <select value={aDeal} onChange={(e) => setADeal(e.target.value)} style={{ maxWidth: 240 }}>
+                <option value="">כל העסקאות</option>
+                {deals.map((d) => <option key={d.deal_id} value={d.deal_id}>{d.title}</option>)}
+              </select>
+            </div>
+          </div>
+          <ChartsPanel analytics={analytics} />
+          <FunnelPanel analytics={analytics} />
+          <ViralPanel analytics={analytics} dealScope={aDeal} navigate={navigate} />
+          <ActivityPanel items={analytics.recent_activity || []} />
+        </>
+      ) : analyticsError ? (
+        <div className="notice err">טעינת האנליטיקות נכשלה: {analyticsError}</div>
+      ) : (
+        <div className="panel"><p className="muted small" style={{ margin: 0 }}>טוענים אנליטיקות…</p></div>
       )}
       <Toast msg={toast} />
     </>
@@ -767,6 +827,20 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
   const [deadlineTime, setDeadlineTime] = useState(initialParts.time || "18:00");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
+  // P0.4-4 parity — type-specific terms are editable in Draft too
+  const dealType = String(deal.deal_type || "physical_product");
+  const vt = deal.voucher_terms || {};
+  const tt = deal.ticket_terms || {};
+  const [vFace, setVFace] = useState(String(vt.face_value_amount ?? ""));
+  const [vValid, setVValid] = useState(vt.valid_until ? String(vt.valid_until).slice(0, 10) : "");
+  const [vLocation, setVLocation] = useState(String(vt.redemption_location || ""));
+  const [vInstructions, setVInstructions] = useState(String(vt.redemption_instructions || ""));
+  const [vTerms, setVTerms] = useState(String(vt.terms || ""));
+  const [tEventName, setTEventName] = useState(String(tt.event_name || ""));
+  const [tStart, setTStart] = useState(tt.event_starts_at ? String(tt.event_starts_at).slice(0, 16) : "");
+  const [tVenue, setTVenue] = useState(String(tt.venue_name || ""));
+  const [tCity, setTCity] = useState(String(tt.venue_city || ""));
+  const [tEntry, setTEntry] = useState(String(tt.entry_instructions || ""));
 
   const save = async () => {
     if (busy) return;
@@ -778,6 +852,14 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     if (!(maxN >= minN)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
     const dl = validateDeadline(deadlineDate, deadlineTime);
     if (dl.error) errs.editDeadline = dl.error;
+    if (dealType === "voucher") {
+      if (!(Number(vFace) > 0)) errs.vFace = "יש להזין את שווי השובר";
+      if (!vValid) errs.vValid = "יש לבחור תוקף לשובר";
+    }
+    if (dealType === "ticket") {
+      if (!tEventName.trim()) errs.tEventName = "יש להזין שם אירוע";
+      if (!tStart) errs.tStart = "יש לבחור מועד לאירוע";
+    }
     setErrors(errs);
     const first = Object.keys(errs)[0];
     if (first) { focusField(first === "editDeadline" ? "edit-deadline-date" : first); return; }
@@ -790,7 +872,31 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
         price_per_unit: Number(price),
         min_units: minN,
         max_units: maxN,
-        deadline: dl.iso
+        deadline: dl.iso,
+        ...(dealType === "voucher" ? {
+          voucher_terms: {
+            ...vt,
+            face_value_amount: Number(vFace),
+            currency: vt.currency || "ILS",
+            valid_until: new Date(`${vValid}T23:59:59`).toISOString(),
+            redemption_location: vLocation.trim(),
+            redemption_instructions: vInstructions.trim(),
+            terms: vTerms.trim(),
+            is_single_use: vt.is_single_use ?? true,
+            allow_partial_redemption: vt.allow_partial_redemption ?? false,
+            voucher_code_mode: vt.voucher_code_mode || "system_generated"
+          }
+        } : {}),
+        ...(dealType === "ticket" ? {
+          ticket_terms: {
+            ...tt,
+            event_name: tEventName.trim(),
+            event_starts_at: new Date(tStart).toISOString(),
+            venue_name: tVenue.trim(),
+            venue_city: tCity.trim(),
+            entry_instructions: tEntry.trim()
+          }
+        } : {})
       });
       showToast("הטיוטה נשמרה");
       setOpen(false);
@@ -845,11 +951,310 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
         </div>
       </div>
       <DeadlinePicker idPrefix="edit-deadline" date={deadlineDate} time={deadlineTime} onDate={setDeadlineDate} onTime={setDeadlineTime} error={errors.editDeadline} />
+      {dealType === "voucher" ? (
+        <>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי השובר</div>
+          <div className="field-row">
+            <div className="field">
+              <label>שווי נקוב (₪) <span className="req">*</span></label>
+              <input id="f-vFace" dir="ltr" type="number" min={1} className={errors.vFace ? "invalid" : ""} value={vFace} onChange={(e) => setVFace(e.target.value)} />
+              <FieldError msg={errors.vFace} />
+            </div>
+            <div className="field">
+              <label>בתוקף עד <span className="req">*</span></label>
+              <input id="f-vValid" dir="ltr" type="date" className={errors.vValid ? "invalid" : ""} value={vValid} onChange={(e) => setVValid(e.target.value)} />
+              <FieldError msg={errors.vValid} />
+            </div>
+          </div>
+          <div className="field"><label>מקום מימוש</label><input value={vLocation} onChange={(e) => setVLocation(e.target.value)} maxLength={500} /></div>
+          <div className="field"><label>הוראות מימוש</label><textarea rows={2} value={vInstructions} onChange={(e) => setVInstructions(e.target.value)} maxLength={1000} /></div>
+          <div className="field"><label>תנאי השובר</label><textarea rows={2} value={vTerms} onChange={(e) => setVTerms(e.target.value)} maxLength={2000} /></div>
+        </>
+      ) : null}
+      {dealType === "ticket" ? (
+        <>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי האירוע</div>
+          <div className="field-row">
+            <div className="field">
+              <label>שם האירוע <span className="req">*</span></label>
+              <input id="f-tEventName" className={errors.tEventName ? "invalid" : ""} value={tEventName} onChange={(e) => setTEventName(e.target.value)} maxLength={200} />
+              <FieldError msg={errors.tEventName} />
+            </div>
+            <div className="field">
+              <label>מתי מתחיל <span className="req">*</span></label>
+              <input id="f-tStart" dir="ltr" type="datetime-local" className={errors.tStart ? "invalid" : ""} value={tStart} onChange={(e) => setTStart(e.target.value)} />
+              <FieldError msg={errors.tStart} />
+            </div>
+          </div>
+          <div className="field-row">
+            <div className="field"><label>מקום האירוע</label><input value={tVenue} onChange={(e) => setTVenue(e.target.value)} maxLength={200} /></div>
+            <div className="field"><label>עיר</label><input value={tCity} onChange={(e) => setTCity(e.target.value)} maxLength={100} /></div>
+          </div>
+          <div className="field"><label>הוראות כניסה</label><textarea rows={2} value={tEntry} onChange={(e) => setTEntry(e.target.value)} maxLength={1000} /></div>
+        </>
+      ) : null}
       <div className="row" style={{ justifyContent: "flex-end" }}>
         <button className="btn btn-ghost" onClick={() => setOpen(false)}>ביטול</button>
         <button className="btn btn-primary" data-testid="draft-edit-save" disabled={busy} onClick={save}>{busy ? "שומרים…" : "שמירת השינויים"}</button>
       </div>
     </div>
+  );
+}
+
+// ── delivery & pickup (P0.4-4): ALWAYS visible, safely editable ────────────
+// The server decides editability (seller_actions.delivery_editable): Draft
+// always; published only while ZERO buyers ever relied on the options. Locked
+// deals still SHOW everything with an explicit explanation — never hidden.
+const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
+const DELIVERY_TYPE_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
+
+function mapsPlaceUrl(lat: number | null, lng: number | null): string | null {
+  if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
+  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+}
+
+function DeliverySection({ deal, options, editable, lockReason, onSaved, showToast }: {
+  deal: Json;
+  options: Json[];
+  editable: boolean;
+  lockReason: string | null;
+  onSaved: () => void;
+  showToast: (m: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [rows, setRows] = useState<DeliveryDraft[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const dealType = String(deal.deal_type || "physical_product");
+
+  if (dealType !== "physical_product") {
+    return (
+      <div className="panel" data-testid="delivery-section">
+        <div className="panel-title">📦 אספקה ומשלוח</div>
+        <p className="muted small" style={{ marginBottom: 0 }}>
+          {dealType === "voucher" ? "עסקת שובר — המימוש דיגיטלי, ללא משלוח פיזי." : "עסקת כרטיסים — הכניסה עם הכרטיס, ללא משלוח פיזי."}
+        </p>
+      </div>
+    );
+  }
+
+  const beginEdit = () => {
+    setRows((options || []).map((o) => ({
+      option_type: String(o.option_type || "pickup"),
+      label: String(o.label || ""),
+      cost: String(Number(o.cost || 0)),
+      latitude: o.latitude == null ? null : Number(o.latitude),
+      longitude: o.longitude == null ? null : Number(o.longitude)
+    })));
+    setError("");
+    setEditing(true);
+  };
+
+  const save = async () => {
+    if (busy) return;
+    const clean = rows.filter((r) => r.label.trim());
+    if (!clean.length) { setError("יש להשאיר לפחות אפשרות אספקה אחת"); return; }
+    setBusy(true); setError("");
+    try {
+      await api.updateDealDelivery(String(deal.deal_id), {
+        delivery_options: clean.map((r, i) => ({
+          option_type: r.option_type, label: r.label.trim(), cost: Math.max(0, Number(r.cost) || 0), sort_order: i,
+          ...(r.latitude != null && r.longitude != null ? { latitude: r.latitude, longitude: r.longitude } : {})
+        }))
+      });
+      showToast("אפשרויות האספקה נשמרו");
+      setEditing(false);
+      onSaved();
+    } catch (e: any) { setError(e.message || "השמירה נכשלה"); }
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel" data-testid="delivery-section">
+      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+        <div className="panel-title" style={{ marginBottom: 0 }}>📦 אספקה ומשלוח</div>
+        {editable && !editing ? (
+          <button className="btn btn-sm btn-ghost" data-testid="delivery-edit-open" onClick={beginEdit}>עריכה</button>
+        ) : null}
+      </div>
+
+      {!editable ? (
+        <p className="muted small" style={{ margin: "8px 0 0" }} data-testid="delivery-locked-note">
+          {lockReason === "buyer_reliance"
+            ? "לא ניתן לשנות פרט זה לאחר שהעסקה פורסמה והצטרפו אליה קונים."
+            : lockReason === "deal_state"
+              ? "לא ניתן לשנות פרט זה במצב הנוכחי של העסקה."
+              : "לא ניתן לשנות פרט זה לאחר שהעסקה פורסמה."}
+        </p>
+      ) : null}
+
+      {!editing ? (
+        (options || []).length ? (
+          <div className="stack" style={{ gap: 8, marginTop: 10 }}>
+            {(options || []).map((o) => {
+              const nav = mapsPlaceUrl(o.latitude == null ? null : Number(o.latitude), o.longitude == null ? null : Number(o.longitude));
+              return (
+                <div className="delivery-view-row" key={String(o.option_id)}>
+                  <span className="ico" aria-hidden="true">{DELIVERY_TYPE_ICONS[String(o.option_type)] || "📦"}</span>
+                  <span className="grow">
+                    <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
+                    {o.latitude != null && o.longitude != null ? (
+                      <span className="muted small"> · 📍 ({Number(o.latitude).toFixed(4)}, {Number(o.longitude).toFixed(4)})</span>
+                    ) : null}
+                  </span>
+                  <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
+                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">הצגה במפה</a> : null}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="muted small" style={{ margin: "8px 0 0" }}>לא הוגדרו אפשרויות אספקה.</p>
+        )
+      ) : (
+        <div className="stack" style={{ gap: 4, marginTop: 10 }}>
+          {rows.map((d, i) => (
+            <React.Fragment key={i}>
+              <div className="row" style={{ marginBottom: 6, alignItems: "flex-end" }}>
+                <div className="field" style={{ marginBottom: 0, flex: "1 1 120px" }}>
+                  <label>סוג</label>
+                  <select value={d.option_type} onChange={(e) => {
+                    const t = e.target.value;
+                    setRows(rows.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
+                  }}>
+                    <option value="pickup">איסוף עצמי</option>
+                    <option value="delivery">משלוח</option>
+                    <option value="distribution_point">נקודת חלוקה</option>
+                  </select>
+                </div>
+                <div className="field grow" style={{ marginBottom: 0, flex: "2 1 160px" }}>
+                  <label>תיאור / כתובת</label>
+                  <input value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
+                </div>
+                <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
+                  <label>עלות (₪)</label>
+                  <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
+                </div>
+                {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
+              </div>
+              <LocationCapture row={d} onSet={(lat, lng) => setRows(rows.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
+            </React.Fragment>
+          ))}
+          {rows.length < 5 ? (
+            <button className="btn btn-sm btn-ghost" style={{ alignSelf: "flex-start" }}
+              onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null }])}>
+              + הוספת אפשרות
+            </button>
+          ) : null}
+          {error ? <div className="notice err">{error}</div> : null}
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>ביטול</button>
+            <button className="btn btn-primary" data-testid="delivery-save" disabled={busy} onClick={save}>{busy ? "שומרים…" : "שמירת האספקה"}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── type-specific terms (P0.4-4 parity): always VIEWABLE on management ─────
+function TypeTermsPanel({ deal }: { deal: Json }) {
+  const dealType = String(deal.deal_type || "physical_product");
+  if (dealType === "voucher" && deal.voucher_terms) {
+    const v = deal.voucher_terms;
+    return (
+      <div className="panel" data-testid="type-terms">
+        <div className="panel-title">🎁 פרטי השובר</div>
+        <div className="kv">
+          <span className="k">שווי נקוב</span><span className="v">{ils(v.face_value_amount)}</span>
+          <span className="k">בתוקף עד</span><span className="v">{fmtDate(v.valid_until)}</span>
+          <span className="k">מקום מימוש</span><span className="v">{v.redemption_location || "—"}</span>
+          <span className="k">הוראות מימוש</span><span className="v" style={{ fontWeight: 500 }}>{v.redemption_instructions || "—"}</span>
+          <span className="k">תנאים</span><span className="v" style={{ fontWeight: 500 }}>{v.terms || "—"}</span>
+        </div>
+        {String(deal.state) === "Draft" ? (
+          <p className="muted small" style={{ margin: "10px 0 0" }}>עריכת פרטי השובר זמינה בטיוטה דרך ״עריכת הפרטים״.</p>
+        ) : (
+          <p className="muted small" style={{ margin: "10px 0 0" }}>לא ניתן לשנות את תנאי השובר לאחר הפרסום.</p>
+        )}
+      </div>
+    );
+  }
+  if (dealType === "ticket" && deal.ticket_terms) {
+    const t = deal.ticket_terms;
+    return (
+      <div className="panel" data-testid="type-terms">
+        <div className="panel-title">🎟️ פרטי האירוע</div>
+        <div className="kv">
+          <span className="k">אירוע</span><span className="v">{t.event_name || "—"}</span>
+          <span className="k">מתחיל</span><span className="v">{fmtDate(t.event_starts_at)}</span>
+          {t.event_ends_at ? (<><span className="k">מסתיים</span><span className="v">{fmtDate(t.event_ends_at)}</span></>) : null}
+          <span className="k">מקום</span><span className="v">{[t.venue_name, t.venue_city].filter(Boolean).join(" · ") || "—"}</span>
+          {t.venue_address ? (<><span className="k">כתובת</span><span className="v">{t.venue_address}</span></>) : null}
+          <span className="k">הוראות כניסה</span><span className="v" style={{ fontWeight: 500 }}>{t.entry_instructions || "—"}</span>
+          <span className="k">העברת כרטיס</span><span className="v">{t.transfer_allowed ? "מותרת" : "לא מותרת"}</span>
+        </div>
+        {String(deal.state) === "Draft" ? (
+          <p className="muted small" style={{ margin: "10px 0 0" }}>עריכת פרטי האירוע זמינה בטיוטה דרך ״עריכת הפרטים״.</p>
+        ) : (
+          <p className="muted small" style={{ margin: "10px 0 0" }}>לא ניתן לשנות את פרטי האירוע לאחר הפרסום.</p>
+        )}
+      </div>
+    );
+  }
+  return null;
+}
+
+// ── seller viral tree (P0.4-2E): SAME canonical engine, own deal only ──────
+function SellerViralTreePage({ dealId, navigate }: { dealId: string; navigate: (h: string) => void }) {
+  const [payload, setPayload] = useState<Json | null>(null);
+  const [title, setTitle] = useState("");
+  const [error, setError] = useState("");
+  const [selected, setSelected] = useState<VNode | null>(null);
+
+  useEffect(() => {
+    api.sellerDealViralTree(dealId, { limit: 60 }).then(setPayload).catch((e) => setError(e.message));
+    api.sellerDeal(dealId).then((r) => setTitle(String(r.deal?.title || ""))).catch(() => undefined);
+  }, [dealId]);
+
+  if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את העץ" body={error} action={<a className="btn btn-primary" href={`#/seller/deal/${dealId}`}>לעסקה</a>} />;
+  if (!payload) return <BrandLoader label="טוענים את עץ ההפצה…" minHeight={420} />;
+
+  const roots: VNode[] = payload.nodes || [];
+  return (
+    <>
+      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>
+      <div className="panel">
+        <div className="panel-title">🌳 עץ ההפצה — {title || "העסקה שלי"}</div>
+        {roots.length === 0 ? (
+          <p className="muted small" style={{ marginBottom: 0 }}>עדיין אין הצטרפויות בעץ — כל מצטרף מקבל קישור אישי אוטומטית.</p>
+        ) : (
+          <VTreeCanvas
+            dealId={dealId}
+            roots={roots}
+            rootTruncated={Boolean(payload.truncated)}
+            dealTitle={title}
+            selectedId={selected ? String(selected.participant_id) : null}
+            onSelect={setSelected}
+            fetchLevel={api.sellerDealViralTree}
+          />
+        )}
+      </div>
+      {selected ? (
+        <div className="panel" data-testid="tree-node-detail">
+          <div className="panel-title">פרטי ענף — {selected.display}</div>
+          <div className="kv">
+            <span className="k">דור</span><span className="v">{num(selected.generation)}</span>
+            <span className="k">יחידות ישירות</span><span className="v">{num(selected.direct_units)}</span>
+            <span className="k">הביא/ה ישירות</span><span className="v">{num(selected.direct_children)}</span>
+            <span className="k">מצטרפים בכל הענף</span><span className="v">{num(selected.subtree_joins)}</span>
+            <span className="k">יחידות בענף</span><span className="v">{num(selected.subtree_units)}</span>
+            <span className="k">חויב בענף</span><span className="v">{ils(selected.subtree_charged_gmv)}</span>
+            <span className="k">עומק הענף</span><span className="v">{num(selected.subtree_max_depth)} דורות</span>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -1123,6 +1528,17 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {isDraft ? <DraftEditPanel deal={deal} onSaved={load} showToast={showToast} /> : null}
 
+      {/* P0.4-4 — delivery/pickup: ALWAYS visible; editability decided server-side */}
+      <DeliverySection
+        deal={deal}
+        options={payload.delivery_options || deal.delivery_options || []}
+        editable={Boolean(payload.seller_actions?.delivery_editable)}
+        lockReason={payload.seller_actions?.delivery_lock_reason || null}
+        onSaved={load}
+        showToast={showToast}
+      />
+      <TypeTermsPanel deal={deal} />
+
       {isDraft ? (
         <div className="panel">
           <div className="panel-title">🖼️ תמונות העסקה</div>
@@ -1188,7 +1604,12 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {!isDraft ? (
         <div className="panel">
-          <div className="panel-title">🌱 הפצה ויראלית של העסקה</div>
+          <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+            <div className="panel-title" style={{ marginBottom: 0 }}>🌱 הפצה ויראלית של העסקה</div>
+            <button className="btn btn-sm btn-primary" data-testid="open-viral-tree" onClick={() => navigate(`#/seller/deal/${dealId}/viral`)}>
+              פתיחת העץ הוויראלי
+            </button>
+          </div>
           {vm ? (
             <>
               <div className="stat-row" style={{ marginBottom: 10 }}>
@@ -1424,6 +1845,7 @@ export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: UR
   if (!authed) return <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"} onDone={() => setAuthed(true)} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
   if (sub[0] === "profile") return <BusinessProfilePage navigate={navigate} />;
+  if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;
   if (sub[0] === "deal" && sub[1]) return <SellerDealScreen dealId={sub[1]} navigate={navigate} />;
   return <SellerDashboard navigate={navigate} />;
 }

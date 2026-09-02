@@ -89,8 +89,17 @@ export const api = {
   sellerDeals: () => req(`/api/seller/deals`, {}, "seller"),
   sellerDeal: (id: string) => req(`/api/seller/deals/${id}`, {}, "seller"),
   sellerDraft: (id: string) => req(`/api/seller/deals/${id}/draft`, {}, "seller"),
-  sellerAnalytics: () => req(`/api/seller/analytics`, {}, "seller"),
+  sellerAnalytics: (period = "all", dealId = "") =>
+    req(`/api/seller/analytics?period=${encodeURIComponent(period)}${dealId ? `&deal_id=${encodeURIComponent(dealId)}` : ""}`, {}, "seller"),
   sellerDealViral: (id: string) => req(`/api/seller/deals/${id}/viral`, {}, "seller"),
+  sellerDealViralTree: (id: string, params: { parent?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams();
+    if (params.parent) q.set("parent", params.parent);
+    if (params.limit) q.set("limit", String(params.limit));
+    return req(`/api/seller/deals/${id}/viral-tree?${q.toString()}`, {}, "seller");
+  },
+  updateDealDelivery: (id: string, payload: Json) =>
+    req(`/api/seller/deals/${id}/delivery`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),
   createDeal: (payload: Json) =>
     req(`/api/deals`, { method: "POST", headers: { "idempotency-key": `preview-create-${crypto.randomUUID()}` }, body: JSON.stringify(payload) }, "seller"),
   updateDraft: (id: string, payload: Json) =>

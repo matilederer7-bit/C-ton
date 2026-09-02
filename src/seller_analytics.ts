@@ -1,7 +1,7 @@
 import { DEFAULT_SELLER_ID } from "./product_surface_support.js";
 import { calculatePlatformFeeMoney, roundMoney } from "./platform_fee_money.js";
 
-export const SELLER_ANALYTICS_PERIODS = ["all", "30d", "90d", "year"] as const;
+export const SELLER_ANALYTICS_PERIODS = ["all", "7d", "30d", "90d", "year"] as const;
 export type SellerAnalyticsPeriod = (typeof SELLER_ANALYTICS_PERIODS)[number];
 
 const DEAL_STATES = [
@@ -50,6 +50,7 @@ export function normalizeSellerAnalyticsPeriod(value: unknown): SellerAnalyticsP
 
 function periodCutoff(period: SellerAnalyticsPeriod): Date | null {
   const now = Date.now();
+  if (period === "7d") return new Date(now - 7 * 24 * 60 * 60 * 1000);
   if (period === "30d") return new Date(now - 30 * 24 * 60 * 60 * 1000);
   if (period === "90d") return new Date(now - 90 * 24 * 60 * 60 * 1000);
   if (period === "year") return new Date(now - 365 * 24 * 60 * 60 * 1000);
@@ -293,14 +294,28 @@ function buildActionInsights(args: {
   return insights.slice(0, 6);
 }
 
-export async function buildSellerAnalytics(c: any, sellerId: string, period: SellerAnalyticsPeriod) {
+// P0.4-2 — optional dealId narrows the WHOLE payload to one deal (the route
+// verifies ownership first); totals for a single deal are all-time while the
+// period keeps scoping the time series and funnel.
+export async function buildSellerAnalytics(c: any, sellerId: string, period: SellerAnalyticsPeriod, dealId: string | null = null) {
   const cutoff = periodCutoff(period);
-  const dealWhere = cutoff
+  let dealWhere = cutoff
     ? `COALESCE(d.seller_id, $2) = $1 AND d.created_at >= $3`
     : `COALESCE(d.seller_id, $2) = $1`;
-  const dealParams = cutoff ? [sellerId, DEFAULT_SELLER_ID, cutoff.toISOString()] : [sellerId, DEFAULT_SELLER_ID];
-  const participantParams = cutoff ? [sellerId, DEFAULT_SELLER_ID, cutoff.toISOString()] : [sellerId, DEFAULT_SELLER_ID];
-  const moneyEventParams = cutoff ? [sellerId, cutoff.toISOString()] : [sellerId];
+  const dealParams: any[] = cutoff ? [sellerId, DEFAULT_SELLER_ID, cutoff.toISOString()] : [sellerId, DEFAULT_SELLER_ID];
+  const participantParams: any[] = cutoff ? [sellerId, DEFAULT_SELLER_ID, cutoff.toISOString()] : [sellerId, DEFAULT_SELLER_ID];
+  const moneyEventParams: any[] = cutoff ? [sellerId, cutoff.toISOString()] : [sellerId];
+  let participantDealClause = "";
+  let moneyDealClause = "";
+  if (dealId) {
+    // single-deal scope: drop the created_at window on the deal row itself
+    dealWhere = `COALESCE(d.seller_id, $2) = $1 AND d.deal_id = $${dealParams.length + 1}::uuid`;
+    dealParams.push(dealId);
+    participantDealClause = ` AND d.deal_id = $${participantParams.length + 1}::uuid`;
+    participantParams.push(dealId);
+    moneyDealClause = ` AND m.deal_id = $${moneyEventParams.length + 1}::uuid`;
+    moneyEventParams.push(dealId);
+  }
 
   const [sellerResult, statesResult, participantSummaryResult, moneyEventSummaryResult, fallbackMoneyResult, dealRowsResult, attributionResult] = await Promise.all([
     c.query(
@@ -328,7 +343,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
          COUNT(*) FILTER (WHERE p.buyer_state='DealFailed')::int AS deal_failed
        FROM siton.participants p
        JOIN siton.deals d ON d.deal_id = p.deal_id
-       WHERE COALESCE(d.seller_id, $2) = $1${dateClause("p", cutoff, 3)}`,
+       WHERE COALESCE(d.seller_id, $2) = $1${dateClause("p", cutoff, 3)}${participantDealClause}`,
       participantParams
     ),
     c.query(
@@ -347,7 +362,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
        JOIN siton.participants p ON p.participant_id = m.participant_id
        JOIN siton.deals d ON d.deal_id = m.deal_id
        WHERE m.seller_id = $1
-         AND m.logical_entry_type='charge'${dateClause("m", cutoff, 2)}`,
+         AND m.logical_entry_type='charge'${dateClause("m", cutoff, 2)}${moneyDealClause}`,
       moneyEventParams
     ),
     c.query(
@@ -360,7 +375,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
        FROM siton.participants p
        JOIN siton.deals d ON d.deal_id = p.deal_id
        WHERE COALESCE(d.seller_id, $2) = $1
-         AND p.money_state IN ('ChargedSuccess','RecoveredCharge')${dateClause("p", cutoff, 3)}`,
+         AND p.money_state IN ('ChargedSuccess','RecoveredCharge')${dateClause("p", cutoff, 3)}${participantDealClause}`,
       participantParams
     ),
     c.query(
@@ -368,6 +383,7 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
          d.deal_id::text,
          d.title,
          d.state,
+         d.close_reason,
          d.min_units,
          d.max_units,
          d.threshold_units,
@@ -452,11 +468,135 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
        JOIN siton.affiliate_accounts af ON af.affiliate_id=aa.affiliate_id
        JOIN siton.participants p ON p.participant_id=aa.participant_id
        JOIN siton.deals d ON d.deal_id=aa.deal_id
-       WHERE COALESCE(d.seller_id, $2) = $1${dateClause("aa", cutoff, 3)}
+       WHERE COALESCE(d.seller_id, $2) = $1${dateClause("aa", cutoff, 3)}${participantDealClause}
        GROUP BY aa.share_code, af.display_name
        ORDER BY attributed_gross DESC, attributed_units DESC, joins_count DESC
        LIMIT 20`,
       participantParams
+    )
+  ]);
+
+  // ── P0.4-2 extras: time series, funnel, share channels, viral aggregate,
+  //    recent activity, action center — ALL from canonical tables ──────────
+  const seriesCutoff = cutoff || new Date(Date.now() - 90 * DAY_MS);
+  const seriesWindowDays = cutoff ? Math.round((Date.now() - cutoff.getTime()) / DAY_MS) : 90;
+  const scopeParams: any[] = [sellerId, DEFAULT_SELLER_ID];
+  let scopeDealClause = "";
+  if (dealId) { scopeParams.push(dealId); scopeDealClause = ` AND d.deal_id = $${scopeParams.length}::uuid`; }
+  const seriesParams = [...scopeParams, seriesCutoff.toISOString()];
+  const seriesTs = `$${seriesParams.length}`;
+
+  const [joinSeriesResult, chargeSeriesResult, funnelSeriesResult, funnelTotalsResult, shareChannelsResult, viralAggResult, viralTopResult, activityAuditResult, activityJoinsResult, businessProfileResult] = await Promise.all([
+    c.query(
+      `SELECT to_char(date_trunc('day', p.created_at), 'YYYY-MM-DD') AS day,
+              COUNT(*)::int AS joins,
+              COALESCE(SUM(p.qty),0)::int AS units
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND p.created_at >= ${seriesTs}
+       GROUP BY 1 ORDER BY 1`,
+      seriesParams
+    ),
+    c.query(
+      `SELECT to_char(date_trunc('day', m.created_at), 'YYYY-MM-DD') AS day,
+              COALESCE(SUM(m.gross_amount),0)::numeric(14,2) AS charged_gross,
+              COUNT(*)::int AS charge_events
+       FROM siton.platform_fee_money_events m
+       JOIN siton.deals d ON d.deal_id = m.deal_id
+       WHERE m.seller_id = $1 AND COALESCE(d.seller_id, $2) = $1
+         AND m.logical_entry_type='charge'${scopeDealClause} AND m.created_at >= ${seriesTs}
+       GROUP BY 1 ORDER BY 1`,
+      seriesParams
+    ),
+    c.query(
+      `SELECT to_char(date_trunc('day', ve.created_at), 'YYYY-MM-DD') AS day,
+              COUNT(*) FILTER (WHERE ve.event_type='deal_view')::int AS views,
+              COUNT(*) FILTER (WHERE ve.event_type='share_button_click')::int AS share_clicks,
+              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts
+       FROM siton.viral_events ve
+       JOIN siton.deals d ON d.deal_id = ve.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND ve.created_at >= ${seriesTs}
+       GROUP BY 1 ORDER BY 1`,
+      seriesParams
+    ),
+    c.query(
+      `SELECT COUNT(*) FILTER (WHERE ve.event_type='deal_view')::int AS views,
+              COUNT(DISTINCT ve.visitor_id) FILTER (WHERE ve.event_type='deal_view')::int AS unique_visitors,
+              COUNT(*) FILTER (WHERE ve.event_type='share_button_click')::int AS share_clicks,
+              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts
+       FROM siton.viral_events ve
+       JOIN siton.deals d ON d.deal_id = ve.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND ve.created_at >= ${seriesTs}`,
+      seriesParams
+    ),
+    c.query(
+      `SELECT COALESCE(ve.share_channel, 'other') AS channel, COUNT(*)::int AS clicks
+       FROM siton.viral_events ve
+       JOIN siton.deals d ON d.deal_id = ve.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause}
+         AND ve.event_type='share_button_click' AND ve.created_at >= ${seriesTs}
+       GROUP BY 1 ORDER BY clicks DESC`,
+      seriesParams
+    ),
+    c.query(
+      `SELECT COUNT(*)::int AS total_attributed,
+              COUNT(*) FILTER (WHERE va.parent_participant_id IS NULL)::int AS direct_joins,
+              COUNT(*) FILTER (WHERE va.parent_participant_id IS NOT NULL)::int AS referred_joins,
+              COALESCE(SUM(p.qty),0)::int AS attributed_units,
+              COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0))
+                FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS attributed_charged_gmv,
+              COALESCE(MAX(va.generation),0)::int AS max_generation,
+              COUNT(DISTINCT va.parent_participant_id) FILTER (WHERE va.parent_participant_id IS NOT NULL)::int AS sharing_participants
+       FROM siton.viral_attributions va
+       JOIN siton.participants p ON p.participant_id = va.participant_id
+       JOIN siton.deals d ON d.deal_id = va.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause}`,
+      scopeParams
+    ),
+    c.query(
+      `SELECT va.parent_participant_id::text AS referrer_id,
+              MIN(pp.buyer_name) AS referrer_name,
+              MIN(d.title) AS deal_title,
+              MIN(d.deal_id::text) AS deal_id,
+              COUNT(*)::int AS direct_joins,
+              COALESCE(SUM(p.qty),0)::int AS units,
+              COALESCE(SUM(p.qty * d.price_per_unit + COALESCE(p.delivery_cost,0))
+                FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gmv
+       FROM siton.viral_attributions va
+       JOIN siton.participants p ON p.participant_id = va.participant_id
+       JOIN siton.participants pp ON pp.participant_id = va.parent_participant_id
+       JOIN siton.deals d ON d.deal_id = va.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND va.parent_participant_id IS NOT NULL
+       GROUP BY va.parent_participant_id
+       ORDER BY direct_joins DESC, units DESC
+       LIMIT 5`,
+      scopeParams
+    ),
+    c.query(
+      `SELECT a.action_name, a.created_at, a.deal_id::text AS deal_id, d.title
+       FROM siton.audit_log a
+       JOIN siton.deals d ON d.deal_id = a.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause}
+         AND a.entity_type='deal'
+         AND a.action_name IN ('deal.publish','deal.target_reached','deal.close_joining','deal.reopen_joining','charging.start','charging.finalize_completed','charging.finalize_failed')
+       ORDER BY a.created_at DESC
+       LIMIT 15`,
+      scopeParams
+    ),
+    c.query(
+      `SELECT p.created_at, p.qty, p.buyer_name, d.title, d.deal_id::text AS deal_id
+       FROM siton.participants p
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause}
+       ORDER BY p.created_at DESC
+       LIMIT 15`,
+      scopeParams
+    ),
+    c.query(
+      `SELECT business_name, business_id_number, contact_name, contact_phone, contact_email,
+              bank_account_holder, bank_name, bank_branch, bank_account_last4
+       FROM siton.seller_business_profiles WHERE seller_id = $1`,
+      [sellerId]
     )
   ]);
 
@@ -536,9 +676,118 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
   ).length;
   const draftMissingImageCount = dealRows.filter((row) => String(row.state) === "Draft" && !row.has_image).length;
 
+  // ── P0.4-2 extras assembly ────────────────────────────────────────────────
+  const maskName = (raw: unknown) => {
+    const first = String(raw ?? "").trim().split(/\s+/)[0] || "";
+    return first.length > 1 ? first : "משתתף";
+  };
+  const ACTIVITY_LABELS_HE: Record<string, string> = {
+    "deal.publish": "העסקה פורסמה",
+    "deal.target_reached": "היעד הושג 🎉",
+    "deal.close_joining": "ההצטרפות נסגרה",
+    "deal.reopen_joining": "ההצטרפות נפתחה מחדש",
+    "charging.start": "החיובים החלו",
+    "charging.finalize_completed": "העסקה הושלמה בהצלחה",
+    "charging.finalize_failed": "העסקה לא הושלמה"
+  };
+  const recentActivity = [
+    ...activityAuditResult.rows.map((row: any) => ({
+      kind: "deal_event",
+      at: row.created_at,
+      deal_id: String(row.deal_id),
+      deal_title: String(row.title || ""),
+      message_he: ACTIVITY_LABELS_HE[String(row.action_name)] || String(row.action_name)
+    })),
+    ...activityJoinsResult.rows.map((row: any) => ({
+      kind: "join",
+      at: row.created_at,
+      deal_id: String(row.deal_id),
+      deal_title: String(row.title || ""),
+      message_he: `${maskName(row.buyer_name)} הצטרף/ה${num(row.qty) > 1 ? ` עם ${num(row.qty)} יחידות` : ""}`
+    }))
+  ]
+    .sort((a, b) => new Date(String(b.at)).getTime() - new Date(String(a.at)).getTime())
+    .slice(0, 20);
+
+  const bp = businessProfileResult.rows[0] || null;
+  const bpProfileComplete = Boolean(
+    bp && String(bp.business_name || "").trim() && String(bp.business_id_number || "").trim() &&
+    String(bp.contact_name || "").trim() && (String(bp.contact_phone || "").trim() || String(bp.contact_email || "").trim())
+  );
+  const bpSettlementReady = Boolean(
+    bp && String(bp.bank_account_holder || "").trim() && String(bp.bank_name || "").trim() &&
+    String(bp.bank_branch || "").trim() && String(bp.bank_account_last4 || "").trim()
+  );
+
+  type ActionItem = { severity: "critical" | "warning" | "info"; type: string; message_he: string; deal_id?: string; deal_title?: string; action: string };
+  const actionCenter: ActionItem[] = [];
+  for (const row of dealRows) {
+    const state = String(row.state);
+    if (state === "PendingTarget" && isWithin24Hours(row.deadline) && num(row.joined_units) < num(row.threshold_units)) {
+      actionCenter.push({ severity: "critical", type: "deadline_under_target", deal_id: String(row.deal_id), deal_title: String(row.title || ""), message_he: `פחות מ-24 שעות לסגירה וחסרות ${Math.max(0, num(row.threshold_units) - num(row.joined_units))} יחידות ליעד — שתפו עכשיו`, action: "share_deal" });
+    }
+    if (state === "CompletionWindow" && num(row.pending_units) > 0) {
+      actionCenter.push({ severity: "critical", type: "completion_window_pending", deal_id: String(row.deal_id), deal_title: String(row.title || ""), message_he: `${num(row.pending_units)} יחידות ממתינות להשלמת חיוב בחלון ההשלמה`, action: "open_deal" });
+    }
+    if (state === "ClosedForJoining" && String(row.close_reason || "") === "manual") {
+      actionCenter.push({ severity: "warning", type: "deal_paused", deal_id: String(row.deal_id), deal_title: String(row.title || ""), message_he: "ההצטרפות מושהית ידנית — קונים לא יכולים להצטרף", action: "open_deal" });
+    }
+  }
+  if (!bpProfileComplete) {
+    actionCenter.push({ severity: "warning", type: "business_profile_incomplete", message_he: "הפרופיל העסקי לא הושלם — חסרים פרטי העסק או איש הקשר", action: "open_business_profile" });
+  }
+  if (!bpSettlementReady) {
+    actionCenter.push({ severity: "warning", type: "settlement_incomplete", message_he: "פרטי חשבון הבנק לקבלת כספים חסרים", action: "open_business_profile" });
+  }
+  for (const row of dealRows) {
+    if (String(row.state) === "Draft") {
+      actionCenter.push({ severity: "info", type: "unpublished_draft", deal_id: String(row.deal_id), deal_title: String(row.title || ""), message_he: "טיוטה שעדיין לא פורסמה — קונים לא רואים אותה", action: "open_deal" });
+    }
+  }
+  const severityRank = { critical: 0, warning: 1, info: 2 } as const;
+  actionCenter.sort((a, b) => severityRank[a.severity] - severityRank[b.severity]);
+  const viralAgg = viralAggResult.rows[0] || {};
+  const funnelTotals = funnelTotalsResult.rows[0] || {};
+  const joinsInWindow = joinSeriesResult.rows.reduce((s: number, row: any) => s + num(row.joins), 0);
+
   return {
     generated_at: new Date().toISOString(),
     period,
+    deal_scope: dealId,
+    series: {
+      window_days: seriesWindowDays,
+      joins_daily: joinSeriesResult.rows.map((row: any) => ({ day: String(row.day), joins: num(row.joins), units: num(row.units) })),
+      charged_daily: chargeSeriesResult.rows.map((row: any) => ({ day: String(row.day), charged_gross: roundMoney(num(row.charged_gross)), charge_events: num(row.charge_events) })),
+      funnel_daily: funnelSeriesResult.rows.map((row: any) => ({ day: String(row.day), views: num(row.views), share_clicks: num(row.share_clicks), join_starts: num(row.join_starts) }))
+    },
+    funnel: {
+      window_days: seriesWindowDays,
+      views: num(funnelTotals.views),
+      unique_visitors: num(funnelTotals.unique_visitors),
+      share_clicks: num(funnelTotals.share_clicks),
+      join_starts: num(funnelTotals.join_starts),
+      joins: joinsInWindow,
+      charged_buyers: moneyTotals.eligible_buyers
+    },
+    share_channels: shareChannelsResult.rows.map((row: any) => ({ channel: String(row.channel), clicks: num(row.clicks) })),
+    viral: {
+      direct_joins: num(viralAgg.direct_joins),
+      referred_joins: num(viralAgg.referred_joins),
+      attributed_units: num(viralAgg.attributed_units),
+      attributed_charged_gmv: roundMoney(num(viralAgg.attributed_charged_gmv)),
+      max_generation: num(viralAgg.max_generation),
+      sharing_participants: num(viralAgg.sharing_participants),
+      top_referrers: viralTopResult.rows.map((row: any) => ({
+        display: maskName(row.referrer_name),
+        deal_id: String(row.deal_id || ""),
+        deal_title: String(row.deal_title || ""),
+        direct_joins: num(row.direct_joins),
+        units: num(row.units),
+        charged_gmv: roundMoney(num(row.charged_gmv))
+      }))
+    },
+    recent_activity: recentActivity,
+    action_center: actionCenter.slice(0, 8),
     seller: {
       seller_id: sellerId,
       business_name: String(seller.business_name || ""),
@@ -572,6 +821,10 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       total_charged_units: moneyTotals.total_charged_units,
       gross_collected_amount: moneyTotals.gross_collected_total,
       gross_expected_amount: grossExpectedAmount,
+      // P0.4-2 — the PROJECTION uses the same canonical fee function as real
+      // charges (8% + VAT), so the client never re-derives money math
+      expected_platform_fee_total_amount: moneyFromGross(grossExpectedAmount).platform_fee_total_amount,
+      expected_seller_net_amount: moneyFromGross(grossExpectedAmount).seller_net_amount,
       platform_fee_total_amount: moneyTotals.platform_fee_total,
       seller_net_amount: moneyTotals.seller_net_total
     },

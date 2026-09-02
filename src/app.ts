@@ -3635,6 +3635,105 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
   });
 });
 
+// P0.4-4 — delivery/pickup editing OUTSIDE the Draft editor.
+// A fundamental deal field must stay visible AND safely editable:
+//   * Draft: always editable (same semantics as the Draft PATCH)
+//   * published (PendingTarget/TargetReached/ClosedForJoining): editable ONLY
+//     while ZERO reliance exists — no participant row was EVER created (even
+//     dropped buyers relied on the option list) and no payment authorization
+//     binding references the deal
+//   * any later state: locked
+// The change is transactional (deal row FOR UPDATE) and recorded in the
+// append-only siton.deal_field_change_audit rail (migration 059) — the
+// state-transition audit_log rightly refuses non-transition rows.
+app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
+  await ensureRemainingProductSurfaceTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  if (!Array.isArray(body.delivery_options) || body.delivery_options.length === 0 || body.delivery_options.length > 5) {
+    throw Object.assign(new Error("delivery_options must contain 1-5 options"), { statusCode: 400, code: "delivery_options_invalid" });
+  }
+  const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
+
+  return withTx(async (c) => {
+    const sellerAuthority = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    const r = await c.query(
+      `SELECT seller_id, state, deal_type FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      [dealId]
+    );
+    if (!r.rowCount || normalizeSellerId(r.rows[0].seller_id) !== sellerAuthority.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    const state = String(r.rows[0].state);
+    if (String(r.rows[0].deal_type) !== "physical_product") {
+      throw Object.assign(new Error("delivery options apply to physical products only"), { statusCode: 409, code: "delivery_not_applicable" });
+    }
+    if (state !== "Draft") {
+      if (!["PendingTarget", "TargetReached", "ClosedForJoining"].includes(state)) {
+        throw Object.assign(new Error("delivery is locked in this deal state"), { statusCode: 409, code: "delivery_locked_state" });
+      }
+      const reliance = await c.query(
+        `SELECT (SELECT count(*)::int FROM siton.participants WHERE deal_id=$1) AS participants,
+                (SELECT count(*)::int FROM siton.payment_authorization_bindings WHERE deal_id=$1) AS bindings`,
+        [dealId]
+      );
+      if (Number(reliance.rows[0].participants) > 0 || Number(reliance.rows[0].bindings) > 0) {
+        throw Object.assign(new Error("delivery cannot change after buyers relied on it"), { statusCode: 409, code: "delivery_locked_after_reliance" });
+      }
+    }
+
+    const options = body.delivery_options.map((option: any, index: number) => ({
+      option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
+      label: String(option?.label || "").trim().slice(0, 160),
+      cost: Number(option?.cost || 0),
+      sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
+      ...normalizeDeliveryCoordinates(option)
+    }));
+    if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
+      throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
+    }
+
+    const before = await c.query(
+      `SELECT option_type, label, cost, sort_order, latitude, longitude
+       FROM siton.deal_delivery_options WHERE deal_id=$1 ORDER BY sort_order ASC`,
+      [dealId]
+    );
+    await c.query(`DELETE FROM siton.deal_delivery_options WHERE deal_id=$1`, [dealId]);
+    const inserted: any[] = [];
+    for (const option of options) {
+      const row = await c.query(
+        `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)
+         RETURNING option_id, option_type, label, cost, sort_order, latitude, longitude`,
+        [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
+      );
+      inserted.push(row.rows[0]);
+    }
+    await c.query(
+      `INSERT INTO siton.deal_field_change_audit
+         (deal_id, seller_id, field_scope, deal_state, old_value, new_value, request_id)
+       VALUES ($1,$2,'delivery_options',$3,$4,$5,$6)`,
+      [dealId, sellerAuthority.seller_id, state, JSON.stringify(before.rows), JSON.stringify(options), requestId]
+    );
+    await c.query(`UPDATE siton.deals SET updated_at=now() WHERE deal_id=$1`, [dealId]);
+    return {
+      ok: true,
+      state,
+      delivery_options: inserted.map((row: any) => ({
+        option_id: row.option_id,
+        option_type: row.option_type,
+        label: row.label,
+        cost: Number(row.cost || 0),
+        sort_order: Number(row.sort_order || 0),
+        latitude: row.latitude === null ? null : Number(row.latitude),
+        longitude: row.longitude === null ? null : Number(row.longitude)
+      }))
+    };
+  });
+});
+
 // P0.3 — pickup coordinates: seller-chosen via explicit browser geolocation.
 // Only finite in-range values persist; anything else stays NULL.
 function normalizeDeliveryCoordinates(option: any): { latitude: number | null; longitude: number | null } {

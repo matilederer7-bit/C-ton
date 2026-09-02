@@ -3503,7 +3503,25 @@ export function registerFrontendExperience(
       const sellerContextRequest = { headers: req.headers, query: sanitizedQuery };
       const sellerContext = await resolveRequiredSellerContext(sellerContextRequest, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
-      return buildSellerAnalytics(c, sellerContext.seller_id, period);
+      // P0.4-2 — optional single-deal scope. Ownership is enforced HERE (the
+      // canonical seller identity, never a browser-supplied seller_id): a
+      // foreign deal answers 404 exactly like a missing one.
+      let dealId: string | null = null;
+      const dealIdRaw = String(req.query?.deal_id || "").trim();
+      if (dealIdRaw) {
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(dealIdRaw)) {
+          return reply.code(400).send({ ok: false, error: "invalid deal_id", code: "invalid_deal_id" });
+        }
+        const own = await c.query(
+          `SELECT 1 FROM siton.deals WHERE deal_id=$1 AND COALESCE(seller_id, $3) = $2`,
+          [dealIdRaw, sellerContext.seller_id, DEFAULT_SELLER_ID]
+        );
+        if (!own.rowCount) {
+          return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
+        }
+        dealId = dealIdRaw;
+      }
+      return buildSellerAnalytics(c, sellerContext.seller_id, period, dealId);
     });
   });
 
@@ -3694,6 +3712,35 @@ export function registerFrontendExperience(
       (deal as any).deal_type = (dealResult.rows[0] as any).deal_type || "physical_product";
       (deal as any).updated_at = (dealResult.rows[0] as any).updated_at || null;
       (deal as any).close_reason = (dealResult.rows[0] as any).close_reason || null;
+      // P0.4-4 — create↔edit parity: type-specific terms are part of the deal
+      // and must never disappear from the management screen.
+      const sellerDealType = String((dealResult.rows[0] as any).deal_type || "physical_product");
+      (deal as any).voucher_terms = sellerDealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
+      (deal as any).ticket_terms = sellerDealType === "ticket" ? await readTicketTerms(c, dealId) : null;
+      // P0.4-4 — delivery editability is decided SERVER-side: Draft always;
+      // open states only while zero reliance exists (no participant row was
+      // ever created and no payment binding references the deal).
+      const dealStateNow = String((dealResult.rows[0] as DealListRow).state);
+      let deliveryEditable = false;
+      let deliveryLockReason: string | null = null;
+      if (sellerDealType !== "physical_product") {
+        deliveryLockReason = "not_applicable";
+      } else if (dealStateNow === "Draft") {
+        deliveryEditable = true;
+      } else if (["PendingTarget", "TargetReached", "ClosedForJoining"].includes(dealStateNow)) {
+        const reliance = await c.query(
+          `SELECT (SELECT count(*)::int FROM siton.participants WHERE deal_id=$1) AS participants,
+                  (SELECT count(*)::int FROM siton.payment_authorization_bindings WHERE deal_id=$1) AS bindings`,
+          [dealId]
+        );
+        if (Number(reliance.rows[0].participants) === 0 && Number(reliance.rows[0].bindings) === 0) {
+          deliveryEditable = true;
+        } else {
+          deliveryLockReason = "buyer_reliance";
+        }
+      } else {
+        deliveryLockReason = "deal_state";
+      }
       const dealImages = await c.query(
         `SELECT image_id, public_url, mime_type, is_primary, sort_order
          FROM siton.deal_images
@@ -3789,6 +3836,8 @@ export function registerFrontendExperience(
         seller_actions: {
           can_publish: (dealResult.rows[0] as DealListRow).state === "Draft",
           edit_locked: (dealResult.rows[0] as DealListRow).state !== "Draft",
+          delivery_editable: deliveryEditable,
+          delivery_lock_reason: deliveryLockReason,
           create_similar_supported: true
         }
       };
@@ -9504,25 +9553,17 @@ export function registerFrontendExperience(
     });
   });
 
-  // Admin: LAZY viral-tree explorer over the canonical viral graph
-  // (viral_attributions + participants + affiliate_links). Returns ONE level
-  // of children at a time with per-node subtree rollups, so the UI can expand
-  // branches on demand and stay usable at scale (never a 100k-node dump).
-  // Reuses the canonical graph — no second viral structure.
-  app.get("/api/admin/deals/:dealId/viral-tree", async (req: any, reply: any) => {
-    if (!(await requireAdminRead(req, reply))) return;
-    const dealId = String(req.params.dealId || "");
-    requireUuid(dealId, "deal_id");
-    const parentRaw = String(req.query?.parent || "").trim();
-    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
-    if (parentId) requireUuid(parentId, "parent");
-    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+  // ONE canonical viral-tree engine (viral_attributions + participants +
+  // affiliate_links): one level of children per request with per-node subtree
+  // rollups. Serves BOTH the admin explorer (any deal) and the seller
+  // explorer (own deals only — enforced server-side, never in React).
+  async function queryViralTreeLevel(c: any, dealId: string, parentId: string | null, limit: number) {
     const maskTreeName = (raw: unknown) => {
       const s = String(raw ?? "").trim();
       const first = s.split(/\s+/)[0] || "";
       return first.length > 1 ? first : "משתתף";
     };
-    return deps.withTx(async (c) => {
+    {
       // One level: direct children of `parent` (or roots when parent is null).
       // Each node carries its direct metrics, a has_children flag, and subtree
       // rollups computed by a bounded recursive descendant walk.
@@ -9620,6 +9661,42 @@ export function registerFrontendExperience(
         personal_code: r.personal_code || null
       }));
       return { ok: true, deal_id: dealId, parent: parentId, nodes, truncated: nodes.length >= limit };
+    }
+  }
+
+  app.get("/api/admin/deals/:dealId/viral-tree", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    const parentRaw = String(req.query?.parent || "").trim();
+    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
+    if (parentId) requireUuid(parentId, "parent");
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+    return deps.withTx(async (c) => queryViralTreeLevel(c, dealId, parentId, limit));
+  });
+
+  // P0.4-2E — the seller opens the SAME sophisticated tree for their OWN deal.
+  // Ownership enforced against the canonical seller identity; a foreign deal
+  // answers 404 exactly like a missing one. No frontend-only filtering.
+  app.get("/api/seller/deals/:dealId/viral-tree", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    const parentRaw = String(req.query?.parent || "").trim();
+    const parentId = parentRaw && parentRaw !== "root" ? parentRaw : null;
+    if (parentId) requireUuid(parentId, "parent");
+    const limit = Math.max(1, Math.min(200, Number(req.query?.limit || 60) || 60));
+    await ensureProductSurfaces();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const own = await c.query(
+        `SELECT 1 FROM siton.deals WHERE deal_id=$1 AND COALESCE(seller_id, $3) = $2`,
+        [dealId, sellerContext.seller_id, DEFAULT_SELLER_ID]
+      );
+      if (!own.rowCount) {
+        return reply.code(404).send({ ok: false, error: "deal not found", code: "deal_not_found" });
+      }
+      return queryViralTreeLevel(c, dealId, parentId, limit);
     });
   });
 
