@@ -3342,44 +3342,32 @@ export function registerFrontendExperience(
       }
       const bankLast4 = bankAccountNumber ? bankAccountNumber.replace(/\D/g, "").slice(-4) : null;
 
-      // the DB grant makes bank_account_number WRITE-ONLY for the Web runtime,
-      // so the upsert must never READ it (no COALESCE against the stored
-      // value) — an empty input simply leaves the columns out of the update
-      const bankSet = bankAccountNumber
-        ? `bank_account_number=EXCLUDED.bank_account_number,
-           bank_account_last4=EXCLUDED.bank_account_last4,`
-        : "";
+      // The DB grant makes bank_account_number WRITE-ONLY for the Web runtime.
+      // ON CONFLICT DO UPDATE cannot be used for it — referencing EXCLUDED.<col>
+      // requires SELECT on that column (42501 under the web role). So: create a
+      // stub row (DO NOTHING reads nothing), then a plain UPDATE that includes
+      // the bank columns only when a new number was provided.
       await c.query(
-        `INSERT INTO siton.seller_business_profiles
-           (seller_id, business_name, legal_name, business_id_number, entity_type, contact_name,
-            contact_phone, contact_email, finance_email, business_address,
-            bank_account_holder, bank_name, bank_branch,
-            bank_account_number, bank_account_last4, profile_completed_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,
-                 $14, $15, CASE WHEN $2::text IS NOT NULL THEN now() ELSE NULL END, now())
-         ON CONFLICT (seller_id) DO UPDATE SET
-           business_name=EXCLUDED.business_name,
-           legal_name=EXCLUDED.legal_name,
-           business_id_number=EXCLUDED.business_id_number,
-           entity_type=EXCLUDED.entity_type,
-           contact_name=EXCLUDED.contact_name,
-           contact_phone=EXCLUDED.contact_phone,
-           contact_email=EXCLUDED.contact_email,
-           finance_email=EXCLUDED.finance_email,
-           business_address=EXCLUDED.business_address,
-           bank_account_holder=EXCLUDED.bank_account_holder,
-           bank_name=EXCLUDED.bank_name,
-           bank_branch=EXCLUDED.bank_branch,
-           ${bankSet}
-           profile_completed_at=COALESCE(siton.seller_business_profiles.profile_completed_at, EXCLUDED.profile_completed_at),
-           updated_at=now()`,
-        [
-          sellerContext.seller_id,
-          values.business_name, values.legal_name, values.business_id_number, entityType, values.contact_name,
-          values.contact_phone, values.contact_email, values.finance_email, values.business_address,
-          values.bank_account_holder, values.bank_name, values.bank_branch,
-          bankAccountNumber || null, bankLast4
-        ]
+        `INSERT INTO siton.seller_business_profiles (seller_id) VALUES ($1)
+         ON CONFLICT (seller_id) DO NOTHING`,
+        [sellerContext.seller_id]
+      );
+      const baseParams = [
+        sellerContext.seller_id,
+        values.business_name, values.legal_name, values.business_id_number, entityType, values.contact_name,
+        values.contact_phone, values.contact_email, values.finance_email, values.business_address,
+        values.bank_account_holder, values.bank_name, values.bank_branch
+      ];
+      await c.query(
+        `UPDATE siton.seller_business_profiles SET
+           business_name=$2, legal_name=$3, business_id_number=$4, entity_type=$5, contact_name=$6,
+           contact_phone=$7, contact_email=$8, finance_email=$9, business_address=$10,
+           bank_account_holder=$11, bank_name=$12, bank_branch=$13,
+           ${bankAccountNumber ? "bank_account_number=$14, bank_account_last4=$15," : ""}
+           profile_completed_at=COALESCE(profile_completed_at, CASE WHEN $2::text IS NOT NULL THEN now() END),
+           updated_at=now()
+         WHERE seller_id=$1`,
+        bankAccountNumber ? [...baseParams, bankAccountNumber, bankLast4] : baseParams
       );
 
       // keep the publish-profile basics in sync (business name + support contact)
