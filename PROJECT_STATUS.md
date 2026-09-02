@@ -15,6 +15,8 @@
 
 **Not claimed:** that it works on the owner's machine. If Windows location services are off, the new UI says so; it cannot turn them on. OWNER_ACCEPTANCE stays PENDING.
 
+**HOSTED PROOF (2026-09-03, after deploy):** master `e270a0c` deployed by Render (deploy `dep-dac8uvm1egvs738jvo90`, web service `siton-staging-web`); the live `/preview/` serves bundle `assets/index-CUchOoEO.js` (identical hash to the local build of this commit) with `permissions-policy: … geolocation=(self) …`; `scripts/p06a_geolocation_browser_proof.cjs --base-url=https://siton-staging-web.onrender.com` → **9/9 PASS** on the hosted origin, including REAL `navigator.geolocation` (CDP grant + emulated position → captured) and REAL permission denied → site-denied guidance. Only the owner can prove his own OS/browser permission state.
+
 ---
 
 ## P0.6 OWNER ACCEPTANCE PATCH — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
