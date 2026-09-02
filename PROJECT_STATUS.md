@@ -32,6 +32,11 @@
 
 **Local gates:** unit/api/integration/db/e2e + frontend suites all green (stale test expectations updated to the intentional new contracts). Migrations 056/057/058 in the manifest; staging applied with ledger rows through position 54; grants 018+019 verified.
 
+### Hosted proof record (real browser, live staging, owner credential used at runtime and deleted)
+- **P0.3 acceptance harness 22/22 @390** (SHA 16afe44): login-mode truth + recover request + reset invalid-link + owner login with ZERO /signup//resend on the wire; business profile (statuses + write-only bank, no leak in any payload); 3.4MB image through the client pipeline; star→primary→refresh persistence; live clock ticking on seller + public (server-anchored); pause → public join truly disabled → reopen → join restored; share icon set + truthful Instagram copy; pickup GPS navigation link; payment tabs with all-disabled secure slots; chat message→threaded reply→like toggle with server counts; OG carries the starred primary; support 390 zero overflow; legal /preview/ back link; full cleanup (deal deleted, owner seller profile restored, zero [P03] leftovers).
+- **Mobile gate 25/25** — 320/360/390/430 × {public deal, join modal + payment tabs, chat, seller deal screen, business profile, support}: zero horizontal overflow everywhere; screenshots reviewed at the extremes.
+- CI: both workflows green on the closing SHA (a raw-card vocabulary scan catch on the payment slot label was fixed — the scan works).
+
 ---
 
 ## P0.2 OWNER ACCEPTANCE HARDENING — ENGINEERING CLOSED (2026-09-02)
