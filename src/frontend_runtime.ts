@@ -174,12 +174,17 @@ import {
   normalizeDealType,
   readVoucherTerms,
   readTicketTerms,
+  readServiceTerms,
   decideFulfillmentIssuance,
   publicDealCopy,
   trackingCopyForFulfillment,
   csvSafeCell,
   type DealType
 } from "./deal_types.js";
+import {
+  buildProductSnapshot,
+  ensureProductCatalogTables
+} from "./product_catalog.js";
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
@@ -2760,12 +2765,13 @@ export function registerFrontendExperience(
     // the pool with transactions that are all waiting for a nested checkout.
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
+    await ensureProductCatalogTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const dealResult = await c.query(
         `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
-                d.created_at, d.seller_id, d.deal_type,
+                d.created_at, d.seller_id, d.deal_type, d.product_id, d.product_snapshot_jsonb,
                 sa.business_name, sa.support_phone, sa.support_email, sa.business_description
          FROM siton.deals d
          LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
@@ -2789,7 +2795,8 @@ export function registerFrontendExperience(
         [dealId]
       );
       const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
+        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude,
+                estimated_min_business_days, estimated_max_business_days
          FROM siton.deal_delivery_options
          WHERE deal_id=$1
          ORDER BY sort_order ASC, created_at ASC`,
@@ -2818,12 +2825,16 @@ export function registerFrontendExperience(
         deal_type: string;
       };
 
-      const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(deal.deal_type))
+      const dealType: DealType = (["physical_product","voucher","ticket","service"].includes(String(deal.deal_type))
         ? (deal.deal_type as DealType)
         : "physical_product");
       const voucherTerms = dealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
       const ticketTerms = dealType === "ticket" ? await readTicketTerms(c, dealId) : null;
+      const serviceTerms = dealType === "service" ? await readServiceTerms(c, dealId) : null;
       const fulfillmentCopy = publicDealCopy(dealType);
+      const snapshot = (deal as any).product_snapshot_jsonb && typeof (deal as any).product_snapshot_jsonb === "object"
+        ? (deal as any).product_snapshot_jsonb
+        : null;
 
       const joinedUnits = Number(aggregate.rows[0].joined_units || 0);
       const participantsCount = Number(aggregate.rows[0].participants_count || 0);
@@ -2839,6 +2850,31 @@ export function registerFrontendExperience(
           description_short: (deal as any).description_short || "",
           state: deal.state,
           deal_type: dealType,
+          product_id: (deal as any).product_id ?? null,
+          product: snapshot ? {
+            product_id: snapshot.product_id,
+            revision: Number(snapshot.product_revision || 1),
+            name: snapshot.name,
+            short_description: snapshot.short_description,
+            long_description: snapshot.long_description,
+            product_type: snapshot.product_type,
+            category: snapshot.category,
+            type_attributes: snapshot.type_attributes || {},
+            fulfillment_defaults: snapshot.fulfillment_defaults || {},
+            content_hash: snapshot.content_hash
+          } : {
+            product_id: null,
+            revision: null,
+            name: deal.title,
+            short_description: (deal as any).description_short || "",
+            long_description: (deal as any).description || "",
+            product_type: dealType,
+            category: "",
+            type_attributes: {},
+            fulfillment_defaults: {},
+            content_hash: null,
+            legacy: true
+          },
           price_per_unit: Number(deal.price_per_unit),
           min_units: Number(deal.min_units),
           max_units: Number(deal.max_units),
@@ -2857,7 +2893,9 @@ export function registerFrontendExperience(
                 cost: Number(row.cost || 0),
                 sort_order: Number(row.sort_order || 0),
                 latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
-                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
+                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
+                estimated_min_business_days: row.estimated_min_business_days === null ? null : Number(row.estimated_min_business_days),
+                estimated_max_business_days: row.estimated_max_business_days === null ? null : Number(row.estimated_max_business_days)
               }))
             : [],
           voucher_terms: voucherTerms
@@ -2886,6 +2924,17 @@ export function registerFrontendExperience(
                 ticket_type: ticketTerms.ticket_type,
                 seat_mode: ticketTerms.seat_mode,
                 transfer_allowed: Boolean(ticketTerms.transfer_allowed)
+              }
+            : null,
+          service_terms: serviceTerms
+            ? {
+                service_location_mode: serviceTerms.service_location_mode,
+                service_location: serviceTerms.service_location,
+                valid_from: serviceTerms.valid_from,
+                valid_until: serviceTerms.valid_until,
+                redemption_instructions: serviceTerms.redemption_instructions,
+                usage_restrictions: serviceTerms.usage_restrictions,
+                appointment_required: Boolean(serviceTerms.appointment_required)
               }
             : null,
           fulfillment_copy: fulfillmentCopy,
@@ -3403,6 +3452,102 @@ export function registerFrontendExperience(
     });
   });
 
+  app.get("/api/seller/products", async (req: any, reply: any) => {
+    await ensureProductCatalogTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const status = String(req.query?.status || "active").trim();
+      if (!["active", "archived", "all"].includes(status)) {
+        return reply.code(400).send({ ok: false, code: "product_status_invalid", error: "invalid product status" });
+      }
+      const q = String(req.query?.q || "").trim().slice(0, 120);
+      const result = await c.query(
+        `SELECT p.product_id, p.name, p.short_description, p.long_description, p.product_type,
+                p.category, p.type_attributes, p.fulfillment_defaults, p.status, p.revision,
+                p.created_at, p.updated_at,
+                COUNT(d.deal_id)::int AS deals_count,
+                img.product_image_id AS primary_image_id,
+                img.public_url AS primary_image_public_url,
+                img.mime_type AS primary_image_mime_type
+           FROM siton.products p
+           LEFT JOIN siton.deals d ON d.product_id=p.product_id
+           LEFT JOIN LATERAL (
+             SELECT product_image_id, public_url, mime_type
+               FROM siton.product_images
+              WHERE product_id=p.product_id
+              ORDER BY is_primary DESC, sort_order ASC, created_at ASC LIMIT 1
+           ) img ON true
+          WHERE p.seller_id=$1
+            AND ($2='all' OR p.status=$2)
+            AND ($3='' OR p.name ILIKE '%' || $3 || '%' OR p.category ILIKE '%' || $3 || '%')
+          GROUP BY p.product_id, img.product_image_id, img.public_url, img.mime_type
+          ORDER BY p.updated_at DESC
+          LIMIT 200`,
+        [sellerContext.seller_id, status, q]
+      );
+      return {
+        ok: true,
+        products: result.rows.map((row: any) => ({
+          ...row,
+          revision: Number(row.revision || 1),
+          deals_count: Number(row.deals_count || 0),
+          primary_image_url: row.primary_image_id
+            ? (row.primary_image_public_url || `/api/seller/product-images/${row.primary_image_id}`)
+            : null
+        })),
+        seller_auth: sellerAuthSummary(sellerContext)
+      };
+    });
+  });
+
+  app.get("/api/seller/products/:productId", async (req: any, reply: any) => {
+    await ensureProductCatalogTables(deps.withTx);
+    const productId = String(req.params.productId || "");
+    requireUuid(productId, "product_id");
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const result = await c.query(
+        `SELECT product_id, seller_id, name, short_description, long_description, product_type,
+                category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at
+           FROM siton.products WHERE product_id=$1 AND seller_id=$2 LIMIT 1`,
+        [productId, sellerContext.seller_id]
+      );
+      if (!result.rowCount) {
+        return reply.code(404).send({ ok: false, code: "product_not_found", error: "product not found" });
+      }
+      const images = await c.query(
+        `SELECT product_image_id, public_url, mime_type, size_bytes, is_primary, sort_order
+           FROM siton.product_images WHERE product_id=$1
+          ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+        [productId]
+      );
+      const deals = await c.query(
+        `SELECT deal_id, title, state, price_per_unit, min_units, max_units, deadline, created_at
+           FROM siton.deals WHERE product_id=$1 AND seller_id=$2 ORDER BY created_at DESC LIMIT 50`,
+        [productId, sellerContext.seller_id]
+      );
+      return {
+        ok: true,
+        product: {
+          ...result.rows[0],
+          revision: Number(result.rows[0].revision || 1),
+          images: images.rows.map((row: any) => ({
+            product_image_id: row.product_image_id,
+            url: row.public_url || `/api/seller/product-images/${row.product_image_id}`,
+            mime_type: row.mime_type,
+            size_bytes: Number(row.size_bytes || 0),
+            is_primary: Boolean(row.is_primary),
+            sort_order: Number(row.sort_order || 0)
+          })),
+          deals: deals.rows
+        },
+        seller_auth: sellerAuthSummary(sellerContext)
+      };
+    });
+  });
+
   app.get("/api/seller/deals", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
@@ -3530,13 +3675,14 @@ export function registerFrontendExperience(
     requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
+    await ensureProductCatalogTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
       const result = await c.query(
-        `SELECT deal_id, seller_id, state, title, description, price_per_unit,
-                min_units, max_units, threshold_units, deadline, deal_type,
+        `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit,
+                min_units, max_units, threshold_units, deadline, deal_type, product_id, product_snapshot_jsonb,
                 created_at, updated_at
          FROM siton.deals
          WHERE deal_id=$1 AND seller_id=$2
@@ -3552,7 +3698,8 @@ export function registerFrontendExperience(
       }
       const [deliveryOptions, images] = await Promise.all([
         c.query(
-          `SELECT option_id, option_type, label, cost, sort_order
+          `SELECT option_id, option_type, label, cost, sort_order,
+                  estimated_min_business_days, estimated_max_business_days
            FROM siton.deal_delivery_options
            WHERE deal_id=$1
            ORDER BY sort_order ASC, created_at ASC`,
@@ -3575,21 +3722,27 @@ export function registerFrontendExperience(
           state: "Draft",
           title: String(draft.title || ""),
           description: String(draft.description || ""),
+          description_short: String(draft.description_short || ""),
           price_per_unit: Number(draft.price_per_unit),
           min_units: Number(draft.min_units),
           max_units: Number(draft.max_units),
           threshold_units: Number(draft.threshold_units),
           deadline: String(draft.deadline),
           deal_type: dealType,
+          product_id: draft.product_id ?? null,
+          product_snapshot: draft.product_snapshot_jsonb ?? null,
           delivery_options: deliveryOptions.rows.map((row: any) => ({
             option_id: row.option_id,
             option_type: row.option_type,
             label: row.label,
             cost: Number(row.cost || 0),
-            sort_order: Number(row.sort_order || 0)
+            sort_order: Number(row.sort_order || 0),
+            estimated_min_business_days: row.estimated_min_business_days === null ? null : Number(row.estimated_min_business_days),
+            estimated_max_business_days: row.estimated_max_business_days === null ? null : Number(row.estimated_max_business_days)
           })),
           voucher_terms: dealType === "voucher" ? await readVoucherTerms(c, dealId) : null,
           ticket_terms: dealType === "ticket" ? await readTicketTerms(c, dealId) : null,
+          service_terms: dealType === "service" ? await readServiceTerms(c, dealId) : null,
           images: images.rows.map((row: any) => ({
             image_id: row.image_id,
             url: resolveDealImageUrl(row),
@@ -3621,6 +3774,8 @@ export function registerFrontendExperience(
            d.description,
            d.description_short,
            d.deal_type,
+           d.product_id,
+           d.product_snapshot_jsonb,
            d.state,
            d.close_reason,
            d.price_per_unit,
@@ -3669,7 +3824,8 @@ export function registerFrontendExperience(
         [dealId]
       );
       const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
+        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude,
+                estimated_min_business_days, estimated_max_business_days
          FROM siton.deal_delivery_options
          WHERE deal_id = $1
          ORDER BY sort_order ASC, created_at ASC`,
@@ -3710,6 +3866,8 @@ export function registerFrontendExperience(
       (deal as any).description = (dealResult.rows[0] as any).description || "";
       (deal as any).description_short = (dealResult.rows[0] as any).description_short || "";
       (deal as any).deal_type = (dealResult.rows[0] as any).deal_type || "physical_product";
+      (deal as any).product_id = (dealResult.rows[0] as any).product_id || null;
+      (deal as any).product_snapshot = (dealResult.rows[0] as any).product_snapshot_jsonb || null;
       (deal as any).updated_at = (dealResult.rows[0] as any).updated_at || null;
       (deal as any).close_reason = (dealResult.rows[0] as any).close_reason || null;
       // P0.4-4 — create↔edit parity: type-specific terms are part of the deal
@@ -3717,6 +3875,7 @@ export function registerFrontendExperience(
       const sellerDealType = String((dealResult.rows[0] as any).deal_type || "physical_product");
       (deal as any).voucher_terms = sellerDealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
       (deal as any).ticket_terms = sellerDealType === "ticket" ? await readTicketTerms(c, dealId) : null;
+      (deal as any).service_terms = sellerDealType === "service" ? await readServiceTerms(c, dealId) : null;
       // P0.4-4 — delivery editability is decided SERVER-side: Draft always;
       // open states only while zero reliance exists (no participant row was
       // ever created and no payment binding references the deal).
@@ -3811,7 +3970,9 @@ export function registerFrontendExperience(
           cost: Number(row.cost || 0),
           sort_order: Number(row.sort_order || 0),
           latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
-          longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
+          longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
+          estimated_min_business_days: row.estimated_min_business_days === null ? null : Number(row.estimated_min_business_days),
+          estimated_max_business_days: row.estimated_max_business_days === null ? null : Number(row.estimated_max_business_days)
         })),
         participants: participants.rows,
         payment_attempts: attempts.rows,
@@ -8478,7 +8639,7 @@ export function registerFrontendExperience(
         completion_window_until: string | null;
         deal_created_at: string;
       };
-      const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(row.deal_type))
+      const dealType: DealType = (["physical_product","voucher","ticket","service"].includes(String(row.deal_type))
         ? (row.deal_type as DealType)
         : "physical_product");
       const accessToken = extractTrackingToken(req);

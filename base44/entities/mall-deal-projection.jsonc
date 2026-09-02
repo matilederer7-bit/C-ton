@@ -34,7 +34,7 @@
     "deal_id": { "type": "string", "format": "uuid" },
     "title": { "type": "string", "maxLength": 160 },
     "description_excerpt": { "type": "string", "maxLength": 180 },
-    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket"] },
+    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket", "service"] },
     "canonical_state": { "type": "string", "enum": ["PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow", "Completed", "Failed", "Cancelled"] },
     "mall_status": { "type": "string", "enum": ["underway", "reached_target", "succeeded", "failed", "cancelled"] },
     "price_per_unit": { "type": "number", "minimum": 0 },

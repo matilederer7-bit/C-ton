@@ -13,7 +13,7 @@ export const CANONICAL_DEAL_STATES = [
 
 export type CanonicalDealState = (typeof CANONICAL_DEAL_STATES)[number];
 
-export const MALL_DEAL_TYPES = ["physical_product", "voucher", "ticket"] as const;
+export const MALL_DEAL_TYPES = ["physical_product", "voucher", "ticket", "service"] as const;
 export type MallDealType = (typeof MALL_DEAL_TYPES)[number];
 
 export const MALL_STATUSES = ["underway", "reached_target", "succeeded", "failed", "cancelled"] as const;
@@ -176,7 +176,7 @@ export function parseMallQuery(input: URLSearchParams | Record<string, unknown>)
   const rawSort = readQueryValue(input, "sort") || "newest";
 
   if (rawType && !(MALL_DEAL_TYPES as readonly string[]).includes(rawType)) {
-    throw new MallQueryError("mall_type_invalid", "type must be physical_product, voucher, or ticket");
+    throw new MallQueryError("mall_type_invalid", "type must be physical_product, voucher, ticket, or service");
   }
   if (rawStatus !== "all" && !(MALL_STATUSES as readonly string[]).includes(rawStatus)) {
     throw new MallQueryError("mall_status_invalid", "status is not a supported Mall status");

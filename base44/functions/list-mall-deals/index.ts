@@ -1,6 +1,6 @@
 import { createClientFromRequest } from "npm:@base44/sdk";
 
-const DEAL_TYPES = ["physical_product", "voucher", "ticket"] as const;
+const DEAL_TYPES = ["physical_product", "voucher", "ticket", "service"] as const;
 const MALL_STATUSES = ["underway", "reached_target", "succeeded", "failed", "cancelled"] as const;
 const PUBLIC_FIELDS = [
   "deal_id", "title", "description_excerpt", "deal_type", "canonical_state", "mall_status",

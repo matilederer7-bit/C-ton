@@ -13,7 +13,7 @@ import { assertRequiredTables } from "./schema_contract.js";
 
 import { randomBytes, createHash } from "node:crypto";
 
-export const DEAL_TYPES = ["physical_product", "voucher", "ticket"] as const;
+export const DEAL_TYPES = ["physical_product", "voucher", "ticket", "service"] as const;
 export type DealType = (typeof DEAL_TYPES)[number];
 
 export const VOUCHER_CODE_MODES = [
@@ -41,7 +41,8 @@ export type TicketType = (typeof TICKET_TYPES)[number];
 export const FULFILLMENT_KINDS = [
   "physical_delivery",
   "voucher_code",
-  "event_ticket"
+  "event_ticket",
+  "service_confirmation"
 ] as const;
 export type FulfillmentKind = (typeof FULFILLMENT_KINDS)[number];
 
@@ -67,6 +68,7 @@ export function normalizeDealType(value: unknown, fallback: DealType = "physical
 export function fulfillmentKindForDealType(dealType: DealType): FulfillmentKind {
   if (dealType === "voucher") return "voucher_code";
   if (dealType === "ticket") return "event_ticket";
+  if (dealType === "service") return "service_confirmation";
   return "physical_delivery";
 }
 
@@ -141,6 +143,17 @@ export async function readTicketTerms(c: Queryable, dealId: string) {
             venue_name, venue_address, venue_city, entry_instructions,
             ticket_type, seat_mode, transfer_allowed
        FROM siton.deal_ticket_terms
+      WHERE deal_id = $1`,
+    [dealId]
+  );
+  return r.rowCount ? (r.rows[0] as Record<string, any>) : null;
+}
+
+export async function readServiceTerms(c: Queryable, dealId: string) {
+  const r = await c.query(
+    `SELECT deal_id, service_location_mode, service_location, valid_from, valid_until,
+            redemption_instructions, usage_restrictions, appointment_required
+       FROM siton.deal_service_terms
       WHERE deal_id = $1`,
     [dealId]
   );
@@ -237,7 +250,7 @@ export async function ensureDealTypeTables(
   withTx: <T>(fn: (c: Queryable) => Promise<T>) => Promise<T>
 ): Promise<void> {
   if (!ensurePromise) {
-    ensurePromise = withTx(async (c) => assertRequiredTables(c, ["deal_voucher_terms", "deal_ticket_terms", "fulfillment_units"]));
+    ensurePromise = withTx(async (c) => assertRequiredTables(c, ["deal_voucher_terms", "deal_ticket_terms", "deal_service_terms", "fulfillment_units"]));
   }
   await ensurePromise;
 }
@@ -388,6 +401,61 @@ export async function upsertTicketTerms(
 // CSV cell sanitizer for voucher/ticket exports — same neutralization as the
 // existing shipping export (= + - @ prefixes neutralized, doubled quotes for
 // commas/newlines). Re-exported here so the deal-types tests can assert it.
+export type ServiceTermsInput = {
+  service_location_mode: "online" | "onsite" | "customer_location" | "hybrid";
+  service_location?: string;
+  valid_from?: string | null;
+  valid_until?: string | null;
+  redemption_instructions: string;
+  usage_restrictions?: string;
+  appointment_required?: boolean;
+};
+
+export async function upsertServiceTerms(
+  c: Queryable,
+  dealId: string,
+  input: ServiceTermsInput
+): Promise<void> {
+  const locationMode = String(input.service_location_mode || "").trim();
+  if (!["online", "onsite", "customer_location", "hybrid"].includes(locationMode)) {
+    throw Object.assign(new Error("service_location_mode is invalid"), { statusCode: 400, code: "service_location_mode_invalid" });
+  }
+  const location = String(input.service_location || "").trim().slice(0, 500);
+  if (["onsite", "hybrid"].includes(locationMode) && !location) {
+    throw Object.assign(new Error("service_location is required"), { statusCode: 400, code: "service_location_required" });
+  }
+  const instructions = String(input.redemption_instructions || "").trim().slice(0, 1000);
+  if (!instructions) {
+    throw Object.assign(new Error("redemption_instructions is required"), { statusCode: 400, code: "service_instructions_required" });
+  }
+  const validFrom = input.valid_from ? new Date(String(input.valid_from)) : null;
+  const validUntil = input.valid_until ? new Date(String(input.valid_until)) : null;
+  if ((validFrom && !Number.isFinite(validFrom.getTime())) || (validUntil && !Number.isFinite(validUntil.getTime()))) {
+    throw Object.assign(new Error("service redemption period is invalid"), { statusCode: 400, code: "service_period_invalid" });
+  }
+  if (validFrom && validUntil && validUntil.getTime() <= validFrom.getTime()) {
+    throw Object.assign(new Error("service valid_until must be after valid_from"), { statusCode: 400, code: "service_period_invalid" });
+  }
+  await c.query(
+    `INSERT INTO siton.deal_service_terms
+       (deal_id, service_location_mode, service_location, valid_from, valid_until,
+        redemption_instructions, usage_restrictions, appointment_required)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+     ON CONFLICT (deal_id) DO UPDATE
+       SET service_location_mode=EXCLUDED.service_location_mode,
+           service_location=EXCLUDED.service_location,
+           valid_from=EXCLUDED.valid_from,
+           valid_until=EXCLUDED.valid_until,
+           redemption_instructions=EXCLUDED.redemption_instructions,
+           usage_restrictions=EXCLUDED.usage_restrictions,
+           appointment_required=EXCLUDED.appointment_required,
+           updated_at=now()`,
+    [dealId, locationMode, location, validFrom ? validFrom.toISOString() : null,
+      validUntil ? validUntil.toISOString() : null, instructions,
+      String(input.usage_restrictions || "").trim().slice(0, 2000), input.appointment_required === true]
+  );
+}
+
 export function csvSafeCell(value: string | number | null | undefined): string {
   if (value === null || value === undefined) return "";
   let str = String(value);
@@ -416,6 +484,12 @@ export function publicDealCopy(dealType: DealType): { headline: string; disclaim
       headline: "כרטיס לאירוע",
       disclaimer:
         "הכרטיס יונפק רק לאחר שהעסקה תושלם והחיוב יעבור בפועל. אם העסקה לא תושלם, לא יונפק כרטיס ולא יבוצע חיוב."
+    };
+  }
+  if (dealType === "service") {
+    return {
+      headline: "שירות",
+      disclaimer: "אישור המימוש יונפק רק לאחר שהעסקה תושלם והחיוב יעבור בפועל. תיאום ומימוש השירות באחריות המוכר לפי התנאים שהוצגו."
     };
   }
   return {
@@ -458,6 +532,18 @@ export function trackingCopyForFulfillment(args: {
     return {
       headline: "הכרטיס הונפק",
       subline: "הכניסה לאירוע באחריות המוכר לפי תנאי הכניסה שצוינו."
+    };
+  }
+  if (args.dealType === "service") {
+    if (!issuance.shouldIssue) {
+      return {
+        headline: "השירות עדיין לא זמין למימוש",
+        subline: "אישור המימוש יוצג כאן לאחר שהעסקה תושלם והחיוב יעבור בפועל."
+      };
+    }
+    return {
+      headline: "השירות זמין למימוש",
+      subline: "יש לפעול לפי הוראות המימוש והתיאום של המוכר."
     };
   }
   if (!issuance.shouldIssue) {

@@ -11,7 +11,7 @@ const STATUS_BY_STATE: Record<string, string> = {
   Failed: "failed",
   Cancelled: "cancelled"
 };
-const DEAL_TYPES = ["physical_product", "voucher", "ticket"] as const;
+const DEAL_TYPES = ["physical_product", "voucher", "ticket", "service"] as const;
 const HOOK_ENTITIES = ["Deal", "DealImage"] as const;
 const HOOK_EVENTS = ["create", "update", "delete"] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

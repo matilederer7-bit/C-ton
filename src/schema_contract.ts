@@ -31,7 +31,7 @@ export const REQUIRED_TABLES = [
   "admin_users", "admin_sessions", "admin_mfa_factors", "admin_mfa_challenges",
   "participant_tracking_tokens", "admin_control_flags", "admin_control_flag_events",
   "storage_orphan_reports", "operational_cases", "operational_case_events",
-  "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units", "migration_ledger", "worker_heartbeats",
+  "deal_voucher_terms", "deal_ticket_terms", "deal_service_terms", "products", "product_images", "fulfillment_units", "migration_ledger", "worker_heartbeats",
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache"
 ] as const;
@@ -39,7 +39,7 @@ export const REQUIRED_TABLES = [
 export const REQUIRED_MIGRATION_IDS = [
   "014", "007", "008", "009", "010", "011", "012", "013", "014a", "015a", "015b",
   "016", "017", "018", "019", "020", "021", "022", "023", "024", "025", "026",
-  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051"
+  "027", "028", "029", "030", "031", "032", "033", "034", "035", "036", "037", "038", "039", "040", "041", "042", "043", "044", "045", "046", "047", "048", "049", "050", "051", "062"
 ] as const;
 
 export async function assertDatabaseSchema(db: Db): Promise<void> {

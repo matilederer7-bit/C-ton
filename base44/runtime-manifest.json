@@ -8,6 +8,7 @@
   "scheduled_worker": "siton-worker-tick",
   "seller_identity_function": "siton-seller-bootstrap",
   "seller_image_function": "siton-seller-deal-image",
+  "seller_product_function": "siton-seller-product",
   "public_discovery": {
     "route": "/app",
     "projection_entity": "MallDealProjection",

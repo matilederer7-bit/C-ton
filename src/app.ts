@@ -81,10 +81,18 @@ import {
   normalizeDealType,
   upsertVoucherTerms,
   upsertTicketTerms,
+  upsertServiceTerms,
   issueFulfillmentUnitsForParticipant,
   decideFulfillmentIssuance,
   type DealType
 } from "./deal_types.js";
+import {
+  buildProductSnapshot,
+  ensureProductCatalogTables,
+  normalizeFulfillmentDefaults,
+  normalizeProductType,
+  validateProductAttributes
+} from "./product_catalog.js";
 import {
   deleteDealImageFile,
   getDealImagePublicUrl,
@@ -3003,7 +3011,15 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
         }
         throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
       }
-      await storage.delete(String(task.storage_key));
+      const references = await pool.query(
+        `SELECT EXISTS (
+           SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
+           UNION ALL
+           SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
+         ) AS still_referenced`,
+        [task.storage_provider, task.storage_key]
+      );
+      if (!references.rows[0]?.still_referenced) await storage.delete(String(task.storage_key));
       await hitTestFault("cleanup.before_ack");
       await pool.query(
         `UPDATE siton.storage_cleanup_tasks SET status='completed', completed_at=now(), last_error_code=NULL, updated_at=now()
@@ -3321,33 +3337,229 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     .send(file);
 });
 
+function normalizedProductInput(body: Record<string, any>, current?: Record<string, any>) {
+  const name = String(body.name ?? current?.name ?? "").trim().slice(0, 200);
+  if (!name) throw Object.assign(new Error("product name is required"), { statusCode: 400, code: "product_name_required" });
+  const shortDescription = String(body.short_description ?? current?.short_description ?? "").trim().slice(0, 200);
+  const longDescription = String(body.long_description ?? current?.long_description ?? "").trim().slice(0, 4000);
+  const productType = normalizeProductType(body.product_type ?? current?.product_type);
+  return {
+    name,
+    short_description: shortDescription,
+    long_description: longDescription,
+    product_type: productType,
+    category: String(body.category ?? current?.category ?? "").trim().slice(0, 160),
+    type_attributes: validateProductAttributes(productType, body.type_attributes ?? current?.type_attributes),
+    fulfillment_defaults: normalizeFulfillmentDefaults(body.fulfillment_defaults ?? current?.fulfillment_defaults)
+  };
+}
+
+async function ownedProductSnapshot(c: any, sellerId: string, productId: string, allowArchived = false) {
+  const productResult = await c.query(
+    `SELECT product_id, seller_id, name, short_description, long_description, product_type,
+            category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at
+       FROM siton.products
+      WHERE product_id=$1 AND seller_id=$2${allowArchived ? "" : " AND status='active'"}
+      LIMIT 1`,
+    [productId, sellerId]
+  );
+  if (!productResult.rowCount) {
+    throw Object.assign(new Error("product not found"), { statusCode: 404, code: "product_not_found" });
+  }
+  const images = await c.query(
+    `SELECT product_image_id, storage_provider, storage_key, public_url, original_filename,
+            mime_type, size_bytes, checksum_sha256, sort_order, is_primary
+       FROM siton.product_images WHERE product_id=$1
+      ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+    [productId]
+  );
+  return { product: productResult.rows[0], images: images.rows, snapshot: buildProductSnapshot(productResult.rows[0], images.rows) };
+}
+
+app.post("/api/seller/products", async (req: any, reply: any) => {
+  await ensureProductCatalogTables(withTx);
+  const input = normalizedProductInput((req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>);
+  const created = await withTx(async (c) => {
+    const seller = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, seller.seller_id, "create_draft");
+    const result = await c.query(
+      `INSERT INTO siton.products
+         (seller_id, name, short_description, long_description, product_type, category,
+          type_attributes, fulfillment_defaults)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING product_id, seller_id, name, short_description, long_description, product_type,
+                 category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
+      [seller.seller_id, input.name, input.short_description, input.long_description, input.product_type,
+        input.category, JSON.stringify(input.type_attributes), JSON.stringify(input.fulfillment_defaults)]
+    );
+    return result.rows[0];
+  });
+  return reply.code(201).send({ ok: true, product: created });
+});
+
+app.patch("/api/seller/products/:productId", async (req: any) => {
+  await ensureProductCatalogTables(withTx);
+  const productId = String(req.params.productId || "");
+  requireUuid(productId, "product_id");
+  return withTx(async (c) => {
+    const seller = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, seller.seller_id, "operate");
+    const currentResult = await c.query(
+      `SELECT product_id, seller_id, name, short_description, long_description, product_type,
+              category, type_attributes, fulfillment_defaults, status, revision
+         FROM siton.products WHERE product_id=$1 FOR UPDATE`,
+      [productId]
+    );
+    if (!currentResult.rowCount || normalizeSellerId(currentResult.rows[0].seller_id) !== seller.seller_id) {
+      throw Object.assign(new Error("product not found"), { statusCode: 404, code: "product_not_found" });
+    }
+    const current = currentResult.rows[0];
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>;
+    const input = normalizedProductInput(body, current);
+    const status = body.status === undefined ? String(current.status) : String(body.status);
+    if (!["active", "archived"].includes(status)) {
+      throw Object.assign(new Error("product status is invalid"), { statusCode: 400, code: "product_status_invalid" });
+    }
+    const updated = await c.query(
+      `UPDATE siton.products SET name=$3, short_description=$4, long_description=$5,
+              product_type=$6, category=$7, type_attributes=$8, fulfillment_defaults=$9,
+              status=$10, revision=revision+1, updated_at=now()
+        WHERE product_id=$1 AND seller_id=$2
+        RETURNING product_id, seller_id, name, short_description, long_description, product_type,
+                  category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
+      [productId, seller.seller_id, input.name, input.short_description, input.long_description,
+        input.product_type, input.category, JSON.stringify(input.type_attributes),
+        JSON.stringify(input.fulfillment_defaults), status]
+    );
+    return { ok: true, product: updated.rows[0] };
+  });
+});
+
+// Promote a seller-owned Draft's buyer-visible product fields and images into
+// a reusable Product, then attach a frozen snapshot to that same Draft.
+app.post("/api/seller/deals/:dealId/product", async (req: any, reply: any) => {
+  await ensureProductCatalogTables(withTx);
+  const dealId = String(req.params.dealId || "");
+  requireUuid(dealId, "deal_id");
+  const response = await withTx(async (c) => {
+    const seller = await requireSellerAuthority(req, c);
+    await ensureSellerActionAllowed(c, seller.seller_id, "operate");
+    const dealResult = await c.query(
+      `SELECT deal_id, seller_id, state, title, description, description_short, deal_type, product_id
+         FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
+      [dealId]
+    );
+    if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== seller.seller_id) {
+      throw Object.assign(new Error("deal not found"), { statusCode: 404, code: "deal_not_found" });
+    }
+    const deal = dealResult.rows[0];
+    if (String(deal.state) !== "Draft") {
+      throw Object.assign(new Error("only a Draft can create a Product"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
+    }
+    if (deal.product_id) {
+      throw Object.assign(new Error("Draft already has a Product"), { statusCode: 409, code: "deal_product_already_attached" });
+    }
+    const body = (req.body && typeof req.body === "object" ? req.body : {}) as Record<string, any>;
+    const input = normalizedProductInput({
+      ...body,
+      name: body.name ?? deal.title,
+      short_description: body.short_description ?? deal.description_short,
+      long_description: body.long_description ?? deal.description,
+      product_type: body.product_type ?? deal.deal_type
+    });
+    const productResult = await c.query(
+      `INSERT INTO siton.products
+         (seller_id, name, short_description, long_description, product_type, category,
+          type_attributes, fulfillment_defaults)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       RETURNING product_id, seller_id, name, short_description, long_description, product_type,
+                 category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at`,
+      [seller.seller_id, input.name, input.short_description, input.long_description, input.product_type,
+        input.category, JSON.stringify(input.type_attributes), JSON.stringify(input.fulfillment_defaults)]
+    );
+    const product = productResult.rows[0];
+    await c.query(
+      `INSERT INTO siton.product_images
+         (product_id, storage_provider, storage_key, public_url, original_filename, mime_type,
+          size_bytes, checksum_sha256, sort_order, is_primary)
+       SELECT $2, storage_provider, storage_key, public_url, original_filename, mime_type,
+              size_bytes, checksum_sha256, sort_order, is_primary
+         FROM siton.deal_images WHERE deal_id=$1
+        ORDER BY sort_order ASC, created_at ASC`,
+      [dealId, product.product_id]
+    );
+    const loaded = await ownedProductSnapshot(c, seller.seller_id, String(product.product_id));
+    await c.query(
+      `UPDATE siton.deals SET product_id=$2, product_snapshot_jsonb=$3, updated_at=now()
+        WHERE deal_id=$1`,
+      [dealId, product.product_id, JSON.stringify(loaded.snapshot)]
+    );
+    return { ok: true, product: loaded.product, snapshot: loaded.snapshot, deal_id: dealId };
+  });
+  return reply.code(201).send(response);
+});
+
+app.get("/api/seller/product-images/:productImageId", async (req: any, reply: any) => {
+  await ensureProductCatalogTables(withTx);
+  const productImageId = String(req.params.productImageId || "");
+  requireUuid(productImageId, "product_image_id");
+  const image = await withTx(async (c) => {
+    const seller = await requireSellerAuthorityWithoutBody(req, c);
+    const result = await c.query(
+      `SELECT i.storage_key, i.mime_type, i.public_url
+         FROM siton.product_images i
+         JOIN siton.products p ON p.product_id=i.product_id
+        WHERE i.product_image_id=$1 AND p.seller_id=$2`,
+      [productImageId, seller.seller_id]
+    );
+    if (!result.rowCount) throw Object.assign(new Error("product image not found"), { statusCode: 404, code: "product_image_not_found" });
+    return result.rows[0];
+  });
+  const externalUrl = String(image.public_url || "").trim();
+  if (/^https:\/\//.test(externalUrl)) return reply.header("cache-control", "private, max-age=300").redirect(externalUrl, 302);
+  const file = await readDealImage(String(image.storage_key));
+  return reply.header("content-type", String(image.mime_type)).header("cache-control", "private, no-store").send(file);
+});
+
 app.post("/deals", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   await ensureDealTypeTables(withTx);
+  await ensureProductCatalogTables(withTx);
   const body = req.body || {};
+  const productId = String(body.product_id || "").trim();
+  if (productId) requireUuid(productId, "product_id");
   const dealType: DealType = normalizeDealType(body.deal_type, "physical_product");
-  if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket"].includes(String(body.deal_type))) {
-    const err: any = new Error("deal_type must be one of physical_product, voucher, ticket");
+  if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket","service"].includes(String(body.deal_type))) {
+    const err: any = new Error("deal_type must be one of physical_product, voucher, ticket, service");
     err.statusCode = 400;
     err.code = "deal_type_invalid";
     throw err;
   }
   const voucherTermsInput = body.voucher_terms && typeof body.voucher_terms === "object" ? body.voucher_terms : null;
   const ticketTermsInput = body.ticket_terms && typeof body.ticket_terms === "object" ? body.ticket_terms : null;
-  if (dealType === "voucher" && !voucherTermsInput) {
+  const serviceTermsInput = body.service_terms && typeof body.service_terms === "object" ? body.service_terms : null;
+  if (dealType === "voucher" && !voucherTermsInput && !productId) {
     const err: any = new Error("voucher_terms is required for voucher deals");
     err.statusCode = 400;
     err.code = "voucher_terms_required";
     throw err;
   }
-  if (dealType === "ticket" && !ticketTermsInput) {
+  if (dealType === "ticket" && !ticketTermsInput && !productId) {
     const err: any = new Error("ticket_terms is required for ticket deals");
     err.statusCode = 400;
     err.code = "ticket_terms_required";
     throw err;
   }
+  if (dealType === "service" && !serviceTermsInput && !productId) {
+    const err: any = new Error("service_terms is required for service deals");
+    err.statusCode = 400;
+    err.code = "service_terms_required";
+    throw err;
+  }
   const title = readCreateDealTitle(body);
-  if (!title) {
+  // A Product-backed Deal takes all Product-owned presentation fields from the
+  // server-loaded snapshot. Legacy/direct Deals still require their own title.
+  if (!productId && !title) {
     const err: any = new Error("title is required");
     err.statusCode = 400;
     err.code = "title_required";
@@ -3392,7 +3604,8 @@ app.post("/deals", async (req: any) => {
           label: String(option?.label || "").trim().slice(0, 160),
           cost: Math.max(0, Number(option?.cost || 0)),
           sort_order: Number.isFinite(Number(option?.sort_order)) ? Number(option.sort_order) : index,
-          ...normalizeDeliveryCoordinates(option)
+          ...normalizeDeliveryCoordinates(option),
+          ...normalizeDeliveryEstimate(option)
         }))
         .filter((option: any) => option.label)
         .slice(0, 5)
@@ -3440,15 +3653,59 @@ app.post("/deals", async (req: any) => {
       threshold_units: draftThreshold,
       deadline: body.deadline === undefined || body.deadline === null || body.deadline === "" ? null : deadlineIso,
       deal_type: dealType,
+      product_id: productId || null,
       delivery_options: dealType === "physical_product" ? deliveryOptions : [],
       voucher_terms: dealType === "voucher" ? voucherTermsInput : null,
-      ticket_terms: dealType === "ticket" ? ticketTermsInput : null
+      ticket_terms: dealType === "ticket" ? ticketTermsInput : null,
+      service_terms: dealType === "service" ? serviceTermsInput : null
     }))
     .digest("hex");
 
   const r = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
+    let productSnapshot: ReturnType<typeof buildProductSnapshot> | null = null;
+    let effectiveTitle = title;
+    let effectiveDescription = description;
+    let effectiveDescriptionShort = descriptionShort;
+    let effectiveDealType = dealType;
+    let effectiveVoucherTerms = voucherTermsInput;
+    let effectiveTicketTerms = ticketTermsInput;
+    let effectiveServiceTerms = serviceTermsInput;
+    let effectiveDeliveryOptions = deliveryOptions;
+    if (productId) {
+      const loaded = await ownedProductSnapshot(c, sellerAuthority.seller_id, productId);
+      productSnapshot = loaded.snapshot;
+      effectiveTitle = loaded.snapshot.name;
+      effectiveDescription = loaded.snapshot.long_description;
+      effectiveDescriptionShort = loaded.snapshot.short_description;
+      effectiveDealType = loaded.snapshot.product_type;
+      if (body.deal_type !== undefined && String(body.deal_type) !== effectiveDealType) {
+        throw Object.assign(new Error("deal_type must match the selected Product"), { statusCode: 409, code: "product_type_mismatch" });
+      }
+      const attrs = loaded.snapshot.type_attributes as any;
+      if (effectiveDealType === "voucher") {
+        effectiveVoucherTerms = {
+          face_value_amount: Number(body.price_per_unit), currency: "ILS", valid_from: attrs.valid_from,
+          valid_until: attrs.valid_until, redemption_location: attrs.redemption_location,
+          redemption_instructions: attrs.redemption_instructions, terms: attrs.usage_restrictions
+        };
+      }
+      if (effectiveDealType === "ticket") {
+        effectiveTicketTerms = attrs;
+      }
+      if (effectiveDealType === "service") {
+        effectiveServiceTerms = attrs;
+      }
+      if (effectiveDealType === "physical_product") {
+        const defaults = loaded.snapshot.fulfillment_defaults as any;
+        effectiveDeliveryOptions = deliveryOptions.map((option: any) => ({
+          ...option,
+          estimated_min_business_days: option.estimated_min_business_days ?? defaults.estimated_min_business_days ?? null,
+          estimated_max_business_days: option.estimated_max_business_days ?? defaults.estimated_max_business_days ?? null
+        }));
+      }
+    }
     const stableDealId = createIdempotencyKey
       ? deterministicUuid(`seller_deal_create:${sellerAuthority.seller_id}:${createIdempotencyKey}`)
       : randomUUID();
@@ -3477,38 +3734,59 @@ app.post("/deals", async (req: any) => {
     }
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
-       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING deal_id, state, deal_type`,
+       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units,
+        deadline, seller_id, deal_type, product_id, product_snapshot_jsonb)
+       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10,$12,$13)
+       RETURNING deal_id, state, deal_type, product_id`,
       [
         stableDealId,
-        title,
-        description || null,
+        effectiveTitle,
+        effectiveDescription || null,
         priceRaw,
         minUnits,
         maxUnits,
         draftThreshold,
         deadlineIso,
         sellerAuthority.seller_id,
-        dealType,
-        descriptionShort || null
+        effectiveDealType,
+        effectiveDescriptionShort || null,
+        productId || null,
+        productSnapshot ? JSON.stringify(productSnapshot) : null
       ]
     );
     const deal = ins.rows[0];
-    if (dealType === "physical_product") {
-      for (const option of deliveryOptions) {
+    if (effectiveDealType === "physical_product") {
+      for (const option of effectiveDeliveryOptions) {
         await c.query(
-          `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
+          `INSERT INTO siton.deal_delivery_options
+             (deal_id, option_type, label, cost, sort_order, latitude, longitude,
+              estimated_min_business_days, estimated_max_business_days)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [deal.deal_id, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude,
+            option.estimated_min_business_days, option.estimated_max_business_days]
         );
       }
     }
-    if (dealType === "voucher" && voucherTermsInput) {
-      await upsertVoucherTerms(c, String(deal.deal_id), voucherTermsInput);
+    if (effectiveDealType === "voucher" && effectiveVoucherTerms) {
+      await upsertVoucherTerms(c, String(deal.deal_id), effectiveVoucherTerms);
     }
-    if (dealType === "ticket" && ticketTermsInput) {
-      await upsertTicketTerms(c, String(deal.deal_id), ticketTermsInput);
+    if (effectiveDealType === "ticket" && effectiveTicketTerms) {
+      await upsertTicketTerms(c, String(deal.deal_id), effectiveTicketTerms);
+    }
+    if (effectiveDealType === "service" && effectiveServiceTerms) {
+      await upsertServiceTerms(c, String(deal.deal_id), effectiveServiceTerms);
+    }
+    if (productId) {
+      await c.query(
+        `INSERT INTO siton.deal_images
+           (deal_id, storage_provider, storage_key, public_url, original_filename, mime_type,
+            size_bytes, checksum_sha256, sort_order, is_primary)
+         SELECT $2, storage_provider, storage_key, public_url, original_filename, mime_type,
+                size_bytes, checksum_sha256, sort_order, is_primary
+           FROM siton.product_images WHERE product_id=$1
+          ORDER BY sort_order ASC, created_at ASC`,
+        [productId, deal.deal_id]
+      );
     }
     if (createIdempotencyKey) {
       await c.query(
@@ -3532,7 +3810,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
   const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const titleFields = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
   const hasTitle = titleFields.some(hasOwn);
-  const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
+  const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms", "service_terms"].some(hasOwn);
   if (!hasEditableField) {
     throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
   }
@@ -3542,7 +3820,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
     const currentResult = await c.query(
       `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit,
-              min_units, max_units, threshold_units, deadline, deal_type, updated_at
+              min_units, max_units, threshold_units, deadline, deal_type, product_id, product_snapshot_jsonb, updated_at
        FROM siton.deals
        WHERE deal_id=$1
        FOR UPDATE`,
@@ -3554,6 +3832,9 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     const current = currentResult.rows[0];
     if (String(current.state) !== "Draft") {
       throw Object.assign(new Error("only a Draft can be edited"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
+    }
+    if (current.product_id && (hasTitle || hasOwn("description") || hasOwn("description_short") || hasOwn("deal_type"))) {
+      throw Object.assign(new Error("Product-backed fields are owned by the Product snapshot"), { statusCode: 409, code: "product_snapshot_fields_locked" });
     }
     const expectedUpdatedAt = String(body.expected_updated_at || "").trim();
     if (expectedUpdatedAt && new Date(expectedUpdatedAt).getTime() !== new Date(String(current.updated_at)).getTime()) {
@@ -3568,11 +3849,17 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (hasOwn("ticket_terms") && String(current.deal_type) !== "ticket") {
       throw Object.assign(new Error("ticket_terms can only update a ticket Draft"), { statusCode: 409, code: "DEAL_TYPE_TERMS_MISMATCH" });
     }
+    if (hasOwn("service_terms") && String(current.deal_type) !== "service") {
+      throw Object.assign(new Error("service_terms can only update a service Draft"), { statusCode: 409, code: "DEAL_TYPE_TERMS_MISMATCH" });
+    }
     if (hasOwn("voucher_terms") && (!body.voucher_terms || typeof body.voucher_terms !== "object" || Array.isArray(body.voucher_terms))) {
       throw Object.assign(new Error("voucher_terms must be an object"), { statusCode: 400, code: "voucher_terms_invalid" });
     }
     if (hasOwn("ticket_terms") && (!body.ticket_terms || typeof body.ticket_terms !== "object" || Array.isArray(body.ticket_terms))) {
       throw Object.assign(new Error("ticket_terms must be an object"), { statusCode: 400, code: "ticket_terms_invalid" });
+    }
+    if (hasOwn("service_terms") && (!body.service_terms || typeof body.service_terms !== "object" || Array.isArray(body.service_terms))) {
+      throw Object.assign(new Error("service_terms must be an object"), { statusCode: 400, code: "service_terms_invalid" });
     }
 
     const title = hasTitle ? readCreateDealTitle(body) : String(current.title || "").trim();
@@ -3617,7 +3904,8 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
         label: String(option?.label || "").trim().slice(0, 160),
         cost: Number(option?.cost || 0),
         sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
-        ...normalizeDeliveryCoordinates(option)
+        ...normalizeDeliveryCoordinates(option),
+        ...normalizeDeliveryEstimate(option)
       }));
       if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
         throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
@@ -3626,15 +3914,19 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
       if (String(current.deal_type) === "physical_product") {
         for (const option of options) {
           await c.query(
-            `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
-             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-            [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
+            `INSERT INTO siton.deal_delivery_options
+               (deal_id, option_type, label, cost, sort_order, latitude, longitude,
+                estimated_min_business_days, estimated_max_business_days)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+            [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude,
+              option.estimated_min_business_days, option.estimated_max_business_days]
           );
         }
       }
     }
     if (hasOwn("voucher_terms")) await upsertVoucherTerms(c, dealId, body.voucher_terms);
     if (hasOwn("ticket_terms")) await upsertTicketTerms(c, dealId, body.ticket_terms);
+    if (hasOwn("service_terms")) await upsertServiceTerms(c, dealId, body.service_terms);
     return { ok: true, reused_draft: true, draft: updated.rows[0] };
   });
 });
@@ -3693,14 +3985,16 @@ app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
       label: String(option?.label || "").trim().slice(0, 160),
       cost: Number(option?.cost || 0),
       sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
-      ...normalizeDeliveryCoordinates(option)
+      ...normalizeDeliveryCoordinates(option),
+      ...normalizeDeliveryEstimate(option)
     }));
     if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
       throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
     }
 
     const before = await c.query(
-      `SELECT option_type, label, cost, sort_order, latitude, longitude
+      `SELECT option_type, label, cost, sort_order, latitude, longitude,
+              estimated_min_business_days, estimated_max_business_days
        FROM siton.deal_delivery_options WHERE deal_id=$1 ORDER BY sort_order ASC`,
       [dealId]
     );
@@ -3708,10 +4002,14 @@ app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
     const inserted: any[] = [];
     for (const option of options) {
       const row = await c.query(
-        `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order, latitude, longitude)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)
-         RETURNING option_id, option_type, label, cost, sort_order, latitude, longitude`,
-        [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude]
+        `INSERT INTO siton.deal_delivery_options
+           (deal_id, option_type, label, cost, sort_order, latitude, longitude,
+            estimated_min_business_days, estimated_max_business_days)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         RETURNING option_id, option_type, label, cost, sort_order, latitude, longitude,
+                   estimated_min_business_days, estimated_max_business_days`,
+        [dealId, option.option_type, option.label, option.cost, option.sort_order, option.latitude, option.longitude,
+          option.estimated_min_business_days, option.estimated_max_business_days]
       );
       inserted.push(row.rows[0]);
     }
@@ -3732,7 +4030,9 @@ app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
         cost: Number(row.cost || 0),
         sort_order: Number(row.sort_order || 0),
         latitude: row.latitude === null ? null : Number(row.latitude),
-        longitude: row.longitude === null ? null : Number(row.longitude)
+        longitude: row.longitude === null ? null : Number(row.longitude),
+        estimated_min_business_days: row.estimated_min_business_days === null ? null : Number(row.estimated_min_business_days),
+        estimated_max_business_days: row.estimated_max_business_days === null ? null : Number(row.estimated_max_business_days)
       }))
     };
   });
@@ -3747,6 +4047,26 @@ function normalizeDeliveryCoordinates(option: any): { latitude: number | null; l
     return { latitude: Math.round(lat * 1e6) / 1e6, longitude: Math.round(lng * 1e6) / 1e6 };
   }
   return { latitude: null, longitude: null };
+}
+
+function normalizeDeliveryEstimate(option: any): {
+  estimated_min_business_days: number | null;
+  estimated_max_business_days: number | null;
+} {
+  const minRaw = option?.estimated_min_business_days;
+  const maxRaw = option?.estimated_max_business_days;
+  const min = minRaw === null || minRaw === undefined || minRaw === "" ? null : Number(minRaw);
+  const max = maxRaw === null || maxRaw === undefined || maxRaw === "" ? null : Number(maxRaw);
+  if (min !== null && (!Number.isInteger(min) || min < 0 || min > 365)) {
+    throw Object.assign(new Error("estimated_min_business_days is invalid"), { statusCode: 400, code: "delivery_estimate_min_invalid" });
+  }
+  if (max !== null && (!Number.isInteger(max) || max < 0 || max > 365)) {
+    throw Object.assign(new Error("estimated_max_business_days is invalid"), { statusCode: 400, code: "delivery_estimate_max_invalid" });
+  }
+  if (min !== null && max !== null && max < min) {
+    throw Object.assign(new Error("estimated delivery range is invalid"), { statusCode: 400, code: "delivery_estimate_range_invalid" });
+  }
+  return { estimated_min_business_days: min, estimated_max_business_days: max };
 }
 
 function readCreateDealTitle(body: Record<string, any>) {
@@ -4103,10 +4423,19 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
         [dealId]
       );
     }
-    return { storage_provider: image.storage_provider as StorageProviderCode, storage_key: String(image.storage_key) };
+    const shared = await c.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM siton.deal_images WHERE storage_provider=$1 AND storage_key=$2
+         UNION ALL
+         SELECT 1 FROM siton.product_images WHERE storage_provider=$1 AND storage_key=$2
+       ) AS still_referenced`,
+      [image.storage_provider, image.storage_key]
+    );
+    return { storage_provider: image.storage_provider as StorageProviderCode, storage_key: String(image.storage_key), can_delete: !shared.rows[0]?.still_referenced };
   });
 
-  let deletion: "deleted" | "scheduled" = "deleted";
+  let deletion: "deleted" | "scheduled" | "retained_shared" = removed.can_delete ? "deleted" : "retained_shared";
+  if (!removed.can_delete) return reply.send({ ok: true, deletion });
   try {
     await deleteDealImageFile(removed.storage_key);
   } catch (error) {
@@ -4163,7 +4492,10 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
     }
     // Storage objects: schedule canonical cleanup for every image blob.
     const images = await c.query(
-      `SELECT storage_provider, storage_key FROM siton.deal_images WHERE deal_id=$1`,
+      `SELECT i.storage_provider, i.storage_key FROM siton.deal_images i
+        WHERE i.deal_id=$1
+          AND NOT EXISTS (SELECT 1 FROM siton.product_images pi WHERE pi.storage_provider=i.storage_provider AND pi.storage_key=i.storage_key)
+          AND NOT EXISTS (SELECT 1 FROM siton.deal_images di WHERE di.deal_id<>$1 AND di.storage_provider=i.storage_provider AND di.storage_key=i.storage_key)`,
       [dealId]
     );
     for (const row of images.rows) {
@@ -4201,6 +4533,7 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
 });
 
 app.post("/deals/:id/publish", async (req: any) => {
+  await ensureProductCatalogTables(withTx);
   const dealId = String(req.params.id);
   requireUuid(dealId, "deal_id");
   const body = req.body || {};
@@ -4219,7 +4552,16 @@ app.post("/deals/:id/publish", async (req: any) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     publishSellerId = sellerAuthority.seller_id;
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "publish");
-    const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    const r = await c.query(
+      `SELECT d.seller_id, d.deal_type, d.product_id, d.product_snapshot_jsonb,
+              (SELECT COUNT(*)::int FROM siton.deal_images i WHERE i.deal_id=d.deal_id) AS image_count,
+              (SELECT COUNT(*)::int FROM siton.deal_service_terms s WHERE s.deal_id=d.deal_id) AS service_terms_count,
+              (SELECT COUNT(*)::int FROM siton.deal_delivery_options o WHERE o.deal_id=d.deal_id) AS delivery_count,
+              (SELECT COUNT(*)::int FROM siton.deal_delivery_options o WHERE o.deal_id=d.deal_id
+                AND (o.estimated_min_business_days IS NULL OR o.estimated_max_business_days IS NULL)) AS delivery_estimate_missing_count
+         FROM siton.deals d WHERE d.deal_id=$1`,
+      [dealId]
+    );
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
       err.statusCode = 404;
@@ -4229,6 +4571,23 @@ app.post("/deals/:id/publish", async (req: any) => {
       const err: any = new Error("deal not found");
       err.statusCode = 404;
       throw err;
+    }
+    const readiness = r.rows[0] as any;
+    const blockers: string[] = [];
+    if (readiness.product_id && !readiness.product_snapshot_jsonb?.content_hash) blockers.push("product_snapshot_missing");
+    if (readiness.product_id && (!Array.isArray(readiness.product_snapshot_jsonb?.images) || readiness.product_snapshot_jsonb.images.length < 1)) blockers.push("product_snapshot_image_missing");
+    if (readiness.product_id && Number(readiness.image_count || 0) < 1) blockers.push("deal_image_missing");
+    if (String(readiness.deal_type) === "service" && Number(readiness.service_terms_count || 0) !== 1) blockers.push("service_terms_missing");
+    if (readiness.product_id && String(readiness.deal_type) === "physical_product") {
+      if (Number(readiness.delivery_count || 0) < 1) blockers.push("delivery_option_missing");
+      if (Number(readiness.delivery_estimate_missing_count || 0) > 0) blockers.push("delivery_estimate_missing");
+    }
+    if (blockers.length) {
+      throw Object.assign(new Error("deal product readiness failed"), {
+        statusCode: 409,
+        code: "deal_product_readiness_failed",
+        details: { blockers }
+      });
     }
 
     // Seller profile readiness: business_name + at least one contact method required before publish

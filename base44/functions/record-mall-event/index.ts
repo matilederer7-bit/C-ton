@@ -1,7 +1,7 @@
 import { createClientFromRequest } from "npm:@base44/sdk";
 
 const EVENT_TYPES = ["mall_session", "card_impression", "mall_deal_click", "organic_deal_entry"] as const;
-const DEAL_TYPES = ["physical_product", "voucher", "ticket"] as const;
+const DEAL_TYPES = ["physical_product", "voucher", "ticket", "service"] as const;
 const MALL_STATUSES = ["underway", "reached_target", "succeeded", "failed", "cancelled"] as const;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CLIENT_ID_PATTERN = /^[A-Za-z0-9:_-]{8,100}$/;

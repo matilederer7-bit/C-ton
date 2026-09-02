@@ -1549,11 +1549,11 @@ async function frontendSurface(rootDir: string, anomalies: Anomaly[]) {
 async function buildDealTypeReadiness(input: { tables: Set<string> }, c: Queryable) {
   const blockers: string[] = [];
   const warnings: string[] = [];
-  const requiredTables = ["deals", "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units"];
+  const requiredTables = ["deals", "deal_voucher_terms", "deal_ticket_terms", "deal_service_terms", "fulfillment_units"];
   for (const table of requiredTables) {
     if (!input.tables.has(table)) blockers.push(`missing_table:${table}`);
   }
-  let dealsByType: Record<string, number> = { physical_product: 0, voucher: 0, ticket: 0 };
+  let dealsByType: Record<string, number> = { physical_product: 0, voucher: 0, ticket: 0, service: 0 };
   if (input.tables.has("deals")) {
     const r = await safeQuery(
       c,
@@ -1569,7 +1569,7 @@ async function buildDealTypeReadiness(input: { tables: Set<string> }, c: Queryab
   }
   return {
     status: statusFromCounts(blockers.length, warnings.length),
-    deal_types_supported: ["physical_product", "voucher", "ticket"],
+    deal_types_supported: ["physical_product", "voucher", "ticket", "service"],
     physical_product_status: input.tables.has("deals") ? "ready" : "unknown",
     voucher_status: input.tables.has("deal_voucher_terms") ? "ready" : "unknown",
     ticket_status: input.tables.has("deal_ticket_terms") ? "ready" : "unknown",

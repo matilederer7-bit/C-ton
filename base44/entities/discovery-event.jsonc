@@ -8,7 +8,7 @@
     "event_type": { "type": "string", "enum": ["mall_session", "card_impression", "mall_deal_click", "organic_deal_entry", "mall_join"] },
     "client_event_id": { "type": "string", "minLength": 8, "maxLength": 100, "pattern": "^[A-Za-z0-9:_-]+$" },
     "deal_id": { "type": "string", "format": "uuid" },
-    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket"] },
+    "deal_type": { "type": "string", "enum": ["physical_product", "voucher", "ticket", "service"] },
     "mall_status": { "type": "string", "enum": ["underway", "reached_target", "succeeded", "failed", "cancelled"] },
     "acquisition_source": { "type": "string", "enum": ["mall"], "default": "mall" },
     "occurred_at": { "type": "string", "format": "date-time" }
