@@ -140,7 +140,7 @@ await run("VIRAL: sources match the owner's example exactly (A 5/2/11/3, B 2/1/3
   assert.equal(a.propagators, 2, "A propagators");
   assert.equal(a.branch_joins, 11, "A branch total");
   assert.equal(a.max_depth, 3, "A depth");
-  assert.ok(String(a.label).startsWith("קמפיין:"), `A label: ${a.label}`);
+  assert.equal(String(a.label), "מקור א", `A label: ${a.label}`);
   assert.equal(b.direct_joins, 2, "B direct");
   assert.equal(b.propagators, 1, "B propagators");
   assert.equal(b.branch_joins, 3, "B branch");

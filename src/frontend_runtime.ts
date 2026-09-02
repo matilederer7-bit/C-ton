@@ -9839,7 +9839,7 @@ export function registerFrontendExperience(
     const labels = new Map<string, { label: string; ref_type: string; source_code: string | null }>();
     if (linkIds.length) {
       const links = await c.query(
-        `SELECT al.link_id::text, al.origin_type, al.source_code,
+        `SELECT al.link_id::text, al.origin_type, al.source_code, al.internal_name,
                 af.display_name AS affiliate_name,
                 p.buyer_name AS origin_buyer_name
          FROM siton.affiliate_links al
@@ -9854,12 +9854,13 @@ export function registerFrontendExperience(
       };
       for (const row of links.rows) {
         const originType = String(row.origin_type || "");
+        const humanName = String(row.internal_name || "").trim();
         const label =
-          originType === "distributor" ? `מפיץ: ${String(row.affiliate_name || row.source_code || "")}`
-          : originType === "seller" ? "קישור המוכר"
-          : originType === "campaign" ? `קמפיין: ${String(row.source_code || "")}`
+          originType === "distributor" ? `מפיץ: ${String(row.affiliate_name || humanName || row.source_code || "")}`
+          : originType === "seller" ? (humanName || "קישור המוכר")
+          : originType === "campaign" ? (humanName || `קמפיין: ${String(row.source_code || "")}`)
           : originType === "participant" ? `שיתוף של ${maskName(row.origin_buyer_name)}`
-          : String(row.source_code || "מקור");
+          : (humanName || String(row.source_code || "מקור"));
         labels.set(String(row.link_id), { label, ref_type: originType, source_code: row.source_code || null });
       }
     }
