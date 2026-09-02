@@ -73,6 +73,7 @@
     "test:server-side-money-authority": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/server_side_money_authority_validation.js",
     "test:deal-types": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_validation.js",
     "test:deal-types-e2e": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/deal_types_e2e_validation.js",
+    "test:amazon-product-catalog": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/amazon_product_catalog_validation.js",
     "test:unit": "node scripts/run_test_group.cjs unit",
     "test:integration": "node scripts/run_test_group.cjs integration",
     "test:db": "node scripts/run_test_group.cjs db",

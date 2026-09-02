@@ -45,18 +45,18 @@ await runTest("deal_type_default_physical_validation", async () => {
   assert.match(migration, /ADD COLUMN IF NOT EXISTS deal_type TEXT NOT NULL DEFAULT 'physical_product'/);
   assert.match(migration, /UPDATE siton\.deals[\s\S]{0,80}SET deal_type = 'physical_product'/);
   assert.match(dealTypesModule, /normalizeDealType.*fallback: DealType = "physical_product"/);
-  assert.match(dealTypesModule, /export const DEAL_TYPES = \["physical_product", "voucher", "ticket"\] as const/);
+  assert.match(dealTypesModule, /export const DEAL_TYPES = \["physical_product", "voucher", "ticket", "service"\] as const/);
 });
 
 await runTest("seller_create_physical_validation", async () => {
   // Physical deal creation path must still wire delivery_options when type is physical.
-  assert.match(app, /if \(dealType === "physical_product"\) \{[\s\S]{0,400}deal_delivery_options/);
+  assert.match(app, /if \(effectiveDealType === "physical_product"\) \{[\s\S]{0,700}deal_delivery_options/);
 });
 
 await runTest("seller_create_voucher_validation", async () => {
   // Voucher creation requires voucher_terms; voucher path writes deal_voucher_terms.
   assert.match(app, /voucher_terms_required/);
-  assert.match(app, /upsertVoucherTerms\(c, String\(deal\.deal_id\), voucherTermsInput\)/);
+  assert.match(app, /upsertVoucherTerms\(c, String\(deal\.deal_id\), effectiveVoucherTerms\)/);
   assert.match(dealTypesModule, /face_value_amount must be a positive number/);
   // seller_uploaded codes are explicitly rejected.
   assert.match(dealTypesModule, /voucher_code_mode_unsupported/);
@@ -65,7 +65,7 @@ await runTest("seller_create_voucher_validation", async () => {
 await runTest("seller_create_ticket_validation", async () => {
   // Ticket creation requires ticket_terms; ticket path writes deal_ticket_terms.
   assert.match(app, /ticket_terms_required/);
-  assert.match(app, /upsertTicketTerms\(c, String\(deal\.deal_id\), ticketTermsInput\)/);
+  assert.match(app, /upsertTicketTerms\(c, String\(deal\.deal_id\), effectiveTicketTerms\)/);
   assert.match(dealTypesModule, /event_name is required for ticket deals/);
   // Assigned-seat seating is explicitly rejected (no seating engine yet).
   assert.match(dealTypesModule, /ticket_seat_mode_unsupported/);
@@ -217,7 +217,7 @@ await runTest("mission_control_deal_type_readiness_validation", async () => {
   assert.match(mission, /fulfillment_readiness: fulfillmentReadiness/);
   assert.match(mission, /async function buildDealTypeReadiness/);
   assert.match(mission, /async function buildFulfillmentReadiness/);
-  assert.match(mission, /deal_types_supported: \["physical_product", "voucher", "ticket"\]/);
+  assert.match(mission, /deal_types_supported: \["physical_product", "voucher", "ticket", "service"\]/);
   assert.match(mission, /manual_refund_allowed: false/);
   assert.match(mission, /manual_issuance_before_completed_allowed: false/);
   assert.match(mission, /eligible_money_states: \["ChargedSuccess", "RecoveredCharge"\]/);

@@ -1,5 +1,66 @@
 # PROJECT STATUS
 
+## AMAZON BENCHMARK PRODUCT UPGRADE — FEATURE BRANCH (2026-09-02)
+
+Branch: `codex/amazon-benchmark-upgrade`. The three logical checkpoints were rebased once onto `origin/master` at `10185a70`; nothing from this branch has been merged to master or deployed.
+
+- **COMPLETED:** Product/Deal separation, immutable snapshots, seller Product library, Product-based creation, Service, Estimated Delivery, and canonical funnel enrichment are implemented.
+- **TESTED:** TypeScript, canonical frontend syntax, focused Product/Service contracts, existing Deal Types, frontend foundations, product surfaces, architecture, payment-compliance, lint, and runtime-DDL gates pass.
+- **OPEN:** DB-backed migration/API/E2E proof and hosted canonical UI acceptance. The local PostgreSQL service rejects the configured credential with `28P01`; no database or payment action was forced.
+- **PERCENTAGE:** 92% engineering/integration readiness. The remaining 8% is live database migration/E2E and hosted owner acceptance, not additional product architecture.
+- **NEXT STEP:** push the rebased branch, then run migration 062 plus the required synthetic Product matrix in an authorized staging database.
+
+### Existing foundation reused
+
+The implementation reuses the existing Draft recovery/autosave, Buyer Preview renderer, Publish readiness, canonical 8% seller economics, Seller Action Center/analytics, Deal type terms, and delivery/pickup model. It does not add parallel versions of those systems.
+
+### Schema and compatibility
+
+Migration 062 adds `products`, `product_images`, nullable `deals.product_id`, `deals.product_snapshot_jsonb`, `deal_service_terms`, and structured delivery estimate columns; it expands existing type/event constraints additively. Legacy Deals retain their Deal-owned fields and require no Product backfill. Product archive/delete cannot cascade into historical Deals, and published snapshots remain frozen even if a Product revision changes.
+
+### Delivered
+
+- Reusable seller-owned `Product` aggregate with active/archive lifecycle, revisions, type-specific validated attributes, fulfillment defaults, ordered imagery metadata, owner-scoped APIs, and a Base44 Product entity/function with server-derived seller authority.
+- Explicit Product→Deal association. A new Deal stores `product_id` plus deterministic, content-hashed `product_snapshot_jsonb`; a database trigger prevents changing the association or snapshot during or after publication. Legacy Deals remain valid with both fields null and continue rendering from existing Deal-owned fields.
+- Canonical seller UX in `frontend/app.js`: Product library, open/edit/archive/restore, Deal creation from an existing Product, or creation and persistence of a new Product inside the Deal flow. Reload-safe persistence includes Product choice, Service fields, and delivery estimates.
+- Four Product Types: physical product, voucher, ticket, and Service. Service includes online/onsite/customer-location/hybrid mode, location rules, validity window, redemption/booking instructions, restrictions, appointment flag, public buyer copy, tracking fulfillment kind, and seller readiness.
+- Estimated Delivery is structured as min/max business days anchored to Deal completion, validated client/server-side, persisted per physical delivery option, copied from Product defaults, and rendered to buyers.
+- Publish readiness checks Product snapshot integrity, imagery, Service terms, and physical delivery estimates where Product-backed. Product-owned buyer-visible fields override conflicting Deal-create input.
+- Funnel coverage completed minimally without redesigning the Viral Tree: view, share, join start, OTP start/completion, payment screen, authorization attempt/success, joined, and completed purchase vocabulary. Browser events are PII-free and session-deduplicated; seller analytics derives joins and completed purchases from canonical participant/money truth.
+- Shared image cleanup is reference-aware across Deal and Product image metadata, including the cleanup worker.
+- P1 seams only: bounded `variation_axes` and a disabled, suggestions-only AI enrichment provider interface (`provider_pending`). No provider is selected and no AI call is made.
+
+### Migration and parallel-work coordination
+
+- Amazon uses `062_product_catalog_and_fulfillment_estimates.sql`; master migration `060_support_case_messages.sql` was preserved and 061 remains unused. Amazon does not occupy Claude's reserved 060/061 numbers.
+- Claude-owned P0.5 surfaces were not implemented or redesigned: hidden/two-tap Admin entry, Admin password step-up, Viral propagation tree, and Support reply/thread UX. Shared viral/analytics files received only the minimum additive funnel vocabulary and counters.
+- Supabase staging policy is fail-closed: new private-schema tables grant only `siton_web_runtime`; no `anon` or `authenticated` table grants were added.
+
+### Funnel mapping
+
+- **EXISTING/REUSED:** `deal_view`, `share_button_click`, and `join_started` remain on the canonical `viral_events` rail.
+- **PARTIAL→COMPLETED:** OTP start/completion, payment-screen reach, and authorization attempt/success now emit one PII-free, session-deduplicated event with DB idempotency by Deal/type/client-event key.
+- **CANONICAL STATE-DERIVED:** `joined` is counted from participant rows and `completed_purchase` from canonical successful money entries, so browser reloads or retries cannot inflate seller totals.
+- **NOT APPLICABLE:** no second funnel table, Product-level BI, or Viral Tree redesign was introduced.
+
+### Verification
+
+- PASS: `node --check frontend/app.js`
+- PASS: `npx tsc -p tsconfig.json --noEmit`
+- PASS: `npx tsc -p tsconfig.test.json --noEmit`
+- PASS: `npm run test:amazon-product-catalog`
+- PASS: `npm run test:deal-types`
+- PASS: `npm run test:frontend-foundation`
+- PASS: `npm run test:product-surfaces-refinement`
+- PASS: `npm run lint`
+- PASS: `npm run scan:runtime-ddl`
+- PASS: `npm run gate:architecture`
+- PASS: `npm run scan:payment`
+- PASS: Base44 Product entity/runtime-manifest JSON parsing and authenticated CLI identity check.
+- BLOCKED BY ENVIRONMENT: DB-backed frontend, seller analytics, state-engine, delivery, fee, migration-report, and E2E gates stop before assertions because local PostgreSQL rejects the configured `postgres` password (`28P01`); `ci:migrations` also has no usable `DATABASE_URL`. Docker is unavailable here, so DB-backed migration/E2E execution remains an explicit open gate rather than a claimed PASS.
+
+---
+
 ## P0.6 OWNER ACCEPTANCE PATCH — ENGINEERING COMPLETE (2026-09-02) — STATUS: OWNER_ACCEPTANCE_REQUIRED
 
 **Small patch, 3 owner items. COMPLETED: 100%. TESTED: hosted 17/17 + security/api/unit groups green. OPEN: owner manual acceptance. NEXT STEP: owner re-checks the three behaviors in the Preview. No migrations; no delivery schema/API changes; Codex scope untouched. VIRAL_TREE_OWNER_ACCEPTANCE remains as the owner last left it (PENDING — not silently changed).**
