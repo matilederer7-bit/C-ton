@@ -1,5 +1,18 @@
 # PROJECT STATUS
 
+## R9C — CLAUDE SYSTEM RED TEAM (2026-09-03) — BRANCH claude/r9c-system-red-team (NOT MERGED) — STATUS: ENGINEERING COMPLETE, OWNER REVIEW REQUIRED
+
+**COMPLETED: Priority 1–5 attacked with deterministic fault injection on the real worker rails; 2 real money defects found, reproduced, fixed and proven (1 CRITICAL, 1 HIGH); 4 lower findings documented. TESTED: 4 new suites (24 scenarios) + payments 33/33, workers 12/12, failure 9/9, db 6/6, concurrency 4/4, e2e gate 1/1 — all in fresh isolated databases, real money 0, Grow calls 0. OPEN: owner review + merge decision; F4 provider-idempotency contract (Grow) stays an R9B/R10 gate. PERCENTAGE: 100% of the R9C mission scope; R10 readiness NO. NEXT STEP: owner reviews docs/R9C_CLAUDE_SYSTEM_RED_TEAM.md and decides on merging the two fixes into master before any Grow sandbox proof.**
+
+1. **F1 CRITICAL — FIXED**: the charge/recovery/release rails minted the provider idempotency key from the outbox attempt_count; a worker that saw provider SUCCESS and crashed/stalled before local persistence, followed by lease expiry + reclaim, captured the buyer AGAIN with a new key (proof S1 on unfixed code: `2 !== 1`). Fix: ONE durable identity per logical attempt minted from the attempts table under the per-participant advisory lock; an unresolved prior attempt is reconciled through the provider status seam BEFORE any fresh money call (executed → apply; never executed → reuse the same key; ambiguous → reconcile rail); a lease fence is the last statement before every provider call. 10/10 crash/reclaim scenarios (charge, recovery, refund, release).
+2. **F2 HIGH — FIXED**: money state and the 8% fee-ledger entry were two transactions; a crash between them left ChargedSuccess with no ledger row forever (proof L1: `STATE/LEDGER SPLIT`). Fix: ledger written inside the state transaction (`insideTx`). 2/2.
+3. **Documented, not changed**: F4 residual window relies on provider idempotency (Grow contract unverified — R9B blocker); F5 fee-VAT half-cent ties resolved by float (≤1 agora, net reconciles); F6 ingest rows stuck in `processing` are never re-processed under the same id; F8 duplicate charge job fails noisily instead of no-op; F9 mock status always “captured”.
+4. **Confirmed SAFE / INTENDED**: same-buyer multiple participations are the spec (D4) — concurrency proof 4/4; inventory/threshold single-transition by DB construction; terminal states immune to late webhooks/reconcile/release (5/5); 8% exact across a 500,000-cent sweep, delivery included, VAT excluded, distributor 0 (7/7).
+
+No migrations. No Codex Product-UX files touched. Test-only fault points (NODE_ENV=test). Details: docs/R9C_CLAUDE_SYSTEM_RED_TEAM.md.
+
+---
+
 ## P0.6A GEOLOCATION OWNER HOTFIX — ENGINEERING COMPLETE (2026-09-03) — STATUS: OWNER_ACCEPTANCE_REQUIRED
 
 **COMPLETED: 100% of the engineering scope. TESTED: 27/27 deterministic strategy tests + 9/9 real-browser (headless Edge/CDP) scenarios against the real bundle + unit group 10/10 + lint. OPEN: owner re-test on his own device/browser (only he can prove his OS/browser permission state). PERCENTAGE: 100% engineering / owner acceptance pending. NEXT STEP: owner clicks "📍 השתמש במיקום שלי" in the Preview; if it still fails, the notice now shows a one-line diagnostic (`kind=… permission=… attempts=…`) — copy it into the report. No migrations. No delivery schema/API change. Codex Product scope untouched.**
