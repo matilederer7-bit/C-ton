@@ -284,7 +284,7 @@ async function createDeal(title: string, config: { minUnits?: number; maxUnits?:
       max_units: config.maxUnits ?? 24,
       deadline: new Date(Date.now() + 4 * 60 * 60_000).toISOString(),
       delivery_options: [
-        { option_type: "pickup", label: "איסוף עצמי", cost: 0, sort_order: 0 },
+        { option_type: "pickup", label: "איסוף עצמי — רח׳ הרצל 12, תל אביב", cost: 0, sort_order: 0 },
         { option_type: "delivery", label: "שליח עד הבית", cost: 18, sort_order: 1 },
         {
           option_type: "distribution_point",

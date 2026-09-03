@@ -544,11 +544,18 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   display: grid; gap: 4px; justify-items: center; text-align: center;
 }
 .deal-countdown-label { font-size: .82rem; font-weight: 700; color: var(--ink-soft); }
-.live-countdown {
-  font-variant-numeric: tabular-nums; font-weight: 800; letter-spacing: .04em;
-  font-size: 1.55rem; color: var(--ink);
-}
-.live-countdown.final { color: var(--accent-cyan); text-shadow: var(--accent-cyan-glow); }
+/* P0.7 — four unit cells: label ABOVE, un-padded number BELOW (web/src/countdown.ts) */
+.live-countdown { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; width: 100%; max-width: 380px; font-variant-numeric: tabular-nums; }
+.cd-unit { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; padding: 6px 2px; border-radius: var(--radius-sm); background: var(--surface); border: 1px solid var(--line); }
+.cd-label { font-size: .72rem; font-weight: 700; color: var(--ink-soft); white-space: nowrap; line-height: 1.2; }
+.cd-num { font-size: 1.6rem; font-weight: 800; line-height: 1.1; color: var(--ink); direction: ltr; unicode-bidi: isolate; letter-spacing: .02em; }
+.live-countdown.final .cd-num { color: var(--accent-cyan); text-shadow: var(--accent-cyan-glow); }
+.live-countdown.reached .cd-num { color: var(--ink-faint); }
+.live-countdown.compact { max-width: 300px; gap: 4px; }
+.live-countdown.compact .cd-unit { padding: 3px 2px; background: transparent; border: none; }
+.live-countdown.compact .cd-num { font-size: 1.15rem; }
+.live-countdown.compact .cd-label { font-size: .66rem; }
+@media (max-width: 420px) { .live-countdown { max-width: 100%; gap: 4px; } .cd-num { font-size: 1.35rem; } .cd-label { font-size: .68rem; } }
 .seller-countdown-block {
   margin-top: 12px; padding: 10px 14px; border-radius: var(--radius-sm);
   background: var(--bg-deep); border: 1px solid var(--line);
@@ -1143,3 +1150,39 @@ tr.clickable:hover { background: var(--brand-tint); }
 .panel-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 16px; }
 .notes-list { margin: 0; padding-inline-start: 18px; color: var(--ink-soft); font-size: .9rem; line-height: 1.7; }
 @media (max-width: 720px) { .panel-grid-2 { grid-template-columns: 1fr; } }
+
+/* ── P0.7 pickup location on the public deal (same renderer = buyer preview) ── */
+.pickup-location { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; margin: -2px 0 6px; padding-inline-start: 34px; font-size: .92rem; }
+.pickup-location-text { font-weight: 600; overflow-wrap: anywhere; }
+.pickup-location-text.muted { font-weight: 500; }
+.delivery-option.static { flex-wrap: wrap; cursor: default; }
+.delivery-option.static .pickup-location { flex-basis: 100%; padding-inline-start: 0; margin: 0; }
+.pickup-loc { color: var(--ink-soft); }
+.pickup-missing { color: var(--saffron); font-weight: 600; }
+.hp-field { position: absolute; left: -9999px; width: 1px; height: 1px; opacity: 0; }
+
+/* ── P0.7 internal inquiries (public deal + seller command center) ─────── */
+.inq-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; height: 22px; padding: 0 7px; margin-inline-start: 8px; border-radius: 999px; background: var(--brand); color: #fff; font-size: .78rem; font-weight: 800; vertical-align: middle; }
+.inq-list { display: grid; gap: 8px; margin-top: 10px; }
+.inq-row { display: flex; align-items: center; gap: 10px; width: 100%; text-align: start; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; cursor: pointer; color: inherit; font: inherit; min-height: 56px; }
+.inq-row:hover { border-color: var(--line-strong); }
+.inq-row.unread { border-inline-start: 4px solid var(--brand); }
+.inq-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--line-strong); flex: none; }
+.inq-row.unread .inq-dot { background: var(--brand); box-shadow: 0 0 0 3px var(--brand-tint); }
+.inq-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.inq-head { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inq-preview { color: var(--ink-soft); font-size: .88rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.inq-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+.inq-status { font-size: .74rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; background: var(--bg-deep); border: 1px solid var(--line); color: var(--ink-soft); white-space: nowrap; }
+.inq-status.Open { color: var(--saffron); border-color: var(--saffron); }
+.inq-status.Answered { color: var(--success); border-color: var(--success); }
+.inq-thread { display: grid; gap: 8px; }
+.inq-msg { max-width: 92%; padding: 10px 12px; border-radius: var(--radius); background: var(--bg-deep); border: 1px solid var(--line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.inq-msg.seller { background: var(--brand-tint); border-color: var(--brand); margin-inline-start: auto; }
+.inq-msg-meta { font-size: .74rem; color: var(--ink-soft); margin-bottom: 4px; }
+.inq-reply { display: grid; gap: 8px; margin-top: 14px; }
+.inq-reply textarea { width: 100%; }
+.inq-card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 8px; margin-bottom: 8px; }
+.inq-followup { display: flex; gap: 8px; }
+.inq-followup input { flex: 1; min-width: 0; }
+@media (max-width: 560px) { .inq-meta { display: none; } .inq-row { min-height: 52px; } }

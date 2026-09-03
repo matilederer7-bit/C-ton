@@ -43,7 +43,7 @@ async function createDeal(): Promise<string> {
       seller_id: SELLER_ID, title: "R6 Viral Deal", description: "viral graph proof",
       price_per_unit: 50, min_units: 3, max_units: 100,
       deadline: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "Pickup", cost: 0 }, { option_type: "delivery", label: "Ship", cost: 15 }]
+      delivery_options: [{ option_type: "pickup", label: "Pickup — Herzl 12, Tel Aviv", cost: 0 }, { option_type: "delivery", label: "Ship", cost: 15 }]
     }
   });
   assert.equal(create.statusCode, 200, create.body);

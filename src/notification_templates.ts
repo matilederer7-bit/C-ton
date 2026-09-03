@@ -12,6 +12,7 @@ export const NOTIFICATION_EVENT_TYPES = [
   "seller_deal_completed",
   "seller_deal_failed",
   "seller_excel_ready",
+  "seller_customer_inquiry",
   "seller_kyc_approved",
   "seller_kyc_rejected",
   "seller_payout_frozen",
@@ -38,6 +39,7 @@ export const NOTIFICATION_TEMPLATE_KEYS = [
   "seller_deal_completed_he",
   "seller_deal_failed_he",
   "seller_excel_ready_he",
+  "seller_customer_inquiry_he",
   "seller_kyc_approved_he",
   "seller_kyc_rejected_he",
   "seller_payout_frozen_he",
@@ -157,6 +159,18 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     render: (p) => ({
       subject: `העסקה פורסמה: ${dealTitle(p)}`,
       body: `העסקה "${dealTitle(p)}" פורסמה. ניתן לשתף את לינק העסקה ממסך המוכר.`
+    })
+  },
+  // P0.7 — a POINTER back into the product. The e-mail never carries the
+  // customer message: the authoritative conversation stays inside the product.
+  seller_customer_inquiry_he: {
+    eventType: "seller_customer_inquiry",
+    templateKey: "seller_customer_inquiry_he",
+    compatibleChannels: ["email", "internal"],
+    requiredPayloadFields: ["deal_title", "deal_id", "thread_id", "inquiry_url"],
+    render: (p) => ({
+      subject: "יש לך פנייה חדשה מלקוח ב-C-ton",
+      body: `התקבלה פנייה חדשה מלקוח בנוגע לעסקה שלך "${dealTitle(p)}" ב-C-ton.\nכדי לצפות בפנייה ולהשיב, היכנס ל-C-ton:\n${text(p.inquiry_url)}\n\nהתשובה נכתבת בתוך C-ton בלבד — אין להשיב למייל זה.`
     })
   },
   seller_target_reached_he: {

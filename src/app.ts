@@ -1,4 +1,5 @@
 import { assertRequiredTables } from "./schema_contract.js";
+import { pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
 import { pool } from "./db.js";
 import {
@@ -3698,6 +3699,11 @@ app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
     if (options.some((option: any) => !option.label || !Number.isFinite(option.cost) || option.cost < 0)) {
       throw Object.assign(new Error("delivery_options contain invalid values"), { statusCode: 400, code: "delivery_options_invalid" });
     }
+    // P0.7 — a PUBLISHED deal can never end up advertising self-pickup without a
+    // location (a Draft may stay incomplete; publish enforces the same rule).
+    if (state !== "Draft" && pickupOptionsMissingLocation(options).length) {
+      throw Object.assign(new Error("self-pickup options require a usable pickup location"), { statusCode: 409, code: "pickup_location_required" });
+    }
 
     const before = await c.query(
       `SELECT option_type, label, cost, sort_order, latitude, longitude
@@ -4258,6 +4264,28 @@ app.post("/deals/:id/publish", async (req: any) => {
       err.statusCode = 409;
       err.code = "seller_kyc_not_approved";
       throw err;
+    }
+
+    // P0.7 — pickup readiness: a physical deal that offers self-pickup or a
+    // distribution point may only go live when EACH such option carries a
+    // usable location (address text or explicit coordinates). The rule is the
+    // shared pickup_location module — the same one the wizard, the publish
+    // checklist and the public renderer use. Legacy deals already published
+    // without a location stay readable; this gate runs only at publish time.
+    const dealTypeRow = await c.query(`SELECT deal_type FROM siton.deals WHERE deal_id=$1`, [dealId]);
+    if (String(dealTypeRow.rows[0]?.deal_type || "physical_product") === "physical_product") {
+      const pickupRows = await c.query(
+        `SELECT option_type, label, latitude, longitude FROM siton.deal_delivery_options WHERE deal_id=$1 ORDER BY sort_order ASC`,
+        [dealId]
+      );
+      const missingLocation = pickupOptionsMissingLocation(pickupRows.rows as any[]);
+      if (missingLocation.length) {
+        const err: any = new Error("self-pickup options require a usable pickup location before publishing");
+        err.statusCode = 409;
+        err.code = "pickup_location_required";
+        err.details = { options_missing_location: missingLocation.map((o: any) => ({ option_type: o.option_type, label: o.label })) };
+        throw err;
+      }
     }
   });
 

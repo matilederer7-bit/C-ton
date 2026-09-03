@@ -336,7 +336,7 @@ await run("POST /deals/:id/join without OTP returns otp_required", async () => {
   );
   await pool.query(
     `INSERT INTO siton.deal_delivery_options (option_id, deal_id, option_type, label, cost, sort_order)
-     VALUES (gen_random_uuid(), $1, 'pickup', 'איסוף עצמי', 0, 0)`,
+     VALUES (gen_random_uuid(), $1, 'pickup', 'איסוף עצמי — רח׳ הרצל 12, תל אביב', 0, 0)`,
     [dealId]
   );
   const res = await app.inject({

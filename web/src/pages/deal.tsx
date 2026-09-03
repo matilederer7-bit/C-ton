@@ -1,27 +1,77 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
   BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, useToast
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
+import { hebrewError } from "../he";
 import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, ils, initialOf, num, timeAgo } from "../util";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId, visitorId } from "../viral";
+// P0.7 — ONE pickup-location rule shared with the server (publish gate, seller
+// payload, public payload): the buyer preview IS this page, so what a seller
+// previews is exactly what buyers see after publication.
+import { hasUsablePickupLocation, isPickupOptionType, pickupDirectionsUrl, pickupLocationText } from "../../../src/pickup_location";
 
 const OPEN_STATES = ["PendingTarget", "TargetReached"];
 
-type DeliveryOption = { option_id: string; option_type: string; label: string; cost: number; latitude?: number | null; longitude?: number | null };
-
-// Free map navigation (no paid provider): a universal Google-Maps directions
-// URL that opens the native map app on phones.
-function mapsNavUrl(option: DeliveryOption | null | undefined): string | null {
-  if (!option || option.latitude == null || option.longitude == null) return null;
-  const lat = Number(option.latitude), lng = Number(option.longitude);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-}
+type DeliveryOption = {
+  option_id: string; option_type: string; label: string; cost: number;
+  latitude?: number | null; longitude?: number | null;
+  location_text?: string | null; has_location?: boolean; map_url?: string | null;
+};
 
 const DELIVERY_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
 const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
+
+// The option's display name: pickup-type options show the canonical type name
+// ("איסוף עצמי") and their LOCATION underneath; delivery keeps the seller label.
+function deliveryOptionTitle(o: DeliveryOption): string {
+  if (isPickupOptionType(o.option_type)) return DELIVERY_NAMES[o.option_type] || o.label;
+  return o.label || DELIVERY_NAMES[o.option_type] || "אספקה";
+}
+
+// P0.7 — the pickup location block. Shows ONLY what was configured for THIS
+// option (address text, else "marked on the map" when only coordinates exist);
+// a legacy option without any location gets a neutral fallback — never an
+// invented address, never a seller-profile address.
+function PickupLocationLine({ option, showNav }: { option: DeliveryOption; showNav: boolean }) {
+  if (!isPickupOptionType(option.option_type)) return null;
+  const text = pickupLocationText(option);
+  const nav = pickupDirectionsUrl(option);
+  const usable = hasUsablePickupLocation(option);
+  return (
+    <div className="pickup-location" data-testid="pickup-location" data-option-type={option.option_type} data-has-location={usable ? "1" : "0"}>
+      {text ? (
+        <span className="pickup-location-text" data-testid="pickup-location-text">📍 {text}</span>
+      ) : nav ? (
+        <span className="pickup-location-text" data-testid="pickup-location-text">📍 נקודת האיסוף מסומנת במפה</span>
+      ) : (
+        <span className="pickup-location-text muted" data-testid="pickup-location-fallback">📍 המוכר טרם פרסם כתובת לנקודת האיסוף — אפשר לשאול דרך ״פנייה למוכר״</span>
+      )}
+      {nav && showNav ? (
+        <a className="btn btn-ghost btn-sm" data-testid="pickup-nav" href={nav} target="_blank" rel="noreferrer">🧭 פתח במפה</a>
+      ) : null}
+    </div>
+  );
+}
+
+// Closed / non-joinable states still tell a joined buyer HOW they receive the
+// goods — same renderer as the open-state option list.
+function FulfillmentSummary({ options }: { options: DeliveryOption[] }) {
+  if (!options.length) return null;
+  return (
+    <div className="stack" style={{ gap: 6, marginTop: 10 }} data-testid="fulfillment-summary">
+      <span style={{ fontWeight: 700 }}>אופן קבלה</span>
+      {options.map((o) => (
+        <div key={o.option_id} className="delivery-option static">
+          <span>{DELIVERY_ICONS[o.option_type] || "📦"} {deliveryOptionTitle(o)}</span>
+          <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
+          <PickupLocationLine option={o} showNav />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function Gallery({ images, title, type }: { images: { url: string }[]; title: string; type: string }) {
   const [idx, setIdx] = useState(0);
@@ -161,6 +211,211 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
   );
 }
 
+// ── P0.7 — internal buyer → seller inquiry ("פנייה למוכר") ─────────────────
+// The buyer never sees the seller's e-mail. The inquiry is stored inside the
+// product (the DEAL determines the seller server-side); the seller gets a
+// pointer notification and answers in the product; the buyer reads the answer
+// right here under "הפניות שלי" (per-thread access token kept in this browser).
+const INQUIRY_STORE_KEY = "siton_inquiries_v1";
+const INQUIRY_IDENTITY_KEY = "siton_inquiry_identity_v1";
+type StoredInquiry = { thread_id: string; token: string; created_at: string };
+const INQUIRY_STATUS_LABEL: Record<string, string> = {
+  Open: "נשלחה — ממתינה לתשובת המוכר",
+  Answered: "המוכר השיב",
+  Closed: "נסגרה"
+};
+
+function readStoredInquiries(dealId: string): StoredInquiry[] {
+  try {
+    const all = JSON.parse(localStorage.getItem(INQUIRY_STORE_KEY) || "{}");
+    const list = Array.isArray(all?.[dealId]) ? all[dealId] : [];
+    return list.filter((x: any) => x && typeof x.thread_id === "string" && typeof x.token === "string");
+  } catch { return []; }
+}
+function storeInquiry(dealId: string, item: StoredInquiry): void {
+  try {
+    const all = JSON.parse(localStorage.getItem(INQUIRY_STORE_KEY) || "{}");
+    const list = Array.isArray(all?.[dealId]) ? all[dealId] : [];
+    all[dealId] = [item, ...list.filter((x: any) => x?.thread_id !== item.thread_id)].slice(0, 5);
+    localStorage.setItem(INQUIRY_STORE_KEY, JSON.stringify(all));
+  } catch { /* storage unavailable — the inquiry still exists server-side */ }
+}
+function readInquiryIdentity(): { name: string; email: string } {
+  try {
+    const v = JSON.parse(localStorage.getItem(INQUIRY_IDENTITY_KEY) || "{}");
+    return { name: String(v?.name || ""), email: String(v?.email || "") };
+  } catch { return { name: "", email: "" }; }
+}
+function storeInquiryIdentity(name: string, email: string): void {
+  try { localStorage.setItem(INQUIRY_IDENTITY_KEY, JSON.stringify({ name, email })); } catch { /* noop */ }
+}
+
+function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => void; onSent: () => void }) {
+  const identity = readInquiryIdentity();
+  const [name, setName] = useState(identity.name);
+  const [email, setEmail] = useState(identity.email);
+  const [message, setMessage] = useState("");
+  const [website, setWebsite] = useState(""); // honeypot — humans never see it
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (busy) return;
+    if (name.trim().length < 2) { setError("יש להזין שם"); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) { setError("יש להזין כתובת אימייל תקינה"); return; }
+    if (message.trim().length < 3) { setError("כתבו למוכר כמה מילים"); return; }
+    setBusy(true); setError("");
+    try {
+      const r = await api.dealInquiry(String(deal.deal_id), { name: name.trim(), email: email.trim(), message: message.trim(), website });
+      if (r?.thread_id && r?.access_token) {
+        storeInquiry(String(deal.deal_id), { thread_id: String(r.thread_id), token: String(r.access_token), created_at: new Date().toISOString() });
+      }
+      storeInquiryIdentity(name.trim(), email.trim());
+      setSent(true);
+      onSent();
+    } catch (err: any) {
+      setError(hebrewError(err));
+    }
+    setBusy(false);
+  };
+
+  if (sent) {
+    return (
+      <Modal title="" onClose={onClose}>
+        <div className="share-moment" data-testid="inquiry-success">
+          <div style={{ fontSize: "2.2rem" }}>✅</div>
+          <h3>הפנייה נשלחה למוכר דרך C-ton.</h3>
+          <p>
+            המוכר קיבל התראה ויענה לך כאן, בדף העסקה, תחת ״הפניות שלי״.
+            פרטי הקשר של המוכר אינם נחשפים — השיחה מתנהלת בתוך C-ton.
+          </p>
+          <button className="btn btn-primary btn-block" data-testid="inquiry-done" onClick={onClose}>סגירה</button>
+        </div>
+      </Modal>
+    );
+  }
+  return (
+    <Modal
+      title="פנייה למוכר"
+      onClose={onClose}
+      footer={
+        <>
+          {error ? <div className="notice err" style={{ marginTop: 0 }} data-testid="inquiry-error">{error}</div> : null}
+          <button className="btn btn-primary btn-block" form="inquiry-form" data-testid="inquiry-submit" disabled={busy}>
+            {busy ? "שולחים…" : "שליחת הפנייה"}
+          </button>
+        </>
+      }
+    >
+      <form id="inquiry-form" onSubmit={submit} noValidate>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          הפנייה נשלחת למוכר בתוך C-ton, בלי לחשוף פרטי קשר של אף צד. התשובה תופיע כאן, בדף העסקה.
+        </p>
+        <div className="field"><label>שם</label><input data-testid="inquiry-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></div>
+        <div className="field">
+          <label>אימייל <span className="hint">(לזיהוי הפנייה — מוצג למוכר באופן חלקי בלבד)</span></label>
+          <input data-testid="inquiry-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={200} />
+        </div>
+        <div className="field">
+          <label>ההודעה למוכר</label>
+          <textarea data-testid="inquiry-message" rows={4} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)}
+            placeholder={`שאלה על "${String(deal.title || "")}"…`} />
+          <span className="hint">{message.length}/2000</span>
+        </div>
+        <input type="text" className="hp-field" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
+      </form>
+    </Modal>
+  );
+}
+
+function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: number }) {
+  const [threads, setThreads] = useState<Json[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      const items = readStoredInquiries(dealId).slice(0, 3);
+      if (!items.length) { setThreads([]); return; }
+      Promise.all(items.map((it) => api.inquiryThread(it.thread_id, it.token).then((r) => ({ ...r, token: it.token })).catch(() => null)))
+        .then((rs) => { if (alive) setThreads(rs.filter(Boolean) as Json[]); });
+    };
+    load();
+    const id = setInterval(load, 30_000);
+    return () => { alive = false; clearInterval(id); };
+  }, [dealId, refreshKey]);
+
+  if (!threads.length) return null;
+  const followUp = async (t: Json) => {
+    const threadId = String(t.thread.thread_id);
+    const text = String(drafts[threadId] || "").trim();
+    if (!text || busy) return;
+    setBusy(threadId); setError("");
+    try {
+      const r = await api.inquiryFollowUp(threadId, { access_token: t.token, message: text });
+      setDrafts((d) => ({ ...d, [threadId]: "" }));
+      const fresh = await api.inquiryThread(threadId, t.token);
+      setThreads((prev) => prev.map((x) => (String(x.thread.thread_id) === threadId ? { ...fresh, token: t.token } : x)));
+      if (r?.duplicate) setError("ההודעה הזו כבר נשלחה");
+    } catch (err: any) { setError(hebrewError(err)); }
+    setBusy("");
+  };
+  return (
+    <div className="my-inquiries" data-testid="my-inquiries">
+      <div className="section-title" style={{ margin: "14px 0 8px" }}>הפניות שלי</div>
+      {threads.map((t) => {
+        const threadId = String(t.thread.thread_id);
+        return (
+          <div className="inq-card" key={threadId} data-testid="my-inquiry" data-status={t.thread.status}>
+            <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
+              <span className={`inq-status ${String(t.thread.status)}`}>{INQUIRY_STATUS_LABEL[String(t.thread.status)] || String(t.thread.status)}</span>
+              <span className="muted small">{timeAgo(t.thread.last_message_at)}</span>
+            </div>
+            <div className="inq-thread">
+              {(t.messages as Json[]).map((m) => (
+                <div className={`inq-msg ${String(m.sender_type).toLowerCase()}`} key={m.message_id} data-testid={`my-inquiry-msg-${String(m.sender_type).toLowerCase()}`}>
+                  <div className="inq-msg-meta">{m.sender_type === "Seller" ? String(t.thread.seller_display || "המוכר") : "אני"} · {timeAgo(m.created_at)}</div>
+                  <div className="inq-msg-body">{m.body}</div>
+                </div>
+              ))}
+            </div>
+            {t.thread.status !== "Closed" ? (
+              <form className="inq-followup" onSubmit={(e) => { e.preventDefault(); void followUp(t); }}>
+                <input data-testid="inquiry-followup" placeholder="הודעת המשך למוכר…" maxLength={2000}
+                  value={drafts[threadId] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [threadId]: e.target.value }))} />
+                <button className="btn btn-sm btn-ghost" disabled={busy === threadId || !(drafts[threadId] || "").trim()}>שליחה</button>
+              </form>
+            ) : null}
+          </div>
+        );
+      })}
+      {error ? <div className="notice err">{error}</div> : null}
+    </div>
+  );
+}
+
+function SellerContactPanel({ seller, whatsapp, onOpen, dealId, refreshKey }: {
+  seller: Json; whatsapp: string | null; onOpen: () => void; dealId: string; refreshKey: number;
+}) {
+  return (
+    <div className="panel" data-testid="seller-contact-panel">
+      <div className="panel-title">🏪 המוכר</div>
+      <p style={{ marginBottom: 8 }}><b>{seller.business_name || "המוכר"}</b></p>
+      {seller.business_description ? <p className="muted small">{seller.business_description}</p> : null}
+      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+        <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen}>✉️ פנייה למוכר</button>
+        {whatsapp ? <a className="btn btn-ghost" href={whatsapp} target="_blank" rel="noreferrer">וואטסאפ</a> : null}
+      </div>
+      <p className="muted small" style={{ margin: "8px 0 0" }}>הפנייה נשלחת ונענית בתוך C-ton — התשובה תופיע כאן בדף העסקה.</p>
+      <MyInquiries dealId={dealId} refreshKey={refreshKey} />
+    </div>
+  );
+}
+
 // Join flow — on phones this renders as a FULL-HEIGHT sheet (via Modal):
 // pinned header, scrollable form body, and a sticky footer CTA that stays
 // reachable with the keyboard open and above browser chrome.
@@ -238,6 +493,9 @@ function JoinModal(props: {
         <div className="order-summary" style={{ borderTop: "none", marginTop: 0, paddingTop: 0, marginBottom: 14 }}>
           <div className="order-row"><span>{deal.title}</span><span>{num(qty)} × {ils(deal.price_per_unit)}</span></div>
           {delivery ? <div className="order-row"><span>{DELIVERY_NAMES[delivery.option_type] || delivery.label}</span><span>{delivery.cost ? ils(delivery.cost) : "חינם"}</span></div> : null}
+          {delivery && isPickupOptionType(delivery.option_type) && pickupLocationText(delivery) ? (
+            <div className="order-row"><span className="muted small">📍 {pickupLocationText(delivery)}</span><span /></div>
+          ) : null}
           <div className="order-row total"><span>סה״כ לתפיסת מסגרת</span><span>{ils(total)}</span></div>
         </div>
         <div className="field"><label>שם מלא</label><input data-testid="join-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" /></div>
@@ -346,6 +604,9 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
   const [timeUp, setTimeUp] = useState(false);
   const prevState = useRef<string>("");
   const [toast, showToast] = useToast();
+  // P0.7 — internal inquiry sheet + "my inquiries" refresh
+  const [inquiryOpen, setInquiryOpen] = useState(false);
+  const [inquiryRefresh, setInquiryRefresh] = useState(0);
 
   useEffect(() => {
     let alive = true;
@@ -408,11 +669,12 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
       ? "הצטרפו ליחידות האחרונות"
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
 
+  // P0.7 — contact stays INSIDE the product ("פנייה למוכר"). The seller's
+  // e-mail is not in the public payload at all; WhatsApp stays an optional
+  // secondary channel only when the seller published a support phone.
   const whatsappSeller = seller.support_phone
     ? `https://wa.me/${String(seller.support_phone).replace(/[^\d]/g, "").replace(/^0/, "972")}?text=${encodeURIComponent(`היי, אני מעוניין בפרטים נוספים לגבי העסקה "${deal.title}" ב-C-ton`)}`
-    : seller.support_email
-      ? `mailto:${seller.support_email}?subject=${encodeURIComponent(`שאלה על העסקה ${deal.title}`)}`
-      : null;
+    : null;
 
   // Mobile-first: one column in EXACTLY the decision order a phone buyer
   // needs — identity, image, price, progress, deadline, quantity, delivery,
@@ -473,25 +735,19 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
                 <QtyStepper value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
               </div>
               {deliveryOptions.length > 0 ? (
-                <div className="stack" style={{ gap: 8, marginBottom: 4 }}>
+                <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">
                   <span style={{ fontWeight: 700 }}>אופן קבלה</span>
-                  {deliveryOptions.map((o) => {
-                    const nav = mapsNavUrl(o);
-                    return (
-                      <React.Fragment key={o.option_id}>
-                        <label className={`delivery-option${o.option_id === deliveryId ? " selected" : ""}`}>
-                          <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
-                          <span>{DELIVERY_ICONS[o.option_type] || "📦"} {o.label || DELIVERY_NAMES[o.option_type]}</span>
-                          <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
-                        </label>
-                        {nav && o.option_id === deliveryId ? (
-                          <a className="btn btn-ghost btn-sm" data-testid="pickup-nav" href={nav} target="_blank" rel="noreferrer" style={{ alignSelf: "flex-start" }}>
-                            🧭 ניווט לנקודת האיסוף
-                          </a>
-                        ) : null}
-                      </React.Fragment>
-                    );
-                  })}
+                  {deliveryOptions.map((o) => (
+                    <React.Fragment key={o.option_id}>
+                      <label className={`delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type}>
+                        <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
+                        <span>{DELIVERY_ICONS[o.option_type] || "📦"} {deliveryOptionTitle(o)}</span>
+                        <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
+                      </label>
+                      {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}
+                      <PickupLocationLine option={o} showNav={o.option_id === deliveryId} />
+                    </React.Fragment>
+                  ))}
                 </div>
               ) : null}
               <div className="order-summary">
@@ -514,6 +770,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
               <p className="muted small" style={{ marginBottom: 0 }}>
                 {state === "Completed" ? "העסקה הושלמה — המצטרפים חויבו וקיבלו עדכון." : "לא ניתן להצטרף לעסקה במצבה הנוכחי."}
               </p>
+              <FulfillmentSummary options={deliveryOptions} />
             </div>
           )}
 
@@ -545,14 +802,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
           </div>
           <ActivityTicker activity={activity} />
           <ChatPanel dealId={dealId} canWrite={OPEN_STATES.includes(state)} />
-          {whatsappSeller ? (
-            <div className="panel">
-              <div className="panel-title">🏪 המוכר</div>
-              <p style={{ marginBottom: 8 }}><b>{seller.business_name || "המוכר"}</b></p>
-              {seller.business_description ? <p className="muted small">{seller.business_description}</p> : null}
-              <a className="btn btn-ghost" href={whatsappSeller} target="_blank" rel="noreferrer">שאלות? צרו קשר עם המוכר</a>
-            </div>
-          ) : null}
+          <SellerContactPanel seller={seller} whatsapp={whatsappSeller} onOpen={() => setInquiryOpen(true)} dealId={dealId} refreshKey={inquiryRefresh} />
           <div className="panel" style={{ textAlign: "center" }}>
             <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
             <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
@@ -560,6 +810,9 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
         </div>
       </div>
 
+      {inquiryOpen ? (
+        <InquiryModal deal={deal} onClose={() => setInquiryOpen(false)} onSent={() => setInquiryRefresh((n) => n + 1)} />
+      ) : null}
       {joining && !joinResult ? (
         <JoinModal
           deal={deal}

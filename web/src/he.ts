@@ -66,7 +66,16 @@ const CODE_MESSAGES: Record<string, string> = {
   payment_method_invalid: "יש לבחור אמצעי תשלום: כרטיס אשראי או bit",
   // P0.3 — business profile
   business_profile_email_invalid: "אחת מכתובות האימייל בפרופיל העסקי אינה תקינה",
-  bank_account_invalid: "מספר חשבון הבנק אינו תקין"
+  bank_account_invalid: "מספר חשבון הבנק אינו תקין",
+  // P0.7 — internal inquiries + pickup readiness
+  inquiry_name_required: "יש להזין שם",
+  inquiry_email_invalid: "יש להזין כתובת אימייל תקינה",
+  inquiry_message_too_short: "כתבו למוכר כמה מילים (לפחות 3 תווים)",
+  inquiry_message_too_long: "ההודעה ארוכה מדי (עד 2000 תווים)",
+  inquiry_rate_limited: "נשלחו יותר מדי פניות בשעה האחרונה — נסו שוב מאוחר יותר",
+  inquiry_deal_unavailable: "העסקה אינה זמינה לפניות",
+  inquiry_not_found: "הפנייה לא נמצאה",
+  pickup_location_required: "לאיסוף עצמי / נקודת חלוקה חסרה כתובת או מיקום — עדכנו באפשרויות האספקה לפני הפרסום"
 };
 
 const PATTERN_MESSAGES: [RegExp, string][] = [

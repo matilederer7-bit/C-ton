@@ -36,7 +36,7 @@ async function createDeal(suffix: string, publish = true) {
       min_units: 3,
       max_units: 12,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "Pickup", cost: 0 }]
+      delivery_options: [{ option_type: "pickup", label: "Pickup — Herzl 12, Tel Aviv", cost: 0 }]
     }
   });
   assert.equal(create.statusCode, 200);

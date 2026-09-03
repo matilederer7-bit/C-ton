@@ -101,7 +101,7 @@ async function createAndPublishNoLogDeal(suffix: string) {
       min_units: 1,
       max_units: 5,
       deadline: new Date(Date.now() + 3 * 3600_000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "Self Pickup", cost: 0, sort_order: 0 }]
+      delivery_options: [{ option_type: "pickup", label: "Self Pickup — Herzl 12, Tel Aviv", cost: 0, sort_order: 0 }]
     }
   });
   assert.ok(cr.statusCode === 200 || cr.statusCode === 201, `expected 200/201, got ${cr.statusCode}: ${cr.body}`);

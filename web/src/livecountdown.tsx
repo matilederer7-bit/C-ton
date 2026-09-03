@@ -1,15 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
+import {
+  COUNTDOWN_TICK_MS, COUNTDOWN_UNITS, countdownAccessibleLabel, countdownParts, formatCountdownNumber,
+  sameCountdownParts, type CountdownParts
+} from "./countdown";
 
-// ── LiveCountdown (P0.3-2) — a real drift-free clock ────────────────────────
+// ── LiveCountdown (P0.3-2 clock, P0.7 presentation) ─────────────────────────
 // * canonical deadline (UTC ISO) + a server-time offset (from the response
 //   Date header) anchor the countdown to authoritative time
 // * rendering is anchored to performance.now(), recomputed ABSOLUTELY every
-//   frame — never an accumulating setInterval
-// * above 1 hour: ‎DD ימים HH:MM:SS (1s cadence)
-// * under 1 hour: HH:MM:SS:CC with hundredths via requestAnimationFrame
+//   tick — never an accumulating setInterval
+// * four unit cells — label ABOVE, un-padded number BELOW (web/src/countdown.ts)
 // * hidden document pauses the loop; visibility return re-anchors from
 //   authoritative time
-// * at zero: 00:00:00:00 and onZero fires once (UI flips to closed)
+// * at zero: every unit shows 0 and onZero fires once (UI flips to closed);
+//   nothing here ever contradicts the server deal state — it only presents time
 
 let serverOffsetPromise: Promise<number> | null = null;
 function getServerOffsetMs(): Promise<number> {
@@ -31,32 +35,20 @@ function getServerOffsetMs(): Promise<number> {
   return serverOffsetPromise;
 }
 
-const pad2 = (n: number) => String(Math.max(0, n)).padStart(2, "0");
-
-function formatRemaining(ms: number): { text: string; final: boolean } {
-  if (ms <= 0) return { text: "00:00:00:00", final: true };
-  const totalSec = Math.floor(ms / 1000);
-  const days = Math.floor(totalSec / 86400);
-  const hours = Math.floor((totalSec % 86400) / 3600);
-  const minutes = Math.floor((totalSec % 3600) / 60);
-  const seconds = totalSec % 60;
-  if (ms > 3600_000) {
-    return { text: `${pad2(days)} ימים ${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}`, final: false };
-  }
-  const hundredths = Math.floor((ms % 1000) / 10);
-  return { text: `${pad2(hours)}:${pad2(minutes)}:${pad2(seconds)}:${pad2(hundredths)}`, final: true };
-}
-
-export function LiveCountdown({ deadline, onZero, className }: { deadline: string | null | undefined; onZero?: () => void; className?: string }) {
-  const [display, setDisplay] = useState<{ text: string; final: boolean } | null>(null);
+export function LiveCountdown({ deadline, onZero, className, compact }: {
+  deadline: string | null | undefined;
+  onZero?: () => void;
+  className?: string;
+  compact?: boolean;
+}) {
+  const [parts, setParts] = useState<CountdownParts | null>(null);
   const zeroFired = useRef(false);
   const onZeroRef = useRef(onZero);
   onZeroRef.current = onZero;
 
   useEffect(() => {
     const deadlineMs = Date.parse(String(deadline || ""));
-    if (!Number.isFinite(deadlineMs)) { setDisplay(null); return; }
-    let raf = 0;
+    if (!Number.isFinite(deadlineMs)) { setParts(null); return; }
     let timer: ReturnType<typeof setTimeout> | null = null;
     let stopped = false;
     let anchorRemaining = 0;
@@ -73,20 +65,14 @@ export function LiveCountdown({ deadline, onZero, className }: { deadline: strin
     const tick = () => {
       if (stopped) return;
       const rem = remainingNow();
-      setDisplay((prev) => {
-        const next = formatRemaining(rem);
-        return prev && prev.text === next.text ? prev : next;
-      });
+      const next = countdownParts(rem);
+      setParts((prev) => (sameCountdownParts(prev, next) ? prev : next));
       if (rem <= 0) {
         if (!zeroFired.current) { zeroFired.current = true; onZeroRef.current?.(); }
-        return; // stop the loop at zero
+        return; // settled at zero — stop the loop
       }
       if (document.hidden) return; // resumes on visibilitychange
-      if (rem <= 3600_000) {
-        raf = requestAnimationFrame(tick); // hundredths need frame cadence
-      } else {
-        timer = setTimeout(tick, 250); // seconds cadence, absolute recompute
-      }
+      timer = setTimeout(tick, COUNTDOWN_TICK_MS);
     };
 
     const start = async () => { await reanchor(); if (!stopped) tick(); };
@@ -95,16 +81,28 @@ export function LiveCountdown({ deadline, onZero, className }: { deadline: strin
     void start();
     return () => {
       stopped = true;
-      cancelAnimationFrame(raf);
       if (timer) clearTimeout(timer);
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [deadline]);
 
-  if (!display) return null;
+  if (!parts) return null;
+  const tone = parts.reached ? " reached" : parts.urgent ? " final" : "";
   return (
-    <span className={`live-countdown${display.final ? " final" : ""}${className ? ` ${className}` : ""}`} dir="ltr" aria-live="off">
-      {display.text}
-    </span>
+    <div
+      className={`live-countdown${tone}${compact ? " compact" : ""}${className ? ` ${className}` : ""}`}
+      role="timer"
+      aria-live="off"
+      aria-label={countdownAccessibleLabel(parts)}
+      data-testid="live-countdown"
+      data-reached={parts.reached ? "1" : "0"}
+    >
+      {COUNTDOWN_UNITS.map((unit) => (
+        <div className="cd-unit" key={unit.key} data-unit={unit.key}>
+          <span className="cd-label" aria-hidden="true">{unit.label}</span>
+          <span className="cd-num" data-testid={`cd-${unit.key}`}>{formatCountdownNumber(parts[unit.key])}</span>
+        </div>
+      ))}
+    </div>
   );
 }

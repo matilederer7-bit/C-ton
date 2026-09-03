@@ -51,6 +51,13 @@ import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
 import { ensureNotificationRailTables } from "./notification_dispatch.js";
+import { describePickupLocation } from "./pickup_location.js";
+import {
+  INQUIRY_LIMITS, INQUIRY_MESSAGE_MAX, INQUIRY_MESSAGE_MIN, INQUIRY_NAME_MAX,
+  enqueueSellerInquiryNotification, ensureSellerInquiryTables, inquiryBodyHash, inquiryPreview,
+  maskEmail, mintCustomerAccessToken, normalizeInquiryEmail, normalizeInquiryText, publicOrigin,
+  verifyCustomerAccessToken
+} from "./seller_inquiries.js";
 import {
   buildOtpProvider,
   ensureOtpRailTables,
@@ -2766,7 +2773,7 @@ export function registerFrontendExperience(
         `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
                 d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
                 d.created_at, d.seller_id, d.deal_type,
-                sa.business_name, sa.support_phone, sa.support_email, sa.business_description
+                sa.business_name, sa.support_phone, sa.business_description
          FROM siton.deals d
          LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
          WHERE d.deal_id=$1
@@ -2857,7 +2864,9 @@ export function registerFrontendExperience(
                 cost: Number(row.cost || 0),
                 sort_order: Number(row.sort_order || 0),
                 latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
-                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
+                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
+                // P0.7 — canonical pickup location projection (shared rule with the seller payload)
+                ...describePickupLocation(row)
               }))
             : [],
           voucher_terms: voucherTerms
@@ -2908,14 +2917,326 @@ export function registerFrontendExperience(
             Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.max_units))) * 100))
           )
         },
+        // P0.7 — the seller's e-mail is NEVER part of the public contract:
+        // buyer→seller contact is the internal inquiry rail ("פנייה למוכר").
         seller: {
           business_name: (deal as any).business_name ?? null,
           support_phone: (deal as any).support_phone ?? null,
-          support_email: (deal as any).support_email ?? null,
-          business_description: (deal as any).business_description ?? null
+          business_description: (deal as any).business_description ?? null,
+          contact_channel: "siton_inquiry"
         },
         availability
       };
+    });
+  });
+
+  // ── P0.7 — internal buyer → seller inquiries ──────────────────────────────
+  // "פנייה למוכר" never reveals the seller's e-mail: the buyer writes INSIDE the
+  // product, the DEAL determines the seller (no browser-supplied seller id), the
+  // thread is the authoritative conversation, and the seller merely receives a
+  // pointer notification through the canonical rail (src/seller_inquiries.ts).
+  const ensureInquiryTables = () => ensureSellerInquiryTables(deps.withTx);
+
+  type InquiryThreadRow = {
+    thread_id: string;
+    deal_id: string;
+    seller_id: string;
+    status: string;
+    customer_ref: string;
+    customer_access_token_hash: string;
+  };
+
+  function inquiryRequestId(req: any): string {
+    return req.headers?.["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomBytes(8).toString("hex")}`;
+  }
+
+  function readInquiryMessage(body: any, reply: any): string | null {
+    const rawMessage = String(body?.message ?? "");
+    const message = normalizeInquiryText(rawMessage, INQUIRY_MESSAGE_MAX);
+    if (rawMessage.trim().length > INQUIRY_MESSAGE_MAX) {
+      reply.code(400).send({ ok: false, error: "message too long", code: "inquiry_message_too_long" });
+      return null;
+    }
+    if (message.length < INQUIRY_MESSAGE_MIN) {
+      reply.code(400).send({ ok: false, error: "message too short", code: "inquiry_message_too_short" });
+      return null;
+    }
+    return message;
+  }
+
+  // Shared by the first submission and by follow-ups: rate limits, retry
+  // dedupe, thread creation, message persistence, rollups, ONE pointer event.
+  async function appendCustomerInquiryMessage(c: any, args: {
+    req: any;
+    reply: any;
+    dealId: string;
+    dealTitle: string;
+    sellerId: string;
+    thread: InquiryThreadRow | null;
+    name: string;
+    email: string;
+    message: string;
+    requestId: string;
+  }) {
+    const { reply } = args;
+    const limits = await c.query(
+      `SELECT count(*) FILTER (WHERE t.customer_ref = $1)::int AS per_customer,
+              count(*) FILTER (WHERE t.deal_id = $2)::int AS per_deal,
+              count(*)::int AS total
+       FROM siton.seller_inquiry_messages m
+       JOIN siton.seller_inquiry_threads t ON t.thread_id = m.thread_id
+       WHERE m.sender_type = 'Customer' AND m.created_at > now() - interval '1 hour'`,
+      [args.email, args.dealId]
+    );
+    const usage = limits.rows[0] || {};
+    if (
+      Number(usage.per_customer || 0) >= INQUIRY_LIMITS.per_customer_per_hour ||
+      Number(usage.per_deal || 0) >= INQUIRY_LIMITS.per_deal_per_hour ||
+      Number(usage.total || 0) >= INQUIRY_LIMITS.global_per_hour
+    ) {
+      return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+    }
+
+    const bodyHash = inquiryBodyHash(args.message);
+    let thread = args.thread;
+    let created = false;
+    let accessToken: string | null = null;
+    if (thread) {
+      const duplicate = await c.query(
+        `SELECT message_id FROM siton.seller_inquiry_messages
+         WHERE thread_id = $1 AND sender_type = 'Customer' AND body_hash = $2
+           AND created_at > now() - ($3 * interval '1 minute')
+         ORDER BY created_at DESC LIMIT 1`,
+        [thread.thread_id, bodyHash, INQUIRY_LIMITS.duplicate_window_minutes]
+      );
+      if (duplicate.rowCount) {
+        return reply.code(200).send({
+          ok: true, duplicate: true, thread_id: thread.thread_id,
+          message_id: String(duplicate.rows[0].message_id), status: thread.status, sent_via: "siton"
+        });
+      }
+    } else {
+      // A retried FIRST submission (same buyer, same deal, same text, minutes
+      // apart) must not fan out into a second thread or a second e-mail.
+      const duplicateThread = await c.query(
+        `SELECT t.thread_id, t.status, m.message_id
+         FROM siton.seller_inquiry_threads t
+         JOIN siton.seller_inquiry_messages m
+           ON m.thread_id = t.thread_id AND m.sender_type = 'Customer' AND m.body_hash = $3
+         WHERE t.deal_id = $1 AND t.customer_ref = $2
+           AND t.created_at > now() - ($4 * interval '1 minute')
+         ORDER BY t.created_at DESC LIMIT 1`,
+        [args.dealId, args.email, bodyHash, INQUIRY_LIMITS.duplicate_window_minutes]
+      );
+      if (duplicateThread.rowCount) {
+        return reply.code(200).send({
+          ok: true, duplicate: true, thread_id: String(duplicateThread.rows[0].thread_id),
+          message_id: String(duplicateThread.rows[0].message_id), status: String(duplicateThread.rows[0].status), sent_via: "siton"
+        });
+      }
+      const minted = mintCustomerAccessToken();
+      accessToken = minted.token;
+      const inserted = await c.query(
+        `INSERT INTO siton.seller_inquiry_threads
+           (deal_id, seller_id, customer_name, customer_email, customer_ref, customer_access_token_hash, status, request_id)
+         VALUES ($1,$2,$3,$4,$5,$6,'Open',$7)
+         RETURNING thread_id, deal_id, seller_id, status, customer_ref, customer_access_token_hash`,
+        [args.dealId, args.sellerId, args.name, args.email, args.email, minted.hash, args.requestId]
+      );
+      thread = inserted.rows[0] as InquiryThreadRow;
+      created = true;
+    }
+
+    const previousStatus = String(thread.status);
+    const message = await c.query(
+      `INSERT INTO siton.seller_inquiry_messages (thread_id, sender_type, body, body_hash, request_id)
+       VALUES ($1,'Customer',$2,$3,$4)
+       RETURNING message_id, created_at`,
+      [thread.thread_id, args.message, bodyHash, args.requestId]
+    );
+    const messageId = String(message.rows[0].message_id);
+    await c.query(
+      `UPDATE siton.seller_inquiry_threads
+       SET status = 'Open', message_count = message_count + 1, seller_unread_count = seller_unread_count + 1,
+           last_message_at = now(), last_message_preview = $2, last_sender_type = 'Customer', updated_at = now()
+       WHERE thread_id = $1`,
+      [thread.thread_id, inquiryPreview(args.message)]
+    );
+
+    // ONE pointer notification per new thread, and again only when a customer
+    // re-opens a thread the seller had already answered. Follow-ups on a thread
+    // the seller has not read yet never fan out into more e-mails.
+    let notification: { result: string; channel: string } = { result: "not_needed", channel: "none" };
+    if (created || previousStatus !== "Open") {
+      const queued = await enqueueSellerInquiryNotification(c, {
+        sellerId: args.sellerId,
+        dealId: args.dealId,
+        dealTitle: args.dealTitle,
+        threadId: thread.thread_id,
+        messageId,
+        origin: publicOrigin(args.req)
+      });
+      notification = { result: queued.result, channel: queued.recipient.channel };
+    }
+    return reply.code(201).send({
+      ok: true,
+      created,
+      thread_id: thread.thread_id,
+      message_id: messageId,
+      status: "Open",
+      sent_via: "siton",
+      ...(accessToken ? { access_token: accessToken } : {}),
+      notification
+    });
+  }
+
+  app.post("/api/deals/:dealId/inquiries", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    await ensureInquiryTables();
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    // honeypot: bots fill every field — humans never see this one
+    if (String(body.website || "").trim()) return reply.code(201).send({ ok: true, received: true, sent_via: "siton" });
+    const name = normalizeInquiryText(body.name, INQUIRY_NAME_MAX);
+    const email = normalizeInquiryEmail(body.email);
+    if (name.length < 2) return reply.code(400).send({ ok: false, error: "name is required", code: "inquiry_name_required" });
+    if (!email) return reply.code(400).send({ ok: false, error: "email is invalid", code: "inquiry_email_invalid" });
+    const message = readInquiryMessage(body, reply);
+    if (message === null) return reply;
+    const requestId = inquiryRequestId(req);
+
+    return deps.withTx(async (c) => {
+      // The DEAL determines the seller — nothing in the request can point the
+      // inquiry at another seller.
+      const dealRow = await c.query(
+        `SELECT d.deal_id, d.title, COALESCE(d.seller_id, $2) AS seller_id
+         FROM siton.deals d
+         WHERE d.deal_id = $1 AND d.published_at IS NOT NULL
+         LIMIT 1`,
+        [dealId, DEFAULT_SELLER_ID]
+      );
+      if (!dealRow.rowCount) {
+        return reply.code(404).send({ ok: false, error: "deal not found", code: "inquiry_deal_unavailable" });
+      }
+      const deal = dealRow.rows[0];
+      // Continuity: a returning buyer may append to their own thread ONLY with
+      // the access token minted at creation — an e-mail alone never unlocks it.
+      let thread: InquiryThreadRow | null = null;
+      const requestedThread = String(body.thread_id || "").trim();
+      const token = String(body.access_token || "").trim();
+      if (requestedThread && token) {
+        requireUuid(requestedThread, "thread_id");
+        const existing = await c.query(
+          `SELECT thread_id, deal_id, seller_id, status, customer_ref, customer_access_token_hash
+           FROM siton.seller_inquiry_threads WHERE thread_id = $1 AND deal_id = $2 FOR UPDATE`,
+          [requestedThread, dealId]
+        );
+        if (existing.rowCount && verifyCustomerAccessToken(token, existing.rows[0].customer_access_token_hash)) {
+          thread = existing.rows[0] as InquiryThreadRow;
+        }
+      }
+      return appendCustomerInquiryMessage(c, {
+        req, reply, dealId,
+        dealTitle: String(deal.title || ""),
+        sellerId: String(deal.seller_id),
+        thread,
+        name,
+        email: thread ? String(thread.customer_ref) : email,
+        message,
+        requestId
+      });
+    });
+  });
+
+  // Customer view of their own thread (token minted at creation; never the
+  // seller's e-mail, never another customer's thread — unknown token = 404).
+  app.get("/api/inquiries/:threadId", async (req: any, reply: any) => {
+    const threadId = String(req.params.threadId || "");
+    requireUuid(threadId, "thread_id");
+    await ensureInquiryTables();
+    const token = String(req.query?.t || "").trim();
+    return deps.withTx(async (c) => {
+      const row = await c.query(
+        `SELECT t.thread_id, t.deal_id, t.status, t.customer_name, t.customer_access_token_hash, t.created_at, t.last_message_at,
+                d.title AS deal_title,
+                COALESCE(NULLIF(btrim(COALESCE(sa.business_name, '')), ''), NULLIF(btrim(COALESCE(sa.display_name, '')), ''), 'המוכר') AS seller_display
+         FROM siton.seller_inquiry_threads t
+         JOIN siton.deals d ON d.deal_id = t.deal_id
+         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = t.seller_id
+         WHERE t.thread_id = $1
+         LIMIT 1`,
+        [threadId]
+      );
+      if (!row.rowCount || !verifyCustomerAccessToken(token, row.rows[0].customer_access_token_hash)) {
+        return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
+      }
+      const thread = row.rows[0];
+      const messages = await c.query(
+        `SELECT message_id, sender_type, body, created_at
+         FROM siton.seller_inquiry_messages WHERE thread_id = $1
+         ORDER BY created_at ASC, message_id ASC`,
+        [threadId]
+      );
+      await c.query(
+        `UPDATE siton.seller_inquiry_threads SET customer_unread_count = 0, updated_at = now()
+         WHERE thread_id = $1 AND customer_unread_count <> 0`,
+        [threadId]
+      );
+      return {
+        ok: true,
+        thread: {
+          thread_id: String(thread.thread_id),
+          deal_id: String(thread.deal_id),
+          deal_title: String(thread.deal_title || ""),
+          seller_display: String(thread.seller_display),
+          customer_name: String(thread.customer_name),
+          status: String(thread.status),
+          created_at: thread.created_at,
+          last_message_at: thread.last_message_at
+        },
+        messages: messages.rows.map((m: any) => ({
+          message_id: String(m.message_id), sender_type: String(m.sender_type), body: String(m.body), created_at: m.created_at
+        }))
+      };
+    });
+  });
+
+  app.post("/api/inquiries/:threadId/messages", async (req: any, reply: any) => {
+    const threadId = String(req.params.threadId || "");
+    requireUuid(threadId, "thread_id");
+    await ensureInquiryTables();
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (String(body.website || "").trim()) return reply.code(201).send({ ok: true, received: true, sent_via: "siton" });
+    const token = String(body.access_token || "").trim();
+    const message = readInquiryMessage(body, reply);
+    if (message === null) return reply;
+    const requestId = inquiryRequestId(req);
+    return deps.withTx(async (c) => {
+      const existing = await c.query(
+        `SELECT t.thread_id, t.deal_id, t.seller_id, t.status, t.customer_ref, t.customer_name, t.customer_access_token_hash,
+                d.title
+         FROM siton.seller_inquiry_threads t
+         JOIN siton.deals d ON d.deal_id = t.deal_id
+         WHERE t.thread_id = $1
+         FOR UPDATE OF t`,
+        [threadId]
+      );
+      if (!existing.rowCount || !verifyCustomerAccessToken(token, existing.rows[0].customer_access_token_hash)) {
+        return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
+      }
+      const thread = existing.rows[0];
+      return appendCustomerInquiryMessage(c, {
+        req, reply,
+        dealId: String(thread.deal_id),
+        dealTitle: String(thread.title || ""),
+        sellerId: String(thread.seller_id),
+        thread: thread as InquiryThreadRow,
+        name: String(thread.customer_name),
+        email: String(thread.customer_ref),
+        message,
+        requestId
+      });
     });
   });
 
@@ -3811,7 +4132,8 @@ export function registerFrontendExperience(
           cost: Number(row.cost || 0),
           sort_order: Number(row.sort_order || 0),
           latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
-          longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude)
+          longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
+          ...describePickupLocation(row)
         })),
         participants: participants.rows,
         payment_attempts: attempts.rows,
@@ -9920,6 +10242,148 @@ export function registerFrontendExperience(
   });
 
   // Seller variant — SAME canonical engine; ownership enforced server-side.
+  // ── P0.7 — seller command center: customer inquiries (seller-isolated) ────
+  // Every route scopes by the authenticated seller's own id; a foreign thread
+  // answers 404 exactly like a missing one. The customer's e-mail is shown
+  // masked — contact stays inside the product.
+  function mapSellerInquiryThreadRow(row: any) {
+    return {
+      thread_id: String(row.thread_id),
+      deal_id: String(row.deal_id),
+      deal_title: String(row.deal_title || ""),
+      customer_name: String(row.customer_name || ""),
+      status: String(row.status),
+      seller_unread_count: Number(row.seller_unread_count || 0),
+      message_count: Number(row.message_count || 0),
+      last_message_at: row.last_message_at,
+      last_message_preview: String(row.last_message_preview || ""),
+      last_sender_type: String(row.last_sender_type || "Customer"),
+      created_at: row.created_at
+    };
+  }
+
+  app.get("/api/seller/inquiries", async (req: any, reply: any) => {
+    await ensureProductSurfaces();
+    await ensureInquiryTables();
+    const scope = String(req.query?.scope || "open") === "all" ? "all" : "open";
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const sellerId = sellerContext.seller_id;
+      const summary = await c.query(
+        `SELECT count(*) FILTER (WHERE status = 'Open')::int AS open_threads,
+                count(*) FILTER (WHERE seller_unread_count > 0)::int AS unread_threads,
+                COALESCE(sum(seller_unread_count), 0)::int AS unread_messages,
+                count(*)::int AS total_threads
+         FROM siton.seller_inquiry_threads
+         WHERE seller_id = $1`,
+        [sellerId]
+      );
+      const threads = await c.query(
+        `SELECT t.thread_id, t.deal_id, d.title AS deal_title, t.customer_name, t.status, t.seller_unread_count,
+                t.message_count, t.last_message_at, t.last_message_preview, t.last_sender_type, t.created_at
+         FROM siton.seller_inquiry_threads t
+         JOIN siton.deals d ON d.deal_id = t.deal_id
+         WHERE t.seller_id = $1 AND ($2 = 'all' OR t.status = 'Open')
+         ORDER BY (t.seller_unread_count > 0) DESC, t.last_message_at DESC
+         LIMIT 100`,
+        [sellerId, scope]
+      );
+      return { ok: true, scope, summary: summary.rows[0] || {}, threads: threads.rows.map(mapSellerInquiryThreadRow) };
+    });
+  });
+
+  app.get("/api/seller/inquiries/:threadId", async (req: any, reply: any) => {
+    const threadId = String(req.params.threadId || "");
+    requireUuid(threadId, "thread_id");
+    await ensureProductSurfaces();
+    await ensureInquiryTables();
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const row = await c.query(
+        `SELECT t.thread_id, t.deal_id, d.title AS deal_title, t.customer_name, t.customer_email, t.status,
+                t.seller_unread_count, t.customer_unread_count, t.message_count, t.last_message_at, t.last_message_preview,
+                t.last_sender_type, t.seller_last_read_at, t.created_at
+         FROM siton.seller_inquiry_threads t
+         JOIN siton.deals d ON d.deal_id = t.deal_id
+         WHERE t.thread_id = $1 AND t.seller_id = $2
+         LIMIT 1`,
+        [threadId, sellerContext.seller_id]
+      );
+      if (!row.rowCount) return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
+      const thread = row.rows[0];
+      const messages = await c.query(
+        `SELECT message_id, sender_type, body, created_at
+         FROM siton.seller_inquiry_messages WHERE thread_id = $1
+         ORDER BY created_at ASC, message_id ASC`,
+        [threadId]
+      );
+      // opening the thread IS the read receipt
+      await c.query(
+        `UPDATE siton.seller_inquiry_threads
+         SET seller_unread_count = 0, seller_last_read_at = now(), updated_at = now()
+         WHERE thread_id = $1 AND seller_id = $2`,
+        [threadId, sellerContext.seller_id]
+      );
+      return {
+        ok: true,
+        thread: {
+          ...mapSellerInquiryThreadRow(thread),
+          seller_unread_count: 0,
+          customer_email_masked: maskEmail(thread.customer_email),
+          seller_last_read_at: new Date().toISOString()
+        },
+        messages: messages.rows.map((m: any) => ({
+          message_id: String(m.message_id), sender_type: String(m.sender_type), body: String(m.body), created_at: m.created_at
+        }))
+      };
+    });
+  });
+
+  app.post("/api/seller/inquiries/:threadId/reply", async (req: any, reply: any) => {
+    const threadId = String(req.params.threadId || "");
+    requireUuid(threadId, "thread_id");
+    await ensureProductSurfaces();
+    await ensureInquiryTables();
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    const message = readInquiryMessage(body, reply);
+    if (message === null) return reply;
+    const requestId = inquiryRequestId(req);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const own = await c.query(
+        `SELECT thread_id, status FROM siton.seller_inquiry_threads
+         WHERE thread_id = $1 AND seller_id = $2
+         FOR UPDATE`,
+        [threadId, sellerContext.seller_id]
+      );
+      if (!own.rowCount) return reply.code(404).send({ ok: false, error: "inquiry not found", code: "inquiry_not_found" });
+      const inserted = await c.query(
+        `INSERT INTO siton.seller_inquiry_messages (thread_id, sender_type, body, body_hash, request_id)
+         VALUES ($1,'Seller',$2,$3,$4)
+         RETURNING message_id, sender_type, body, created_at`,
+        [threadId, message, inquiryBodyHash(message), requestId]
+      );
+      await c.query(
+        `UPDATE siton.seller_inquiry_threads
+         SET status = 'Answered', message_count = message_count + 1, customer_unread_count = customer_unread_count + 1,
+             seller_unread_count = 0, seller_last_read_at = now(),
+             last_message_at = now(), last_message_preview = $2, last_sender_type = 'Seller', updated_at = now()
+         WHERE thread_id = $1`,
+        [threadId, inquiryPreview(message)]
+      );
+      const m = inserted.rows[0];
+      return reply.code(201).send({
+        ok: true,
+        status: "Answered",
+        stored_in: "siton",
+        message: { message_id: String(m.message_id), sender_type: String(m.sender_type), body: String(m.body), created_at: m.created_at }
+      });
+    });
+  });
+
   app.get("/api/seller/deals/:dealId/propagation", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
     requireUuid(dealId, "deal_id");

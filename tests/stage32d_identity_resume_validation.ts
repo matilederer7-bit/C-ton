@@ -103,7 +103,7 @@ async function seed() {
   }
   const delivery = await pool.query(
     `INSERT INTO siton.deal_delivery_options (deal_id, option_type, label, cost, sort_order)
-     VALUES ($1,'pickup','Pickup',0,0) RETURNING option_id`,
+     VALUES ($1,'pickup','Pickup — Herzl 12, Tel Aviv',0,0) RETURNING option_id`,
     [dealA]
   );
   deliveryOptionId = String(delivery.rows[0].option_id);

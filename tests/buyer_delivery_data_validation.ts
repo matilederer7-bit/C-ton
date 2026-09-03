@@ -44,7 +44,7 @@ async function createDeal(suffix: string) {
       max_units: 50,
       deadline: new Date(Date.now() + 3 * 3600_000).toISOString(),
       delivery_options: [
-        { option_type: "pickup", label: "Self Pickup", cost: 0, sort_order: 0 },
+        { option_type: "pickup", label: "Self Pickup — Herzl 12, Tel Aviv", cost: 0, sort_order: 0 },
         { option_type: "delivery", label: "Courier", cost: 10, sort_order: 1 }
       ]
     }

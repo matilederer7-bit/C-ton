@@ -38,7 +38,7 @@ async function createAndPublishDeal(): Promise<string> {
   const create = await app.inject({
     method: "POST", url: "/deals",
     headers: { "x-seller-id": SELLER_ID, "idempotency-key": `r5-create-${randomUUID()}` },
-    payload: { seller_id: SELLER_ID, title: "R5 Guest Join Deal", description: "guest join safety", price_per_unit: 30, min_units: 2, max_units: 50, deadline: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), delivery_options: [{ option_type: "pickup", label: "Pickup", cost: 0 }] }
+    payload: { seller_id: SELLER_ID, title: "R5 Guest Join Deal", description: "guest join safety", price_per_unit: 30, min_units: 2, max_units: 50, deadline: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), delivery_options: [{ option_type: "pickup", label: "Pickup — Herzl 12, Tel Aviv", cost: 0 }] }
   });
   assert.equal(create.statusCode, 200, create.body);
   const dealId = (create.json() as any).deal?.deal_id || (create.json() as any).deal_id;

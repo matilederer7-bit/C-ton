@@ -93,6 +93,7 @@ export function ActionCenterPanel({ items, navigate }: { items: Json[]; navigate
   }
   const go = (item: Json) => {
     if (item.action === "open_business_profile") navigate("#/seller/profile");
+    else if (item.action === "open_inquiries") navigate("#/seller/inquiries");
     else if (item.deal_id) navigate(`#/seller/deal/${item.deal_id}`);
   };
   return (

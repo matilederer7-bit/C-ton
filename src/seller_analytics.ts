@@ -1,4 +1,5 @@
 import { DEFAULT_SELLER_ID } from "./product_surface_support.js";
+import { hasUsablePickupLocation } from "./pickup_location.js";
 import { calculatePlatformFeeMoney, roundMoney } from "./platform_fee_money.js";
 
 export const SELLER_ANALYTICS_PERIODS = ["all", "7d", "30d", "90d", "year"] as const;
@@ -648,6 +649,32 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
         eligible_buyers: num(fallbackMoney.eligible_buyers)
       };
   const dealRows = dealRowsResult.rows as any[];
+
+  // P0.7 (additive) — pickup readiness + customer inquiries feed the Action Center.
+  const pickupRowsResult = await c.query(
+    `SELECT d.deal_id::text AS deal_id, d.title, o.option_type, o.label, o.latitude, o.longitude
+     FROM siton.deals d
+     JOIN siton.deal_delivery_options o ON o.deal_id = d.deal_id
+     WHERE COALESCE(d.seller_id, $2) = $1
+       AND d.deal_type = 'physical_product'
+       AND d.state IN ('PendingTarget','TargetReached','ClosedForJoining')
+       AND o.option_type IN ('pickup','distribution_point')
+       AND ($3::uuid IS NULL OR d.deal_id = $3::uuid)
+     ORDER BY d.created_at DESC, o.sort_order ASC`,
+    [sellerId, DEFAULT_SELLER_ID, dealId]
+  );
+  const inquiryTablePresent = await c.query(`SELECT to_regclass('siton.seller_inquiry_threads') IS NOT NULL AS present`);
+  const inquiryAggResult = inquiryTablePresent.rows[0]?.present
+    ? await c.query(
+        `SELECT count(*) FILTER (WHERE status = 'Open')::int AS open_threads,
+                count(*) FILTER (WHERE seller_unread_count > 0)::int AS unread_threads,
+                COALESCE(sum(seller_unread_count), 0)::int AS unread_messages
+         FROM siton.seller_inquiry_threads
+         WHERE seller_id = $1 AND ($2::uuid IS NULL OR deal_id = $2::uuid)`,
+        [sellerId, dealId]
+      )
+    : { rows: [{ open_threads: 0, unread_threads: 0, unread_messages: 0 }] };
+  const inquiryAgg = inquiryAggResult.rows[0] || {};
   const compactDeals = dealRows.map(compactDeal);
   const riskDealsCount = compactDeals.filter((deal) => deal.risk_level === "medium" || deal.risk_level === "high").length;
   const grossExpectedAmount = sumRows(compactDeals, (deal) => num(deal.gross_expected_amount));
@@ -733,6 +760,19 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       actionCenter.push({ severity: "warning", type: "deal_paused", deal_id: String(row.deal_id), deal_title: String(row.title || ""), message_he: "ההצטרפות מושהית ידנית — קונים לא יכולים להצטרף", action: "open_deal" });
     }
   }
+  // P0.7 — self-pickup advertised without a usable location (address text or coordinates)
+  const pickupMissingByDeal = new Map<string, string>();
+  for (const row of pickupRowsResult.rows as any[]) {
+    if (!hasUsablePickupLocation(row) && !pickupMissingByDeal.has(String(row.deal_id))) {
+      pickupMissingByDeal.set(String(row.deal_id), String(row.title || ""));
+    }
+  }
+  for (const [missingDealId, missingTitle] of pickupMissingByDeal) {
+    actionCenter.push({ severity: "warning", type: "pickup_location_missing", deal_id: missingDealId, deal_title: missingTitle, message_he: "מוגדר איסוף עצמי בלי כתובת או מיקום — קונים לא רואים איפה לאסוף. עדכנו באפשרויות האספקה", action: "open_deal" });
+  }
+  if (num(inquiryAgg.unread_threads) > 0) {
+    actionCenter.push({ severity: "warning", type: "customer_inquiries_unread", message_he: `${num(inquiryAgg.unread_threads)} פניות מלקוחות ממתינות לתשובה`, action: "open_inquiries" });
+  }
   if (!bpProfileComplete) {
     actionCenter.push({ severity: "warning", type: "business_profile_incomplete", message_he: "הפרופיל העסקי לא הושלם — חסרים פרטי העסק או איש הקשר", action: "open_business_profile" });
   }
@@ -788,6 +828,11 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
     },
     recent_activity: recentActivity,
     action_center: actionCenter.slice(0, 8),
+    inquiries: {
+      open_threads: num(inquiryAgg.open_threads),
+      unread_threads: num(inquiryAgg.unread_threads),
+      unread_messages: num(inquiryAgg.unread_messages)
+    },
     seller: {
       seller_id: sellerId,
       business_name: String(seller.business_name || ""),

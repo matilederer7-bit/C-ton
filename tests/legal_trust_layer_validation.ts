@@ -61,7 +61,7 @@ async function createDeal(sellerId: string, suffix = randomUUID()) {
       min_units: 2,
       max_units: 6,
       deadline: new Date(Date.now() + 3 * 60 * 60_000).toISOString(),
-      delivery_options: [{ option_type: "pickup", label: "איסוף עצמי", cost: 0 }]
+      delivery_options: [{ option_type: "pickup", label: "איסוף עצמי — רח׳ הרצל 12, תל אביב", cost: 0 }]
     }
   });
   assert.equal(response.statusCode, 200, response.body);

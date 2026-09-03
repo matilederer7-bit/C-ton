@@ -83,6 +83,13 @@ export const api = {
   supportContact: (payload: Json) =>
     req(`/api/support/contact`, { method: "POST", body: JSON.stringify(payload) }),
   previewMeta: () => req(`/api/preview/meta`),
+  // P0.7 — internal buyer → seller inquiry (the DEAL determines the seller server-side)
+  dealInquiry: (id: string, payload: Json) =>
+    req(`/api/deals/${id}/inquiries`, { method: "POST", body: JSON.stringify(payload) }),
+  inquiryThread: (threadId: string, token: string) =>
+    req(`/api/inquiries/${threadId}?t=${encodeURIComponent(token)}`),
+  inquiryFollowUp: (threadId: string, payload: Json) =>
+    req(`/api/inquiries/${threadId}/messages`, { method: "POST", body: JSON.stringify(payload) }),
 
   // ── seller (Supabase Bearer, seller capability) ─────────────────────────
   sellerContext: () => req(`/api/seller/context`, {}, "seller"),
@@ -100,6 +107,11 @@ export const api = {
     return req(`/api/seller/deals/${id}/viral-tree?${q.toString()}`, {}, "seller");
   },
   sellerDealPropagation: (id: string) => req(`/api/seller/deals/${id}/propagation`, {}, "seller"),
+  // P0.7 — seller command center: customer inquiries (seller-scoped server-side)
+  sellerInquiries: (scope: "open" | "all" = "open") => req(`/api/seller/inquiries?scope=${scope}`, {}, "seller"),
+  sellerInquiry: (threadId: string) => req(`/api/seller/inquiries/${threadId}`, {}, "seller"),
+  sellerInquiryReply: (threadId: string, payload: Json) =>
+    req(`/api/seller/inquiries/${threadId}/reply`, { method: "POST", body: JSON.stringify(payload) }, "seller"),
   updateDealDelivery: (id: string, payload: Json) =>
     req(`/api/seller/deals/${id}/delivery`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),
   createDeal: (payload: Json) =>

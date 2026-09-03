@@ -18,6 +18,9 @@ import { absoluteShareUrl } from "../viral";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
 import { PropagationTree } from "../propagation";
+import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./sellerInquiries";
+// P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
+import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -132,6 +135,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   const [analyticsError, setAnalyticsError] = useState("");
   const [aPeriod, setAPeriod] = useState<"7d" | "30d" | "all">("all");
   const [aDeal, setADeal] = useState("");
+  // P0.7 — customer inquiries (seller-scoped server-side)
+  const [inquiries, setInquiries] = useState<Json | null>(null);
+  const [inquiriesError, setInquiriesError] = useState("");
   const [toast, showToast] = useToast();
 
   // P0.4-1: a single transient 401 right after login must not nuke a fresh
@@ -155,9 +161,12 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   useEffect(() => {
     load();
     api.sellerBusinessProfile().then((r) => setBizStatuses(r.statuses || null)).catch(() => undefined);
+    const loadInquiries = () => api.sellerInquiries("open").then((r) => { setInquiries(r); setInquiriesError(""); }).catch((e) => setInquiriesError(e.message));
+    loadInquiries();
     const id = setInterval(load, 25_000);
+    const inqId = setInterval(loadInquiries, 30_000);
     const tick = setInterval(() => setNow(Date.now()), 10_000);
-    return () => { clearInterval(id); clearInterval(tick); };
+    return () => { clearInterval(id); clearInterval(inqId); clearInterval(tick); };
   }, []);
 
   useEffect(() => {
@@ -226,6 +235,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
 
       {/* P0.4-2H — action center, high on the page */}
       {analytics ? <ActionCenterPanel items={analytics.action_center || []} navigate={navigate} /> : null}
+
+      {/* P0.7 — customer inquiries live in the command center (never a parallel dashboard) */}
+      <InquiriesPanel data={inquiries} error={inquiriesError} navigate={navigate} />
 
       {urgentDeals.length ? (
         <>
@@ -463,7 +475,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [maxUnits, setMaxUnits] = useState("50");
   // step 3
   const [delivery, setDelivery] = useState<DeliveryDraft[]>([
-    { option_type: "pickup", label: "איסוף עצמי", cost: "0", latitude: null, longitude: null }
+    { option_type: "pickup", label: "", cost: "0", latitude: null, longitude: null }
   ]);
   const [voucherFaceValue, setVoucherFaceValue] = useState("");
   const [voucherValidUntil, setVoucherValidUntil] = useState("");
@@ -521,6 +533,13 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         if (!venueCity.trim()) errs.venueCity = "יש להזין עיר";
         if (!entryInstructions.trim()) errs.entry = "יש להזין הוראות כניסה";
         if (eventEndsAt && new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()) errs.eventEnd = "מועד הסיום חייב להיות אחרי ההתחלה";
+      }
+    }
+    // P0.7 — self-pickup / distribution point must carry a usable location
+    if (s === 2 && dealType === "physical_product" && !errs.delivery) {
+      const configured = delivery.filter((d) => d.label.trim());
+      if (configured.some((d) => !hasUsablePickupLocation(d))) {
+        errs.delivery = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום (או ללחוץ על ״השתמש במיקום שלי״)";
       }
     }
     if (s === 3 && deadlineCheck.error) errs.deadline = deadlineCheck.error;
@@ -718,8 +737,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                     </select>
                   </div>
                   <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
-                    <label>תיאור</label>
-                    <input value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
+                    <label>{isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור"}</label>
+                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
                   </div>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
                     <label>עלות (₪)</label>
@@ -1145,6 +1164,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
     if (busy) return;
     const clean = rows.filter((r) => r.label.trim());
     if (!clean.length) { setError("יש להשאיר לפחות אפשרות אספקה אחת"); return; }
+    if (String(deal.state) !== "Draft" && clean.some((r) => !hasUsablePickupLocation(r))) {
+      setError("לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום"); return;
+    }
     setBusy(true); setError("");
     try {
       await api.updateDealDelivery(String(deal.deal_id), {
@@ -1189,8 +1211,12 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                   <span className="ico" aria-hidden="true">{DELIVERY_TYPE_ICONS[String(o.option_type)] || "📦"}</span>
                   <span className="grow">
                     <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
-                    {o.latitude != null && o.longitude != null ? (
-                      <span className="muted small"> · 📍 ({Number(o.latitude).toFixed(4)}, {Number(o.longitude).toFixed(4)})</span>
+                    {isPickupOptionType(o.option_type) ? (
+                      hasUsablePickupLocation(o) ? (
+                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}</span>
+                      ) : (
+                        <span className="pickup-missing" data-testid="pickup-location-missing"> · ⚠️ חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
+                      )
                     ) : null}
                   </span>
                   <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
@@ -1219,8 +1245,8 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                   </select>
                 </div>
                 <div className="field grow" style={{ marginBottom: 0, flex: "2 1 160px" }}>
-                  <label>תיאור / כתובת</label>
-                  <input value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder="למשל: איסוף מרח׳ הרצל 12" />
+                  <label>{isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור"}</label>
+                  <input value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
                 </div>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
                   <label>עלות (₪)</label>
@@ -1339,7 +1365,11 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
       blocker: "מועד הסיום עבר או קרוב מדי — יש לעדכן אותו בעריכת הפרטים"
     },
     { label: "תמונה ראשית", ok: images.length > 0, blocker: "יש להעלות לפחות תמונה אחת" },
-    ...(isPhysical ? [{ label: "אפשרות אספקה", ok: deliveryOptions.length > 0, blocker: "יש להוסיף לפחות אפשרות אספקה אחת" }] : [])
+    ...(isPhysical ? [{ label: "אפשרות אספקה", ok: deliveryOptions.length > 0, blocker: "יש להוסיף לפחות אפשרות אספקה אחת" }] : []),
+    // P0.7 — the same pickup rule the server enforces at publish
+    ...(isPhysical && deliveryOptions.some((o) => isPickupOptionType(o.option_type))
+      ? [{ label: "מיקום לאיסוף עצמי", ok: deliveryOptions.every((o) => hasUsablePickupLocation(o)), blocker: "לאיסוף עצמי / נקודת חלוקה חסרה כתובת או מיקום — עדכנו באפשרויות האספקה" }]
+      : [])
   ];
   const blockers = checks.filter((c) => !c.ok).map((c) => c.blocker!).filter(Boolean);
   const ready = blockers.length === 0;
@@ -1517,12 +1547,12 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         {inWindow || state === "Charging" ? (
           <div className="seller-countdown-block">
             <span className="lbl">חלון ההשלמה מסתיים בעוד</span>
-            <LiveCountdown deadline={deal.completion_window_until} />
+            <LiveCountdown deadline={deal.completion_window_until} compact />
           </div>
         ) : isOpen ? (
           <div className="seller-countdown-block" data-testid="seller-countdown">
             <span className="lbl">סיום ההצטרפות בעוד</span>
-            <LiveCountdown deadline={deal.deadline} />
+            <LiveCountdown deadline={deal.deadline} compact />
           </div>
         ) : null}
 
@@ -1902,6 +1932,8 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
 export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: URLSearchParams; navigate: (h: string) => void }) {
   const [authed, setAuthed] = useState(Boolean(getSellerToken()));
   if (!authed) return <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"} onDone={() => setAuthed(true)} />;
+  if (sub[0] === "inquiries" && sub[1]) return <SellerInquiryThreadPage threadId={sub[1]} navigate={navigate} />;
+  if (sub[0] === "inquiries") return <SellerInquiriesPage navigate={navigate} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
   if (sub[0] === "profile") return <BusinessProfilePage navigate={navigate} />;
   if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;
