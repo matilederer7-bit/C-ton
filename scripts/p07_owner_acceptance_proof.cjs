@@ -158,8 +158,25 @@ async function main() {
       await cdp.evaluate(setInput('[data-testid="inquiry-name"]', "קונה הדגמה P0.7"));
       await cdp.evaluate(setInput('[data-testid="inquiry-email"]', BUYER_EMAIL));
       await cdp.evaluate(setInput('[data-testid="inquiry-message"]', "היי, האם אפשר לאסוף גם בשעות הערב? (פנייה סינתטית — הוכחת P0.7)"));
-      await cdp.evaluate(click('[data-testid="inquiry-submit"]'));
-      const success = await waitFor(cdp, `(() => { const el = document.querySelector('[data-testid="inquiry-success"]'); return el ? el.textContent : null; })()`, 20_000, "inquiry success");
+      // The public inquiry route sits behind the per-IP sensitive rate bucket
+      // (same as join/OTP). Repeated proof runs from ONE machine can hit it, so
+      // the harness reads the visible error and retries after the window —
+      // a throttled submission is the product working, not a defect.
+      let success = null;
+      for (let attempt = 1; attempt <= 4 && !success; attempt++) {
+        await cdp.evaluate(click('[data-testid="inquiry-submit"]'));
+        const outcome = await waitFor(cdp, `(() => {
+          const ok = document.querySelector('[data-testid="inquiry-success"]');
+          if (ok) return { ok: ok.textContent };
+          const err = document.querySelector('[data-testid="inquiry-error"]');
+          return err && err.textContent.trim() ? { error: err.textContent.trim() } : null;
+        })()`, 25_000, "inquiry outcome");
+        if (outcome.ok) { success = outcome.ok; break; }
+        assert(/יותר מדי בקשות|יותר מדי פניות/.test(outcome.error), `inquiry failed: ${outcome.error}`);
+        console.log(`  throttled by the per-IP sensitive bucket (attempt ${attempt}) — waiting for the window`);
+        await wait(65_000);
+      }
+      assert(success, "inquiry never succeeded within 4 attempts");
       assert(success.includes("הפנייה נשלחה למוכר דרך C-ton"), `success copy: ${success.slice(0, 120)}`);
       assert(!/מייל|email/i.test(success.split("\n")[0] || ""), "primary success line must not claim an e-mail was sent");
       await cdp.screenshot("p07-inquiry-success.png");
