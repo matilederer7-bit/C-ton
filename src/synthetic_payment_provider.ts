@@ -69,8 +69,11 @@ export function buildSyntheticPaymentProvider(script: SyntheticPaymentScript = {
     return replay(operation, correlationId, input, () => {
       const selected = outcome(operation);
       const reference = String(input.capture_reference || input.authorization_id || stableReference(operation, correlationId));
-      if (selected === "unknown") return { provider: "synthetic", result_class: "temporary_fail", retryable: true, mock: true, provider_reference: reference, correlation_id: correlationId };
-      if (selected === "temporary_fail") return { provider: "synthetic", result_class: "temporary_fail", retryable: true, mock: true, provider_reference: reference, correlation_id: correlationId };
+      // Synthetic lab: neither outcome moves anything outside this process, so
+      // both are honest PRE-dispatch failures (dispatched: false) — the rails may
+      // retry them with the SAME durable identity.
+      if (selected === "unknown") return { provider: "synthetic", result_class: "temporary_fail", retryable: true, mock: true, dispatched: false, provider_reference: reference, correlation_id: correlationId };
+      if (selected === "temporary_fail") return { provider: "synthetic", result_class: "temporary_fail", retryable: true, mock: true, dispatched: false, provider_reference: reference, correlation_id: correlationId };
       if (selected === "decline" || selected === "expired") {
         const eventType = operation === "capture" ? "charge_failed" : operation === "recover" ? "recovery_failed" : operation === "release" ? "authorization_released" : "payment_failed";
         emit(eventType, correlationId, reference);
@@ -89,6 +92,11 @@ export function buildSyntheticPaymentProvider(script: SyntheticPaymentScript = {
     mode: "mock-backed",
     webhookProvider: "synthetic",
     configured: true,
+    ambiguityPolicy: {
+      same_identity_repeat_safe: true,
+      negative_status_authoritative: true,
+      basis: "synthetic in-process provider: no external side effects; idempotency replay table per correlation"
+    },
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
       const correlationId = String(input.correlation_id || input.request_id || "synthetic-authorize");
       return replay("authorize", correlationId, input, () => {

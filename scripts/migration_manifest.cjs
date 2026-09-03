@@ -58,7 +58,9 @@ const MIGRATIONS = [
   ["058", "058_seller_business_profiles.sql"],
   ["059", "059_deal_field_change_audit.sql"],
   ["060", "060_support_case_messages.sql"],
-  ["061", "061_seller_customer_inquiries.sql"]
+  ["061", "061_seller_customer_inquiries.sql"],
+  // 062 = reserved for the Codex Amazon Product branch (never consumed here) — R9C takes 063.
+  ["063", "063_payment_operation_lifecycle.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
