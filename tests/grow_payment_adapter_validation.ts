@@ -81,6 +81,9 @@ assert.equal(settleRequest?.body.get("sum"), "123.45");
 assert.equal(settleRequest?.body.has("processId"), false);
 assert.equal(settleRequest?.body.has("processToken"), false);
 assert.equal(settleRequest?.body.has("apiKey"), false);
+assert.equal(settleRequest?.headers["idempotency-key"], undefined, "Siton durable correlation identity is NOT sent to Grow settle as a header");
+assert.equal(settleRequest?.body.has("cField1"), false, "Siton durable correlation identity is NOT sent to Grow settle as a parameter");
+assert.deepEqual([...settleRequest!.body.keys()].sort(), ["sum", "transactionId", "transactionToken", "userId"].sort());
 
 // Capture with a process-only reference resolves transaction credentials via a
 // READ-ONLY process-info lookup first, then settles.
@@ -120,6 +123,9 @@ assert.equal(refundRequest?.body.get("refundSum"), "23.45");
 assert.equal(refundRequest?.body.get("userId"), "sandbox-user");
 assert.equal(refundRequest?.body.get("transactionId"), "tx-1");
 assert.equal(refundRequest?.body.has("apiKey"), false);
+assert.equal(refundRequest?.headers["idempotency-key"], undefined, "Siton durable correlation identity is NOT sent to Grow refund as a header");
+assert.equal(refundRequest?.body.has("cField1"), false, "Siton durable correlation identity is NOT sent to Grow refund as a parameter");
+assert.deepEqual([...refundRequest!.body.keys()].sort(), ["pageCode", "refundSum", "transactionId", "transactionToken", "userId"].sort());
 // Refund without transaction credentials fails closed (no guessed identifiers).
 const refundNoTx = await adapter.refund(sealGrowReference({ process_id: "1", process_token: "p" }, key), 100);
 assert.equal(refundNoTx.result_class, "permanent_fail");
@@ -156,6 +162,28 @@ assert.equal(unknown.result_class, "unknown");
 assert.equal(unknown.retryable, true);
 const capturedUnknown = await unknownAdapter.capture(confirmedReference, 12345);
 assert.equal(capturedUnknown.result_class, "unknown");
+
+// A non-2xx response is classified as a definite retryable failure even
+// though the transport contract cannot prove that Grow did not settle first.
+// Repeating the same logical call emits another settle request and neither
+// request carries Siton's durable operation identity.
+for (const statusCode of [503, 429]) {
+  let syntheticEffects = 0;
+  const ambiguousRequests: GrowTransportRequest[] = [];
+  const ambiguousAdapter = buildGrowPaymentAdapter({ config, transport: async (request) => {
+    ambiguousRequests.push(request);
+    syntheticEffects += 1;
+    return { status: statusCode, body: { status: 0, err: `after_dispatch_${statusCode}` } };
+  } });
+  const firstAmbiguous = await ambiguousAdapter.capture(confirmedReference, 12345);
+  const secondAmbiguous = await ambiguousAdapter.capture(confirmedReference, 12345);
+  assert.equal(firstAmbiguous.result_class, "temporary_fail");
+  assert.equal(secondAmbiguous.result_class, "temporary_fail");
+  assert.equal(syntheticEffects, 2, `${statusCode}: repeating settle can produce two effects when the provider moved money before responding`);
+  assert.equal(ambiguousRequests.length, 2);
+  assert.equal(ambiguousRequests.every((request) => request.url.endsWith("/settleSuspendedTransaction")), true);
+  assert.equal(ambiguousRequests.every((request) => request.headers["idempotency-key"] === undefined && !request.body.has("cField1")), true);
+}
 
 const invalid = buildGrowPaymentAdapter({ config: { ...config, reference_encryption_key: "short" }, transport: async () => { throw new Error("must not run"); } });
 assert.equal(invalid.configured, false);

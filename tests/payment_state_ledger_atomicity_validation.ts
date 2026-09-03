@@ -57,10 +57,11 @@ function startStub() {
       const state = executed.get(auth) || { captured: false, refunded: false };
       res.setHeader("content-type", "application/json");
       res.statusCode = 200;
-      if (url.pathname === "/capture") {
-        calls.push({ op: "capture", auth });
+      if (url.pathname === "/capture" || url.pathname === "/recover") {
+        const op = url.pathname === "/capture" ? "capture" : "recover";
+        calls.push({ op, auth });
         executed.set(auth, { ...state, captured: true });
-        res.end(JSON.stringify({ status: "captured", capture_id: `cap-${auth}`, provider_reference: `cap-${auth}`, reference: body.reference }));
+        res.end(JSON.stringify({ status: op === "capture" ? "captured" : "recovered", capture_id: `cap-${auth}`, provider_reference: `cap-${auth}`, reference: body.reference }));
         return;
       }
       if (url.pathname === "/refund") {
@@ -96,13 +97,13 @@ process.env.PAYMENT_PROVIDER_BASE_URL = stub.baseUrl;
 const { app, processOutboxEventById, closeWorkerDatabase } = await import(`../src/app.js?r9c-ledger-${Date.now()}`);
 const { armTestFault, resetTestFaults } = await import("../src/fault_injection.js");
 
-async function seed(args: { suffix: string; dealState: string; buyer_state: string; money_state: string; eventType: "charge_deal" | "refund_issue" }) {
+async function seed(args: { suffix: string; dealState: string; buyer_state: string; money_state: string; eventType: "charge_deal" | "recovery_deal" | "refund_issue" }) {
   const dealId = randomUUID();
   const participantId = randomUUID();
   await pool.query(
-    `INSERT INTO siton.deals (deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at)
-     VALUES ($1,'seller-r9c',$2,$3,42,10,50,9,$4, now())`,
-    [dealId, args.dealState, `R9C ledger ${args.suffix}`, new Date(Date.now() + 30 * 60_000).toISOString()]
+    `INSERT INTO siton.deals (deal_id, seller_id, state, title, price_per_unit, min_units, max_units, threshold_units, deadline, published_at, completion_window_until)
+     VALUES ($1,'seller-r9c',$2,$3,42,10,50,9,$4, now(), $5)`,
+    [dealId, args.dealState, `R9C ledger ${args.suffix}`, new Date(Date.now() + 30 * 60_000).toISOString(), args.eventType === "recovery_deal" ? new Date(Date.now() + 20 * 60_000).toISOString() : null]
   );
   await pool.query(
     `INSERT INTO siton.participants (participant_id, deal_id, buyer_id, qty, buyer_state, money_state, delivery_cost, created_at)
@@ -139,8 +140,7 @@ try {
     assert.equal(faulted?.status, "failed", JSON.stringify(faulted));
     assert.equal(stub.ops("capture", "auth-l1"), 1);
     const afterFault = await truth(s.participantId);
-    const consistent = (afterFault.money_state === "ChargedSuccess" && afterFault.ledger.length === 1) || (afterFault.money_state === "ChargeAttempt" && afterFault.ledger.length === 0);
-    assert.ok(consistent, `STATE/LEDGER SPLIT: money_state=${afterFault.money_state} ledger=${JSON.stringify(afterFault.ledger)} — authoritative money truth without its fee-ledger truth`);
+    assert.deepEqual(afterFault, { money_state: "ChargeAttempt", ledger: [] }, "the thrown ledger boundary must abort the state transition too");
 
     await pool.query(`UPDATE siton.outbox_events SET available_at=now() WHERE event_uuid=$1`, [s.eventId]);
     const retried = await processOutboxEventById(s.eventId);
@@ -158,9 +158,7 @@ try {
     assert.equal(faulted?.status, "failed", JSON.stringify(faulted));
     assert.equal(stub.ops("refund", "auth-l2"), 1);
     const afterFault = await truth(s.participantId);
-    const refundEntries = afterFault.ledger.filter((e) => e === "refund_adjustment").length;
-    const consistent = (afterFault.money_state === "Refunded" && refundEntries === 1) || (afterFault.money_state === "ChargedSuccess" && refundEntries === 0);
-    assert.ok(consistent, `STATE/LEDGER SPLIT: money_state=${afterFault.money_state} ledger=${JSON.stringify(afterFault.ledger)}`);
+    assert.deepEqual(afterFault, { money_state: "ChargedSuccess", ledger: [] }, "the thrown refund-ledger boundary must abort Refunded too");
 
     await pool.query(`UPDATE siton.outbox_events SET available_at=now() WHERE event_uuid=$1`, [s.eventId]);
     const retried = await processOutboxEventById(s.eventId);
@@ -169,6 +167,31 @@ try {
     assert.equal(final.money_state, "Refunded");
     assert.equal(final.ledger.filter((e) => e === "refund_adjustment").length, 1, "exactly one signed refund adjustment");
     assert.equal(stub.ops("refund", "auth-l2"), 1, "recovery never re-refunds");
+  });
+
+  await run("L3 recovery: failure after RecoveredCharge transition and before ledger write aborts both; retry converges with ONE recovery and one ledger row", async () => {
+    const s = await seed({ suffix: "l3", dealState: "CompletionWindow", buyer_state: "ChargeFailedCompletion", money_state: "ChargeFailedRecovery", eventType: "recovery_deal" });
+    armTestFault("payment.after_state_before_ledger", { kind: "throw", code: "ledger_write_lost" });
+    const faulted = await processOutboxEventById(s.eventId);
+    assert.equal(faulted?.status, "failed", JSON.stringify(faulted));
+    assert.equal(stub.ops("recover", "auth-l3"), 1);
+    assert.deepEqual(await truth(s.participantId), { money_state: "ChargeFailedRecovery", ledger: [] }, "transaction rollback must erase both the state write and ledger write");
+
+    await pool.query(`UPDATE siton.outbox_events SET available_at=now() WHERE event_uuid=$1`, [s.eventId]);
+    const retried = await processOutboxEventById(s.eventId);
+    assert.equal(retried?.status, "sent", JSON.stringify(retried));
+    assert.deepEqual(await truth(s.participantId), { money_state: "RecoveredCharge", ledger: ["charge"] });
+    assert.equal(stub.ops("recover", "auth-l3"), 1, "recovery retry resolves provider status and does not move money twice");
+
+    const duplicateId = randomUUID();
+    await pool.query(
+      `INSERT INTO siton.outbox_events (event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at, created_at, updated_at)
+       VALUES ($1,'recovery_deal','deal',$2,$3,'pending',0,now(),now(),now())`,
+      [duplicateId, s.dealId, JSON.stringify({ deal_id: s.dealId })]
+    );
+    assert.equal((await processOutboxEventById(duplicateId))?.status, "sent");
+    assert.deepEqual(await truth(s.participantId), { money_state: "RecoveredCharge", ledger: ["charge"] }, "duplicate event cannot duplicate ledger truth");
+    assert.equal(stub.ops("recover", "auth-l3"), 1);
   });
 
   console.log(`PAYMENT_STATE_LEDGER_ATOMICITY_VALIDATION passed=${passed}`);

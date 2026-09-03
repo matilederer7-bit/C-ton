@@ -5878,3 +5878,18 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
   legal/business approval and operational drills remain.
 - The immutable final master SHA is recorded by the Git commit/ref verification
   produced by this repository-lock operation; a commit cannot embed its own SHA.
+
+## Current update: 2026-09-03 (R9C Codex independent payment review)
+
+- Reviewed Claude SHA `33a2cb2ad7170ca4371444327493b69e751b202f` in the isolated worktree `C:\Users\Lenovo\Documents\C-ton-codex-r9c-review` on branch `codex/r9c-independent-review`. Neither `master` nor a Claude branch was modified or merged.
+- Verdict: `UNSAFE_TO_MERGE`; F1 `PARTIAL`, F2 `PASS`, and `NOT_READY_FOR_R10`.
+- Two CRITICAL deterministic counterexamples remain. First, an in-flight capture can race an `authorized/final` reconciliation, which records charge failure and schedules recovery; the original capture and the recovery both move money under distinct identities. Second, a provider that moves money and then returns 503 or 429 is classified `temporary_fail`; outbox retry mints a fresh capture identity and produces a second effect.
+- Connection-drop and timeout scenarios correctly persist `unknown`, reconcile provider status, and do not issue a second capture in the tested path. Duplicate concurrent claims, duplicate active reconcile rows, and stale reconciliation after terminal recovery are also safely suppressed in their tested boundaries; these guards do not close the cross-operation race.
+- Grow audit: settle/refund transmit no Siton durable operation key (`Idempotency-Key` and `cField1` are absent). Repeat-settle and repeat-refund provider idempotency are `UNPROVEN`; status queries report broader process/transaction state and cannot prove one exact Siton operation.
+- F2 atomicity proof passed for charge, recovery, and refund: forced failure after state SQL but before ledger insertion rolls back both, retry commits exactly once, and recovery retry resolves provider status without a second money call.
+- Financial constitution passed: Siton fee is exactly 8%, delivery/shipping is included, VAT is excluded from the fee base, refund adjustment mirrors the original entry, and distributor/affiliate commission remains zero.
+- Tests passed: full payments 35/35; workers 12/12; concurrency 4/4; 51/51 unique files total, zero failures. Focused R9C payment selection passed 9/9 as a subset. Backend enforcement, direct-state mutation, Payment SDK boundary, secret scan (108 files), payment compliance, and diff hygiene passed.
+- External effects: zero real provider calls, zero live money, zero real notifications, zero deploys, and zero merges.
+- Completed: independent review, deterministic proofs, reconciliation matrix, Grow request audit, F2 proof, financial-constitution audit, documentation, and required local gates. Review completion is 100%.
+- Open: remediate 2 CRITICAL and 1 HIGH finding and obtain documented plus sandbox-proven Grow operation idempotency/status evidence. R9C merge readiness remains blocked.
+- Next step: implement operation-level dispatch/reconciliation fencing and conservative UNKNOWN handling for ambiguous HTTP responses on a separate remediation branch, then rerun the R9C gate. Do not merge this reviewed R9C SHA and do not start R10.
