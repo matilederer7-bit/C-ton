@@ -3010,10 +3010,11 @@ export function registerFrontendExperience(
         [thread.thread_id, bodyHash, INQUIRY_LIMITS.duplicate_window_minutes]
       );
       if (duplicate.rowCount) {
-        return reply.code(200).send({
+        reply.code(200);
+        return {
           ok: true, duplicate: true, thread_id: thread.thread_id,
           message_id: String(duplicate.rows[0].message_id), status: thread.status, sent_via: "siton"
-        });
+        };
       }
     } else {
       // A retried FIRST submission (same buyer, same deal, same text, minutes
@@ -3029,10 +3030,11 @@ export function registerFrontendExperience(
         [args.dealId, args.email, bodyHash, INQUIRY_LIMITS.duplicate_window_minutes]
       );
       if (duplicateThread.rowCount) {
-        return reply.code(200).send({
+        reply.code(200);
+        return {
           ok: true, duplicate: true, thread_id: String(duplicateThread.rows[0].thread_id),
           message_id: String(duplicateThread.rows[0].message_id), status: String(duplicateThread.rows[0].status), sent_via: "siton"
-        });
+        };
       }
       const minted = mintCustomerAccessToken();
       accessToken = minted.token;
@@ -3078,7 +3080,11 @@ export function registerFrontendExperience(
       });
       notification = { result: queued.result, channel: queued.recipient.channel };
     }
-    return reply.code(201).send({
+    // Return the payload instead of reply.send(): Fastify serializes it only
+    // after withTx COMMITs, so a 201 always means the thread/message/event are
+    // durable (a send inside the transaction could race the commit).
+    reply.code(201);
+    return {
       ok: true,
       created,
       thread_id: thread.thread_id,
@@ -3087,7 +3093,7 @@ export function registerFrontendExperience(
       sent_via: "siton",
       ...(accessToken ? { access_token: accessToken } : {}),
       notification
-    });
+    };
   }
 
   app.post("/api/deals/:dealId/inquiries", async (req: any, reply: any) => {
@@ -10375,12 +10381,13 @@ export function registerFrontendExperience(
         [threadId, inquiryPreview(message)]
       );
       const m = inserted.rows[0];
-      return reply.code(201).send({
+      reply.code(201); // payload returned after COMMIT (never send inside the transaction)
+      return {
         ok: true,
         status: "Answered",
         stored_in: "siton",
         message: { message_id: String(m.message_id), sender_type: String(m.sender_type), body: String(m.body), created_at: m.created_at }
-      });
+      };
     });
   });
 

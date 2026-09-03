@@ -151,7 +151,10 @@ async function main() {
       assert(await cdp.evaluate(exists('[data-testid="inquiry-open"]')), "פנייה למוכר button missing");
     });
 
-    await run("S5 internal inquiry: sheet → synthetic submission → success copy → הפניות שלי", async () => {
+    if (args["read-only"]) {
+      console.log("SKIP S5/S6/S8 (--read-only: no synthetic inquiry is created)");
+    }
+    if (!args["read-only"]) await run("S5 internal inquiry: sheet → synthetic submission → success copy → הפניות שלי", async () => {
       assert(await cdp.evaluate(click('[data-testid="inquiry-open"]')), "click inquiry-open");
       await waitFor(cdp, exists('[data-testid="inquiry-submit"]'), 10_000, "inquiry sheet");
       await cdp.screenshot("p07-inquiry-sheet.png");
@@ -189,7 +192,7 @@ async function main() {
       await cdp.screenshot("p07-my-inquiries.png");
     });
 
-    await run("S6 reload keeps הפניות שלי; the server thread is readable ONLY with the token; no seller e-mail in it", async () => {
+    if (!args["read-only"]) await run("S6 reload keeps הפניות שלי; the server thread is readable ONLY with the token; no seller e-mail in it", async () => {
       await openDeal("&reload=1");
       await waitFor(cdp, exists('[data-testid="my-inquiry"]'), 20_000, "my inquiries after reload");
       const ok = await fetch(`${BASE}/api/inquiries/${findings.thread_id}?t=${encodeURIComponent(findings.thread_token)}`);
@@ -218,7 +221,7 @@ async function main() {
       await cdp.send("Emulation.clearDeviceMetricsOverride");
     });
 
-    if (args["seller-id"] && args["seller-password"]) {
+    if (args["seller-id"] && args["seller-password"] && !args["read-only"]) {
       await run("S8 seller command center shows the inquiry; reply persists inside the product", async () => {
         const login = await fetch(`${BASE}/api/seller/session/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier: args["seller-id"], password: args["seller-password"] }) });
         assert(login.status === 200, `seller login ${login.status}`);
