@@ -2,6 +2,8 @@
 
 Branch: `claude/r9c-system-red-team` (isolated worktree `C:\Users\Lenovo\Documents\C-ton-claude-r9c`), based on `origin/master` `e270a0c` (after the P0.6A geolocation hotfix). **Not merged.** Real money 0 · real provider calls 0 · real SMS/email/invoices 0 · R10 NOT started · Grow sandbox untouched.
 
+> **Status history (read this first).** The first R9C pass (SHA `33a2cb2`) claimed F1 **FIXED**. The independent Codex review (`codex/r9c-independent-review` @ `550a976`, `docs/R9C_CODEX_INDEPENDENT_REVIEW.md`) re-graded it **PARTIAL / UNSAFE_TO_MERGE** with two new CRITICAL deterministic counterexamples (C1 capture/reconcile race, C2 503/429 after money moved) and one HIGH (H1 Grow settle/refund idempotency unproven). Both counterexamples were reproduced verbatim on `33a2cb2` before any code changed, then remediated — see **"R9C remediation"** below. The original F1/F2 sections are kept as written for the record; where they say FIXED for F1, read "FIXED for the crash/reclaim windows only; the in-flight race and post-dispatch HTTP ambiguity were still open until the remediation".
+
 ## Scope
 
 Attack correctness under failure for the highest-risk money properties, in this priority order:
@@ -45,7 +47,7 @@ Out of scope (Codex parallel work, untouched): Product Library, product history/
 
 ## Findings
 
-### F1 — CRITICAL — provider-operation identity rotated on lease reclaim → double capture / recover / release — **FIXED**
+### F1 — CRITICAL — provider-operation identity rotated on lease reclaim → double capture / recover / release — **FIXED (first pass, crash/reclaim windows) → PARTIAL after independent review → FIXED after remediation (see "R9C remediation")**
 
 **Observed (unfixed code, deterministic):** `tests/payment_provider_operation_identity_crash_validation.ts` S1 —
 
@@ -120,7 +122,71 @@ If a second `charge_deal` job ran after the deal already moved to CompletionWind
 
 In demo/staging (mock-backed), an unresolved prior attempt resolves to "captured" without a mock capture having "happened" — acceptable for synthetic money, but expect that in staging behaviour after a worker crash.
 
-## Tests performed (R9C worktree, fresh isolated `siton_test_*` databases via `scripts/run_test_group.cjs`)
+## R9C remediation (2026-09-03, after the independent Codex review)
+
+Authorized defensive remediation on the same branch. Real Grow calls 0 · real money 0 · real SMS/email/invoices 0. Master (`123bbf9`, P0.7C) untouched; no rebase onto master yet.
+
+### Before-fix reproduction (Codex counterexamples run verbatim on `33a2cb2`)
+
+| Proof | Result on `33a2cb2` | Evidence |
+|---|---|---|
+| `tests/payment_r9c_reconciliation_race_validation.ts` (Codex, verbatim) | **reproduced** — provider money effects **2** (1 capture under `capture:prior:n1:…` + 1 recover under `recovery:<event>:n1:…`), participant ended `Recovered/RecoveredCharge` while the first capture was economically real | `R9C_RACE_EVIDENCE` |
+| `tests/payment_r9c_ambiguous_outcomes_validation.ts` (Codex, verbatim) | **reproduced** — 503: **2** effects, identities `n1` → `n2`, attempts `temporary_fail, success`; 429: **2** effects, same pattern; connection drop: 1; client timeout: 1 | `R9C_AMBIGUOUS_EVIDENCE` |
+
+### Root causes (exact)
+
+- **C1.** `siton.payment_attempts` knew the *identity* of a money operation but not its *dispatch lifecycle*; `result_class='unknown'` conflated NOT-DISPATCHED, IN-FLIGHT and POST-DISPATCH-AMBIGUOUS. `handlePaymentReconcileEvent` therefore treated a provider read of `authorized/final` as proof of non-execution even while the very same identity was being dispatched under a live worker lease; the pre-I/O lease fence only proved ownership *before* dispatch, never "no request in flight". The negative verdict (`charge_failed` → `recovery_deal`) was committed with no compare-and-set against the operation, so the late capture success was refused by the state guard and recovery moved money a second time under a distinct identity.
+- **C2.** The provider-ready adapter mapped every non-2xx with status ≥ 500 or 429 to `temporary_fail`; the rails finalized the identity as `temporary_fail` and threw, the outbox retried, and `beginProviderAttempt` (which only treats `unknown`/`success` as unresolved) minted a fresh identity `n2` → second capture. Stripe (`stripeResultClass`) and Grow (`classifyHttp`: 408/409/425/429/5xx → `temporary_fail`) had the same post-dispatch classification defect.
+- **H1 (confirmed by inspection, no Grow call made).** `settleSuspendedTransaction` sends exactly `userId, transactionId, transactionToken, sum`; `refundTransaction` sends exactly `userId, transactionId, transactionToken, refundSum, pageCode`; the only header is `content-type`. No `Idempotency-Key`, no Siton correlation (`cField1` exists only on `createPaymentProcess`). `getPaymentProcessInfo`/`getTransactionInfo` report transaction state, not the outcome of one specific Siton invocation. Repeat settle/refund idempotency: **UNPROVEN**.
+
+### Remediation design
+
+**Durable operation lifecycle — migration `063_payment_operation_lifecycle.sql`** (061 = P0.7 on master, 062 reserved for the Codex Amazon branch). `payment_attempts` gains `dispatch_state ('recorded'|'dispatching'|'responded')`, `owner_event_uuid`, `owner_lease_generation`, `dispatched_at`, `resolved_at`, `provider_reference`, `outcome_note`, `updated_at`. Combined with `result_class` this is the required lifecycle: NOT_DISPATCHED = `unknown+recorded`; IN_FLIGHT = `unknown+dispatching` with a live owner lease (`siton.payment_operation_in_flight(owner, generation)` reads `outbox_events`); UNKNOWN = `unknown+responded` or `dispatching` with a dead lease; SUCCEEDED = `success`; DEFINITELY_FAILED = `permanent_fail`. Legacy rows default to `responded` (conservative: status proof before reuse). DB guards (SECURITY DEFINER triggers, SQLSTATE `SN409`): terminal truth never downgrades and success is never overwritten by failure; **nobody but the dispatching owner** (identified by `set_config('siton.payment_dispatch_owner', '<event>:<generation>')`) may declare a negative outcome, re-arm or disarm an in-flight operation; a new identity of the same money type is refused while a prior one is `unknown`/`success`; `recovery` is refused while any `charge_start` is `unknown`/`success`; `refund`/`cancel_refund`/`release` are refused while any capture-side operation is `unknown`; `release` is refused while a capture is `success`.
+
+**Rails (`src/app.ts`, all four money rails).** `beginProviderAttempt` → `fresh` | `reuse_not_dispatched` (identity minted, never left the process: reuse without status) | `unresolved` (status proof first) | `in_flight` (another live worker owns this exact operation: no I/O) | `blocked` (a conflicting operation of the participant is unresolved/executed: no I/O, `payment_reconcile` scheduled for it, `FINANCIAL_OUTCOME_UNRESOLVED` case). `armMoneyOperation` is the LAST step before provider I/O and is ONE transaction: lease fence (renewed if short) + participant still in the rail's expected state + lifecycle CAS to `dispatching` under this job's lease. `classifyMoneyOutcome` is the only place a provider result becomes a lifecycle outcome: `success`, `permanent_fail` (provider-declared), `pre_dispatch_failure` (adapter PROVED nothing left the process: `dispatched === false` → disarm to `recorded`, same identity retried by normal outbox policy, no rolling-cap consumption), otherwise `unknown` (identity kept, reconcile). `settleProviderDispatch` is the owner's write (monotonic).
+
+**Adapters (`src/payment_provider.ts`, `src/grow_payment_adapter.ts`, `src/synthetic_payment_provider.ts`).** `PaymentExecutionResult.dispatched?: boolean` (false = proven pre-dispatch). Provider-ready HTTP: after dispatch only a definite client-side rejection (4xx that is not 408/425/429, or 2xx `ok:false`, in a parseable body) is a declared failure; 5xx, 408/425/429, gateway/non-JSON, truncated 2xx bodies and transport loss are `unknown`. Stripe: 5xx/429/lock/idempotency conflicts after dispatch → `unknown`. Grow: after `settleSuspendedTransaction`/`refundTransaction` left the process every non-2xx and every transport failure is `unknown`; read-only lookup failures before settle are `dispatched:false`. `PaymentProvider.ambiguityPolicy { same_identity_repeat_safe, negative_status_authoritative }` — absent = fail closed; Grow = **false/false**; mock/provider-ready/Stripe/synthetic = true/true with the documented basis. Exposed in `getPaymentProviderSummary` (`ambiguity_policy`, `operation_lifecycle`) and `configurationSummary` (`operation_idempotency_key_transmitted:false`, `repeat_settle_idempotent:"unproven"`, `repeat_refund_idempotent:"unproven"`).
+
+**Reconciliation (`handlePaymentReconcileEvent`).** (1) Participant-wide in-flight guard BEFORE any status read: if any money operation of the participant is dispatching under a live lease → `DeferredEventError` (bounded outbox retry), no status read, no verdict. (2) A positive proof (captured/refunded/released) settles the identity `success` inside the state transaction; if the canonical state refuses it (already advanced to a contradicting money state) the effect is NOT discarded: `recordLateMoneyEffectException` records the attempt as executed and opens a `FINANCIAL_OUTCOME_UNRESOLVED` case. (3) A negative inference (`authorized/final` for capture/release, `captured/final` for refund) is admitted only when the provider's `negative_status_authoritative` policy is true; otherwise → `FINANCIAL_OUTCOME_UNRESOLVED` case + permanent failure of the job (DLQ), no failure verdict, no recovery/refund/release re-arm, no repeat. When admitted, the attempt row is settled `permanent_fail` INSIDE the `charge_failed`/`recovery_failed` transition (CAS; refused with in-flight → deferred). (4) A participant whose state already moved on but still carries an `unknown` identity is still resolved at the row level (success blocks recovery/release; not-executed unblocks and re-arms the canonical recovery once inside the completion window). (5) Refund/release re-arming after a negative proof happens only while the participant is still waiting for that operation.
+
+**`resolvePriorProviderAttempt`.** `recorded` → reuse without I/O. Negative status → `reuse` only if `negative_status_authoritative || same_identity_repeat_safe`; otherwise `blocked` + case (Grow). Provider-declared `failed` → applied.
+
+**Operational hold.** The existing `siton.operational_cases` rail (`PaymentMismatch`, auto-key deduped) carries every hold with subject prefix `FINANCIAL_OUTCOME_UNRESOLVED`: `payment-outcome-unresolved:<participant>:<type>:<correlation>`, `payment-operation-blocked:<participant>:<type>`, `payment-late-money-effect:<participant>:<event>`. Each keeps provider reference, correlation and attempt evidence in the description; canonical state is never guessed.
+
+### After-fix proofs (fresh isolated databases)
+
+| Case | File | Result |
+|---|---|---|
+| 1 (C1) capture in flight + reconcile + late success | `payment_r9c_reconciliation_race_validation.ts` | provider effects **1**, capture calls 1, recovery calls **0**; reconcile deferred without a status read; DB guard refuses non-owner negative settle (`SN409`) |
+| 8 charge + reconcile concurrently (foreign correlation) | same | one truth, effects 1 |
+| 9 two reconcile claims race / duplicate pending job | same | one claim; duplicate refused by the partial unique index |
+| 10 reconcile after provider success, before local persistence | same | deferred; effects 1; ChargedSuccess once |
+| 11 recovery while capture UNKNOWN | same | recovery blocked (0 calls), case + reconcile; after not-executed proof recovery re-armed and executes once → effects 1 |
+| 11b recovery while capture recorded SUCCESS | same | blocked permanently, case, DB refuses recovery identity |
+| 3/4/5/6/7 capture → 503 / 429 / drop / timeout / malformed 2xx | `payment_r9c_ambiguous_outcomes_validation.ts` | each: job `sent`, identity `unknown+responded`, reconcile → ChargedSuccess, effects **1**, one identity (no `n2`) |
+| 2/18 proven pre-dispatch failure | same | 0 provider calls, identity kept `recorded`, outbox retry reuses the SAME identity → effects 1 |
+| 12 recovery → 503 after effect | same | effects 1, RecoveredCharge |
+| 13/14 refund → 503 / 429 after effect | same | effects 1, Refunded, one refund adjustment |
+| 15 release → 503 after effect | same | effects 1, AuthReleased |
+| 16 Grow settle ambiguous, hold still suspended | `grow_payment_sandbox_activation_validation.ts` | no charge_failed, no recovery, no second settle, `FINANCIAL_OUTCOME_UNRESOLVED` case |
+| Grow settle → 503 after effect | same | UNKNOWN → status captured → ChargedSuccess, settle calls +1 only |
+| 17 Grow refund → 503 after effect | same | UNKNOWN → status cannot prove refund → case, no second refund, no Refunded guess, refund job not re-armed |
+| Grow adapter classification + H1 request shape + policies | `payment_grow_ambiguity_policy_validation.ts` | 9/9 |
+| Original F1 crash/reclaim windows S1–S9 | `payment_provider_operation_identity_crash_validation.ts` | 10/10 (S3/S4 rewritten to the UNKNOWN contract: a post-dispatch 5xx never mints a fresh capture identity) |
+| F2 ledger atomicity L1/L2 | `payment_state_ledger_atomicity_validation.ts` | 2/2 — not regressed |
+| Exact Codex originals re-run on the fixed code | copies of `550a976` files | both FAIL as expected (ambiguous: job is `sent`, not `failed`; race: the deferred reconcile never performs the status read the proof waits on) |
+
+Suites: payments **36/36**, workers **12/12**, concurrency **4/4**, failure **9/9**, db **6/6**, integration **28/28**, e2e **12/12** (browser smoke excluded), isolated migration proof (57 migrations, fresh install + rerun + checksum ledger) PASS, `npx tsc --noEmit` PASS, backend enforcement / direct money-state mutation / Payment SDK boundary / secret scan PASS, payment compliance scan PASS, runtime DDL scan PASS, architecture gate PASS. Tests whose expectations encoded the old (unsafe) contract were updated: identity-crash S3/S4, release-lifecycle "temporary failure", rate-limit seeds (resolved attempts instead of `unknown` rows, because a new identity may no longer be minted behind an unresolved one).
+
+### Findings after remediation
+
+- **F1 — FIXED**: original crash/reclaim windows (S1–S9) + Codex C1 + Codex C2 all closed by the same durable lifecycle.
+- **F2 — PASS**: state + ledger still commit atomically; the attempt settlement now joins that transaction.
+- **C1 — FIXED** (provider effects 1, recovery calls 0). **C2 — FIXED** (503/429 → effects 1, no fresh identity). **H1 — MITIGATED, NOT PROVEN**: Grow now fails closed (no automatic repeat settle/refund, no automatic negative verdict); the idempotency/exact-operation-status contract itself remains UNPROVEN until documented and sandbox-proven.
+- **Residual (documented, not client-fixable)**: a request the client gave up on (timeout/lease death) may still be processed by a provider after a status read; only provider semantics (idempotency key or synchronous processing) close it — encoded per provider in `ambiguityPolicy`, false for Grow. A reconcile job that reaches the outbox attempt cap while the operation is in flight lands in the DLQ; the owning money job's own reclaim path still converges the identity.
+- **R10**: NOT STARTED / BLOCKED. **R9C SAFE_TO_MERGE**: pending independent re-review of the new SHA.
+
+## Tests performed — first pass (R9C worktree, fresh isolated `siton_test_*` databases via `scripts/run_test_group.cjs`)
 
 | Suite | Result |
 |---|---|
@@ -154,16 +220,26 @@ Re-run after F2: payments 33/33 · workers 12/12 · e2e gate 1/1 (all in fresh i
 
 ## Files changed on this branch
 
+First pass:
 - `src/fault_injection.ts` (3 test-only fault points)
 - `src/payment_attempt_helpers.ts` (`beginProviderAttempt`)
 - `src/outbox_worker_helpers.ts` (`assertLeaseForProviderIo`)
 - `src/app.ts` (four money rails, `resolvePriorProviderAttempt`, `assertOutboxLeaseForProviderIo`, atomic ledger in `applyPaymentWebhookClassification`)
 - `src/platform_fee_money.ts` (`recordProviderFinancialEventInTx`)
 - `tests/payment_provider_operation_identity_crash_validation.ts`, `tests/payment_state_ledger_atomicity_validation.ts`, `tests/payment_terminal_state_late_events_validation.ts`, `tests/platform_fee_boundary_rounding_validation.ts` (new), `tests/full_e2e_gate_validation.ts` (prediction)
+
+Remediation (after the Codex review):
+- `src/migrations/063_payment_operation_lifecycle.sql` + `scripts/migration_manifest.cjs` (ONE migration; 061/062 not consumed)
+- `src/payment_attempt_helpers.ts` (lifecycle: `beginProviderAttempt` kinds, `armProviderDispatch`, `settleProviderDispatch`, `settleAttemptInTx`, in-flight guards)
+- `src/payment_provider.ts` (`dispatched`, `ambiguityPolicy`, post-dispatch classification for provider-ready/Stripe/Grow wrapper, summary)
+- `src/grow_payment_adapter.ts` (settle/refund post-dispatch = UNKNOWN, pre-dispatch declared, H1 flags in the summary)
+- `src/synthetic_payment_provider.ts` (pre-dispatch declaration, policy)
+- `src/app.ts` (rails arm/settle, reconcile in-flight guard + policy gating + in-tx settlement, late-money-effect exceptions, blocked-operation holds)
+- `tests/payment_r9c_reconciliation_race_validation.ts`, `tests/payment_r9c_ambiguous_outcomes_validation.ts` (adapted from the Codex counterexamples — safety assertions), `tests/payment_grow_ambiguity_policy_validation.ts` (new), `tests/grow_payment_sandbox_activation_validation.ts` (+3 Grow scenarios), `tests/payment_provider_operation_identity_crash_validation.ts` (S3/S4), `tests/payment_release_lifecycle_validation.ts`, `tests/charge_attempt_rate_limit_validation.ts` (seeds)
 - `docs/R9C_CLAUDE_SYSTEM_RED_TEAM.md`, `PROJECT_STATUS.md`
 
-No migrations. No Product UX files. Overlap with Codex scope: NONE.
+No Product UX files. Overlap with Codex scope: NONE. Codex branches untouched.
 
 ## Final recommendation
 
-Merge candidates after owner review: F1 and F2 fixes are small, local, fully regression-proven and leave every other suite green. Do NOT start R10: Grow sandbox proof (incl. the idempotency contract in F4) and explicit owner authorization remain separate gates.
+Do NOT merge yet: the remediated SHA goes back to Codex for a second adversarial review (`R9C SAFE_TO_MERGE = pending independent re-review`). Do NOT rebase onto current master (`123bbf9`, P0.7C) before that review passes. Do NOT start R10: Grow settle/refund idempotency and exact-operation status semantics remain UNPROVEN (fail-closed in code, documented above), and explicit owner authorization remains a separate gate.
