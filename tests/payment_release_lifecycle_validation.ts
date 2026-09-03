@@ -209,17 +209,31 @@ await runTest("failed deal schedules release; release success reaches AuthReleas
   assert.equal(await participantMoneyState(seeded.participantId), "AuthReleased");
 });
 
-await runTest("release temporary failure retries via outbox without state change", async () => {
+await runTest("release 503 AFTER dispatch is UNKNOWN on the SAME identity (R9C C2): no blind retry, no state guess, status proof resolves it with exactly one release call", async () => {
   const seeded = await seedHeldParticipant({ suffix: "tempfail", authorizationId: "auth-release-tempfail-1" });
   const deadlineEvent = await enqueueDeadlineCheck(seeded.dealId);
   await processOutboxEventById(deadlineEvent);
   const releaseEvent = await latestReleaseEvent(seeded.participantId);
   const processed = await processOutboxEventById(releaseEvent.event_uuid);
-  assert.equal(processed?.status, "failed");
-  const outbox = await pool.query(`SELECT status, last_error FROM siton.outbox_events WHERE event_uuid=$1`, [releaseEvent.event_uuid]);
-  assert.equal(outbox.rows[0].status, "pending");
-  assert.match(String(outbox.rows[0].last_error || ""), /temporary_fail/);
-  assert.equal(await participantMoneyState(seeded.participantId), "AuthHeld");
+  assert.equal(processed?.status, "sent", JSON.stringify(processed));
+  assert.equal(provider.releaseCalls.filter((row) => row.authorization_id === "auth-release-tempfail-1").length, 1);
+  assert.equal(await participantMoneyState(seeded.participantId), "AuthHeld", "nothing is guessed from an ambiguous answer");
+  const attempt = await pool.query(
+    `SELECT result_class, dispatch_state FROM siton.payment_attempts WHERE participant_id=$1 AND attempt_type='release'`,
+    [seeded.participantId]
+  );
+  assert.equal(attempt.rowCount, 1, "one durable release identity");
+  assert.equal(attempt.rows[0].result_class, "unknown");
+  assert.equal(attempt.rows[0].dispatch_state, "responded");
+  const reconcile = await pool.query(
+    `SELECT event_uuid FROM siton.outbox_events WHERE event_type='payment_reconcile' AND aggregate_id=$1 AND status='pending'`,
+    [seeded.participantId]
+  );
+  assert.equal(reconcile.rowCount, 1, "UNKNOWN release schedules reconciliation");
+  const reconciled = await processOutboxEventById(reconcile.rows[0].event_uuid);
+  assert.equal(reconciled?.status, "sent", JSON.stringify(reconciled));
+  assert.equal(await participantMoneyState(seeded.participantId), "AuthReleased", "provider status proof (released) resolves the identity");
+  assert.equal(provider.releaseCalls.filter((row) => row.authorization_id === "auth-release-tempfail-1").length, 1, "exactly one release call — never a second money-side request");
 });
 
 await runTest("release UNKNOWN routes to reconcile and resolves via status proof without a second release call", async () => {

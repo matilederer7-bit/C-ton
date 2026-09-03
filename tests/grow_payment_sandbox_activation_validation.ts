@@ -48,7 +48,9 @@ const fakeGrow = {
   approveCalls: 0,
   settleRequests: [] as Array<Record<string, string>>,
   refundRequests: [] as Array<Record<string, string>>,
-  settleMode: "ok" as "ok" | "lose_response" | "reject"
+  refundEffects: 0,
+  settleMode: "ok" as "ok" | "lose_response" | "reject" | "http_503_after_effect" | "http_503_no_effect",
+  refundMode: "ok" as "ok" | "http_503_after_effect"
 };
 
 function fakeAuthorize(processId: string, sumOverride?: string) {
@@ -103,11 +105,14 @@ function fakeAuthorize(processId: string, sumOverride?: string) {
     for (const proc of fakeGrow.processes.values()) {
       if (proc.tx && proc.tx.transactionId === fields.transactionId && proc.tx.transactionToken === fields.transactionToken) {
         if (fakeGrow.settleMode === "reject") return err("settle rejected");
+        // R9C C2/H1 — an HTTP failure that arrives BEFORE Grow executed anything.
+        if (fakeGrow.settleMode === "http_503_no_effect") return { status: 503, body: { status: 0, err: "gateway busy" } };
         // Money moves at Grow BEFORE the response can be lost.
         proc.tx.statusCode = "2";
         proc.tx.status = "שולם";
         proc.tx.sum = String(fields.sum);
         if (fakeGrow.settleMode === "lose_response") throw new Error("socket hang up after dispatch");
+        if (fakeGrow.settleMode === "http_503_after_effect") return { status: 503, body: { status: 0, err: "gateway timeout after settle" } };
         return ok({ transactionId: proc.tx.transactionId, transactionToken: proc.tx.transactionToken });
       }
     }
@@ -118,6 +123,9 @@ function fakeAuthorize(processId: string, sumOverride?: string) {
     fakeGrow.refundRequests.push(fields);
     for (const proc of fakeGrow.processes.values()) {
       if (proc.tx && proc.tx.transactionId === fields.transactionId && proc.tx.transactionToken === fields.transactionToken) {
+        // The refund is executed at Grow BEFORE any response can fail.
+        fakeGrow.refundEffects += 1;
+        if (fakeGrow.refundMode === "http_503_after_effect") return { status: 503, body: { status: 0, err: "gateway timeout after refund" } };
         return ok({});
       }
     }
@@ -535,6 +543,97 @@ await runTest("capture UNKNOWN (Grow succeeded, response lost) reconciles to exa
   assert.equal((await feeLedgerRows(flow.participantId)).length, 1);
   const final = await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId]);
   assert.equal(final.rows[0].money_state, "ChargedSuccess");
+});
+
+await runTest("R9C C2 (Grow): settle executed, then HTTP 503 → UNKNOWN on the SAME identity; authoritative status proves the capture; ZERO repeat settles", async () => {
+  const flow = await establishAuthHeld("grow-c2a");
+  fakeGrow.settleMode = "http_503_after_effect";
+  const settleCallsBefore = fakeGrow.settleCalls;
+  const eventId = await enqueueChargeDeal(flow.dealId);
+  const outcome = await processOutboxEventById(eventId);
+  fakeGrow.settleMode = "ok";
+  assert.equal(outcome?.status, "sent", JSON.stringify(outcome));
+  assert.equal(fakeGrow.settleCalls, settleCallsBefore + 1);
+  const attempt = await pool.query(
+    `SELECT result_class, dispatch_state FROM siton.payment_attempts WHERE participant_id=$1 AND attempt_type='charge_start' ORDER BY created_at`,
+    [flow.participantId]
+  );
+  assert.equal(attempt.rowCount, 1, "one identity — a 503 after dispatch never mints a second settle identity");
+  assert.equal(attempt.rows[0].result_class, "unknown", "HTTP 503 after dispatch is UNKNOWN, never temporary_fail");
+  assert.equal(attempt.rows[0].dispatch_state, "responded");
+  assert.equal((await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId])).rows[0].money_state, "ChargeAttempt");
+  const reconcileEvent = await pendingOutboxEvent("payment_reconcile", flow.participantId);
+  assert.ok(reconcileEvent, "UNKNOWN schedules payment_reconcile");
+  const reconciled = await processOutboxEventById(reconcileEvent!);
+  assert.equal(reconciled?.status, "sent", JSON.stringify(reconciled));
+  assert.equal(fakeGrow.settleCalls, settleCallsBefore + 1, "reconciliation never repeats the settle");
+  assert.equal((await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId])).rows[0].money_state, "ChargedSuccess");
+  assert.equal((await feeLedgerRows(flow.participantId)).length, 1, "one Siton fee entry");
+});
+
+await runTest("R9C H1 (Grow CASE 16): settle answered HTTP 503 and Grow still shows the hold as suspended → NO charge_failed verdict, NO recovery, NO second settle — FINANCIAL_OUTCOME_UNRESOLVED case instead", async () => {
+  const flow = await establishAuthHeld("grow-c16");
+  fakeGrow.settleMode = "http_503_no_effect";
+  const settleCallsBefore = fakeGrow.settleCalls;
+  const eventId = await enqueueChargeDeal(flow.dealId);
+  const outcome = await processOutboxEventById(eventId);
+  fakeGrow.settleMode = "ok";
+  assert.equal(outcome?.status, "sent", JSON.stringify(outcome));
+  assert.equal(fakeGrow.settleCalls, settleCallsBefore + 1);
+  const reconcileEvent = await pendingOutboxEvent("payment_reconcile", flow.participantId);
+  assert.ok(reconcileEvent);
+  const reconciled = await processOutboxEventById(reconcileEvent!);
+  assert.equal(reconciled?.status, "failed", JSON.stringify(reconciled));
+  assert.match(String(reconciled?.error), /payment_reconcile_negative_status_unproven/, "Grow's broader transaction status cannot prove that THIS settle did not execute");
+  assert.equal(fakeGrow.settleCalls, settleCallsBefore + 1, "no automatic second settle");
+  const participant = await pool.query(`SELECT buyer_state, money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId]);
+  assert.equal(participant.rows[0].money_state, "ChargeAttempt", "no charge_failed was declared from an unproven negative");
+  assert.equal(participant.rows[0].buyer_state, "ChargingAttempt");
+  assert.equal(await pendingOutboxEvent("recovery_deal", flow.dealId), undefined, "no recovery was scheduled");
+  const cases = await pool.query(
+    `SELECT subject FROM siton.operational_cases WHERE auto_key LIKE $1`,
+    [`payment-outcome-unresolved:${flow.participantId}:charge_start:%`]
+  );
+  assert.equal(cases.rowCount, 1, "manual hold is visible to operators");
+  assert.match(String(cases.rows[0].subject), /FINANCIAL_OUTCOME_UNRESOLVED/);
+  const attempt = await pool.query(`SELECT result_class FROM siton.payment_attempts WHERE participant_id=$1 AND attempt_type='charge_start'`, [flow.participantId]);
+  assert.equal(attempt.rowCount, 1);
+  assert.equal(attempt.rows[0].result_class, "unknown", "the identity stays UNKNOWN until an operator resolves it");
+});
+
+await runTest("R9C H1 (Grow CASE 17): refund executed, then HTTP 503 → UNKNOWN; Grow status cannot prove the refund → NO second refund, NO Refunded guess — case instead", async () => {
+  const flow = await establishAuthHeld("grow-c17");
+  const chargeEvent = await enqueueChargeDeal(flow.dealId);
+  assert.equal((await processOutboxEventById(chargeEvent))?.status, "sent");
+  assert.equal((await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId])).rows[0].money_state, "ChargedSuccess");
+  fakeGrow.refundMode = "http_503_after_effect";
+  const refundCallsBefore = fakeGrow.refundCalls;
+  const refundEffectsBefore = fakeGrow.refundEffects;
+  const refundEventId = randomUUID();
+  await pool.query(
+    `INSERT INTO siton.outbox_events (event_uuid, event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+     VALUES ($1,'refund_issue','deal',$2,$3,'pending',0, now())`,
+    [refundEventId, flow.dealId, JSON.stringify({ deal_id: flow.dealId, reason: "r9c_grow_refund_ambiguity" })]
+  );
+  const refundOutcome = await processOutboxEventById(refundEventId);
+  fakeGrow.refundMode = "ok";
+  assert.equal(refundOutcome?.status, "sent", JSON.stringify(refundOutcome));
+  assert.equal(fakeGrow.refundCalls, refundCallsBefore + 1);
+  assert.equal(fakeGrow.refundEffects, refundEffectsBefore + 1, "the synthetic refund moved money before the 503");
+  const refundAttempt = await pool.query(`SELECT result_class FROM siton.payment_attempts WHERE participant_id=$1 AND attempt_type='refund'`, [flow.participantId]);
+  assert.equal(refundAttempt.rowCount, 1);
+  assert.equal(refundAttempt.rows[0].result_class, "unknown", "503 after dispatch is UNKNOWN");
+  assert.equal((await pool.query(`SELECT money_state FROM siton.participants WHERE participant_id=$1`, [flow.participantId])).rows[0].money_state, "ChargedSuccess", "no Refunded guess");
+  const reconcileEvent = await pendingOutboxEvent("payment_reconcile", flow.participantId);
+  assert.ok(reconcileEvent, "UNKNOWN refund schedules reconciliation");
+  const reconciled = await processOutboxEventById(reconcileEvent!);
+  assert.equal(reconciled?.status, "failed", JSON.stringify(reconciled));
+  assert.match(String(reconciled?.error), /payment_reconcile_negative_status_unproven/);
+  assert.equal(fakeGrow.refundCalls, refundCallsBefore + 1, "no automatic second refund");
+  assert.equal(await pendingOutboxEvent("refund_issue", flow.dealId), undefined, "the refund job was NOT re-armed");
+  const cases = await pool.query(`SELECT subject FROM siton.operational_cases WHERE auto_key LIKE $1`, [`payment-outcome-unresolved:${flow.participantId}:refund:%`]);
+  assert.equal(cases.rowCount, 1);
+  assert.match(String(cases.rows[0].subject), /FINANCIAL_OUTCOME_UNRESOLVED/);
 });
 
 await runTest("release honesty: no invented void — a live J5 hold stays honestly held; provider-declared no-hold releases", async () => {
