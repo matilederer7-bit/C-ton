@@ -486,11 +486,13 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         // an unresolvable reference is a safe bounded retry — no money moved.
         const looked = await lookup(reference);
         if (!looked.ok) {
-          return { result_class: looked.result_class === "unknown" ? "temporary_fail" as const : looked.result_class, retryable: looked.result_class !== "permanent_fail", error_code: looked.error_code };
+          // READ-ONLY lookup failed: no settle request exists yet — a definite
+          // pre-dispatch failure, safe to retry with the SAME identity.
+          return { result_class: looked.result_class === "unknown" ? "temporary_fail" as const : looked.result_class, retryable: looked.result_class !== "permanent_fail", dispatched: false as const, error_code: looked.error_code };
         }
         reference = looked.reference;
         if (!reference.transaction_id || !reference.transaction_token) {
-          return { result_class: "temporary_fail" as const, retryable: true, error_code: "grow_capture_transaction_reference_missing" };
+          return { result_class: "temporary_fail" as const, retryable: true, dispatched: false as const, error_code: "grow_capture_transaction_reference_missing" };
         }
       }
       const response = await post(config.paths.settle, {
@@ -499,18 +501,23 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         transactionToken: reference.transaction_token,
         sum: centsToIls(amountMinor)
       });
-      if (response.status === 0) return { result_class: "unknown" as const, retryable: true, error_code: "grow_capture_transport_unknown" };
-      if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), retryable: classifyHttp(response.status) === "temporary_fail", error_code: growError(response.body) };
+      // R9C C2 — from here on the settle request MAY have reached Grow. The
+      // official contract carries no per-operation idempotency key and never
+      // states that a non-2xx/transport failure means "not executed", so every
+      // non-success that is not an explicit Grow rejection is UNKNOWN (never a
+      // retryable temporary failure that could mint a second settle).
+      if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_capture_transport_unknown" };
+      if (response.status < 200 || response.status >= 300) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_settle_http_${response.status}_ambiguous` };
       const payload: any = response.body;
-      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, error_code: growError(payload) };
+      if (!growSucceeded(payload)) return { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
       const data = responseData(payload);
       const next = { ...reference, ...(data.transactionId ? { transaction_id: safeText(data.transactionId, 100) } : {}), ...(data.transactionToken ? { transaction_token: safeText(data.transactionToken, 300) } : {}) };
-      return { result_class: "success" as const, retryable: false, provider_reference: sealGrowReference(next, config.reference_encryption_key) };
+      return { result_class: "success" as const, retryable: false, dispatched: true as const, provider_reference: sealGrowReference(next, config.reference_encryption_key) };
     },
     async refund(referenceValue: string, amountMinor: number) {
       assertGrowConfig(config, false);
       const reference = openGrowReference(referenceValue, config.reference_encryption_key);
-      if (!reference.transaction_id || !reference.transaction_token) return { result_class: "permanent_fail" as const, retryable: false, error_code: "grow_refund_transaction_reference_missing" };
+      if (!reference.transaction_id || !reference.transaction_token) return { result_class: "permanent_fail" as const, retryable: false, dispatched: false as const, error_code: "grow_refund_transaction_reference_missing" };
       const response = await post(config.paths.refund, {
         userId: config.user_id,
         transactionId: reference.transaction_id,
@@ -518,12 +525,14 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         refundSum: centsToIls(amountMinor),
         pageCode: config.page_code
       });
-      if (response.status === 0) return { result_class: "unknown" as const, retryable: true, error_code: "grow_refund_transport_unknown" };
-      if (response.status < 200 || response.status >= 300) return { result_class: classifyHttp(response.status), retryable: classifyHttp(response.status) === "temporary_fail", error_code: growError(response.body) };
+      // R9C C2 — same rule as settle: after dispatch, only an explicit Grow
+      // answer is a declared outcome; everything else is UNKNOWN.
+      if (response.status === 0) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: "grow_refund_transport_unknown" };
+      if (response.status < 200 || response.status >= 300) return { result_class: "unknown" as const, retryable: false, dispatched: true as const, error_code: `grow_refund_http_${response.status}_ambiguous` };
       const payload: any = response.body;
       return growSucceeded(payload)
-        ? { result_class: "success" as const, retryable: false, provider_reference: referenceValue }
-        : { result_class: "permanent_fail" as const, retryable: false, error_code: growError(payload) };
+        ? { result_class: "success" as const, retryable: false, dispatched: true as const, provider_reference: referenceValue }
+        : { result_class: "permanent_fail" as const, retryable: false, dispatched: true as const, error_code: growError(payload) };
     },
     /**
      * Release honesty (official contract): Grow documents NO native void for
@@ -579,7 +588,13 @@ export function buildGrowPaymentAdapter(options: { config?: GrowConfig; transpor
         release_strategy: "automatic_expiry_observed_via_status_reconciliation",
         native_void_endpoint: false,
         settle_identifier: "transactionId+transactionToken",
-        browser_receives_process_credentials: false
+        browser_receives_process_credentials: false,
+        // R9C H1 — settle/refund transmit no Siton operation key; repeat
+        // semantics are UNPROVEN, so ambiguous outcomes never auto-repeat.
+        operation_idempotency_key_transmitted: false,
+        repeat_settle_idempotent: "unproven",
+        repeat_refund_idempotent: "unproven",
+        ambiguous_settle_or_refund_policy: "unknown_then_status_lookup_then_manual_case_no_automatic_repeat"
       };
     }
   };
