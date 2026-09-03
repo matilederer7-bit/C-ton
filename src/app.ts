@@ -3136,6 +3136,14 @@ const RATE_LIMIT_MAX = Number(process.env.RATE_LIMIT_MAX ?? 200);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS ?? 60_000);
 // Stricter limit for sensitive mutation endpoints (OTP, joining a deal)
 const RATE_LIMIT_SENSITIVE_MAX = Number(process.env.RATE_LIMIT_SENSITIVE_MAX ?? 20);
+// P0.7C — READ-ONLY public reads under the same prefixes (deal public JSON,
+// activity feed, chat list) get their OWN per-IP budget so normal page
+// polling can never exhaust the mutation budget above. Still bounded.
+// Never stricter than the mutation budget: deployments/tests that lift
+// RATE_LIMIT_SENSITIVE_MAX for bulk traffic lift the read budget with it.
+const RATE_LIMIT_READ_MAX_CONFIGURED = Number(process.env.RATE_LIMIT_READ_MAX ?? 120);
+const RATE_LIMIT_READ_MAX = RATE_LIMIT_READ_MAX_CONFIGURED <= 0 ? 0 : Math.max(RATE_LIMIT_READ_MAX_CONFIGURED, RATE_LIMIT_SENSITIVE_MAX);
+const READ_ONLY_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 export const RATE_LIMIT_SCALE_MODE = process.env.RATE_LIMIT_SCALE_MODE || "single_instance_only";
 
 // Paths that get the tighter per-IP limit (prefix match without trailing slash)
@@ -3182,6 +3190,13 @@ function isSensitivePath(url: string): boolean {
   return SENSITIVE_PATHS.some((p) => url === p || url.startsWith(p + "/") || url.startsWith(p + "?"));
 }
 
+// The sensitive bucket is for MUTATIONS (OTP, join, create, inquiry, support);
+// a read-only method on the same prefix is public read polling.
+export function rateLimitBucketFor(method: string, url: string): "sensitive" | "read" | "none" {
+  if (!isSensitivePath(url)) return "none";
+  return READ_ONLY_METHODS.has(String(method || "").toUpperCase()) ? "read" : "sensitive";
+}
+
 if (RATE_LIMIT_MAX > 0) {
   app.addHook("onRequest", async (req, reply) => {
     // req.ip is the correct client IP when trustProxy:true is set —
@@ -3202,12 +3217,24 @@ if (RATE_LIMIT_MAX > 0) {
       return;
     }
 
-    // Sensitive-endpoint stricter bucket
-    if (RATE_LIMIT_SENSITIVE_MAX > 0 && isSensitivePath(url)) {
+    // Sensitive-endpoint stricter bucket (mutations only) — read-only requests
+    // on the same prefixes use their own bounded read budget (P0.7C).
+    const bucket = rateLimitBucketFor(String(req.method || "GET"), url);
+    if (bucket === "sensitive" && RATE_LIMIT_SENSITIVE_MAX > 0) {
       const sensitiveKey = `s:${ip}`;
       const sensitiveEntry = rateLimitStore.hit(sensitiveKey, now, RATE_LIMIT_WINDOW_MS);
       if (sensitiveEntry.count > RATE_LIMIT_SENSITIVE_MAX) {
         const retryAfterSecs = Math.ceil((sensitiveEntry.resetAt - now) / 1000);
+        void reply
+          .code(429)
+          .header("Retry-After", String(retryAfterSecs))
+          .send({ ok: false, error: "rate_limit_exceeded", retry_after: retryAfterSecs });
+      }
+    } else if (bucket === "read" && RATE_LIMIT_READ_MAX > 0) {
+      const readKey = `r:${ip}`;
+      const readEntry = rateLimitStore.hit(readKey, now, RATE_LIMIT_WINDOW_MS);
+      if (readEntry.count > RATE_LIMIT_READ_MAX) {
+        const retryAfterSecs = Math.ceil((readEntry.resetAt - now) / 1000);
         void reply
           .code(429)
           .header("Retry-After", String(retryAfterSecs))

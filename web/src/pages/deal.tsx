@@ -4,6 +4,10 @@ import {
   BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, useToast
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
+// P0.7C — bounded read polling: immediate, never overlapping, paused when hidden,
+// back-off on 429/errors, stopped on terminal states; dedicated server read budget.
+import { PUBLIC_DEAL_POLL, TERMINAL_DEAL_STATES, classifyPollError } from "../polling";
+import { usePoller } from "../usePoller";
 import { hebrewError } from "../he";
 import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, ils, initialOf, num, timeAgo } from "../util";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId, visitorId } from "../viral";
@@ -131,12 +135,15 @@ function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: bo
   const [replyTo, setReplyTo] = useState<Json | null>(null);
   const composerRef = useRef<HTMLInputElement>(null);
   const load = () => api.chat(dealId, visitorId()).then((r) => setMessages(r.messages || [])).catch(() => undefined);
-  useEffect(() => {
-    if (preview) return; // preview: no polling, no writes — the panel is a static placeholder
-    load();
-    const id = setInterval(load, 20_000);
-    return () => clearInterval(id);
-  }, [dealId, preview]);
+  // preview: no polling, no writes — the panel is a static placeholder.
+  // A closed chat (403) or a vanished deal (404) stops the loop for good.
+  usePoller(async () => {
+    try {
+      const r = await api.chat(dealId, visitorId());
+      setMessages(r.messages || []);
+      return { outcome: "ok" };
+    } catch (err) { return { outcome: classifyPollError(err) }; }
+  }, { intervalMs: PUBLIC_DEAL_POLL.chat_ms, enabled: !preview }, [dealId]);
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!body.trim() || busy || preview) return;
@@ -345,18 +352,13 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    let alive = true;
-    const load = () => {
-      const items = readStoredInquiries(dealId).slice(0, 3);
-      if (!items.length) { setThreads([]); return; }
-      Promise.all(items.map((it) => api.inquiryThread(it.thread_id, it.token).then((r) => ({ ...r, token: it.token })).catch(() => null)))
-        .then((rs) => { if (alive) setThreads(rs.filter(Boolean) as Json[]); });
-    };
-    load();
-    const id = setInterval(load, 30_000);
-    return () => { alive = false; clearInterval(id); };
-  }, [dealId, refreshKey]);
+  usePoller(async () => {
+    const items = readStoredInquiries(dealId).slice(0, 3);
+    if (!items.length) { setThreads([]); return { outcome: "stop" }; }
+    const rs = await Promise.all(items.map((it) => api.inquiryThread(it.thread_id, it.token).then((r) => ({ ...r, token: it.token })).catch(() => null)));
+    setThreads(rs.filter(Boolean) as Json[]);
+    return { outcome: "ok" };
+  }, { intervalMs: PUBLIC_DEAL_POLL.inquiries_ms }, [dealId, refreshKey]);
 
   if (!threads.length) return null;
   const followUp = async (t: Json) => {
@@ -647,15 +649,17 @@ export function DealPage({ dealId, navigate, preview = false }: { dealId: string
     return () => { alive = false; };
   }, [dealId, preview]);
 
-  // live layer: poll the real activity feed (never in preview)
-  useEffect(() => {
-    if (preview) return;
-    let alive = true;
-    const load = () => api.activity(dealId).then((a) => { if (alive) setActivity(a); }).catch(() => undefined);
-    load();
-    const id = setInterval(load, 6_000);
-    return () => { alive = false; clearInterval(id); };
-  }, [dealId, preview]);
+  // live layer: poll the real activity feed (never in preview). Open deals
+  // every 12s, settled-but-not-final deals every 30s, terminal deals never.
+  usePoller(async () => {
+    try {
+      const a = await api.activity(dealId);
+      setActivity(a);
+      const s = String(a?.state || "");
+      if ((TERMINAL_DEAL_STATES as readonly string[]).includes(s)) return { outcome: "stop" };
+      return { outcome: "ok", intervalMs: OPEN_STATES.includes(s) ? PUBLIC_DEAL_POLL.activity_open_ms : PUBLIC_DEAL_POLL.activity_settled_ms };
+    } catch (err) { return { outcome: classifyPollError(err) }; }
+  }, { intervalMs: PUBLIC_DEAL_POLL.activity_open_ms, enabled: !preview }, [dealId]);
 
   // celebrate the PendingTarget→TargetReached moment while viewing
   useEffect(() => {

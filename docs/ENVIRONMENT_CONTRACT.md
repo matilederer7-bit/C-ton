@@ -89,6 +89,7 @@ Legend:
 | `DISABLE_OUTBOX_WORKER` | ⬜ | ⬜ | ⬜ | 📄 | unset | Set `1` when running a dedicated worker container. |
 | `RATE_LIMIT_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | `0` disables. |
 | `RATE_LIMIT_WINDOW_MS` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | |
+| `RATE_LIMIT_READ_MAX` | ⬜ | ⬜ | ⬜ | 📄 | adapter default | P0.7C: per-IP budget for read-only requests on the sensitive prefixes (deal public/activity/chat polling); default `120`/window, never below `RATE_LIMIT_SENSITIVE_MAX`; `0` disables. Mutations keep `RATE_LIMIT_SENSITIVE_MAX`. |
 | `MOCK_SEED` | ⬜ (demo only) | ⬜ | ⬜ | 📄 | unset | |
 | `UPLOAD_DIR` / `DEAL_IMAGE_UPLOAD_DIR` | ⬜ | ⬜ | ⬜ | 📄 | `uploads/deal-images` | Writable local/demo image directory; `DEAL_IMAGE_UPLOAD_DIR` takes precedence. Production uses object storage. |
 | `SUPABASE_PROJECT_REF` | ⬜ | ⬜ | ⚠ for hosted metrics/compute | 📄 | unset | Hosted project identifier; never treated as a credential. |
