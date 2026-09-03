@@ -147,11 +147,17 @@ async function main() {
       const text = await cdp.evaluate(`document.body.innerText`);
       const html = await cdp.evaluate(`document.documentElement.outerHTML`);
       assert(!/mailto:/.test(html), "mailto link rendered");
-      assert(!/wa\.me|tel:/.test(html), "phone / WhatsApp link rendered");
+      // seller CONTACT links are forbidden (a phone number behind wa.me/ or tel:);
+      // the buyer's own share-to-WhatsApp button (wa.me/?text=<deal link>) is the viral rail, not contact
+      assert(!/wa\.me\/\+?\d|tel:\+?\d/.test(html), "seller phone / WhatsApp contact link rendered");
       assert(!/support_phone/.test(text), "phone field rendered");
       const emails = (text.match(EMAIL_RE) || []).filter((e) => !e.endsWith("@siton.test"));
       assert(emails.length === 0, `e-mail visible on the page: ${emails.join(",")}`);
       assert(await cdp.evaluate(exists('[data-testid="inquiry-open"]')), "פנייה למוכר button missing");
+      if (args["read-only"]) {
+        // stop this page's activity/chat polling so it does not eat the per-IP sensitive bucket
+        await cdp.navigate("about:blank");
+      }
     });
 
     if (args["read-only"]) {
@@ -210,6 +216,9 @@ async function main() {
     });
 
     await run("S7 mobile 390px: countdown one readable row, no horizontal overflow, pickup visible", async () => {
+      // let the per-IP sensitive window (60s) expire — earlier scenarios polled /api/deals/* from this IP
+      await cdp.navigate("about:blank");
+      await wait(65_000);
       await cdp.send("Emulation.setDeviceMetricsOverride", { width: 390, height: 844, deviceScaleFactor: 2, mobile: true });
       await openDeal("&m=1");
       const probe = await waitFor(cdp, COUNTDOWN_PROBE, 25_000, "mobile countdown");
@@ -299,7 +308,8 @@ async function main() {
         assert(inquiryDisabled === true, "inquiry must be disabled in preview");
         assert(await cdp.evaluate(exists('[data-testid="share-preview-note"]')), "share actions must be replaced by the preview note");
         const html = await cdp.evaluate(`document.documentElement.outerHTML`);
-        assert(!/mailto:|wa\.me|tel:/.test(html), "contact link rendered in preview");
+        assert(!/mailto:|wa\.me\/\+?\d|tel:\+?\d/.test(html), "seller contact link rendered in preview");
+        assert(!/wa\.me/.test(html), "share buttons must not render in preview mode");
         await cdp.screenshot("p07-draft-preview.png");
         findings.draft_preview_countdown = probe.units.map((u) => `${u.label}=${u.value}`).join(" ");
         const still = await fetch(`${BASE}/api/deals/${draft}/public`);
