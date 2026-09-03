@@ -102,14 +102,44 @@ await run("2: the public deal page renders NO seller e-mail and offers the inter
   assert.doesNotMatch(dealPage, /support_email/);
   assert.match(dealPage, /data-testid="inquiry-open"/);
   assert.match(dealPage, /פנייה למוכר/);
-  assert.match(dealPage, /הפנייה נשלחה למוכר דרך C-ton\./);
+  assert.match(dealPage, /הפנייה נשלחה למוכר דרך \{PRODUCT_NAME_HE\}\./);
+  assert.match(dealPage, /const PRODUCT_NAME_HE = "סיטון";/);
+  assert.doesNotMatch(dealPage, /הפנייה נשלחה למוכר דרך C-ton/, "the inquiry success sentence says סיטון");
   assert.match(dealPage, /api\.dealInquiry\(/);
   assert.match(dealPage, /className="hp-field"/, "honeypot field present");
   assert.match(dealPage, /data-testid="my-inquiries"/);
 });
 
+await run("PUBLIC_SELLER_PHONE: no phone / WhatsApp on the public page or in the public projection", () => {
+  assert.doesNotMatch(dealPage, /support_phone/);
+  assert.doesNotMatch(dealPage, /wa\.me|whatsapp|וואטסאפ/i);
+  const projStart = frontendRuntime.indexOf("async function buildPublicDealPayload");
+  const projEnd = frontendRuntime.indexOf('app.get("/api/deals/:id/public"', projStart);
+  assert.ok(projStart > 0 && projEnd > projStart, "shared projection located");
+  const projection = frontendRuntime.slice(projStart, projEnd);
+  assert.doesNotMatch(projection, /support_phone|support_email|login_email|contact_phone/);
+  assert.match(projection, /contact_channel: "siton_inquiry"/);
+  // ONE projection serves both routes
+  assert.match(frontendRuntime, /return deps\.withTx\(\(c\) => buildPublicDealPayload\(c, dealId, \{ requirePublished: true \}\)\);/);
+  assert.match(frontendRuntime, /buildPublicDealPayload\(c, dealId, \{ requirePublished: false, sellerId: sellerContext\.seller_id \}\)/);
+});
+
+await run("DRAFT PREVIEW: same renderer in read-only mode — no join/share/chat/inquiry, no funnel or share-visit events", () => {
+  assert.match(dealPage, /preview \? api\.sellerDealPreview\(dealId\) : api\.deal\(dealId\)/);
+  assert.match(dealPage, /if \(!preview\) \{\s*\n\s*\/\/ real public traffic only[^\n]*\n\s*sendFunnelEvent\(dealId, "deal_view"/);
+  assert.match(dealPage, /data-testid="preview-banner"/);
+  assert.match(dealPage, /data-testid="join-open" disabled=\{preview\}/);
+  assert.match(dealPage, /data-testid="share-preview-note"/);
+  assert.match(dealPage, /canWrite=\{!preview && OPEN_STATES\.includes\(state\)\}/);
+  assert.match(dealPage, /data-testid="inquiry-open" onClick=\{onOpen\} disabled=\{preview\}/);
+  assert.match(dealPage, /const state = preview && rawState === "Draft" \? "PendingTarget" : rawState;/);
+  assert.equal((dealPage.match(/<LiveCountdown deadline=\{deal\.deadline\}/g) || []).length, 1, "one countdown component for public and preview");
+  assert.match(sellerPage, /sub\[2\] === "preview"\) return <DealPage dealId=\{sub\[1\]\} navigate=\{navigate\} preview \/>/);
+  assert.match(sellerPage, /href=\{`#\/seller\/deal\/\$\{dealId\}\/preview`\}/);
+});
+
 await run("1: the public deal route neither selects nor returns support_email", () => {
-  const start = frontendRuntime.indexOf('app.get("/api/deals/:id/public"');
+  const start = frontendRuntime.indexOf("async function buildPublicDealPayload");
   const end = frontendRuntime.indexOf("// ── P0.7 — internal buyer → seller inquiries", start);
   assert.ok(start > 0 && end > start, "public route block located");
   const block = frontendRuntime.slice(start, end);

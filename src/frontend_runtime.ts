@@ -2758,6 +2758,173 @@ export function registerFrontendExperience(
     });
   });
 
+  // Canonical public Deal projection — ONE function serves the public route AND
+  // the seller-authorized buyer preview (P0.7 polish), so what a seller previews
+  // can never drift from what buyers see after publication. requirePublished
+  // keeps unpublished deals undiscoverable on the public route; sellerId scopes
+  // the preview to the seller's OWN deals (foreign = 404, like missing).
+  // The seller's e-mail and phone are NEVER part of this projection: buyer→seller
+  // contact is the internal inquiry rail ("פנייה למוכר").
+  async function buildPublicDealPayload(c: any, dealId: string, options: { requirePublished: boolean; sellerId?: string | null }) {
+    const dealResult = await c.query(
+      `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
+              d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
+              d.created_at, d.seller_id, d.deal_type,
+              sa.business_name, sa.business_description
+       FROM siton.deals d
+       LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
+       WHERE d.deal_id=$1
+         AND ($2::boolean = false OR d.published_at IS NOT NULL)
+         AND ($3::text IS NULL OR COALESCE(d.seller_id, $4) = $3::text)`,
+      [dealId, options.requirePublished, options.sellerId ?? null, DEFAULT_SELLER_ID]
+    );
+
+    if (!dealResult.rowCount) {
+      const err: any = new Error("deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+
+    const aggregate = await c.query(
+      `SELECT COALESCE(SUM(qty),0) AS joined_units,
+              COUNT(*)::int AS participants_count
+       FROM siton.participants
+       WHERE deal_id=$1
+         AND buyer_state NOT IN ('NotJoined','DealFailed','Dropped')`,
+      [dealId]
+    );
+    const deliveryOptions = await c.query(
+      `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
+       FROM siton.deal_delivery_options
+       WHERE deal_id=$1
+       ORDER BY sort_order ASC, created_at ASC`,
+      [dealId]
+    );
+    const images = await c.query(
+      `SELECT image_id, public_url, mime_type, is_primary, sort_order
+       FROM siton.deal_images
+       WHERE deal_id=$1
+       ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+      [dealId]
+    );
+
+    const deal = dealResult.rows[0] as {
+      deal_id: string;
+      title: string;
+      state: DealState;
+      price_per_unit: number;
+      min_units: number;
+      max_units: number;
+      threshold_units: number;
+      deadline: string;
+      published_at: string | null;
+      completion_window_until: string | null;
+      created_at: string;
+      deal_type: string;
+    };
+
+    const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(deal.deal_type))
+      ? (deal.deal_type as DealType)
+      : "physical_product");
+    const voucherTerms = dealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
+    const ticketTerms = dealType === "ticket" ? await readTicketTerms(c, dealId) : null;
+    const fulfillmentCopy = publicDealCopy(dealType);
+
+    const joinedUnits = Number(aggregate.rows[0].joined_units || 0);
+    const participantsCount = Number(aggregate.rows[0].participants_count || 0);
+    const remainingUnits = Math.max(0, Number(deal.max_units) - joinedUnits);
+    const availability = deriveDealAvailability(deal.state, remainingUnits);
+
+    return {
+      ok: true,
+      deal: {
+        deal_id: deal.deal_id,
+        title: deal.title,
+        description: (deal as any).description || "",
+        description_short: (deal as any).description_short || "",
+        state: deal.state,
+        deal_type: dealType,
+        price_per_unit: Number(deal.price_per_unit),
+        min_units: Number(deal.min_units),
+        max_units: Number(deal.max_units),
+        threshold_units: Number(deal.threshold_units),
+        deadline: deal.deadline,
+        published_at: deal.published_at,
+        completion_window_until: deal.completion_window_until,
+        created_at: deal.created_at,
+        // Physical-only fields are suppressed for voucher/ticket so the public
+        // page can't accidentally show shipping copy where it doesn't apply.
+        delivery_options: dealType === "physical_product"
+          ? deliveryOptions.rows.map((row: any) => ({
+              option_id: row.option_id,
+              option_type: row.option_type,
+              label: row.label,
+              cost: Number(row.cost || 0),
+              sort_order: Number(row.sort_order || 0),
+              latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
+              longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
+              // P0.7 — canonical pickup location projection (shared rule with the seller payload)
+              ...describePickupLocation(row)
+            }))
+          : [],
+        voucher_terms: voucherTerms
+          ? {
+              face_value_amount: Number(voucherTerms.face_value_amount),
+              currency: voucherTerms.currency,
+              valid_from: voucherTerms.valid_from,
+              valid_until: voucherTerms.valid_until,
+              redemption_location: voucherTerms.redemption_location,
+              redemption_instructions: voucherTerms.redemption_instructions,
+              terms: voucherTerms.terms,
+              is_single_use: Boolean(voucherTerms.is_single_use),
+              allow_partial_redemption: Boolean(voucherTerms.allow_partial_redemption),
+              voucher_code_mode: voucherTerms.voucher_code_mode
+            }
+          : null,
+        ticket_terms: ticketTerms
+          ? {
+              event_name: ticketTerms.event_name,
+              event_starts_at: ticketTerms.event_starts_at,
+              event_ends_at: ticketTerms.event_ends_at,
+              venue_name: ticketTerms.venue_name,
+              venue_address: ticketTerms.venue_address,
+              venue_city: ticketTerms.venue_city,
+              entry_instructions: ticketTerms.entry_instructions,
+              ticket_type: ticketTerms.ticket_type,
+              seat_mode: ticketTerms.seat_mode,
+              transfer_allowed: Boolean(ticketTerms.transfer_allowed)
+            }
+          : null,
+        fulfillment_copy: fulfillmentCopy,
+        images: images.rows.map((row: any) => ({
+          image_id: row.image_id,
+          url: resolveDealImageUrl(row),
+          is_primary: Boolean(row.is_primary),
+          sort_order: Number(row.sort_order || 0),
+          mime_type: row.mime_type
+        }))
+      },
+      metrics: {
+        joined_units: joinedUnits,
+        remaining_units: remainingUnits,
+        participants_count: participantsCount,
+        progress_to_target_pct: Number(
+          Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.threshold_units))) * 100))
+        ),
+        progress_to_capacity_pct: Number(
+          Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.max_units))) * 100))
+        )
+      },
+      // Business identity only. No e-mail, no phone: contact stays in the product.
+      seller: {
+        business_name: (deal as any).business_name ?? null,
+        business_description: (deal as any).business_description ?? null,
+        contact_channel: "siton_inquiry"
+      },
+      availability
+    };
+  }
+
   app.get("/api/deals/:id/public", async (req: any) => {
     const dealId = String(req.params.id);
     requireUuid(dealId, "deal_id");
@@ -2768,164 +2935,32 @@ export function registerFrontendExperience(
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
 
+    return deps.withTx((c) => buildPublicDealPayload(c, dealId, { requirePublished: true }));
+  });
+
+  // P0.7 polish — seller-authorized BUYER PREVIEW of the seller's OWN deal, Draft
+  // included: the SAME projection as the public route (one function, one React
+  // renderer in preview mode), read-only by construction — no publish, no join,
+  // no payment binding, no share attribution, no funnel event. A foreign deal
+  // answers 404 exactly like a missing one, and the public route keeps refusing
+  // unpublished deals, so nothing becomes discoverable.
+  app.get("/api/seller/deals/:dealId/preview", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    requireUuid(dealId, "deal_id");
+    await ensureProductSurfaces();
+    await ensureDealTypeTables(deps.withTx);
     return deps.withTx(async (c) => {
-      const dealResult = await c.query(
-        `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
-                d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
-                d.created_at, d.seller_id, d.deal_type,
-                sa.business_name, sa.support_phone, sa.business_description
-         FROM siton.deals d
-         LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
-         WHERE d.deal_id=$1
-           AND d.published_at IS NOT NULL`,
-        [dealId]
-      );
-
-      if (!dealResult.rowCount) {
-        const err: any = new Error("deal not found");
-        err.statusCode = 404;
-        throw err;
-      }
-
-      const aggregate = await c.query(
-        `SELECT COALESCE(SUM(qty),0) AS joined_units,
-                COUNT(*)::int AS participants_count
-         FROM siton.participants
-         WHERE deal_id=$1
-           AND buyer_state NOT IN ('NotJoined','DealFailed','Dropped')`,
-        [dealId]
-      );
-      const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
-         FROM siton.deal_delivery_options
-         WHERE deal_id=$1
-         ORDER BY sort_order ASC, created_at ASC`,
-        [dealId]
-      );
-      const images = await c.query(
-        `SELECT image_id, public_url, mime_type, is_primary, sort_order
-         FROM siton.deal_images
-         WHERE deal_id=$1
-         ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
-        [dealId]
-      );
-
-      const deal = dealResult.rows[0] as {
-        deal_id: string;
-        title: string;
-        state: DealState;
-        price_per_unit: number;
-        min_units: number;
-        max_units: number;
-        threshold_units: number;
-        deadline: string;
-        published_at: string | null;
-        completion_window_until: string | null;
-        created_at: string;
-        deal_type: string;
-      };
-
-      const dealType: DealType = (["physical_product","voucher","ticket"].includes(String(deal.deal_type))
-        ? (deal.deal_type as DealType)
-        : "physical_product");
-      const voucherTerms = dealType === "voucher" ? await readVoucherTerms(c, dealId) : null;
-      const ticketTerms = dealType === "ticket" ? await readTicketTerms(c, dealId) : null;
-      const fulfillmentCopy = publicDealCopy(dealType);
-
-      const joinedUnits = Number(aggregate.rows[0].joined_units || 0);
-      const participantsCount = Number(aggregate.rows[0].participants_count || 0);
-      const remainingUnits = Math.max(0, Number(deal.max_units) - joinedUnits);
-      const availability = deriveDealAvailability(deal.state, remainingUnits);
-
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const payload = await buildPublicDealPayload(c, dealId, { requirePublished: false, sellerId: sellerContext.seller_id });
       return {
-        ok: true,
-        deal: {
-          deal_id: deal.deal_id,
-          title: deal.title,
-          description: (deal as any).description || "",
-          description_short: (deal as any).description_short || "",
-          state: deal.state,
-          deal_type: dealType,
-          price_per_unit: Number(deal.price_per_unit),
-          min_units: Number(deal.min_units),
-          max_units: Number(deal.max_units),
-          threshold_units: Number(deal.threshold_units),
-          deadline: deal.deadline,
-          published_at: deal.published_at,
-          completion_window_until: deal.completion_window_until,
-          created_at: deal.created_at,
-          // Physical-only fields are suppressed for voucher/ticket so the public
-          // page can't accidentally show shipping copy where it doesn't apply.
-          delivery_options: dealType === "physical_product"
-            ? deliveryOptions.rows.map((row: any) => ({
-                option_id: row.option_id,
-                option_type: row.option_type,
-                label: row.label,
-                cost: Number(row.cost || 0),
-                sort_order: Number(row.sort_order || 0),
-                latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
-                longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
-                // P0.7 — canonical pickup location projection (shared rule with the seller payload)
-                ...describePickupLocation(row)
-              }))
-            : [],
-          voucher_terms: voucherTerms
-            ? {
-                face_value_amount: Number(voucherTerms.face_value_amount),
-                currency: voucherTerms.currency,
-                valid_from: voucherTerms.valid_from,
-                valid_until: voucherTerms.valid_until,
-                redemption_location: voucherTerms.redemption_location,
-                redemption_instructions: voucherTerms.redemption_instructions,
-                terms: voucherTerms.terms,
-                is_single_use: Boolean(voucherTerms.is_single_use),
-                allow_partial_redemption: Boolean(voucherTerms.allow_partial_redemption),
-                voucher_code_mode: voucherTerms.voucher_code_mode
-              }
-            : null,
-          ticket_terms: ticketTerms
-            ? {
-                event_name: ticketTerms.event_name,
-                event_starts_at: ticketTerms.event_starts_at,
-                event_ends_at: ticketTerms.event_ends_at,
-                venue_name: ticketTerms.venue_name,
-                venue_address: ticketTerms.venue_address,
-                venue_city: ticketTerms.venue_city,
-                entry_instructions: ticketTerms.entry_instructions,
-                ticket_type: ticketTerms.ticket_type,
-                seat_mode: ticketTerms.seat_mode,
-                transfer_allowed: Boolean(ticketTerms.transfer_allowed)
-              }
-            : null,
-          fulfillment_copy: fulfillmentCopy,
-          images: images.rows.map((row: any) => ({
-            image_id: row.image_id,
-            url: resolveDealImageUrl(row),
-            is_primary: Boolean(row.is_primary),
-            sort_order: Number(row.sort_order || 0),
-            mime_type: row.mime_type
-          }))
-        },
-        metrics: {
-          joined_units: joinedUnits,
-          remaining_units: remainingUnits,
-          participants_count: participantsCount,
-          progress_to_target_pct: Number(
-            Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.threshold_units))) * 100))
-          ),
-          progress_to_capacity_pct: Number(
-            Math.min(100, Math.round((joinedUnits / Math.max(1, Number(deal.max_units))) * 100))
-          )
-        },
-        // P0.7 — the seller's e-mail is NEVER part of the public contract:
-        // buyer→seller contact is the internal inquiry rail ("פנייה למוכר").
-        seller: {
-          business_name: (deal as any).business_name ?? null,
-          support_phone: (deal as any).support_phone ?? null,
-          business_description: (deal as any).business_description ?? null,
-          contact_channel: "siton_inquiry"
-        },
-        availability
+        ...payload,
+        preview: {
+          mode: "seller_preview",
+          read_only: true,
+          published: Boolean(payload.deal.published_at),
+          state: payload.deal.state
+        }
       };
     });
   });

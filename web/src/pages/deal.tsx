@@ -14,6 +14,10 @@ import { hasUsablePickupLocation, isPickupOptionType, pickupDirectionsUrl, picku
 
 const OPEN_STATES = ["PendingTarget", "TargetReached"];
 
+// P0.7 polish — the visible product name inside Hebrew sentences. The brand
+// mark/wordmark stay C-ton; only sentence-level copy says סיטון.
+const PRODUCT_NAME_HE = "סיטון";
+
 type DeliveryOption = {
   option_id: string; option_type: string; label: string; cost: number;
   latitude?: number | null; longitude?: number | null;
@@ -119,7 +123,7 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
 // P0.3-4: real chat — threaded replies + like/dislike toggles. The backend is
 // the single authority (aggregated counts + viewer_reaction come from the
 // server; the client never invents totals).
-function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) {
+function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: boolean; preview?: boolean }) {
   const [messages, setMessages] = useState<Json[]>([]);
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -128,13 +132,14 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
   const composerRef = useRef<HTMLInputElement>(null);
   const load = () => api.chat(dealId, visitorId()).then((r) => setMessages(r.messages || [])).catch(() => undefined);
   useEffect(() => {
+    if (preview) return; // preview: no polling, no writes — the panel is a static placeholder
     load();
     const id = setInterval(load, 20_000);
     return () => clearInterval(id);
-  }, [dealId]);
+  }, [dealId, preview]);
   const send = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!body.trim() || busy) return;
+    if (!body.trim() || busy || preview) return;
     setBusy(true);
     try {
       await api.chatPost(dealId, {
@@ -149,6 +154,7 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
     setBusy(false);
   };
   const react = async (m: Json, reaction: "like" | "dislike") => {
+    if (preview) return;
     try {
       const r = await api.chatReact(dealId, m.message_id, { reaction, visitor_id: visitorId() });
       setMessages((prev) => prev.map((x) => x.message_id === m.message_id
@@ -159,7 +165,9 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
   return (
     <div className="panel">
       <div className="panel-title">💬 צ׳אט</div>
-      {messages.length === 0 ? <p className="muted small">עדיין אין הודעות — תהיו הראשונים לכתוב.</p> : (
+      {messages.length === 0 ? (
+        <p className="muted small">{preview ? "הצ׳אט ייפתח לקונים אחרי הפרסום." : "עדיין אין הודעות — תהיו הראשונים לכתוב."}</p>
+      ) : (
         <div className="chat-list">
           {messages.map((m) => (
             <div className="chat-msg" key={m.message_id} data-testid="chat-msg">
@@ -212,10 +220,11 @@ function ChatPanel({ dealId, canWrite }: { dealId: string; canWrite: boolean }) 
 }
 
 // ── P0.7 — internal buyer → seller inquiry ("פנייה למוכר") ─────────────────
-// The buyer never sees the seller's e-mail. The inquiry is stored inside the
-// product (the DEAL determines the seller server-side); the seller gets a
-// pointer notification and answers in the product; the buyer reads the answer
-// right here under "הפניות שלי" (per-thread access token kept in this browser).
+// The buyer never sees the seller's e-mail or phone. The inquiry is stored
+// inside the product (the DEAL determines the seller server-side); the seller
+// gets a pointer notification and answers in the product; the buyer reads the
+// answer right here under "הפניות שלי" (per-thread access token kept in this
+// browser).
 const INQUIRY_STORE_KEY = "siton_inquiries_v1";
 const INQUIRY_IDENTITY_KEY = "siton_inquiry_identity_v1";
 type StoredInquiry = { thread_id: string; token: string; created_at: string };
@@ -286,10 +295,10 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
       <Modal title="" onClose={onClose}>
         <div className="share-moment" data-testid="inquiry-success">
           <div style={{ fontSize: "2.2rem" }}>✅</div>
-          <h3>הפנייה נשלחה למוכר דרך C-ton.</h3>
+          <h3>הפנייה נשלחה למוכר דרך {PRODUCT_NAME_HE}.</h3>
           <p>
             המוכר קיבל התראה ויענה לך כאן, בדף העסקה, תחת ״הפניות שלי״.
-            פרטי הקשר של המוכר אינם נחשפים — השיחה מתנהלת בתוך C-ton.
+            פרטי הקשר של המוכר אינם נחשפים — השיחה מתנהלת בתוך {PRODUCT_NAME_HE}.
           </p>
           <button className="btn btn-primary btn-block" data-testid="inquiry-done" onClick={onClose}>סגירה</button>
         </div>
@@ -311,7 +320,7 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
     >
       <form id="inquiry-form" onSubmit={submit} noValidate>
         <p className="muted small" style={{ marginTop: 0 }}>
-          הפנייה נשלחת למוכר בתוך C-ton, בלי לחשוף פרטי קשר של אף צד. התשובה תופיע כאן, בדף העסקה.
+          הפנייה נשלחת למוכר בתוך {PRODUCT_NAME_HE}, בלי לחשוף פרטי קשר של אף צד. התשובה תופיע כאן, בדף העסקה.
         </p>
         <div className="field"><label>שם</label><input data-testid="inquiry-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></div>
         <div className="field">
@@ -398,8 +407,11 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
   );
 }
 
-function SellerContactPanel({ seller, whatsapp, onOpen, dealId, refreshKey }: {
-  seller: Json; whatsapp: string | null; onOpen: () => void; dealId: string; refreshKey: number;
+// P0.7 polish — the ONLY buyer→seller channel is the internal inquiry. No
+// phone, no messaging-app link, no e-mail on the public page: contact stays in
+// the product.
+function SellerContactPanel({ seller, onOpen, dealId, refreshKey, preview }: {
+  seller: Json; onOpen: () => void; dealId: string; refreshKey: number; preview: boolean;
 }) {
   return (
     <div className="panel" data-testid="seller-contact-panel">
@@ -407,11 +419,15 @@ function SellerContactPanel({ seller, whatsapp, onOpen, dealId, refreshKey }: {
       <p style={{ marginBottom: 8 }}><b>{seller.business_name || "המוכר"}</b></p>
       {seller.business_description ? <p className="muted small">{seller.business_description}</p> : null}
       <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
-        <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen}>✉️ פנייה למוכר</button>
-        {whatsapp ? <a className="btn btn-ghost" href={whatsapp} target="_blank" rel="noreferrer">וואטסאפ</a> : null}
+        <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen} disabled={preview}
+          title={preview ? "מושבת בתצוגה מקדימה" : undefined}>✉️ פנייה למוכר</button>
       </div>
-      <p className="muted small" style={{ margin: "8px 0 0" }}>הפנייה נשלחת ונענית בתוך C-ton — התשובה תופיע כאן בדף העסקה.</p>
-      <MyInquiries dealId={dealId} refreshKey={refreshKey} />
+      <p className="muted small" style={{ margin: "8px 0 0" }}>
+        {preview
+          ? `בתצוגה מקדימה לא נשלחות פניות. אחרי הפרסום, פניות של קונים יגיעו אליכם בתוך ${PRODUCT_NAME_HE} תחת ״פניות מלקוחות״.`
+          : `הפנייה נשלחת ונענית בתוך ${PRODUCT_NAME_HE} — התשובה תופיע כאן בדף העסקה.`}
+      </p>
+      {preview ? null : <MyInquiries dealId={dealId} refreshKey={refreshKey} />}
     </div>
   );
 }
@@ -592,7 +608,12 @@ function JoinSuccess(props: { deal: Json; result: Json; onClose: () => void }) {
   );
 }
 
-export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash: string) => void }) {
+// P0.7 polish — `preview` = the seller-authorized BUYER PREVIEW of the seller's
+// own deal (Draft included). Same renderer, same server projection
+// (/api/seller/deals/:id/preview), but read-only by construction: no join, no
+// share, no chat, no inquiry, no funnel/share-visit events, no activity
+// polling. A Draft is presented exactly as it will look once published.
+export function DealPage({ dealId, navigate, preview = false }: { dealId: string; navigate: (hash: string) => void; preview?: boolean }) {
   const [payload, setPayload] = useState<Json | null>(null);
   const [activity, setActivity] = useState<Json | null>(null);
   const [error, setError] = useState("");
@@ -610,7 +631,7 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
 
   useEffect(() => {
     let alive = true;
-    api.deal(dealId)
+    (preview ? api.sellerDealPreview(dealId) : api.deal(dealId))
       .then((res) => {
         if (!alive) return;
         setPayload(res);
@@ -618,19 +639,23 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
         if (opts.length) setDeliveryId(opts[0]!.option_id);
       })
       .catch((e) => { if (alive) setError(e.status === 404 ? "העסקה אינה זמינה" : e.message); });
-    sendFunnelEvent(dealId, "deal_view", { once_key: sessionId() });
-    recordShareVisit(dealId, currentRef());
+    if (!preview) {
+      // real public traffic only — a seller previewing never counts as a view or a share visit
+      sendFunnelEvent(dealId, "deal_view", { once_key: sessionId() });
+      recordShareVisit(dealId, currentRef());
+    }
     return () => { alive = false; };
-  }, [dealId]);
+  }, [dealId, preview]);
 
-  // live layer: poll the real activity feed
+  // live layer: poll the real activity feed (never in preview)
   useEffect(() => {
+    if (preview) return;
     let alive = true;
     const load = () => api.activity(dealId).then((a) => { if (alive) setActivity(a); }).catch(() => undefined);
     load();
     const id = setInterval(load, 6_000);
     return () => { alive = false; clearInterval(id); };
-  }, [dealId]);
+  }, [dealId, preview]);
 
   // celebrate the PendingTarget→TargetReached moment while viewing
   useEffect(() => {
@@ -641,8 +666,9 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
 
   if (error) {
     return (
-      <EmptyState icon="🕐" title="העסקה אינה זמינה" body="ייתכן שהעסקה הסתיימה, בוטלה או שהקישור שגוי."
-        action={<a className="btn btn-primary" href="#/">לדף הבית</a>} />
+      <EmptyState icon="🕐" title={preview ? "לא ניתן להציג תצוגה מקדימה" : "העסקה אינה זמינה"}
+        body={preview ? "העסקה לא נמצאה או שאינה שייכת לחשבון המוכר הזה." : "ייתכן שהעסקה הסתיימה, בוטלה או שהקישור שגוי."}
+        action={<a className="btn btn-primary" href={preview ? "#/seller" : "#/"}>{preview ? "לדשבורד המוכר" : "לדף הבית"}</a>} />
     );
   }
   if (!payload) return <BrandLoader label="טוענים את העסקה…" minHeight={420} />;
@@ -650,7 +676,9 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
   const deal = payload.deal;
   const seller = payload.seller || {};
   const live = activity || {};
-  const state = String(live.state || deal.state);
+  const rawState = String(live.state || deal.state);
+  // A Draft previews exactly as it will look once published.
+  const state = preview && rawState === "Draft" ? "PendingTarget" : rawState;
   const joined = Number(live.joined_units ?? payload.metrics?.joined_units ?? 0);
   const participants = Number(live.participants ?? payload.metrics?.participants_count ?? 0);
   const remaining = Number(live.remaining_units ?? payload.metrics?.remaining_units ?? 0);
@@ -669,18 +697,18 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
       ? "הצטרפו ליחידות האחרונות"
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
 
-  // P0.7 — contact stays INSIDE the product ("פנייה למוכר"). The seller's
-  // e-mail is not in the public payload at all; WhatsApp stays an optional
-  // secondary channel only when the seller published a support phone.
-  const whatsappSeller = seller.support_phone
-    ? `https://wa.me/${String(seller.support_phone).replace(/[^\d]/g, "").replace(/^0/, "972")}?text=${encodeURIComponent(`היי, אני מעוניין בפרטים נוספים לגבי העסקה "${deal.title}" ב-C-ton`)}`
-    : null;
-
   // Mobile-first: one column in EXACTLY the decision order a phone buyer
   // needs — identity, image, price, progress, deadline, quantity, delivery,
   // CTA — then everything secondary. Desktop rearranges via grid areas.
   return (
     <>
+      {preview ? (
+        <div className="notice info preview-banner" data-testid="preview-banner" role="status">
+          <b>תצוגה מקדימה למוכר</b> — כך הקונים יראו את העסקה{rawState === "Draft" ? " אחרי הפרסום" : ""}.
+          הצטרפות, שיתוף, צ׳אט ופנייה מושבתים כאן ואינם נספרים.{" "}
+          <a href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>חזרה לניהול העסקה</a>
+        </div>
+      ) : null}
       <div className="deal-page">
         {/* 1 — identity */}
         <div className="deal-area-head">
@@ -760,8 +788,10 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
                 💳 הסכום תופס <b>מסגרת אשראי בלבד</b> — לא מתבצע חיוב בפועל עד
                 שהעסקה נסגרת בהצלחה. אם העסקה לא נסגרת, המסגרת משתחררת אוטומטית.
               </div>
-              <button className="btn btn-join btn-block" data-testid="join-open" onClick={() => { sendFunnelEvent(dealId, "join_started"); setJoining(true); }}>
-                {ctaText}
+              <button className="btn btn-join btn-block" data-testid="join-open" disabled={preview}
+                title={preview ? "ההצטרפות מושבתת בתצוגה מקדימה" : undefined}
+                onClick={() => { if (preview) return; sendFunnelEvent(dealId, "join_started"); setJoining(true); }}>
+                {preview ? "הצטרפות (מושבת בתצוגה מקדימה)" : ctaText}
               </button>
             </div>
           ) : (
@@ -776,7 +806,11 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
 
           <div className="panel">
             <div className="panel-title">מכירים מישהו שזה יעניין אותו?</div>
-            <ShareActions compact dealId={dealId} title={deal.title} code={currentRef()} onNotify={showToast} />
+            {preview ? (
+              <p className="muted small" style={{ margin: 0 }} data-testid="share-preview-note">כפתורי השיתוף יופיעו כאן לקונים אחרי הפרסום (מושבתים בתצוגה מקדימה).</p>
+            ) : (
+              <ShareActions compact dealId={dealId} title={deal.title} code={currentRef()} onNotify={showToast} />
+            )}
           </div>
         </div>
 
@@ -801,19 +835,21 @@ export function DealPage({ dealId, navigate }: { dealId: string; navigate: (hash
             ) : null}
           </div>
           <ActivityTicker activity={activity} />
-          <ChatPanel dealId={dealId} canWrite={OPEN_STATES.includes(state)} />
-          <SellerContactPanel seller={seller} whatsapp={whatsappSeller} onOpen={() => setInquiryOpen(true)} dealId={dealId} refreshKey={inquiryRefresh} />
-          <div className="panel" style={{ textAlign: "center" }}>
-            <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
-            <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
-          </div>
+          <ChatPanel dealId={dealId} canWrite={!preview && OPEN_STATES.includes(state)} preview={preview} />
+          <SellerContactPanel seller={seller} onOpen={() => { if (!preview) setInquiryOpen(true); }} dealId={dealId} refreshKey={inquiryRefresh} preview={preview} />
+          {preview ? null : (
+            <div className="panel" style={{ textAlign: "center" }}>
+              <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>
+              <a className="btn btn-ghost" href="#/seller/new">פתחו עסקה משלכם ←</a>
+            </div>
+          )}
         </div>
       </div>
 
-      {inquiryOpen ? (
+      {inquiryOpen && !preview ? (
         <InquiryModal deal={deal} onClose={() => setInquiryOpen(false)} onSent={() => setInquiryRefresh((n) => n + 1)} />
       ) : null}
-      {joining && !joinResult ? (
+      {joining && !joinResult && !preview ? (
         <JoinModal
           deal={deal}
           qty={Math.min(qty, maxQty)}

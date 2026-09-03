@@ -105,6 +105,8 @@ await run("1+11: public payload has NO seller e-mail; pickup address is public v
   assert.equal(res.statusCode, 200, res.body);
   const body = res.json() as any;
   assert.ok(!("support_email" in body.seller), "seller.support_email must not exist");
+  assert.ok(!("support_phone" in body.seller), "seller.support_phone must not exist (contact stays in the product)");
+  assert.ok(!res.body.includes("0501234567"), "seller phone digits leaked into the public JSON");
   assert.equal(body.seller.contact_channel, "siton_inquiry");
   assert.ok(!res.body.includes(SELLER_A_EMAIL), "seller e-mail string leaked into the public JSON");
   assert.ok(!/support_email/.test(res.body), "support_email key leaked");

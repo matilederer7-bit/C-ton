@@ -97,6 +97,7 @@ async function main() {
       sellerDomainEmails = emails;
       assert(emails.length === 0, `e-mail address in public JSON: ${emails.join(",")}`);
       assert(body.seller?.contact_channel === "siton_inquiry", "contact_channel missing");
+      assert(!("support_phone" in body.seller), "support_phone present in public JSON");
       const pickup = (body.deal.delivery_options || []).find((o) => o.option_type === "pickup" || o.option_type === "distribution_point");
       assert(pickup, "no pickup option on the fixture deal");
       assert(pickup.has_location === true && typeof pickup.location_text === "string" && pickup.location_text.length > 3, `pickup projection: ${JSON.stringify(pickup)}`);
@@ -146,6 +147,8 @@ async function main() {
       const text = await cdp.evaluate(`document.body.innerText`);
       const html = await cdp.evaluate(`document.documentElement.outerHTML`);
       assert(!/mailto:/.test(html), "mailto link rendered");
+      assert(!/wa\.me|tel:/.test(html), "phone / WhatsApp link rendered");
+      assert(!/support_phone/.test(text), "phone field rendered");
       const emails = (text.match(EMAIL_RE) || []).filter((e) => !e.endsWith("@siton.test"));
       assert(emails.length === 0, `e-mail visible on the page: ${emails.join(",")}`);
       assert(await cdp.evaluate(exists('[data-testid="inquiry-open"]')), "פנייה למוכר button missing");
@@ -180,7 +183,7 @@ async function main() {
         await wait(65_000);
       }
       assert(success, "inquiry never succeeded within 4 attempts");
-      assert(success.includes("הפנייה נשלחה למוכר דרך C-ton"), `success copy: ${success.slice(0, 120)}`);
+      assert(success.includes("הפנייה נשלחה למוכר דרך סיטון"), `success copy: ${success.slice(0, 120)}`);
       assert(!/מייל|email/i.test(success.split("\n")[0] || ""), "primary success line must not claim an e-mail was sent");
       await cdp.screenshot("p07-inquiry-success.png");
       await cdp.evaluate(click('[data-testid="inquiry-done"]'));
@@ -255,6 +258,55 @@ async function main() {
       });
     } else {
       console.log("SKIP S8 seller command center (pass --seller-id/--seller-password for a disposable synthetic seller)");
+    }
+
+    // S9 — Draft BUYER PREVIEW through the seller-authorized route: the same
+    // renderer in read-only mode. --draft=<uuid> (a Draft owned by the seller)
+    // + seller credentials. Read-only by construction: nothing is created.
+    if (args.draft && args["seller-id"] && args["seller-password"]) {
+      await run("S9 Draft buyer preview: seller-only, same renderer, countdown + pickup, mutations disabled, public route 404", async () => {
+        const draft = String(args.draft);
+        const pub = await fetch(`${BASE}/api/deals/${draft}/public`);
+        assert(pub.status === 404, `Draft must be undiscoverable publicly, got ${pub.status}`);
+        const anon = await fetch(`${BASE}/api/seller/deals/${draft}/preview`);
+        assert([401, 403, 404].includes(anon.status), `anonymous preview must be refused, got ${anon.status}`);
+        const login = await fetch(`${BASE}/api/seller/session/login`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ identifier: args["seller-id"], password: args["seller-password"] }) });
+        assert(login.status === 200, `seller login ${login.status}`);
+        const m = (login.headers.get("set-cookie") || "").match(/siton_seller_session=([^;]+)/);
+        assert(m, "no seller session cookie");
+        const api = await fetch(`${BASE}/api/seller/deals/${draft}/preview`, { headers: { cookie: `siton_seller_session=${m[1]}` } });
+        assert(api.status === 200, `preview route ${api.status}`);
+        const body = await api.json();
+        assert(body.preview?.mode === "seller_preview" && body.deal?.state === "Draft" && body.deal?.published_at === null, "preview metadata / Draft state");
+        assert(!("support_email" in body.seller) && !("support_phone" in body.seller), "contact data in preview JSON");
+        const host = new URL(BASE).hostname;
+        await cdp.send("Network.enable");
+        await cdp.send("Network.setCookie", { name: "siton_seller_session", value: m[1], domain: host, path: "/", secure: BASE.startsWith("https"), httpOnly: true });
+        await cdp.navigate(`${BASE}/preview/?p07=draft#/`);
+        await waitFor(cdp, `document.readyState === "complete"`, 20_000, "shell");
+        await cdp.evaluate(`localStorage.setItem("siton_session_v1", JSON.stringify({ access_token: "p07-cookie-session", refresh_token: "p07-cookie-session", expires_at: Math.floor(Date.now()/1000) + 86400, surfaces: { seller: true, admin: false } })); localStorage.removeItem("siton_guest_mode_v1"); true`);
+        await cdp.send("Emulation.setDeviceMetricsOverride", { width: 1280, height: 900, deviceScaleFactor: 1, mobile: false });
+        nav += 1;
+        await cdp.navigate(`${BASE}/preview/?p07=${nav}#/seller/deal/${draft}/preview`);
+        await waitFor(cdp, exists('[data-testid="preview-banner"]'), 30_000, "preview banner");
+        const probe = await waitFor(cdp, COUNTDOWN_PROBE, 25_000, "preview countdown");
+        assert(probe.units.length === 4 && probe.units.every((u) => /^\d+$/.test(u.value) && !/^0\d/.test(u.value) && u.labelTop < u.numTop), "preview countdown cells");
+        const loc = await waitFor(cdp, `(() => { const el = document.querySelector('[data-testid="pickup-location-text"]'); return el ? el.textContent.trim() : null; })()`, 10_000, "preview pickup location");
+        assert(loc.includes(body.deal.delivery_options.find((o) => o.option_type === "pickup").location_text), `preview pickup text: ${loc}`);
+        const joinDisabled = await cdp.evaluate(`(() => { const b = document.querySelector('[data-testid="join-open"]'); return b ? b.disabled : null; })()`);
+        assert(joinDisabled === true, `join must be disabled in preview (got ${joinDisabled})`);
+        const inquiryDisabled = await cdp.evaluate(`(() => { const b = document.querySelector('[data-testid="inquiry-open"]'); return b ? b.disabled : null; })()`);
+        assert(inquiryDisabled === true, "inquiry must be disabled in preview");
+        assert(await cdp.evaluate(exists('[data-testid="share-preview-note"]')), "share actions must be replaced by the preview note");
+        const html = await cdp.evaluate(`document.documentElement.outerHTML`);
+        assert(!/mailto:|wa\.me|tel:/.test(html), "contact link rendered in preview");
+        await cdp.screenshot("p07-draft-preview.png");
+        findings.draft_preview_countdown = probe.units.map((u) => `${u.label}=${u.value}`).join(" ");
+        const still = await fetch(`${BASE}/api/deals/${draft}/public`);
+        assert(still.status === 404, "Draft became public after preview");
+      });
+    } else {
+      console.log("SKIP S9 Draft buyer preview (pass --draft plus seller credentials)");
     }
   } finally {
     cdp.close();

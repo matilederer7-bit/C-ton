@@ -95,6 +95,8 @@ export const api = {
   sellerContext: () => req(`/api/seller/context`, {}, "seller"),
   sellerDeals: () => req(`/api/seller/deals`, {}, "seller"),
   sellerDeal: (id: string) => req(`/api/seller/deals/${id}`, {}, "seller"),
+  // P0.7 polish — buyer preview of the seller's OWN deal (Draft included); same projection as the public route
+  sellerDealPreview: (id: string) => req(`/api/seller/deals/${id}/preview`, {}, "seller"),
   sellerDraft: (id: string) => req(`/api/seller/deals/${id}/draft`, {}, "seller"),
   sellerAnalytics: (period = "all", dealId = "") =>
     req(`/api/seller/analytics?period=${encodeURIComponent(period)}${dealId ? `&deal_id=${encodeURIComponent(dealId)}` : ""}`, {}, "seller"),
