@@ -22,10 +22,12 @@
 //       resolves the prior identity) → A resumes → fenced, no double effects
 //   S2  A: stall BEFORE provider I/O → B reclaims → B reuses the SAME identity
 //       (provider dedupes) → A resumes → fenced BEFORE its provider call
-//   S3  SUCCESS_BUT_CLIENT_TIMEOUT (in-process UNKNOWN) → a duplicate
-//       charge_deal job must not re-capture; reconciliation resolves it
-//   S4  TEMP_FAIL (5xx) → the retry is a genuinely NEW attempt (new identity,
-//       counted by the 30-minute cap) → success
+//   S3  SUCCESS_BUT_CLIENT_TIMEOUT (in-process UNKNOWN) → never re-captured;
+//       the SAME identity is resolved by authoritative status
+//   S4  post-dispatch 5xx (provider did NOT execute) → UNKNOWN on the SAME
+//       identity (R9C C2: never a fresh capture identity, never a blind retry);
+//       authoritative status resolves it as not executed → charge_failed →
+//       canonical recovery (a distinct logical operation) → ONE money effect
 //   S5  PERM_FAIL (402) → charge_failed, exactly one provider call, no retry
 //   S6  crash AFTER local success, BEFORE job ACK → B reclaims → no provider
 //       call at all (state already terminal), idempotent deal transition
@@ -115,7 +117,7 @@ function startProviderStub() {
           res.end(JSON.stringify({ status: "failed", error: "declined", provider_reference: `cap-${auth}`, reference: body.reference }));
           return;
         }
-        if (auth.includes("tempfail") && calls.filter((c) => c.op === op && c.authorization_id === auth).length === 1) {
+        if (op === "capture" && auth.includes("tempfail") && calls.filter((c) => c.op === op && c.authorization_id === auth).length === 1) {
           res.statusCode = 503;
           res.end(JSON.stringify({ status: "unavailable", error: "try_again", reference: body.reference }));
           return;
@@ -361,62 +363,60 @@ try {
   });
 
   // ── S3 ────────────────────────────────────────────────────────────────
-  await run("S3 SUCCESS_BUT_CLIENT_TIMEOUT (UNKNOWN) → the retried job never re-captures the UNKNOWN participant; status lookup resolves it; a sibling temporary failure gets a NEW identity", async () => {
+  await run("S3 SUCCESS_BUT_CLIENT_TIMEOUT (UNKNOWN) → the job completes without a blind retry, the SAME identity is resolved by authoritative status, exactly ONE capture", async () => {
     const seed = await seedDeal({ suffix: "s3", dealState: "Charging", eventType: "charge_deal", participants: [
-      { qty: 1, authorizationId: "auth-slow-s3", buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" },
-      { qty: 1, authorizationId: "auth-tempfail-s3", buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }
+      { qty: 1, authorizationId: "auth-slow-s3", buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }
     ] });
     const slow = seed.participants[0]!.participantId;
-    const flaky = seed.participants[1]!.participantId;
     const first = await processOutboxEventById(seed.outboxEventId);
-    assert.equal(first?.status, "failed", JSON.stringify(first)); // the sibling 503 fails the job → retry
+    assert.equal(first?.status, "sent", JSON.stringify(first)); // UNKNOWN never fails the job into a retry
     assert.equal(provider.ops("capture", "auth-slow-s3").length, 1, "the slow participant was captured at the provider once");
-    assert.equal((await attempts(slow, "charge_start"))[0]!.result_class, "unknown", "transport loss after dispatch is durable UNKNOWN");
+    const afterFirst = await attempts(slow, "charge_start");
+    assert.equal(afterFirst.length, 1, "one identity");
+    assert.equal(afterFirst[0]!.result_class, "unknown", "transport loss after dispatch is durable UNKNOWN");
     assert.equal((await participantState(slow)).money_state, "ChargeAttempt", "no local truth yet");
     assert.equal((await pendingEvents("payment_reconcile", slow)).length, 1, "reconcile rail scheduled for the UNKNOWN attempt");
-    assert.equal((await attempts(flaky, "charge_start"))[0]!.result_class, "temporary_fail");
-
-    await pool.query(`UPDATE siton.outbox_events SET available_at=now() WHERE event_uuid=$1`, [seed.outboxEventId]);
-    const second = await processOutboxEventById(seed.outboxEventId);
-    assert.equal(second?.status, "sent", JSON.stringify(second));
-    assert.equal(provider.ops("capture", "auth-slow-s3").length, 1, "UNKNOWN must never become a fresh capture on retry");
-    assert.equal((await participantState(slow)).money_state, "ChargedSuccess", "resolved through the authoritative status lookup, not a new charge");
-    const flakyCaptures = provider.ops("capture", "auth-tempfail-s3");
-    assert.equal(flakyCaptures.length, 2, "provider-declared temporary failure → one genuinely new attempt");
-    assert.notEqual(flakyCaptures[0]!.idempotency_key, flakyCaptures[1]!.idempotency_key);
-    assert.equal((await participantState(flaky)).money_state, "ChargedSuccess");
     assert.equal(await dealState(seed.dealId), "CompletionWindow");
 
-    // the scheduled reconcile is now a no-op (already resolved) — no provider money call
-    const reconcileId = (await pendingEvents("payment_reconcile", slow))[0];
-    if (reconcileId) {
-      const reconciled = await processOutboxEventById(reconcileId);
-      assert.equal(reconciled?.status, "sent", JSON.stringify(reconciled));
-    }
-    assert.equal(provider.ops("capture", "auth-slow-s3").length, 1);
-    assert.equal((await ledgerEntries(slow)).length, 1, "one ledger charge entry despite three jobs touching the participant");
+    const reconcileId = (await pendingEvents("payment_reconcile", slow))[0]!;
+    const reconciled = await processOutboxEventById(reconcileId);
+    assert.equal(reconciled?.status, "sent", JSON.stringify(reconciled));
+    assert.equal(provider.ops("capture", "auth-slow-s3").length, 1, "UNKNOWN must never become a fresh capture");
+    assert.equal((await participantState(slow)).money_state, "ChargedSuccess", "resolved through the authoritative status lookup, not a new charge");
+    assert.equal((await ledgerEntries(slow)).length, 1, "one ledger charge entry");
     assert.equal(await transitionsTo(slow, "money_state", "ChargedSuccess"), 1);
-    assert.equal((await attempts(slow, "charge_start")).length, 1, "one identity for the UNKNOWN participant");
-    assert.deepEqual((await attempts(flaky, "charge_start")).map((r) => r.result_class), ["temporary_fail", "success"]);
+    const finalAttempts = await attempts(slow, "charge_start");
+    assert.equal(finalAttempts.length, 1, "one identity for the UNKNOWN participant");
+    assert.equal(finalAttempts[0]!.result_class, "success");
   });
 
   // ── S4 ────────────────────────────────────────────────────────────────
-  await run("S4 TEMP_FAIL (5xx) → the retry is a genuinely new attempt with a NEW identity (30-minute cap semantics preserved) → success", async () => {
+  await run("S4 post-dispatch 5xx (provider did NOT execute) → UNKNOWN on the SAME identity, no fresh capture identity; status resolves not-executed → charge_failed → canonical recovery → ONE money effect", async () => {
     const seed = await seedDeal({ suffix: "s4", dealState: "Charging", eventType: "charge_deal", participants: [{ qty: 1, authorizationId: "auth-tempfail-s4", buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }] });
     const participantId = seed.participants[0]!.participantId;
     const first = await processOutboxEventById(seed.outboxEventId);
-    assert.equal(first?.status, "failed", JSON.stringify(first));
+    assert.equal(first?.status, "sent", JSON.stringify(first));
     assert.equal(provider.ops("capture", "auth-tempfail-s4").length, 1);
-    assert.equal((await attempts(participantId, "charge_start"))[0]!.result_class, "temporary_fail");
-    await pool.query(`UPDATE siton.outbox_events SET available_at=now() WHERE event_uuid=$1`, [seed.outboxEventId]);
-    const second = await processOutboxEventById(seed.outboxEventId);
-    assert.equal(second?.status, "sent", JSON.stringify(second));
-    const captures = provider.ops("capture", "auth-tempfail-s4");
-    assert.equal(captures.length, 2, "a provider-declared temporary failure is retried once more");
-    assert.notEqual(captures[0]!.idempotency_key, captures[1]!.idempotency_key, "a real retry is a distinct provider attempt (new identity)");
-    const rows = await attempts(participantId, "charge_start");
-    assert.deepEqual(rows.map((r) => r.result_class), ["temporary_fail", "success"]);
-    assert.equal((await participantState(participantId)).money_state, "ChargedSuccess");
+    const afterFirst = await attempts(participantId, "charge_start");
+    assert.equal(afterFirst.length, 1, "R9C C2: a 5xx after dispatch never mints a second capture identity");
+    assert.equal(afterFirst[0]!.result_class, "unknown", "5xx after dispatch is UNKNOWN, not temporary_fail");
+    assert.equal((await participantState(participantId)).money_state, "ChargeAttempt");
+    const reconcileId = (await pendingEvents("payment_reconcile", participantId))[0];
+    assert.ok(reconcileId, "UNKNOWN schedules reconciliation");
+    const reconciled = await processOutboxEventById(reconcileId!);
+    assert.equal(reconciled?.status, "sent", JSON.stringify(reconciled));
+    assert.equal(provider.ops("capture", "auth-tempfail-s4").length, 1, "reconciliation never re-captures");
+    assert.deepEqual((await attempts(participantId, "charge_start")).map((r) => r.result_class), ["permanent_fail"], "authoritative not-executed settles the SAME identity");
+    assert.equal((await participantState(participantId)).money_state, "ChargeFailedRecovery", "not-executed → charge_failed (canonical), recovery becomes eligible");
+    const recoveryId = (await pendingEvents("recovery_deal", seed.dealId))[0];
+    assert.ok(recoveryId, "late charge failure gets its recovery chance inside the completion window");
+    const recovered = await processOutboxEventById(recoveryId!);
+    assert.equal(recovered?.status, "sent", JSON.stringify(recovered));
+    assert.equal(provider.ops("recover", "auth-tempfail-s4").length, 1, "recovery is a distinct logical operation");
+    assert.equal(provider.ops("capture", "auth-tempfail-s4").length, 1);
+    assert.equal((await participantState(participantId)).money_state, "RecoveredCharge");
+    assert.equal((await ledgerEntries(participantId)).length, 1, "exactly one money effect recorded for the whole episode");
+    assert.deepEqual((await attempts(participantId, "recovery")).map((r) => r.result_class), ["success"]);
   });
 
   // ── S5 ────────────────────────────────────────────────────────────────
