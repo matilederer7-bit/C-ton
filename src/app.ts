@@ -17,8 +17,13 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import dotenv from "dotenv";
 import { buildOutboxWorkerHelpers, OutboxLeaseLostError } from "./outbox_worker_helpers.js";
-import { buildPaymentAttemptHelpers, type AttemptType as PaymentAttemptType } from "./payment_attempt_helpers.js";
-import { buildPaymentProvider, getPaymentProviderSummary } from "./payment_provider.js";
+import {
+  buildPaymentAttemptHelpers,
+  PaymentOperationInFlightError,
+  type AttemptType as PaymentAttemptType,
+  type DispatchState as PaymentDispatchState
+} from "./payment_attempt_helpers.js";
+import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
@@ -613,7 +618,12 @@ const {
 
 const {
   finalizeAttemptResult,
-  beginProviderAttempt
+  settleAttemptInTx,
+  beginProviderAttempt,
+  armProviderDispatch,
+  settleProviderDispatch,
+  anyOperationInFlight,
+  loadAttemptLifecycle
 } = buildPaymentAttemptHelpers({
   withTx
 });
@@ -865,33 +875,42 @@ function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
   return raw;
 }
 
-function attemptResultClassFromWebhookEvent(eventType: string): PaymentResultClass | null {
-  if (eventType === "charge_captured" || eventType === "recovery_captured" || eventType === "refund_issued") {
-    return "success";
-  }
-  if (eventType === "charge_failed" || eventType === "recovery_failed") {
-    return "permanent_fail";
-  }
-  return null;
-}
-
-async function finalizeAttemptFromWebhookIfNeeded(args: {
-  eventType: string;
-  target: {
-    participant_id: string;
-    deal_id: string;
-    attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund";
-    correlation_id: string | null;
-  };
+/**
+ * R9C — a provider-declared MONEY effect that the canonical state guards
+ * refuse (the participant already advanced to a contradicting state) must
+ * never vanish silently: money at the provider is economically real. The
+ * attempt is recorded as executed (which blocks recovery/refund/release via the
+ * migration-063 rules) and a FINANCIAL_OUTCOME_UNRESOLVED case is opened. No
+ * canonical state is guessed.
+ */
+async function recordLateMoneyEffectException(args: {
+  event: { provider: string; event_id: string; event_type: string; correlation_id?: string | null; provider_reference?: string | null };
+  target: { participant_id: string; deal_id: string; attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund"; correlation_id: string | null; buyer_state: string; money_state: string };
+  reason: string;
 }) {
-  const resultClass = attemptResultClassFromWebhookEvent(args.eventType);
-  if (!resultClass || !args.target.correlation_id) return;
-  await finalizeAttemptResult({
-    participant_id: args.target.participant_id,
-    deal_id: args.target.deal_id,
-    attempt_type: args.target.attempt_type,
-    correlation_id: args.target.correlation_id,
-    result_class: resultClass
+  const moneyState = String(args.target.money_state);
+  const captureEffect = args.event.event_type === "charge_captured" || args.event.event_type === "recovery_captured";
+  const contradiction =
+    (captureEffect && !["ChargedSuccess", "RecoveredCharge", "Refunded"].includes(moneyState)) ||
+    (args.event.event_type === "refund_issued" && moneyState !== "Refunded");
+  if (!contradiction) return;
+  const correlation = args.event.correlation_id || args.target.correlation_id || null;
+  if (correlation) {
+    await finalizeAttemptResult({
+      participant_id: args.target.participant_id,
+      deal_id: args.target.deal_id,
+      attempt_type: args.target.attempt_type,
+      correlation_id: correlation,
+      result_class: "success",
+      provider_reference: args.event.provider_reference ?? null,
+      note: `late_money_effect:${args.event.event_type}:${args.reason}`
+    }).catch(() => undefined);
+  }
+  await openPaymentOperationalCase({
+    autoKey: `payment-late-money-effect:${args.target.participant_id}:${args.event.event_type}`,
+    subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider reports ${args.event.event_type} but canonical money state is ${moneyState} (participant ${args.target.participant_id})`,
+    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}". The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
+    correlationId: correlation
   });
 }
 
@@ -922,6 +941,24 @@ async function applyPaymentWebhookClassification(args: {
   if (args.classification.status !== "processed" || !args.target) return;
   const target = args.target; // narrowed once; closures below cannot re-narrow args.target
   await ensurePlatformFeeMoneyTables(withTx);
+
+  // R9C — the operation's durable outcome commits in the SAME transaction as
+  // the canonical state (and ledger). A negative outcome cannot be written
+  // while the exact operation is dispatching under a live worker lease: the
+  // transition aborts (PaymentOperationInFlightError / DB guard SN409) and the
+  // caller defers. Success is provider truth and always settles.
+  const settleTargetAttemptInTx = async (c: PoolClient, resultClass: "success" | "permanent_fail") => {
+    if (!target.correlation_id) return;
+    await settleAttemptInTx(c, {
+      participant_id: target.participant_id,
+      deal_id: target.deal_id,
+      attempt_type: target.attempt_type,
+      correlation_id: target.correlation_id,
+      result_class: resultClass,
+      provider_reference: args.event.provider_reference ?? null,
+      note: `${args.event.event_type}:${args.classification.reason}`
+    });
+  };
 
   const requestId = `webhook:${args.event.event_id}`;
   const eventPayload = {
@@ -966,6 +1003,7 @@ async function applyPaymentWebhookClassification(args: {
       // money state and its platform-fee ledger entry commit together or not
       // at all (a failure here rolls back both; the worker retry converges).
       insideTx: async (c) => {
+        await settleTargetAttemptInTx(c, "success");
         await hitTestFault("payment.after_state_before_ledger");
         await platformFeeMoney.recordProviderFinancialEventInTx(c, {
           participant_id: target.participant_id,
@@ -979,7 +1017,6 @@ async function applyPaymentWebhookClassification(args: {
         });
       }
     });
-    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: charge succeeded
     await enqueueNotificationForParticipant("charge_succeeded", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     return;
@@ -1014,9 +1051,11 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
+      outbox: null,
+      insideTx: async (c) => {
+        await settleTargetAttemptInTx(c, "permanent_fail");
+      }
     });
-    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: charge failed, recovery upcoming
     await enqueueNotificationForParticipant("charge_failed_recovery", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     return;
@@ -1056,6 +1095,7 @@ async function applyPaymentWebhookClassification(args: {
       // money state and its platform-fee ledger entry commit together or not
       // at all (a failure here rolls back both; the worker retry converges).
       insideTx: async (c) => {
+        await settleTargetAttemptInTx(c, "success");
         await hitTestFault("payment.after_state_before_ledger");
         await platformFeeMoney.recordProviderFinancialEventInTx(c, {
           participant_id: target.participant_id,
@@ -1069,7 +1109,6 @@ async function applyPaymentWebhookClassification(args: {
         });
       }
     });
-    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -1102,9 +1141,11 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
+      outbox: null,
+      insideTx: async (c) => {
+        await settleTargetAttemptInTx(c, "permanent_fail");
+      }
     });
-    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     return;
   }
 
@@ -1125,6 +1166,7 @@ async function applyPaymentWebhookClassification(args: {
       payload: eventPayload,
       // R9C — refund adjustment ledger truth commits with the Refunded state.
       insideTx: async (c) => {
+        await settleTargetAttemptInTx(c, "success");
         await hitTestFault("payment.after_state_before_ledger");
         await platformFeeMoney.recordProviderFinancialEventInTx(c, {
           participant_id: target.participant_id,
@@ -1138,7 +1180,6 @@ async function applyPaymentWebhookClassification(args: {
         });
       }
     });
-    await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
     // Notify buyer: refund issued
     await enqueueNotificationForParticipant("refund_issued", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     // Issue refund receipt document
@@ -1191,6 +1232,16 @@ async function ingestAndProcessPaymentEvent(args: {
       payload: args.payload
     });
     const classification = paymentReconciliation.classifyEvent(args.event_type, target);
+
+    if (classification.status === "ignored" && target) {
+      // R9C — a stale local state guard must never silently discard an
+      // economically real provider effect.
+      await recordLateMoneyEffectException({
+        event: { provider: args.provider, event_id: args.event_id, event_type: args.event_type, correlation_id: args.correlation_id ?? null, provider_reference: args.provider_reference ?? null },
+        target,
+        reason: classification.reason
+      });
+    }
 
     if (classification.status === "processed") {
       await applyPaymentWebhookClassification({
@@ -1437,6 +1488,11 @@ async function handleRefundEvent(
       attempt_type: attemptType,
       identity: (logicalAttempt) => `${event.event_type}:refund:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "blocked") {
+      await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: attemptType, reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.capture_reference || p.authorization_id || null, event_id: eventId });
+      continue;
+    }
+    if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "refund",
@@ -1444,6 +1500,7 @@ async function handleRefundEvent(
         participant_id: p.participant_id,
         deal_id: dealId,
         correlation_id: attempt.correlation_id,
+        dispatch_state: attempt.dispatch_state,
         provider_reference: p.capture_reference || p.authorization_id || null,
         expected_amount_minor: amountMinor,
         event_id: eventId
@@ -1464,29 +1521,41 @@ async function handleRefundEvent(
     if (p.authorization_id) refundInput.authorization_id = p.authorization_id;
     if (p.capture_reference) refundInput.capture_reference = p.capture_reference;
     await hitTestFault("payment.before_provider_io");
-  // R9C fence: the LAST check before external money I/O — a stale worker whose
-  // job was reclaimed must not reach the provider.
-  await assertOutboxLeaseForProviderIo(event);
-    // R9C fence: the LAST check before external money I/O — a stale worker whose
-    // job was reclaimed must not reach the provider.
-    await assertOutboxLeaseForProviderIo(event);
-    const result = await paymentProvider.refund(refundInput);
-    await hitTestFault("payment.after_provider_io");
-
-    await finalizeAttemptResult({
+    // R9C — arm: lease fence + state check + lifecycle CAS in ONE transaction,
+    // the LAST step before external money I/O.
+    const armed = await armMoneyOperation({
+      event,
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: attemptType,
       correlation_id: correlation,
-      result_class: result.result_class
+      expected_money_states: ["ChargedSuccess", "RecoveredCharge"],
+      provider_reference: p.capture_reference || p.authorization_id || null
+    });
+    if (!armed) continue;
+    const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
+    const result = await paymentProvider.refund(refundInput);
+    await hitTestFault("payment.after_provider_io");
+    const outcome = classifyMoneyOutcome(result);
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: attemptType,
+      correlation_id: correlation,
+      owner,
+      outcome: settled,
+      provider_reference: result.provider_reference || p.capture_reference || p.authorization_id || null,
+      ...(note ? { note } : {})
     });
 
-    if (result.result_class === "temporary_fail") {
-      throw new Error(`temporary_fail refund participant ${p.participant_id}`);
+    if (outcome === "pre_dispatch_failure") {
+      await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
+      throw new Error(`temporary_fail refund participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
     }
 
     // Route through webhook reconciliation truth when the provider emits a refund event
-    if (result.reconciliation_event_type === "refund_issued") {
+    if (outcome === "success" && result.reconciliation_event_type === "refund_issued") {
+      await settle("success");
       await ingestAndProcessPaymentEvent({
         provider: result.provider,
         event_id: `${eventId}:${p.participant_id}:refund_issued`,
@@ -1505,16 +1574,11 @@ async function handleRefundEvent(
       continue;
     }
 
-    if (result.result_class === "unknown" || result.result_class === "success") {
-      // The refund may have been issued (transport loss, or a success without
-      // a declared event). Never re-fire the refund blindly — reconcile.
-      await finalizeAttemptResult({
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        attempt_type: attemptType,
-        correlation_id: correlation,
-        result_class: "unknown"
-      });
+    if (outcome === "unknown" || outcome === "success") {
+      // The refund may have been issued (5xx/429/timeout/transport loss after
+      // dispatch, or a success without a declared event). Never re-fire the
+      // refund blindly and never mint a new identity — reconcile the SAME one.
+      await settle("unknown", outcome === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
       await schedulePaymentReconcile({
         participant_id: p.participant_id,
         deal_id: dealId,
@@ -1527,6 +1591,7 @@ async function handleRefundEvent(
       continue;
     }
 
+    await settle("permanent_fail");
     throw new PermanentFailError(`permanent_fail refund participant ${p.participant_id}`);
   }
 }
@@ -1694,7 +1759,52 @@ async function handlePaymentReconcileEvent(
       : operation === "refund"
         ? ["ChargedSuccess", "RecoveredCharge"].includes(String(target.money_state))
         : ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state));
-  if (!waiting) return;
+  // R9C — a participant whose canonical state already moved on may still carry
+  // an UNRESOLVED identity for this exact operation (e.g. charge_failed was
+  // declared by another path while the capture was unresolved). The ROW must
+  // converge regardless: a positive status proof settles it as success (which
+  // blocks recovery/release and surfaces a late-money-effect case); an
+  // authoritative not-executed settles permanent_fail and unblocks recovery.
+  const unresolvedRow = correlationId
+    ? await loadAttemptLifecycle({ participant_id: participantId, deal_id: dealId, attempt_type: attemptType as PaymentAttemptType, correlation_id: correlationId })
+    : null;
+  const rowUnresolved = Boolean(unresolvedRow && unresolvedRow.result_class === "unknown");
+  if (!waiting && !rowUnresolved) return;
+
+  // R9C C1 — the exact operation may be IN FLIGHT right now: a worker holding
+  // a live outbox lease armed its dispatch and the request may be at the
+  // provider. A status read taken now can be true when read and stale the
+  // moment it lands, so nothing may be concluded from it. Defer (bounded
+  // outbox retry) until the owner settled the row or its lease died.
+  // The guard is participant-wide: a reconcile job carrying a stale, legacy
+  // or foreign correlation must not conclude anything either while any money
+  // operation of this participant is in flight.
+  const inFlight = await anyOperationInFlight(participantId, dealId);
+  if (inFlight) {
+    throw new DeferredEventError(
+      `payment_reconcile_operation_in_flight participant ${participantId} ${inFlight.attempt_type} ${inFlight.correlation_id} (reconciling ${attemptType} ${correlationId || "no-correlation"})`,
+      new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+    );
+  }
+  const policy = providerAmbiguityPolicy(paymentProvider);
+  const deferIfInFlight = (error: unknown): never => {
+    if (error instanceof PaymentOperationInFlightError || String((error as any)?.code || "") === "SN409") {
+      throw new DeferredEventError(
+        `payment_reconcile_operation_in_flight participant ${participantId} ${attemptType} ${correlationId}: ${String((error as Error)?.message || error)}`,
+        new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+      );
+    }
+    throw error;
+  };
+  const failClosedUnresolved = async (observed: string) => {
+    await openPaymentOperationalCase({
+      autoKey: `payment-outcome-unresolved:${participantId}:${attemptType}:${correlationId || "no-correlation"}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED ${attemptType} for participant ${participantId}`,
+      description: `Provider ${paymentProvider.providerCode} reports "${observed}" after an ambiguous ${attemptType} (${correlationId || "no correlation"}); its contract cannot prove that this exact operation did not execute (${policy.basis}). No failure was declared, no recovery/refund/release was re-armed and no money call was repeated. Manual provider-side verification required; the participant's canonical state is NOT financial truth until resolved.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_negative_status_unproven participant ${participantId}`);
+  };
 
   const providerReference = String(payload.provider_reference || target.binding_reference || "").trim();
   if (!paymentProvider.status) {
@@ -1748,26 +1858,48 @@ async function handlePaymentReconcileEvent(
   }
 
   const ingestResolution = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
-    await ingestAndProcessPaymentEvent({
-      provider: paymentProvider.providerCode,
-      event_id: `reconcile:${correlationId || participantId}:${eventType}`,
-      event_type: eventType,
-      correlation_id: correlationId || null,
-      participant_id: participantId,
-      deal_id: dealId,
-      provider_reference: status.provider_reference || providerReference,
-      payload: {
-        source: "payment_reconcile_worker",
+    let ingested: Awaited<ReturnType<typeof ingestAndProcessPaymentEvent>>;
+    try {
+      ingested = await ingestAndProcessPaymentEvent({
+        provider: paymentProvider.providerCode,
+        event_id: `reconcile:${correlationId || participantId}:${eventType}`,
+        event_type: eventType,
+        correlation_id: correlationId || null,
+        participant_id: participantId,
+        deal_id: dealId,
         provider_reference: status.provider_reference || providerReference,
-        provider_state: status.state,
-        provider_final: status.final
-      }
-    });
+        payload: {
+          source: "payment_reconcile_worker",
+          provider_reference: status.provider_reference || providerReference,
+          provider_state: status.state,
+          provider_final: status.final
+        }
+      });
+    } catch (error) {
+      return deferIfInFlight(error);
+    }
     if (status.provider_reference) {
       await paymentBindings
         .updateProviderReferenceForParticipant(participantId, status.provider_reference)
         .catch(() => undefined);
     }
+    // The identity's durable outcome converges even when the canonical state
+    // had already been reached by another path (ignored as already_*): success
+    // for an executed effect, permanent_fail for a declared/authoritative
+    // non-execution. Monotonic and in-flight guarded.
+    if (correlationId) {
+      const resultClass = eventType === "charge_failed" || eventType === "recovery_failed" ? "permanent_fail" : "success";
+      await finalizeAttemptResult({
+        participant_id: participantId,
+        deal_id: dealId,
+        attempt_type: attemptType as PaymentAttemptType,
+        correlation_id: correlationId,
+        result_class: resultClass,
+        provider_reference: status.provider_reference || providerReference,
+        note: `reconcile:${eventType}:${ingested.reason}`
+      }).catch(deferIfInFlight);
+    }
+    return ingested.status === "processed";
   };
 
   if (operation === "capture") {
@@ -1777,11 +1909,22 @@ async function handlePaymentReconcileEvent(
       return;
     }
     if (status.state === "failed" || (status.state === "authorized" && status.final)) {
+      if (status.state !== "failed" && !policy.negative_status_authoritative) {
+        // R9C H1 — for this provider a still-authorized status does NOT prove
+        // that the exact settle never executed (no per-operation key, broader
+        // transaction status). Fail closed: no failure verdict, no recovery.
+        await failClosedUnresolved(`${status.state}/final`);
+      }
       // Provider says the money was NOT captured (declined, or the hold is
-      // still merely authorized and final): the attempt failed without money
-      // movement.
-      await ingestResolution(isRecovery ? "recovery_failed" : "charge_failed");
-      if (!isRecovery) {
+      // still merely authorized and final) and no request for this exact
+      // operation is in flight. The attempt row is settled INSIDE the state
+      // transaction (CAS): if a worker armed this identity meanwhile, the
+      // transition aborts and this job is deferred instead.
+      const applied = await ingestResolution(isRecovery ? "recovery_failed" : "charge_failed");
+      // A charge failure resolved late (or a capture identity that resolved as
+      // not-executed for a participant already marked failed) must still get
+      // its recovery chance while the completion window is open.
+      if (!isRecovery && (applied || String(target.money_state) === "ChargeFailedRecovery")) {
         // A charge failure resolved late must still get its recovery chance
         // while the completion window is open.
         await withTx(async (c) => {
@@ -1808,23 +1951,30 @@ async function handlePaymentReconcileEvent(
       return;
     }
     if ((status.state === "captured") && status.final) {
-      // The refund never executed. Re-arm the deal-scoped refund job; the
-      // UNKNOWN attempt is finalized as permanent_fail for this correlation.
+      if (!policy.negative_status_authoritative) await failClosedUnresolved(`${status.state}/final (refund not visible)`);
+      // The refund never executed (authoritative negative status, not in
+      // flight). Settle this identity as permanent_fail, then re-arm the
+      // deal-scoped refund job (a NEW identity is legal only now).
       await finalizeAttemptResult({
         participant_id: participantId,
         deal_id: dealId,
         attempt_type: attemptType as any,
         correlation_id: correlationId,
-        result_class: "permanent_fail"
-      });
-      await withTx(async (c) => {
-        await c.query(
-          `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
-           VALUES ('refund_issue','deal',$1,$2,'pending',0, now())
-           ON CONFLICT DO NOTHING`,
-          [dealId, JSON.stringify({ deal_id: dealId, reason: "reconcile_refund_not_executed" })]
-        );
-      });
+        result_class: "permanent_fail",
+        note: "reconcile_refund_not_executed"
+      }).catch(deferIfInFlight);
+      // Re-arm the deal-scoped refund job only while this participant is still
+      // waiting for its refund (never re-fire a deal refund from a stale identity).
+      if (waiting) {
+        await withTx(async (c) => {
+          await c.query(
+            `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+             VALUES ('refund_issue','deal',$1,$2,'pending',0, now())
+             ON CONFLICT DO NOTHING`,
+            [dealId, JSON.stringify({ deal_id: dealId, reason: "reconcile_refund_not_executed" })]
+          );
+        });
+      }
       return;
     }
   } else {
@@ -1841,15 +1991,18 @@ async function handlePaymentReconcileEvent(
       return;
     }
     if (status.state === "authorized" && status.final) {
-      // The release never executed; re-arm the release job.
+      if (!policy.negative_status_authoritative) await failClosedUnresolved(`${status.state}/final (release not visible)`);
+      // The release never executed (authoritative negative status, not in
+      // flight); settle this identity and re-arm the release job.
       await finalizeAttemptResult({
         participant_id: participantId,
         deal_id: dealId,
         attempt_type: "release",
         correlation_id: correlationId,
-        result_class: "permanent_fail"
-      });
-      await schedulePaymentRelease({ participant_id: participantId, deal_id: dealId, reason: "reconcile_release_not_executed" });
+        result_class: "permanent_fail",
+        note: "reconcile_release_not_executed"
+      }).catch(deferIfInFlight);
+      if (waiting) await schedulePaymentRelease({ participant_id: participantId, deal_id: dealId, reason: "reconcile_release_not_executed" });
       return;
     }
     if (status.state === "captured") {
@@ -1938,23 +2091,139 @@ async function assertOutboxLeaseForProviderIo(event: { event_uuid: string; lease
   if (!owned) throw new OutboxLeaseLostError(event.event_uuid);
 }
 
+type MoneyRailOutcome = "success" | "permanent_fail" | "unknown" | "pre_dispatch_failure";
+
+/**
+ * R9C C2 — the ONLY place a provider result becomes a lifecycle outcome. A
+ * temporary failure counts as "nothing happened" solely when the adapter
+ * PROVES it was pre-dispatch (dispatched === false); every other non-success
+ * without a provider-declared outcome — 5xx, 429, 408, gateway errors,
+ * connection reset, timeout, malformed/truncated body — is UNKNOWN.
+ */
+function classifyMoneyOutcome(result: PaymentExecutionResult): MoneyRailOutcome {
+  if (result.result_class === "success") return "success";
+  if (result.result_class === "permanent_fail") return "permanent_fail";
+  if (result.result_class === "temporary_fail" && result.dispatched === false) return "pre_dispatch_failure";
+  return "unknown";
+}
+
+/**
+ * R9C — arm ONE identity for provider I/O. Lease fence (renewing a short
+ * lease first), participant-state check and the lifecycle CAS happen in one
+ * transaction: on success the row is `dispatching` under this job's lease and
+ * every reconciler treats the operation as IN_FLIGHT. A lost lease throws
+ * (`lease_lost`, no ACK); any other refusal means "no I/O for this
+ * participant now".
+ */
+async function armMoneyOperation(args: {
+  event: { event_uuid: string; lease_generation?: number | null };
+  participant_id: string;
+  deal_id: string;
+  attempt_type: PaymentAttemptType;
+  correlation_id: string;
+  expected_money_states: string[];
+  expected_buyer_states?: string[];
+  provider_reference?: string | null;
+}): Promise<boolean> {
+  await assertOutboxLeaseForProviderIo(args.event);
+  const armed = await armProviderDispatch({
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: args.attempt_type,
+    correlation_id: args.correlation_id,
+    event_uuid: args.event.event_uuid,
+    lease_generation: args.event.lease_generation,
+    worker_id: outboxWorkerId,
+    // The margin/renewal semantics live in assertOutboxLeaseForProviderIo
+    // (called just above, renews a short lease); arming requires the renewed
+    // lease to be LIVE and owned by this worker at the moment of the CAS.
+    min_lease_remaining_ms: 0,
+    expected_money_states: args.expected_money_states,
+    ...(args.expected_buyer_states ? { expected_buyer_states: args.expected_buyer_states } : {}),
+    provider_reference: args.provider_reference ?? null
+  });
+  if (armed === "armed") return true;
+  if (armed === "lease_lost") throw new OutboxLeaseLostError(args.event.event_uuid);
+  return false;
+}
+
+/**
+ * R9C — a rail may not start while another money operation of the same
+ * participant is unresolved (or, for recovery/release, already moved money).
+ * Nothing is sent to the provider; the unresolved operation is handed to the
+ * reconcile rail and the hold is made visible as FINANCIAL_OUTCOME_UNRESOLVED.
+ */
+async function handleBlockedMoneyOperation(args: {
+  participant_id: string;
+  deal_id: string;
+  attempt_type: PaymentAttemptType;
+  reason: string;
+  blocking: { attempt_type: PaymentAttemptType; correlation_id: string; result_class: string };
+  provider_reference: string | null;
+  event_id: string;
+}) {
+  const blockingOperation: PaymentReconcilePayload["operation"] =
+    args.blocking.attempt_type === "refund" || args.blocking.attempt_type === "cancel_refund"
+      ? "refund"
+      : args.blocking.attempt_type === "release"
+        ? "release"
+        : "capture";
+  if (args.blocking.result_class === "unknown") {
+    await schedulePaymentReconcile({
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      attempt_type: args.blocking.attempt_type as PaymentReconcilePayload["attempt_type"],
+      correlation_id: args.blocking.correlation_id,
+      operation: blockingOperation,
+      provider_reference: args.provider_reference,
+      reason: `blocks_${args.attempt_type}`
+    });
+  }
+  await openPaymentOperationalCase({
+    autoKey: `payment-operation-blocked:${args.participant_id}:${args.attempt_type}`,
+    subject: `FINANCIAL_OUTCOME_UNRESOLVED: ${args.attempt_type} blocked for participant ${args.participant_id}`,
+    description: `${args.reason}: prior ${args.blocking.attempt_type} ${args.blocking.correlation_id} is ${args.blocking.result_class}. No ${args.attempt_type} provider operation was started (worker event ${args.event_id}); the participant's canonical state is not financial truth until that operation is resolved${args.blocking.result_class === "unknown" ? " (payment_reconcile scheduled)" : " — money was already captured for this participant; operator reconciliation required"}.`,
+    correlationId: args.blocking.correlation_id
+  });
+}
+
 async function resolvePriorProviderAttempt(args: {
   operation: "capture" | "refund" | "release";
   attempt_type: PaymentAttemptType;
   participant_id: string;
   deal_id: string;
   correlation_id: string;
+  dispatch_state?: PaymentDispatchState;
   provider_reference: string | null;
   expected_amount_minor: number | null;
   event_id: string;
 }): Promise<PriorAttemptResolution> {
+  // NOT_DISPATCHED: the identity was minted but no request ever left the
+  // process — sending it now is the FIRST send, no status lookup needed.
+  if (args.dispatch_state === "recorded") return "reuse";
+  const policy = providerAmbiguityPolicy(paymentProvider);
+  // Re-sending the SAME identity after a negative status observation is safe
+  // when the provider proves non-execution (negative status authoritative) OR
+  // deduplicates the identity itself; otherwise the operation stays a manual
+  // case — never a second money request.
+  const reuseAfterNegative = async (observed: string): Promise<PriorAttemptResolution> => {
+    if (policy.negative_status_authoritative || policy.same_identity_repeat_safe) return "reuse";
+    await openPaymentOperationalCase({
+      autoKey: `payment-outcome-unresolved:${args.participant_id}:${args.attempt_type}:${args.correlation_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED ${args.attempt_type} for participant ${args.participant_id}`,
+      description: `Prior ${args.attempt_type} ${args.correlation_id} is unresolved and provider ${paymentProvider.providerCode} reports "${observed}"; its contract proves neither non-execution nor same-identity idempotency (${policy.basis}). No provider operation was repeated; manual verification required.`,
+      correlationId: args.correlation_id
+    });
+    return "blocked";
+  };
   const reference = String(args.provider_reference || "").trim();
   const finalizePrior = (result_class: "success" | "permanent_fail") => finalizeAttemptResult({
     participant_id: args.participant_id,
     deal_id: args.deal_id,
     attempt_type: args.attempt_type,
     correlation_id: args.correlation_id,
-    result_class
+    result_class,
+    note: "prior_attempt_resolution"
   });
   if (!paymentProvider.status || !reference) {
     await openPaymentOperationalCase({
@@ -2022,21 +2291,21 @@ async function resolvePriorProviderAttempt(args: {
       await finalizePrior("permanent_fail");
       return "applied";
     }
-    if (status.state === "authorized" && status.final) return "reuse";
+    if (status.state === "authorized" && status.final) return reuseAfterNegative("authorized/final");
   } else if (args.operation === "refund") {
     if (status.state === "refunded") {
       await ingest("refund_issued");
       await finalizePrior("success");
       return "applied";
     }
-    if (status.state === "captured" && status.final) return "reuse";
+    if (status.state === "captured" && status.final) return reuseAfterNegative("captured/final (refund not visible)");
   } else {
     if (status.state === "released") {
       await applyAuthorizationRelease(args.participant_id, args.deal_id, `worker:${args.event_id}`, args.correlation_id);
       await finalizePrior("success");
       return "applied";
     }
-    if (status.state === "authorized" && status.final) return "reuse";
+    if (status.state === "authorized" && status.final) return reuseAfterNegative("authorized/final (release not visible)");
     if (status.state === "captured") {
       await openPaymentOperationalCase({
         autoKey: `payment-reconcile-release-captured:${args.participant_id}`,
@@ -2090,6 +2359,11 @@ async function handlePaymentReleaseEvent(
     attempt_type: "release",
     identity: (logicalAttempt) => `release:${eventId}:n${logicalAttempt}:${participantId}`
   });
+  if (attempt.kind === "blocked") {
+    await handleBlockedMoneyOperation({ participant_id: participantId, deal_id: dealId, attempt_type: "release", reason: attempt.reason, blocking: attempt.blocking, provider_reference: providerReference || null, event_id: eventId });
+    return;
+  }
+  if (attempt.kind === "in_flight") return; // another live worker owns this exact operation
   if (attempt.kind === "unresolved") {
     const resolution = await resolvePriorProviderAttempt({
       operation: "release",
@@ -2097,6 +2371,7 @@ async function handlePaymentReleaseEvent(
       participant_id: participantId,
       deal_id: dealId,
       correlation_id: attempt.correlation_id,
+      dispatch_state: attempt.dispatch_state,
       provider_reference: providerReference || null,
       expected_amount_minor: null,
       event_id: eventId
@@ -2137,43 +2412,49 @@ async function handlePaymentReleaseEvent(
     request_id: `worker:${eventId}`
   };
   await hitTestFault("payment.before_provider_io");
-  // R9C fence: the LAST check before external money I/O — a stale worker whose
-  // job was reclaimed must not reach the provider.
-  await assertOutboxLeaseForProviderIo(event);
+  // R9C — arm: lease fence + state check + lifecycle CAS, then the LAST step
+  // before external money I/O.
+  const armed = await armMoneyOperation({
+    event,
+    participant_id: participantId,
+    deal_id: dealId,
+    attempt_type: "release",
+    correlation_id: correlation,
+    expected_money_states: ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"],
+    provider_reference: providerReference || null
+  });
+  if (!armed) return;
+  const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
   const result = await paymentProvider.release(releaseInput);
   await hitTestFault("payment.after_provider_io");
+  const outcome = classifyMoneyOutcome(result);
+  const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+    participant_id: participantId,
+    deal_id: dealId,
+    attempt_type: "release",
+    correlation_id: correlation,
+    owner,
+    outcome: settled,
+    provider_reference: result.provider_reference || providerReference || null,
+    ...(note ? { note } : {})
+  });
 
-  if (result.result_class === "success") {
-    await finalizeAttemptResult({
-      participant_id: participantId,
-      deal_id: dealId,
-      attempt_type: "release",
-      correlation_id: correlation,
-      result_class: "success"
-    });
+  if (outcome === "success") {
+    await settle("success");
     await applyAuthorizationRelease(participantId, dealId, `worker:${eventId}`, correlation);
     return;
   }
 
-  if (result.result_class === "temporary_fail") {
-    await finalizeAttemptResult({
-      participant_id: participantId,
-      deal_id: dealId,
-      attempt_type: "release",
-      correlation_id: correlation,
-      result_class: "temporary_fail"
-    });
-    throw new Error(`temporary_fail release participant ${participantId}`);
+  if (outcome === "pre_dispatch_failure") {
+    // Nothing reached the provider: disarm, keep the SAME identity for the retry.
+    await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
+    throw new Error(`temporary_fail release participant ${participantId} (pre-dispatch, identity ${correlation} retained)`);
   }
 
-  if (result.result_class === "unknown") {
-    await finalizeAttemptResult({
-      participant_id: participantId,
-      deal_id: dealId,
-      attempt_type: "release",
-      correlation_id: correlation,
-      result_class: "unknown"
-    });
+  if (outcome === "unknown") {
+    // R9C C2 — 5xx/429/timeout/transport loss AFTER dispatch: the release may
+    // have happened. Durable UNKNOWN on the SAME identity, reconcile decides.
+    await settle("unknown", `provider_outcome_unknown:${result.result_class}`);
     await schedulePaymentReconcile({
       participant_id: participantId,
       deal_id: dealId,
@@ -2186,13 +2467,7 @@ async function handlePaymentReleaseEvent(
     return;
   }
 
-  await finalizeAttemptResult({
-    participant_id: participantId,
-    deal_id: dealId,
-    attempt_type: "release",
-    correlation_id: correlation,
-    result_class: "permanent_fail"
-  });
+  await settle("permanent_fail");
   await openPaymentOperationalCase({
     autoKey: `payment-release-failed:${participantId}`,
     subject: `Provider refused authorization release for participant ${participantId}`,
@@ -2283,6 +2558,11 @@ async function handleChargeDealEvent(
       attempt_type: "charge_start",
       identity: (logicalAttempt) => `capture:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "blocked") {
+      await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "charge_start", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
+      continue;
+    }
+    if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "capture",
@@ -2290,6 +2570,7 @@ async function handleChargeDealEvent(
         participant_id: p.participant_id,
         deal_id: dealId,
         correlation_id: attempt.correlation_id,
+        dispatch_state: attempt.dispatch_state,
         provider_reference: p.authorization_id || null,
         expected_amount_minor: amountMinor,
         event_id: eventId
@@ -2309,34 +2590,45 @@ async function handleChargeDealEvent(
     };
     if (p.authorization_id) captureInput.authorization_id = p.authorization_id;
     await hitTestFault("payment.before_provider_io");
-  // R9C fence: the LAST check before external money I/O — a stale worker whose
-  // job was reclaimed must not reach the provider.
-  await assertOutboxLeaseForProviderIo(event);
-    // R9C fence: the LAST check before external money I/O — a stale worker whose
-    // job was reclaimed must not reach the provider.
-    await assertOutboxLeaseForProviderIo(event);
+    // R9C — arm: lease fence + state check + lifecycle CAS in ONE transaction,
+    // the LAST step before external money I/O. From here until this worker
+    // settles the row, every reconciler sees the operation as IN_FLIGHT.
+    const armed = await armMoneyOperation({
+      event,
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "charge_start",
+      correlation_id: correlation,
+      expected_money_states: ["ChargeAttempt"],
+      expected_buyer_states: ["ChargingAttempt"],
+      provider_reference: p.authorization_id || null
+    });
+    if (!armed) continue;
+    const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
     const result = await paymentProvider.capture(captureInput);
     await hitTestFault("payment.after_provider_io");
+    const outcome = classifyMoneyOutcome(result);
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "charge_start",
+      correlation_id: correlation,
+      owner,
+      outcome: settled,
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      ...(note ? { note } : {})
+    });
 
-    if (result.result_class === "temporary_fail") {
-      await finalizeAttemptResult({
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        attempt_type: "charge_start",
-        correlation_id: correlation,
-        result_class: "temporary_fail"
-      });
-      throw new Error(`temporary_fail capture participant ${p.participant_id}`);
+    if (outcome === "pre_dispatch_failure") {
+      // Proven pre-dispatch (configuration/validation): nothing reached the
+      // provider. Disarm; the outbox retries the SAME identity — no new
+      // identity, no rolling-cap consumption.
+      await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
+      throw new Error(`temporary_fail capture participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
     }
 
-    if (result.reconciliation_event_type && result.result_class !== "unknown") {
-      await finalizeAttemptResult({
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        attempt_type: "charge_start",
-        correlation_id: correlation,
-        result_class: result.result_class
-      });
+    if (result.reconciliation_event_type && (outcome === "success" || outcome === "permanent_fail")) {
+      await settle(outcome);
       await ingestAndProcessPaymentEvent({
         provider: result.provider,
         event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
@@ -2351,7 +2643,7 @@ async function handleChargeDealEvent(
           authorization_id: p.authorization_id || null
         }
       });
-      if (result.result_class === "success" && result.provider_reference) {
+      if (outcome === "success" && result.provider_reference) {
         await paymentBindings
           .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
           .catch(() => undefined);
@@ -2359,17 +2651,12 @@ async function handleChargeDealEvent(
       continue;
     }
 
-    // No provider-declared canonical outcome (transport UNKNOWN, or a success
-    // without an event type). The provider may have moved money: NEVER retry
-    // blindly — record UNKNOWN durably and hand recovery to the Worker-owned
-    // reconciliation rail, which resolves it via authoritative status lookup.
-    await finalizeAttemptResult({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "charge_start",
-      correlation_id: correlation,
-      result_class: "unknown"
-    });
+    // No provider-declared canonical outcome: transport loss, timeout, 5xx,
+    // 429, 408, malformed body, or a success without an event type. The
+    // provider may have moved money: NEVER retry blindly and NEVER mint a new
+    // identity — record UNKNOWN durably on the SAME identity and hand it to
+    // the Worker-owned reconciliation rail (authoritative status lookup).
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
@@ -2524,6 +2811,13 @@ async function handleRecoveryDealEvent(
       attempt_type: "recovery",
       identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
+    if (attempt.kind === "blocked") {
+      // R9C C1 — recovery is a SECOND capture of the same obligation: never
+      // while the original capture is unresolved or already executed.
+      await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "recovery", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
+      continue;
+    }
+    if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "capture",
@@ -2531,6 +2825,7 @@ async function handleRecoveryDealEvent(
         participant_id: p.participant_id,
         deal_id: dealId,
         correlation_id: attempt.correlation_id,
+        dispatch_state: attempt.dispatch_state,
         provider_reference: p.authorization_id || null,
         expected_amount_minor: amountMinor,
         event_id: eventId
@@ -2551,35 +2846,42 @@ async function handleRecoveryDealEvent(
     };
     if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
     await hitTestFault("payment.before_provider_io");
-  // R9C fence: the LAST check before external money I/O — a stale worker whose
-  // job was reclaimed must not reach the provider.
-  await assertOutboxLeaseForProviderIo(event);
-    // R9C fence: the LAST check before external money I/O — a stale worker whose
-    // job was reclaimed must not reach the provider.
-    await assertOutboxLeaseForProviderIo(event);
+    // R9C — arm: lease fence + state check + lifecycle CAS in ONE transaction,
+    // the LAST step before external money I/O.
+    const armed = await armMoneyOperation({
+      event,
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      expected_money_states: ["ChargeFailedRecovery"],
+      expected_buyer_states: ["ChargeFailedCompletion"],
+      provider_reference: p.authorization_id || null
+    });
+    if (!armed) continue;
+    const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
     const result = await paymentProvider.recover(recoverInput, withinWindow);
     await hitTestFault("payment.after_provider_io");
+    const outcome = classifyMoneyOutcome(result);
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      owner,
+      outcome: settled,
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      ...(note ? { note } : {})
+    });
 
-    if (result.result_class === "temporary_fail") {
-      await finalizeAttemptResult({
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        attempt_type: "recovery",
-        correlation_id: correlation,
-        result_class: "temporary_fail"
-      });
-      throw new Error(`temporary_fail recovery participant ${p.participant_id}`);
+    if (outcome === "pre_dispatch_failure") {
+      await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
+      throw new Error(`temporary_fail recovery participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
     }
 
     // Route through the webhook reconciliation truth path when the provider emits an event type
-    if (result.reconciliation_event_type && result.result_class !== "unknown") {
-      await finalizeAttemptResult({
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        attempt_type: "recovery",
-        correlation_id: correlation,
-        result_class: result.result_class
-      });
+    if (result.reconciliation_event_type && (outcome === "success" || outcome === "permanent_fail")) {
+      await settle(outcome);
       await ingestAndProcessPaymentEvent({
         provider: result.provider,
         event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
@@ -2594,7 +2896,7 @@ async function handleRecoveryDealEvent(
           authorization_id: p.authorization_id || null
         }
       });
-      if (result.result_class === "success" && result.provider_reference) {
+      if (outcome === "success" && result.provider_reference) {
         await paymentBindings
           .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
           .catch(() => undefined);
@@ -2602,15 +2904,10 @@ async function handleRecoveryDealEvent(
       continue;
     }
 
-    // No provider-declared canonical outcome — durable UNKNOWN, then the
-    // reconciliation rail. Never a blind retry after possible money movement.
-    await finalizeAttemptResult({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      correlation_id: correlation,
-      result_class: "unknown"
-    });
+    // No provider-declared canonical outcome — durable UNKNOWN on the SAME
+    // identity, then the reconciliation rail. Never a blind retry, never a
+    // fresh identity after possible money movement.
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
     await schedulePaymentReconcile({
       participant_id: p.participant_id,
       deal_id: dealId,
