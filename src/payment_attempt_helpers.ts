@@ -51,6 +51,15 @@ export type BeginProviderAttemptResult =
 
 export type ArmProviderDispatchResult = "armed" | "lease_lost" | "participant_state_changed" | "in_flight_elsewhere" | "resolved_elsewhere";
 
+/**
+ * SR-1 — outcome of an owner-fenced settlement.
+ *   settled        the outcome is durable (or the identity is already terminal)
+ *   foreign_owner  a live successor owns this dispatch; the caller is stale and
+ *                  must abort as if it had lost its outbox lease
+ *   missing        the identity row is gone (never expected)
+ */
+export type SettleDispatchResult = "settled" | "foreign_owner" | "missing";
+
 export type ProviderDispatchOutcome = "success" | "permanent_fail" | "unknown" | "pre_dispatch_failure";
 
 export class PaymentOperationInFlightError extends Error {
@@ -367,6 +376,14 @@ export function buildPaymentAttemptHelpers(deps: {
    *                              reconcile owns it from here
    *   pre_dispatch_failure       nothing left the process: disarm back to
    *                              'recorded' so the SAME identity is retried
+   *
+   * SR-1 — only the CURRENT dispatching owner may write a NON-success outcome.
+   * A stale worker (its lease died, the identity was re-armed by a live
+   * successor) writing `unknown`/`responded` would make
+   * payment_operation_in_flight() false for a request that is still at the
+   * provider and blind the C1 in-flight guard. Such a writer is told
+   * "foreign_owner" and must treat it as a lost lease. SUCCESS is provider
+   * truth and is always admitted (monotonic).
    */
   async function settleProviderDispatch(args: {
     participant_id: string;
@@ -377,14 +394,14 @@ export function buildPaymentAttemptHelpers(deps: {
     outcome: ProviderDispatchOutcome;
     provider_reference?: string | null;
     note?: string | null;
-  }): Promise<void> {
+  }): Promise<SettleDispatchResult> {
     const setting = ownerSetting({ event_uuid: args.owner.event_uuid, lease_generation: Number(args.owner.lease_generation) });
-    await deps.withTx(async (c) => {
+    return deps.withTx(async (c) => {
       await c.query(`SELECT set_config('siton.is_worker','true',true)`);
       if (setting) await c.query(`SELECT set_config('siton.payment_dispatch_owner', $1, true)`, [setting]);
       await lockParticipantDeal(c, args.participant_id, args.deal_id);
       if (args.outcome === "pre_dispatch_failure") {
-        await c.query(
+        const disarmed = await c.query(
           `UPDATE siton.payment_attempts
            SET dispatch_state='recorded', owner_event_uuid=NULL, owner_lease_generation=NULL, dispatched_at=NULL,
                outcome_note=$5
@@ -394,10 +411,13 @@ export function buildPaymentAttemptHelpers(deps: {
              AND owner_lease_generation IS NOT DISTINCT FROM $7::integer`,
           [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.note ?? "pre_dispatch_failure", args.owner.event_uuid, Number(args.owner.lease_generation)]
         );
-        return;
+        if (Number(disarmed.rowCount || 0) === 1) return "settled" as const;
+        return classifySettleRefusal(c, args);
       }
       const resultClass: PaymentResultClass = args.outcome === "unknown" ? "unknown" : args.outcome;
-      await c.query(
+      // SR-1 — SUCCESS always lands (provider truth); anything else lands only
+      // while THIS job is still the row's dispatching owner.
+      const updated = await c.query(
         `UPDATE siton.payment_attempts
          SET result_class=CASE
                WHEN result_class='success' THEN 'success'
@@ -406,10 +426,40 @@ export function buildPaymentAttemptHelpers(deps: {
              dispatch_state='responded',
              provider_reference=COALESCE($6, provider_reference),
              outcome_note=COALESCE($7, outcome_note)
-         WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4`,
-        [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, resultClass, args.provider_reference ?? null, args.note ?? null]
+         WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4
+           AND (
+             $5 = 'success'
+             OR owner_event_uuid IS NULL
+             OR (owner_event_uuid IS NOT DISTINCT FROM $8::uuid AND owner_lease_generation IS NOT DISTINCT FROM $9::integer)
+           )`,
+        [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, resultClass, args.provider_reference ?? null, args.note ?? null, args.owner.event_uuid, Number(args.owner.lease_generation)]
       );
+      if (Number(updated.rowCount || 0) === 1) return "settled" as const;
+      return classifySettleRefusal(c, args);
     });
+  }
+
+  /**
+   * SR-1 — why a settlement did not apply: the identity is gone (missing), it is
+   * already resolved and needs nothing (settled), or another worker owns this
+   * dispatch now and this caller is stale (foreign_owner).
+   */
+  async function classifySettleRefusal(
+    c: any,
+    args: { participant_id: string; deal_id: string; attempt_type: AttemptType; correlation_id: string; owner: { event_uuid: string; lease_generation: number | null | undefined } }
+  ): Promise<SettleDispatchResult> {
+    const current = await c.query(
+      `SELECT result_class, dispatch_state, owner_event_uuid, owner_lease_generation
+       FROM siton.payment_attempts
+       WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4`,
+      [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id]
+    );
+    const row = current.rows[0];
+    if (!row) return "missing";
+    if (TERMINAL.includes(String(row.result_class))) return "settled";
+    const ownedByCaller = String(row.owner_event_uuid || "") === String(args.owner.event_uuid || "")
+      && Number(row.owner_lease_generation) === Number(args.owner.lease_generation);
+    return ownedByCaller ? "settled" : "foreign_owner";
   }
 
   async function loadAttemptLifecycle(args: {

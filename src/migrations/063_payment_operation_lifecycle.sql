@@ -32,8 +32,12 @@
 -- outbox job still holds a live lease. Guards:
 --   * terminal truth never downgrades (success/permanent_fail -> unknown is
 --     rejected; success is never overwritten by permanent_fail)
---   * nobody but the dispatching owner may declare a NEGATIVE result, re-arm or
---     disarm an operation that is in flight (C1 — DB-authoritative)
+--   * nobody but the dispatching owner may declare a NEGATIVE result, re-arm,
+--     disarm — or modify in ANY other way short of declaring provider SUCCESS —
+--     an operation that is in flight (C1 — DB-authoritative). The "any other
+--     way" clause closes SR-1: a stale owner settling 'unknown'/'responded'
+--     after a live successor re-armed the SAME identity would otherwise hide
+--     that live dispatch from every reconciler and re-open C1.
 --   * no new identity of the same money type while a prior one is unresolved
 --     (C2 — identity rotation is impossible, whatever the outbox does)
 --   * recovery / refund / release may not be minted while a capture-side
@@ -157,6 +161,14 @@ BEGIN
       RAISE EXCEPTION
         'payment_attempt_in_flight_disarm: % % may only be disarmed by its dispatching owner',
         OLD.attempt_type, OLD.correlation_id
+        USING ERRCODE = 'SN409';
+    END IF;
+    -- SR-1: any other foreign write on an in-flight operation is refused too;
+    -- only provider SUCCESS is admitted from a non-owner.
+    IF NEW.result_class IS DISTINCT FROM 'success' THEN
+      RAISE EXCEPTION
+        'payment_attempt_in_flight_foreign_write: % % is dispatching under a live lease; only its dispatching owner may modify it (attempted result_class=%, dispatch_state=%)',
+        OLD.attempt_type, OLD.correlation_id, NEW.result_class, NEW.dispatch_state
         USING ERRCODE = 'SN409';
     END IF;
   END IF;

@@ -1538,7 +1538,7 @@ async function handleRefundEvent(
     const result = await paymentProvider.refund(refundInput);
     await hitTestFault("payment.after_provider_io");
     const outcome = classifyMoneyOutcome(result);
-    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: attemptType,
@@ -2149,6 +2149,22 @@ async function armMoneyOperation(args: {
 }
 
 /**
+ * SR-1 — the dispatching owner's settlement. A worker whose lease died while
+ * its identity was re-armed by a live successor may write nothing but SUCCESS
+ * (provider truth) onto that identity: its `unknown`/failure would flip the
+ * successor's IN_FLIGHT row to responded and blind the C1 in-flight guard
+ * (reconcile → false charge_failed → recovery = a SECOND money effect).
+ * A refused settlement means this job is stale: it aborts exactly like a lost
+ * outbox lease — no ACK, no reconcile scheduling, no further writes.
+ */
+async function settleOwnedMoneyOperation(args: Parameters<typeof settleProviderDispatch>[0]): Promise<void> {
+  const settled = await settleProviderDispatch(args);
+  if (settled === "settled") return;
+  if (settled === "foreign_owner") throw new OutboxLeaseLostError(args.owner.event_uuid);
+  throw new Error(`payment_attempt_identity_missing ${args.attempt_type} ${args.correlation_id}`);
+}
+
+/**
  * R9C — a rail may not start while another money operation of the same
  * participant is unresolved (or, for recovery/release, already moved money).
  * Nothing is sent to the provider; the unresolved operation is handed to the
@@ -2429,7 +2445,7 @@ async function handlePaymentReleaseEvent(
   const result = await paymentProvider.release(releaseInput);
   await hitTestFault("payment.after_provider_io");
   const outcome = classifyMoneyOutcome(result);
-  const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+  const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
     participant_id: participantId,
     deal_id: dealId,
     attempt_type: "release",
@@ -2609,7 +2625,7 @@ async function handleChargeDealEvent(
     const result = await paymentProvider.capture(captureInput);
     await hitTestFault("payment.after_provider_io");
     const outcome = classifyMoneyOutcome(result);
-    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
@@ -2864,7 +2880,7 @@ async function handleRecoveryDealEvent(
     const result = await paymentProvider.recover(recoverInput, withinWindow);
     await hitTestFault("payment.after_provider_io");
     const outcome = classifyMoneyOutcome(result);
-    const settle = (settled: MoneyRailOutcome, note?: string) => settleProviderDispatch({
+    const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "recovery",

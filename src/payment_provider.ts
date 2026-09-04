@@ -280,6 +280,19 @@ function rand01Deterministic(key: string) {
   return (x >>> 0) / 0x100000000;
 }
 
+// R9C/SR-2 — a proven PRE-dispatch failure is retried with the SAME durable
+// identity (nothing reached the provider, so a fresh identity would be a lie).
+// A simulated transient failure must therefore be transient across retries of
+// one identity instead of a pure function of it: the FIRST call for a key keeps
+// the seeded, reproducible draw; each retry of that key re-draws.
+const mockOutcomeDraws = new Map<string, number>();
+function mockOutcomeDraw(key: string) {
+  const attempt = (mockOutcomeDraws.get(key) || 0) + 1;
+  if (mockOutcomeDraws.size > 10_000) mockOutcomeDraws.clear();
+  mockOutcomeDraws.set(key, attempt);
+  return rand01Deterministic(attempt === 1 ? key : `${key}#retry${attempt}`);
+}
+
 function paymentAuthorizationId(paymentMethodId: string) {
   return `auth_${createHash("sha256").update(paymentMethodId).digest("hex").slice(0, 12)}`;
 }
@@ -491,7 +504,7 @@ function buildMockPaymentProvider(): PaymentProvider {
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const correlationKey = String(input.correlation_id || "").trim() || buildCaptureCorrelationId();
-      const r = rand01Deterministic(correlationKey);
+      const r = mockOutcomeDraw(correlationKey);
       if (r < 0.75) {
         return {
           provider: PAYMENT_PROVIDER,
@@ -541,7 +554,7 @@ function buildMockPaymentProvider(): PaymentProvider {
           reconciliation_event_type: "recovery_failed"
         };
       }
-      const r = rand01Deterministic(correlationKey);
+      const r = mockOutcomeDraw(correlationKey);
       if (r < 0.5) {
         return {
           provider: PAYMENT_PROVIDER,
@@ -576,7 +589,7 @@ function buildMockPaymentProvider(): PaymentProvider {
     },
     async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
       const correlationKey = String(input.correlation_id || "").trim() || "mock-refund";
-      const r = rand01Deterministic(correlationKey);
+      const r = mockOutcomeDraw(correlationKey);
       if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" };
       if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true, dispatched: false };
       return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
