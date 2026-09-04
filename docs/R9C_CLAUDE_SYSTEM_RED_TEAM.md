@@ -4,6 +4,14 @@ Branch: `claude/r9c-system-red-team` (isolated worktree `C:\Users\Lenovo\Documen
 
 > **Status history (read this first).** The first R9C pass (SHA `33a2cb2`) claimed F1 **FIXED**. The independent Codex review (`codex/r9c-independent-review` @ `550a976`, `docs/R9C_CODEX_INDEPENDENT_REVIEW.md`) re-graded it **PARTIAL / UNSAFE_TO_MERGE** with two new CRITICAL deterministic counterexamples (C1 capture/reconcile race, C2 503/429 after money moved) and one HIGH (H1 Grow settle/refund idempotency unproven). Both counterexamples were reproduced verbatim on `33a2cb2` before any code changed, then remediated — see **"R9C remediation"** below. The original F1/F2 sections are kept as written for the record; where they say FIXED for F1, read "FIXED for the crash/reclaim windows only; the in-flight race and post-dispatch HTTP ambiguity were still open until the remediation".
 
+> **Superseded for integration purposes.** This report describes the work as it stood on
+> `claude/r9c-system-red-team` (`f025d3f`). The changeset has since been ported onto current master
+> `123bbf9` on `claude/r9c-integration-candidate`, where a fresh adversarial self-review found one
+> further CRITICAL that exists on THIS branch as well — **SR-1**: a stale dispatching owner could
+> settle `unknown` onto an identity a live successor had re-armed, blinding the C1 in-flight guard and
+> producing capture + recovery = two money effects. See `docs/R9C_INTEGRATION_CANDIDATE.md` for the
+> deterministic A-B proof and the three-layer fix. Neither branch is merged.
+
 ## Scope
 
 Attack correctness under failure for the highest-risk money properties, in this priority order:
