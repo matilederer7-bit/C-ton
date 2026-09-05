@@ -32,7 +32,11 @@ function authFor(routePath, handlerText) {
     if (routePath === "/api/admin/auth/mfa/verify") return { authentication: "MFA challenge", role: "admin-login" };
     if (routePath === "/api/admin/auth/login") return { authentication: "credentials", role: "admin-login" };
     return {
-      authentication: /requireAdminAuth|requireAdminKey|requireAdminPermission|adminIdentity/.test(handlerText)
+      // These are the guard helpers the admin surface actually uses. Missing one
+      // makes this report cry "not detected" for dozens of properly guarded routes,
+      // which is how a genuinely unguarded route would go unnoticed. The runtime
+      // proof is tests/admin_route_auth_coverage_validation.ts.
+      authentication: /requireAdminAuth|requireAdminAuthContext|requireAdminRead|requireAdminMutation|requireAdminKey|requireAdminPermission|[Aa]dminIdentity/.test(handlerText)
         ? "admin session/key"
         : "not detected",
       role: (handlerText.match(/requireAdminPermission\([^,]+,[^,]+,\s*["'`]([^"'`]+)/) || [])[1] || "admin"
@@ -40,7 +44,9 @@ function authFor(routePath, handlerText) {
   }
   if (routePath.startsWith("/api/seller/") || routePath === "/deals" || routePath.startsWith("/deals/")) {
     return {
-      authentication: /requireSeller|sellerSession|seller_id|sellerId/.test(handlerText) ? "seller identity/session" : "not detected",
+      // resolveRequiredSellerContext is the seller-side guard helper; without it
+      // properly guarded seller routes are reported as unauthenticated.
+      authentication: /requireSeller|resolveRequiredSellerContext|sellerSession|seller_id|sellerId/.test(handlerText) ? "seller identity/session" : "not detected",
       role: "seller"
     };
   }

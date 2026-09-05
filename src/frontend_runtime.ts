@@ -6781,13 +6781,15 @@ export function registerFrontendExperience(
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
-    requireUuid(adminActionId, "admin_action_id");
-    const note = String(req.body?.reason || req.body?.approval_note || "").trim();
-    if (!note) return reply.code(400).send({ ok: false, error: "approval_reason_required" });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
       if (!identity) return reply;
+      // Authorization precedes every observation: an anonymous caller must not be
+      // able to tell a malformed request from a well-formed one on this surface.
+      requireUuid(adminActionId, "admin_action_id");
+      const note = String(req.body?.reason || req.body?.approval_note || "").trim();
+      if (!note) return reply.code(400).send({ ok: false, error: "approval_reason_required" });
       const existing = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1 FOR UPDATE`, [adminActionId]);
       if (!existing.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
       const action = existing.rows[0];
@@ -6814,13 +6816,14 @@ export function registerFrontendExperience(
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
-    requireUuid(adminActionId, "admin_action_id");
-    const reason = String(req.body?.reason || "").trim();
-    if (!reason) return reply.code(400).send({ ok: false, error: "reject_reason_required" });
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.approve", sessionRequired: true });
       if (!identity) return reply;
+      // Authorization precedes every observation (see the approve route).
+      requireUuid(adminActionId, "admin_action_id");
+      const reason = String(req.body?.reason || "").trim();
+      if (!reason) return reply.code(400).send({ ok: false, error: "reject_reason_required" });
       const updated = await c.query(
         `UPDATE siton.admin_actions
          SET status='Rejected', result_code='Rejected', result_message=$2,
@@ -6839,9 +6842,16 @@ export function registerFrontendExperience(
     await ensureAdminIdentity();
     await ensureAdminInterventionTables(deps.withTx);
     const adminActionId = String(req.params.adminActionId || "").trim();
-    requireUuid(adminActionId, "admin_action_id");
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
+      // The action-type-specific permission can only be known after the lookup,
+      // but the lookup itself must not be reachable without an admin session:
+      // otherwise "404 admin_action_not_found" versus a guard rejection tells an
+      // anonymous caller which action ids exist. Authenticate first, then load,
+      // then enforce the specific permission (and MFA) for that action type.
+      const authenticated = await requireAdminAuthContext(req, reply, c, { sessionRequired: true });
+      if (!authenticated) return reply;
+      requireUuid(adminActionId, "admin_action_id");
       const actionResult = await c.query(`SELECT action_type FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
       if (!actionResult.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
       const actionTypeForPermission = String(actionResult.rows[0].action_type || "");
@@ -6882,11 +6892,6 @@ export function registerFrontendExperience(
   app.post("/api/admin/control-flags/:flagId/release", async (req: any, reply: any) => {
     await ensureAdminInterventionTables(deps.withTx);
     const flagId = String(req.params.flagId || "").trim();
-    requireUuid(flagId, "flag_id");
-    const reason = String(req.body?.reason || "").trim();
-    if (!reason) {
-      return reply.code(400).send({ ok: false, error: "reason_required" });
-    }
     const context = adminRequestContext(req);
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, {
@@ -6895,6 +6900,12 @@ export function registerFrontendExperience(
         recentMfa: true
       });
       if (!identity) return reply;
+      // Authorization precedes every observation (see the approve route).
+      requireUuid(flagId, "flag_id");
+      const reason = String(req.body?.reason || "").trim();
+      if (!reason) {
+        return reply.code(400).send({ ok: false, error: "reason_required" });
+      }
       const released = await releaseAdminControlFlag(c, flagId, {
         released_by_admin_id: safeAdminId(identity),
         released_reason: reason,
@@ -10384,16 +10395,18 @@ export function registerFrontendExperience(
 
   app.post("/api/seller/inquiries/:threadId/reply", async (req: any, reply: any) => {
     const threadId = String(req.params.threadId || "");
-    requireUuid(threadId, "thread_id");
     await ensureProductSurfaces();
     await ensureInquiryTables();
     const body = req.body && typeof req.body === "object" ? req.body : {};
-    const message = readInquiryMessage(body, reply);
-    if (message === null) return reply;
     const requestId = inquiryRequestId(req);
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      // Authorization precedes every observation: an anonymous caller must not be
+      // able to tell a malformed reply from a well-formed one.
+      requireUuid(threadId, "thread_id");
+      const message = readInquiryMessage(body, reply);
+      if (message === null) return reply;
       const own = await c.query(
         `SELECT thread_id, status FROM siton.seller_inquiry_threads
          WHERE thread_id = $1 AND seller_id = $2

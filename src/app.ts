@@ -3555,19 +3555,21 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   await ensureDealTypeTables(withTx);
   const dealId = String(req.params.dealId || "");
-  requireUuid(dealId, "deal_id");
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const titleFields = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
   const hasTitle = titleFields.some(hasOwn);
   const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
-  if (!hasEditableField) {
-    throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
-  }
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    // Authorization precedes every observation: an anonymous caller must not be
+    // able to tell a malformed request from a well-formed one on this surface.
+    requireUuid(dealId, "deal_id");
+    if (!hasEditableField) {
+      throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
+    }
     const currentResult = await c.query(
       `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit,
               min_units, max_units, threshold_units, deadline, deal_type, updated_at
@@ -3681,16 +3683,17 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
 app.put("/api/seller/deals/:dealId/delivery", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
-  requireUuid(dealId, "deal_id");
   const body = req.body && typeof req.body === "object" ? req.body : {};
-  if (!Array.isArray(body.delivery_options) || body.delivery_options.length === 0 || body.delivery_options.length > 5) {
-    throw Object.assign(new Error("delivery_options must contain 1-5 options"), { statusCode: 400, code: "delivery_options_invalid" });
-  }
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    // Authorization precedes every observation (see the draft patch route).
+    requireUuid(dealId, "deal_id");
+    if (!Array.isArray(body.delivery_options) || body.delivery_options.length === 0 || body.delivery_options.length > 5) {
+      throw Object.assign(new Error("delivery_options must contain 1-5 options"), { statusCode: 400, code: "delivery_options_invalid" });
+    }
     const r = await c.query(
       `SELECT seller_id, state, deal_type FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
       [dealId]
