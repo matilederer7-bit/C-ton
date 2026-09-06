@@ -14,25 +14,31 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 2 |
-| Real vulnerabilities fixed | 2 |
+| Real vulnerabilities found | 3 |
+| Real vulnerabilities fixed | 3 |
 | Consistency hardenings | 7 |
 | Protected routes enumerated | 87 |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 4 (behavioural authz, static authz, cross-principal isolation, principal state authority) |
-| Phases complete | 4 of 14 (Phases 0-3) |
+| New CI gates | 6 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races) |
+| Phases complete | 6 of 14 (Phases 0-5) |
 
-Both real findings are **existence oracles**, not data leaks. No cross-tenant
-content was ever served; what leaked was the *fact* that an object exists.
+**No protected content was ever served to a caller who should not see it.** Two
+of the three findings are existence oracles — what leaked was the *fact* that an
+object exists — and the third is an error-surface defect.
 
-- **V1** (unauthenticated): an anonymous caller could distinguish admin action
-  ids that exist from ids that do not.
-- **V2** (authenticated, cross-tenant): any logged-in seller could distinguish a
-  real deal id belonging to another seller from a fabricated one, on six export
-  and handoff routes. Drafts are never public, so this told a competitor whether
-  a given id was a real unpublished deal.
+- **V1** (unauthenticated existence oracle): an anonymous caller could
+  distinguish admin action ids that exist from ids that do not.
+- **V2** (authenticated cross-tenant existence oracle): any logged-in seller
+  could distinguish a real deal id belonging to another seller from a fabricated
+  one, on six export and handoff routes. Drafts are never public, so this told a
+  competitor whether a given id was a real unpublished deal.
+- **V3** (error surface): routine lifecycle conflicts — a lost compare-and-swap
+  when two operations race — were reported as `500 internal_error` instead of
+  `409`. Not an authorization bug and it discloses nothing, but it is the failure
+  mode that hides real incidents in routine noise and tells retrying clients to
+  hammer a conflict they can never win.
 
 Everything else is guard-order consistency — validation of the caller's own
 input running before authorization. Those are recorded as hardenings,
@@ -140,6 +146,59 @@ failed before the fix, naming all six routes as `foreign 403 vs missing 404`, an
 passes after. The suite carries a vacuity guard (seller A must be able to read
 its *own* deal and its own inquiry thread) so a broken session fixture cannot
 make the isolation assertions pass trivially.
+
+---
+
+### V3 — Lifecycle conflicts reported as internal faults (`500` instead of `409`)
+
+**Class:** robustness / error-surface defect with operational consequences.
+**Severity:** MEDIUM. Not an authorization bug and it discloses nothing, but it
+is the failure mode that hides real incidents and amplifies load.
+
+**What happens.** Two guards protect the deal lifecycle, and both worked
+correctly — they just reported failure as a server error:
+
+```ts
+assertValidTransition(...)   // throw new Error(`Illegal ${stateType} transition ...`)
+if (upd.rowCount !== 1)      // throw new Error(`State mismatch deal ${id} expected ${from}`)
+```
+
+Neither carried a `statusCode`, so Fastify mapped both to `500 internal_error`.
+The second is the compare-and-swap on `UPDATE siton.deals SET state=$1 WHERE
+deal_id=$2 AND state=$3` — the concurrency control doing exactly its job. Losing
+that CAS is the **normal** outcome whenever two lifecycle calls race, which is
+every time two admin tabs, a retrying client, or a user double-clicking act at
+once.
+
+**Why it matters beyond tidiness.**
+
+- A `500` tells a retrying client to try again. The answer will never change, so
+  a well-behaved client with backoff hammers a conflict it can never win. A `409`
+  tells it to refresh and stop.
+- Routine contention and genuine internal faults became indistinguishable in
+  logs and error budgets. During an incident that is the difference between
+  seeing the fault and not.
+- Callers got `{"ok":false,"error":"internal_error"}` — nothing actionable, for a
+  condition the server understood perfectly well.
+
+**Fix.** Both throw sites now carry `statusCode: 409` plus a machine-readable
+code (`ILLEGAL_STATE_TRANSITION`, `STATE_CONFLICT`) and the states involved. The
+**messages are deliberately unchanged**: `tests/backend_sanity_suite.ts` matches
+on them, and they name both states, which is what an operator needs. Control flow
+is untouched — nothing is swallowed, and this does not convert genuine internal
+faults into 4xx; it only classifies the two conditions the server already
+recognised as conflicts.
+
+The CAS covers `participants` too (`buyer_state`, `money_state`), so this changes
+the status code money-path endpoints return on an illegal transition, from `500`
+to `409`. That is the same correction for the same reason and moves no money, but
+because it is shared code the **entire suite** was re-run rather than the security
+group alone.
+
+**A/B proof.** With the fix reverted,
+`tests/state_machine_race_authority_validation.ts` fails on two probes with
+`a racing lifecycle call faulted: 500 {"ok":false,"error":"internal_error"}`;
+restored, both pass.
 
 ---
 
@@ -318,6 +377,53 @@ already enumerate admin actions. That premise is load-bearing, so the suite
 is confirmed to be stopped *before* the lookup. If a future role is added without
 `admin_actions.read`, that test fails and the route's ordering must be revisited.
 
+## MUTATION REPLAY RESULT
+
+`tests/mutation_replay_authority_validation.ts`, 10/10. The property under test
+is **not** "everything is idempotent" — it is that a logical operation which
+should happen once creates one durable effect, however the client retries. Its
+mirror is asserted just as explicitly, because a test demanding idempotency
+everywhere would be arguing for a product bug.
+
+Every outcome is checked in the **database**. A 200 that wrote a second row and a
+200 that wrote none look identical over HTTP.
+
+| Probe | Result |
+|---|---|
+| Same idempotency key replayed sequentially | 1 deal |
+| Same idempotency key fired 5× in **parallel** | 1 deal |
+| Two creates with **no** key | 2 deals — distinct actions, correctly not collapsed |
+| Two **different** keys, same content | 2 deals |
+| Publish twice | one transition, `published_at` unmoved, ≤1 `deal.publish` audit row |
+| 5 **parallel** publishes | one publication, ≤1 audit row, delivery options not duplicated |
+| Two different draft edits | both apply — replay protection does not freeze the draft |
+| 4 concurrent draft edits | exactly one winner, one row, no torn value |
+| Seller inquiry: identical retry, then a genuinely different reply | retry adds at most one; the different reply is never swallowed |
+
+Parallel probes use `Promise.all` against one app instance so requests interleave
+in a single process and contend on the same pool. A sequential "retry" exercises
+only the stored-result path and would never catch a check-then-write race.
+
+## CONCURRENCY / STATE-MACHINE RESULT
+
+`tests/state_machine_race_authority_validation.ts`, 6/6. Races are judged against
+the **declared** machine (`DEAL_TRANSITIONS`, imported rather than restated), not
+against a hand-written expectation: whatever state survives must be reachable
+from the state the deal was in. The suite therefore stays correct if the product
+legitimately changes which operation wins, and fails only when the outcome is
+*impossible*.
+
+| Race | Result |
+|---|---|
+| Publish vs cancel (×5) | one reachable state; a `Cancelled` deal never keeps a `published_at`, so both operations never win |
+| Publish vs draft edit (×5) | one row, never torn: published ⇒ has `published_at`, still Draft ⇒ has none |
+| Terminal deal: publish, cancel and edit after `Cancelled` | state unchanged, edit rejected — terminal truth never reopens |
+| 3 concurrent delivery updates | the surviving set is one of the submitted sets, never a union; no duplicated option |
+| Approve vs reject on one admin action | a single decision, one row, no impossible status |
+
+This is where **V3** was found: the races were safe, but the loser's answer was
+`500`.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -357,8 +463,8 @@ path.
 | IDOR / cross-tenant | **PASS after fix** — 1 finding (V2), 0 cross-tenant 2xx, foreign/missing parity on every parametric seller route |
 | Role confusion | **PASS** — a seller session reaches neither the admin nor the distributor surface; a caller-supplied `x-seller-id` never overrides or supplies authority |
 | Role / session / account state | **PASS** — capability tiers, session lifecycle, account state; 0 findings, 2 investigated non-findings documented below |
-| Mutation replay / double-submit | NOT RUN (Phase 4) |
-| Concurrency / state-machine races | NOT RUN (Phase 5) |
+| Mutation replay / double-submit | **PASS** — sequential and parallel replay land once; distinct actions are not collapsed |
+| Concurrency / state-machine races | **PASS after fix** — 1 finding (V3); no impossible state, no torn row, no duplicate durable effect |
 | Worker / outbox resilience | NOT RUN (Phase 6) |
 | Storage / file boundary | NOT RUN (Phase 7) |
 | Rate limit / abuse boundary | NOT RUN (Phase 8) |
@@ -418,6 +524,8 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `protected_route_authorization_gate` | 6/6 (87 protected routes, 95 probes) |
 | `cross_principal_authorization_isolation_validation` | 7/7 (17 parametric seller routes, 2 principals) |
 | `principal_state_authority_validation` | 12/12 (19 admin write routes, 4 roles) |
+| `mutation_replay_authority_validation` | 10/10 (sequential + parallel replay) |
+| `state_machine_race_authority_validation` | 6/6 (5 race classes, judged against DEAL_TRANSITIONS) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |

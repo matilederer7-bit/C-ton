@@ -503,8 +503,37 @@ export function assertValidTransition(
 
   const allowed = matrix[from] || [];
   if (!allowed.includes(to)) {
-    throw new Error(`Illegal ${stateType} transition ${from} to ${to}`);
+    // A rejected transition is a CONFLICT, not an internal fault. It is the
+    // ordinary outcome of two lifecycle calls racing (publish vs cancel) or of a
+    // caller acting on a deal that has already moved on - both expected, neither
+    // a server error. Left unmapped it surfaced as 500 "internal_error", which
+    // buries real faults in routine conflicts and, worse, tells a retrying
+    // client to try again when the answer will never change.
+    //
+    // The message is deliberately unchanged: it is the contract the state-machine
+    // suites match on, and it names both states, which is what an operator needs.
+    const err: any = new Error(`Illegal ${stateType} transition ${from} to ${to}`);
+    err.statusCode = 409;
+    err.code = "ILLEGAL_STATE_TRANSITION";
+    err.state_type = stateType;
+    err.from_state = from;
+    err.to_state = to;
+    throw err;
   }
+}
+
+/**
+ * A lost compare-and-swap on a lifecycle row. Same class as an illegal
+ * transition: an expected conflict, never a server fault, so it must not be
+ * reported as one.
+ */
+function stateConflict(entity: "deal" | "participant", entityId: string, expected: string) {
+  const err: any = new Error(`State mismatch ${entity} ${entityId} expected ${expected}`);
+  err.statusCode = 409;
+  err.code = "STATE_CONFLICT";
+  err.entity_type = entity;
+  err.expected_state = expected;
+  return err;
 }
 
 function nowPlusMinutes(mins: number) {
@@ -744,7 +773,13 @@ async function atomicMultiTransition(args: {
            WHERE deal_id=$2 AND state=$3`,
           [op.toState, op.entityId, op.fromState]
         );
-        if (upd.rowCount !== 1) throw new Error(`State mismatch deal ${op.entityId} expected ${op.fromState}`);
+        // The compare-and-swap did its job: somebody else moved this deal first.
+        // That is a CONFLICT and the normal outcome of two lifecycle calls racing
+        // - not an internal fault. Reported as 500 it told a retrying client to
+        // try again (the answer will never change) and buried genuine faults in
+        // routine contention. Message unchanged: it names the entity and the
+        // state the caller was working from, which is what an operator needs.
+        if (upd.rowCount !== 1) throw stateConflict("deal", op.entityId, op.fromState);
       } else {
         const col = op.stateType === "buyer_state" ? "buyer_state" : "money_state";
         const upd = await c.query(
@@ -753,7 +788,7 @@ async function atomicMultiTransition(args: {
            WHERE participant_id=$2 AND ${col}=$3`,
           [op.toState, op.entityId, op.fromState]
         );
-        if (upd.rowCount !== 1) throw new Error(`State mismatch participant ${op.entityId} expected ${op.fromState}`);
+        if (upd.rowCount !== 1) throw stateConflict("participant", op.entityId, op.fromState);
       }
     }
 
