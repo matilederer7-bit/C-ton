@@ -3184,6 +3184,29 @@ const app = Fastify({
   }
 });
 
+/**
+ * Live route inventory, captured at registration. The authorization gate
+ * (tests/protected_route_authorization_gate.ts, scripts/protected_route_policy.cjs)
+ * classifies from this rather than from a path prefix alone: a route that
+ * declares `config.authority` is protected wherever its path lives, which is
+ * how the seller lifecycle routes at the bare `/deals` paths are covered.
+ * Read-only for consumers; Fastify freezes the router at ready().
+ */
+export type RegisteredRoute = { method: string; url: string; config: Record<string, unknown> };
+export const ROUTE_REGISTRY: RegisteredRoute[] = [];
+app.addHook("onRoute", (route: any) => {
+  const methods = Array.isArray(route.method) ? route.method : [route.method];
+  const { url: _url, method: _method, ...config } = (route.config || {}) as Record<string, unknown>;
+  for (const method of methods) {
+    ROUTE_REGISTRY.push({ method: String(method).toUpperCase(), url: String(route.url), config: { ...config } });
+  }
+});
+
+// Route metadata used by the authorization policy: "this route acts with the
+// named principal's authority". It is a declaration the gate enforces
+// behaviourally, never a guard by itself.
+const SELLER_AUTHORITY_ROUTE = { config: { authority: "seller" } } as const;
+
 function applySecurityHeaders(reply: any) {
   reply.header("x-content-type-options", "nosniff");
   reply.header("referrer-policy", "no-referrer");
@@ -3514,9 +3537,15 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     .send(file);
 });
 
-app.post("/deals", async (req: any) => {
+app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   await ensureDealTypeTables(withTx);
+  // Authorization precedes every observation (independent review LOW-4): an
+  // anonymous caller must not learn which body shapes this route accepts. The
+  // creating transaction below authenticates again for its own consistency;
+  // this early check costs one session lookup and refuses before any
+  // validation answer becomes visible.
+  await withTx(async (c) => { await requireSellerAuthority(req, c); });
   const body = req.body || {};
   const dealType: DealType = normalizeDealType(body.deal_type, "physical_product");
   if (body.deal_type !== undefined && body.deal_type !== null && !["physical_product","voucher","ticket"].includes(String(body.deal_type))) {
@@ -3961,11 +3990,11 @@ function readCreateDealTitle(body: Record<string, any>) {
 app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const sourceDealId = String(req.params.dealId || "");
-  requireUuid(sourceDealId, "deal_id");
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "create_draft");
+    requireUuid(sourceDealId, "deal_id"); // after the guard: authorization precedes observation
     const source = await c.query(
       `SELECT deal_id, seller_id, title, description, price_per_unit, min_units, max_units
        FROM siton.deals
@@ -4039,29 +4068,31 @@ app.post("/api/seller/deals/:dealId/duplicate", async (req: any) => {
 app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
-  requireUuid(dealId, "deal_id");
-  const body = req.body || {};
-  const parsed = parseImageUploadBody(body);
-  const originalFilename = String(body.original_filename || body.filename || "").trim() || null;
-  const imageIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
-  if (imageIdempotencyKey.length > 200) {
-    throw Object.assign(new Error("idempotency key is too long"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
-  }
-  const imageRequestHash = createHash("sha256")
-    .update(parsed.mimeType)
-    .update("\0")
-    .update(parsed.base64Data)
-    .update("\0")
-    .update(originalFilename || "")
-    .update("\0")
-    .update(String(Boolean(isAccepted(body.is_primary))))
-    .update("\0")
-    .update(String(body.sort_order ?? ""))
-    .digest("hex");
 
   const response = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    // Authorization precedes every observation: the id shape, the upload body
+    // and the idempotency key are validated only for an authenticated seller.
+    requireUuid(dealId, "deal_id");
+    const body = req.body || {};
+    const parsed = parseImageUploadBody(body);
+    const originalFilename = String(body.original_filename || body.filename || "").trim() || null;
+    const imageIdempotencyKey = String(req.headers?.["idempotency-key"] || "").trim();
+    if (imageIdempotencyKey.length > 200) {
+      throw Object.assign(new Error("idempotency key is too long"), { statusCode: 400, code: "IDEMPOTENCY_KEY_INVALID" });
+    }
+    const imageRequestHash = createHash("sha256")
+      .update(parsed.mimeType)
+      .update("\0")
+      .update(parsed.base64Data)
+      .update("\0")
+      .update(originalFilename || "")
+      .update("\0")
+      .update(String(Boolean(isAccepted(body.is_primary))))
+      .update("\0")
+      .update(String(body.sort_order ?? ""))
+      .digest("hex");
     // Serialize image-list mutations for this deal across Web instances.
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
     const dealResult = await c.query(
@@ -4194,26 +4225,27 @@ app.post("/api/seller/deals/:dealId/images", async (req: any, reply: any) => {
 app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
-  requireUuid(dealId, "deal_id");
-  const body = req.body || {};
-  const requestedOrder = Array.isArray(body.ordered_image_ids)
-    ? body.ordered_image_ids.map((value: unknown) => String(value || "").trim())
-    : null;
-  const requestedPrimary = body.primary_image_id === null || body.primary_image_id === undefined
-    ? null
-    : String(body.primary_image_id || "").trim();
-  if (requestedOrder && requestedOrder.length > DEAL_IMAGE_LIMIT) {
-    throw Object.assign(new Error(`deal can have up to ${DEAL_IMAGE_LIMIT} images`), { statusCode: 400, code: "deal_image_limit" });
-  }
-  for (const imageId of requestedOrder || []) requireUuid(imageId, "image_id");
-  if (requestedPrimary) requireUuid(requestedPrimary, "primary_image_id");
-  if (requestedOrder && new Set(requestedOrder).size !== requestedOrder.length) {
-    throw Object.assign(new Error("ordered_image_ids must not contain duplicates"), { statusCode: 400, code: "DEAL_IMAGE_ORDER_INVALID" });
-  }
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    // Authorization precedes every observation.
+    requireUuid(dealId, "deal_id");
+    const body = req.body || {};
+    const requestedOrder = Array.isArray(body.ordered_image_ids)
+      ? body.ordered_image_ids.map((value: unknown) => String(value || "").trim())
+      : null;
+    const requestedPrimary = body.primary_image_id === null || body.primary_image_id === undefined
+      ? null
+      : String(body.primary_image_id || "").trim();
+    if (requestedOrder && requestedOrder.length > DEAL_IMAGE_LIMIT) {
+      throw Object.assign(new Error(`deal can have up to ${DEAL_IMAGE_LIMIT} images`), { statusCode: 400, code: "deal_image_limit" });
+    }
+    for (const imageId of requestedOrder || []) requireUuid(imageId, "image_id");
+    if (requestedPrimary) requireUuid(requestedPrimary, "primary_image_id");
+    if (requestedOrder && new Set(requestedOrder).size !== requestedOrder.length) {
+      throw Object.assign(new Error("ordered_image_ids must not contain duplicates"), { statusCode: 400, code: "DEAL_IMAGE_ORDER_INVALID" });
+    }
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
     const dealResult = await c.query(`SELECT seller_id, state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [dealId]);
     if (!dealResult.rowCount || normalizeSellerId(dealResult.rows[0].seller_id) !== sellerAuthority.seller_id) {
@@ -4280,11 +4312,11 @@ app.patch("/api/seller/deals/:dealId/images/order", async (req: any) => {
 app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: any) => {
   const dealId = String(req.params.dealId || "");
   const imageId = String(req.params.imageId || "");
-  requireUuid(dealId, "deal_id");
-  requireUuid(imageId, "image_id");
   const removed = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
+    requireUuid(imageId, "image_id");
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-image:' || $1, 0))", [dealId]);
     const result = await c.query(
       `SELECT i.storage_provider, i.storage_key, i.is_primary, d.seller_id, d.state
@@ -4331,10 +4363,10 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
 app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
   await ensureRemainingProductSurfaceTables(withTx);
   const dealId = String(req.params.dealId || "");
-  requireUuid(dealId, "deal_id");
   const result = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "operate");
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     await c.query("SELECT pg_advisory_xact_lock(hashtextextended('deal-delete:' || $1, 0))", [dealId]);
     const dealResult = await c.query(
       `SELECT deal_id, seller_id, state FROM siton.deals WHERE deal_id=$1 FOR UPDATE`,
@@ -4401,16 +4433,9 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
   return reply.send(result);
 });
 
-app.post("/deals/:id/publish", async (req: any) => {
+app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const body = req.body || {};
-  if (!isAccepted(body.seller_terms_accepted) || !isAccepted(body.seller_critical_terms_accepted) || !isAccepted(body.seller_threshold_90_accepted)) {
-    const err: any = new Error("seller_terms_required");
-    err.statusCode = 400;
-    err.code = "seller_terms_required";
-    throw err;
-  }
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const correlationId = req.headers["x-correlation-id"] ? String(req.headers["x-correlation-id"]) : requestId;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `publish:${dealId}`;
@@ -4420,6 +4445,15 @@ app.post("/deals/:id/publish", async (req: any) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
     publishSellerId = sellerAuthority.seller_id;
     await ensureSellerActionAllowed(c, sellerAuthority.seller_id, "publish");
+    // Authorization precedes every observation: id shape and body validation
+    // answer only an authenticated, allowed seller.
+    requireUuid(dealId, "deal_id");
+    if (!isAccepted(body.seller_terms_accepted) || !isAccepted(body.seller_critical_terms_accepted) || !isAccepted(body.seller_threshold_90_accepted)) {
+      const err: any = new Error("seller_terms_required");
+      err.statusCode = 400;
+      err.code = "seller_terms_required";
+      throw err;
+    }
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -5186,14 +5220,14 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
   return joinResult.response;
 });
 
-app.post("/deals/:id/close_joining", async (req: any) => {
+app.post("/deals/:id/close_joining", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}`;
 
   const closeContext = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     const r = await c.query(`SELECT seller_id, max_units, threshold_units, state FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -5271,14 +5305,14 @@ app.post("/deals/:id/close_joining", async (req: any) => {
 // Destination follows the canonical truth: TargetReached when joined units
 // already meet the threshold, else PendingTarget. A deadline_check outbox
 // event is re-enqueued so the deadline authority keeps working after reopen.
-app.post("/deals/:id/reopen_joining", async (req: any) => {
+app.post("/deals/:id/reopen_joining", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `reopen:${dealId}:${Date.now()}`;
 
   const ctx = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     const r = await c.query(
       `SELECT d.seller_id, d.state, d.close_reason, d.deadline, d.max_units, d.threshold_units,
               COALESCE((SELECT SUM(p.qty) FROM siton.participants p
@@ -5356,14 +5390,14 @@ app.post("/deals/:id/reopen_joining", async (req: any) => {
   return { ok: true, state: toState, result };
 });
 
-app.post("/deals/:id/prepare_charging", async (req: any) => {
+app.post("/deals/:id/prepare_charging", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `prepare:${dealId}`;
 
   await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -5417,14 +5451,14 @@ app.post("/deals/:id/prepare_charging", async (req: any) => {
   });
 });
 
-app.post("/deals/:id/charging/start", async (req: any) => {
+app.post("/deals/:id/charging/start", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `start:${dealId}`;
 
   await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");
@@ -5486,14 +5520,14 @@ app.post("/deals/:id/charging/start", async (req: any) => {
   });
 });
 
-app.post("/deals/:id/cancel", async (req: any) => {
+app.post("/deals/:id/cancel", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
-  requireUuid(dealId, "deal_id");
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
   const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `cancel:${dealId}`;
 
   await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
+    requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
     const r = await c.query(`SELECT seller_id FROM siton.deals WHERE deal_id=$1`, [dealId]);
     if (!r.rowCount) {
       const err: any = new Error("deal not found");

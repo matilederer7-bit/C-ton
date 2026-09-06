@@ -2946,12 +2946,12 @@ export function registerFrontendExperience(
   // unpublished deals, so nothing becomes discoverable.
   app.get("/api/seller/deals/:dealId/preview", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const payload = await buildPublicDealPayload(c, dealId, { requirePublished: false, sellerId: sellerContext.seller_id });
       return {
         ...payload,
@@ -3889,13 +3889,13 @@ export function registerFrontendExperience(
 
   app.get("/api/seller/deals/:id/draft", async (req: any, reply: any) => {
     const dealId = String(req.params.id);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const result = await c.query(
         `SELECT deal_id, seller_id, state, title, description, price_per_unit,
                 min_units, max_units, threshold_units, deadline, deal_type,
@@ -3968,12 +3968,12 @@ export function registerFrontendExperience(
 
   app.get("/api/seller/deals/:id", async (req: any, reply: any) => {
     const dealId = String(req.params.id);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
       const dealResult = await c.query(
         `SELECT
@@ -4209,12 +4209,12 @@ export function registerFrontendExperience(
 
   app.get("/api/seller/deals/:dealId/shipping-export", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -4346,12 +4346,12 @@ export function registerFrontendExperience(
   // delivery fields. No shipping status, tracking numbers, or payment refs.
   app.get("/api/seller/deals/:dealId/delivery-handoff", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -4420,12 +4420,12 @@ export function registerFrontendExperience(
   // payment provider refs, or internal audit data.
   app.get("/api/seller/deals/:dealId/delivery-handoff/export.xlsx", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -4544,13 +4544,13 @@ export function registerFrontendExperience(
   // by accident. Sellers redeem via POST /api/seller/fulfillment/:unitId/redeem.
   app.get("/api/seller/deals/:dealId/voucher-export", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -4660,13 +4660,13 @@ export function registerFrontendExperience(
   // ── Ticket Attendee Export (CSV) ─────────────────────────────────────────
   app.get("/api/seller/deals/:dealId/ticket-export", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -4781,12 +4781,12 @@ export function registerFrontendExperience(
   //   • Money/state machine and refund policy are not touched.
   app.post("/api/seller/fulfillment/:unitId/redeem", async (req: any, reply: any) => {
     const unitId = String(req.params.unitId || "");
-    requireUuid(unitId, "fulfillment_unit_id");
     await ensureDealTypeTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(unitId, "fulfillment_unit_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const lookup = await c.query(
@@ -4863,12 +4863,12 @@ export function registerFrontendExperience(
   // ── Seller Deal Excel Export ─────────────────────────────────────────────
   app.get("/api/seller/deals/:dealId/export.xlsx", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId);
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const sellerId = sellerContext.seller_id;
 
       const dealResult = await c.query(
@@ -6743,10 +6743,10 @@ export function registerFrontendExperience(
     await ensureAdminControlPlane();
     await ensureAdminIdentity();
     const adminActionId = String(req.params.adminActionId || "").trim();
-    requireUuid(adminActionId, "admin_action_id");
     return deps.withTx(async (c) => {
       const identity = await requireAdminAuthContext(req, reply, c, { permission: "admin_actions.read" });
       if (!identity) return reply;
+      requireUuid(adminActionId, "admin_action_id"); // after the guard: authorization precedes observation
       const row = await c.query(`SELECT * FROM siton.admin_actions WHERE admin_action_id=$1`, [adminActionId]);
       if (!row.rowCount) return reply.code(404).send({ ok: false, error: "admin_action_not_found" });
       return { ok: true, action: row.rows[0] };
@@ -10008,10 +10008,10 @@ export function registerFrontendExperience(
   // Seller: viral performance for the seller's own deal (cached metrics).
   app.get("/api/seller/deals/:dealId/viral", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
-    requireUuid(dealId, "deal_id");
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c);
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const owned = await c.query(
         `SELECT deal_id FROM siton.deals WHERE deal_id=$1 AND seller_id=$2 LIMIT 1`,
         [dealId, sellerContext.seller_id]
@@ -10371,12 +10371,12 @@ export function registerFrontendExperience(
 
   app.get("/api/seller/inquiries/:threadId", async (req: any, reply: any) => {
     const threadId = String(req.params.threadId || "");
-    requireUuid(threadId, "thread_id");
     await ensureProductSurfaces();
     await ensureInquiryTables();
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(threadId, "thread_id"); // after the guard: authorization precedes observation
       const row = await c.query(
         `SELECT t.thread_id, t.deal_id, d.title AS deal_title, t.customer_name, t.customer_email, t.status,
                 t.seller_unread_count, t.customer_unread_count, t.message_count, t.last_message_at, t.last_message_preview,
@@ -10465,11 +10465,11 @@ export function registerFrontendExperience(
 
   app.get("/api/seller/deals/:dealId/propagation", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
-    requireUuid(dealId, "deal_id");
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const own = await c.query(
         `SELECT 1 FROM siton.deals WHERE deal_id=$1 AND COALESCE(seller_id, $3) = $2`,
         [dealId, sellerContext.seller_id, DEFAULT_SELLER_ID]
@@ -10486,12 +10486,12 @@ export function registerFrontendExperience(
   // answers 404 exactly like a missing one. No frontend-only filtering.
   app.get("/api/seller/deals/:dealId/viral-tree", async (req: any, reply: any) => {
     const dealId = String(req.params.dealId || "");
-    requireUuid(dealId, "deal_id");
-    const { parentId, sourceKey, limit } = viralTreeQueryParams(req);
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
+      const { parentId, sourceKey, limit } = viralTreeQueryParams(req);
       const own = await c.query(
         `SELECT 1 FROM siton.deals WHERE deal_id=$1 AND COALESCE(seller_id, $3) = $2`,
         [dealId, sellerContext.seller_id, DEFAULT_SELLER_ID]
