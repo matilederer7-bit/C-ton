@@ -3085,8 +3085,63 @@ export async function closeWorkerDatabase() {
 const RECLAIM_EVERY_N_POLLS = 10;
 
 
+// Query-string parameters that carry a CREDENTIAL rather than a filter. Fastify
+// logs the full request URL, so anything here would otherwise be written to the
+// application log on every request - and a log line outlives the request, is
+// copied to aggregators, and is read by far more people.
+//
+// This is not hypothetical: the buyer's inquiry-thread access token travels as
+// `?t=<token>` (src/frontend_runtime.ts, GET /api/inquiries/:threadId). That
+// token grants read access to a private conversation, so leaving it in the log
+// is a credential leak into a lower-security store.
+//
+// Masking here is the narrow fix for the LOGGING problem and changes no API.
+// Moving the token out of the query string entirely is the deeper fix; it is a
+// product/API change (existing buyer links carry `?t=`) and is recorded as an
+// open item rather than done silently here.
+const SENSITIVE_QUERY_KEYS = new Set([
+  "t", "token", "access_token", "auth", "authorization",
+  "key", "api_key", "admin_key", "secret", "password", "code", "signature", "sig"
+]);
+
+function redactUrlForLogs(rawUrl: string) {
+  const url = String(rawUrl || "");
+  const split = url.indexOf("?");
+  if (split === -1) return url;
+  const path = url.slice(0, split);
+  const params = url.slice(split + 1).split("&").map((pair) => {
+    const eq = pair.indexOf("=");
+    if (eq === -1) return pair;
+    const key = pair.slice(0, eq);
+    return SENSITIVE_QUERY_KEYS.has(decodeURIComponent(key).toLowerCase())
+      ? `${key}=[redacted]`
+      : pair;
+  });
+  return `${path}?${params.join("&")}`;
+}
+
 const app = Fastify({
-  logger: true,
+  logger: {
+    serializers: {
+      // Mirrors Fastify's default request serializer, with the URL sanitized.
+      req(request: any) {
+        return {
+          method: request.method,
+          url: redactUrlForLogs(request.url),
+          host: request.host ?? request.headers?.host,
+          remoteAddress: request.ip ?? request.socket?.remoteAddress,
+          remotePort: request.socket?.remotePort
+        };
+      }
+    }
+  },
+  // The application already treats `x-request-id` as the canonical correlation
+  // id: it normalises it onto the request and writes it into audit rows. Fastify
+  // was minting a separate reqId for the log line, so a log entry and the audit
+  // row for the same request carried different ids and could not be joined -
+  // exactly the correlation you need during an incident. Same id everywhere now.
+  // Pino JSON-encodes the value, so a caller cannot inject a forged log line.
+  requestIdHeader: "x-request-id",
   trustProxy: true,
   bodyLimit: 8 * 1024 * 1024,
   rewriteUrl(req) {

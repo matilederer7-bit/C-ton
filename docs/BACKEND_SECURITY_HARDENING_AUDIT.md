@@ -14,19 +14,20 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 5 |
-| Real vulnerabilities fixed | 5 |
+| Real vulnerabilities found | 7 |
+| Real vulnerabilities fixed | 7 |
 | Consistency hardenings | 7 |
 | Protected routes enumerated | 87 |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 10 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants) |
-| Phases complete | 10 of 14 (Phases 0-7, 9, 10) |
+| New CI gates | 12 (authz behavioural + static, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants, forensic logging, rate-limit classifier) |
+| Phases complete | 13 of 14 (Phases 0-12; only the soak remains) |
 
-**No protected content was ever served to a caller who should not see it.** Three
-of the five findings are existence oracles — what leaked was the *fact* that an
-object exists — and two are error-surface defects.
+**No request was ever served to the wrong caller.** Three of the seven findings
+are existence oracles — what leaked was the *fact* that an object exists — two
+are error-surface defects, one wrote a credential into the logs, and one made
+incidents harder to reconstruct.
 
 - **V1** (unauthenticated existence oracle): an anonymous caller could
   distinguish admin action ids that exist from ids that do not.
@@ -50,6 +51,14 @@ object exists — and two are error-surface defects.
   authenticated admin where it was found, but every route forwarding a query
   parameter into a query had the same exposure, so the fix sits at the entry
   point.
+
+- **V6** (credential in logs): the buyer's inquiry-thread access token travels
+  as `?t=<token>`, and the request logger wrote the full URL — so a credential
+  granting read access to a private conversation was persisted to the
+  application log on every read.
+- **V7** (forensic gap): log lines carried a Fastify-minted request id while
+  audit rows carried the caller's `x-request-id`, so the two could not be
+  joined — exactly the correlation an incident needs.
 
 Everything else is guard-order consistency — validation of the caller's own
 input running before authorization. Those are recorded as hardenings,
@@ -276,6 +285,62 @@ query-string entry point in the same spirit.
 **A/B proof.** The sweep reported
 `/api/admin/support-cases ?seller_id=\x00 -> 500` before the hook and `0 faults`
 across 5,781 probes after it.
+
+---
+
+### V6 — Buyer inquiry access tokens written to the application log
+
+**Class:** credential disclosure into a lower-security store.
+**Severity:** MEDIUM. No request was mishandled and nothing was served to the
+wrong caller — but a credential ended up somewhere that outlives the request, is
+copied to log aggregators, and is read by far more people than the request ever
+was.
+
+**Root cause.** The buyer's inquiry-thread access token travels in the **query
+string**:
+
+```ts
+// GET /api/inquiries/:threadId — src/frontend_runtime.ts
+const token = String(req.query?.t || "").trim();
+```
+
+Fastify's default request serializer logs the full URL, so every read of a buyer
+thread wrote `?t=<access token>` into the log. That token grants read access to a
+private conversation — customer name, masked e-mail, message history.
+
+**Fix.** A request serializer that mirrors Fastify's default but sanitises the
+URL, masking the values of query keys that carry credentials rather than filters
+(`t`, `token`, `access_token`, `auth`, `key`, `api_key`, `admin_key`, `secret`,
+`password`, `code`, `signature`, `sig`).
+
+**Masked, not dropped.** A reader must be able to tell a redaction from an absent
+parameter, and ordinary parameters must survive — redacting everything trades a
+credential leak for an undebuggable log. The suite asserts both directions: the
+credential appears as `t=[redacted]`, while an ordinary `q=` search term and the
+route itself are still present.
+
+**Scope honesty.** This is the narrow fix for the *logging* problem and changes
+no API. Moving the token out of the query string entirely is the deeper fix —
+query strings also reach browser history, `Referer` headers and proxy logs — but
+that is a product/API change, because existing buyer links carry `?t=`. It is
+recorded as an open item rather than done silently here.
+
+**A/B proof.** `tests/forensic_logging_authority_validation.ts` reported
+`credential in query` (plus its URL-encoded and fragment forms) before the
+serializer and passes after.
+
+### V7 — Log lines could not be joined to the audit trail
+
+**Class:** forensic gap. Not exploitable; it is what makes an incident hard to
+reconstruct.
+
+The application already treats `x-request-id` as the canonical correlation id —
+it normalises the header onto the request and writes it into audit rows. Fastify
+was minting its own `reqId` for the log line, so the log entry and the audit row
+for the same request carried **different ids and could not be joined**. Fixed by
+`requestIdHeader: "x-request-id"`, so one id runs through logs, audit rows and
+the caller's own tracing. Pino JSON-encodes the value, so a caller cannot inject
+a forged log line through it.
 
 ---
 
@@ -646,6 +711,116 @@ alone with a race or bypass path, so adding schema is not justified here.
 Migration numbers stay clean: this branch ends at 061 (P0.7), with 062 reserved
 for the Amazon product work and 063 for the R9C payment lifecycle.
 
+## OBSERVABILITY RESULT
+
+`tests/forensic_logging_authority_validation.ts`, 6/6. Two requirements that pull
+in opposite directions, and a test checking only one is worthless:
+
+- **Log too little** and a security event cannot be reconstructed — "no secrets
+  leaked" is trivially true of a silent server.
+- **Log too much** and the log *is* the breach.
+
+So the suite asserts both. Sentinel secrets are pushed through every channel a
+request has — `Authorization`, `Cookie`, `x-admin-key`, request body, query
+string — while the logger's output is captured, and the capture is checked for
+the secrets **and** for the evidence that must be present.
+
+| Probe | Result |
+|---|---|
+| Admin key, bearer token, session cookie, password, body token, card number, query credential in logs | None, including URL-encoded and fragment forms |
+| Raw `Authorization` / `Cookie` / `x-admin-key` / `set-cookie` values logged | None |
+| Ordinary query parameter and route survive redaction | Yes — credential shows as `t=[redacted]`, `q=` term intact |
+| Refusal leaves correlatable evidence (request id, route, 401/403) | Yes, and the rejected credential is not logged |
+| Internal fault carries a correlatable id without request secrets | Yes |
+
+**Capturing the real logger was the only honest way to do this**, and the first
+version of the suite proved why by capturing **0 bytes**: intercepting
+`process.stdout.write` does not work, because Fastify's pino writes through
+sonic-boom straight to the file descriptor. Had the vacuity guard not been there,
+the two "no secrets leaked" assertions would have passed against an empty capture
+and the whole phase would have been a false negative. The suite now swaps the
+logger's own destination stream, so every assertion runs against the real
+serializers and the real formatted line — what an aggregator would actually
+store — rather than against `redact:` configuration read out of the source.
+
+## SECRET / CONFIG RESULT
+
+Largely **pre-existing and already covered**; this audit verified rather than
+rebuilt. `npm run lint` carries the committed-secret scan (`SECRET_SCAN_PASS`),
+and `src/production_guards.ts` fails closed on production configuration —
+placeholder credentials, external storage without complete credentials,
+`PAYMENT_ENVIRONMENT=live` outside production mode, and a real provider name
+without its matching environment. Those are exercised by
+`security_production_guards_validation`, `provider_production_readiness_validation`,
+`payment_authorization_env_guard_validation` and `webhook_secret_policy_validation`.
+
+One addition from this audit: a **raw control-byte gate** in the same scan. A
+stray NUL byte reached a test file while the input-surface suite was being built,
+and git then classified that file as **binary** — no diff, no line-level review,
+no blame, so a source change had effectively landed unreviewable. The scan now
+fails on any raw C0 byte (excluding tab/CR/LF), naming file, line and code point,
+over a deliberately **wider** file list than the checks around it: those are
+scoped to `src`/`frontend`/`scripts` because tests legitimately carry synthetic
+secrets, whereas a control byte is never legitimate anywhere — and `tests/` is
+exactly where this one landed.
+
+**Real external e-mail delivery remains OPEN / PROVIDER REQUIRED** and is not
+claimed otherwise anywhere in this audit. The repository contains one
+notification adapter (`LogNotificationProvider`); real mode cannot boot. No
+e-mail, SMS or provider call was made during any of this work.
+
+## RATE-LIMIT RESULT
+
+`tests/rate_limit_classifier_authority_validation.ts`, 6/6. Numeric limits are
+covered elsewhere; this audits the **classifier**, which those suites cannot see.
+A 20/min limit is worth nothing if the request never reaches the bucket, and
+worth less than nothing if a read lands in the mutation bucket and starves normal
+browsing.
+
+| Probe | Result |
+|---|---|
+| Sensitive mutations (OTP request/verify, support, inquiries, chat post/patch/delete) | All in the mutation bucket |
+| Public reads on the same prefixes (`/public`, `/activity`, `/chat`, HEAD, `/api/support`, `/api/otp/status`) | All in the **read** budget — the P0.7C requirement holds |
+| Trailing slash, query string, lower-case method | Classification unchanged |
+| Near-miss prefixes (`/api/dealsomething`, `/api/otpx`) | Correctly **not** swept in |
+
+### OPEN — join is outside the mutation bucket (pinned, not fixed)
+
+`rewriteUrl` maps the canonical `/api/deals/:id/join` onto the bare
+`/deals/:id/join` **before routing**, and Fastify runs `rewriteUrl` before every
+`onRequest` hook. The limiter therefore sees the rewritten path, which does not
+match the `/api/deals` prefix, so join — and `publish`, `close_joining`,
+`reopen_joining`, `prepare_charging`, `cancel`, plus the `/api/deals` listing —
+are classified `none`. The classifier itself is correct: given the `/api` form it
+returns `sensitive`. It never sees it.
+
+**Not fixed here, deliberately.** Every fix that puts join into the sensitive
+bucket applies a **20/min per-IP** limit to it, and a shared NAT — a school, an
+office, a mobile carrier — is one IP for hundreds of legitimate buyers. A deal
+that goes viral inside one organisation is precisely the case the product wants
+to succeed. Throttling that is a product and identity decision, not a patch, so
+the current behaviour is **pinned by test** instead: the suite asserts today's
+buckets exactly, so a change in either direction fails loudly and gets reviewed.
+
+**Why the gap is survivable today.** Join is not unprotected, it is protected by
+something other than the IP bucket, and the suite asserts each of these still
+exists in the handler: a per-`buyer+deal+idempotency-key` advisory lock, a
+`SELECT … FOR UPDATE` on the deal row, an idempotency record, and the
+`max_units_exceeded` ceiling — the last two proven behaviourally in the Phase 10
+capacity race (14 concurrent joins → exactly 5 accepted). The global 200/min
+per-IP bucket also still applies to every request including join. If any of those
+guards moves, the missing bucket stops being an acceptable trade and the test
+says so.
+
+**Proposed design, for an owner decision.** Limit join by **identity, not by
+address**: a bucket keyed on `(deal_id, buyer_id)` — say 5/min, 20/hour — plus
+the existing per-IP *global* bucket left as-is. That throttles the actual abuse
+shape (one buyer hammering one deal, or rotating idempotency keys against it)
+while a hundred distinct buyers behind one NAT are unaffected, because they are a
+hundred distinct identities. It needs a decision on what counts as buyer identity
+before an OTP is verified, which is why it is written down here rather than
+implemented.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -689,11 +864,11 @@ path.
 | Concurrency / state-machine races | **PASS after fix** — 1 finding (V3); no impossible state, no torn row, no duplicate durable effect |
 | Worker / outbox resilience | **PASS** — pre-existing coverage is strong; 3 liveness gaps added and green |
 | Storage / file boundary | **PASS after fix** — 1 finding (V4); object keys clean, upload validation bounded, cross-seller writes inert |
-| Rate limit / abuse boundary | NOT RUN (Phase 8) |
+| Rate limit / abuse boundary | **PASS with 1 OPEN** — classifier correct; the join alias gap is pinned by test and left for an owner decision |
 | Input / query / error surface | **PASS after fix** — 1 finding (V5); 0 faults across 5,781 probes, no internal detail in any error body |
 | DB authority / invariants | **PASS** — 0 findings; schema backs the bounds and FKs, and the capacity guard holds under real concurrency |
-| Observability / forensic truth | NOT RUN (Phase 11) |
-| Secret / config / fail-closed | Partial — repository secret scan PASS via `npm run lint`; full Phase 12 audit not run |
+| Observability / forensic truth | **PASS after fix** — 2 findings (V6, V7); no secret in any log line, and evidence sufficient to reconstruct a refusal |
+| Secret / config / fail-closed | **PASS** — pre-existing guards verified; control-byte gate added |
 | Soak / chaos | NOT RUN (Phase 13) |
 
 ---
@@ -752,6 +927,8 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `storage_boundary_authority_validation` | 6/6 (draft imagery, object keys, upload validation) |
 | `input_error_surface_authority_validation` | 6/6 (5,781 query probes, 123 GET routes) |
 | `db_invariant_authority_validation` | 8/8 (schema backing + 14-way concurrent join race) |
+| `forensic_logging_authority_validation` | 6/6 (real logger capture, secrets + evidence) |
+| `rate_limit_classifier_authority_validation` | 6/6 (bucket classification + pinned alias gap) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |
