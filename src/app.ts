@@ -3104,34 +3104,69 @@ const SENSITIVE_QUERY_KEYS = new Set([
   "key", "api_key", "admin_key", "secret", "password", "code", "signature", "sig"
 ]);
 
-function redactUrlForLogs(rawUrl: string) {
-  const url = String(rawUrl || "");
-  const split = url.indexOf("?");
-  if (split === -1) return url;
-  const path = url.slice(0, split);
-  const params = url.slice(split + 1).split("&").map((pair) => {
-    const eq = pair.indexOf("=");
-    if (eq === -1) return pair;
-    const key = pair.slice(0, eq);
-    return SENSITIVE_QUERY_KEYS.has(decodeURIComponent(key).toLowerCase())
-      ? `${key}=[redacted]`
-      : pair;
-  });
-  return `${path}?${params.join("&")}`;
+// Percent-decoding can throw on malformed input (`%zz`, a lone `%`, a truncated
+// multi-byte sequence). This function runs inside the log serializer, on every
+// request, before any routing decision - and an exception thrown there escapes
+// the HTTP request handler and takes the process down. The independent review
+// proved it: one anonymous `GET /health?%zz=1` killed the web process.
+//
+// So this function is TOTAL: it never throws, whatever bytes arrive. A key that
+// will not decode is matched on its raw form; a key that decodes is matched on
+// both forms, so `%74=` and `t=` are both recognised as the sensitive `t`.
+function decodeQueryKeyForMatch(key: string): string {
+  if (key.indexOf("%") === -1) return key;
+  try {
+    return decodeURIComponent(key);
+  } catch {
+    return key;
+  }
+}
+
+function isSensitiveQueryKey(rawKey: string): boolean {
+  if (!rawKey) return false;
+  return SENSITIVE_QUERY_KEYS.has(rawKey.toLowerCase()) || SENSITIVE_QUERY_KEYS.has(decodeQueryKeyForMatch(rawKey).toLowerCase());
+}
+
+export function redactUrlForLogs(rawUrl: unknown): string {
+  try {
+    const url = typeof rawUrl === "string" ? rawUrl : String(rawUrl ?? "");
+    const split = url.indexOf("?");
+    if (split === -1) return url;
+    const path = url.slice(0, split);
+    // Everything after '?' is query material. No fragment handling on purpose:
+    // an HTTP client never sends one, so a '#' that arrives on the wire is just
+    // bytes inside a query pair and must be scanned like any other.
+    const params = url.slice(split + 1).split("&").map((pair) => {
+      const eq = pair.indexOf("=");
+      const key = eq === -1 ? pair : pair.slice(0, eq);
+      return isSensitiveQueryKey(key) ? `${key}=[redacted]` : pair;
+    });
+    return `${path}?${params.join("&")}`;
+  } catch {
+    // Unreachable by construction, kept so the serializer can never be the
+    // reason a request fails.
+    return "[unserializable-url]";
+  }
 }
 
 const app = Fastify({
   logger: {
     serializers: {
       // Mirrors Fastify's default request serializer, with the URL sanitized.
+      // Total by construction: a serializer that throws takes the request
+      // handler - and the process - down with it.
       req(request: any) {
-        return {
-          method: request.method,
-          url: redactUrlForLogs(request.url),
-          host: request.host ?? request.headers?.host,
-          remoteAddress: request.ip ?? request.socket?.remoteAddress,
-          remotePort: request.socket?.remotePort
-        };
+        try {
+          return {
+            method: request.method,
+            url: redactUrlForLogs(request.url),
+            host: request.host ?? request.headers?.host,
+            remoteAddress: request.ip ?? request.socket?.remoteAddress,
+            remotePort: request.socket?.remotePort
+          };
+        } catch {
+          return { method: "?", url: "[unserializable-request]" };
+        }
       }
     }
   },
