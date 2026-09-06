@@ -1,0 +1,63 @@
+name: diag-test-groups
+on:
+  push:
+    branches: [claude/ci-security-diagnostic]
+permissions:
+  contents: read
+jobs:
+  diag:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: mkdir -p .ci-artifacts
+      - name: Production demo build (mirror)
+        run: npm run build:demo > .ci-artifacts/build-demo.log 2>&1
+      - name: PWA and native shell contract (mirror)
+        run: npm run mobile:verify > .ci-artifacts/mobile-gate.log 2>&1
+      - name: End-to-end tests (isolated, diagnostic)
+        run: |
+          set +e
+          npm run test:e2e > .ci-artifacts/test-e2e.log 2>&1
+          code=$?
+          set -e
+          node scripts/ci_diag_security_report.cjs .ci-artifacts/test-e2e.log "$code"
+          exit "$code"
+      - name: Upload diagnostic logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: diag-logs
+          path: .ci-artifacts/
+          retention-days: 3
