@@ -236,9 +236,19 @@ const EXPECTED_ANONYMOUS_BY_DESIGN = [
   "/api/seller/session/logout"
 ];
 
+// The ONE anonymous entry point whose signed-out answer is a guard-refusal-
+// shaped body (401 distributor_auth_required with authenticated:false) and so
+// carries the reviewed `state_probe` flag. Pinned here as well as in the policy:
+// marking any other route a state probe means editing two files in one review,
+// exactly as the allowlist itself does. A crafted data route (e.g.
+// /api/seller/deals) cannot ride this - it is not a `/session` state probe.
+const EXPECTED_STATE_PROBES = ["/api/distributor/session"];
+
 await run("the anonymous-by-design allowlist is exactly the reviewed set", async () => {
   const actual = policy.ANONYMOUS_BY_DESIGN.map((entry: any) => entry.path).sort();
   assert.deepEqual(actual, [...EXPECTED_ANONYMOUS_BY_DESIGN].sort(), "the allowlist changed without this gate being updated in the same review");
+  const stateProbes = policy.ANONYMOUS_BY_DESIGN.filter((entry: any) => entry.state_probe === true).map((entry: any) => entry.path).sort();
+  assert.deepEqual(stateProbes, [...EXPECTED_STATE_PROBES].sort(), "the state-probe set changed without this gate being updated in the same review");
 });
 
 await run("every anonymous-by-design entry is real, reasoned, and BEHAVES as an anonymous entry point", async () => {
@@ -262,7 +272,23 @@ await run("every anonymous-by-design entry is real, reasoned, and BEHAVES as an 
     const response = await app.inject(injection as any);
     if (!expect.status.includes(response.statusCode)) problems.push(`${entry.path}: answered ${response.statusCode}, expected ${expect.status.join("/")}`);
     if (!expect.marker.test(response.body || "")) problems.push(`${entry.path}: body does not show the declared anonymous behaviour (${response.body.slice(0, 80)})`);
-    if (policy.isBareGuardRefusal(response.body)) problems.push(`${entry.path}: anonymous answer is a bare guard refusal - this is a guarded route, not an anonymous entry point`);
+    // A guard-refusal-shaped answer disqualifies an allowlist entry - it is a
+    // guarded route, not an anonymous entry point - UNLESS the entry is the
+    // reviewed session state probe. That exception is deliberately hard to
+    // abuse: it needs the explicit `state_probe` flag AND a `/session` path (an
+    // auth-state endpoint name a data route cannot wear without becoming a
+    // different route) AND a body that reports `"authenticated":false` AND
+    // discloses no principal data. A crafted data route (e.g. /api/seller/deals)
+    // fails the path check, so it can never launder a guard refusal through here.
+    if (policy.isBareGuardRefusal(response.body)) {
+      const principal = /"(seller_id|admin_user_id|distributor_id|login_email|email)"\s*:\s*"[^"]+"/;
+      const qualifiesAsStateProbe =
+        entry.state_probe === true &&
+        entry.path.endsWith("/session") &&
+        /"authenticated"\s*:\s*false/.test(response.body || "") &&
+        !principal.test(response.body || "");
+      if (!qualifiesAsStateProbe) problems.push(`${entry.path}: anonymous answer is a guard refusal - this is a guarded route, not an anonymous entry point`);
+    }
   }
   assert.deepEqual(problems, [], "allowlist integrity");
 });

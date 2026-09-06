@@ -102,6 +102,16 @@ const ANONYMOUS_BY_DESIGN = [
   {
     path: "/api/distributor/session",
     reason: "Distributor equivalent of the seller session probe: reports authentication state, returns no distributor data when unauthenticated.",
+    // Unlike the seller session probe (which answers 200 ok:true when signed
+    // out), this endpoint reports the signed-out state as 401
+    // `distributor_auth_required` - a body that is, by shape, a guard refusal.
+    // `state_probe` is the reviewed acknowledgement of that: the gate honours it
+    // ONLY for a route whose path ends in `/session` (the auth-state endpoint
+    // naming a data route cannot wear without becoming a different route) whose
+    // body reports `"authenticated":false` and discloses no principal data. It
+    // is what lets a genuine state probe carry a guard-refusal-shaped body while
+    // a data route (e.g. /api/seller/deals) crafted into this list cannot.
+    state_probe: true,
     probe: { method: "GET" },
     expect: { status: [200, 401], marker: /"authenticated":false/ }
   },
@@ -167,20 +177,28 @@ function classifyRoute(routePath, config) {
 }
 
 /**
- * True when a JSON body is nothing but a guard refusal - the shape every
- * guarded route in the product produces for an anonymous caller. Used by the
- * gate to reject allowlist entries that merely describe a guarded route.
+ * True when a JSON body is a guard refusal - the shape every guarded route in
+ * the product produces for an anonymous caller. Used by the gate to reject
+ * allowlist entries that merely describe a guarded route.
+ *
+ * A body counts as a guard refusal whenever its `error` OR `code` is one of the
+ * canonical GUARD_REFUSAL_ERRORS, REGARDLESS of any additional keys. The earlier
+ * version returned false as soon as the body carried an extra field (e.g. a
+ * seller refusal's `product_code`/`seller_auth`), which let a still-guarded
+ * protected route (/api/seller/deals) be listed as anonymous-by-design with a
+ * crafted marker matching `"authenticated":false`. The extra keys of an auth
+ * refusal ARE part of the refusal, not evidence of an anonymous entry point, so
+ * they must not excuse it. Genuine anonymous entry points do not carry a
+ * guard-refusal error at all (the seller session probe answers ok:true; login
+ * routes answer credential errors; the affiliate recorder answers a validation
+ * error) - the sole exception is the distributor session state probe, which the
+ * gate handles through the `state_probe` allowlist flag, never here.
  */
 function isBareGuardRefusal(body) {
   let parsed;
   try { parsed = JSON.parse(String(body || "")); } catch { return false; }
   if (!parsed || typeof parsed !== "object") return false;
-  const error = String(parsed.error || parsed.code || "");
-  if (!GUARD_REFUSAL_ERRORS.includes(error)) return false;
-  // Any key beyond the refusal itself means the route is telling the caller
-  // something (e.g. the seller/distributor session probes report state).
-  const informative = Object.keys(parsed).filter((key) => !["ok", "error", "code", "message", "permission", "identity_strength"].includes(key));
-  return informative.length === 0;
+  return GUARD_REFUSAL_ERRORS.includes(String(parsed.error || "")) || GUARD_REFUSAL_ERRORS.includes(String(parsed.code || ""));
 }
 
 // An anonymous caller must get an authorization answer, not a fact about server
