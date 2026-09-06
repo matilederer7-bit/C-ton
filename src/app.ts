@@ -716,7 +716,7 @@ async function atomicMultiTransition(args: {
   // committed state (different key → STATE_CONFLICT) and writes nothing.
   // The unique index stays as the backstop: a 23505 under this lock means the
   // outbox really is inconsistent and must still surface as a fault.
-  // Consumers: deal.publish. Payment-lifecycle transitions do not opt in
+  // Consumers: deal.publish, deal.cancel. Payment-lifecycle transitions do not opt in
   // (their lock order is reviewed separately and is out of this change's scope).
   serializeOnEntity?: boolean;
 }): Promise<{ response: any; replay: boolean }> {
@@ -5671,6 +5671,14 @@ app.post("/deals/:id/cancel", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     actionName: "deal.cancel",
     requestId,
     idempotencyKey: idem,
+    // Same race class as deal.publish: the pending cancel_refund outbox row is
+    // covered by the one-pending-per-aggregate-event index, so a cancel that loses
+    // to an in-flight cancel — or a re-cancel under a NEW key while the first
+    // cancel_refund is still pending/processing — used to be decided by 23505
+    // (HTTP 500) instead of by the compare-and-swap (409). Lock order reviewed:
+    // the deal row is taken first, exactly like publish, draft edit and delete.
+    // Proof: tests/cancel_outbox_concurrency_validation.ts.
+    serializeOnEntity: true,
     outbox: { event_type: "cancel_refund", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } }
   });
 });
