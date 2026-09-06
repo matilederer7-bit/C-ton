@@ -987,7 +987,14 @@ async function recordLateMoneyEffectException(args: {
     (captureEffect && !["ChargedSuccess", "RecoveredCharge", "Refunded"].includes(moneyState)) ||
     (args.event.event_type === "refund_issued" && moneyState !== "Refunded");
   if (!contradiction) return;
-  const correlation = args.event.correlation_id || args.target.correlation_id || null;
+  // F-5b (financial torture lab) — the event names the operation it reports; it
+  // may settle an identity of THAT family only (a refund_issued carrying a
+  // capture correlation must never mark the capture identity as executed).
+  const lateEffectFamilyMatches =
+    (args.event.event_type === "charge_captured" && args.target.attempt_type === "charge_start") ||
+    (args.event.event_type === "recovery_captured" && args.target.attempt_type === "recovery") ||
+    (args.event.event_type === "refund_issued" && (args.target.attempt_type === "refund" || args.target.attempt_type === "cancel_refund"));
+  const correlation = lateEffectFamilyMatches ? (args.event.correlation_id || args.target.correlation_id || null) : null;
   if (correlation) {
     await finalizeAttemptResult({
       participant_id: args.target.participant_id,
@@ -1710,16 +1717,100 @@ type PaymentReconcilePayload = {
   reason: string;
 };
 
-async function schedulePaymentReconcile(args: PaymentReconcilePayload) {
-  await withTx(async (c) => {
-    await c.query(
+async function schedulePaymentReconcile(args: PaymentReconcilePayload): Promise<"scheduled" | "already_pending" | "queued_behind"> {
+  return withTx(async (c) => {
+    const inserted = await c.query(
       `INSERT INTO siton.outbox_events (
          event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at
        ) VALUES ('payment_reconcile','participant',$1,$2,'pending',0, now())
        ON CONFLICT DO NOTHING`,
       [args.participant_id, JSON.stringify(args)]
     );
+    if (Number(inserted.rowCount || 0) === 1) return "scheduled" as const;
+    // F-4 (financial torture lab) — the one-pending-per-aggregate-event index
+    // admits ONE live reconcile per participant. A live reconcile for the SAME
+    // identity is fine (idempotent). One for a DIFFERENT identity would have
+    // silently swallowed this request: the identity stayed UNKNOWN with no
+    // reconcile and no case. The maintenance sweeper
+    // (reconcileOrphanedUnknownIdentities) picks such identities up once the
+    // live reconcile is done; until then the hold is visible as a case.
+    const live = await c.query(
+      `SELECT payload->>'correlation_id' AS correlation_id FROM siton.outbox_events
+       WHERE event_type='payment_reconcile' AND aggregate_type='participant' AND aggregate_id=$1
+         AND status IN ('pending','processing') LIMIT 1`,
+      [args.participant_id]
+    );
+    const liveCorrelation = String(live.rows[0]?.correlation_id || "");
+    if (!liveCorrelation || liveCorrelation === args.correlation_id) return "already_pending" as const;
+    return "queued_behind" as const;
+  }).then(async (outcome) => {
+    if (outcome === "queued_behind") {
+      await openPaymentOperationalCase({
+        autoKey: `payment-reconcile-queued-behind:${args.participant_id}:${args.correlation_id}`,
+        subject: `Reconcile for ${args.attempt_type} ${args.correlation_id} is queued behind another reconcile (participant ${args.participant_id})`,
+        description: `A payment_reconcile for participant ${args.participant_id} is already live for a different identity, so the reconcile of ${args.attempt_type} ${args.correlation_id} (${args.reason}) could not be queued yet. The identity stays UNKNOWN (no money operation may repeat it); the worker maintenance sweeper schedules its reconcile as soon as the live one completes. No state was guessed.`,
+        correlationId: args.correlation_id
+      });
+    }
+    return outcome;
   });
+}
+
+/**
+ * F-4 (financial torture lab) — worker maintenance sweeper. Every UNKNOWN money
+ * identity that is not in flight, has no live reconcile and has been quiet for a
+ * few seconds gets its own payment_reconcile (one per participant at a time,
+ * the outbox index serialises the rest). Closes the gap in which a reconcile
+ * request collided with another pending reconcile of the same participant, and
+ * more generally guarantees that no UNKNOWN identity stays unattended.
+ */
+export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3_000): Promise<number> {
+  const orphans = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT pa.participant_id, pa.deal_id, pa.attempt_type, pa.correlation_id,
+              COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS provider_reference
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       LEFT JOIN LATERAL (
+         SELECT payload FROM siton.audit_log
+         WHERE entity_type='participant' AND entity_id=p.participant_id AND action_name='participant.join_authorize'
+         ORDER BY created_at DESC LIMIT 1
+       ) auth ON true
+       WHERE pa.attempt_type IN ('charge_start','recovery','refund','cancel_refund','release')
+         AND pa.result_class='unknown'
+         AND pa.dispatch_state <> 'recorded'
+         AND NOT siton.payment_operation_in_flight(pa.owner_event_uuid, pa.owner_lease_generation)
+         AND pa.updated_at <= clock_timestamp() - ($2::text || ' milliseconds')::interval
+         AND NOT EXISTS (
+           SELECT 1 FROM siton.outbox_events o
+           WHERE o.event_type='payment_reconcile' AND o.aggregate_type='participant' AND o.aggregate_id=pa.participant_id
+             AND o.status IN ('pending','processing')
+         )
+       ORDER BY pa.updated_at ASC
+       LIMIT $1`,
+      [Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(quietMs)))]
+    );
+    return r.rows as Array<{ participant_id: string; deal_id: string; attempt_type: PaymentReconcilePayload["attempt_type"]; correlation_id: string; provider_reference: string }>;
+  });
+  let scheduled = 0;
+  const seen = new Set<string>();
+  for (const row of orphans) {
+    if (seen.has(row.participant_id)) continue; // one live reconcile per participant
+    seen.add(row.participant_id);
+    const operation: PaymentReconcilePayload["operation"] = row.attempt_type === "refund" || row.attempt_type === "cancel_refund" ? "refund" : row.attempt_type === "release" ? "release" : "capture";
+    const outcome = await schedulePaymentReconcile({
+      participant_id: row.participant_id,
+      deal_id: row.deal_id,
+      attempt_type: row.attempt_type,
+      correlation_id: row.correlation_id,
+      operation,
+      provider_reference: row.provider_reference || null,
+      reason: "maintenance_orphaned_unknown_identity"
+    }).catch(() => "already_pending" as const);
+    if (outcome === "scheduled") scheduled += 1;
+  }
+  return scheduled;
 }
 
 async function schedulePaymentRelease(args: { participant_id: string; deal_id: string; reason: string }) {
@@ -2869,11 +2960,20 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
     return "ambiguous";
   }
   if (status.state === "captured") {
+    // The effect belongs to the ORIGINAL capture identity: settle that row, never
+    // the recovery identity this job may have minted.
+    const originalCapture = await withTx(async (c) => {
+      const r = await c.query(
+        `SELECT correlation_id FROM siton.payment_attempts WHERE participant_id=$1 AND deal_id=$2 AND attempt_type='charge_start' ORDER BY created_at DESC LIMIT 1`,
+        [args.participant_id, args.deal_id]
+      );
+      return r.rows[0]?.correlation_id ? String(r.rows[0].correlation_id) : null;
+    });
     await ingestAndProcessPaymentEvent({
       provider: paymentProvider.providerCode,
       event_id: `recovery-preflight:${args.participant_id}:charge_captured`,
       event_type: "charge_captured",
-      correlation_id: null,
+      correlation_id: originalCapture,
       participant_id: args.participant_id,
       deal_id: args.deal_id,
       provider_reference: status.provider_reference || reference,
@@ -3819,6 +3919,8 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
   return processed;
 }
 export async function runWorkerMaintenance() {
+  // F-4 — no UNKNOWN money identity may stay without a live reconcile.
+  await reconcileOrphanedUnknownIdentities().catch(() => 0);
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);

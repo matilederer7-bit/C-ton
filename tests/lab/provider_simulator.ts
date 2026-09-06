@@ -199,6 +199,16 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
     // An honest provider with an asynchronous settlement still in progress
     // reports pending / non-final — it never declares "authorized, final".
     const settling = (pendingEffects.get(auth) || 0) > 0;
+    // Even a flapping / stale provider never CLAIMS money moved when it did not:
+    // a scripted "captured" / "refunded" / "released" without the matching
+    // effect is downgraded to the truthful state (the lie direction that no
+    // reconciler could defend against is deliberately not simulated here).
+    const honest = (state: string): string => {
+      if (state === "captured" && row.capture + row.recover === 0) return truth;
+      if (state === "refunded" && row.refund === 0) return truth;
+      if (state === "released" && row.release === 0) return truth;
+      return state;
+    };
     switch (behavior.kind) {
       case "TRUTH":
         if (settling) return { statusCode: 200, body: JSON.stringify({ ...base, state: "pending", final: false }), behavior: "TRUTH(pending-settlement)" };
@@ -215,7 +225,7 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
       case "FLAP": {
         const i = flapCursor.get(auth) || 0;
         flapCursor.set(auth, i + 1);
-        const state = behavior.states[i % behavior.states.length] as string;
+        const state = honest(behavior.states[i % behavior.states.length] as string);
         return { statusCode: 200, body: JSON.stringify({ ...base, state, final: true }), behavior: `FLAP(${state})` };
       }
     }
