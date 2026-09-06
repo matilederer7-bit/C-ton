@@ -24,7 +24,7 @@ import {
   type AttemptType as PaymentAttemptType,
   type DispatchState as PaymentDispatchState
 } from "./payment_attempt_helpers.js";
-import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult } from "./payment_provider.js";
+import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
@@ -2836,6 +2836,61 @@ async function handleChargeDealEvent(
   return;
 }
 
+// ---------------------------------------------------------------------------
+// F-1 (financial torture lab) — recovery pre-flight.
+//
+// Recovery is a SECOND capture of the same obligation. The identity discipline
+// already refuses it while the original capture is UNKNOWN or SUCCESS, but a
+// capture that was declared failed ONCE (a final negative status, a declared
+// decline) can still turn out executed: provider status APIs flap, settle late,
+// or answer from a stale replica. Immediately before arming a recovery the
+// original authorization is therefore re-read through the status seam:
+//   captured            -> the money already moved: record it as a late money
+//                          effect (operational case, identity converges to
+//                          success), NO recovery
+//   pending / unknown / -> ambiguous: defer the recovery job (bounded outbox
+//   transport failure      retry), NO recovery now
+//   authorized / failed -> not executed: proceed
+// A provider without a status capability cannot be verified and keeps the
+// pre-existing behaviour (documented residual).
+// ---------------------------------------------------------------------------
+async function verifyOriginalCaptureBeforeRecovery(args: {
+  participant_id: string;
+  deal_id: string;
+  authorization_id: string | null;
+  event_id: string;
+}): Promise<"proceed" | "captured" | "ambiguous"> {
+  const reference = String(args.authorization_id || "").trim();
+  if (!paymentProvider.status || !reference) return "proceed";
+  let status: PaymentStatusResult;
+  try {
+    status = await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `recovery-preflight:${args.event_id}:${args.participant_id}` });
+  } catch {
+    return "ambiguous";
+  }
+  if (status.state === "captured") {
+    await ingestAndProcessPaymentEvent({
+      provider: paymentProvider.providerCode,
+      event_id: `recovery-preflight:${args.participant_id}:charge_captured`,
+      event_type: "charge_captured",
+      correlation_id: null,
+      participant_id: args.participant_id,
+      deal_id: args.deal_id,
+      provider_reference: status.provider_reference || reference,
+      payload: { source: "recovery_preflight", worker_event_id: args.event_id, provider_state: status.state, provider_final: status.final }
+    }).catch(() => undefined);
+    await openPaymentOperationalCase({
+      autoKey: `payment-recovery-preflight-captured:${args.participant_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED: original capture already executed for participant ${args.participant_id}`,
+      description: `Immediately before a recovery capture, provider ${paymentProvider.providerCode} reported the original authorization ${reference} as CAPTURED although the capture had been recorded as failed. No recovery was sent. The participant's canonical state is not financial truth until an operator reconciles the money side.`,
+      correlationId: null
+    });
+    return "captured";
+  }
+  if (status.state === "authorized" || status.state === "failed" || status.state === "released") return "proceed";
+  return "ambiguous";
+}
+
 async function handleRecoveryDealEvent(
   event: {
     event_uuid: string;
@@ -2907,6 +2962,7 @@ async function handleRecoveryDealEvent(
     }>;
   });
 
+  let deferAfterLoop = false;
   for (const p of participants) {
     const amountMinor = paymentMinorAmount({
       qty: Number(p.qty || 0),
@@ -2942,6 +2998,11 @@ async function handleRecoveryDealEvent(
       if (resolution !== "reuse") continue;
     }
     const correlation = attempt.correlation_id;
+
+    // F-1 — last look at the original capture before a second capture is armed.
+    const preflight = await verifyOriginalCaptureBeforeRecovery({ participant_id: p.participant_id, deal_id: dealId, authorization_id: p.authorization_id || null, event_id: eventId });
+    if (preflight === "captured") continue;
+    if (preflight === "ambiguous") { deferAfterLoop = true; continue; }
 
     const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
       amount_minor: amountMinor,
@@ -3026,6 +3087,12 @@ async function handleRecoveryDealEvent(
       provider_reference: result.provider_reference || p.authorization_id || null,
       reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
     });
+  }
+
+  if (deferAfterLoop) {
+    // At least one participant's original capture could not be verified: keep
+    // the recovery job alive (bounded outbox retry) instead of guessing.
+    throw new DeferredEventError(`recovery_preflight_ambiguous deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
   }
 
   return;
@@ -3236,6 +3303,62 @@ async function handleFinalizeDealEvent(
   if (!dealRow.completion_window_until) return;
   if (!dealRow.can_finalize) {
     throw new DeferredEventError("finalize_not_ready_yet", new Date(dealRow.completion_window_until));
+  }
+
+  // F-2 (financial torture lab) — a completion decision is only as true as the
+  // money it counts. A participant whose capture-side identity is UNKNOWN
+  // (recorded / dispatching / responded without a provider-declared outcome) may
+  // have been captured: counting it as "not captured" and failing the deal would
+  // leave a charged buyer on a Failed deal that the refund job never sees (it
+  // refunds ChargedSuccess / RecoveredCharge only). While any such identity
+  // exists the finalize defers (bounded outbox retry), makes sure a reconcile
+  // is live for it, and keeps the hold visible as an operational case.
+  const unresolvedCaptures = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT pa.participant_id, pa.attempt_type, pa.correlation_id,
+              COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS provider_reference,
+              EXISTS (
+                SELECT 1 FROM siton.outbox_events o
+                WHERE o.event_type='payment_reconcile' AND o.aggregate_type='participant' AND o.aggregate_id=pa.participant_id
+                  AND o.status IN ('pending','processing')
+              ) AS reconcile_live
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       LEFT JOIN LATERAL (
+         SELECT payload FROM siton.audit_log
+         WHERE entity_type='participant' AND entity_id=p.participant_id AND action_name='participant.join_authorize'
+         ORDER BY created_at DESC LIMIT 1
+       ) auth ON true
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='unknown'
+       ORDER BY pa.created_at ASC`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string; attempt_type: "charge_start" | "recovery"; correlation_id: string; provider_reference: string; reconcile_live: boolean }>;
+  });
+  if (unresolvedCaptures.length > 0) {
+    for (const row of unresolvedCaptures) {
+      if (row.reconcile_live) continue;
+      await schedulePaymentReconcile({
+        participant_id: row.participant_id,
+        deal_id: dealId,
+        attempt_type: row.attempt_type,
+        correlation_id: row.correlation_id,
+        operation: "capture",
+        provider_reference: row.provider_reference || null,
+        reason: "finalize_waiting_for_unresolved_capture"
+      }).catch(() => undefined);
+    }
+    await openPaymentOperationalCase({
+      autoKey: `deal-finalize-waiting-unresolved:${dealId}`,
+      subject: `Deal finalization waiting for ${unresolvedCaptures.length} unresolved capture(s) (deal ${dealId})`,
+      description: `finalize_deal for deal ${dealId} was deferred because ${unresolvedCaptures.length} capture-side identit${unresolvedCaptures.length === 1 ? "y is" : "ies are"} still UNKNOWN (${unresolvedCaptures.map((row) => `${row.attempt_type} ${row.correlation_id}`).join(", ")}). The deal is neither Completed nor Failed until each identity is resolved through reconciliation; a reconcile job is live for every one of them. If this case stays open the provider must be verified manually.`,
+      correlationId: unresolvedCaptures[0]?.correlation_id ?? null
+    });
+    throw new DeferredEventError(
+      `finalize_waiting_for_unresolved_captures deal ${dealId} (${unresolvedCaptures.length})`,
+      new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+    );
   }
 
   const decision = await withTx(async (c) => {
@@ -6326,7 +6449,8 @@ registerFrontendExperience(app, {
   debugSurfacesEnabled: process.env.DEBUG_SURFACES_ENABLED === "1",
   getWorkerRunning: () => false,
   workerStuckTimeoutMs: WORKER_STUCK_TIMEOUT_MS,
-  applyPaymentWebhookClassification
+  applyPaymentWebhookClassification,
+  recordLateMoneyEffectException
 });
 
 export async function startApplication() {
