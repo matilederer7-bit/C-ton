@@ -16,6 +16,8 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import nodePath from "node:path";
 
 process.env.NODE_ENV = "test";
 process.env.PORT = "3122";
@@ -23,6 +25,8 @@ process.env.APP_DEPLOYMENT_MODE = "internal-runtime";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-seller-coverage";
 process.env.ADMIN_API_KEY = "seller-route-coverage-admin-key";
+
+const policy = createRequire(import.meta.url)(nodePath.join(process.cwd(), "scripts", "protected_route_policy.cjs"));
 
 const { app } = await import("../src/app.js");
 await app.ready();
@@ -57,18 +61,13 @@ function enumerateRoutes(printed: string): Array<{ path: string; methods: string
   return routes;
 }
 
-// The session endpoints answer an anonymous caller by design: login is the entry
-// point, logout is idempotent teardown, and GET session is how the browser asks
-// "am I signed in?" - it reports the unauthenticated state instead of failing.
-const ANONYMOUS_BY_DESIGN = new Set([
-  "/api/seller/session",
-  "/api/seller/session/login",
-  "/api/seller/session/logout"
-]);
-
+// The anonymous-by-design exceptions live in ONE reviewed place with a reason
+// each (scripts/protected_route_policy.cjs), shared with the runtime gate and the
+// static inventory. A local copy here is how three lists start disagreeing about
+// which routes are allowed to answer an anonymous caller.
 const sellerRoutes = enumerateRoutes(app.printRoutes({ commonPrefix: false }))
   .filter((route) => route.path.startsWith("/api/seller/"))
-  .filter((route) => !ANONYMOUS_BY_DESIGN.has(route.path));
+  .filter((route) => policy.classifyRoute(route.path) === "protected");
 
 function concreteUrl(path: string) {
   // Fastify prints a node that several routes registered under different parameter

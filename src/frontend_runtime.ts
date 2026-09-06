@@ -9775,15 +9775,6 @@ export function registerFrontendExperience(
   app.post("/api/affiliate/links", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     const body = req.body || {};
-    if (body.affiliate_id !== undefined || body.distributor_id !== undefined || body.tenant_id !== undefined) {
-      return reply.code(400).send({ error: "client_distributor_identity_forbidden" });
-    }
-    const dealId = String(body.deal_id || "").trim();
-    const internalName = String(body.internal_name || "").trim();
-    requireUuid(dealId, "deal_id");
-    if (!internalName || internalName.length > 80) {
-      return reply.code(400).send({ error: "affiliate_link_name_invalid" });
-    }
     const result = await deps.withTx(async (c) => {
       const profile = await resolveDistributorContext(req, c, deps.isDemoPreview);
       if (!profile) {
@@ -9791,6 +9782,17 @@ export function registerFrontendExperience(
           status: distributorAuthConfigured() ? 401 : 503,
           body: { error: distributorAuthConfigured() ? "distributor_auth_required" : "distributor_auth_unavailable" }
         };
+      }
+      // Authorization precedes every observation: an anonymous caller must not be
+      // able to tell a malformed request from a well-formed one on this surface.
+      if (body.affiliate_id !== undefined || body.distributor_id !== undefined || body.tenant_id !== undefined) {
+        return { status: 400, body: { error: "client_distributor_identity_forbidden" } };
+      }
+      const dealId = String(body.deal_id || "").trim();
+      const internalName = String(body.internal_name || "").trim();
+      requireUuid(dealId, "deal_id");
+      if (!internalName || internalName.length > 80) {
+        return { status: 400, body: { error: "affiliate_link_name_invalid" } };
       }
       const deal = await c.query(
         `SELECT deal_id, state FROM siton.deals WHERE deal_id=$1 LIMIT 1`,

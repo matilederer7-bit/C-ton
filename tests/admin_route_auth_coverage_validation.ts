@@ -19,6 +19,8 @@
 
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import path from "node:path";
 
 process.env.NODE_ENV = "test";
 process.env.PORT = "3121";
@@ -27,6 +29,8 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.SELLER_SESSION_SECRET = "seller-session-secret-admin-coverage";
 process.env.ADMIN_API_KEY = "admin-route-coverage-key";
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || "admin-session-secret-admin-coverage";
+
+const policy = createRequire(import.meta.url)(path.join(process.cwd(), "scripts", "protected_route_policy.cjs"));
 
 const { app } = await import("../src/app.js");
 await app.ready();
@@ -67,22 +71,13 @@ function enumerateRoutes(printed: string): Array<{ path: string; methods: string
   return routes;
 }
 
-// Two entry points answer an anonymous caller by design and are covered by the
-// admin auth suite instead: the login endpoint (it cannot require the session it
-// issues) and logout (idempotent session teardown - clearing a cookie that is not
-// there is a success, and the response carries no admin data).
-const ANONYMOUS_BY_DESIGN = new Set([
-  "/api/admin/auth/login",
-  "/api/admin/auth/logout",
-  // Second factor of the login flow: the caller holds a challenge id issued by
-  // login, never an admin session, so it cannot require one. Unknown or expired
-  // challenges answer 401 - it never reveals whether a challenge id exists.
-  "/api/admin/auth/mfa/verify"
-]);
-
+// The anonymous-by-design exceptions live in ONE reviewed place with a reason
+// each (scripts/protected_route_policy.cjs), shared with the runtime gate and the
+// static inventory. A local copy here is how three lists start disagreeing about
+// which routes are allowed to answer an anonymous caller.
 const adminRoutes = enumerateRoutes(app.printRoutes({ commonPrefix: false }))
   .filter((route) => route.path.startsWith("/api/admin/"))
-  .filter((route) => !ANONYMOUS_BY_DESIGN.has(route.path));
+  .filter((route) => policy.classifyRoute(route.path) === "protected");
 
 function concreteUrl(path: string) {
   // Fastify prints a node that several routes registered under different parameter

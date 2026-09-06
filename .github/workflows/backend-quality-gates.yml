@@ -113,6 +113,13 @@ jobs:
         run: npm run test:workers 2>&1 | tee .ci-artifacts/test-workers.log
       - name: Payment tests
         run: npm run test:payments 2>&1 | tee .ci-artifacts/test-payments.log
+      # UNGUARDED_PROTECTED_ROUTES = 0. Static half of the invariant: every route
+      # in a protected namespace must show a guard helper in the code that actually
+      # runs. The behavioural half (anonymous probes against the live router) is
+      # tests/protected_route_authorization_gate.ts inside the security suite below.
+      - name: Protected route authorization gate
+        run: npm run ci:route-authorization 2>&1 | tee .ci-artifacts/route-authorization-gate.log
+
       - name: Security tests
         run: npm run test:security 2>&1 | tee .ci-artifacts/test-security.log
       - name: Concurrency tests
