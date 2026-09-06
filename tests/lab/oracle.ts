@@ -28,7 +28,14 @@ export type OracleVatPolicy = { product_rate: number; delivery_rate: number; pla
 export type OracleOptions = {
   label: string;
   dealIds: string[];
-  provider: ProviderLedgerSnapshot;
+  /**
+   * Provider ledger, or a function producing it. A FUNCTION is read AFTER the
+   * database rows: effects only ever grow, so a canonical success observed in
+   * the database is then always compared against a ledger that already
+   * contains its effect (a snapshot taken before the reads would report a
+   * capture that settled during the reads as "success without effect").
+   */
+  provider: ProviderLedgerSnapshot | (() => ProviderLedgerSnapshot);
   vat: OracleVatPolicy;
   /** true while a scenario is still expected to hold UNKNOWN rows with a case/reconcile pending */
   allowUnresolved?: boolean;
@@ -196,6 +203,8 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
      WHERE auto_key IS NOT NULL AND (${participantIds.map((_, i) => `auto_key LIKE '%' || $${i + 1} || '%'`).join(" OR ")})`,
     participantIds
   )).rows as Array<{ auto_key: string; subject: string; status: string }> : [];
+  // Provider truth is read AFTER every database row (see OracleOptions.provider).
+  const providerLedger: ProviderLedgerSnapshot = typeof options.provider === "function" ? options.provider() : options.provider;
 
   const counts: OracleReport["counts"] = {
     capture_effects: 0, recovery_effects: 0, refund_effects: 0, release_effects: 0,
@@ -229,7 +238,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
   for (const p of participants) {
     const pid = p.participant_id;
     const auth = p.authorization;
-    const eff: EffectCounters = (auth && options.provider.effects[auth]) || { capture: 0, recover: 0, refund: 0, release: 0, capture_amount_minor: 0, recover_amount_minor: 0, refund_amount_minor: 0 };
+    const eff: EffectCounters = (auth && providerLedger.effects[auth]) || { capture: 0, recover: 0, refund: 0, release: 0, capture_amount_minor: 0, recover_amount_minor: 0, refund_amount_minor: 0 };
     const attempts = attemptsAll.filter((a) => a.participant_id === pid);
     const ledger = ledgerAll.filter((l) => l.participant_id === pid);
     const audits = auditAll.filter((a) => a.participant_id === pid);
@@ -260,9 +269,14 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     if (canonicalCaptured && captured === 0) v("FALSE_CANONICAL_SUCCESS", pid, `money_state=${ms} but provider capture effects = 0 on ${auth}`);
     if (ms === "Refunded" && eff.refund === 0) v("FALSE_CANONICAL_REFUND", pid, `money_state=Refunded but provider refund effects = 0`);
     if (ms === "AuthReleased" && eff.release === 0 && captured === 0) {
-      // AuthReleased without a provider release: legal only for an expired /
-      // never-held authorization; in this lab every participant holds one.
-      v("FALSE_CANONICAL_RELEASE", pid, `money_state=AuthReleased but provider release effects = 0`);
+      // AuthReleased without a provider release. The canonical recovery_failed
+      // transition (ChargeFailedRecovery → AuthReleased, action
+      // charging.recovery_failed) sets it WITHOUT a provider release request —
+      // reported under its own code (F-6, semantics decision for the owner);
+      // any other path to AuthReleased without a release effect is a false release.
+      const releasedByRecoveryFailure = audits.some((a) => a.state_type === "money_state" && a.to_state === "AuthReleased" && a.action_name === "charging.recovery_failed");
+      if (releasedByRecoveryFailure) v("CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF", pid, `recovery_failed set AuthReleased without a provider release request (hold left to the provider's expiry)`);
+      else v("FALSE_CANONICAL_RELEASE", pid, `money_state=AuthReleased but provider release effects = 0`);
     }
     if (ms === "ChargedSuccess" && p.buyer_state !== "ChargedSuccess" && p.buyer_state !== "DealCompleted" && p.buyer_state !== "DealFailed") v("BUYER_STATE_INCONSISTENT", pid, `money=${ms} buyer=${p.buyer_state}`);
     if (ms === "RecoveredCharge" && !["Recovered", "DealCompleted", "DealFailed"].includes(p.buyer_state)) v("BUYER_STATE_INCONSISTENT", pid, `money=${ms} buyer=${p.buyer_state}`);
@@ -314,7 +328,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     // idempotency key for the same operation is legal only after the previous
     // identity is provider-declared failed (permanent_fail) — never while UNKNOWN.
     for (const op of ["capture", "recover", "refund", "release"] as const) {
-      const keys = auth ? [...new Set(options.provider.requests.filter((r) => r.authorization === auth && r.op === op && !r.replayed).map((r) => r.idempotency_key))] : [];
+      const keys = auth ? [...new Set(providerLedger.requests.filter((r) => r.authorization === auth && r.op === op && !r.replayed).map((r) => r.idempotency_key))] : [];
       if (op === "capture") counts.distinct_capture_keys += keys.length;
       for (let i = 1; i < keys.length; i += 1) {
         const previous = attempts.find((a) => a.correlation_id === keys[i - 1]);
@@ -394,7 +408,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
   // for nobody is a lost effect by definition (unless the scenario planted it).
   // The provider ledger is process-wide, so ownership is checked against EVERY
   // participant in the database, not only the deals under audit.
-  const ledgerAuths = Object.keys(options.provider.effects).filter((auth) => { const r = options.provider.effects[auth]!; return r.capture + r.recover + r.refund + r.release > 0; });
+  const ledgerAuths = Object.keys(providerLedger.effects).filter((auth) => { const r = providerLedger.effects[auth]!; return r.capture + r.recover + r.refund + r.release > 0; });
   if (ledgerAuths.length) {
     const owned = new Set<string>();
     const bindingRows = (await pool.query(
@@ -411,7 +425,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     for (const row of auditRows) owned.add(canonicalAuthorization(row.authorization)!);
     for (const auth of ledgerAuths) {
       if (owned.has(auth) || lateEffects.has(auth)) continue;
-      v("EFFECT_ON_UNKNOWN_AUTHORIZATION", null, `${auth}: ${JSON.stringify(options.provider.effects[auth])}`);
+      v("EFFECT_ON_UNKNOWN_AUTHORIZATION", null, `${auth}: ${JSON.stringify(providerLedger.effects[auth])}`);
     }
   }
 

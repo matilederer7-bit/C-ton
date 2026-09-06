@@ -224,6 +224,8 @@ export async function bootLab(options: LabOptions) {
     while (stats.rounds < maxRounds) {
       stats.rounds += 1;
       stats.reclaimed += Number((await reclaimWorkerJobs(0))?.outbox ?? (await Promise.resolve(0))) || 0;
+      // worker maintenance parity: orphaned UNKNOWN identities get their reconcile (F-4)
+      if (typeof appModule.reconcileOrphanedUnknownIdentities === "function") await appModule.reconcileOrphanedUnknownIdentities(50, 0).catch(() => 0);
       const due = (await scopedEvents(opts.dealIds, participantIds, `status='pending' AND available_at <= clock_timestamp()`, opts.types)).filter((e) => !(opts.skip && opts.skip(e)));
       if (due.length === 0) {
         const deferred = await scopedEvents(opts.dealIds, participantIds, `status='pending' AND available_at > clock_timestamp()`, opts.types);
@@ -316,7 +318,7 @@ export async function bootLab(options: LabOptions) {
   const seededFromScenario = new Set<string>(); // participants whose captured state was SEEDED (no capture ran in-scenario)
   async function oracle(label: string, dealIds: string[], opts: { allowUnresolved?: boolean; expectLateEffects?: string[]; allowedCodes?: string[]; print?: boolean; seededStates?: boolean } = {}): Promise<OracleReport> {
     const report = await auditFinancialTruth(pool, {
-      label, dealIds, provider: sim.snapshot(), vat, participantAuthorizations: seededAuthorizations, seededStates: opts.seededStates ?? true,
+      label, dealIds, provider: () => sim.snapshot(), vat, participantAuthorizations: seededAuthorizations, seededStates: opts.seededStates ?? true,
       ...(opts.allowUnresolved !== undefined ? { allowUnresolved: opts.allowUnresolved } : {}),
       ...(opts.expectLateEffects ? { expectLateEffects: opts.expectLateEffects } : {})
     });

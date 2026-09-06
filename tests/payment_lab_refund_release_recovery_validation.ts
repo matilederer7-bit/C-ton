@@ -123,21 +123,21 @@ await run("refund vs reconcile: a reconcile arriving while the refund is in flig
   await lab.oracle("refund:vs-reconcile", [d.deal_id]);
 });
 
-await run("refund with provider status unavailable forever: UNKNOWN stays UNKNOWN, no second refund, DLQ + case; a later truthful status converges", async () => {
+await run("refund with provider status unavailable forever: UNKNOWN stays UNKNOWN (never a verdict), no second refund, DLQ + case, the sweeper keeps re-queuing; a later truthful status converges", async () => {
   const { d, p } = await seedCharged();
   lab.sim.script(p.authorization, "refund", [{ kind: "EFFECT_THEN_503" }]);
-  lab.sim.scriptStatus(p.authorization, Array.from({ length: 10 }, () => ({ kind: "HTTP_500" as const })));
+  lab.sim.scriptStatus(p.authorization, Array.from({ length: 200 }, () => ({ kind: "HTTP_500" as const })));
   await lab.enqueueRefund(d.deal_id);
-  await lab.drain({ dealIds: [d.deal_id], maxRounds: 30 });
-  assert.equal((await lab.attempts(p.participant_id, "refund"))[0]!.result_class, "unknown");
+  const stats = await lab.drain({ dealIds: [d.deal_id], maxRounds: 14 });
+  assert.equal((await lab.attempts(p.participant_id, "refund"))[0]!.result_class, "unknown", "ambiguity must not decay into a verdict");
   assert.equal((await lab.participant(p.participant_id)).money_state, "ChargedSuccess");
-  assert.equal(lab.sim.effectsOf(p.authorization).refund, 1);
+  assert.equal(lab.sim.effectsOf(p.authorization).refund, 1, "no second refund while the first is unresolved");
+  assert.equal(lab.sim.requestsOf(p.authorization, "refund").length, 1);
+  assert.ok(stats.results.filter((r) => r.event_type === "payment_reconcile").every((r) => r.status !== "sent"));
   assert.ok((await lab.cases(p.participant_id)).some((c) => c.auto_key.startsWith("payment-reconcile-unresolved")));
   await lab.oracle("refund:status-unavailable", [d.deal_id], { allowUnresolved: true });
-  assert.equal((await lab.dlqRows(p.participant_id, "payment_reconcile")).length, 1, "the exhausted reconcile is archived in the DLQ");
+  assert.ok((await lab.dlqRows(p.participant_id, "payment_reconcile")).length >= 1, "each exhausted reconcile is archived in the DLQ");
   lab.sim.clearStatusScript(p.authorization);
-  const refundRow = (await lab.attempts(p.participant_id, "refund"))[0]!;
-  await lab.enqueueReconcile({ participant_id: p.participant_id, deal_id: d.deal_id, attempt_type: "refund", correlation_id: refundRow.correlation_id, operation: "refund", provider_reference: p.authorization, reason: "manual-requeue" });
   await lab.drain({ dealIds: [d.deal_id] });
   assert.equal((await lab.participant(p.participant_id)).money_state, "Refunded");
   assert.equal(lab.sim.effectsOf(p.authorization).refund, 1);

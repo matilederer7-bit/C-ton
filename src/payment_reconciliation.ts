@@ -39,7 +39,16 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
         return attempt.rows[0] || null;
       });
 
-      if (fromAttempt) {
+      // F-5b — a correlation that resolves to an identity of ANOTHER operation
+      // family than the event reports is not this event's target (fall through
+      // to participant-level resolution; the event type decides the family).
+      const correlationFamilyMatches = (eventType: string, attemptType: string) => {
+        if (eventType === "charge_captured" || eventType === "charge_failed") return attemptType === "charge_start";
+        if (eventType === "recovery_captured" || eventType === "recovery_failed") return attemptType === "recovery";
+        if (eventType === "refund_issued") return attemptType === "refund" || attemptType === "cancel_refund";
+        return true;
+      };
+      if (fromAttempt && correlationFamilyMatches(String(event.event_type || ""), String(fromAttempt.attempt_type))) {
         return fromAttempt as ReconciliationTarget;
       }
     }
@@ -57,27 +66,38 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
       if (!participant.rowCount) return null;
 
       const row = participant.rows[0];
-      const inferredAttemptType =
+      // F-5 (financial torture lab) — the event type names the operation it
+      // reports; inferring the operation from the participant's CURRENT state
+      // attached a late charge_captured of a ChargeFailedRecovery participant to
+      // its freshly minted recovery identity. State inference stays only as the
+      // fallback for events that do not name a money operation.
+      const attemptTypeFromEventType = (eventType: string): ReconciliationTarget["attempt_type"] | null => {
+        if (eventType === "charge_captured" || eventType === "charge_failed") return "charge_start";
+        if (eventType === "recovery_captured" || eventType === "recovery_failed") return "recovery";
+        if (eventType === "refund_issued") return "refund";
+        return null;
+      };
+      const inferredAttemptType = attemptTypeFromEventType(String(event.event_type || "")) ?? (
         String(row.money_state) === "ChargedSuccess" || String(row.money_state) === "RecoveredCharge" || String(row.money_state) === "Refunded"
           ? "refund"
           :
         String(row.buyer_state) === "ChargeFailedCompletion" || String(row.money_state) === "ChargeFailedRecovery"
           ? "recovery"
-          : "charge_start";
+          : "charge_start");
       const latestAttempt = await c.query(
-        `SELECT correlation_id
+        `SELECT correlation_id, attempt_type
          FROM siton.payment_attempts
          WHERE participant_id=$1
            AND deal_id=$2
-           AND attempt_type=$3
+           AND attempt_type = ANY($3::text[])
          ORDER BY created_at DESC
          LIMIT 1`,
-        [row.participant_id, row.deal_id, inferredAttemptType]
+        [row.participant_id, row.deal_id, inferredAttemptType === "refund" ? ["refund", "cancel_refund"] : [inferredAttemptType]]
       );
       return {
         participant_id: row.participant_id,
         deal_id: row.deal_id,
-        attempt_type: inferredAttemptType,
+        attempt_type: (latestAttempt.rows[0]?.attempt_type as ReconciliationTarget["attempt_type"] | undefined) ?? inferredAttemptType,
         correlation_id: event.correlation_id ?? latestAttempt.rows[0]?.correlation_id ?? null,
         buyer_state: row.buyer_state,
         money_state: row.money_state

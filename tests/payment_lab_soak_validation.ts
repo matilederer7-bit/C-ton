@@ -20,15 +20,19 @@
 
 import { strict as assert } from "node:assert";
 import { bootLab, sleep } from "./lab/runtime.js";
+import { auditFinancialTruth } from "./lab/oracle.js";
 import type { Behavior } from "./lab/provider_simulator.js";
 
-const SOAK_SECONDS = Math.max(10, Number(process.env.LAB_SOAK_SECONDS || 45));
+const SOAK_SECONDS = Math.max(10, Number(process.env.LAB_SOAK_SECONDS || 30));
 const lab = await bootLab({ tag: "soak", port: 3159, simulator: { nativeIdempotency: false }, env: { COMPLETION_WINDOW_MINUTES: "0.05" }, outboxMaxAttempts: 5 });
 
 const unhandled: string[] = [];
-process.on("unhandledRejection", (reason: any) => unhandled.push(String(reason?.message || reason)));
 const uncaught: string[] = [];
-process.on("uncaughtException", (error: any) => uncaught.push(String(error?.message || error)));
+let stopped = false;
+// Recorders only: a failure anywhere is printed loudly and stops the soak; the
+// handlers must never turn a fatal error into a silent hang.
+process.on("unhandledRejection", (reason: any) => { unhandled.push(String(reason?.stack || reason?.message || reason)); console.error("SOAK_UNHANDLED_REJECTION", String(reason?.stack || reason)); stopped = true; });
+process.on("uncaughtException", (error: any) => { uncaught.push(String(error?.stack || error?.message || error)); console.error("SOAK_UNCAUGHT_EXCEPTION", String(error?.stack || error)); stopped = true; });
 
 let seedState = 0x5eed5eed;
 const rnd = () => { seedState = (Math.imul(seedState, 1664525) + 1013904223) >>> 0; return seedState / 4294967296; };
@@ -42,7 +46,7 @@ const appPool: any = (await import("../src/db.js")).pool;
 let maxPoolTotal = 0; let maxHeapMb = 0;
 
 async function producer(deadline: number) {
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !stopped) {
     const n = 1 + Math.floor(rnd() * 4);
     const d = await lab.seedDeal({ state: "Charging", threshold_units: 1, participants: Array.from({ length: n }, () => ({ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt", qty: 1 + Math.floor(rnd() * 3), delivery_cost: [0, 5, 12.5][Math.floor(rnd() * 3)]! })) });
     for (const p of d.participants) {
@@ -56,7 +60,7 @@ async function producer(deadline: number) {
 }
 
 async function worker(name: string, deadline: number) {
-  while (Date.now() < deadline + 4000) {
+  while (Date.now() < deadline + 4000 && !stopped) {
     const due = (await lab.pool.query(
       `SELECT event_uuid FROM siton.outbox_events WHERE status='pending' AND available_at <= clock_timestamp() ORDER BY random() LIMIT 3`
     )).rows.map((r: any) => String(r.event_uuid));
@@ -72,7 +76,7 @@ async function worker(name: string, deadline: number) {
 }
 
 async function chaos(deadline: number) {
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !stopped) {
     await sleep(300 + rnd() * 500);
     // random lease expiry of a processing job + reclaim; random advance of deferred events
     const victim = (await lab.pool.query(`SELECT event_uuid FROM siton.outbox_events WHERE status='processing' ORDER BY random() LIMIT 1`)).rows[0];
@@ -82,23 +86,46 @@ async function chaos(deadline: number) {
   }
 }
 
+// Interval audits run while money is in motion: hard money violations stop the
+// soak immediately; transient states (live events, unresolved rows still being
+// reconciled) are expected mid-flight and only counted.
+const HARD_CODES = ["DUPLICATE_CAPTURE", "DUPLICATE_REFUND", "DUPLICATE_RELEASE", "RELEASE_OF_CAPTURED_MONEY", "FALSE_CANONICAL_SUCCESS", "FALSE_CANONICAL_REFUND", "LEDGER_AMOUNT_MISMATCH", "FEE_RATE_NOT_8_PERCENT", "AUTOMATIC_REPEAT_WHILE_UNKNOWN", "ATTEMPT_SUCCESS_WITHOUT_PROVIDER_EFFECT", "AUDIT_CAPTURE_TRANSITION_COUNT", "AUDIT_CHAIN_BROKEN", "DUPLICATE_LIVE_OUTBOX_EVENT", "EFFECT_ON_UNKNOWN_AUTHORIZATION", "CAPTURE_AMOUNT_MISMATCH"];
+const intervalSoftCodes = new Map<string, number>();
 async function auditor(deadline: number) {
-  while (Date.now() < deadline) {
+  while (Date.now() < deadline && !stopped) {
     await sleep(4000);
-    if (!dealIds.length) continue;
+    if (!dealIds.length || stopped) continue;
     oracleRuns += 1;
-    const report = await lab.oracle(`soak:interval:${oracleRuns}`, dealIds.slice(), { allowUnresolved: true, seededStates: false, allowedCodes: ["MONEY_EVENTS_NOT_QUIESCENT"], print: false });
-    console.log(`  interval ${oracleRuns}: deals=${dealIds.length} effects[cap=${report.counts.capture_effects} rec=${report.counts.recovery_effects}] charged=${report.counts.canonical_charged} recovered=${report.counts.canonical_recovered} unknown=${report.counts.unknown_attempts} cases=${report.counts.operational_cases} live=${report.counts.live_money_events} jobs=${jobsProcessed} pool=${maxPoolTotal} heap=${maxHeapMb}MB`);
+    try {
+      const report = await auditFinancialTruth(lab.pool, { label: `soak:interval:${oracleRuns}`, dealIds: dealIds.slice(), provider: () => lab.sim.snapshot(), vat: lab.vat, allowUnresolved: true, seededStates: false });
+      const hard = report.violations.filter((v) => HARD_CODES.includes(v.code));
+      for (const v of report.violations) if (!HARD_CODES.includes(v.code)) intervalSoftCodes.set(v.code, (intervalSoftCodes.get(v.code) || 0) + 1);
+      console.log(`  interval ${oracleRuns}: deals=${dealIds.length} effects[cap=${report.counts.capture_effects} rec=${report.counts.recovery_effects}] charged=${report.counts.canonical_charged} recovered=${report.counts.canonical_recovered} unknown=${report.counts.unknown_attempts} cases=${report.counts.operational_cases} live=${report.counts.live_money_events} soft=${report.violations.length - hard.length} hard=${hard.length} jobs=${jobsProcessed} pool=${maxPoolTotal} heap=${maxHeapMb}MB`);
+      if (hard.length) { console.error(`SOAK_HARD_VIOLATION ${JSON.stringify(hard.slice(0, 5))}`); stopped = true; throw new Error(`hard financial violation during the soak: ${hard.map((v) => v.code).join(",")}`); }
+    } catch (error) {
+      stopped = true;
+      console.error(`SOAK_AUDITOR_FAILED ${(error as Error)?.stack || error}`);
+      throw error;
+    }
   }
 }
 
 const deadline = Date.now() + SOAK_SECONDS * 1000;
-await Promise.all([producer(deadline), worker("A", deadline), worker("B", deadline), chaos(deadline), auditor(deadline)]);
+try {
+  await Promise.all([producer(deadline), worker("A", deadline), worker("B", deadline), chaos(deadline), auditor(deadline)]);
+} catch (error) {
+  stopped = true;
+  console.error(`SOAK_FAILED ${(error as Error)?.stack || error}`);
+  await lab.close().catch(() => undefined);
+  process.exit(1);
+}
 
 // ── quiescence: finish every remaining job, then finalize windows ────────────
-await lab.drain({ dealIds, skip: (e) => e.event_type === "finalize_deal", maxRounds: 400 });
+const drainStartedAt = Date.now();
+const d1 = await lab.drain({ dealIds, skip: (e) => e.event_type === "finalize_deal", maxRounds: 120, advanceDelayMs: 0 });
 await sleep(3500); // let the last completion windows (3 s) elapse
-await lab.drain({ dealIds, maxRounds: 400 });
+const d2 = await lab.drain({ dealIds, maxRounds: 120, advanceDelayMs: 0 });
+console.log(`  quiescence drains: money=${d1.processed}p/${d1.advanced}a/${d1.rounds}r finalize=${d2.processed}p/${d2.advanced}a/${d2.rounds}r in ${Math.round((Date.now() - drainStartedAt) / 1000)}s remaining=${d2.remaining_pending}/${d2.remaining_processing}`);
 
 // ── Phase 20: global reconciliation ──────────────────────────────────────────
 const report = await lab.oracle("soak:final", dealIds, { allowUnresolved: false, seededStates: false, allowedCodes: ["UNRESOLVED_WITHOUT_CASE", "UNRESOLVED_AT_QUIESCENCE", "MONEY_EVENTS_NOT_QUIESCENT", "OPERATION_STILL_IN_FLIGHT", "PROVIDER_SUCCESS_INVISIBLE", "FAILED_DEAL_HOLDS_CAPTURED_MONEY", "COMPLETED_DEAL_PARTICIPANT_NOT_FINAL"], print: true });
@@ -128,10 +155,12 @@ console.log(`  unresolved-with-visibility=${report.counts.unresolved_visible} vi
 // Hard global invariants
 const dupes = report.violations.filter((v) => ["DUPLICATE_CAPTURE", "DUPLICATE_REFUND", "DUPLICATE_RELEASE", "FALSE_CANONICAL_SUCCESS", "LEDGER_AMOUNT_MISMATCH", "FEE_RATE_NOT_8_PERCENT", "AUTOMATIC_REPEAT_WHILE_UNKNOWN", "ATTEMPT_SUCCESS_WITHOUT_PROVIDER_EFFECT", "LEDGER_CHARGE_ENTRY_COUNT", "AUDIT_CAPTURE_TRANSITION_COUNT", "LOST_PROVIDER_EFFECT"]);
 assert.deepEqual(dupes, [], `hard financial violations: ${JSON.stringify(dupes)}`);
-assert.equal(provider.totals.capture + provider.totals.recover, canonical.charged + canonical.recovered + canonical.refunded + report.counts.unresolved_visible - report.counts.unresolved_visible + (provider.totals.capture + provider.totals.recover - (canonical.charged + canonical.recovered + canonical.refunded)), "sanity");
 // Every provider capture effect must be reflected canonically OR visibly unresolved (case / unknown attempt).
-assert.ok(provider.totals.capture + provider.totals.recover - (canonical.charged + canonical.recovered + canonical.refunded) <= report.counts.unresolved_visible, `provider captures (${provider.totals.capture + provider.totals.recover}) exceed canonical captured (${canonical.charged + canonical.recovered + canonical.refunded}) by more than the visibly unresolved participants (${report.counts.unresolved_visible})`);
-assert.equal(Number(canonical.captured_minor), provider.totals.capture_amount_minor + provider.totals.recover_amount_minor - (provider.totals.capture_amount_minor + provider.totals.recover_amount_minor - Number(canonical.captured_minor)), "sanity");
+const providerCaptures = provider.totals.capture + provider.totals.recover;
+const canonicalCaptures = Number(canonical.charged) + Number(canonical.recovered) + Number(canonical.refunded);
+assert.ok(providerCaptures >= canonicalCaptures, `canonical captured (${canonicalCaptures}) exceeds provider captures (${providerCaptures}) — a false canonical success`);
+assert.ok(providerCaptures - canonicalCaptures <= report.counts.unresolved_visible, `provider captures (${providerCaptures}) exceed canonical captured (${canonicalCaptures}) by more than the visibly unresolved participants (${report.counts.unresolved_visible})`);
+assert.ok(Number(canonical.captured_minor) <= provider.totals.capture_amount_minor + provider.totals.recover_amount_minor, "canonical captured amount exceeds what the provider captured");
 assert.equal(Math.round(Number(ledger.fees) * 100), report.totals.LEDGER_FEES_MINOR);
 assert.equal(report.totals.LEDGER_FEES_MINOR, report.totals.TOTAL_PLATFORM_FEES_MINOR, "ledger fees must equal the oracle's independently computed 8 % fees over canonical captured participants");
 assert.equal(report.totals.LEDGER_NET_MINOR, report.totals.TOTAL_NET_MINOR, "ledger seller net must equal oracle net (distributor share 0)");

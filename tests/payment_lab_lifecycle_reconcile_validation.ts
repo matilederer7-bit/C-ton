@@ -200,28 +200,30 @@ await run("DB guards: terminal truth never downgrades; identity rotation, recove
 
 // ── Phase 10: reconciliation torture ─────────────────────────────────────────
 
-await run("reconcile: UNKNOWN never silently becomes DEFINITELY_FAILED — provider status unknown forever exhausts into DLQ + operational case; the row stays unknown; no new identity; no recovery", async () => {
+await run("reconcile: UNKNOWN never silently becomes DEFINITELY_FAILED — provider status unknown forever exhausts each reconcile into DLQ + operational case; the row stays unknown (never permanent_fail); the sweeper keeps re-queuing; no new identity; no recovery", async () => {
   const d = await lab.seedDeal({ state: "Charging", participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }] });
   const p = d.participants[0]!;
   lab.sim.script(p.authorization, "capture", [{ kind: "EFFECT_THEN_503" }]);
-  lab.sim.scriptStatus(p.authorization, Array.from({ length: 12 }, () => ({ kind: "UNKNOWN" as const })));
+  // more ambiguous answers than the bounded drain below can consume
+  lab.sim.scriptStatus(p.authorization, Array.from({ length: 200 }, () => ({ kind: "UNKNOWN" as const })));
   await lab.enqueueCharge(d.deal_id);
-  const stats = await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 30 });
+  const stats = await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 14 });
   const rows = await lab.attempts(p.participant_id, "charge_start");
   assert.equal(rows.length, 1); assert.equal(rows[0]!.result_class, "unknown", "ambiguity must not decay into a failure verdict");
   assert.equal((await lab.participant(p.participant_id)).money_state, "ChargeAttempt");
   const reconciles = stats.results.filter((r) => r.event_type === "payment_reconcile");
-  assert.ok(reconciles.length >= 3, `bounded retries expected: ${JSON.stringify(reconciles)}`);
+  assert.ok(reconciles.length >= 4, `bounded retries expected: ${JSON.stringify(reconciles)}`);
+  assert.ok(reconciles.every((r) => r.status !== "sent"), "no reconcile may report success on ambiguous evidence");
   const cases = await lab.cases(p.participant_id);
   assert.ok(cases.some((c) => c.auto_key.startsWith("payment-reconcile-unresolved:")), `manual case expected: ${JSON.stringify(cases)}`);
   const dlq = await lab.dlqRows(p.participant_id, "payment_reconcile");
-  assert.equal(dlq.length, 1, `the reconcile must be visible in the DLQ: ${JSON.stringify(dlq)}`);
+  assert.ok(dlq.length >= 1, `each exhausted reconcile must be visible in the DLQ: ${JSON.stringify(dlq)}`);
   assert.equal(lab.sim.effectsOf(p.authorization).capture + lab.sim.effectsOf(p.authorization).recover, 1);
   assert.equal(lab.sim.distinctKeys(p.authorization, "capture").length, 1);
+  assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0, "no recovery while the capture is unresolved");
   await lab.oracle("reconcile:unknown-forever", [d.deal_id], { allowUnresolved: true });
-  // Operator repair: the provider becomes reachable and truthful; a manual requeue (a fresh reconcile job for the SAME identity) converges the row.
+  // The provider becomes truthful: the maintenance sweeper's next reconcile converges the SAME identity (no manual requeue needed).
   lab.sim.clearStatusScript(p.authorization);
-  await lab.enqueueReconcile({ participant_id: p.participant_id, deal_id: d.deal_id, attempt_type: "charge_start", correlation_id: rows[0]!.correlation_id, operation: "capture", provider_reference: p.authorization, reason: "manual-requeue" });
   await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal" });
   assert.equal((await lab.participant(p.participant_id)).money_state, "ChargedSuccess");
   assert.equal(lab.sim.effectsOf(p.authorization).capture, 1);
@@ -387,11 +389,15 @@ await run("idempotency: manual requeue after a pre-dispatch DLQ reuses the ORIGI
   await lab.oracle("idempotency:manual-requeue", [d.deal_id]);
 });
 
-await run("identity is tied to the logical operation, not the retry: across 5 forced retries of one job the provider sees one key and the ledger holds one entry", async () => {
+await run("identity is tied to the logical operation, not the retry: across a lost response and three ambiguous status reads the provider sees one key and the ledger holds one entry", async () => {
   const d = await lab.seedDeal({ state: "Charging", participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }] });
   const p = d.participants[0]!;
   lab.sim.script(p.authorization, "capture", [{ kind: "EFFECT_THEN_RESPONSE_LOST" }]);
-  lab.sim.scriptStatus(p.authorization, [{ kind: "PENDING" }, { kind: "PENDING" }, { kind: "HTTP_500" }, { kind: "UNKNOWN" }]);
+  // Money-lane reconcile retries are bounded (four attempts); three ambiguous
+  // reads then a truthful one stays inside the bound. The bound itself — and
+  // what happens when it is exhausted — is proven by "UNKNOWN never silently
+  // becomes DEFINITELY_FAILED" above.
+  lab.sim.scriptStatus(p.authorization, [{ kind: "PENDING" }, { kind: "HTTP_500" }, { kind: "UNKNOWN" }]);
   await lab.enqueueCharge(d.deal_id);
   const stats = await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 40 });
   console.log(`  retries: ${stats.results.map((r) => `${r.event_type}:${r.status}:${String(r.error || "").slice(0, 50)}`).join(" | ")} status_reads=${lab.sim.requestsOf(p.authorization, "status").map((r) => r.behavior).join(",")}`);
@@ -419,6 +425,30 @@ await run("reconcile before dispatch (stale reconcile races the first send): mon
   const final = await lab.participant(p.participant_id);
   console.log(`  final: money_state=${final.money_state} effects=${JSON.stringify(eff)} keys=${JSON.stringify(lab.sim.distinctKeys(p.authorization, "capture"))}`);
   await lab.oracle("reconcile:before-dispatch", [d.deal_id]);
+});
+
+// ── F-4: a second reconcile need behind an already-pending reconcile ─────────
+
+await run("F-4: an UNKNOWN identity whose reconcile collides with another pending reconcile of the same participant is neither lost nor invisible — it is swept into its own reconcile and converges", async () => {
+  const d = await lab.seedDeal({ state: "Failed", participants: [{ buyer_state: "DealFailed", money_state: "AuthLocked" }] });
+  const p = d.participants[0]!;
+  // a stale reconcile (foreign correlation) is already queued for this participant
+  await lab.enqueueReconcile({ participant_id: p.participant_id, deal_id: d.deal_id, attempt_type: "release", correlation_id: `release:stale:n1:${p.participant_id}`, operation: "release", provider_reference: p.authorization, reason: "stale" });
+  lab.sim.script(p.authorization, "release", [{ kind: "EFFECT_THEN_CONNECTION_RESET" }]);
+  const release = await lab.enqueueRelease(p.participant_id, d.deal_id);
+  const first = await lab.processOutboxEventById(release);
+  assert.equal(first?.status, "sent", JSON.stringify(first));
+  const row = (await lab.attempts(p.participant_id, "release"))[0]!;
+  assert.equal(row.result_class, "unknown", "post-dispatch reset → UNKNOWN");
+  // the identity's own reconcile could not be queued (index) — it must still be visible or swept
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 40 });
+  const after = (await lab.attempts(p.participant_id, "release"))[0]!;
+  const cases = await lab.cases(p.participant_id);
+  console.log(`  f4: identity=${after.result_class}/${after.dispatch_state} money_state=${(await lab.participant(p.participant_id)).money_state} cases=${cases.map((c) => c.auto_key.split(":")[0]).join(",")}`);
+  assert.equal(after.result_class, "success", "the UNKNOWN release identity must converge (provider truth: released)");
+  assert.equal((await lab.participant(p.participant_id)).money_state, "AuthReleased");
+  assert.equal(lab.sim.effectsOf(p.authorization).release, 1);
+  await lab.oracle("f4:reconcile-collision", [d.deal_id]);
 });
 
 const failed = summary();
