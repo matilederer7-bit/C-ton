@@ -14,12 +14,14 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 7 |
-| Real vulnerabilities fixed | 7 |
-| Consistency hardenings | 7 |
-| Protected routes enumerated | 87 |
+| Real vulnerabilities found | 7 (+1 HIGH regression found by the independent review of a8f1113, fixed) |
+| Real vulnerabilities fixed | 8 |
+| Consistency hardenings | 7 (+20 malformed-id ordering gaps and 7 seller lifecycle routes, closed in remediation) |
+| Protected routes enumerated | 96 (89 by namespace, 7 seller lifecycle routes by route metadata) |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
-| Guard-ordering violations remaining | 0 |
+| `PROTECTED_PARAMETRIC_ROUTE_AUTH_ORDERING_GAPS` | 0 (57 parametric routes, 579 anonymous probes over valid, malformed, empty and hostile ids) |
+| Independent review verdict on a8f1113 | NOT SAFE TO MERGE: 1 HIGH, 2 MEDIUM, 5 LOW — see INDEPENDENT REVIEW REMEDIATION |
+| Independent review remediation | 8 of 8 findings closed; the 5 pre-existing API-design/provider items stay OPEN by decision |
 | Cross-tenant 2xx leaks | 0 |
 | New CI gates | 13 (authz behavioural + static, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants, forensic logging, rate-limit classifier, synthetic soak) |
 | Phases complete | **14 of 14** |
@@ -63,6 +65,217 @@ incidents harder to reconstruct.
 Everything else is guard-order consistency — validation of the caller's own
 input running before authorization. Those are recorded as hardenings,
 deliberately **not** inflated into vulnerabilities.
+
+**The independent review of this branch at `a8f1113` found that the V6 fix had
+introduced a HIGH regression** (a malformed query key crashed the web process)
+and that the gate proving the hardenings was blind to malformed ids. Both are
+closed; the section INDEPENDENT REVIEW REMEDIATION records every finding, the
+test that failed on `a8f1113` for it, and the run that proves it closed.
+
+---
+
+## INDEPENDENT REVIEW REMEDIATION (2026-09-06)
+
+An independent adversarial review of this branch at
+`a8f1113b2fdc8920f6bb3f5c75a66f26d88368f9` (canonical master
+`123bbf9bb286b7cfe67a9c76358095032ce5d58b`) re-verified V1–V7 A/B against
+master, attacked the route gate as a primitive, ran negative controls and a full
+regression, and returned **CRITICAL 0, HIGH 1, MEDIUM 2, LOW 5 —
+SAFE_TO_MERGE_TO_MASTER: NO**. This section is the remediation of record.
+Final remediation SHA: `cd13957`. Master untouched.
+
+### Discipline
+
+Evidence first, then fixes. Every finding got a regression test written against
+observable behaviour, run against the UNFIXED `a8f1113` source, and recorded
+failing for the reviewed reason before a line of product code changed:
+
+| Suite (new or rewritten) | On `a8f1113` | After remediation |
+|---|---|---|
+| `log_serializer_hostile_url_security_validation` | 1/6 — 198 serializer throws (48-case corpus + 3,000 seeded fuzz cases), inject threw `URIError` | 6/6 — 0 throws across 6,000 fuzz cases + corpus, credential never serialized |
+| `real_listener_hostile_request_security_validation` | 1/10 — process dead after the first `GET /health?%zz=1` (ECONNRESET, then ECONNREFUSED) | 10/10 — alive through every attack, /health 200 after each, log safe |
+| `protected_route_authorization_gate` (rewritten) | 6/9 — 145 ordering gaps over 524 probes; no route registry | 9/9 — 0 unguarded, 0 ordering gaps over 579 probes on 96 protected routes (57 parametric) |
+| `seller_lifecycle_route_authority_validation` | 1/4 — 84 anonymous answers from behind the guard; no seller-authority metadata | 4/4 |
+| `request_id_canonical_authority_validation` | 1/8 — log/audit ids diverge for short, oversized, whitespace, control-character and absent ids; error line without request id | 8/8 — response header == log `reqId` == `audit_log.request_id` for every shape |
+| `body_control_byte_security_validation` | 3/7 — NUL in a JSON string → 500; NUL 400 without envelope; NUL rejections never rate-limited | 7/7 |
+
+### Findings and what closed them
+
+**HIGH-1 — malformed query key killed the web process.** `redactUrlForLogs`
+(V6) called `decodeURIComponent` on raw query keys inside pino's request
+serializer; `%zz`, a lone `%` or a truncated multi-byte sequence threw
+`URIError` out of Fastify's request dispatch. Proven on a real listener: one
+anonymous request, connection reset, process gone; master 200 and alive.
+**Fix (`fix(security): make request logging total over hostile URLs`):** the
+key is decoded defensively and matched on both raw and decoded forms, the
+serializer is wrapped so it can never be the reason a request fails, and no
+fragment special-casing (an HTTP client never sends one). **Proof:** fixed
+corpus of 48 hostile URLs (malformed and repeated `%`, partial UTF-8, encoded
+surrogate halves, overlong encodings, 8 KB keys, encoded separators, duplicate
+and case/encoding variants of sensitive keys, empty keys, CR/LF/TAB, lone
+surrogates, `#`, `;`) plus 3,000 seeded fuzz cases (seed 20260906) through the
+REAL pino serializer pulled off the live logger — 0 throws — and a second 3,000
+run proving a `t=` credential is never serialized whatever surrounds it. The
+real-listener suite then sends the same shapes as raw bytes over a socket and
+asserts the process survives and `/health` still answers. Failing fuzz cases
+would be persisted to `.ci-artifacts/log-serializer-fuzz-failures.json` with
+the seed.
+
+**MEDIUM-1 — the gate could not see validation-before-auth on malformed ids.**
+The previous gate probed only well-formed UUIDs. 20 of 52 anonymous probes with
+`not-a-uuid` on protected parametric routes answered 400 from behind the guard
+(`GET /api/admin/actions/:adminActionId`, reachable as `/api/admin/actions/`,
+and 19 seller routes). **Fix (`fix(authz): close malformed-param route ordering
+gaps`):** `requireUuid` and body validation moved behind the guard on all 20
+routes, and the gate now probes every parametric protected route with a valid
+UUID, a second UUID, a malformed id, an empty terminal segment and six hostile
+strings; every answer must be an authorization refusal and all answers for a
+route must be identical. Routing-level not-found (Fastify's own 404 for a shape
+the router cannot match) is counted separately and never treated as a handler
+answer. **Target met:** `PROTECTED_PARAMETRIC_ROUTE_AUTH_ORDERING_GAPS = 0`.
+
+**MEDIUM-2 — hostile request ids diverged between log and audit.**
+`requestIdHeader` logged the caller's raw `x-request-id`; the audit path
+normalised it with `safeHeaderId`. `abc` or a 3,000-byte id produced a log line
+with the raw value and an audit row with a minted `req:<uuid>`. **Fix
+(`fix(observability): canonicalize request ids across logs and audit`):** the id
+is generated once in Fastify's `genReqId` through `safeHeaderId` (bounded
+8–160 chars, `[A-Za-z0-9._:-]`, minted fallback); the envelope hook reads
+`req.id` instead of re-normalising; the error handler logs through the
+request-scoped logger so a 500 line carries the same id. **Proof:** on a real
+audit-writing transition (deal cancel) the response header, the only `reqId`
+in the log and `audit_log.request_id` are equal for well-formed (preserved
+verbatim), short, oversized, whitespace, control-character and absent ids; a
+CR/LF-bearing id cannot forge a log line; an armed `db.before_begin` fault
+produces a 500 whose error line carries the request's id.
+
+**LOW-1 — the allowlist could grow silently.** Adding a bogus entry with a
+40-character reason kept every gate green (ceiling 12, list 10). **Fix
+(`test(security): strengthen route allowlist and negative controls`):** no count
+threshold. Every entry carries a behavioural expectation the gate executes —
+the exact anonymous probe, the expected statuses and an entry-specific body
+marker — and the gate additionally rejects any entry whose anonymous answer is a
+bare guard refusal (`admin_auth_required`, `seller_auth_required`, …) or whose
+marker would match one. The set is also pinned in the gate, so growth means
+editing two files in the same review.
+
+**LOW-2 — the NUL-query 400 skipped the envelope.** It ran before the
+request-id, security-header, no-store, telemetry and rate-limit hooks. **Fix
+(`fix(validation): …`):** hook order is now envelope → rate limiter → NUL
+rejection → handlers, documented at the hook. A rejected hostile request still
+carries the canonical request id, `nosniff`, `DENY`, `no-store`, records a
+telemetry point and is counted against the caller's budget (450 NUL requests
+from one address are throttled), while nothing that costs a database or
+authentication round-trip runs for it.
+
+**LOW-3 — NUL in a JSON body still 500.** **Fix (same commit):** a
+`preValidation` hook refuses a NUL anywhere in the parsed body — top-level and
+nested strings, array elements and object keys (jsonb rejects those too) — with
+a bounded 400 `NUL_BYTE_IN_BODY`; iterative walk, so nesting cannot exhaust the
+stack. Proven on POST /deals, draft patch, delivery, inquiry reply and image
+upload. Only NUL is refused globally: the other C0 bytes are legal in
+PostgreSQL and are proven never to fault, and legitimate Hebrew, Arabic, CJK,
+RTL marks, emoji and combining marks are proven accepted.
+
+**LOW-4 — the seller lifecycle surface sat outside the policy.** `POST /deals`
+and `/deals/:id/{publish,cancel,close_joining,reopen_joining,prepare_charging,
+charging/start}` (and their `/api/deals` aliases) were public-contract to the
+policy, and two validated before auth. **Fix (`fix(authz)`):** the routes declare
+`config: { authority: "seller" }`; an `onRoute` registry (`ROUTE_REGISTRY`)
+exposes route metadata, and the policy classifies by metadata first, prefix
+second, so protection follows the route rather than its path. Authorization now
+precedes id and body validation on all seven; the buyer `join` route on the
+same prefix stays public and the gate asserts it. A dedicated suite names the
+seven routes explicitly so it cannot pass by construction.
+
+**LOW-5 — static guard detection was vacuous.** A handler that only called
+`ensureAdminIdentity()` or mentioned `seller_id` in SQL was reported guarded.
+**Fix (`test(security)`):** the static scan matches guard CALLS only
+(`requireAdminAuthContext(`, `resolveRequiredSellerContext(`, …), excludes
+optional resolvers and table-ensure helpers, reports
+`guard-call-present | no-guard-call` and states in its own output that it is
+evidence of a call, never proof of enforcement. `npm run ci:route-authorization`
+now runs the static inventory AND the behavioural suites on a fresh database;
+the behavioural half is authoritative.
+
+### Negative controls (throwaway worktree at the remediation tip, restored after each)
+
+| Control | Static gate | Behavioural suites | Verdict |
+|---|---|---|---|
+| N1_malformed_url_redaction_protection_removed (decode without try/catch) | n/a | log_serializer_hostile_url|real_listener_hostile_request: passed=0 failed=2 | **FAILS_AS_EXPECTED** |
+| N2_admin_auth_guard_removed (GET /api/admin/control-flags) | ROUTE_INVENTORY_GATE_FAIL UNGUARDED_PROTECTED_ROUTES=1 (invariant: 0) | protected_route_authorization_gate|admin_route_auth_coverage: passed=0 failed=2 | **FAILS_AS_EXPECTED** |
+| N3_seller_ownership_guard_removed (export.xlsx) | n/a | cross_principal_authorization_isolation: passed=0 failed=1; seller_deal_excel_export_validation: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N4_malformed_param_auth_ordering_reverted (GET /api/admin/actions/:adminActionId validates before guard) | n/a | protected_route_authorization_gate: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N5_request_id_normalization_removed (genReqId echoes the raw header) | n/a | request_id_canonical|real_listener_hostile_request: passed=0 failed=2 | **FAILS_AS_EXPECTED** |
+| N6_bogus_anonymous_allowlist_entry (/api/admin/actions with a plausible expectation) | ROUTE_INVENTORY_GATE_PASS UNGUARDED_PROTECTED_ROUTES=0 | protected_route_authorization_gate: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N7_runtime_route_classifier_broken (seller authority metadata ignored) | ROUTE_INVENTORY_GATE_PASS UNGUARDED_PROTECTED_ROUTES=0 | protected_route_authorization_gate|seller_lifecycle_route_authority: passed=1 failed=1 | **FAILS_AS_EXPECTED** |
+| N7b_static_noop_guard (handler mentions ensureAdminIdentity, returns data) | ROUTE_INVENTORY_GATE_FAIL UNGUARDED_PROTECTED_ROUTES=1 (invariant: 0) | protected_route_authorization_gate: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N8_nul_body_validation_removed | n/a | body_control_byte: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N9_cas_409_mapping_reverted | n/a | state_machine_race_authority: passed=0 failed=1 | **FAILS_AS_EXPECTED** |
+| N10_token_redaction_removed (t dropped from SENSITIVE_QUERY_KEYS) | n/a | forensic_logging_authority|log_serializer_hostile_url: passed=0 failed=2 | **FAILS_AS_EXPECTED** |
+
+Static gate PASS on the allowlist and classifier controls is expected — the static half cannot see policy-level mutations — and is exactly why the behavioural half is authoritative.
+
+### V1–V7 re-proven after remediation
+
+Same A/B probe as the review, against the remediated tree: V1 401/401/401 for
+existing, missing and malformed ids; V2 404 vs 404 with identical bodies on all
+six routes; V3 409 `STATE_CONFLICT`; V4 404/404 anonymous, owner 200; V5 400
+with the canonical request id, `nosniff` and `no-store` on the rejection, and
+body NUL now 400 `NUL_BYTE_IN_BODY`; V6 token absent from the log, marker
+present, ordinary parameter kept; V7 log/audit/response correlation proven by
+the canonical-id suite on every id shape.
+
+### CI coverage
+
+The six suites above are classified into the `security` group by name and run
+in CI with it; `npm run ci:route-authorization` additionally runs the gate, the
+lifecycle suite and both coverage suites by name on a fresh database. A
+regression in any of: serializer totality, allowlist integrity, malformed-param
+ordering, request-id divergence or body-NUL handling fails CI on its own.
+
+### Full repository suite after remediation
+
+| Group | Result |
+|---|---|
+| unit | 12/12 |
+| integration | 29/29 |
+| db | 6/6 |
+| api | 41/41 |
+| workers | 13/13 |
+| payments | 29/29 |
+| security | 36/36 |
+| concurrency | 4/4 |
+| failure | 9/9 |
+| e2e | 13/13 |
+| **Total** | **192/192 files, 10/10 groups, 0 failures, exit 0** |
+
+### Static gates after remediation
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | PASS |
+| `npm run lint` — backend enforcement, direct-state-mutation, payment SDK boundary, secret scan, control-byte scan | PASS (114 files) |
+| `npm run scan:payment` | PASS |
+| `npm run scan:runtime-ddl` | PASS (62 files) |
+| `npm run gate:architecture` | PASS |
+| `node scripts/web_route_inventory.cjs` (static half) | PASS — 190 routes, 112 protected, 10 anonymous-by-design, `UNGUARDED_PROTECTED_ROUTES=0` |
+| `npm run ci:route-authorization` (static + behavioural) | PASS (static inventory + 4 behavioural suites on a fresh database) |
+
+### Still OPEN by decision (unchanged from the review)
+
+1. Join rate-hardening policy (owner decision on buyer identity before OTP).
+2. Real external business e-mail provider (PROVIDER REQUIRED).
+3. Inquiry token in the query string: browser history, `Referer`, proxy logs
+   (API change; the log channel is closed and now proven total).
+4. `POST /api/affiliate/links/visit` live/dead share-code oracle (weak, over
+   semi-public data; analytics decision).
+5. Long-duration heap/soak proof (`--expose-gc`, longer window).
+
+### Next step
+
+A fresh, independent review of ONLY the delta `a8f1113..cd13957`, then
+controlled merge, GitHub CI and hosted smoke if clean. Not merged here.
 
 ---
 
@@ -959,9 +1172,10 @@ anonymous buyers by design, so this is a weak oracle over semi-public data rathe
 than a leak. **To close:** answer identically either way, if the analytics
 pipeline does not need the distinction.
 
-**Static guard detection is heuristic.** A new guard helper must be added to
-`GUARD_PATTERNS` or the static gate fails closed — loudly, which is the intended
-direction, but it is a maintenance cost worth stating.
+**Static guard detection is supplemental, by design.** After the independent
+review it matches guard CALLS only and is labelled as evidence, never proof; a
+new refusing guard helper must be added to `GUARD_CALL_PATTERNS` or the static
+half fails closed. The behavioural gate is the authority.
 
 **A retried seller inquiry reply stores a second message.** Same `x-request-id`,
 same body. Inquiry *creation* dedupes within its 10-minute window; replies do
@@ -997,7 +1211,12 @@ lands there it will be proved and documented here, not fixed on this branch.
 |---|---|
 | `admin_route_auth_coverage_validation` | 3/3 (59 admin routes) |
 | `seller_route_auth_coverage_validation` | 3/3 (26 seller routes) |
-| `protected_route_authorization_gate` | 6/6 (87 protected routes, 95 probes) |
+| `protected_route_authorization_gate` (rewritten in remediation) | 9/9 (96 protected routes, 57 parametric, 579 anonymous probes, 0 ordering gaps) |
+| `seller_lifecycle_route_authority_validation` | 4/4 (7 lifecycle routes × 2 prefixes × 5 id shapes × 2 bodies) |
+| `log_serializer_hostile_url_security_validation` | 6/6 (48-case corpus + 6,000 seeded fuzz cases, 0 throws) |
+| `real_listener_hostile_request_security_validation` | 10/10 (real TCP listener, raw bytes, process alive) |
+| `request_id_canonical_authority_validation` | 8/8 (6 id shapes, log == audit == response) |
+| `body_control_byte_security_validation` | 7/7 (NUL in strings/nested/arrays/keys, envelope, rate accounting, Unicode) |
 | `cross_principal_authorization_isolation_validation` | 7/7 (17 parametric seller routes, 2 principals) |
 | `principal_state_authority_validation` | 12/12 (19 admin write routes, 4 roles) |
 | `mutation_replay_authority_validation` | 10/10 (sequential + parallel replay) |
@@ -1010,7 +1229,7 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `rate_limit_classifier_authority_validation` | 6/6 (bucket classification + pinned alias gap) |
 | `synthetic_soak_authority_validation` | 5/5 (11,843 requests, 12 virtual users, 30s) |
 
-### Full repository suite, final run
+### Full repository suite, final run (a8f1113 — superseded by the remediation run above)
 
 | Group | Result |
 |---|---|
@@ -1046,8 +1265,11 @@ back to itself.
 
 ## RECOMMENDED NEXT STEP
 
-**Owner review of this branch, then a decision on the two P1 items.** The branch
-is not merged and should not be merged without that review.
+**A fresh independent review of the remediation delta (`a8f1113..cd13957`),
+then a decision on the two P1 items.** The branch is not merged and should not
+be merged without that review. The first independent review found a HIGH
+regression inside a security fix; the remediation is itself a delta that
+deserves the same treatment.
 
 In priority order:
 
