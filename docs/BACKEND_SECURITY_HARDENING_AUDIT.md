@@ -21,8 +21,8 @@ plan. Anything not yet run says so.
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 3 (behavioural authz, static authz, cross-principal isolation) |
-| Phases complete | 3 of 14 (Phase 0, 1, 2) |
+| New CI gates | 4 (behavioural authz, static authz, cross-principal isolation, principal state authority) |
+| Phases complete | 4 of 14 (Phases 0-3) |
 
 Both real findings are **existence oracles**, not data leaks. No cross-tenant
 content was ever served; what leaked was the *fact* that an object exists.
@@ -266,6 +266,58 @@ Write refusals are checked against the **database**, not only the status code: a
 refused cross-tenant reply must also leave zero rows behind, and a refused
 `duplicate` must not have copied the foreign deal into the attacker's account.
 
+## ROLE / SESSION / ACCOUNT-STATE RESULT
+
+`tests/principal_state_authority_validation.ts`, 12/12. A credential is not a
+capability; a session that *was* valid is not one that *is* valid; an account
+that *could* act is not one that *may still* act.
+
+The headline invariant is enumerated from the live router, so a new admin
+mutation is covered the moment it is registered: **a ReadOnlyAdmin holds a real,
+fully authenticated, MFA-verified session and must still never mutate platform
+state.** All 19 admin write route/method pairs are probed with it.
+
+| Probe | Result |
+|---|---|
+| ReadOnlyAdmin mutates anything (19 write routes) | 0 — 17× 403, 1× 404 (analysed below), 1 self-service route excluded and separately proven |
+| ReadOnlyAdmin write probe causes a 5xx | 0 |
+| SupportAdmin approves / rejects / executes an admin action | Refused (holds `admin_actions.read`+`.create`, not `.approve`/`.execute`) |
+| Shared bootstrap key mutates anything | 0 — it is a break-glass READ credential, `sessionRequired` rejects it (R5C) |
+| Revoked admin session still works | No |
+| Expired admin session still works | No |
+| Disabled admin account still holds authority through a live session | No |
+| Forged / malformed session material (8 shapes incl. oversized, traversal, NUL bytes, a JSON identity blob) | All 401/403, none fatal |
+| Suspended seller still edits its own draft | No — 403 `SELLER_SUSPENDED`, and the DB row is unchanged |
+| Seller logout revokes the session for later requests | Yes |
+
+### Two investigated non-findings
+
+Both were surfaced by the enumeration and are recorded as **not vulnerabilities**
+after tracing the code, rather than being silently excluded.
+
+**1. `POST /api/admin/auth/mfa/setup` answers 200 for a ReadOnlyAdmin.** Correct.
+Enrolling your *own* second factor is an account action, not a platform mutation;
+an admin who cannot set up MFA cannot secure their own login. The dangerous
+neighbour, `/api/admin/auth/mfa/disable`, correctly requires
+`admin_users.manage`. The exception is safe only while the route cannot be aimed
+at somebody else, so that is **proven, not assumed**: the suite calls it as a
+ReadOnlyAdmin with `{admin_user_id: <SuperAdmin>}`, `{email: <SuperAdmin>}` and a
+combined body, then asserts the victim's `admin_mfa_challenges` count is
+unchanged and the caller's own is not — the handler reads only
+`identity.admin_user_id` and has no target parameter at all.
+
+**2. `POST /api/admin/actions/:adminActionId/execute` answers 404 to an
+authenticated caller who lacks the permission.** This is the Phase 0 fix working
+as designed: the action-type-specific permission genuinely cannot be known before
+the row is read, so the order is authenticate → load → authorise. That leaves a
+404-for-missing versus guard-answer-for-real split *for authenticated callers*,
+which would be an oracle — unless everyone who passes the authentication gate can
+already enumerate admin actions. That premise is load-bearing, so the suite
+**proves** it: all four roles (`SuperAdmin`, `OpsAdmin`, `SupportAdmin`,
+`ReadOnlyAdmin`) are checked to hold `admin_actions.read`, and the bootstrap key
+is confirmed to be stopped *before* the lookup. If a future role is added without
+`admin_actions.read`, that test fails and the route's ordering must be revisited.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -304,7 +356,7 @@ path.
 | Authorization ordering | **PASS** — 87 protected routes, 0 unguarded, 0 ordering violations |
 | IDOR / cross-tenant | **PASS after fix** — 1 finding (V2), 0 cross-tenant 2xx, foreign/missing parity on every parametric seller route |
 | Role confusion | **PASS** — a seller session reaches neither the admin nor the distributor surface; a caller-supplied `x-seller-id` never overrides or supplies authority |
-| Role / session / account state | PARTIAL (Phase 3) — forged and header-only identity covered; expiry, revocation, suspended accounts and admin capability tiers not yet |
+| Role / session / account state | **PASS** — capability tiers, session lifecycle, account state; 0 findings, 2 investigated non-findings documented below |
 | Mutation replay / double-submit | NOT RUN (Phase 4) |
 | Concurrency / state-machine races | NOT RUN (Phase 5) |
 | Worker / outbox resilience | NOT RUN (Phase 6) |
@@ -364,6 +416,8 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `admin_route_auth_coverage_validation` | 3/3 (59 admin routes) |
 | `seller_route_auth_coverage_validation` | 3/3 (26 seller routes) |
 | `protected_route_authorization_gate` | 6/6 (87 protected routes, 95 probes) |
+| `cross_principal_authorization_isolation_validation` | 7/7 (17 parametric seller routes, 2 principals) |
+| `principal_state_authority_validation` | 12/12 (19 admin write routes, 4 roles) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |
