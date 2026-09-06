@@ -1359,6 +1359,17 @@ export function registerFrontendExperience(
     getWorkerRunning?: () => boolean;
     /** WORKER_STUCK_TIMEOUT_MS used by reclaimStuckProcessing — exposed so the status endpoint can show stuck_candidates correctly. */
     workerStuckTimeoutMs?: number;
+    /**
+     * F-3 — a provider callback that declares an economically real effect
+     * (charge_captured / recovery_captured / refund_issued) for a participant
+     * whose canonical state is not waiting for it is NOT silently ignored: the
+     * contradiction is recorded as an operational case (worker path parity).
+     */
+    recordLateMoneyEffectException?: (args: {
+      event: { provider: string; event_id: string; event_type: string; correlation_id?: string | null; provider_reference?: string | null };
+      target: { participant_id: string; deal_id: string; attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund"; correlation_id: string | null; buyer_state: string; money_state: string };
+      reason: string;
+    }) => Promise<void>;
     applyPaymentWebhookClassification?: (args: {
       event: {
         provider: string;
@@ -5522,6 +5533,16 @@ export function registerFrontendExperience(
       });
 
       const classification = paymentReconciliation.classifyEvent(eventType, target);
+
+      if (classification.status === "ignored" && target && deps.recordLateMoneyEffectException) {
+        // F-3 — same guard as the worker-side ingestion: a stale local state
+        // must never silently discard an economically real provider effect.
+        await deps.recordLateMoneyEffectException({
+          event: { provider, event_id: eventId, event_type: eventType, correlation_id: correlationId, provider_reference: providerReference },
+          target,
+          reason: classification.reason
+        });
+      }
 
       if (classification.status === "processed" && deps.applyPaymentWebhookClassification) {
         await deps.applyPaymentWebhookClassification({
