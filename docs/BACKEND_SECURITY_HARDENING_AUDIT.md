@@ -14,19 +14,19 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 3 |
-| Real vulnerabilities fixed | 3 |
+| Real vulnerabilities found | 4 |
+| Real vulnerabilities fixed | 4 |
 | Consistency hardenings | 7 |
 | Protected routes enumerated | 87 |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 6 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races) |
-| Phases complete | 6 of 14 (Phases 0-5) |
+| New CI gates | 8 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary) |
+| Phases complete | 8 of 14 (Phases 0-7) |
 
-**No protected content was ever served to a caller who should not see it.** Two
-of the three findings are existence oracles — what leaked was the *fact* that an
-object exists — and the third is an error-surface defect.
+**No protected content was ever served to a caller who should not see it.** Three
+of the four findings are existence oracles — what leaked was the *fact* that an
+object exists — and the fourth is an error-surface defect.
 
 - **V1** (unauthenticated existence oracle): an anonymous caller could
   distinguish admin action ids that exist from ids that do not.
@@ -39,6 +39,11 @@ object exists — and the third is an error-surface defect.
   `409`. Not an authorization bug and it discloses nothing, but it is the failure
   mode that hides real incidents in routine noise and tells retrying clients to
   hammer a conflict they can never win.
+
+- **V4** (anonymous existence oracle over private imagery): on the public
+  `/api/deal-images/:imageId` route, an anonymous caller got `401` for a real
+  Draft image and `404` for a fabricated id. Draft imagery is never public, so
+  this confirmed that a given image id was a real private file.
 
 Everything else is guard-order consistency — validation of the caller's own
 input running before authorization. Those are recorded as hardenings,
@@ -199,6 +204,40 @@ group alone.
 `tests/state_machine_race_authority_validation.ts` fails on two probes with
 `a racing lifecycle call faulted: 500 {"ok":false,"error":"internal_error"}`;
 restored, both pass.
+
+---
+
+### V4 — Anonymous existence oracle over Draft imagery (`GET /api/deal-images/:imageId`)
+
+**Class:** information disclosure / enumeration oracle over private files.
+**Severity:** LOW–MEDIUM. Image ids are random v4 UUIDs, so this is not
+guessable at scale; it matters when a Draft image URL escapes — a shared link, a
+screenshot, a log line — and an outsider wants to confirm it names a real private
+file.
+
+**Root cause.** The route is public by contract: it must serve anonymous buyers
+for published deals. For an *unpublished* deal it fell back to seller authority:
+
+```ts
+if (!image.published_at) {
+  const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);  // throws 401 anonymously
+  if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) throw 404;
+}
+```
+
+The **foreign-seller** branch was already correct — `404`, indistinguishable from
+a missing image. The **anonymous** branch was not: `requireSellerAuthorityWithoutBody`
+threw `401`, so `401` meant "real but private" and `404` meant "no such image".
+
+**Fix.** Every caller who is not the owner now gets the same `404`. The authority
+resolution is wrapped so its failure becomes the not-found answer rather than an
+authentication answer.
+
+**A/B proof.** `tests/storage_boundary_authority_validation.ts` failed before the
+fix with `anonymous can tell an existing draft image (401) from a missing one
+(404)`, and passes after. The same probe runs as a foreign seller, which was
+already correct and stays correct — so the test would also catch a regression
+that "fixed" anonymous by breaking the foreign case.
 
 ---
 
@@ -424,6 +463,53 @@ legitimately changes which operation wins, and fails only when the outcome is
 This is where **V3** was found: the races were safe, but the loser's answer was
 `500`.
 
+## WORKER / OUTBOX RESULT
+
+**Pre-existing coverage here is strong and this audit did not duplicate it.**
+`worker_two_process_fencing_validation` already proves two live workers complete
+30 competing jobs exactly once, that a hard-killed owner is fenced out and
+reclaimed, that SIGTERM during active ownership never duplicates, that heartbeat
+renewal keeps a blocked survivor owned, and that an unknown type or malformed
+payload is DLQ-archived without crashing.
+`outbox_reclaim_precision_proof` proves the lease timeout boundaries, that two
+concurrent reclaims never double-process, and that reclaim-then-fail lands in the
+DLQ with no phantom `sent` row.
+
+What none of them asked is whether the queue keeps **moving** when one event can
+never succeed — liveness rather than safety.
+`tests/outbox_poison_progress_authority_validation.ts`, 6/6:
+
+| Probe | Result |
+|---|---|
+| Poison event is bounded | stops at `3/3` attempts, lands in the DLQ, never `sent` |
+| Poison event blocks the queue behind it | No — healthy events queued *after* it are still attempted |
+| Event whose aggregate was deleted between enqueue and processing | terminal at `3/3`, not retried forever |
+| A failing event reports itself as sent | No — `sent=false`, `sent_at` null, `last_error` never an empty string |
+| Same event handed to two concurrent claimers | No overlap |
+
+A terminal event is copied into `siton.outbox_dlq` and deleted from
+`siton.outbox_events` in one transaction, so the suite asserts an event lives in
+**exactly one** of the two tables: in neither means it was lost, in both means it
+can be reprocessed after archival.
+
+## STORAGE RESULT
+
+`tests/storage_boundary_authority_validation.ts`, 6/6. The storage *adapter* is
+already covered (atomicity, cleanup leases, fault boundaries, the Supabase
+broker, readiness); this is the authorization question those suites do not ask.
+
+| Probe | Result |
+|---|---|
+| Draft image served to another seller or to the public | No — and now indistinguishable from a missing image (**V4**) |
+| Object key contains the original filename or the seller id | No — in neither `storage_key` nor `public_url`; the filename is retained as metadata only |
+| Path traversal in a filename reaches the key (`../`, `..\`, `a/../../b`) | No |
+| Malformed uploads: empty, zero-byte, unsupported MIME, executable disguised as PNG, non-base64, MIME/data mismatch, `text/html` MIME | All bounded 4xx, no 5xx, nothing non-image persisted |
+| Refused cross-seller write (upload / reorder / delete) changed the victim's rows | No — row set byte-identical before and after |
+
+Object keys are checked because they end up in CDN URLs, access logs and support
+tickets. A key like `seller-acme/price-list-confidential.png` leaks both the
+tenant and the document name to anyone who ever sees the URL.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -465,8 +551,8 @@ path.
 | Role / session / account state | **PASS** — capability tiers, session lifecycle, account state; 0 findings, 2 investigated non-findings documented below |
 | Mutation replay / double-submit | **PASS** — sequential and parallel replay land once; distinct actions are not collapsed |
 | Concurrency / state-machine races | **PASS after fix** — 1 finding (V3); no impossible state, no torn row, no duplicate durable effect |
-| Worker / outbox resilience | NOT RUN (Phase 6) |
-| Storage / file boundary | NOT RUN (Phase 7) |
+| Worker / outbox resilience | **PASS** — pre-existing coverage is strong; 3 liveness gaps added and green |
+| Storage / file boundary | **PASS after fix** — 1 finding (V4); object keys clean, upload validation bounded, cross-seller writes inert |
 | Rate limit / abuse boundary | NOT RUN (Phase 8) |
 | Input / query / error surface | NOT RUN (Phase 9) |
 | DB authority / invariants | NOT RUN (Phase 10) |
@@ -526,6 +612,8 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `principal_state_authority_validation` | 12/12 (19 admin write routes, 4 roles) |
 | `mutation_replay_authority_validation` | 10/10 (sequential + parallel replay) |
 | `state_machine_race_authority_validation` | 6/6 (5 race classes, judged against DEAL_TRANSITIONS) |
+| `outbox_poison_progress_authority_validation` | 6/6 (queue liveness under poison) |
+| `storage_boundary_authority_validation` | 6/6 (draft imagery, object keys, upload validation) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |

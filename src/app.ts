@@ -3359,11 +3359,24 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     }
     const image = result.rows[0];
     if (!image.published_at) {
-      const sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
-      if (normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) {
-        const err: any = new Error("image not found");
-        err.statusCode = 404;
-        throw err;
+      // This route is PUBLIC by contract - it serves anonymous buyers for
+      // published deals - so an unpublished image has to be refused here, and
+      // the refusal must not answer "does this image exist?".
+      //
+      // The foreign-seller branch below already answered 404 like a missing
+      // image. An ANONYMOUS caller did not: requireSellerAuthorityWithoutBody
+      // threw 401, so 401 meant "this image is real but private" while 404 meant
+      // "no such image" - an existence oracle over Draft imagery, which is never
+      // public. Every caller who is not the owner now gets the same 404.
+      const notFound = () => Object.assign(new Error("image not found"), { statusCode: 404 });
+      let sellerAuthority: { seller_id: string } | null = null;
+      try {
+        sellerAuthority = await requireSellerAuthorityWithoutBody(req, c);
+      } catch {
+        throw notFound();
+      }
+      if (!sellerAuthority || normalizeSellerId(image.seller_id) !== sellerAuthority.seller_id) {
+        throw notFound();
       }
     }
     return image;
