@@ -927,34 +927,61 @@ path.
 
 ## OPEN ITEMS
 
+Nothing below was left open by accident. Each is either an owner decision or a
+provider dependency, and each says what it would take to close.
+
 ### OPEN P1
 
-- **Phases 1–13 not started.** The marathon scope below Phase 0 is untouched.
+**Join is outside the rate-limit mutation bucket** — pinned by test, not patched.
+Full reasoning in the rate-limit section: every fix that buckets join applies a
+20/min **per-IP** limit, and a shared NAT is one IP for hundreds of legitimate
+buyers, so it is a product and identity decision rather than a patch. Proposed
+design: limit by identity, keyed on `(deal_id, buyer_id)`. **To close:** decide
+what counts as buyer identity before an OTP is verified.
+
+**Real external e-mail delivery: PROVIDER REQUIRED.** The repository has exactly
+one notification adapter (`LogNotificationProvider`); real mode cannot boot. The
+inquiry pointer event is created, addressed, rendered and queued — that much is
+proven — but **no e-mail reaches anyone and none is claimed anywhere in this
+audit**. **To close:** an owner decision on a provider, then a wiring task.
 
 ### OPEN P2
 
-- **`POST /api/affiliate/links/visit` returns `recorded: true|false`**, which
-  distinguishes a live source code from a dead one. Source codes are handed to
-  anonymous buyers in share links by design, so this is a weak oracle over
-  semi-public data rather than a leak. Recorded for Phase 8/9 rather than
-  "fixed" here.
-- **Static guard detection is heuristic.** A new guard helper name must be added
-  to `GUARD_PATTERNS`, and until it is the static gate fails closed (loudly).
-  That is the intended direction, but it is a maintenance cost worth stating.
+**The inquiry access token lives in a query string.** V6 stopped it reaching the
+application log, which was the acute problem. The token still travels as `?t=` and
+therefore also reaches browser history, `Referer` headers and any intermediary
+proxy log. **To close:** move it to a header or a short-lived exchange — an
+API change, because existing buyer links carry `?t=`.
 
-### Pre-existing, carried forward (not introduced here)
+**`POST /api/affiliate/links/visit` answers `recorded: true|false`**, which
+distinguishes a live share code from a dead one. Source codes are handed to
+anonymous buyers by design, so this is a weak oracle over semi-public data rather
+than a leak. **To close:** answer identically either way, if the analytics
+pipeline does not need the distinction.
 
-- **Join rate hardening / shared-IP.** The aliased `/api/deals/:id/join` and bare
-  `/deals*` lifecycle routes are governed by the global 200/min per-IP bucket
-  plus join idempotency and DB guards; they never matched the `/api/…` sensitive
-  prefixes because the alias rewrite runs before the limiter hook. Solving this
-  with a blunt per-IP limit would throttle legitimate buyers behind one NAT.
-  Phase 8 item, needs a product/identity decision.
-- **Real external e-mail delivery is OPEN / PROVIDER REQUIRED.** The repository
-  contains one notification adapter (`LogNotificationProvider`); real mode cannot
-  boot. No e-mail was sent during any of this work and none is claimed.
+**Static guard detection is heuristic.** A new guard helper must be added to
+`GUARD_PATTERNS` or the static gate fails closed — loudly, which is the intended
+direction, but it is a maintenance cost worth stating.
 
----
+**A retried seller inquiry reply stores a second message.** Same `x-request-id`,
+same body. Inquiry *creation* dedupes within its 10-minute window; replies do
+not. Not a security issue, and a seller may legitimately send the same text
+twice, so it is documented rather than "fixed" by imposing idempotency the
+product never asked for. The suite pins current behaviour so a change is visible.
+
+**Memory under sustained load is an observation, not a clean bill.** Heap grew
+~31 MB → ~95 MB over 11,843 requests with no forced collection. Within normal
+Node allocator behaviour; not evidence of a leak, and not proof of its absence.
+**To close:** an `--expose-gc` run over a much longer window.
+
+### Environment note (not a repository defect)
+
+`npm run ci:migrations` fails on the development machine used for this audit with
+`checksum mismatch: 045`. That is the long-lived local database's ledger, not the
+repository: no commit on this branch touches `src/migrations/`, and 045 is
+byte-identical to HEAD. Proven directly on a brand-new database — **fresh install
+exit 0 (57 migrations), rerun exit 0, checksum mismatch false**. Every test group
+also migrates a fresh database per file and all pass.
 
 ## OUT-OF-SCOPE FINANCIAL / R9C ITEMS
 
@@ -982,12 +1009,33 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `forensic_logging_authority_validation` | 6/6 (real logger capture, secrets + evidence) |
 | `rate_limit_classifier_authority_validation` | 6/6 (bucket classification + pinned alias gap) |
 | `synthetic_soak_authority_validation` | 5/5 (11,843 requests, 12 virtual users, 30s) |
-| Security group | see PROJECT_STATUS for the run of record |
-| Tests touching changed routes | 11/11 |
-| `npm run lint` (backend enforcement + secret scan) | PASS |
+
+### Full repository suite, final run
+
+| Group | Result |
+|---|---|
+| unit | 12/12 |
+| integration | 29/29 |
+| db | 6/6 |
+| api | 41/41 |
+| workers | 13/13 |
+| payments | 29/29 |
+| security | 31/31 |
+| concurrency | 4/4 |
+| failure | 9/9 |
+| e2e | 13/13 |
+| **Total** | **187/187 files, 10/10 groups, 0 failures** |
+
+### Static gates
+
+| Gate | Result |
+|---|---|
+| `npm run lint` — backend enforcement, direct-state-mutation, payment SDK boundary, secret scan, control-byte scan | PASS |
 | `npm run gate:architecture` | PASS |
 | `tsc -p tsconfig.test.json` | PASS |
 | `npm run ci:route-authorization` | PASS (`UNGUARDED_PROTECTED_ROUTES=0`) |
+| Migrations, fresh install + rerun on a brand-new database | PASS (57 migrations, no checksum mismatch) |
+| `npm run ci:migrations` on the audit machine | FAILS — stale local ledger, not the repository; see the environment note |
 
 A/B discipline: every fix in this document was proved by reverting it and
 watching a test fail with the offending route named, then restoring it and
@@ -998,8 +1046,22 @@ back to itself.
 
 ## RECOMMENDED NEXT STEP
 
-Phase 1 — extend the authorization matrix from "does it refuse an anonymous
-caller?" to the full per-route classification (role/capability, object ownership,
-MFA, mutation vs read, expected wrong-role response), then Phase 2 cross-account
-isolation with synthetic principals, which is where object-level authorization
-bugs actually live.
+**Owner review of this branch, then a decision on the two P1 items.** The branch
+is not merged and should not be merged without that review.
+
+In priority order:
+
+1. **Decide the join rate-limit policy.** It is the only remaining item where an
+   attacker has a cheap action and the platform has no identity-shaped defence.
+   The proposed `(deal_id, buyer_id)` bucket is written up and ready to build once
+   "what is buyer identity before OTP" is answered.
+2. **Decide the e-mail provider.** Everything up to delivery is built and proven;
+   only the adapter is missing. Until then the product's buyer→seller
+   notification is a pointer that nobody receives.
+3. **Move the inquiry token out of the query string.** V6 closed the log leak;
+   this closes browser history, `Referer` and proxy logs.
+4. **Consider extending the enumerated-invariant pattern to the R9C branch.** The
+   gates added here — live-router enumeration, vacuity guards, A/B negative
+   controls — found seven real defects in code that already had 180 passing
+   tests. The payment lifecycle is the part of this system where the same
+   technique would be worth the most, and it is deliberately untouched here.
