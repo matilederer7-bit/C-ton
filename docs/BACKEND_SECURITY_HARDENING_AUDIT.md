@@ -21,8 +21,8 @@ plan. Anything not yet run says so.
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 12 (authz behavioural + static, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants, forensic logging, rate-limit classifier) |
-| Phases complete | 13 of 14 (Phases 0-12; only the soak remains) |
+| New CI gates | 13 (authz behavioural + static, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants, forensic logging, rate-limit classifier, synthetic soak) |
+| Phases complete | **14 of 14** |
 
 **No request was ever served to the wrong caller.** Three of the seven findings
 are existence oracles — what leaked was the *fact* that an object exists — two
@@ -821,6 +821,58 @@ hundred distinct identities. It needs a decision on what counts as buyer identit
 before an OTP is verified, which is why it is written down here rather than
 implemented.
 
+## SOAK / CHAOS RESULT
+
+`tests/synthetic_soak_authority_validation.ts`, 5/5. Every other suite probes one
+behaviour with a clean start. A soak asks whether the system stays correct while
+it is *busy*, and whether anything drifts once the same code runs thousands of
+times rather than once — connection leaks, unhandled rejections, duplicated
+durable effects and stuck work only appear under sustained mixed load.
+
+Deliberately **realistic** concurrency, not resource exhaustion: the point is to
+find drift, not to prove a laptop can be overwhelmed. Local and disposable only —
+no third-party service, no provider call, no money: joins are synthetic buyers
+with pre-verified OTP challenges against the fake adapter, notifications are
+log-only.
+
+**Run of record — 30 s, 12 virtual users (4 anonymous readers, 3 seller readers,
+2 buyer joiners, 2 inquiry senders, 1 outbox drainer):**
+
+| Measure | Result |
+|---|---|
+| Requests | 11,843 (~395/s) |
+| Status | 9,477 × 2xx, 2,366 × 4xx |
+| 5xx | **0** |
+| Transport errors | **0** |
+| Unhandled promise rejections | **0** |
+| Unexplained 429 | **0** (1,750 were the documented inquiry spam caps engaging) |
+| Joins accepted | 160 = exactly 4 deals × `max_units` 40 — **no oversell under load** |
+| Duplicate durable effects | **0** — accepted joins equal participant rows exactly |
+| Outbox events left claimed | **0** |
+| Connections idle-in-transaction > 30 s | **0** |
+| DB connections | 1 → 12 (the pool ceiling, not unbounded growth) |
+
+Two guards make these numbers mean something:
+
+**The vacuity guard is per-path, not global.** The first version of this file ran
+a whole soak with `inquiries 0` — the payload used the wrong field names — and a
+guard that only checked joins reported a healthy soak that had never touched the
+inquiry rail. Each write path is now asserted separately.
+
+**429s are classified, not counted.** The per-IP limiter is disabled for this run,
+so an initial "any 429 is an anomaly" assertion flagged the inquiry rail's
+DB-backed spam caps — a deliberate P0.7 protection — as a defect. The suite now
+separates a documented product cap from an unexplained throttle, and asserts
+**both** directions: no unexplained 429, *and* the spam caps must actually engage
+under this much load, because a protection that never fires may be inert.
+
+**Memory, stated honestly.** Heap grew from ~31 MB to ~95 MB across 11,843
+requests. That is within normal allocator behaviour for a Node process under load
+with no forced collection, and is **not** evidence of a leak — but neither is it
+proof of its absence. A definitive leak measurement needs `--expose-gc` and a
+much longer run, which is outside this bounded budget. Recorded as an
+observation, not a clean bill of health.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -869,7 +921,7 @@ path.
 | DB authority / invariants | **PASS** — 0 findings; schema backs the bounds and FKs, and the capacity guard holds under real concurrency |
 | Observability / forensic truth | **PASS after fix** — 2 findings (V6, V7); no secret in any log line, and evidence sufficient to reconstruct a refusal |
 | Secret / config / fail-closed | **PASS** — pre-existing guards verified; control-byte gate added |
-| Soak / chaos | NOT RUN (Phase 13) |
+| Soak / chaos | **PASS** — 11,843 requests in 30s: 0 × 5xx, 0 unhandled rejections, 0 duplicate effects, no oversell |
 
 ---
 
@@ -929,6 +981,7 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `db_invariant_authority_validation` | 8/8 (schema backing + 14-way concurrent join race) |
 | `forensic_logging_authority_validation` | 6/6 (real logger capture, secrets + evidence) |
 | `rate_limit_classifier_authority_validation` | 6/6 (bucket classification + pinned alias gap) |
+| `synthetic_soak_authority_validation` | 5/5 (11,843 requests, 12 virtual users, 30s) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |
