@@ -3,6 +3,11 @@ export type FaultPoint =
   | "db.after_begin"
   | "db.before_commit"
   | "db.after_commit"
+  // Inside an atomic lifecycle transition, after every durable write (audit,
+  // outbox, entity state, idempotency) and before COMMIT. A "block" here holds
+  // the transaction open with its locks and uncommitted unique-index entries,
+  // which is exactly the window a concurrent lifecycle call contends on.
+  | "atomic.after_durable_writes_before_commit"
   | "web.request.before_commit"
   | "web.request.after_commit"
   | "storage.before_put"

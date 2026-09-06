@@ -670,6 +670,31 @@ const payoutRail = buildPayoutRail({
   PermanentFailErrorCtor: PermanentFailError
 });
 
+// Row lock on the canonical entity row of a serialized transition. FOR UPDATE,
+// the same lock the transition's own compare-and-swap takes at the end, so the
+// contention is on ONE object and cannot deadlock against itself.
+async function lockTransitionEntityRow(c: PoolClient, entityType: AtomicEntityType, entityId: string) {
+  if (entityType === "deal") {
+    await c.query(`SELECT deal_id FROM siton.deals WHERE deal_id=$1 FOR UPDATE`, [entityId]);
+    return;
+  }
+  await c.query(`SELECT participant_id FROM siton.participants WHERE participant_id=$1 FOR UPDATE`, [entityId]);
+}
+
+async function readTransitionEntityState(c: PoolClient, op: TransitionOp): Promise<string | null> {
+  if (op.entityType === "deal") {
+    const r = await c.query(`SELECT state FROM siton.deals WHERE deal_id=$1`, [op.entityId]);
+    return r.rowCount ? String(r.rows[0].state) : null;
+  }
+  const col = op.stateType === "buyer_state" ? "buyer_state" : "money_state";
+  const r = await c.query(`SELECT ${col} AS state FROM siton.participants WHERE participant_id=$1`, [op.entityId]);
+  return r.rowCount ? String(r.rows[0].state) : null;
+}
+
+function transitionEntityNotFound(entity: AtomicEntityType, entityId: string) {
+  return Object.assign(new Error(`${entity} not found`), { statusCode: 404, code: `${entity}_not_found`, entity_type: entity, entity_id: entityId });
+}
+
 async function atomicMultiTransition(args: {
   actionName: string;
   requestId: string;
@@ -680,6 +705,20 @@ async function atomicMultiTransition(args: {
   outbox: OutboxInsert;
   response?: any;
   insideTx?: (c: PoolClient) => Promise<void>;
+  // Opt-in: serialize this transition on the canonical row of the idempotency
+  // entity BEFORE the idempotency lookup, and re-read every op's state under
+  // that lock BEFORE the first durable write. Without it, two callers that both
+  // pass the (non-locking) idempotency lookup both write audit + outbox rows
+  // and the one-pending-per-aggregate-event unique index decides the race by
+  // raising 23505 in the loser — one statement BEFORE the compare-and-swap
+  // that was designed to answer 409. With it, the loser waits on the row, then
+  // observes the winner's committed idempotency row (same key → replay) or its
+  // committed state (different key → STATE_CONFLICT) and writes nothing.
+  // The unique index stays as the backstop: a 23505 under this lock means the
+  // outbox really is inconsistent and must still surface as a fault.
+  // Consumers: deal.publish. Payment-lifecycle transitions do not opt in
+  // (their lock order is reviewed separately and is out of this change's scope).
+  serializeOnEntity?: boolean;
 }): Promise<{ response: any; replay: boolean }> {
   await ensureAdminControlPlaneTables(withTx);
   await ensureAdminIdentityTables(withTx);
@@ -688,6 +727,9 @@ async function atomicMultiTransition(args: {
   const response = args.response ?? { ok: true };
 
   return withTx(async (c) => {
+    if (args.serializeOnEntity) {
+      await lockTransitionEntityRow(c, args.idempotency.entityType, args.idempotency.entityId);
+    }
     const idem = await c.query(
       `SELECT response_jsonb
        FROM siton.idempotency_log
@@ -712,6 +754,18 @@ async function atomicMultiTransition(args: {
 
     for (const op of ops) {
       assertValidTransition(op.stateType, op.fromState, op.toState);
+    }
+
+    if (args.serializeOnEntity) {
+      // Re-read under the lock: a transition that already lost cannot reach the
+      // outbox insert, so the unique index never has to decide a benign race.
+      // Same answer as the compare-and-swap below (STATE_CONFLICT), taken before
+      // any row is written instead of after.
+      for (const op of ops) {
+        const current = await readTransitionEntityState(c, op);
+        if (current === null) throw transitionEntityNotFound(op.entityType, op.entityId);
+        if (current !== op.fromState) throw stateConflict(op.entityType, op.entityId, op.fromState);
+      }
     }
 
     await c.query(`SELECT set_config('siton.in_atomic', 'true', true)`);
@@ -800,6 +854,7 @@ async function atomicMultiTransition(args: {
     );
 
     await c.query(`SELECT set_config('siton.in_atomic', 'false', true)`);
+    await hitTestFault("atomic.after_durable_writes_before_commit");
     return { response, replay: false };
   });
 }
@@ -818,6 +873,7 @@ async function atomicTransition(args: {
   payload?: any;
   response?: any;
   insideTx?: (c: PoolClient) => Promise<void>;
+  serializeOnEntity?: boolean;
 }) {
   return atomicMultiTransition({
     actionName: args.actionName,
@@ -836,7 +892,8 @@ async function atomicTransition(args: {
     ],
     outbox: args.outbox,
     response: args.response,
-    ...(args.insideTx ? { insideTx: args.insideTx } : {})
+    ...(args.insideTx ? { insideTx: args.insideTx } : {}),
+    ...(args.serializeOnEntity ? { serializeOnEntity: true } : {})
   });
 }
 
@@ -4592,6 +4649,10 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     actionName: "deal.publish",
     requestId,
     idempotencyKey: idem,
+    // Concurrent publishes of one deal serialize on the deal row before the
+    // idempotency lookup, so a loser replays (same key) or conflicts (new key)
+    // instead of racing the deadline_check unique index into a 500.
+    serializeOnEntity: true,
     outbox: {
       event_type: "deadline_check",
       aggregate_type: "deal",
