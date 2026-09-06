@@ -29,31 +29,61 @@ function classify(routePath) {
   return "production";
 }
 
-// The guard helpers each protected surface actually uses. Missing one makes this
-// report cry "not detected" for dozens of properly guarded routes, which is how a
-// genuinely unguarded route would go unnoticed in the noise.
-const GUARD_PATTERNS = {
-  "/api/admin/": /requireAdminAuth|requireAdminAuthContext|requireAdminRead|requireAdminMutation|requireAdminKey|requireAdminPermission|[Aa]dminIdentity/,
-  "/api/seller/": /requireSeller|requireSellerAuthority|resolveRequiredSellerContext|sellerSession|seller_id|sellerId/,
-  "/api/affiliate/": /resolveDistributorContext|distributorAuthConfigured|requireDistributor/,
-  "/api/distributor/": /resolveDistributorContext|distributorAuthConfigured|requireDistributor|distributorSession/
+// STATIC EVIDENCE ONLY. This scanner records whether one of the product's guard
+// helpers is CALLED inside the handler that actually runs. It is deliberately
+// narrow: a call expression to a named guard, never the mere presence of a
+// token. The independent review proved the previous patterns were vacuous - a
+// handler that only called ensureAdminIdentity() (a table-ensure helper) or that
+// mentioned seller_id in a SQL string was reported as guarded. Textual presence
+// is never proof of authorization; the behavioural gate
+// (tests/protected_route_authorization_gate.ts) is the authority. This half only
+// catches the cheapest mistake early and keeps the inventory honest.
+//
+// Patterns are call-shaped on purpose (`name(`) and list only helpers that
+// REFUSE the request when authority is missing. Optional resolvers
+// (resolveSellerContext, resolveOptionalSellerContext) and table-ensure helpers
+// are excluded by design.
+const GUARD_CALL_PATTERNS = {
+  admin: /\b(?:requireAdminAuthContext|requireAdminRead|requireAdminMutation|requireAdminKey|requireAdminPermission)\s*\(/,
+  // rejectManualSellerContextSwitch: the demo-only context switch refuses outright outside demo-preview.
+  seller: /\b(?:requireSellerAuthority|requireSellerAuthorityWithoutBody|resolveRequiredSellerContext|rejectManualSellerContextSwitch)\s*\(/,
+  distributor: /\b(?:resolveDistributorContext|requireDistributor\w*)\s*\(/
 };
+
+function principalFor(routePath, config) {
+  if (config && typeof config.authority === "string") return config.authority;
+  if (routePath.startsWith("/api/admin/")) return "admin";
+  if (routePath.startsWith("/api/seller/")) return "seller";
+  return "distributor";
+}
+
+// Route metadata declared at registration: `app.post(path, { config: { authority: "seller" } }, ...)`
+// or through the SELLER_AUTHORITY_ROUTE constant. Read from the registration site.
+function configFor(registrationText) {
+  const head = registrationText.slice(0, 400);
+  if (/SELLER_AUTHORITY_ROUTE/.test(head)) return { authority: "seller" };
+  const explicit = head.match(/authority\s*:\s*["'`](\w+)["'`]/);
+  return explicit ? { authority: explicit[1] } : {};
+}
 
 /**
  * authorization_class is deliberately NOT a single free-text field any more.
  * Four values that must never collapse into one another:
  *
- *   "guard-detected"       protected route, a guard helper is present in the handler
- *   "guard-not-detected"   protected route, none found - the gate failure case
- *   "anonymous-by-design"  reviewed exception, reasoned in protected_route_policy
- *   "public-contract"      outside every protected namespace - a different contract,
+ *   "guard-call-present"   protected route, a refusing guard helper is CALLED in
+ *                          the handler (static evidence, not proof)
+ *   "no-guard-call"        protected route, no such call - the gate failure case
+ *   "anonymous-by-design"  reviewed exception, reasoned and behaviourally proven
+ *                          in protected_route_policy / the runtime gate
+ *   "public-contract"      outside every protected namespace and carrying no
+ *                          protected authority metadata - a different contract,
  *                          never evidence of a missing guard
  *
  * The old report used "not detected" for both a missing guard and a surface it
  * simply had no opinion about, so a real hole and a public route read the same.
  */
-function authFor(routePath, handlerText) {
-  const klass = policy.classifyRoute(routePath);
+function authFor(routePath, handlerText, config) {
+  const klass = policy.classifyRoute(routePath, config);
 
   if (klass === "anonymous-by-design") {
     return {
@@ -67,17 +97,20 @@ function authFor(routePath, handlerText) {
   }
 
   if (klass === "protected") {
-    const namespace = policy.PROTECTED_NAMESPACES.find((prefix) => routePath.startsWith(prefix));
-    const detected = GUARD_PATTERNS[namespace].test(handlerText);
-    const role = routePath.startsWith("/api/admin/")
+    const principal = principalFor(routePath, config);
+    const pattern = GUARD_CALL_PATTERNS[principal] || GUARD_CALL_PATTERNS.distributor;
+    const guardCall = (handlerText.match(pattern) || [])[0] || null;
+    const role = principal === "admin"
       ? (handlerText.match(/requireAdminPermission\([^,]+,[^,]+,\s*["'`]([^"'`]+)/) || [])[1] || "admin"
-      : routePath.startsWith("/api/seller/") ? "seller" : "distributor";
+      : principal;
     return {
-      authorization_class: detected ? "guard-detected" : "guard-not-detected",
+      authorization_class: guardCall ? "guard-call-present" : "no-guard-call",
       // Static evidence only. The authoritative verdict is behavioural and lives
       // in tests/protected_route_authorization_gate.ts, which probes the live
-      // router anonymously and enforces UNGUARDED_PROTECTED_ROUTES = 0.
-      authentication: detected ? "guard helper present" : "not detected",
+      // router anonymously with every id shape and enforces both
+      // UNGUARDED_PROTECTED_ROUTES = 0 and PROTECTED_PARAMETRIC_ROUTE_AUTH_ORDERING_GAPS = 0.
+      authentication: guardCall ? `guard call: ${guardCall.replace(/\s*\($/, "")}` : "no guard call",
+      protected_by: config && config.authority ? "route metadata" : "namespace",
       role
     };
   }
@@ -124,7 +157,8 @@ for (const filename of sources) {
     const method = match[1].toUpperCase();
     const registeredPath = match[2];
     const routePath = normalizePath(registeredPath);
-    const auth = authFor(routePath, handler);
+    const config = configFor(handler);
+    const auth = authFor(routePath, handler, config);
     const successCodes = [...handler.matchAll(/reply\.code\((2\d\d)\)/g)].map((item) => Number(item[1]));
     const errorCodes = [...handler.matchAll(/(?:statusCode\s*=|reply\.code\()([345]\d\d)/g)].map((item) => Number(item[1]));
     const errorNames = [...handler.matchAll(/(?:err|e)\.code\s*=\s*["'`]([^"'`]+)/g)].map((item) => item[1]);
@@ -180,11 +214,11 @@ const missingRoutes = frontendCalls.filter((call) =>
   !call.path.includes("${") && !routes.some((route) => route.method === call.method && pathsCompatible(call.path, route.path))
 );
 const productionMockRoutes = routes.filter((route) => route.lifecycle === "mock");
-// The gated set: every route in a protected namespace, minus the reviewed
-// anonymous-by-design exceptions, whose handler shows no guard helper at all.
-// Derived from the live namespace policy, so a protected route added tomorrow is
+// The gated set: every protected route (by metadata or namespace), minus the
+// reviewed anonymous-by-design exceptions, whose handler CALLS no refusing guard
+// helper. Derived from the live policy, so a protected route added tomorrow is
 // covered without editing any list here.
-const unguardedProtectedRoutes = routes.filter((route) => route.authorization_class === "guard-not-detected");
+const unguardedProtectedRoutes = routes.filter((route) => route.authorization_class === "no-guard-call");
 const protectedRoutes = routes.filter((route) => route.authorization_class !== "public-contract");
 const anonymousByDesignRoutes = routes.filter((route) => route.authorization_class === "anonymous-by-design");
 const unusedRoutes = routes.filter((route) =>
@@ -211,7 +245,7 @@ const report = {
   unguarded_protected_routes: unguardedProtectedRoutes,
   caveats: [
     "Schema status reports explicit Fastify schemas only; handler-level validation is listed through observed status/error codes.",
-    "authorization_class is STATIC evidence. The authoritative verdict is behavioural: tests/protected_route_authorization_gate.ts probes the live router anonymously and enforces UNGUARDED_PROTECTED_ROUTES = 0.",
+    "authorization_class is STATIC evidence of a guard CALL, never proof of enforcement. The authoritative verdict is behavioural: tests/protected_route_authorization_gate.ts probes the live router anonymously with every id shape and enforces UNGUARDED_PROTECTED_ROUTES = 0 and PROTECTED_PARAMETRIC_ROUTE_AUTH_ORDERING_GAPS = 0.",
     "public-contract is not evidence of a missing guard. It means the route lives outside every protected namespace and answers a different contract; it is never counted as unguarded."
   ]
 };
@@ -254,16 +288,18 @@ console.log("WEB_ROUTE_INVENTORY_COMPLETE", JSON.stringify({
   UNGUARDED_PROTECTED_ROUTES: unguardedProtectedRoutes.length
 }));
 
-// The gate. Not a threshold anybody may raise: a protected route with no guard
-// helper in its handler fails the build. If a new guard helper is introduced,
-// adding it to GUARD_PATTERNS is the reviewed action that clears this - which is
-// the point, because that review is exactly what a silent hole skips.
+// The static half of the gate. Not a threshold anybody may raise: a protected
+// route whose handler calls no refusing guard helper fails the build. If a new
+// guard helper is introduced, adding it to GUARD_CALL_PATTERNS is the reviewed
+// action that clears this - which is the point, because that review is exactly
+// what a silent hole skips. Passing here proves nothing on its own; the
+// behavioural suites run next (scripts/ci_route_authorization_gate.cjs).
 if (unguardedProtectedRoutes.length > 0) {
   console.error(`ROUTE_INVENTORY_GATE_FAIL UNGUARDED_PROTECTED_ROUTES=${unguardedProtectedRoutes.length} (invariant: 0)`);
   for (const route of unguardedProtectedRoutes) {
     console.error(`  ${route.method} ${route.path}  (${route.source})`);
   }
-  console.error("Either guard the route, add its guard helper to GUARD_PATTERNS, or justify it in scripts/protected_route_policy.cjs ANONYMOUS_BY_DESIGN with a reason.");
+  console.error("Either guard the route, add its guard helper to GUARD_CALL_PATTERNS, or justify it in scripts/protected_route_policy.cjs ANONYMOUS_BY_DESIGN with a reason AND a behavioural expectation.");
   process.exit(1);
 }
 console.log("ROUTE_INVENTORY_GATE_PASS UNGUARDED_PROTECTED_ROUTES=0");
