@@ -3247,33 +3247,6 @@ function isDynamicNoStoreRoute(url: string) {
   );
 }
 
-// A NUL byte cannot exist in a PostgreSQL text value, so any query parameter
-// carrying one is guaranteed to fail somewhere downstream - and it failed as a
-// 500, not a 400: `GET /api/admin/support-cases?seller_id=%00` reached the
-// driver and faulted. A caller-chosen value must never produce a server error,
-// and the fix belongs here rather than in one handler because every route that
-// forwards a query parameter into a query has the same exposure.
-//
-// Rejecting is right, not stripping: a NUL is never meaningful input, and
-// silently rewriting it would change what the caller asked for. Control-character
-// scrubbing already happens for stored text (seller_inquiries, pickup_location,
-// frontend_runtime); this closes the query-string entry point.
-app.addHook("onRequest", (req: any, reply: any, done) => {
-  const query = req.query;
-  if (query && typeof query === "object") {
-    for (const value of Object.values(query as Record<string, unknown>)) {
-      const values = Array.isArray(value) ? value : [value];
-      for (const entry of values) {
-        if (typeof entry === "string" && entry.indexOf("\u0000") !== -1) {
-          void reply.code(400).send({ ok: false, error: "invalid_query_parameter", code: "NUL_BYTE_IN_QUERY" });
-          return;
-        }
-      }
-    }
-  }
-  done();
-});
-
 app.addHook("onRequest", (req: any, reply: any, done) => {
   applicationRequestTelemetry.start(req);
   // req.id was produced by genReqId through safeHeaderId; re-normalising the
@@ -3426,6 +3399,80 @@ if (RATE_LIMIT_MAX > 0) {
     }
   });
 }
+
+// ─── Hostile-input rejection: NUL bytes ─────────────────────────────────────
+//
+// HOOK ORDER IS DELIBERATE (independent review LOW-2). These two hooks are
+// registered AFTER the request-envelope hook (canonical request id, security
+// headers, no-store, telemetry start) and AFTER the rate limiter, and BEFORE any
+// handler - so a rejected hostile request still goes out with the standard safe
+// envelope and still counts against the caller's budget, while nothing that
+// costs a database round-trip or an authentication lookup runs for it.
+//
+// A NUL byte cannot exist in a PostgreSQL text value or jsonb document, so any
+// caller-chosen value carrying one is guaranteed to fail downstream - and it
+// failed as a 500: `GET /api/admin/support-cases?seller_id=%00` reached the
+// driver (V5), and a NUL inside a JSON string on POST /deals did the same
+// (LOW-3). A caller-chosen byte must never produce a server error, and the fix
+// belongs at the entry point because every route that forwards input into a
+// query has the same exposure.
+//
+// Rejecting is right, not stripping: a NUL is never meaningful input, and
+// silently rewriting it would change what the caller asked for. Only NUL is
+// refused globally - other control characters are legal in PostgreSQL and are
+// scrubbed per field where the product wants that; refusing them everywhere
+// would invent a contract the product never made.
+app.addHook("onRequest", (req: any, reply: any, done) => {
+  const query = req.query;
+  if (query && typeof query === "object") {
+    for (const value of Object.values(query as Record<string, unknown>)) {
+      const values = Array.isArray(value) ? value : [value];
+      for (const entry of values) {
+        if (typeof entry === "string" && entry.indexOf("\u0000") !== -1) {
+          void reply.code(400).send({ ok: false, error: "invalid_query_parameter", code: "NUL_BYTE_IN_QUERY" });
+          return;
+        }
+      }
+    }
+  }
+  done();
+});
+
+/**
+ * True when a parsed JSON body carries a NUL anywhere: top-level strings,
+ * nested strings, array elements, and object KEYS (jsonb rejects those too).
+ * Iterative, so nesting depth cannot exhaust the stack; bodyLimit already
+ * bounds the total size.
+ */
+function bodyCarriesNulByte(body: unknown): boolean {
+  const stack: unknown[] = [body];
+  while (stack.length) {
+    const value = stack.pop();
+    if (typeof value === "string") {
+      if (value.indexOf("\u0000") !== -1) return true;
+      continue;
+    }
+    if (!value || typeof value !== "object" || Buffer.isBuffer(value)) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) stack.push(item);
+      continue;
+    }
+    for (const key of Object.keys(value as Record<string, unknown>)) {
+      if (key.indexOf("\u0000") !== -1) return true;
+      stack.push((value as Record<string, unknown>)[key]);
+    }
+  }
+  return false;
+}
+
+app.addHook("preValidation", (req: any, reply: any, done) => {
+  const body = req.body;
+  if (body !== undefined && body !== null && bodyCarriesNulByte(body)) {
+    void reply.code(400).send({ ok: false, error: "invalid_body", code: "NUL_BYTE_IN_BODY" });
+    return;
+  }
+  done();
+});
 
 app.setErrorHandler((error: any, req: any, reply) => {
   const statusCode = Number(error.statusCode || error.status || 0);
