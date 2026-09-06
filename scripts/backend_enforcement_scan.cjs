@@ -68,6 +68,45 @@ for (const file of files) {
   }
 }
 
+// Raw control bytes in source. A NUL (or other C0 byte outside tab/CR/LF) makes
+// git classify the file as BINARY: no diff, no line-level review, no blame - so
+// a change can land unreviewed. This is not hypothetical; it happened to a test
+// file during the backend hardening audit. Control characters that a test
+// genuinely needs belong in escape form (\u0000), which is text.
+// Deliberately a WIDER file list than the checks above. Those are scoped to
+// src/frontend/scripts because tests legitimately carry synthetic secrets and
+// direct state mutations. A raw control byte, by contrast, is never legitimate
+// anywhere - and tests/ is exactly where one landed.
+const controlByteFiles = [...files];
+{
+  const testsDir = path.join(root, "tests");
+  if (fs.existsSync(testsDir)) {
+    const walkTests = (dir) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) walkTests(full);
+        else if (/\.(ts|js|cjs|mjs)$/.test(entry.name)) controlByteFiles.push(full);
+      }
+    };
+    walkTests(testsDir);
+  }
+}
+const CONTROL_BYTE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
+for (const file of controlByteFiles) {
+  const rel = path.relative(root, file);
+  if (rel === path.join("scripts", "backend_enforcement_scan.cjs")) continue;
+  const source = fs.readFileSync(file, "utf8");
+  const match = CONTROL_BYTE.exec(source);
+  if (match) {
+    const line = source.slice(0, match.index).split("\n").length;
+    const code = source.charCodeAt(match.index);
+    failures.push(
+      rel + ":" + line + ": raw control byte U+" + code.toString(16).padStart(4, "0").toUpperCase() +
+      " in source - git treats the file as binary, which removes it from review. Use an escape."
+    );
+  }
+}
+
 if (failures.length) {
   console.error("BACKEND_ENFORCEMENT_SCAN_FAIL");
   failures.forEach((failure) => console.error(`- ${failure}`));
@@ -79,3 +118,4 @@ console.log(`SCANNED_FILES=${files.length}`);
 console.log("DIRECT_STATE_MUTATION_PASS");
 console.log("PAYMENT_SDK_BOUNDARY_PASS");
 console.log("SECRET_SCAN_PASS");
+console.log("CONTROL_BYTE_SCAN_PASS");
