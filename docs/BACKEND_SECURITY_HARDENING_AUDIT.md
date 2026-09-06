@@ -14,19 +14,19 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 4 |
-| Real vulnerabilities fixed | 4 |
+| Real vulnerabilities found | 5 |
+| Real vulnerabilities fixed | 5 |
 | Consistency hardenings | 7 |
 | Protected routes enumerated | 87 |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 8 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary) |
-| Phases complete | 8 of 14 (Phases 0-7) |
+| New CI gates | 9 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface) |
+| Phases complete | 9 of 14 (Phases 0-7, 9) |
 
 **No protected content was ever served to a caller who should not see it.** Three
-of the four findings are existence oracles — what leaked was the *fact* that an
-object exists — and the fourth is an error-surface defect.
+of the five findings are existence oracles — what leaked was the *fact* that an
+object exists — and two are error-surface defects.
 
 - **V1** (unauthenticated existence oracle): an anonymous caller could
   distinguish admin action ids that exist from ids that do not.
@@ -44,6 +44,12 @@ object exists — and the fourth is an error-surface defect.
   `/api/deal-images/:imageId` route, an anonymous caller got `401` for a real
   Draft image and `404` for a fabricated id. Draft imagery is never public, so
   this confirmed that a given image id was a real private file.
+
+- **V5** (error surface): a NUL byte in a query parameter reached the database
+  driver and produced `500` instead of a bounded `400`. Reachable only by an
+  authenticated admin where it was found, but every route forwarding a query
+  parameter into a query had the same exposure, so the fix sits at the entry
+  point.
 
 Everything else is guard-order consistency — validation of the caller's own
 input running before authorization. Those are recorded as hardenings,
@@ -238,6 +244,38 @@ fix with `anonymous can tell an existing draft image (401) from a missing one
 (404)`, and passes after. The same probe runs as a foreign seller, which was
 already correct and stays correct — so the test would also catch a regression
 that "fixed" anonymous by breaking the foreign case.
+
+---
+
+### V5 — A NUL byte in a query parameter faults the server (`500`)
+
+**Class:** unhandled input reaching the database driver.
+**Severity:** LOW–MEDIUM. Reachable only by an authenticated admin on the route
+where it was found, so it is not an anonymous availability lever. It is still a
+`500` produced by a value the caller chose, which is the shape this phase exists
+to eliminate.
+
+**Found:** `GET /api/admin/support-cases?seller_id=%00` → `500 internal_error`.
+
+**Root cause.** PostgreSQL cannot represent a NUL byte in a `text` value, so any
+query parameter carrying one is guaranteed to fail once it reaches the driver.
+Nothing rejected it earlier, so it surfaced as a server error rather than a
+bounded refusal.
+
+**Fix — placed at the entry point, not in the handler.** Every route that
+forwards a query parameter into a query has the same exposure, so a per-handler
+patch would have fixed one instance of a class. An `onRequest` hook now rejects
+any query value containing a NUL with `400 NUL_BYTE_IN_QUERY`.
+
+**Rejecting rather than stripping** is deliberate: a NUL is never meaningful
+input, and silently rewriting it would change what the caller asked for.
+Control-character scrubbing already exists for *stored* text
+(`seller_inquiries`, `pickup_location`, `frontend_runtime`); this closes the
+query-string entry point in the same spirit.
+
+**A/B proof.** The sweep reported
+`/api/admin/support-cases ?seller_id=\x00 -> 500` before the hook and `0 faults`
+across 5,781 probes after it.
 
 ---
 
@@ -510,6 +548,57 @@ Object keys are checked because they end up in CDN URLs, access logs and support
 tickets. A key like `seller-acme/price-list-confidential.png` leaks both the
 tenant and the document name to anyone who ever sees the URL.
 
+## INPUT / ERROR-SURFACE RESULT
+
+`tests/input_error_surface_authority_validation.ts`, 6/6. Two invariants, and the
+second is the one that leaks:
+
+1. Caller-controlled input produces a **bounded 4xx, never a 5xx**. A 500 from a
+   value the caller chose means the request reached logic that did not expect it.
+2. An error body **never describes the server** — no stack frame, SQL, driver
+   text, filesystem path, connection string or configured secret.
+
+Deliberately *not* asserted: that any particular hostile value is rejected. A
+route may ignore an unknown parameter, clamp a silly one, or return an empty
+page. Demanding rejection everywhere would invent a contract the product never
+made.
+
+| Probe | Result |
+|---|---|
+| Query fuzz — 5,781 probes across 123 GET routes | **0 faults** (1 before the V5 fix) |
+| Error bodies describing the server | None |
+| Malformed path parameters (7 shapes incl. traversal, NUL, 4KB, short UUID) | Bounded 4xx, no internal detail |
+| Pagination abuse (`limit=1000000`, `999999999999`, `-1`, `1e400`) | No fault, no unbounded body |
+| Hostile JSON bodies (10 shapes: negative, overflow, NaN strings, wrong types, 200-deep nesting, 200KB strings, all-null, invalid enum, invalid timestamp, `__proto__` pollution) | Bounded 4xx, `Object.prototype` unpolluted |
+
+### Two flaws in this suite that a negative control caught
+
+Both are recorded because they decide whether the "0 faults" result means
+anything. The suite was built, an intentionally broken route was injected, and it
+was **not** detected — twice — before the instrument was fixed.
+
+**1. Aggregate coverage is not per-route coverage.** The first design walked a
+rotating stride of (parameter, value) pairs across the route list. Over the whole
+corpus every pair was exercised, but each individual route saw only a slice — so
+an injected route that faulted on `limit=NaN` was never hit with that pair. The
+sweep now has a **core** set (every route meets every high-signal value on the
+parameters that actually reach parsing and query construction) *plus* the stride
+for breadth across the long tail.
+
+**2. The rate limiter silently invalidated everything after the first sweep.**
+A thousands-of-request sweep exhausts the 200/min per-IP bucket within seconds,
+after which every later probe gets `429` — so the leak, path-parameter,
+pagination and JSON-body tests were all measuring the limiter, not the routes,
+and passed vacuously. The suite now disables rate limiting explicitly, with the
+reason written next to it. The limiter has its own suites
+(`rate_limiter_validation`, `rate_limit_read_budget_validation`); this one is
+about input handling.
+
+A third, smaller instrument bug came from the same control: the Windows-path
+detector was written for an unescaped path (`C:\Users\`) but error bodies are
+JSON, where it arrives as `C:\\Users\\`. Every backslash in the internal-detail
+patterns now tolerates one or two.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -554,7 +643,7 @@ path.
 | Worker / outbox resilience | **PASS** — pre-existing coverage is strong; 3 liveness gaps added and green |
 | Storage / file boundary | **PASS after fix** — 1 finding (V4); object keys clean, upload validation bounded, cross-seller writes inert |
 | Rate limit / abuse boundary | NOT RUN (Phase 8) |
-| Input / query / error surface | NOT RUN (Phase 9) |
+| Input / query / error surface | **PASS after fix** — 1 finding (V5); 0 faults across 5,781 probes, no internal detail in any error body |
 | DB authority / invariants | NOT RUN (Phase 10) |
 | Observability / forensic truth | NOT RUN (Phase 11) |
 | Secret / config / fail-closed | Partial — repository secret scan PASS via `npm run lint`; full Phase 12 audit not run |
@@ -614,6 +703,7 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `state_machine_race_authority_validation` | 6/6 (5 race classes, judged against DEAL_TRANSITIONS) |
 | `outbox_poison_progress_authority_validation` | 6/6 (queue liveness under poison) |
 | `storage_boundary_authority_validation` | 6/6 (draft imagery, object keys, upload validation) |
+| `input_error_surface_authority_validation` | 6/6 (5,781 query probes, 123 GET routes) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |

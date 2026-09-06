@@ -3129,6 +3129,33 @@ function isDynamicNoStoreRoute(url: string) {
   );
 }
 
+// A NUL byte cannot exist in a PostgreSQL text value, so any query parameter
+// carrying one is guaranteed to fail somewhere downstream - and it failed as a
+// 500, not a 400: `GET /api/admin/support-cases?seller_id=%00` reached the
+// driver and faulted. A caller-chosen value must never produce a server error,
+// and the fix belongs here rather than in one handler because every route that
+// forwards a query parameter into a query has the same exposure.
+//
+// Rejecting is right, not stripping: a NUL is never meaningful input, and
+// silently rewriting it would change what the caller asked for. Control-character
+// scrubbing already happens for stored text (seller_inquiries, pickup_location,
+// frontend_runtime); this closes the query-string entry point.
+app.addHook("onRequest", (req: any, reply: any, done) => {
+  const query = req.query;
+  if (query && typeof query === "object") {
+    for (const value of Object.values(query as Record<string, unknown>)) {
+      const values = Array.isArray(value) ? value : [value];
+      for (const entry of values) {
+        if (typeof entry === "string" && entry.indexOf("\u0000") !== -1) {
+          void reply.code(400).send({ ok: false, error: "invalid_query_parameter", code: "NUL_BYTE_IN_QUERY" });
+          return;
+        }
+      }
+    }
+  }
+  done();
+});
+
 app.addHook("onRequest", (req: any, reply: any, done) => {
   applicationRequestTelemetry.start(req);
   const requestId = safeHeaderId(req.headers?.["x-request-id"], "req");
