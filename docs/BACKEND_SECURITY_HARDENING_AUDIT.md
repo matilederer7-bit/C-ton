@@ -21,8 +21,8 @@ plan. Anything not yet run says so.
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
 | Cross-tenant 2xx leaks | 0 |
-| New CI gates | 9 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface) |
-| Phases complete | 9 of 14 (Phases 0-7, 9) |
+| New CI gates | 10 (behavioural authz, static authz, cross-principal isolation, principal state authority, mutation replay, state-machine races, outbox poison/progress, storage boundary, input/error surface, DB invariants) |
+| Phases complete | 10 of 14 (Phases 0-7, 9, 10) |
 
 **No protected content was ever served to a caller who should not see it.** Three
 of the five findings are existence oracles — what leaked was the *fact* that an
@@ -599,6 +599,53 @@ detector was written for an unescaped path (`C:\Users\`) but error bodies are
 JSON, where it arrives as `C:\\Users\\`. Every backslash in the internal-detail
 patterns now tolerates one or two.
 
+## DB-INVARIANT RESULT
+
+`tests/db_invariant_authority_validation.ts`, 8/8. **No findings** — and the
+result is only worth stating because the instrument was built to be able to
+produce one.
+
+Two different questions need two different instruments:
+
+1. **Is the invariant backed by the schema?** Probed with direct SQL. If the
+   database accepts the violation, the rule lives only in TypeScript and a new
+   code path that forgets it has no backstop. This half is a regression gate:
+   drop a `CHECK` and it fails.
+2. **Where the rule cannot be a constraint** — "the sum of joined quantities must
+   not exceed this deal's `max_units`" is not expressible as a column check —
+   **does the concurrency control actually hold?** Probed with real concurrent
+   requests, because that is the only thing that distinguishes a correct lock
+   from a comment claiming there is one.
+
+| Invariant | Backing | Verified |
+|---|---|---|
+| `participants.qty` within 1…1000 | `CHECK` | Zero, negative and absurd all rejected |
+| `deals.min_units > 0`, `max_units >= min_units`, `threshold_units > 0` | `CHECK` | All three rejected |
+| Participant → deal | FK | Orphan rejected |
+| Image → deal | FK + `ON DELETE CASCADE` | Orphan rejected; imagery dies with its deal |
+| Inquiry thread → deal | FK | Orphan rejected |
+| **Total joined units ≤ `max_units`** | Application + `SELECT … FOR UPDATE` on the deal row | **14 concurrent joins → exactly 5 accepted, 5/5 units**; mixed quantities `[3,3,3,2,2,1,1,4]` → 6/6, no oversell |
+
+The capacity race is the reason this file exists: read the remaining capacity,
+decide there is room, write. Two requests interleaved between the read and the
+write both decide yes. The row lock serialises them correctly.
+
+**"5 of 14 succeeded" is only evidence if the other nine were refused because the
+deal was full.** Had they failed for an unrelated reason — a bad fixture, an
+exhausted pool, a validation slip — the counts would look identical while proving
+nothing about the lock. The suite therefore asserts every rejection carries a
+capacity reason, and that accepted count equals recorded units.
+
+Two invariants were traced in code rather than tested, and both hold:
+`threshold_units` is **derived** (`ceil(0.9 × min_units)`) at creation *and*
+recomputed on every draft patch, so a caller cannot supply a threshold above
+`max_units` and strand a deal that can never complete.
+
+**No migration was written.** Nothing critical was found relying on TypeScript
+alone with a race or bypass path, so adding schema is not justified here.
+Migration numbers stay clean: this branch ends at 061 (P0.7), with 062 reserved
+for the Amazon product work and 063 for the R9C payment lifecycle.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -644,7 +691,7 @@ path.
 | Storage / file boundary | **PASS after fix** — 1 finding (V4); object keys clean, upload validation bounded, cross-seller writes inert |
 | Rate limit / abuse boundary | NOT RUN (Phase 8) |
 | Input / query / error surface | **PASS after fix** — 1 finding (V5); 0 faults across 5,781 probes, no internal detail in any error body |
-| DB authority / invariants | NOT RUN (Phase 10) |
+| DB authority / invariants | **PASS** — 0 findings; schema backs the bounds and FKs, and the capacity guard holds under real concurrency |
 | Observability / forensic truth | NOT RUN (Phase 11) |
 | Secret / config / fail-closed | Partial — repository secret scan PASS via `npm run lint`; full Phase 12 audit not run |
 | Soak / chaos | NOT RUN (Phase 13) |
@@ -704,6 +751,7 @@ lands there it will be proved and documented here, not fixed on this branch.
 | `outbox_poison_progress_authority_validation` | 6/6 (queue liveness under poison) |
 | `storage_boundary_authority_validation` | 6/6 (draft imagery, object keys, upload validation) |
 | `input_error_surface_authority_validation` | 6/6 (5,781 query probes, 123 GET routes) |
+| `db_invariant_authority_validation` | 8/8 (schema backing + 14-way concurrent join race) |
 | Security group | see PROJECT_STATUS for the run of record |
 | Tests touching changed routes | 11/11 |
 | `npm run lint` (backend enforcement + secret scan) | PASS |
