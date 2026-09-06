@@ -12,7 +12,7 @@
  *   S5 — pickup option does NOT require delivery_address
  *   S6 — delivery option DOES require delivery_address (returns 400 + delivery_address_required)
  *   S7 — invalid delivery_option_id returns invalid_delivery_option
- *   S8 — ownership 403 still enforced after schema change
+ *   S8 — cross-seller access refused, indistinguishably from a missing deal
  */
 
 import { strict as assert } from "node:assert";
@@ -355,19 +355,39 @@ await run("S8 join rejects boolean, string, exponent, decimal and non-positive q
   }
 });
 
-await run("S9 ownership 403 still enforced after schema migration", async () => {
+// Ownership enforcement is what this test has always been about; the status code
+// was incidental. It now asserts the stronger property: a foreign deal is not
+// merely refused, it is INDISTINGUISHABLE from a deal that does not exist. The
+// old 403-here/404-there split let any authenticated seller enumerate which deal
+// ids are real (Drafts included, which are never public).
+await run("S9 cross-seller shipping export is refused and indistinguishable from a missing deal", async () => {
   const ownerSellerId = `seller-owner2-${randomUUID().slice(0, 8)}`;
   const otherSellerId = `seller-other2-${randomUUID().slice(0, 8)}`;
   const { dealId } = await completeDealWithParticipants(ownerSellerId, [
     { buyerState: "DealCompleted", moneyState: "ChargedSuccess" }
   ]);
 
-  const res = await app.inject({
+  const foreign = await app.inject({
     method: "GET",
     url: `/api/seller/deals/${dealId}/shipping-export`,
     headers: { "x-seller-id": otherSellerId }
   });
-  assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${res.body}`);
+  assert.ok(
+    foreign.statusCode < 200 || foreign.statusCode >= 300,
+    `a foreign seller was served the export: ${foreign.statusCode}`
+  );
+
+  const missing = await app.inject({
+    method: "GET",
+    url: `/api/seller/deals/${randomUUID()}/shipping-export`,
+    headers: { "x-seller-id": otherSellerId }
+  });
+  assert.equal(
+    foreign.statusCode,
+    missing.statusCode,
+    `foreign deal answered ${foreign.statusCode} but a missing one answered ${missing.statusCode} - that difference is an existence oracle`
+  );
+  assert.equal(foreign.statusCode, 404, `expected the shared not-found answer, got ${foreign.statusCode}: ${foreign.body}`);
 });
 
 await pool.end();

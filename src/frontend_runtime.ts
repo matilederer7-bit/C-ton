@@ -4232,10 +4232,13 @@ export function registerFrontendExperience(
 
       const deal = dealResult.rows[0] as any;
 
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden: you do not own this deal");
-        err.statusCode = 403;
-        err.code = "forbidden";
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
 
@@ -4362,9 +4365,13 @@ export function registerFrontendExperience(
         throw err;
       }
       const deal = dealResult.rows[0] as any;
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden");
-        err.statusCode = 403;
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
       if (String(deal.state) !== "Completed") {
@@ -4432,9 +4439,13 @@ export function registerFrontendExperience(
         throw err;
       }
       const deal = dealResult.rows[0] as any;
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden");
-        err.statusCode = 403;
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
       if (String(deal.state) !== "Completed") {
@@ -4553,9 +4564,13 @@ export function registerFrontendExperience(
         throw err;
       }
       const deal = dealResult.rows[0] as any;
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden");
-        err.statusCode = 403;
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
       if (String(deal.deal_type) !== "voucher") {
@@ -4665,9 +4680,13 @@ export function registerFrontendExperience(
         throw err;
       }
       const deal = dealResult.rows[0] as any;
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden");
-        err.statusCode = 403;
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
       if (String(deal.deal_type) !== "ticket") {
@@ -4867,10 +4886,13 @@ export function registerFrontendExperience(
       }
       const deal = dealResult.rows[0] as any;
 
+      // A deal owned by another seller answers EXACTLY like a deal that does not
+      // exist. A 403-here/404-there split lets any authenticated seller enumerate
+      // which deal ids are real, Drafts included, which are not public. Same
+      // convention as the seller-authorized Draft buyer preview (P0.7 polish).
       if (String(deal.effective_seller_id) !== sellerId) {
-        const err: any = new Error("forbidden: you do not own this deal");
-        err.statusCode = 403;
-        err.code = "forbidden";
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
         throw err;
       }
 

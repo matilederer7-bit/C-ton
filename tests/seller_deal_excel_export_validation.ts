@@ -127,19 +127,36 @@ await run("T1 seller can export completed deal xlsx — 200, content-type, valid
   assert.ok(sheetNames.includes("Notes"), "missing Notes sheet");
 });
 
-// ── Test 2: unauthorized seller gets 403 ──────────────────────────────────────
-await run("T2 unauthorized seller gets 403", async () => {
+// ── Test 2: a foreign seller is refused, and cannot tell the deal exists ──────
+// Ownership enforcement is the point; the status code was incidental. Asserting
+// parity with a nonexistent deal is the stronger property: the old
+// 403-here/404-there split let any authenticated seller enumerate real deal ids.
+await run("T2 foreign seller is refused and cannot distinguish the deal from a missing one", async () => {
   const ownerSellerId = `seller-owner-${randomUUID().slice(0, 8)}`;
   const otherSellerId = `seller-other-${randomUUID().slice(0, 8)}`;
   const dealId = await insertCompletedDeal(ownerSellerId);
 
-  const res = await app.inject({
+  const foreign = await app.inject({
     method: "GET",
     url: `/api/seller/deals/${dealId}/export.xlsx`,
     headers: { "x-seller-id": otherSellerId }
   });
+  assert.ok(
+    foreign.statusCode < 200 || foreign.statusCode >= 300,
+    `a foreign seller was served the workbook: ${foreign.statusCode}`
+  );
 
-  assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${res.body}`);
+  const missing = await app.inject({
+    method: "GET",
+    url: `/api/seller/deals/${randomUUID()}/export.xlsx`,
+    headers: { "x-seller-id": otherSellerId }
+  });
+  assert.equal(
+    foreign.statusCode,
+    missing.statusCode,
+    `foreign deal answered ${foreign.statusCode} but a missing one answered ${missing.statusCode} - that difference is an existence oracle`
+  );
+  assert.equal(foreign.statusCode, 404, `expected the shared not-found answer, got ${foreign.statusCode}: ${foreign.body}`);
 });
 
 // ── Test 3: non-completed deal gets 409 deal_not_completed ────────────────────

@@ -14,20 +14,29 @@ plan. Anything not yet run says so.
 
 | | |
 |---|---|
-| Real vulnerabilities found | 1 |
-| Real vulnerabilities fixed | 1 |
+| Real vulnerabilities found | 2 |
+| Real vulnerabilities fixed | 2 |
 | Consistency hardenings | 7 |
 | Protected routes enumerated | 87 |
 | `UNGUARDED_PROTECTED_ROUTES` | 0 |
 | Guard-ordering violations remaining | 0 |
-| New CI gates | 2 (behavioural + static) |
-| Phases complete | 1 of 14 (Phase 0) |
+| Cross-tenant 2xx leaks | 0 |
+| New CI gates | 3 (behavioural authz, static authz, cross-principal isolation) |
+| Phases complete | 3 of 14 (Phase 0, 1, 2) |
 
-The single real finding is an **existence oracle**, not a data leak: an
-unauthenticated caller could distinguish admin action ids that exist from ids
-that do not. Everything else found so far is guard-order consistency —
-validation of the caller's own input running before authorization. Those are
-recorded as hardenings, deliberately **not** inflated into vulnerabilities.
+Both real findings are **existence oracles**, not data leaks. No cross-tenant
+content was ever served; what leaked was the *fact* that an object exists.
+
+- **V1** (unauthenticated): an anonymous caller could distinguish admin action
+  ids that exist from ids that do not.
+- **V2** (authenticated, cross-tenant): any logged-in seller could distinguish a
+  real deal id belonging to another seller from a fabricated one, on six export
+  and handoff routes. Drafts are never public, so this told a competitor whether
+  a given id was a real unpublished deal.
+
+Everything else is guard-order consistency — validation of the caller's own
+input running before authorization. Those are recorded as hardenings,
+deliberately **not** inflated into vulnerabilities.
 
 ---
 
@@ -80,6 +89,57 @@ and fails. With the fix it reports `401` and passes. Additionally
 `tests/protected_route_authorization_gate.ts` asserts that two independent random
 ids produce the *same* status on every parametric protected route, which is the
 general form of this bug.
+
+### V2 — Cross-tenant deal existence oracle (six seller export / handoff routes)
+
+**Class:** IDOR-adjacent information disclosure. Object-level authorization was
+correct; the *shape of the refusal* was not.
+**Severity:** MEDIUM. No cross-tenant data was ever served — every probe was
+refused. What leaked was existence: a foreign deal answered `403` while a
+fabricated id answered `404`, so any authenticated seller could test whether an
+arbitrary deal UUID was real. Draft deals are never public, so this is a
+disclosure about objects the caller has no other way to observe.
+
+Affected:
+
+```
+GET /api/seller/deals/:dealId/delivery-handoff
+GET /api/seller/deals/:dealId/delivery-handoff/export.xlsx
+GET /api/seller/deals/:dealId/shipping-export
+GET /api/seller/deals/:dealId/voucher-export
+GET /api/seller/deals/:dealId/ticket-export
+GET /api/seller/deals/:dealId/export.xlsx
+```
+
+**Root cause.** Each handler loaded the deal, then branched:
+
+```ts
+if (!dealResult.rowCount)  throw { statusCode: 404 };            // missing
+if (deal.effective_seller_id !== sellerId) throw { statusCode: 403 };  // foreign
+```
+
+The two branches are distinguishable, and that difference is the oracle.
+
+**Why 404 is the right answer, not 403.** The codebase had already made this
+decision elsewhere and these six routes simply had not been brought in line: the
+seller-authorized Draft buyer preview (P0.7 polish) states that "a foreign deal
+answers 404 exactly like a missing one", and `draft`, `delivery`, `duplicate`
+and `delete` already behaved that way. The fix makes the six consistent with the
+convention the project already chose.
+
+**Three existing tests pinned the old `403`** — `S9 ownership 403 still
+enforced`, `T2 unauthorized seller gets 403`, and `shipping export returns 403
+when seller does not own the deal`. Each was written to prove *refusal*, with the
+status code incidental. They were upgraded rather than merely edited to pass:
+each now asserts the **stronger** property — refused, **and** returning the same
+status as a nonexistent deal — so they would catch a regression in either
+direction.
+
+**A/B proof.** `tests/cross_principal_authorization_isolation_validation.ts`
+failed before the fix, naming all six routes as `foreign 403 vs missing 404`, and
+passes after. The suite carries a vacuity guard (seller A must be able to read
+its *own* deal and its own inquiry thread) so a broken session fixture cannot
+make the isolation assertions pass trivially.
 
 ---
 
@@ -171,6 +231,41 @@ anonymous caller. Being reachable is the exception; leaking is never part of it.
 
 ---
 
+## IDOR / CROSS-TENANT RESULT
+
+Synthetic principals SELLER_A and SELLER_B, provisioned through the real admin
+route and holding real DB-backed sessions in `internal-runtime` — **not** the
+demo-preview `x-seller-id` convenience header, which auto-creates a workspace for
+any caller and would make an isolation proof meaningless. The route set is
+enumerated from the live router, so a seller route added tomorrow is probed
+without editing the suite.
+
+| Probe | Result |
+|---|---|
+| Vacuity guard: A reaches its own deal, own draft, own thread; B's list excludes A's deal | PASS |
+| A receives 2xx for B's deal on any parametric seller route (17 routes) | 0 |
+| Foreign deal vs nonexistent deal status parity | PASS after the V2 fix |
+| A mutates B's deal (draft / delivery / duplicate / delete) — status **and** durable DB state | PASS; B's row unchanged, no copy created in A's account |
+| A reads or replies to B's inquiry thread; foreign/missing parity; no message written on refusal | PASS |
+| A's inquiry list leaks B's thread | No |
+| `x-seller-id` overrides an existing session | No |
+| `x-seller-id` alone is authority | No (401) |
+| Seller session reaches `/api/admin/overview`, `/api/admin/actions`, `/api/admin/mission-control`, `/api/admin/auth/me` | No (401/403) |
+| Seller session reaches `/api/affiliate/overview` | No |
+
+Two details that decide whether this suite is worth anything:
+
+- **The vacuity guard is not decoration.** If the session fixture broke, every
+  probe would return 401 and every isolation assertion would pass while proving
+  nothing. The suite therefore proves A *can* reach its own objects first.
+- **The role-confusion probes assert their targets are registered.** An earlier
+  draft probed `/api/admin/deals`, which does not exist; it passed on the 404 and
+  proved nothing. The suite now fails if a probe target is not in the router.
+
+Write refusals are checked against the **database**, not only the status code: a
+refused cross-tenant reply must also leave zero rows behind, and a refused
+`duplicate` must not have copied the foreign deal into the attacker's account.
+
 ## CI COVERAGE
 
 Two independent halves, both asserting `UNGUARDED_PROTECTED_ROUTES = 0` with no
@@ -207,8 +302,9 @@ path.
 | Area | Status |
 |---|---|
 | Authorization ordering | **PASS** — 87 protected routes, 0 unguarded, 0 ordering violations |
-| IDOR / cross-tenant | NOT RUN (Phase 2) |
-| Role / session / account state | NOT RUN (Phase 3) |
+| IDOR / cross-tenant | **PASS after fix** — 1 finding (V2), 0 cross-tenant 2xx, foreign/missing parity on every parametric seller route |
+| Role confusion | **PASS** — a seller session reaches neither the admin nor the distributor surface; a caller-supplied `x-seller-id` never overrides or supplies authority |
+| Role / session / account state | PARTIAL (Phase 3) — forged and header-only identity covered; expiry, revocation, suspended accounts and admin capability tiers not yet |
 | Mutation replay / double-submit | NOT RUN (Phase 4) |
 | Concurrency / state-machine races | NOT RUN (Phase 5) |
 | Worker / outbox resilience | NOT RUN (Phase 6) |

@@ -113,20 +113,37 @@ await run("shipping export includes only eligible buyers (ChargedSuccess, Recove
   assert.ok(!participantIds.includes(p5), "p5 (Dropped) must not be in export");
 });
 
-// Test 2: ownership enforcement — wrong seller gets 403
-await run("shipping export returns 403 when seller does not own the deal", async () => {
+// Test 2: ownership enforcement — a foreign seller is refused, and the refusal
+// looks exactly like a deal that does not exist. Ownership was always the point;
+// the status code was incidental. A 403-here/404-there split let any
+// authenticated seller enumerate which deal ids are real, Drafts included.
+await run("shipping export refuses a foreign seller indistinguishably from a missing deal", async () => {
   const dealId = randomUUID();
   const ownerSellerId = `seller-owner-${randomUUID().slice(0, 8)}`;
   const otherSellerId = `seller-other-${randomUUID().slice(0, 8)}`;
   await insertCompletedDeal(dealId, ownerSellerId, "עסקה בעלות");
 
-  const res = await app.inject({
+  const foreign = await app.inject({
     method: "GET",
     url: `/api/seller/deals/${dealId}/shipping-export`,
     headers: { "x-seller-id": otherSellerId }
   });
+  assert.ok(
+    foreign.statusCode < 200 || foreign.statusCode >= 300,
+    `a foreign seller was served the export: ${foreign.statusCode}`
+  );
 
-  assert.equal(res.statusCode, 403, `expected 403, got ${res.statusCode}: ${res.body}`);
+  const missing = await app.inject({
+    method: "GET",
+    url: `/api/seller/deals/${randomUUID()}/shipping-export`,
+    headers: { "x-seller-id": otherSellerId }
+  });
+  assert.equal(
+    foreign.statusCode,
+    missing.statusCode,
+    `foreign deal answered ${foreign.statusCode} but a missing one answered ${missing.statusCode} - that difference is an existence oracle`
+  );
+  assert.equal(foreign.statusCode, 404, `expected the shared not-found answer, got ${foreign.statusCode}: ${foreign.body}`);
 });
 
 // Test 3: deal not completed returns 409
