@@ -3170,13 +3170,18 @@ const app = Fastify({
       }
     }
   },
-  // The application already treats `x-request-id` as the canonical correlation
-  // id: it normalises it onto the request and writes it into audit rows. Fastify
-  // was minting a separate reqId for the log line, so a log entry and the audit
-  // row for the same request carried different ids and could not be joined -
-  // exactly the correlation you need during an incident. Same id everywhere now.
-  // Pino JSON-encodes the value, so a caller cannot inject a forged log line.
-  requestIdHeader: "x-request-id",
+  // ONE request id, normalised ONCE, at creation. The application treats
+  // `x-request-id` as the canonical correlation id and writes it into audit
+  // rows through safeHeaderId (bounded length, safe character policy, minted
+  // fallback). Fastify's own reqIdHeader option would log the caller's RAW
+  // value instead, so a hostile id (`abc`, 3000 bytes, whitespace) diverged
+  // between the log line and the audit row - the independent review's
+  // MEDIUM-2. Generating the id through the same normaliser makes the response
+  // header, every log line, telemetry and the audit row carry the same value,
+  // and keeps caller bytes that fail the policy out of the log entirely.
+  genReqId(req: any) {
+    return safeHeaderId(req?.headers?.["x-request-id"], "req");
+  },
   trustProxy: true,
   bodyLimit: 8 * 1024 * 1024,
   rewriteUrl(req) {
@@ -3271,7 +3276,10 @@ app.addHook("onRequest", (req: any, reply: any, done) => {
 
 app.addHook("onRequest", (req: any, reply: any, done) => {
   applicationRequestTelemetry.start(req);
-  const requestId = safeHeaderId(req.headers?.["x-request-id"], "req");
+  // req.id was produced by genReqId through safeHeaderId; re-normalising the
+  // header here would MINT a second id for a hostile value and split log from
+  // audit again. One id, created once.
+  const requestId = String(req.id || safeHeaderId(req.headers?.["x-request-id"], "req"));
   const correlationId = safeHeaderId(req.headers?.["x-correlation-id"], "corr");
   req.request_id = requestId;
   req.requestId = requestId;
@@ -3419,11 +3427,14 @@ if (RATE_LIMIT_MAX > 0) {
   });
 }
 
-app.setErrorHandler((error: any, _req, reply) => {
+app.setErrorHandler((error: any, req: any, reply) => {
   const statusCode = Number(error.statusCode || error.status || 0);
   const httpStatus = statusCode >= 400 && statusCode < 600 ? statusCode : 500;
   if (httpStatus >= 500) {
-    app.log.error({ err: error }, "unhandled route error");
+    // Through the REQUEST-scoped logger, so the line carries the canonical
+    // request id and can be joined to the audit trail. The root logger has no
+    // request binding and would write an orphan line.
+    (req?.log ?? app.log).error({ err: error }, "unhandled route error");
   }
   const hasSafeProductEnvelope = Boolean(error.publicError || error.productCode);
   const exposeDetails = httpStatus < 500 || hasSafeProductEnvelope;
