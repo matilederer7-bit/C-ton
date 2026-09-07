@@ -22,6 +22,14 @@ export type AttemptType =
  */
 export type DispatchState = "recorded" | "dispatching" | "responded";
 
+/**
+ * Independent financial review (migration 064) — why a permanent_fail row is
+ * believed. Only `dispatch_response` (the provider's answer to the exact
+ * request) is exact-operation evidence; everything else is an inference that
+ * stays inside the settlement horizon fence.
+ */
+export type FailureEvidence = "dispatch_response" | "status_inference" | "provider_event" | "operator";
+
 export const MONEY_ATTEMPT_TYPES: ReadonlyArray<AttemptType> = ["charge_start", "recovery", "refund", "cancel_refund", "release"];
 
 export type PaymentAttemptLifecycleRow = {
@@ -35,6 +43,10 @@ export type PaymentAttemptLifecycleRow = {
   provider_reference: string | null;
   outcome_note: string | null;
   created_at: string;
+  /** 064 — instant until which the provider may still settle this dispatched request (null: never armed under 064) */
+  settlement_horizon_at: string | null;
+  /** 064 — provenance of a permanent_fail verdict */
+  failure_evidence: FailureEvidence | null;
 };
 
 export type BeginProviderAttemptResult =
@@ -47,7 +59,9 @@ export type BeginProviderAttemptResult =
   /** another worker holding a live lease is executing this very operation right now — no I/O, no state guess */
   | { kind: "in_flight"; correlation_id: string; owner_event_uuid: string | null; owner_lease_generation: number | null }
   /** a DIFFERENT money operation of this participant is unresolved (or already moved money): this rail may not start */
-  | { kind: "blocked"; reason: string; blocking: { attempt_type: AttemptType; correlation_id: string; result_class: PaymentResultClass } };
+  | { kind: "blocked"; reason: string; blocking: { attempt_type: AttemptType; correlation_id: string; result_class: PaymentResultClass } }
+  /** 064 — a capture-side failure inferred from status may still settle until `until`: no recovery / release identity before that instant */
+  | { kind: "fenced"; reason: string; until: Date };
 
 export type ArmProviderDispatchResult = "armed" | "lease_lost" | "participant_state_changed" | "in_flight_elsewhere" | "resolved_elsewhere";
 
@@ -91,7 +105,8 @@ export function buildPaymentAttemptHelpers(deps: {
     const r = await c.query(
       `SELECT attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, owner_lease_generation,
               siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight,
-              provider_reference, outcome_note, created_at::text AS created_at
+              provider_reference, outcome_note, created_at::text AS created_at,
+              settlement_horizon_at::text AS settlement_horizon_at, failure_evidence
        FROM siton.payment_attempts
        WHERE participant_id=$1 AND deal_id=$2
        ORDER BY created_at ASC, correlation_id ASC`,
@@ -107,7 +122,9 @@ export function buildPaymentAttemptHelpers(deps: {
       in_flight: Boolean(row.in_flight),
       provider_reference: row.provider_reference ? String(row.provider_reference) : null,
       outcome_note: row.outcome_note ? String(row.outcome_note) : null,
-      created_at: String(row.created_at)
+      created_at: String(row.created_at),
+      settlement_horizon_at: row.settlement_horizon_at ? String(row.settlement_horizon_at) : null,
+      failure_evidence: row.failure_evidence ? (String(row.failure_evidence) as FailureEvidence) : null
     }));
   }
 
@@ -172,6 +189,8 @@ export function buildPaymentAttemptHelpers(deps: {
     correlation_id: string;
     result_class: PaymentResultClass;
     provider_reference?: string | null;
+    /** 064 — provenance of a permanent_fail written here (ignored for other classes) */
+    failure_evidence?: FailureEvidence | null;
     note?: string | null;
   }): Promise<"settled" | "already_terminal" | "missing"> {
     await lockParticipantDeal(c, args.participant_id, args.deal_id);
@@ -200,9 +219,10 @@ export function buildPaymentAttemptHelpers(deps: {
        SET result_class=$1,
            dispatch_state=CASE WHEN $1 IN ('success','permanent_fail') THEN 'responded' ELSE dispatch_state END,
            provider_reference=COALESCE($6, provider_reference),
-           outcome_note=COALESCE($7, outcome_note)
+           outcome_note=COALESCE($7, outcome_note),
+           failure_evidence=CASE WHEN $1 = 'permanent_fail' THEN COALESCE($8::text, failure_evidence) ELSE failure_evidence END
        WHERE participant_id=$2 AND deal_id=$3 AND attempt_type=$4 AND correlation_id=$5`,
-      [args.result_class, args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.provider_reference ?? null, args.note ?? null]
+      [args.result_class, args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.provider_reference ?? null, args.note ?? null, args.failure_evidence ?? null]
     );
     return "settled";
   }
@@ -214,6 +234,8 @@ export function buildPaymentAttemptHelpers(deps: {
     correlation_id: string;
     result_class: PaymentResultClass;
     provider_reference?: string | null;
+    /** 064 — provenance of a permanent_fail written here (ignored for other classes) */
+    failure_evidence?: FailureEvidence | null;
     note?: string | null;
   }): Promise<"settled" | "already_terminal" | "missing"> {
     return deps.withTx(async (c) => settleAttemptInTx(c, args));
@@ -261,6 +283,17 @@ export function buildPaymentAttemptHelpers(deps: {
           reason,
           blocking: { attempt_type: blocking.attempt_type, correlation_id: blocking.correlation_id, result_class: blocking.result_class }
         };
+      }
+
+      // 064 — SETTLEMENT HORIZON fence: a capture-side failure that was only
+      // inferred from status reads may still settle; no recovery (a second
+      // capture) and no release (release-then-capture) before its horizon. The
+      // INSERT trigger of migration 064 refuses the same identities at the DB.
+      if (args.attempt_type === "recovery" || args.attempt_type === "release") {
+        const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);
+        if (fence) {
+          return { kind: "fenced" as const, reason: `${args.attempt_type}_fenced_by_settlement_horizon`, until: fence };
+        }
       }
 
       const sameType = rows.filter((row) => row.attempt_type === args.attempt_type);
@@ -320,6 +353,8 @@ export function buildPaymentAttemptHelpers(deps: {
     expected_money_states: string[];
     expected_buyer_states?: string[];
     provider_reference?: string | null;
+    /** 064 — provider-specific settlement horizon opened by this dispatch (capture-side rails); null/0 = none */
+    settlement_horizon_ms?: number | null;
   }): Promise<ArmProviderDispatchResult> {
     const generation = Number(args.lease_generation);
     if (!Number.isInteger(generation) || generation < 1) return "lease_lost";
@@ -346,7 +381,13 @@ export function buildPaymentAttemptHelpers(deps: {
       const armed = await c.query(
         `UPDATE siton.payment_attempts
          SET dispatch_state='dispatching', owner_event_uuid=$5, owner_lease_generation=$6,
-             dispatched_at=clock_timestamp(), provider_reference=COALESCE($7, provider_reference), outcome_note=NULL
+             dispatched_at=clock_timestamp(), provider_reference=COALESCE($7, provider_reference), outcome_note=NULL,
+             -- 064: the horizon opens at dispatch and only ever moves later (a
+             -- re-arm after a pre-dispatch failure extends it, never resets it)
+             settlement_horizon_at=CASE
+               WHEN $8::bigint IS NULL OR $8::bigint <= 0 THEN settlement_horizon_at
+               ELSE GREATEST(COALESCE(settlement_horizon_at, '-infinity'::timestamptz), clock_timestamp() + ($8::text || ' milliseconds')::interval)
+             END
          WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4
            AND result_class='unknown'
            AND NOT (
@@ -354,7 +395,8 @@ export function buildPaymentAttemptHelpers(deps: {
              AND (owner_event_uuid IS DISTINCT FROM $5::uuid OR owner_lease_generation IS DISTINCT FROM $6::integer)
              AND siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation)
            )`,
-        [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.event_uuid, generation, args.provider_reference ?? null]
+        [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.event_uuid, generation, args.provider_reference ?? null,
+          Number.isFinite(Number(args.settlement_horizon_ms)) && Number(args.settlement_horizon_ms) > 0 ? Math.floor(Number(args.settlement_horizon_ms)) : null]
       );
       if (Number(armed.rowCount || 0) === 1) return "armed" as const;
       const current = await c.query(
@@ -425,7 +467,10 @@ export function buildPaymentAttemptHelpers(deps: {
                ELSE $5 END,
              dispatch_state='responded',
              provider_reference=COALESCE($6, provider_reference),
-             outcome_note=COALESCE($7, outcome_note)
+             outcome_note=COALESCE($7, outcome_note),
+             -- 064: a decline in the provider's answer to THIS request is
+             -- exact-operation evidence (never fenced by the settlement horizon)
+             failure_evidence=CASE WHEN $5 = 'permanent_fail' THEN 'dispatch_response' ELSE failure_evidence END
          WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4
            AND (
              $5 = 'success'
@@ -462,6 +507,49 @@ export function buildPaymentAttemptHelpers(deps: {
     return ownedByCaller ? "settled" : "foreign_owner";
   }
 
+  /**
+   * 064 — the latest open settlement horizon of a capture-side operation whose
+   * failure is NOT exact-request evidence (null = no fence). Mirrors the DB
+   * predicate siton.payment_capture_settlement_fence used by the INSERT guard.
+   */
+  async function settlementFenceInTx(c: any, participantId: string, dealId: string): Promise<Date | null> {
+    const r = await c.query(`SELECT siton.payment_capture_settlement_fence($1::uuid, $2::uuid) AS fence`, [participantId, dealId]);
+    const value = r.rows[0]?.fence;
+    if (!value) return null;
+    const at = new Date(value);
+    return Number.isFinite(at.getTime()) ? at : null;
+  }
+
+  async function captureSettlementFenceUntil(participantId: string, dealId: string): Promise<Date | null> {
+    return deps.withTx(async (c) => settlementFenceInTx(c, participantId, dealId));
+  }
+
+  /**
+   * 064 — positive evidence that a settlement is still in progress (a status
+   * read answering "pending") pushes the identity's horizon out; the DB trigger
+   * keeps it monotonic, so the horizon never moves earlier through this path.
+   */
+  async function extendSettlementHorizon(args: {
+    participant_id: string;
+    deal_id: string;
+    attempt_type: AttemptType;
+    correlation_id: string;
+    horizon_ms: number;
+  }): Promise<boolean> {
+    const ms = Math.floor(Number(args.horizon_ms));
+    if (!Number.isFinite(ms) || ms <= 0) return false;
+    return deps.withTx(async (c) => {
+      await lockParticipantDeal(c, args.participant_id, args.deal_id);
+      const r = await c.query(
+        `UPDATE siton.payment_attempts
+         SET settlement_horizon_at=GREATEST(COALESCE(settlement_horizon_at, '-infinity'::timestamptz), clock_timestamp() + ($5::text || ' milliseconds')::interval)
+         WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4`,
+        [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, String(ms)]
+      );
+      return Number(r.rowCount || 0) === 1;
+    });
+  }
+
   async function loadAttemptLifecycle(args: {
     participant_id: string;
     deal_id: string;
@@ -489,6 +577,8 @@ export function buildPaymentAttemptHelpers(deps: {
     listAttemptLifecycle,
     anyOperationInFlight,
     assertNoInFlightOperationInTx,
+    captureSettlementFenceUntil,
+    extendSettlementHorizon,
     isTerminal: (resultClass: string) => TERMINAL.includes(resultClass)
   };
 }

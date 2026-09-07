@@ -43,6 +43,14 @@ export const PAYMENT_PROVIDER_RELEASE_PATH = process.env.PAYMENT_PROVIDER_RELEAS
 export const PAYMENT_PROVIDER_STATUS_PATH = process.env.PAYMENT_PROVIDER_STATUS_PATH || "/status";
 export const PAYMENT_PROVIDER_TIMEOUT_MS = readNumberEnv("PAYMENT_PROVIDER_TIMEOUT_MS", 8000);
 export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY || "ILS";
+// Independent financial review — provider-specific SETTLEMENT HORIZON for the
+// provider-ready HTTP rail: how long after a capture-side request was
+// dispatched the provider may still settle it. Until that instant a failure
+// that was only INFERRED from status reads fences automatic recovery, release
+// and the terminal deal decision (migration 064). The default is deliberately
+// conservative (24 h): an owner sets the real value per provider contract; it
+// is never guessed from a provider's expiry behaviour.
+export const PAYMENT_SETTLEMENT_HORIZON_MS = readNumberEnv("PAYMENT_SETTLEMENT_HORIZON_MS", 24 * 60 * 60 * 1000);
 export const GROW_USER_ID = process.env.GROW_USER_ID || "";
 export const GROW_PAGE_CODE = process.env.GROW_PAGE_CODE || "";
 export const GROW_API_KEY = process.env.GROW_API_KEY || "";

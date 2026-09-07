@@ -148,7 +148,10 @@ export function buildPaymentReconciliation(deps: { withTx: WithTx }) {
     }
 
     if (eventType === "recovery_failed") {
-      if (target.buyer_state === "Dropped" && target.money_state === "AuthReleased") {
+      // F-6 (independent financial review): recovery_failed moves the BUSINESS
+      // state to Dropped only; the money state stays ChargeFailedRecovery until
+      // the provider-proofed release rail establishes AuthReleased.
+      if (target.buyer_state === "Dropped") {
         return { status: "ignored" as const, reason: "already_recovery_failed" };
       }
       if (target.buyer_state !== "ChargeFailedCompletion" || target.money_state !== "ChargeFailedRecovery") {

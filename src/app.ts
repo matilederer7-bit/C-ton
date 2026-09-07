@@ -653,7 +653,10 @@ const {
   armProviderDispatch,
   settleProviderDispatch,
   anyOperationInFlight,
-  loadAttemptLifecycle
+  loadAttemptLifecycle,
+  listAttemptLifecycle,
+  extendSettlementHorizon,
+  captureSettlementFenceUntil
 } = buildPaymentAttemptHelpers({
   withTx
 });
@@ -1047,6 +1050,15 @@ async function applyPaymentWebhookClassification(args: {
   // while the exact operation is dispatching under a live worker lease: the
   // transition aborts (PaymentOperationInFlightError / DB guard SN409) and the
   // caller defers. Success is provider truth and always settles.
+  // Provenance of a negative verdict (migration 064): a failure that arrives
+  // through a status read (reconcile, prior-attempt resolution, pre-flight) is an
+  // INFERENCE and stays inside the settlement horizon fence; a failure the
+  // provider pushed as an event is provider_event. A failure the provider gave
+  // in its answer to the exact request was already settled by the dispatching
+  // owner as dispatch_response (monotonic: never downgraded here).
+  const eventSource = String((args.event.payload as Record<string, unknown> | undefined)?.source || "");
+  const inferredSources = ["payment_reconcile_worker", "prior_attempt_resolution", "recovery_preflight", "finalize_preflight"];
+  const failureEvidence = inferredSources.includes(eventSource) ? "status_inference" : "provider_event";
   const settleTargetAttemptInTx = async (c: PoolClient, resultClass: "success" | "permanent_fail") => {
     if (!target.correlation_id) return;
     await settleAttemptInTx(c, {
@@ -1056,6 +1068,7 @@ async function applyPaymentWebhookClassification(args: {
       correlation_id: target.correlation_id,
       result_class: resultClass,
       provider_reference: args.event.provider_reference ?? null,
+      failure_evidence: resultClass === "permanent_fail" ? failureEvidence : null,
       note: `${args.event.event_type}:${args.classification.reason}`
     });
   };
@@ -1221,16 +1234,13 @@ async function applyPaymentWebhookClassification(args: {
         entityId: args.target.participant_id,
         idempotencyKey: `recovery-fail:${args.event.provider}:${args.event.event_id}:${args.target.participant_id}`
       },
+      // F-6 (independent financial review, owner decision): a failed recovery
+      // ends the buyer's participation (Dropped) but says NOTHING about the
+      // hold. AuthReleased is money truth and requires authoritative release
+      // proof; the money state therefore stays ChargeFailedRecovery and the
+      // provider-proofed release rail (payment_release) establishes the release
+      // — or leaves a visible operator case when the provider refuses it.
       ops: [
-        {
-          entityType: "participant",
-          entityId: args.target.participant_id,
-          dealId: args.target.deal_id,
-          stateType: "money_state",
-          fromState: "ChargeFailedRecovery",
-          toState: "AuthReleased",
-          payload: eventPayload
-        },
         {
           entityType: "participant",
           entityId: args.target.participant_id,
@@ -1246,6 +1256,7 @@ async function applyPaymentWebhookClassification(args: {
         await settleTargetAttemptInTx(c, "permanent_fail");
       }
     });
+    await schedulePaymentRelease({ participant_id: args.target.participant_id, deal_id: args.target.deal_id, reason: "recovery_failed" }).catch(() => undefined);
     return;
   }
 
@@ -1593,6 +1604,7 @@ async function handleRefundEvent(
       continue;
     }
     if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
+    if (attempt.kind === "fenced") continue; // unreachable for a refund (the 064 fence applies to recovery/release); never mint on it
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "refund",
@@ -1603,6 +1615,7 @@ async function handleRefundEvent(
         dispatch_state: attempt.dispatch_state,
         provider_reference: p.capture_reference || p.authorization_id || null,
         expected_amount_minor: amountMinor,
+        expected_currency: "ILS",
         event_id: eventId
       });
       if (resolution !== "reuse") continue;
@@ -1987,6 +2000,18 @@ async function handlePaymentReconcileEvent(
     : null;
   const rowUnresolved = Boolean(unresolvedRow && unresolvedRow.result_class === "unknown");
   if (!waiting && !rowUnresolved) return;
+  // Exact-operation identity (independent financial review, FR-4): a status
+  // answer is per authorization and cannot say WHICH identity of an operation
+  // family it describes. A job that carries an identity already resolved
+  // (terminal) must not draw a conclusion — nor settle that identity again —
+  // while another identity of the same family is still UNKNOWN: the evidence
+  // belongs to the unresolved one, whose own reconcile owns the verdict.
+  if (unresolvedRow && unresolvedRow.result_class !== "unknown") {
+    const family: PaymentAttemptType[] = operation === "capture" ? ["charge_start", "recovery"] : operation === "refund" ? ["refund", "cancel_refund"] : ["release"];
+    const siblings = await listAttemptLifecycle(participantId, dealId);
+    const otherUnresolved = siblings.find((row) => family.includes(row.attempt_type) && row.correlation_id !== correlationId && row.result_class === "unknown");
+    if (otherUnresolved) return; // FR-4: the unresolved sibling identity owns this verdict
+  }
 
   // R9C C1 — the exact operation may be IN FLIGHT right now: a worker holding
   // a live outbox lease armed its dispatch and the request may be at the
@@ -2073,6 +2098,19 @@ async function handlePaymentReconcileEvent(
     });
     throw new PermanentFailError(`payment_reconcile_amount_mismatch participant ${participantId}`);
   }
+  // Currency is part of the exact-operation identity (independent financial
+  // review): an answer in another currency is evidence about some other
+  // operation — visible case, no verdict, no state mutation.
+  const expectedCurrency = String(target.binding_currency || "ILS").trim().toUpperCase();
+  if (status.currency && operation !== "release" && String(status.currency).toUpperCase() !== expectedCurrency) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-currency-mismatch:${participantId}:${attemptType}`,
+      subject: `Provider currency mismatch for participant ${participantId}`,
+      description: `Provider reports ${status.amount_minor ?? "n/a"} ${status.currency} for ${attemptType} ${correlationId}; the authoritative obligation is ${expectedAmountMinor} ${expectedCurrency}. State was NOT mutated; manual reconciliation required.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_currency_mismatch participant ${participantId}`);
+  }
 
   const ingestResolution = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
     let ingested: Awaited<ReturnType<typeof ingestAndProcessPaymentEvent>>;
@@ -2095,11 +2133,11 @@ async function handlePaymentReconcileEvent(
     } catch (error) {
       return deferIfInFlight(error);
     }
-    if (status.provider_reference) {
-      await paymentBindings
-        .updateProviderReferenceForParticipant(participantId, status.provider_reference)
-        .catch(() => undefined);
-    }
+    // Exact-operation identity (independent financial review, O-1): a status
+    // READ never rewrites the participant's durable provider reference. Only the
+    // provider's answer to a money request this rail sent may do that; a status
+    // echo naming another reference is evidence that cannot be tied to this
+    // operation and must not become its identity.
     // The identity's durable outcome converges even when the canonical state
     // had already been reached by another path (ignored as already_*): success
     // for an executed effect, permanent_fail for a declared/authoritative
@@ -2113,6 +2151,8 @@ async function handlePaymentReconcileEvent(
         correlation_id: correlationId,
         result_class: resultClass,
         provider_reference: status.provider_reference || providerReference,
+        // provenance (064): a failure declared here rests on a status read
+        failure_evidence: resultClass === "permanent_fail" ? "status_inference" : null,
         note: `reconcile:${eventType}:${ingested.reason}`
       }).catch(deferIfInFlight);
     }
@@ -2126,11 +2166,13 @@ async function handlePaymentReconcileEvent(
       return;
     }
     if (status.state === "failed" || (status.state === "authorized" && status.final)) {
-      if (status.state !== "failed" && !policy.negative_status_authoritative) {
-        // R9C H1 — for this provider a still-authorized status does NOT prove
-        // that the exact settle never executed (no per-operation key, broader
-        // transaction status). Fail closed: no failure verdict, no recovery.
-        await failClosedUnresolved(`${status.state}/final`);
+      if (!policy.negative_status_authoritative) {
+        // R9C H1 / independent financial review — for this provider (Grow) a
+        // status of "authorized" OR "failed" is the state of the TRANSACTION,
+        // not the outcome of the exact settle Siton dispatched: the settle may
+        // have executed and the lookup may still say failed. Fail closed: no
+        // failure verdict, no recovery, no second settle — an operator case.
+        await failClosedUnresolved(`${status.state}/${status.final ? "final" : "open"}`);
       }
       // Provider says the money was NOT captured (declined, or the hold is
       // still merely authorized and final) and no request for this exact
@@ -2233,6 +2275,12 @@ async function handlePaymentReconcileEvent(
     }
   }
 
+  // A "pending" capture-side answer is positive evidence that the settlement is
+  // still in progress: push the durable settlement horizon out (064) so no
+  // recovery / release / terminal decision acts on this obligation meanwhile.
+  if (operation === "capture" && status.state === "pending" && correlationId && policy.settlement_horizon_ms > 0) {
+    await extendSettlementHorizon({ participant_id: participantId, deal_id: dealId, attempt_type: attemptType as PaymentAttemptType, correlation_id: correlationId, horizon_ms: policy.settlement_horizon_ms }).catch(() => undefined);
+  }
   // Still ambiguous (pending/unknown or an incompatible non-final state).
   // Bounded outbox retry with backoff; final exhaustion opens a manual-review
   // case and lands in the DLQ for operational visibility.
@@ -2357,7 +2405,12 @@ async function armMoneyOperation(args: {
     min_lease_remaining_ms: 0,
     expected_money_states: args.expected_money_states,
     ...(args.expected_buyer_states ? { expected_buyer_states: args.expected_buyer_states } : {}),
-    provider_reference: args.provider_reference ?? null
+    provider_reference: args.provider_reference ?? null,
+    // Independent financial review — a capture-side dispatch opens the
+    // provider-specific SETTLEMENT HORIZON on the identity (migration 064).
+    settlement_horizon_ms: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
+      ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms
+      : null
   });
   if (armed === "armed") return true;
   if (armed === "lease_lost") throw new OutboxLeaseLostError(args.event.event_uuid);
@@ -2429,6 +2482,7 @@ async function resolvePriorProviderAttempt(args: {
   dispatch_state?: PaymentDispatchState;
   provider_reference: string | null;
   expected_amount_minor: number | null;
+  expected_currency?: string | null;
   event_id: string;
 }): Promise<PriorAttemptResolution> {
   // NOT_DISPATCHED: the identity was minted but no request ever left the
@@ -2456,6 +2510,7 @@ async function resolvePriorProviderAttempt(args: {
     attempt_type: args.attempt_type,
     correlation_id: args.correlation_id,
     result_class,
+    failure_evidence: result_class === "permanent_fail" ? "status_inference" : null,
     note: "prior_attempt_resolution"
   });
   if (!paymentProvider.status || !reference) {
@@ -2487,6 +2542,16 @@ async function resolvePriorProviderAttempt(args: {
     });
     return "blocked";
   }
+  const expectedCurrency = String(args.expected_currency || "").trim().toUpperCase();
+  if (expectedCurrency && status.currency && args.operation !== "release" && String(status.currency).toUpperCase() !== expectedCurrency) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-currency-mismatch:${args.participant_id}:${args.attempt_type}`,
+      subject: `Provider currency mismatch for participant ${args.participant_id}`,
+      description: `Provider reports ${status.amount_minor ?? "n/a"} ${status.currency} for ${args.attempt_type} ${args.correlation_id}; the authoritative obligation is ${args.expected_amount_minor ?? "n/a"} ${expectedCurrency}. State was NOT mutated and no new provider operation was started.`,
+      correlationId: args.correlation_id
+    });
+    return "blocked";
+  }
   const providerReference = status.provider_reference || reference;
   const ingest = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
     await ingestAndProcessPaymentEvent({
@@ -2505,11 +2570,8 @@ async function resolvePriorProviderAttempt(args: {
         provider_final: status.final
       }
     });
-    if (status.provider_reference) {
-      await paymentBindings
-        .updateProviderReferenceForParticipant(args.participant_id, status.provider_reference)
-        .catch(() => undefined);
-    }
+    // O-1 (independent financial review): a status READ never rewrites the
+    // durable provider reference — see handlePaymentReconcileEvent.
   };
 
   if (args.operation === "capture") {
@@ -2520,6 +2582,10 @@ async function resolvePriorProviderAttempt(args: {
       return "applied";
     }
     if (status.state === "failed") {
+      // A "failed" transaction status proves non-execution of the EXACT
+      // request only for providers whose status is per operation; for the
+      // others (Grow) it is not a verdict — the case is opened, nothing moves.
+      if (!policy.negative_status_authoritative) return reuseAfterNegative(`failed/${status.final ? "final" : "open"}`);
       await ingest(isRecovery ? "recovery_failed" : "charge_failed");
       await finalizePrior("permanent_fail");
       return "applied";
@@ -2597,6 +2663,18 @@ async function handlePaymentReleaseEvent(
     return;
   }
   if (attempt.kind === "in_flight") return; // another live worker owns this exact operation
+  if (attempt.kind === "fenced") {
+    // Independent financial review — SETTLEMENT HORIZON (migration 064): a
+    // capture-side failure inferred from status may still settle; releasing the
+    // hold now would be release-then-capture. Defer to the horizon, visibly.
+    await openPaymentOperationalCase({
+      autoKey: `payment-release-settlement-horizon:${participantId}`,
+      subject: `Release held until the provider settlement horizon for participant ${participantId}`,
+      description: `${attempt.reason}: provider ${paymentProvider.providerCode} may still settle a capture-side operation of participant ${participantId} until ${attempt.until.toISOString()}. The authorization is not released before that instant (worker event ${eventId}); the release job is deferred to the horizon.`,
+      correlationId: null
+    });
+    throw new DeferredEventError(`payment_release_fenced participant ${participantId} until ${attempt.until.toISOString()}`, attempt.until);
+  }
   if (attempt.kind === "unresolved") {
     const resolution = await resolvePriorProviderAttempt({
       operation: "release",
@@ -2796,6 +2874,7 @@ async function handleChargeDealEvent(
       continue;
     }
     if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
+    if (attempt.kind === "fenced") continue; // unreachable for a capture (the 064 fence applies to recovery/release); never mint on it
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "capture",
@@ -2806,6 +2885,7 @@ async function handleChargeDealEvent(
         dispatch_state: attempt.dispatch_state,
         provider_reference: p.authorization_id || null,
         expected_amount_minor: amountMinor,
+        expected_currency: "ILS",
         event_id: eventId
       });
       if (resolution !== "reuse") continue;
@@ -2972,44 +3052,59 @@ async function handleChargeDealEvent(
 //   captured            -> the money already moved: record it as a late money
 //                          effect (operational case, identity converges to
 //                          success), NO recovery
-//   pending / unknown / -> ambiguous: defer the recovery job (bounded outbox
-//   transport failure      retry), NO recovery now
-//   authorized / failed -> not executed: proceed
+//   pending             -> a settlement is in progress: defer the recovery job
+//                          (bounded outbox retry), extend the durable settlement
+//                          horizon (064), NO recovery now
+//   two reads disagree  -> flapping provider: hold + case
+//   unknown / transport -> unverifiable: proceed ONLY when the provider itself
+//   failure                declared this exact request failed (dispatch_response
+//                          evidence); otherwise hold + case (review remediation)
+//   authorized / failed -> (twice, consistently) not executed: proceed
 // A provider without a status capability cannot be verified and keeps the
-// pre-existing behaviour (documented residual).
+// pre-existing behaviour (documented residual). The SETTLEMENT HORIZON fence
+// (captureSettlementFenceUntil, migration 064) runs BEFORE this pre-flight: a
+// status-inferred failure is never acted on while the provider may still settle.
 // ---------------------------------------------------------------------------
 async function verifyOriginalCaptureBeforeRecovery(args: {
   participant_id: string;
   deal_id: string;
   authorization_id: string | null;
   event_id: string;
+  /** authoritative amount of the obligation; a "captured" answer for another amount is not this operation */
+  expected_amount_minor?: number | null;
+  /** authoritative currency of the obligation; a "captured" answer in another currency is not this operation */
+  expected_currency?: string | null;
+  /** who is asking (recovery rail / terminal finalize decision) — recorded on the ingested event */
+  context?: "recovery" | "finalize";
 }): Promise<"proceed" | "captured" | "ambiguous"> {
   const reference = String(args.authorization_id || "").trim();
   if (!paymentProvider.status || !reference) return "proceed";
-  // A recovery identity that already exists (unknown / executed) is owned by the
-  // identity discipline and resolvePriorProviderAttempt: a "captured" status may
-  // then be THAT recovery, not a late original capture. The pre-flight only
-  // guards the first recovery of a participant.
-  const priorRecovery = await withTx(async (c) => {
-    const r = await c.query(
-      `SELECT 1 FROM siton.payment_attempts WHERE participant_id=$1 AND deal_id=$2 AND attempt_type='recovery' AND result_class IN ('unknown','success') LIMIT 1`,
-      [args.participant_id, args.deal_id]
-    );
-    return Number(r.rowCount || 0) > 0;
-  });
-  if (priorRecovery) return "proceed";
+  const rows = await listAttemptLifecycle(args.participant_id, args.deal_id);
+  // A recovery identity that is UNKNOWN or executed is owned by the identity
+  // discipline and resolvePriorProviderAttempt: a "captured" status may then be
+  // THAT recovery, not a late original capture. The pre-flight steps aside.
+  if (rows.some((row) => row.attempt_type === "recovery" && (row.result_class === "unknown" || row.result_class === "success"))) return "proceed";
+  // The operation a late "captured" would belong to: the NEWEST capture-side
+  // identity (a status-inferred failed recovery n1 that settles late is a
+  // recovery effect, never the original capture — F-5 family discipline).
+  const target = [...rows].reverse().find((row) => row.attempt_type === "charge_start" || row.attempt_type === "recovery") || null;
+  // Exact-request evidence: the provider answered the capture request itself
+  // with a decline. Only that lets money move on an UNVERIFIABLE status.
+  const exactDecline = Boolean(target && target.result_class === "permanent_fail" && target.failure_evidence === "dispatch_response");
+  const source = args.context === "finalize" ? "finalize_preflight" : "recovery_preflight";
+  const policy = providerAmbiguityPolicy(paymentProvider);
   // F-9: ONE status read is defeated by a flapping provider (failed <-> captured
   // on consecutive reads): the reconcile rail may have seen "failed" and this
   // pre-flight "failed" again while the capture had in fact executed. Read twice,
   // a confirmation interval apart, and take the most conservative verdict: any
   // "captured" -> captured, any "pending" or two reads that disagree -> hold.
-  // Only two consistent negative answers let money move.
+  // Only two consistent, VERIFIED negative answers let money move.
   const confirmMs = Math.max(0, Number(process.env.RECOVERY_PREFLIGHT_CONFIRM_MS || 1000) || 0);
   const reads: PaymentStatusResult[] = [];
   for (let i = 0; i < 2; i++) {
     if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));
     try {
-      reads.push(await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `recovery-preflight:${args.event_id}:${args.participant_id}:${i + 1}` }));
+      reads.push(await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `${source}:${args.event_id}:${args.participant_id}:${i + 1}` }));
     } catch {
       return "ambiguous";
     }
@@ -3017,46 +3112,72 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   const capturedRead = reads.find((r) => r.state === "captured");
   const status: PaymentStatusResult = capturedRead ?? reads[0]!;
   if (capturedRead) {
-    // The effect belongs to the ORIGINAL capture identity: settle that row, never
-    // the recovery identity this job may have minted.
-    const originalCapture = await withTx(async (c) => {
-      const r = await c.query(
-        `SELECT correlation_id FROM siton.payment_attempts WHERE participant_id=$1 AND deal_id=$2 AND attempt_type='charge_start' ORDER BY created_at DESC LIMIT 1`,
-        [args.participant_id, args.deal_id]
-      );
-      return r.rows[0]?.correlation_id ? String(r.rows[0].correlation_id) : null;
-    });
+    // Exact-operation identity: a "captured" that names another amount or
+    // another currency is evidence about SOME operation, not this one. Hold
+    // with a visible case; never a verdict in either direction.
+    const amountMismatch = args.expected_amount_minor !== null && args.expected_amount_minor !== undefined
+      && capturedRead.amount_minor !== null && Number.isInteger(capturedRead.amount_minor)
+      && Number(capturedRead.amount_minor) !== Number(args.expected_amount_minor);
+    const expectedCurrency = String(args.expected_currency || "").trim().toUpperCase();
+    const currencyMismatch = Boolean(expectedCurrency && capturedRead.currency && String(capturedRead.currency).toUpperCase() !== expectedCurrency);
+    if (amountMismatch || currencyMismatch) {
+      await openPaymentOperationalCase({
+        autoKey: `payment-recovery-preflight-mismatch:${args.participant_id}`,
+        subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider "captured" does not match the obligation of participant ${args.participant_id}`,
+        description: `Provider ${paymentProvider.providerCode} reports authorization ${reference} as CAPTURED with ${capturedRead.amount_minor ?? "n/a"} ${capturedRead.currency || "n/a"}; the obligation is ${args.expected_amount_minor ?? "n/a"} ${expectedCurrency || "n/a"}. The answer cannot be tied to this exact operation: no recovery was sent, no verdict was drawn, manual provider-side verification required.`,
+        correlationId: target?.correlation_id ?? null
+      });
+      return "ambiguous";
+    }
+    const lateEventType = target?.attempt_type === "recovery" ? "recovery_captured" : "charge_captured";
     await ingestAndProcessPaymentEvent({
       provider: paymentProvider.providerCode,
-      event_id: `recovery-preflight:${args.participant_id}:charge_captured`,
-      event_type: "charge_captured",
-      correlation_id: originalCapture,
+      event_id: `${source}:${args.participant_id}:${lateEventType}${target ? `:${target.correlation_id}` : ""}`,
+      event_type: lateEventType,
+      correlation_id: target?.correlation_id ?? null,
       participant_id: args.participant_id,
       deal_id: args.deal_id,
       provider_reference: status.provider_reference || reference,
-      payload: { source: "recovery_preflight", worker_event_id: args.event_id, provider_state: status.state, provider_final: status.final }
+      payload: { source, worker_event_id: args.event_id, provider_state: status.state, provider_final: status.final }
     }).catch(() => undefined);
     await openPaymentOperationalCase({
       autoKey: `payment-recovery-preflight-captured:${args.participant_id}`,
       subject: `FINANCIAL_OUTCOME_UNRESOLVED: original capture already executed for participant ${args.participant_id}`,
-      description: `Immediately before a recovery capture, provider ${paymentProvider.providerCode} reported the original authorization ${reference} as CAPTURED although the capture had been recorded as failed. No recovery was sent. The participant's canonical state is not financial truth until an operator reconciles the money side.`,
-      correlationId: null
+      description: `Immediately before a ${args.context === "finalize" ? "terminal deal decision" : "recovery capture"}, provider ${paymentProvider.providerCode} reported the authorization ${reference} as CAPTURED although the ${target?.attempt_type === "recovery" ? "recovery" : "capture"} had been recorded as failed. No recovery was sent. The participant's canonical state is not financial truth until an operator reconciles the money side.`,
+      correlationId: target?.correlation_id ?? null
     });
     return "captured";
   }
-  // "pending" is positive evidence that a settlement is still in progress: hold.
-  // "unknown" (a provider that cannot look the reference up, a transport or
-  // parsing failure mapped by the adapter) is NO evidence of a capture: the
-  // identity discipline that already blocks recovery on an UNKNOWN charge_start
-  // row stays the primary guard, and the pre-existing behaviour (proceed) is
-  // kept so providers without a usable status seam are not stalled for ever.
-  if (reads.some((r) => r.state === "pending")) return "ambiguous";
+  // "pending" is positive evidence that a settlement is still in progress:
+  // hold, and push the durable settlement horizon of the target identity out
+  // (migration 064) so nothing else acts on this obligation meanwhile.
+  if (reads.some((r) => r.state === "pending")) {
+    if (target && policy.settlement_horizon_ms > 0) {
+      await extendSettlementHorizon({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: target.attempt_type, correlation_id: target.correlation_id, horizon_ms: policy.settlement_horizon_ms }).catch(() => undefined);
+    }
+    return "ambiguous";
+  }
   if (new Set(reads.map((r) => `${r.state}:${r.final ? "final" : "open"}`)).size > 1) {
     await openPaymentOperationalCase({
       autoKey: `payment-recovery-preflight-flapping:${args.participant_id}`,
       subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider status is flapping for participant ${args.participant_id}`,
       description: `Two consecutive status reads for authorization ${reference} disagreed (${reads.map((r) => `${r.state}/${r.final ? "final" : "open"}`).join(" then ")}). No recovery capture is sent while the provider contradicts itself; the recovery job is held and an operator must establish the money truth.`,
-      correlationId: null
+      correlationId: target?.correlation_id ?? null
+    });
+    return "ambiguous";
+  }
+  // "unknown" (a provider that cannot look the reference up, a transport or
+  // parsing failure mapped by the adapter) proves nothing. Money may move on an
+  // unverifiable status ONLY when the provider itself declared this exact
+  // request failed (dispatch_response evidence). A status-inferred or legacy
+  // failure with no verifiable status stays held — UNKNOWN / HOLD / CASE.
+  if (reads.every((r) => r.state === "unknown")) {
+    if (exactDecline) return "proceed";
+    await openPaymentOperationalCase({
+      autoKey: `payment-recovery-preflight-unverifiable:${args.participant_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED: original capture cannot be verified for participant ${args.participant_id}`,
+      description: `Provider ${paymentProvider.providerCode} could not report the state of authorization ${reference} (${reads.map((r) => r.error_code || "unknown").join(", ")}) and the recorded failure of ${target ? `${target.attempt_type} ${target.correlation_id}` : "the capture"} is not the provider's answer to that exact request (${target?.failure_evidence || "no evidence recorded"}). No recovery capture is sent on an unverifiable status; the job is held and an operator must establish the money truth.`,
+      correlationId: target?.correlation_id ?? null
     });
     return "ambiguous";
   }
@@ -3134,20 +3255,41 @@ async function handleRecoveryDealEvent(
     }>;
   });
 
-  let deferAfterLoop = false;
+  // The job is deferred to the EARLIEST instant at which any held participant
+  // may be re-examined (a settlement horizon, or a short retry for an
+  // ambiguous pre-flight); the others proceed now.
+  const deferral: { until: Date | null } = { until: null };
+  const deferTo = (at: Date) => { if (!deferral.until || at.getTime() < deferral.until.getTime()) deferral.until = at; };
   for (const p of participants) {
     const amountMinor = paymentMinorAmount({
       qty: Number(p.qty || 0),
       pricePerUnit: Number(p.price_per_unit || 0),
       deliveryCost: Number(p.delivery_cost || 0)
     });
+    // Independent financial review — SETTLEMENT HORIZON (migration 064): a
+    // capture-side failure that was only INFERRED from status reads may still
+    // settle at the provider until its horizon. No automatic recovery (a second
+    // capture of the same obligation) before that instant, whatever the status
+    // seam says now — the review reproduced a double capture on a provider that
+    // answered a consistent "failed/final" while the capture was still settling.
+    const fence = await captureSettlementFenceUntil(p.participant_id, dealId);
+    if (fence) {
+      await openPaymentOperationalCase({
+        autoKey: `payment-recovery-settlement-horizon:${p.participant_id}`,
+        subject: `Recovery held until the provider settlement horizon for participant ${p.participant_id}`,
+        description: `A capture-side operation of participant ${p.participant_id} was recorded as failed from provider status reads, not from the provider's answer to the request itself; provider ${paymentProvider.providerCode} may still settle it until ${fence.toISOString()}. No recovery capture is sent before that instant (worker event ${eventId}); the job is deferred to the horizon and the original capture is re-verified there.`,
+        correlationId: null
+      });
+      deferTo(fence);
+      continue;
+    }
     // F-1 — last look at the original capture BEFORE a recovery identity is
     // minted (F-8: minting first left a NOT_DISPATCHED recovery identity behind
     // whenever the pre-flight deferred and the participant later left the
     // recoverable state).
-    const preflight = await verifyOriginalCaptureBeforeRecovery({ participant_id: p.participant_id, deal_id: dealId, authorization_id: p.authorization_id || null, event_id: eventId });
+    const preflight = await verifyOriginalCaptureBeforeRecovery({ participant_id: p.participant_id, deal_id: dealId, authorization_id: p.authorization_id || null, event_id: eventId, expected_amount_minor: amountMinor, expected_currency: "ILS", context: "recovery" });
     if (preflight === "captured") continue;
-    if (preflight === "ambiguous") { deferAfterLoop = true; continue; }
+    if (preflight === "ambiguous") { deferTo(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)); continue; }
 
     // R9C — durable identity + reconcile-before-new-operation (see charge rail).
     const attempt = await beginProviderAttempt({
@@ -3163,6 +3305,11 @@ async function handleRecoveryDealEvent(
       continue;
     }
     if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
+    if (attempt.kind === "fenced") {
+      // DB-side view of the settlement fence (belt to the check above).
+      deferTo(attempt.until);
+      continue;
+    }
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "capture",
@@ -3173,6 +3320,7 @@ async function handleRecoveryDealEvent(
         dispatch_state: attempt.dispatch_state,
         provider_reference: p.authorization_id || null,
         expected_amount_minor: amountMinor,
+        expected_currency: "ILS",
         event_id: eventId
       });
       if (resolution !== "reuse") continue;
@@ -3264,10 +3412,11 @@ async function handleRecoveryDealEvent(
     });
   }
 
-  if (deferAfterLoop) {
-    // At least one participant's original capture could not be verified: keep
-    // the recovery job alive (bounded outbox retry) instead of guessing.
-    throw new DeferredEventError(`recovery_preflight_ambiguous deal ${dealId}`, new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+  if (deferral.until) {
+    // At least one participant is held (settlement horizon not reached, or the
+    // original capture could not be verified): keep the recovery job alive and
+    // wake it at the earliest instant something can change, instead of guessing.
+    throw new DeferredEventError(`recovery_held deal ${dealId} until ${deferral.until.toISOString()}`, deferral.until);
   }
 
   return;
@@ -3534,6 +3683,83 @@ async function handleFinalizeDealEvent(
       `finalize_waiting_for_unresolved_captures deal ${dealId} (${unresolvedCaptures.length})`,
       new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
     );
+  }
+
+  // Independent financial review — SETTLEMENT HORIZON (migration 064). A
+  // capture-side failure that was only INFERRED from status reads may still
+  // settle at the provider until its horizon: deciding Completed / Failed (and
+  // releasing every hold) before that instant is the "terminal state hides late
+  // provider money" path. Defer the decision to the LAST open horizon, visibly.
+  const fencedCaptures = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT pa.participant_id, pa.attempt_type, pa.correlation_id, pa.settlement_horizon_at
+       FROM siton.payment_attempts pa
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='permanent_fail'
+         AND pa.failure_evidence IS DISTINCT FROM 'dispatch_response'
+         AND pa.settlement_horizon_at IS NOT NULL AND pa.settlement_horizon_at > clock_timestamp()
+       ORDER BY pa.settlement_horizon_at ASC`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string; attempt_type: string; correlation_id: string; settlement_horizon_at: string }>;
+  });
+  if (fencedCaptures.length > 0) {
+    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));
+    await openPaymentOperationalCase({
+      autoKey: `deal-finalize-waiting-settlement-horizon:${dealId}`,
+      subject: `Deal finalization waiting for the provider settlement horizon (deal ${dealId})`,
+      description: `finalize_deal for deal ${dealId} was deferred until ${until.toISOString()} because ${fencedCaptures.length} capture-side operation(s) recorded as failed from status reads may still settle at provider ${paymentProvider.providerCode} (${fencedCaptures.map((row) => `${row.attempt_type} ${row.correlation_id}`).join(", ")}). The deal is neither Completed nor Failed and no hold is released before the horizon; each such capture is re-verified at the provider before the decision.`,
+      correlationId: fencedCaptures[0]?.correlation_id ?? null
+    });
+    throw new DeferredEventError(`finalize_waiting_for_settlement_horizon deal ${dealId} until ${until.toISOString()}`, until);
+  }
+
+  // Past every horizon: ONE authoritative look at each dispatched, status-inferred
+  // capture-side failure BEFORE the terminal decision, so a settlement that landed
+  // late becomes visible truth (identity success + operational case, no release of
+  // captured money) instead of being hidden behind Completed / Failed.
+  const inferredFailures = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT DISTINCT ON (pa.participant_id)
+              pa.participant_id, p.qty, p.delivery_cost, d.price_per_unit,
+              COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS provider_reference
+       FROM siton.payment_attempts pa
+       JOIN siton.participants p ON p.participant_id = pa.participant_id
+       JOIN siton.deals d ON d.deal_id = p.deal_id
+       LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
+       LEFT JOIN LATERAL (
+         SELECT payload FROM siton.audit_log
+         WHERE entity_type='participant' AND entity_id=p.participant_id AND action_name='participant.join_authorize'
+         ORDER BY created_at DESC LIMIT 1
+       ) auth ON true
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='permanent_fail'
+         AND pa.failure_evidence IS DISTINCT FROM 'dispatch_response' AND pa.settlement_horizon_at IS NOT NULL
+         AND p.money_state IN ('ChargeAttempt','ChargeFailedRecovery')
+       ORDER BY pa.participant_id, pa.created_at DESC`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string; qty: number; delivery_cost: number; price_per_unit: number; provider_reference: string }>;
+  });
+  const lateLook: { until: Date | null } = { until: null };
+  for (const row of inferredFailures) {
+    const look = await verifyOriginalCaptureBeforeRecovery({
+      participant_id: row.participant_id,
+      deal_id: dealId,
+      authorization_id: row.provider_reference || null,
+      event_id: eventId,
+      expected_amount_minor: paymentMinorAmount({ qty: Number(row.qty || 0), pricePerUnit: Number(row.price_per_unit || 0), deliveryCost: Number(row.delivery_cost || 0) }),
+      expected_currency: "ILS",
+      context: "finalize"
+    });
+    if (look === "ambiguous") lateLook.until = new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS);
+  }
+  if (lateLook.until) {
+    await openPaymentOperationalCase({
+      autoKey: `deal-finalize-waiting-late-capture-truth:${dealId}`,
+      subject: `Deal finalization waiting for provider truth on status-inferred capture failures (deal ${dealId})`,
+      description: `finalize_deal for deal ${dealId} was deferred because provider ${paymentProvider.providerCode} could not confirm, after the settlement horizon, whether a capture recorded as failed from status reads executed (pending, flapping or unverifiable status). The deal is neither Completed nor Failed until that truth is established; if this case stays open the provider must be verified manually.`,
+      correlationId: null
+    });
+    throw new DeferredEventError(`finalize_waiting_for_late_capture_truth deal ${dealId}`, lateLook.until);
   }
 
   const decision = await withTx(async (c) => {

@@ -145,8 +145,9 @@ async function execute(sc: Scenario): Promise<{ dealId: string; effects: number 
   // still has to be consistent with those cases. Effects counted from the ledger.
   let effects = 0;
   for (const p of d.participants) { const e = lab.sim.effectsOf(p.authorization); effects += e.capture + e.recover + e.refund + e.release; }
-  // CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF = F-6 (recovery_failed → AuthReleased without a release request), documented, counted, not fixed here.
-  const allowed = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND", "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF"];
+  // F-6 is FIXED by the independent review (recovery_failed → Dropped + provider-proofed release rail):
+  // AuthReleased without a provider release effect is a hard FALSE_CANONICAL_RELEASE here.
+  const allowed = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND"];
   // A capture that a lying/late provider first declared failed may legitimately end as
   // ChargeFailedRecovery with a case and a captured effect (F-1 keeps it at one effect).
   await lab.oracle(`fuzz:${sc.index}`, [d.deal_id], { allowUnresolved: true, allowedCodes: allowed, print: false });

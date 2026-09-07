@@ -278,14 +278,11 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     if (canonicalCaptured && captured === 0) v("FALSE_CANONICAL_SUCCESS", pid, `money_state=${ms} but provider capture effects = 0 on ${auth}`);
     if (ms === "Refunded" && eff.refund === 0) v("FALSE_CANONICAL_REFUND", pid, `money_state=Refunded but provider refund effects = 0`);
     if (ms === "AuthReleased" && eff.release === 0 && captured === 0) {
-      // AuthReleased without a provider release. The canonical recovery_failed
-      // transition (ChargeFailedRecovery → AuthReleased, action
-      // charging.recovery_failed) sets it WITHOUT a provider release request —
-      // reported under its own code (F-6, semantics decision for the owner);
-      // any other path to AuthReleased without a release effect is a false release.
-      const releasedByRecoveryFailure = audits.some((a) => a.state_type === "money_state" && a.to_state === "AuthReleased" && a.action_name === "charging.recovery_failed");
-      if (releasedByRecoveryFailure) v("CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF", pid, `recovery_failed set AuthReleased without a provider release request (hold left to the provider's expiry)`);
-      else v("FALSE_CANONICAL_RELEASE", pid, `money_state=AuthReleased but provider release effects = 0`);
+      // Owner financial truth decision (independent review, F-6): AuthReleased
+      // is money truth and REQUIRES authoritative release proof. Every path to
+      // AuthReleased without a provider release effect is a false release —
+      // the former recovery_failed allowance no longer exists.
+      v("FALSE_CANONICAL_RELEASE", pid, `money_state=AuthReleased but provider release effects = 0 (${audits.filter((a) => a.state_type === "money_state" && a.to_state === "AuthReleased").map((a) => a.action_name).join(",") || "no audit"})`);
     }
     if (ms === "ChargedSuccess" && p.buyer_state !== "ChargedSuccess" && p.buyer_state !== "DealCompleted" && p.buyer_state !== "DealFailed") v("BUYER_STATE_INCONSISTENT", pid, `money=${ms} buyer=${p.buyer_state}`);
     if (ms === "RecoveredCharge" && !["Recovered", "DealCompleted", "DealFailed"].includes(p.buyer_state)) v("BUYER_STATE_INCONSISTENT", pid, `money=${ms} buyer=${p.buyer_state}`);

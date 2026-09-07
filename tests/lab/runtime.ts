@@ -22,7 +22,7 @@ export type LabParticipantSpec = {
   binding?: boolean;
   /** No binding and a join audit WITHOUT an authorization id: the adapter proves dispatched:false (pre-dispatch failure). */
   withoutAuthorization?: boolean;
-  priorAttempts?: Array<{ attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release"; result_class: "unknown" | "success" | "permanent_fail"; correlation_id?: string; dispatch_state?: "recorded" | "responded" }>;
+  priorAttempts?: Array<{ attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release"; result_class: "unknown" | "success" | "permanent_fail"; correlation_id?: string; dispatch_state?: "recorded" | "responded"; failure_evidence?: "dispatch_response" | "status_inference" | "provider_event" | "operator" | null; settlement_horizon_at?: Date | null }>;
 };
 
 export type LabDealSpec = {
@@ -77,6 +77,11 @@ export async function bootLab(options: LabOptions) {
   process.env.PAYMENT_PROVIDER_MODE = "provider-ready";
   // F-9 pre-flight confirmation interval: short in the lab (the simulator flaps per call), 1 s by default in the app.
   process.env.RECOVERY_PREFLIGHT_CONFIRM_MS = process.env.RECOVERY_PREFLIGHT_CONFIRM_MS || "60";
+  // Independent financial review — provider SETTLEMENT HORIZON (migration 064):
+  // the simulator's asynchronous settlements (DELAYED_EFFECT / LATE_SUCCESS)
+  // land within ~1.2 s in every scenario, so a 1.5 s horizon is the truthful
+  // contract value for this provider. Production defaults to 24 h.
+  process.env.PAYMENT_SETTLEMENT_HORIZON_MS = process.env.PAYMENT_SETTLEMENT_HORIZON_MS || "1500";
   process.env.PAYMENT_PROVIDER_API_KEY = `lab-provider-key-${options.tag}`;
   process.env.PAYMENT_PROVIDER_BASE_URL = baseUrl;
   process.env.PAYMENT_PROVIDER_AUTH_PATH = "/authorize";
@@ -145,9 +150,9 @@ export async function bootLab(options: LabOptions) {
       }
       for (const prior of p.priorAttempts || []) {
         await pool.query(
-          `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state)
-           VALUES ($1,$2,$3,$4,$5,$6)`,
-          [participantId, dealId, prior.attempt_type, prior.result_class, prior.correlation_id || `${prior.attempt_type}:lab-prior:n1:${participantId}`, prior.dispatch_state || (prior.result_class === "unknown" ? "responded" : "responded")]
+          `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, failure_evidence, settlement_horizon_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          [participantId, dealId, prior.attempt_type, prior.result_class, prior.correlation_id || `${prior.attempt_type}:lab-prior:n1:${participantId}`, prior.dispatch_state || (prior.result_class === "unknown" ? "responded" : "responded"), prior.failure_evidence ?? null, prior.settlement_horizon_at ? prior.settlement_horizon_at.toISOString() : null]
         );
       }
       participants.push({ participant_id: participantId, buyer_id: buyerId, authorization, qty, delivery_cost: delivery, amount_minor: amountMinor });
@@ -352,6 +357,9 @@ export async function bootLab(options: LabOptions) {
 
   return {
     app, pool, sim, vat, faults, processOutboxEventById, reclaimWorkerJobs,
+    /** worker-maintenance sweepers (review instruments) */
+    reconcileOrphanedUnknownIdentities: (appModule.reconcileOrphanedUnknownIdentities as (limit?: number, quietMs?: number) => Promise<number>),
+    rescheduleStalledFinalizations: (appModule.rescheduleStalledFinalizations as (limit?: number) => Promise<number>),
     armTestFault: faults.armTestFault as (point: string, action: any, count?: number) => any,
     resetTestFaults: faults.resetTestFaults as () => void,
     seedDeal, attachAuthorization, enqueue, enqueueCharge, enqueueRecovery, enqueueRefund, enqueueRelease, enqueueFinalize, enqueueReconcile,

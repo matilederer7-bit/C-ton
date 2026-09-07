@@ -41,7 +41,10 @@ export type Behavior =
   | { kind: "DELAYED_EFFECT"; delayMs: number }
   | { kind: "LATE_SUCCESS"; delayMs: number }
   | { kind: "HANG_NO_EFFECT"; holdMs?: number }
-  | { kind: "PENDING_NO_EFFECT" };
+  | { kind: "PENDING_NO_EFFECT" }
+  // Independent review — a 2xx body that carries an id but NO declared outcome
+  // ("legacy shape"); the money may (effect:true) or may not have moved.
+  | { kind: "ID_ONLY_2XX"; effect: boolean };
 
 export type StatusBehavior =
   | { kind: "TRUTH" }
@@ -411,6 +414,12 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
           case "PENDING_NO_EFFECT": {
             const b = JSON.stringify({ ok: true, status: "pending", provider_reference: auth, reference: body.reference });
             remember(200, b, false); log(false, "200-pending"); answerJson(200, b); return;
+          }
+          case "ID_ONLY_2XX": {
+            if (behavior.effect) effectNow();
+            const idKey = op === "capture" ? "capture_id" : op === "recover" ? "recovery_id" : op === "refund" ? "refund_id" : "authorization_id";
+            const b = JSON.stringify({ ok: true, [idKey]: `${op.slice(0, 3)}-${auth}`, provider_reference: `${op.slice(0, 3)}-${auth}`, reference: body.reference });
+            remember(200, behavior.effect ? successBody(op, auth, body.reference) : b, behavior.effect); log(behavior.effect, "200-id-only"); answerJson(200, b); return;
           }
         }
       } catch (error) {

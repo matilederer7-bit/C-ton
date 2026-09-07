@@ -60,7 +60,9 @@ const MIGRATIONS = [
   ["060", "060_support_case_messages.sql"],
   ["061", "061_seller_customer_inquiries.sql"],
   // 062 = reserved for the Codex Amazon Product branch (never consumed here) — R9C takes 063.
-  ["063", "063_payment_operation_lifecycle.sql"]
+  ["063", "063_payment_operation_lifecycle.sql"],
+  // 064 = independent financial review remediation (settlement horizon + failure evidence).
+  ["064", "064_payment_settlement_horizon.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

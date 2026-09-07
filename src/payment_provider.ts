@@ -11,6 +11,7 @@ import {
   PAYMENT_PROVIDER_RELEASE_PATH,
   PAYMENT_PROVIDER_STATUS_PATH,
   PAYMENT_PROVIDER_CURRENCY,
+  PAYMENT_SETTLEMENT_HORIZON_MS,
   PAYMENT_ENVIRONMENT,
   PAYMENT_PROVIDER_MODE,
   PAYMENT_PROVIDER_PUBLIC_KEY,
@@ -52,12 +53,23 @@ export type PaymentExecutionResultClass = PaymentResultClass | "unknown";
 export type ProviderAmbiguityPolicy = {
   same_identity_repeat_safe: boolean;
   negative_status_authoritative: boolean;
+  /**
+   * Independent financial review — SETTLEMENT HORIZON (migration 064): how
+   * long after a capture-side request was dispatched the provider may still
+   * settle it. A failure that was only INFERRED from status reads fences
+   * automatic recovery, release and the terminal deal decision until
+   * dispatched_at + this horizon; a failure the provider declared in its
+   * answer to the exact request is not fenced. 0 = the provider settles
+   * synchronously (no asynchronous settlement exists — in-process mock only).
+   */
+  settlement_horizon_ms: number;
   basis: string;
 };
 
 export const FAIL_CLOSED_AMBIGUITY_POLICY: ProviderAmbiguityPolicy = {
   same_identity_repeat_safe: false,
   negative_status_authoritative: false,
+  settlement_horizon_ms: 24 * 60 * 60 * 1000,
   basis: "no documented, sandbox-proven provider contract for repeat or exact-operation status semantics"
 };
 
@@ -293,6 +305,30 @@ function mockOutcomeDraw(key: string) {
   return rand01Deterministic(attempt === 1 ? key : `${key}#retry${attempt}`);
 }
 
+// Independent financial review — the in-process mock used to answer EVERY
+// capture status lookup with "captured / final" regardless of whether a mock
+// capture ever happened (R9C INFO F9). With the recovery pre-flight in place
+// that fabricated status flipped every declined mock capture to "already
+// captured" (identity SUCCESS, false late-money case, recovery blocked for
+// ever on mock-backed deployments). The mock now remembers what it executed
+// and answers status from that memory only — a truthful provider.
+const mockExecutedOperations = new Map<string, { captured: boolean; refunded: boolean; released: boolean }>();
+function mockRemember(reference: string | null | undefined, op: "captured" | "refunded" | "released") {
+  const key = String(reference || "").trim();
+  if (!key) return;
+  if (mockExecutedOperations.size > 10_000) mockExecutedOperations.clear();
+  const row = mockExecutedOperations.get(key) || { captured: false, refunded: false, released: false };
+  row[op] = true;
+  mockExecutedOperations.set(key, row);
+}
+function mockExecutedState(reference: string | null | undefined, operation: "capture" | "refund" | "release" | string): "authorized" | "captured" | "refunded" | "released" {
+  const row = mockExecutedOperations.get(String(reference || "").trim());
+  if (!row) return "authorized";
+  if (operation === "refund") return row.refunded ? "refunded" : row.captured ? "captured" : "authorized";
+  if (operation === "release") return row.released ? "released" : row.captured ? "captured" : "authorized";
+  return row.refunded ? "refunded" : row.captured ? "captured" : row.released ? "released" : "authorized";
+}
+
 function paymentAuthorizationId(paymentMethodId: string) {
   return `auth_${createHash("sha256").update(paymentMethodId).digest("hex").slice(0, 12)}`;
 }
@@ -386,7 +422,9 @@ function classifyRefundOutcome(payload: any): "success" | "permanent_fail" | "un
   const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.refund_status || "").trim().toLowerCase();
   if (["refund_issued", "refunded", "succeeded", "success", "approved", "completed", "issued"].includes(value)) return "success";
   if (["refund_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
-  if (!value && (payload?.refund_id || payload?.provider_reference)) return "success"; // legacy shape: an id and no status field
+  // Independent financial review: a 2xx body that carries an id but NO declared
+  // outcome is not provider success — it is UNKNOWN and the reconcile rail
+  // proves the refund through status before anything becomes canonical.
   return "unknown";
 }
 
@@ -394,7 +432,8 @@ function classifyReleaseOutcome(payload: any): "success" | "permanent_fail" | "u
   const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.release_status || "").trim().toLowerCase();
   if (["authorization_released", "payment_released", "released", "voided", "void", "canceled", "cancelled", "succeeded", "success", "approved", "completed"].includes(value)) return "success";
   if (["release_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
-  if (!value && (payload?.release_id || payload?.provider_reference || payload?.authorization_id)) return "success";
+  // Independent financial review: an id-only 2xx body declares nothing — UNKNOWN,
+  // never AuthReleased on an undeclared outcome (the reconcile rail decides).
   return "unknown";
 }
 
@@ -482,6 +521,7 @@ function buildMockPaymentProvider(): PaymentProvider {
     ambiguityPolicy: {
       same_identity_repeat_safe: true,
       negative_status_authoritative: true,
+      settlement_horizon_ms: 0,
       basis: "in-process deterministic mock: no external side effects exist"
     },
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
@@ -527,6 +567,7 @@ function buildMockPaymentProvider(): PaymentProvider {
       const correlationKey = String(input.correlation_id || "").trim() || buildCaptureCorrelationId();
       const r = mockOutcomeDraw(correlationKey);
       if (r < 0.75) {
+        mockRemember(input.authorization_id, "captured");
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
@@ -577,6 +618,7 @@ function buildMockPaymentProvider(): PaymentProvider {
       }
       const r = mockOutcomeDraw(correlationKey);
       if (r < 0.5) {
+        mockRemember(authorizationId, "captured");
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
@@ -611,15 +653,19 @@ function buildMockPaymentProvider(): PaymentProvider {
     async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
       const correlationKey = String(input.correlation_id || "").trim() || "mock-refund";
       const r = mockOutcomeDraw(correlationKey);
-      if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" };
+      if (r < 0.8) { mockRemember((input as any).capture_reference || (input as any).authorization_id, "refunded"); return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" }; }
       if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true, dispatched: false };
       return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
+      mockRemember(input.authorization_id, "released");
       return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, provider_reference: input.authorization_id, correlation_id: input.correlation_id };
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
-      return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: input.operation === "release" ? "released" : input.operation === "refund" ? "refunded" : input.operation === "capture" ? "captured" : "authorized", amount_minor: null, currency: null, provider_time: null, final: true, error_code: null };
+      // Truthful: the state the mock itself executed for this reference (see
+      // mockExecutedOperations); a reference the mock never captured is still
+      // merely authorized — never a fabricated "captured".
+      return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: mockExecutedState(input.provider_reference, input.operation), amount_minor: null, currency: null, provider_time: null, final: true, error_code: null };
     }
   };
 }
@@ -749,7 +795,8 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
     ambiguityPolicy: {
       same_identity_repeat_safe: true,
       negative_status_authoritative: true,
-      basis: "provider-ready HTTP contract: idempotency-key per operation; status final=true declares the settled state (R9A)"
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
+      basis: "provider-ready HTTP contract: idempotency-key per operation; status final=true declares the settled state (R9A); settlement horizon PAYMENT_SETTLEMENT_HORIZON_MS per provider contract (review remediation)"
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const authorizationId = String(input.authorization_id || "").trim();
@@ -1334,6 +1381,7 @@ function buildStripePaymentProvider(): PaymentProvider {
     ambiguityPolicy: {
       same_identity_repeat_safe: true,
       negative_status_authoritative: true,
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
       basis: "Stripe documents Idempotency-Key replay for 24h and synchronous PaymentIntent status; authorization-only proof exists, capture/refund not exercised against Stripe in this repository"
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
@@ -1588,6 +1636,7 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
     ambiguityPolicy: {
       same_identity_repeat_safe: false,
       negative_status_authoritative: false,
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
       basis: "Grow J4/J5 contract: no per-operation idempotency key transmitted; status reflects transaction state, not the exact Siton settle/refund invocation (R9C H1, unproven in sandbox)"
     },
     async authorize(input) {

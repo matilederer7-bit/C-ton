@@ -333,7 +333,10 @@ async function main() {
     assert.equal(tracking.statusCode, 200);
     const trackingJson = tracking.json() as any;
     assert.equal(trackingJson.tracking.buyer_state, "Dropped");
-    assert.equal(trackingJson.tracking.money_state, "AuthReleased");
+    // F-6 (independent financial review): recovery_failed is not release proof; the
+    // money state stays ChargeFailedRecovery until the provider-proofed release rail
+    // establishes AuthReleased (payment_release job, proven in the recovery real-rail suite).
+    assert.equal(trackingJson.tracking.money_state, "ChargeFailedRecovery");
   });
 
   await runTest("unknown webhook events are stored and safely ignored", async () => {

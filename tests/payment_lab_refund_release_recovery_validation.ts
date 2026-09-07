@@ -395,7 +395,8 @@ await run("F-7 release: provider answers 200 {status:'pending'} and never releas
 // read "failed" again, the recovery captured, then the delayed capture landed —
 // 8 400 minor captured for a 4 200 minor participant.
 
-const F9_ALLOWED = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND", "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF"];
+// F-6 is fixed (independent review): AuthReleased without a provider release is a hard violation here too.
+const F9_ALLOWED = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND"];
 
 await run("F-9 pinned (fuzz seed 2061983203 #141): capture answers 200 pending with a delayed effect while status flaps failed↔captured → no recovery capture, exactly one capture-side effect", async () => {
   const d = await lab.seedDeal({ state: "Charging", participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt", qty: 1, delivery_cost: 0 }] });
