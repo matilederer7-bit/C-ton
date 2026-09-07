@@ -132,8 +132,13 @@ const MUTATIONS = [
     to: `      if (args.attempt_type === "recovery") {\n        const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);`,
     suites: [["payments", "payment_review_settlement_horizon"]] },
   { id: "M27_inferred_failure_marked_exact", invariant: "provenance: a status-inferred failure is never recorded as exact-request evidence", file: "src/app.ts",
-    from: `        failure_evidence: resultClass === "permanent_fail" ? "status_inference" : null,\n        note: \`reconcile:\${eventType}:\${ingested.reason}\``,
-    to: `        failure_evidence: resultClass === "permanent_fail" ? "dispatch_response" : null,\n        note: \`reconcile:\${eventType}:\${ingested.reason}\``,
+    // The primary provenance site: the canonical charge_failed / recovery_failed
+    // transition settles the identity INSIDE the state transaction with the
+    // evidence derived from the event source. (The reconcile's later
+    // finalizeAttemptResult only converges an identity the transition did not
+    // touch — mutating it alone is a dead site and survived for that reason.)
+    from: `  const failureEvidence = inferredSources.includes(eventSource) ? "status_inference" : "provider_event";`,
+    to: `  const failureEvidence = "dispatch_response"; void inferredSources; void eventSource; // MUTANT`,
     suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
   { id: "M28_horizon_not_opened_at_dispatch", invariant: "a capture-side dispatch opens the settlement horizon on the identity", file: "src/app.ts",
     from: `      ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms\n      : null`,
@@ -185,7 +190,9 @@ for (const m of toRun) {
   } finally {
     for (const e of edits) {
       execSync(`git checkout -- "${e.file}"`);
-      if (readFile(e.file) !== e.original) { console.error(`  RESTORE FAILED for ${e.file}`); process.exit(3); }
+      // git autocrlf may hand a NEW file back with CRLF; compare content, not line endings
+      const normalize = (text) => text.split("\r\n").join("\n");
+      if (normalize(readFile(e.file)) !== normalize(e.original)) { console.error(`  RESTORE FAILED for ${e.file}`); process.exit(3); }
     }
   }
   const caught = suiteResults.some((s) => s.status === "RED");
