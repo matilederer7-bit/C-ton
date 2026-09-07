@@ -87,20 +87,31 @@ await run("F-2 fail-closed bound: a capture that stays UNKNOWN forever keeps the
   const d = await lab.seedDeal({ state: "Charging", threshold_units: 1, participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }] });
   const p = d.participants[0]!;
   lab.sim.script(p.authorization, "capture", [{ kind: "EFFECT_THEN_503" }]);
-  lab.sim.scriptStatus(p.authorization, Array.from({ length: 40 }, () => ({ kind: "UNKNOWN" as const })));
+  lab.sim.scriptStatus(p.authorization, Array.from({ length: 400 }, () => ({ kind: "UNKNOWN" as const })));
   await lab.enqueueCharge(d.deal_id);
   await lab.drain({ dealIds: [d.deal_id], types: ["charge_deal"] });
   await elapsedWindow(d.deal_id);
-  await lab.drain({ dealIds: [d.deal_id], maxRounds: 80 });
+  // bounded: the sweeper keeps re-queuing reconciles and finalizes; nothing may conclude
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 24 });
   const deal = await lab.deal(d.deal_id);
   const participant = await lab.participant(p.participant_id);
-  console.log(`  unknown forever: deal=${deal.state} participant=${participant.buyer_state}/${participant.money_state} dlq=${JSON.stringify((await lab.dlqRows(d.deal_id)).concat(await lab.dlqRows(p.participant_id)).map((r) => r.event_type))}`);
+  const dlq = (await lab.dlqRows(d.deal_id)).concat(await lab.dlqRows(p.participant_id)).map((r) => r.event_type);
+  console.log(`  unknown forever: deal=${deal.state} participant=${participant.buyer_state}/${participant.money_state} dlq=${JSON.stringify(dlq)}`);
   assert.notEqual(deal.state, "Failed", "charged money on a Failed deal is the exact defect");
+  assert.equal(deal.state, "CompletionWindow", "the deal must stay un-finalized while its capture is unresolved");
   assert.equal(participant.money_state, "ChargeAttempt");
   assert.equal(lab.sim.effectsOf(p.authorization).capture, 1);
+  assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0);
   const cases = await lab.cases(p.participant_id);
   assert.ok(cases.length >= 1, "the unresolved money must be visible as a case");
   await lab.oracle("finalize-guard:unknown-forever", [d.deal_id], { allowUnresolved: true, seededStates: false });
+  // F-2b: once truth is available the maintenance sweepers converge the identity AND re-queue the exhausted finalize.
+  lab.sim.clearStatusScript(p.authorization);
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 60 });
+  assert.equal((await lab.participant(p.participant_id)).money_state, "ChargedSuccess");
+  assert.equal((await lab.deal(d.deal_id)).state, "Completed", "a finalize that exhausted its attempts while waiting must be re-queued by maintenance");
+  assert.equal(lab.sim.effectsOf(p.authorization).capture, 1);
+  await lab.oracle("finalize-guard:unknown-then-truth", [d.deal_id], { seededStates: false });
 });
 
 const failed = summary();

@@ -127,6 +127,13 @@ async function execute(sc: Scenario): Promise<{ dealId: string; effects: number 
   if (sc.duplicateEvent) { await enqueue().catch(() => undefined); await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 30 }); }
   for (const type of sc.lateCallbacks) {
     const p = d.participants[0]!;
+    // A callback is the PROVIDER's word: keep the simulator ledger consistent
+    // with what the callback claims (an out-of-band effect the app never
+    // requested), so the oracle judges the app against a truthful provider.
+    const eff = lab.sim.effectsOf(p.authorization);
+    if ((type === "charge_captured" || type === "recovery_captured") && eff.capture + eff.recover === 0) { if (eff.release > 0) continue; lab.sim.forceEffect(type === "charge_captured" ? "capture" : "recover", p.authorization, p.amount_minor); }
+    if (type === "refund_issued") { if (eff.capture + eff.recover === 0) continue; if (eff.refund === 0) lab.sim.forceEffect("refund", p.authorization, p.amount_minor); }
+    if (type === "payment_released") { if (eff.capture + eff.recover > 0) continue; if (eff.release === 0) lab.sim.forceEffect("release", p.authorization, null); }
     const rows = await lab.attempts(p.participant_id);
     const r = await lab.postWebhook({ event_type: type, provider_reference: p.authorization, participant_id: p.participant_id, deal_id: d.deal_id, correlation_id: rows[0]?.correlation_id ?? null, ...(sc.duplicateCallback ? { event_id: `fuzz-dup-${sc.seed}-${type}` } : {}) });
     assert.ok(r.statusCode < 500, `late callback ${type} answered ${r.statusCode}: ${r.body}`);

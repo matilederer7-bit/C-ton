@@ -226,6 +226,7 @@ export async function bootLab(options: LabOptions) {
       stats.reclaimed += Number((await reclaimWorkerJobs(0))?.outbox ?? (await Promise.resolve(0))) || 0;
       // worker maintenance parity: orphaned UNKNOWN identities get their reconcile (F-4)
       if (typeof appModule.reconcileOrphanedUnknownIdentities === "function") await appModule.reconcileOrphanedUnknownIdentities(50, 0).catch(() => 0);
+      if (typeof appModule.rescheduleStalledFinalizations === "function" && !(opts.skip && opts.skip({ event_uuid: "", event_type: "finalize_deal" }))) await appModule.rescheduleStalledFinalizations().catch(() => 0);
       const due = (await scopedEvents(opts.dealIds, participantIds, `status='pending' AND available_at <= clock_timestamp()`, opts.types)).filter((e) => !(opts.skip && opts.skip(e)));
       if (due.length === 0) {
         const deferred = await scopedEvents(opts.dealIds, participantIds, `status='pending' AND available_at > clock_timestamp()`, opts.types);

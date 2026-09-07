@@ -53,7 +53,10 @@ await run("terminal ChargedSuccess: duplicate, out-of-order and stale callbacks 
   const first = await lab.postWebhook({ event_type: "charge_captured", event_id: evt, provider_reference: p.authorization, correlation_id: row.correlation_id, participant_id: p.participant_id, deal_id: d.deal_id });
   const second = await lab.postWebhook({ event_type: "charge_captured", event_id: evt, provider_reference: p.authorization, correlation_id: row.correlation_id, participant_id: p.participant_id, deal_id: d.deal_id });
   assert.ok(first.statusCode < 300 && second.statusCode < 300, `${first.statusCode} ${second.statusCode}`);
-  assert.match(second.body, /duplicate/i, `the second delivery of one event id must be recognised as a duplicate: ${second.body}`);
+  assert.equal(JSON.parse(first.body).duplicate, false, `first delivery must not be a duplicate: ${first.body}`);
+  assert.equal(JSON.parse(second.body).duplicate, true, `the second delivery of one event id must be recognised as a duplicate: ${second.body}`);
+  const stored = await lab.pool.query(`SELECT COUNT(*)::int AS n FROM siton.webhook_events WHERE provider='payrail-http' AND event_id=$1`, [evt]);
+  assert.equal(stored.rows[0].n, 1, "one provider event id is stored exactly once");
   // out of order: an authorization event and a failure event AFTER success
   for (const type of ["payment_authorized", "charge_failed", "recovery_failed"]) {
     const r = await lab.postWebhook({ event_type: type, provider_reference: p.authorization, correlation_id: row.correlation_id, participant_id: p.participant_id, deal_id: d.deal_id });
