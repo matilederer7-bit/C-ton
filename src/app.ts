@@ -2986,6 +2986,18 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
 }): Promise<"proceed" | "captured" | "ambiguous"> {
   const reference = String(args.authorization_id || "").trim();
   if (!paymentProvider.status || !reference) return "proceed";
+  // A recovery identity that already exists (unknown / executed) is owned by the
+  // identity discipline and resolvePriorProviderAttempt: a "captured" status may
+  // then be THAT recovery, not a late original capture. The pre-flight only
+  // guards the first recovery of a participant.
+  const priorRecovery = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT 1 FROM siton.payment_attempts WHERE participant_id=$1 AND deal_id=$2 AND attempt_type='recovery' AND result_class IN ('unknown','success') LIMIT 1`,
+      [args.participant_id, args.deal_id]
+    );
+    return Number(r.rowCount || 0) > 0;
+  });
+  if (priorRecovery) return "proceed";
   let status: PaymentStatusResult;
   try {
     status = await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `recovery-preflight:${args.event_id}:${args.participant_id}` });
