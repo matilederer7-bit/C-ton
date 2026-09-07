@@ -1,3 +1,17 @@
+<!-- CODEX_BASELINE_INTEGRATION_START -->
+## CODEX BASELINE RESILIENCE + CI INTEGRATION - FULL REGRESSION PENDING
+
+**COMPLETED:** Narrow repairs independently reviewed on branches from exact master 60ebf6d. Resilience input 7317b7211fcfd6ea67dfb2f787a5fa0c0b96f6ff and test-only CI input 2c4fa9c3d8bcedb1f07cd07d2a4da5b92c76d671 admitted and cherry-picked separately into codex/baseline-resilience-ci-integration. No conflicts, financial code, provider changes, or migrations imported.
+
+**TESTED:** Cancel 22/22; PG process survival 11/11 plus log safety 7/7 on three runs; CI credential/correlation matrix 181/181; real request-ID 9/9; two-process worker proof passed. All eight deliberate protection/detection mutations turned red and were restored.
+
+**OPEN:** Full ten-group sequential regression and static/build/mobile gates on the combined candidate are starting. Promotion is not approved until that validation completes. GitHub branch CI and hosted smoke are not yet claimed green.
+
+**PERCENTAGE:** Independent input admission 100%; combined regression pending; master promotion 0%.
+
+**NEXT STEP:** Complete sequential regression, inspect any failures without hiding them, publish exact results, and push only the Codex integration branch. Never merge master or modify Claude's financial worktree.
+<!-- CODEX_BASELINE_INTEGRATION_END -->
+
 ## CODEX INDEPENDENT BASELINE ADMISSION REVIEW (2026-09-07) - NOT APPROVED FOR PROMOTION
 
 **COMPLETED:** Independently verified remote master 60ebf6d, pre-financial 82f9171, and CI repair 00861b9. Created isolated codex/baseline-resilience-ci-integration from exact 60ebf6d. Reproduced master cancel HTTP 500 and real PG child-process death. Reviewed exact candidate source and ran deterministic matrices and negative controls. Runtime test materializations and mutations were restored; no financial code or migrations imported. This branch records a rejection, not a clean integration candidate.

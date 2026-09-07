@@ -1,0 +1,109 @@
+{
+  "base": "60ebf6d64fb0d5909ae98fa335a4a27ad45c9172",
+  "resilienceInput": "7317b7211fcfd6ea67dfb2f787a5fa0c0b96f6ff",
+  "ciInput": "2c4fa9c3d8bcedb1f07cd07d2a4da5b92c76d671",
+  "resilience": [
+    {
+      "label": "repaired-resilience-pg",
+      "exit": 0,
+      "summaries": [
+        "SUMMARY db_client_error_log_safety passed=7 failed=0",
+        "SUMMARY db_client_error_process_survival passed=11 failed=0 uncaught=0 guard_observations=24",
+        "TEST_SUMMARY group=db passed=2 failed=0 duration_ms=75498"
+      ]
+    },
+    {
+      "label": "repaired-resilience-cancel",
+      "exit": 0,
+      "summaries": [
+        "SUMMARY cancel_outbox_concurrency passed=22 failed=0",
+        "TEST_SUMMARY group=concurrency passed=1 failed=0 duration_ms=21047"
+      ]
+    },
+    {
+      "label": "repaired-negative-serialization",
+      "exit": 1,
+      "summaries": [
+        "SUMMARY cancel_outbox_concurrency passed=6 failed=16",
+        "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=17339"
+      ]
+    },
+    {
+      "label": "repaired-negative-reread",
+      "exit": 1,
+      "summaries": [
+        "SUMMARY cancel_outbox_concurrency passed=7 failed=15",
+        "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=18522"
+      ]
+    },
+    {
+      "label": "repaired-negative-outbox-order",
+      "exit": 1,
+      "summaries": [
+        "SUMMARY cancel_outbox_concurrency passed=0 failed=22",
+        "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=17264"
+      ]
+    },
+    {
+      "label": "repaired-negative-pg-guard",
+      "exit": 1,
+      "summaries": [
+        "SUMMARY db_client_error_process_survival passed=0 failed=11 uncaught=22 guard_observations=0",
+        "TEST_SUMMARY group=db passed=0 failed=2 duration_ms=26967"
+      ]
+    },
+    {
+      "label": "repaired-negative-pg-logging",
+      "exit": 1,
+      "summaries": [
+        "TEST_SUMMARY group=db passed=0 failed=1 duration_ms=13525"
+      ]
+    },
+    {
+      "label": "repaired-pg-repeat-1",
+      "exit": 0,
+      "summaries": [
+        "SUMMARY db_client_error_log_safety passed=7 failed=0",
+        "SUMMARY db_client_error_process_survival passed=11 failed=0 uncaught=0 guard_observations=24",
+        "TEST_SUMMARY group=db passed=2 failed=0 duration_ms=35410"
+      ]
+    },
+    {
+      "label": "repaired-pg-repeat-2",
+      "exit": 0,
+      "summaries": [
+        "SUMMARY db_client_error_log_safety passed=7 failed=0",
+        "SUMMARY db_client_error_process_survival passed=11 failed=0 uncaught=0 guard_observations=24",
+        "TEST_SUMMARY group=db passed=2 failed=0 duration_ms=60091"
+      ]
+    }
+  ],
+  "ci": {
+    "matrix": {
+      "passed": 181,
+      "failed": 0
+    },
+    "requestId": {
+      "passed": 9,
+      "failed": 0
+    },
+    "workerFiles": {
+      "passed": 1,
+      "failed": 0
+    },
+    "mutations": [
+      {
+        "name": "credential-blind",
+        "exit": 1
+      },
+      {
+        "name": "credential-substring",
+        "exit": 1
+      },
+      {
+        "name": "wrong-correlation-accepted",
+        "exit": 1
+      }
+    ]
+  }
+}

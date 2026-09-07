@@ -1,3 +1,5 @@
+> Historical rejection record at 9adbda9. The subsequent repaired-input review is recorded in PROJECT_STATUS.md and CODEX_BASELINE_REPAIRED_INPUTS.json. This original evidence is preserved.
+
 # Independent baseline candidate review — 2026-09-07
 
 Decision: **REJECT the supplied pair for promotion. No combined runtime candidate was built.** Part C explicitly permits integration only when Parts A and B are independently clean. This branch is a review record, not a baseline to fast-forward into master.
