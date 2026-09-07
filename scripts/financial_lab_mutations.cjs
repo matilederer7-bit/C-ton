@@ -84,7 +84,65 @@ const MUTATIONS = [
     if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));`,
     to: `  for (let i = 0; i < 1; i++) {
     if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));`,
-    suites: [["payments", "payment_lab_refund_release_recovery"]] }
+    suites: [["payments", "payment_lab_refund_release_recovery"]] },
+
+  // ── Independent financial review (migration 064 + F-6 + identity + Grow) ─────
+  // Every invariant the review added has a red mutant. A mutation may touch several
+  // files (`files`); all are applied together and restored together.
+  { id: "M18_settlement_horizon_fence_removed", invariant: "settlement horizon fences automatic recovery (app fence AND DB predicate)",
+    files: [
+      { file: "src/payment_attempt_helpers.ts",
+        from: `    const value = r.rows[0]?.fence;\n    if (!value) return null;`,
+        to: `    const value = null as any; void r;\n    if (!value) return null;` },
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `    AND pa.settlement_horizon_at > clock_timestamp();\n$$;`,
+        to: `    AND pa.settlement_horizon_at > clock_timestamp() AND false;\n$$;` }
+    ],
+    suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
+  { id: "M19_f6_release_proof_removed", invariant: "F-6: AuthReleased only through the provider-proofed release rail (never by assumption on recovery_failed)", file: "src/app.ts",
+    from: `    await schedulePaymentRelease({ participant_id: args.target.participant_id, deal_id: args.target.deal_id, reason: "recovery_failed" }).catch(() => undefined);`,
+    to: `    await applyAuthorizationRelease(args.target.participant_id, args.target.deal_id, requestId, args.event.correlation_id ?? null); // MUTANT: released by assumption`,
+    suites: [["payments", "payment_review_adversarial"]] },
+  { id: "M20_currency_check_removed", invariant: "currency is part of the exact-operation identity (reconcile)", file: "src/app.ts",
+    from: `  if (status.currency && operation !== "release" && String(status.currency).toUpperCase() !== expectedCurrency) {`,
+    to: `  if (false && status.currency && operation !== "release" && String(status.currency).toUpperCase() !== expectedCurrency) {`,
+    suites: [["payments", "payment_review_adversarial"]] },
+  { id: "M21_grow_failed_status_verdict", invariant: "Grow fail-closed: a 'failed' status after dispatch is not a verdict for a provider without exact-operation status", file: "src/app.ts",
+    from: `    if (status.state === "failed" || (status.state === "authorized" && status.final)) {\n      if (!policy.negative_status_authoritative) {`,
+    to: `    if (status.state === "failed" || (status.state === "authorized" && status.final)) {\n      if (status.state !== "failed" && !policy.negative_status_authoritative) {`,
+    suites: [["payments", "payment_review_grow_negative_status"]] },
+  { id: "M22_status_echo_rewrites_binding", invariant: "exact-operation identity: a status echo never rewrites the durable provider reference (O-1)", file: "src/app.ts",
+    from: `    // Exact-operation identity (independent financial review, O-1): a status\n    // READ never rewrites the participant's durable provider reference. Only the`,
+    to: `    if (status.provider_reference) await paymentBindings.updateProviderReferenceForParticipant(participantId, status.provider_reference).catch(() => undefined); // MUTANT\n    // (mutated) a status READ rewrites the participant's durable provider reference. Only the`,
+    suites: [["payments", "payment_review_adversarial"]] },
+  { id: "M23_mock_status_fabricated", invariant: "mock provider status is truthful (never a fabricated 'captured')", file: "src/payment_provider.ts",
+    from: `state: mockExecutedState(input.provider_reference, input.operation), amount_minor: null`,
+    to: `state: input.operation === "capture" ? "captured" : mockExecutedState(input.provider_reference, input.operation), amount_minor: null`,
+    suites: [["payments", "payment_review_mock_provider_truth"]] },
+  { id: "M24_preflight_unverifiable_proceeds", invariant: "recovery pre-flight holds on an unverifiable status unless the failure is exact-request evidence", file: "src/app.ts",
+    from: `    if (exactDecline) return "proceed";`,
+    to: `    if (exactDecline || !exactDecline) return "proceed";`,
+    suites: [["payments", "payment_review_adversarial"]] },
+  { id: "M25_finalize_horizon_fence_removed", invariant: "the terminal deal decision waits for the settlement horizon", file: "src/app.ts",
+    from: `  if (fencedCaptures.length > 0) {\n    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));`,
+    to: `  if (fencedCaptures.length > 0 && false) {\n    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));`,
+    suites: [["payments", "payment_review_settlement_horizon"]] },
+  { id: "M26_release_fence_removed", invariant: "the settlement horizon fences the release rail (no release-then-capture)", file: "src/payment_attempt_helpers.ts",
+    from: `      if (args.attempt_type === "recovery" || args.attempt_type === "release") {\n        const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);`,
+    to: `      if (args.attempt_type === "recovery") {\n        const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);`,
+    suites: [["payments", "payment_review_settlement_horizon"]] },
+  { id: "M27_inferred_failure_marked_exact", invariant: "provenance: a status-inferred failure is never recorded as exact-request evidence", file: "src/app.ts",
+    from: `        failure_evidence: resultClass === "permanent_fail" ? "status_inference" : null,\n        note: \`reconcile:\${eventType}:\${ingested.reason}\``,
+    to: `        failure_evidence: resultClass === "permanent_fail" ? "dispatch_response" : null,\n        note: \`reconcile:\${eventType}:\${ingested.reason}\``,
+    suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
+  { id: "M28_horizon_not_opened_at_dispatch", invariant: "a capture-side dispatch opens the settlement horizon on the identity", file: "src/app.ts",
+    from: `      ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms\n      : null`,
+    to: `      ? null\n      : null`,
+    suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
+  { id: "M29_stale_identity_settled_from_sibling_evidence", invariant: "a reconcile carrying a terminal identity steps aside while a sibling identity is unresolved (evidence tied to the exact identity)", file: "src/app.ts",
+    from: `    if (otherUnresolved) return; // FR-4: the unresolved sibling identity owns this verdict`,
+    to: `    if (otherUnresolved && false) return; // MUTANT`,
+    suites: [["payments", "payment_review_findings_reconstruction"]] }
 ];
 
 const args = process.argv.slice(2);
@@ -102,13 +160,15 @@ if (dirty) { console.error("refusing to mutate: src has uncommitted changes:\n" 
 
 const results = [];
 for (const m of toRun) {
-  const original = readFile(m.file);
-  const eol = original.includes("\r\n") ? "\r\n" : "\n";
-  const from = normalizeEol(m.from, eol);
-  const to = normalizeEol(m.to, eol);
-  if (!original.includes(from)) { results.push({ id: m.id, invariant: m.invariant, outcome: "ANCHOR_MISSING", suites: [] }); console.log(`[${m.id}] ANCHOR_MISSING`); continue; }
-  fs.writeFileSync(m.file, original.replace(from, to));
-  console.log(`\n[${m.id}] applied to ${m.file} — ${m.invariant}`);
+  // one or several files per mutation; applied together, restored together
+  const edits = (m.files || [{ file: m.file, from: m.from, to: m.to }]).map((e) => ({ ...e, original: readFile(e.file) }));
+  const missing = edits.find((e) => { const eol = e.original.includes("\r\n") ? "\r\n" : "\n"; return !e.original.includes(normalizeEol(e.from, eol)); });
+  if (missing) { results.push({ id: m.id, invariant: m.invariant, outcome: "ANCHOR_MISSING", suites: [] }); console.log(`[${m.id}] ANCHOR_MISSING in ${missing.file}`); continue; }
+  for (const e of edits) {
+    const eol = e.original.includes("\r\n") ? "\r\n" : "\n";
+    fs.writeFileSync(e.file, e.original.replace(normalizeEol(e.from, eol), normalizeEol(e.to, eol)));
+  }
+  console.log(`\n[${m.id}] applied to ${edits.map((e) => e.file).join(", ")} — ${m.invariant}`);
   const suiteResults = [];
   try {
     for (const [group, pattern] of m.suites) {
@@ -123,9 +183,10 @@ for (const m of toRun) {
       if (status === "RED") break;
     }
   } finally {
-    execSync(`git checkout -- "${m.file}"`);
-    const restored = readFile(m.file) === original;
-    if (!restored) { console.error(`  RESTORE FAILED for ${m.file}`); process.exit(3); }
+    for (const e of edits) {
+      execSync(`git checkout -- "${e.file}"`);
+      if (readFile(e.file) !== e.original) { console.error(`  RESTORE FAILED for ${e.file}`); process.exit(3); }
+    }
   }
   const caught = suiteResults.some((s) => s.status === "RED");
   const compileError = suiteResults.some((s) => s.status === "COMPILE_ERROR");
