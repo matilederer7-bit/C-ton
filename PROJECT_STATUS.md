@@ -1,3 +1,18 @@
+## FINAL FINANCIAL INTEGRATION — PHASE 1 SEMANTIC PORT (2026-09-08) — branch `claude/r9c-final-financial-integration` (from exact master `8ead7c8`), NOT merged
+
+**COMPLETED**
+- Baseline verified: `origin/master = 8ead7c828e6d6233bf7d17bf7f67d1a67ad35767` (Codex independently repaired baseline); financial source `claude/r9c-financial-review-remediation @ 921b85b891b47996cbf57683a9ed3a532674052e` (merge-base `60ebf6d`). GitHub CI on master `8ead7c8`: web-runtime GREEN; backend-gates RED at step 30 "Complete repository suite" only (steps 1–29 incl. every group GREEN; annotation "exit code 1" only, logs need login) — a baseline, financial-independent, sequence-dependent problem recorded here and NOT folded into this branch.
+- Semantic port: the 30 financial commits (`e829e79 … 921b85b`, cherry-picked with `-x` in original order) applied onto exact master; the two pre-financial Phase 1 commits (`b2d67ff`, `82f9171`) were SKIPPED because master's Codex commit `693628c` carries the same `src/app.ts` change line-for-line and a strict superset of the `src/db.ts` guard (safe-code allowlist for logged error codes). Three docs commits conflicted on `PROJECT_STATUS.md` only (resolved to master's file; financial status is recorded in this section). Equivalence proof: `git diff --name-only 921b85b HEAD` ⊆ master's own delta files; source differs from the financial tip ONLY by Codex's `safeCodes` hunk in `src/db.ts`; `tests/cancel_outbox_concurrency_validation.ts` and the cancel hunk of `src/app.ts` are byte-identical on both sides. `tests/db_client_error_process_survival_validation.ts` carries BOTH sides (Codex: idle-timer disable, terminate assertion, ROLLBACK-termination scenario, 4 child scenarios; review: held-client vacuity check).
+- Migrations: 061 P0.7 · 062 RESERVED (Amazon) · 063 lifecycle · 064 settlement horizon — no renumbering.
+
+**TESTED** (integration tip `534c179`, fresh isolated databases): `tsc` clean; isolated migration proof **59/59** fresh + rerun, checksum ledger, drift 0; Codex baseline: `cancel_outbox_concurrency` **22/22**, `db_client_error_process_survival` **11/11** + `db_client_error_log_safety`, `request_id_canonical_authority` 9/9 + `ci_log_security` (181 assertions), `worker_two_process_fencing` PASS (credential predicate self-check); financial: `payment_review_adversarial` 20/20, `payment_review_findings_reconstruction` 13/13, `payment_review_grow_negative_status` 2/2, `payment_review_mock_provider_truth` 1/1, `payment_review_settlement_horizon` 12/12, Grow ambiguity policy, R9C race/ambiguity/stale-owner, identity crash, release/recovery/refund real rails, webhook truth, ledger atomicity, terminal late events, platform fee — payments 18/18 files. CODEX_BASELINE_BEHAVIOR_LOST = 0.
+
+**OPEN**: Phase 2 (residuals A provider finality / B legacy NULL horizon / C capture-vs-release fence), mutations, fuzz ≥ 1 000, soak, exact-tip full regression, final docs.
+
+**PERCENTAGE**: 30 %. SAFE_TO_MERGE = NO. SAFE_FOR_REAL_MONEY = NO.
+
+**NEXT STEP**: Phase 2 — close residuals A/B/C with DB-level authority (migration 064 extended in place: never applied outside disposable databases), then anti-vacuity, fuzz, soak, exact-tip regression.
+
 <!-- CODEX_BASELINE_INTEGRATION_START -->
 ## CODEX BASELINE RESILIENCE + CI INTEGRATION - LOCALLY VERIFIED, NOT MERGED
 
