@@ -222,8 +222,9 @@ await run("db.withTransaction and db.withClient: the same guard covers the db mo
 
 await run("pool hygiene: after every termination the pool holds no dead clients and still serves concurrent work", async () => {
   const before = dbClientErrorObservations().length;
-  const results = await Promise.all(Array.from({ length: 8 }, (_, i) => appPool.query(`SELECT $1::int AS i`, [i])));
+  const results = await Promise.all(Array.from({ length: 8 }, (_, i) => appPool.query(`SELECT $1::int AS i, pg_backend_pid() AS pid`, [i])));
   assert.deepEqual(results.map((r: any) => r.rows[0].i), [0, 1, 2, 3, 4, 5, 6, 7]);
+  const ownPids = [...new Set(results.map((r: any) => Number(r.rows[0].pid)))];
   assert.ok(appPool.totalCount <= Number((appPool as any).options?.max || 10), `pool leaked clients: total=${appPool.totalCount}`);
   assert.equal(appPool.waitingCount, 0, "requests left waiting for a pool slot");
   // This scenario itself must not need the guard; make the vacuity check explicit
@@ -231,17 +232,23 @@ await run("pool hygiene: after every termination the pool holds no dead clients 
   // The pooled clients report idle asynchronously (pg_stat_activity lags the
   // pool by a few ms and pg-pool may still be releasing the last client): poll
   // briefly instead of trusting a single snapshot.
+  // Only THIS process's pooled backends qualify: in a full-repository run another
+  // test process may still hold idle `siton-%` connections, and terminating one of
+  // those is invisible to this pool's guard by design.
   let idlePid = 0;
   for (let i = 0; i < 40 && idlePid === 0; i++) {
     idlePid = Number((await killer.query(
-      `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'siton-%' AND state='idle' AND pid <> pg_backend_pid() LIMIT 1`
+      `SELECT pid FROM pg_stat_activity WHERE pid = ANY($1::int[]) AND state='idle' LIMIT 1`, [ownPids]
     )).rows[0]?.pid || 0);
     if (idlePid === 0) await settle(50);
   }
-  assert.ok(idlePid > 0, "no idle pooled backend to terminate");
+  assert.ok(idlePid > 0, `no idle pooled backend to terminate among ${JSON.stringify(ownPids)}`);
   await terminate(idlePid);
-  await settle(300);
-  assert.ok(dbClientErrorObservations().length > before, "guard did not observe the idle termination");
+  // The termination reaches the client asynchronously; under full-run load it can
+  // take longer than a few hundred ms. Poll (bounded) instead of one fixed sleep.
+  let observed = false;
+  for (let i = 0; i < 80 && !observed; i++) { observed = dbClientErrorObservations().length > before; if (!observed) await settle(50); }
+  assert.ok(observed, "guard did not observe the idle termination");
 });
 
 // ── real process: no uncaughtException handler at all ────────────────────────
