@@ -1781,7 +1781,7 @@ export async function rescheduleStalledFinalizations(limit = 100): Promise<numbe
        FROM siton.deals d
        WHERE d.state = 'CompletionWindow'
          AND d.completion_window_until IS NOT NULL
-         AND d.completion_window_until <= clock_timestamp() - interval '5 seconds'
+         AND d.completion_window_until <= clock_timestamp() - interval '1 second'
          AND NOT EXISTS (
            SELECT 1 FROM siton.outbox_events o
            WHERE o.event_type='finalize_deal' AND o.aggregate_type='deal' AND o.aggregate_id=d.deal_id AND o.status IN ('pending','processing')

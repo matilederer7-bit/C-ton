@@ -108,6 +108,18 @@ await run("F-2 fail-closed bound: a capture that stays UNKNOWN forever keeps the
   // F-2b: once truth is available the maintenance sweepers converge the identity AND re-queue the exhausted finalize.
   lab.sim.clearStatusScript(p.authorization);
   await lab.drain({ dealIds: [d.deal_id], maxRounds: 60 });
+  // maintenance cadence: the stalled-finalize rescheduler waits a short grace after the window
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const phase2 = await lab.drain({ dealIds: [d.deal_id], maxRounds: 60 });
+  const diag = {
+    drain: phase2.results.map((r) => `${r.event_type}:${r.status}:${String(r.error || "").slice(0, 60)}`),
+    attempts: await lab.attempts(p.participant_id),
+    live: await lab.liveEvents([d.deal_id]),
+    dlq: (await lab.dlqRows(d.deal_id)).concat(await lab.dlqRows(p.participant_id)).map((r) => `${r.event_type}:${String(r.last_error).slice(0, 80)}`),
+    webhook_events: (await lab.pool.query(`SELECT event_id, status FROM siton.webhook_events WHERE participant_id=$1`, [p.participant_id])).rows,
+    status_reads: lab.sim.requestsOf(p.authorization, "status").slice(-6).map((r) => r.behavior)
+  };
+  console.log(`  phase 2 diagnostics: ${JSON.stringify(diag).slice(0, 1800)}`);
   assert.equal((await lab.participant(p.participant_id)).money_state, "ChargedSuccess");
   assert.equal((await lab.deal(d.deal_id)).state, "Completed", "a finalize that exhausted its attempts while waiting must be re-queued by maintenance");
   assert.equal(lab.sim.effectsOf(p.authorization).capture, 1);

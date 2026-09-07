@@ -264,6 +264,9 @@ await run("reconcile: later-changed result — 'failed/final' first, captured la
   lab.sim.script(p.authorization, "capture", [{ kind: "EFFECT_THEN_503" }]);
   // provider lies once: reports failed/final for an executed capture
   lab.sim.scriptStatus(p.authorization, [{ kind: "FLAP", states: ["failed", "captured"] }]);
+  // and would HONOUR a recovery on the already-captured authorization (some
+  // acquirers treat it as a new charge) — the only way a double capture can show
+  lab.sim.script(p.authorization, "recover", [{ kind: "SUCCESS" }]);
   await lab.enqueueCharge(d.deal_id);
   await lab.drain({ dealIds: [d.deal_id], types: ["charge_deal"] });
   const firstReconcile = (await lab.liveEvents([d.deal_id], ["payment_reconcile"]))[0];
