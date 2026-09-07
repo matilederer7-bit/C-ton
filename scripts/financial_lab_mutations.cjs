@@ -76,14 +76,23 @@ const MUTATIONS = [
     // deferral and therefore survived without proving anything
     from: `  const reference = String(args.authorization_id || "").trim();\n  if (!paymentProvider.status || !reference) return "proceed";`,
     to: `  const reference = String(args.authorization_id || "").trim();\n  if (!paymentProvider.status || !reference || reference.length >= 0) return "proceed";`,
-    suites: [["payments", "payment_lab_lifecycle_reconcile"]] }
+    suites: [["payments", "payment_lab_lifecycle_reconcile"]] },
+  { id: "M17_recovery_preflight_single_read", invariant: "F-9 recovery pre-flight reads the status twice; a flapping provider holds the recovery", file: "src/app.ts",
+    // back to ONE status read: the pinned fuzz schedule (failed <-> captured) and the
+    // disagreeing-negatives scenario must both turn red
+    from: `  for (let i = 0; i < 2; i++) {
+    if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));`,
+    to: `  for (let i = 0; i < 1; i++) {
+    if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));`,
+    suites: [["payments", "payment_lab_refund_release_recovery"]] }
 ];
 
 const args = process.argv.slice(2);
 const reportIdx = args.indexOf("--report");
 const reportPath = reportIdx >= 0 ? args[reportIdx + 1] : null;
 const selected = args.filter((a, i) => !a.startsWith("--") && !(reportIdx >= 0 && i === reportIdx + 1));
-const toRun = selected.length ? MUTATIONS.filter((m) => selected.includes(m.id)) : MUTATIONS;
+const toRun = selected.length ? MUTATIONS.filter((m) => selected.some((id) => m.id === id || m.id.startsWith(`${id}_`))) : MUTATIONS;
+if (selected.length && !toRun.length) { console.error(`no mutation matches: ${selected.join(", ")}`); process.exit(2); }
 
 function normalizeEol(text, eol) { return text.replace(/\r\n/g, "\n").split("\n").join(eol); }
 function readFile(file) { return fs.readFileSync(file, "utf8"); }
