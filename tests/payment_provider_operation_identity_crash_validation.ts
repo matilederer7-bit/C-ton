@@ -59,6 +59,10 @@ process.env.PAYMENT_PROVIDER_REFUND_PATH = "/refund";
 process.env.PAYMENT_PROVIDER_RELEASE_PATH = "/release";
 process.env.PAYMENT_PROVIDER_STATUS_PATH = "/status";
 process.env.PAYMENT_PROVIDER_TIMEOUT_MS = "1500";
+// Independent financial review (migration 064): this stub settles synchronously,
+// so its provider settlement horizon is short. A charge failure INFERRED from a
+// status read (S4) fences the automatic recovery until the horizon elapses.
+process.env.PAYMENT_SETTLEMENT_HORIZON_MS = "400";
 process.env.OUTBOX_POLL_MS = "60000";
 process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.PAYMENT_WEBHOOK_PROVIDER = "payrail-http";
@@ -410,6 +414,12 @@ try {
     assert.equal((await participantState(participantId)).money_state, "ChargeFailedRecovery", "not-executed → charge_failed (canonical), recovery becomes eligible");
     const recoveryId = (await pendingEvents("recovery_deal", seed.dealId))[0];
     assert.ok(recoveryId, "late charge failure gets its recovery chance inside the completion window");
+    // 064: the failure was inferred from a status read — no automatic recovery
+    // before the provider's settlement horizon (the job is held, visibly).
+    const held = await processOutboxEventById(recoveryId!);
+    assert.match(String((held as any)?.error || ""), /recovery_held/, JSON.stringify(held));
+    assert.equal(provider.ops("recover", "auth-tempfail-s4").length, 0, "no recovery inside the settlement horizon");
+    await new Promise((resolve) => setTimeout(resolve, 500)); // the horizon (400 ms from dispatch) elapses
     const recovered = await processOutboxEventById(recoveryId!);
     assert.equal(recovered?.status, "sent", JSON.stringify(recovered));
     assert.equal(provider.ops("recover", "auth-tempfail-s4").length, 1, "recovery is a distinct logical operation");

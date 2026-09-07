@@ -3598,6 +3598,43 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
   }, pool);
 }
 
+/**
+ * R-11 — every participant whose money is canonically captured on a Completed
+ * deal must be DealCompleted (receipt + fulfillment). Runs when finalize is
+ * retried on a deal that is already Completed; every step is idempotent.
+ */
+async function completeParticipantsOfCompletedDeal(dealId: string, eventId: string) {
+  const late = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT participant_id, buyer_state FROM siton.participants
+       WHERE deal_id=$1 AND buyer_state IN ('ChargedSuccess','Recovered') AND money_state IN ('ChargedSuccess','RecoveredCharge')`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string; buyer_state: BuyerState }>;
+  });
+  for (const p of late) {
+    await atomicTransition({
+      entityType: "participant",
+      entityId: p.participant_id,
+      dealId,
+      stateType: "buyer_state",
+      fromState: p.buyer_state,
+      toState: "DealCompleted",
+      actionName: "deal.complete_participant",
+      requestId: `worker:${eventId}`,
+      idempotencyKey: `p-dealcompleted:${dealId}:${p.participant_id}`,
+      outbox: null
+    });
+    await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
+  }
+  if (late.length > 0) {
+    await issueFulfillmentForCompletedDeal(dealId).catch((error) => {
+      console.error("[fulfillment] late issuance failed for deal", dealId, error);
+    });
+  }
+  return late.length;
+}
+
 async function handleFinalizeDealEvent(
   event: {
     event_uuid: string;
@@ -3623,6 +3660,14 @@ async function handleFinalizeDealEvent(
     return r.rows[0] as { state: DealState; threshold_units: number; completion_window_until: string | null; can_finalize: boolean };
   });
 
+  if (dealRow.state === "Completed") {
+    // R-11 (independent financial review): a finalize job retried after the deal
+    // was completed (its participant transition raced a capture that became
+    // canonical between the participant read and the CAS) must still leave every
+    // paid participant DealCompleted — with receipt and fulfillment. Idempotent.
+    await completeParticipantsOfCompletedDeal(dealId, eventId);
+    return;
+  }
   if (dealRow.state !== "CompletionWindow") return;
   if (!dealRow.completion_window_until) return;
   if (!dealRow.can_finalize) {
@@ -3654,7 +3699,15 @@ async function handleFinalizeDealEvent(
          WHERE entity_type='participant' AND entity_id=p.participant_id AND action_name='participant.join_authorize'
          ORDER BY created_at DESC LIMIT 1
        ) auth ON true
-       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='unknown'
+       WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery')
+         AND (
+           pa.result_class='unknown'
+           -- R-11 (independent financial review): an identity the provider EXECUTED
+           -- whose canonical state was not yet applied (crash / race between the
+           -- owner's settle and the ingest transition) is unresolved for the
+           -- terminal decision too: money moved, the participant still looks unpaid.
+           OR (pa.result_class='success' AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge','Refunded'))
+         )
        ORDER BY pa.created_at ASC`,
       [dealId]
     );

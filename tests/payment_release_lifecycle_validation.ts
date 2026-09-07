@@ -71,7 +71,9 @@ async function startProviderStub() {
           return;
         }
         res.statusCode = 200;
-        res.end(JSON.stringify({ ok: true, provider_reference: authorizationId }));
+        // Independent financial review (R-9): a 2xx body must DECLARE the outcome —
+        // an id-only body is UNKNOWN (reconcile decides), never AuthReleased.
+        res.end(JSON.stringify({ ok: true, status: "released", provider_reference: authorizationId }));
         return;
       }
 

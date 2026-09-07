@@ -290,10 +290,11 @@ export async function bootLab(options: LabOptions) {
   async function attempts(participantId: string, attemptType?: string) {
     return (await pool.query(
       `SELECT attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, owner_lease_generation, provider_reference, outcome_note,
-              siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight
+              siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight,
+              failure_evidence, settlement_horizon_at::text AS settlement_horizon_at, dispatched_at::text AS dispatched_at
        FROM siton.payment_attempts WHERE participant_id=$1 AND ($2::text IS NULL OR attempt_type=$2) ORDER BY created_at ASC, correlation_id ASC`,
       [participantId, attemptType ?? null]
-    )).rows as Array<{ attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; owner_event_uuid: string | null; owner_lease_generation: number | null; provider_reference: string | null; outcome_note: string | null; in_flight: boolean }>;
+    )).rows as Array<{ attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; owner_event_uuid: string | null; owner_lease_generation: number | null; provider_reference: string | null; outcome_note: string | null; in_flight: boolean; failure_evidence: string | null; settlement_horizon_at: string | null; dispatched_at: string | null }>;
   }
   async function ledger(participantId: string) {
     return (await pool.query(`SELECT logical_entry_type, platform_fee_amount, gross_amount, seller_net_amount FROM siton.platform_fee_money_events WHERE participant_id=$1 ORDER BY created_at`, [participantId])).rows as Array<{ logical_entry_type: string; platform_fee_amount: string; gross_amount: string; seller_net_amount: string }>;

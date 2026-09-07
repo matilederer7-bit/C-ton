@@ -147,6 +147,14 @@ const MUTATIONS = [
   { id: "M29_stale_identity_settled_from_sibling_evidence", invariant: "a reconcile carrying a terminal identity steps aside while a sibling identity is unresolved (evidence tied to the exact identity)", file: "src/app.ts",
     from: `    if (otherUnresolved) return; // FR-4: the unresolved sibling identity owns this verdict`,
     to: `    if (otherUnresolved && false) return; // MUTANT`,
+    suites: [["payments", "payment_review_findings_reconstruction"]] },
+  { id: "M30_finalize_ignores_success_unpersisted", invariant: "R-11: the terminal decision waits for an executed capture whose canonical state is not yet applied", file: "src/app.ts",
+    from: `           OR (pa.result_class='success' AND p.money_state NOT IN ('ChargedSuccess','RecoveredCharge','Refunded'))`,
+    to: `           OR (pa.result_class='success' AND false)`,
+    suites: [["payments", "payment_review_findings_reconstruction"]] },
+  { id: "M31_completed_deal_sweep_removed", invariant: "R-11: a finalize retried on a Completed deal completes every paid participant", file: "src/app.ts",
+    from: `    await completeParticipantsOfCompletedDeal(dealId, eventId);\n    return;`,
+    to: `    return; // MUTANT: no sweep`,
     suites: [["payments", "payment_review_findings_reconstruction"]] }
 ];
 
