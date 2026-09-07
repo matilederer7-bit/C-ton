@@ -92,11 +92,11 @@ const MUTATIONS = [
   { id: "M18_settlement_horizon_fence_removed", invariant: "settlement horizon fences automatic recovery (app fence AND DB predicate)",
     files: [
       { file: "src/payment_attempt_helpers.ts",
-        from: `    const value = r.rows[0]?.fence;\n    if (!value) return null;`,
-        to: `    const value = null as any; void r;\n    if (!value) return null;` },
+        from: `    const row = r.rows[0];\n    if (!row || row.fenced !== true) return null;`,
+        to: `    const row = null as any; void r;\n    if (!row || row.fenced !== true) return null;` },
       { file: "src/migrations/064_payment_settlement_horizon.sql",
-        from: `    AND pa.settlement_horizon_at > clock_timestamp();\n$$;`,
-        to: `    AND pa.settlement_horizon_at > clock_timestamp() AND false;\n$$;` }
+        from: `      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );\n$$;`,
+        to: `      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    ) AND false;\n$$;` }
     ],
     suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
   { id: "M19_f6_release_proof_removed", invariant: "F-6: AuthReleased only through the provider-proofed release rail (never by assumption on recovery_failed)", file: "src/app.ts",
@@ -124,8 +124,8 @@ const MUTATIONS = [
     to: `    if (exactDecline || !exactDecline) return "proceed";`,
     suites: [["payments", "payment_review_adversarial"]] },
   { id: "M25_finalize_horizon_fence_removed", invariant: "the terminal deal decision waits for the settlement horizon", file: "src/app.ts",
-    from: `  if (fencedCaptures.length > 0) {\n    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));`,
-    to: `  if (fencedCaptures.length > 0 && false) {\n    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));`,
+    from: `  if (fencedCaptures.length > 0) {\n    // pg hands timestamptz back as a Date; String(date) would drop the milliseconds`,
+    to: `  if (fencedCaptures.length > 0 && false) {\n    // pg hands timestamptz back as a Date; String(date) would drop the milliseconds`,
     suites: [["payments", "payment_review_settlement_horizon"]] },
   { id: "M26_release_fence_removed", invariant: "the settlement horizon fences the release rail (no release-then-capture)", file: "src/payment_attempt_helpers.ts",
     from: `      if (args.attempt_type === "recovery" || args.attempt_type === "release") {\n        const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);`,
@@ -144,6 +144,55 @@ const MUTATIONS = [
     from: `      ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms\n      : null`,
     to: `      ? null\n      : null`,
     suites: [["payments", "payment_review_settlement_horizon"], ["payments", "payment_review_adversarial"]] },
+  // ── Final financial integration — residuals A / B / C ───────────────────────
+  { id: "M32_horizon_expiry_alone_is_proof", invariant: "residual A: horizon expiry by itself never authorises recovery (negative finality must be authoritative)",
+    files: [
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `      WHEN pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)\n        THEN 'infinity'::timestamptz`,
+        to: `      WHEN pa.settlement_horizon_at IS NULL\n        THEN 'infinity'::timestamptz` },
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `      OR pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );`,
+        to: `      OR pa.settlement_horizon_at > clock_timestamp()\n    );` },
+      { file: "src/app.ts",
+        from: `  if (!exactDecline && !policy.negative_status_authoritative) {`,
+        to: `  if (false) {` },
+      { file: "src/app.ts",
+        from: `              (pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)) AS permanent`,
+        to: `              (pa.settlement_horizon_at IS NULL) AS permanent` }
+    ],
+    suites: [["payments", "payment_final_residual_a_unproven"]] },
+  { id: "M33_legacy_rows_admitted", invariant: "residual B: a legacy row (NULL horizon / NULL authority) is never treated as elapsed and authoritative",
+    files: [
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `      WHEN pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)\n        THEN 'infinity'::timestamptz`,
+        to: `      WHEN NOT COALESCE(pa.negative_finality_authoritative, true)\n        THEN 'infinity'::timestamptz` },
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `      pa.settlement_horizon_at IS NULL\n      OR pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );`,
+        to: `      pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, true)\n    );` },
+      { file: "src/app.ts",
+        from: `              (pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)) AS permanent`,
+        to: `              (NOT COALESCE(pa.negative_finality_authoritative, true)) AS permanent` },
+      { file: "src/app.ts",
+        from: `         AND (pa.settlement_horizon_at IS NULL OR pa.settlement_horizon_at > clock_timestamp() OR NOT COALESCE(pa.negative_finality_authoritative, false))`,
+        to: `         AND (pa.settlement_horizon_at > clock_timestamp() OR NOT COALESCE(pa.negative_finality_authoritative, true))` }
+    ],
+    suites: [["payments", "payment_final_residual_b"]] },
+  { id: "M34_release_in_flight_fence_removed", invariant: "residual C: no capture / recovery while a release of the authorization is unresolved or executed (app AND DB)",
+    files: [
+      { file: "src/payment_attempt_helpers.ts",
+        from: `      const releaseConflict = (args.attempt_type === "charge_start" || args.attempt_type === "recovery")`,
+        to: `      const releaseConflict = false` },
+      { file: "src/migrations/064_payment_settlement_horizon.sql",
+        from: `  IF NEW.attempt_type IN ('charge_start', 'recovery') THEN\n    release_conflict := siton.payment_release_conflict(NEW.participant_id, NEW.deal_id);`,
+        to: `  IF false THEN\n    release_conflict := siton.payment_release_conflict(NEW.participant_id, NEW.deal_id);` }
+    ],
+    suites: [["payments", "payment_final_residual_c"]] },
+  { id: "M35_reference_match_check_removed", invariant: "residual A: a status answer naming another reference is never a verdict",
+    files: [
+      { file: "src/app.ts", from: `  if (status.reference_matches_query === false) {\n    await openPaymentOperationalCase({\n      autoKey: \`payment-reconcile-reference-mismatch:\${participantId}:\${attemptType}\`,`, to: `  if (false) {\n    await openPaymentOperationalCase({\n      autoKey: \`payment-reconcile-reference-mismatch:\${participantId}:\${attemptType}\`,` },
+      { file: "src/app.ts", from: `  const foreignRead = reads.find((r) => r.reference_matches_query === false || (`, to: `  const foreignRead = reads.find((r) => false || (` }
+    ],
+    suites: [["payments", "payment_final_residual_a_authoritative"]] },
   { id: "M29_stale_identity_settled_from_sibling_evidence", invariant: "a reconcile carrying a terminal identity steps aside while a sibling identity is unresolved (evidence tied to the exact identity)", file: "src/app.ts",
     from: `    if (otherUnresolved) return; // FR-4: the unresolved sibling identity owns this verdict`,
     to: `    if (otherUnresolved && false) return; // MUTANT`,
@@ -174,12 +223,17 @@ if (dirty) { console.error("refusing to mutate: src has uncommitted changes:\n" 
 const results = [];
 for (const m of toRun) {
   // one or several files per mutation; applied together, restored together
+  // several edits may target the SAME file: originals are captured once per file
+  // (for the restore check) and edits are applied sequentially on the current text
   const edits = (m.files || [{ file: m.file, from: m.from, to: m.to }]).map((e) => ({ ...e, original: readFile(e.file) }));
   const missing = edits.find((e) => { const eol = e.original.includes("\r\n") ? "\r\n" : "\n"; return !e.original.includes(normalizeEol(e.from, eol)); });
   if (missing) { results.push({ id: m.id, invariant: m.invariant, outcome: "ANCHOR_MISSING", suites: [] }); console.log(`[${m.id}] ANCHOR_MISSING in ${missing.file}`); continue; }
   for (const e of edits) {
-    const eol = e.original.includes("\r\n") ? "\r\n" : "\n";
-    fs.writeFileSync(e.file, e.original.replace(normalizeEol(e.from, eol), normalizeEol(e.to, eol)));
+    const current = readFile(e.file);
+    const eol = current.includes("\r\n") ? "\r\n" : "\n";
+    const from = normalizeEol(e.from, eol);
+    if (!current.includes(from)) { console.error(`  ANCHOR_MISSING while applying ${m.id} to ${e.file}`); process.exit(3); }
+    fs.writeFileSync(e.file, current.replace(from, normalizeEol(e.to, eol)));
   }
   console.log(`\n[${m.id}] applied to ${edits.map((e) => e.file).join(", ")} — ${m.invariant}`);
   const suiteResults = [];
@@ -196,7 +250,10 @@ for (const m of toRun) {
       if (status === "RED") break;
     }
   } finally {
+    const restored = new Set();
     for (const e of edits) {
+      if (restored.has(e.file)) continue;
+      restored.add(e.file);
       execSync(`git checkout -- "${e.file}"`);
       // git autocrlf may hand a NEW file back with CRLF; compare content, not line endings
       const normalize = (text) => text.split("\r\n").join("\n");

@@ -159,7 +159,9 @@ async function seed(args: {
   if (args.withAuthorization !== false) await insertJoinAudit(participantId, dealId, authorizationId, args.suffix);
   if (args.priorChargeAttempt) {
     await pool.query(
-      `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id) VALUES ($1,$2,'charge_start',$3,$4)`,
+      // a prior capture the provider DECLINED itself (exact-request evidence), dispatched under this provider's contract (064)
+      `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, failure_evidence, negative_finality_authoritative, settlement_horizon_at, dispatched_at)
+       VALUES ($1,$2,'charge_start',$3,$4,'dispatch_response',true,clock_timestamp(),clock_timestamp() - interval '1 minute')`,
       [participantId, dealId, args.priorChargeAttempt, `capture:prior:n1:${participantId}`]
     );
   }

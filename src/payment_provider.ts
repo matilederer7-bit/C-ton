@@ -12,6 +12,7 @@ import {
   PAYMENT_PROVIDER_STATUS_PATH,
   PAYMENT_PROVIDER_CURRENCY,
   PAYMENT_SETTLEMENT_HORIZON_MS,
+  PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE,
   PAYMENT_ENVIRONMENT,
   PAYMENT_PROVIDER_MODE,
   PAYMENT_PROVIDER_PUBLIC_KEY,
@@ -217,6 +218,14 @@ export type PaymentStatusResult = {
   provider_time: string | null;
   final: boolean;
   error_code: string | null;
+  /**
+   * Residual A (final financial integration) — whether the answer names the
+   * reference that was queried, as judged by the adapter that knows the
+   * provider's reference discipline (operation-scoped prefixes, re-sealed
+   * tokens). `false` means the answer is evidence about ANOTHER operation and
+   * may not become a verdict; undefined means the adapter makes no claim.
+   */
+  reference_matches_query?: boolean;
 };
 
 export interface PaymentProvider {
@@ -794,9 +803,11 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
     // through this adapter must have these two facts verified in R10.
     ambiguityPolicy: {
       same_identity_repeat_safe: true,
-      negative_status_authoritative: true,
+      negative_status_authoritative: PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE,
       settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
-      basis: "provider-ready HTTP contract: idempotency-key per operation; status final=true declares the settled state (R9A); settlement horizon PAYMENT_SETTLEMENT_HORIZON_MS per provider contract (review remediation)"
+      basis: PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE
+        ? "provider-ready HTTP contract: idempotency-key per operation; status final=true declares the settled state (R9A); settlement horizon PAYMENT_SETTLEMENT_HORIZON_MS per provider contract (review remediation)"
+        : "provider-ready HTTP contract with PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE=false: negative finality of a status read is NOT proven for this deployment — fail closed (residual A)"
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const authorizationId = String(input.authorization_id || "").trim();
@@ -1167,7 +1178,14 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         const state = String(payload?.state || payload?.status || "unknown").toLowerCase();
         const allowed = ["authorized", "captured", "released", "refunded", "failed", "pending", "unknown"] as const;
         const canonicalState = (allowed as readonly string[]).includes(state) ? state as PaymentStatusResult["state"] : "unknown";
-        return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed") };
+        // Provider-ready reference discipline: an answer may carry an
+        // operation-scoped form of the queried reference (`cap-<auth>`,
+        // `rec-<auth>`, ...); anything that does not reduce to the queried
+        // reference names ANOTHER operation (residual A).
+        const bareReference = (value: unknown) => String(value || "").trim().replace(/^[a-z]{3}-/i, "");
+        const echoedReference = String(payload?.provider_reference || "").trim();
+        const referenceMatchesQuery = !echoedReference || bareReference(echoedReference) === bareReference(input.provider_reference) || echoedReference === input.provider_reference;
+        return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed"), reference_matches_query: referenceMatchesQuery };
       } catch {
         return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: "unknown", amount_minor: null, currency: null, provider_time: null, final: false, error_code: "provider_status_unreachable" };
       }

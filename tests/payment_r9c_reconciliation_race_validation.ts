@@ -151,8 +151,11 @@ async function seed(args: {
   const priorCorrelation = `capture:prior:n1:${participantId}`;
   if (args.priorAttempt) {
     await pool.query(
-      `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id)
-       VALUES ($1,$2,$3,$4,$5)`,
+      // a prior operation this provider dispatched earlier (064): a declared failure is the
+      // provider's answer to the request, the row carries the contract's authority and an
+      // elapsed horizon — an UNKNOWN row is resolved through status by the rails under test
+      `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, failure_evidence, negative_finality_authoritative, settlement_horizon_at, dispatched_at)
+       VALUES ($1,$2,$3,$4,$5, CASE WHEN $4 = 'permanent_fail' THEN 'dispatch_response' END, true, clock_timestamp(), clock_timestamp() - interval '1 minute')`,
       [participantId, dealId, args.priorAttempt.attempt_type || "charge_start", args.priorAttempt.result_class, priorCorrelation]
     );
   }

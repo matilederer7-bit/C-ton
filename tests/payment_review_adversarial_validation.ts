@@ -42,9 +42,9 @@ async function seedCharging(opts: { completionWindowUntil?: Date | null } = {}) 
   const d = await lab.seedDeal({ state: "Charging", completionWindowUntil: opts.completionWindowUntil ?? null, participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt" }] });
   return { d, p: d.participants[0]! };
 }
-async function seedRecoverable(prior: "permanent_fail" | "unknown" = "permanent_fail") {
+async function seedRecoverable(prior: "permanent_fail" | "unknown" = "permanent_fail", evidence?: "dispatch_response" | "status_inference" | null) {
   const d = await lab.seedDeal({ state: "CompletionWindow", completionWindowUntil: new Date(Date.now() + 5 * 60_000), participants: [
-    { buyer_state: "ChargeFailedCompletion", money_state: "ChargeFailedRecovery", priorAttempts: [{ attempt_type: "charge_start", result_class: prior, correlation_id: `capture:review-prior:n1:${randomUUID()}`, dispatch_state: "responded" }] }
+    { buyer_state: "ChargeFailedCompletion", money_state: "ChargeFailedRecovery", priorAttempts: [{ attempt_type: "charge_start", result_class: prior, correlation_id: `capture:review-prior:n1:${randomUUID()}`, dispatch_state: "responded", ...(evidence !== undefined ? { failure_evidence: evidence } : {}) }] }
   ] });
   return { d, p: d.participants[0]! };
 }
@@ -262,7 +262,8 @@ await run("RA-5 a status answer for reference X that names reference Y must not 
 // ── RA-6 — the recovery pre-flight that cannot verify must hold ─────────────────
 
 await run("RA-6 recovery pre-flight: status seam answers 500 on every read → the recovery is HELD (visible), never sent; a truthful seam later lets it run once", async () => {
-  const { d, p } = await seedRecoverable("permanent_fail");
+  // the capture failure was INFERRED (status) and its horizon elapsed: only a verifiable status may let money move
+  const { d, p } = await seedRecoverable("permanent_fail", "status_inference");
   lab.sim.scriptStatus(p.authorization, Array.from({ length: 12 }, () => ({ kind: "HTTP_500" as const })));
   const event = await lab.enqueueRecovery(d.deal_id);
   const r = await lab.processOutboxEventById(event);

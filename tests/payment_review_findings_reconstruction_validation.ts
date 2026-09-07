@@ -19,9 +19,9 @@
 //   FR-C2  a recovery_deal replayed after a successful recovery sends nothing
 //   FR-C3  refund vs reconcile: reconcile defers while the refund is in flight (0 status
 //          reads), one refund effect, Refunded once
-//   FR-C4  release vs capture (documented residual): a release in flight when the charge runs —
-//          the capture IS dispatched, declined by the provider, its negative settlement fenced;
-//          never double money, consistent end state
+//   FR-C4  release vs capture (residual C, CLOSED in the final integration): a release in
+//          flight when the charge runs — the capture is fenced behind the unresolved release,
+//          never dispatched; the release truth ends the hold as AuthReleased
 //
 // Synthetic money only. Disposable database. Non-idempotent provider.
 
@@ -330,7 +330,7 @@ await run("FR-C3 refund vs reconcile: a reconcile arriving while the refund is I
 });
 
 // ── FR-C4 ──────────────────────────────────────────────────────────────────────
-await run("FR-C4 release vs capture (documented residual): the charge runs while the release is IN FLIGHT → the capture request IS dispatched (nothing fences it), the provider declines a released hold, the negative settlement is fenced until the release settles; no money moves twice, consistent end state", async () => {
+await run("FR-C4 release vs capture (residual C, CLOSED): the charge runs while the release is IN FLIGHT → the capture is fenced behind the unresolved release (no request), the release truth ends the hold as AuthReleased; no money moves twice", async () => {
   const d = await lab.seedDeal({ state: "Charging", participants: [{ buyer_state: "LockedIn", money_state: "AuthLocked" }] });
   const p = d.participants[0]!;
   const barrier = lab.armTestFault("payment.after_provider_io", { kind: "block" });
@@ -361,8 +361,9 @@ await run("FR-C4 release vs capture (documented residual): the charge runs while
   const part = await lab.participant(p.participant_id);
   const report = await auditFinancialTruth(lab.pool, { label: "frc4", dealIds: [d.deal_id], provider: () => lab.sim.snapshot(), vat: lab.vat, allowUnresolved: true });
   console.log(`  end: effects=${JSON.stringify(eff)} state=${part.buyer_state}/${part.money_state} cases=${(await casesOf(p.participant_id)).join(",")} oracle=${report.violations.map((v) => v.code).join(",") || "clean"}`);
-  assert.match(String((charge as any)?.error || ""), /operation_in_flight/, "the NEGATIVE settlement of the declined capture is fenced while the release is in flight");
-  assert.ok(lab.sim.requestsOf(p.authorization, "capture").filter((r) => new Date(r.at).getTime() < releasedAt).length >= 1, "documented residual: the capture request was dispatched while the release was in flight — the provider state machine is the defence");
+  assert.match(String((charge as any)?.error || ""), /charge_held_behind_unresolved_release/, "the capture is fenced behind the unresolved release (residual C)");
+  assert.equal(lab.sim.requestsOf(p.authorization, "capture").filter((r) => new Date(r.at).getTime() < releasedAt).length, 0, "no capture request while the release was in flight");
+  assert.equal(lab.sim.requestsOf(p.authorization, "capture").length, 0, "the capture was never dispatched: the hold was released");
   assert.equal(eff.capture + eff.recover, 0, "a released hold cannot be captured (provider state machine)");
   assert.equal(eff.release, 1);
   assert.ok(!report.violations.some((v) => ["DUPLICATE_CAPTURE", "DUPLICATE_RELEASE", "RELEASE_OF_CAPTURED_MONEY", "FALSE_CANONICAL_SUCCESS"].includes(v.code)), `money invariants: ${JSON.stringify(report.violations)}`);

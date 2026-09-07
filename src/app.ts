@@ -486,7 +486,10 @@ export const MONEY_TRANSITIONS: Record<string, string[]> = {
   NoFinancial: ["AuthHeld"],
   AuthHeld: ["AuthLocked", "AuthReleased"],
   AuthLocked: ["ChargeAttempt", "AuthReleased"],
-  ChargeAttempt: ["ChargedSuccess", "ChargeFailedRecovery"],
+  // Residual C (final financial integration): a hold released while a charge
+  // was pending — the capture is never dispatched and the money truth is the
+  // provider-proofed release (migration 064 admits the same transition).
+  ChargeAttempt: ["ChargedSuccess", "ChargeFailedRecovery", "AuthReleased"],
   ChargeFailedRecovery: ["RecoveredCharge", "AuthReleased"],
   ChargedSuccess: ["Refunded"],
   RecoveredCharge: ["Refunded"],
@@ -2111,6 +2114,18 @@ async function handlePaymentReconcileEvent(
     });
     throw new PermanentFailError(`payment_reconcile_currency_mismatch participant ${participantId}`);
   }
+  // Residual A — a status answer naming ANOTHER reference (as judged by the
+  // adapter, which knows the provider's reference discipline) is evidence about
+  // some other operation: visible case, no verdict, no state mutation.
+  if (status.reference_matches_query === false) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-reference-mismatch:${participantId}:${attemptType}`,
+      subject: `Provider reference mismatch for participant ${participantId}`,
+      description: `Provider answered the status query for ${providerReference} (${attemptType} ${correlationId}) with reference ${status.provider_reference || "n/a"} (state ${status.state}). The answer cannot be tied to this exact operation; state was NOT mutated and no money operation was started. Manual reconciliation required.`,
+      correlationId
+    });
+    throw new PermanentFailError(`payment_reconcile_reference_mismatch participant ${participantId}`);
+  }
 
   const ingestResolution = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
     let ingested: Awaited<ReturnType<typeof ingestAndProcessPaymentEvent>>;
@@ -2308,13 +2323,22 @@ async function applyAuthorizationRelease(participantId: string, dealId: string, 
     );
     return r.rows[0] || null;
   });
-  if (!row || !["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(row.money_state))) return false;
+  if (!row) return false;
+  const moneyState = String(row.money_state);
+  if (moneyState === "ChargeAttempt") {
+    // Residual C — a hold released while a charge was pending: the money truth
+    // is AuthReleased ONLY if no capture-side operation of this participant is
+    // unresolved or executed (the release fence keeps captures from starting
+    // while a release is live; this is the belt).
+    const captureSide = (await listAttemptLifecycle(participantId, dealId)).filter((r) => r.attempt_type === "charge_start" || r.attempt_type === "recovery");
+    if (captureSide.some((r) => r.result_class === "unknown" || r.result_class === "success")) return false;
+  } else if (!["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(moneyState)) return false;
   await atomicTransition({
     entityType: "participant",
     entityId: participantId,
     dealId,
     stateType: "money_state",
-    fromState: String(row.money_state),
+    fromState: moneyState,
     toState: "AuthReleased",
     actionName: "authorization.release",
     requestId,
@@ -2410,6 +2434,13 @@ async function armMoneyOperation(args: {
     // provider-specific SETTLEMENT HORIZON on the identity (migration 064).
     settlement_horizon_ms: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
       ? providerAmbiguityPolicy(paymentProvider).settlement_horizon_ms
+      : null,
+    // Residual A — the provider contract's negative-finality authority is
+    // recorded on the identity at dispatch; a NEGATIVE status read can only ever
+    // lift the settlement fence for a row dispatched under an authoritative
+    // contract (Grow: never; legacy rows: never).
+    negative_finality_authoritative: args.attempt_type === "charge_start" || args.attempt_type === "recovery"
+      ? providerAmbiguityPolicy(paymentProvider).negative_status_authoritative
       : null
   });
   if (armed === "armed") return true;
@@ -2552,6 +2583,15 @@ async function resolvePriorProviderAttempt(args: {
     });
     return "blocked";
   }
+  if (status.reference_matches_query === false) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-reconcile-reference-mismatch:${args.participant_id}:${args.attempt_type}`,
+      subject: `Provider reference mismatch for participant ${args.participant_id}`,
+      description: `Provider answered the status query for ${reference} (${args.attempt_type} ${args.correlation_id}) with reference ${status.provider_reference || "n/a"} (state ${status.state}). The answer cannot be tied to this exact operation; no new provider operation was started.`,
+      correlationId: args.correlation_id
+    });
+    return "blocked";
+  }
   const providerReference = status.provider_reference || reference;
   const ingest = async (eventType: "charge_captured" | "charge_failed" | "recovery_captured" | "recovery_failed" | "refund_issued") => {
     await ingestAndProcessPaymentEvent({
@@ -2664,6 +2704,18 @@ async function handlePaymentReleaseEvent(
   }
   if (attempt.kind === "in_flight") return; // another live worker owns this exact operation
   if (attempt.kind === "fenced") {
+    if (attempt.permanent || !attempt.until) {
+      // Residual A / B — the capture-side failure cannot be resolved by waiting
+      // (negative finality unproven for the provider, or a legacy row): the hold
+      // is neither released nor captured automatically — operator case.
+      await openPaymentOperationalCase({
+        autoKey: `payment-release-negative-finality-unproven:${participantId}`,
+        subject: `FINANCIAL_OUTCOME_UNRESOLVED: release held — negative finality unproven for participant ${participantId}`,
+        description: `${attempt.reason}: a capture-side operation of participant ${participantId} was recorded as failed from status evidence and provider ${paymentProvider.providerCode} does not prove non-execution of the exact operation from a negative status (or the row predates the settlement-horizon policy). The authorization is not released (a release of captured money is irreversible); verify at the provider and record failure_evidence='operator' on the identity (worker event ${eventId}).`,
+        correlationId: null
+      });
+      throw new PermanentFailError(`payment_release_negative_finality_unproven participant ${participantId}`);
+    }
     // Independent financial review — SETTLEMENT HORIZON (migration 064): a
     // capture-side failure inferred from status may still settle; releasing the
     // hold now would be release-then-capture. Defer to the horizon, visibly.
@@ -2849,6 +2901,9 @@ async function handleChargeDealEvent(
     }>;
   });
 
+  // Residual C — a capture blocked behind an UNRESOLVED release of its hold is
+  // not skipped for good: the job retries (bounded) once the release truth exists.
+  const chargeHold: { until: Date | null } = { until: null };
   for (const p of participants) {
     if (p.buyer_state !== "ChargingAttempt" || p.money_state !== "ChargeAttempt") continue;
 
@@ -2870,7 +2925,22 @@ async function handleChargeDealEvent(
       identity: (logicalAttempt) => `capture:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
     if (attempt.kind === "blocked") {
+      if (attempt.reason === "capture_blocked_by_released_authorization") {
+        // Residual C — the hold was RELEASED at the provider (release identity
+        // success) while this charge was pending: a capture of a released hold
+        // is a contradictory economic operation and is never dispatched. The
+        // money truth is the provider-proofed release; the deal decides later.
+        await applyAuthorizationRelease(p.participant_id, dealId, `worker:${eventId}`, attempt.blocking.correlation_id);
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-refused-released-hold:${p.participant_id}`,
+          subject: `Capture refused: the authorization of participant ${p.participant_id} was released while the charge was pending`,
+          description: `Release ${attempt.blocking.correlation_id} executed at provider ${paymentProvider.providerCode} before the capture of participant ${p.participant_id} could be dispatched (worker event ${eventId}). No capture was sent; the participant's money state is AuthReleased and the deal will decide without this participant.`,
+          correlationId: attempt.blocking.correlation_id
+        });
+        continue;
+      }
       await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "charge_start", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
+      if (attempt.reason === "capture_blocked_by_unresolved_release") chargeHold.until = new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS);
       continue;
     }
     if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
@@ -2979,6 +3049,13 @@ async function handleChargeDealEvent(
       provider_reference: result.provider_reference || p.authorization_id || null,
       reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
     });
+  }
+
+  if (chargeHold.until) {
+    // Residual C — at least one capture waits for the truth of a release of its
+    // hold; the deal does not open its completion window on a charge that has
+    // not been decided. Bounded outbox retry; the release reconcile is live.
+    throw new DeferredEventError(`charge_held_behind_unresolved_release deal ${dealId}`, chargeHold.until);
   }
 
   const windowUntil = await withTx(async (c) => {
@@ -3090,7 +3167,9 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   const target = [...rows].reverse().find((row) => row.attempt_type === "charge_start" || row.attempt_type === "recovery") || null;
   // Exact-request evidence: the provider answered the capture request itself
   // with a decline. Only that lets money move on an UNVERIFIABLE status.
-  const exactDecline = Boolean(target && target.result_class === "permanent_fail" && target.failure_evidence === "dispatch_response");
+  // (Residual A: an operator who verified the operation at the provider and
+  // recorded failure_evidence='operator' is exact evidence as well.)
+  const exactDecline = Boolean(target && target.result_class === "permanent_fail" && (target.failure_evidence === "dispatch_response" || target.failure_evidence === "operator"));
   const source = args.context === "finalize" ? "finalize_preflight" : "recovery_preflight";
   const policy = providerAmbiguityPolicy(paymentProvider);
   // F-9: ONE status read is defeated by a flapping provider (failed <-> captured
@@ -3111,6 +3190,20 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   }
   const capturedRead = reads.find((r) => r.state === "captured");
   const status: PaymentStatusResult = capturedRead ?? reads[0]!;
+  // Exact-operation identity for EVERY read (residual A): an answer that names
+  // another reference or another currency is evidence about some other
+  // operation — it can neither prove a capture nor authorise a recovery.
+  const expectedCurrencyAll = String(args.expected_currency || "").trim().toUpperCase();
+  const foreignRead = reads.find((r) => r.reference_matches_query === false || (expectedCurrencyAll && r.currency && String(r.currency).toUpperCase() !== expectedCurrencyAll));
+  if (foreignRead) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-recovery-preflight-mismatch:${args.participant_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider status cannot be tied to the obligation of participant ${args.participant_id}`,
+      description: `Provider ${paymentProvider.providerCode} answered a status query for authorization ${reference} with reference ${foreignRead.provider_reference || "n/a"} / currency ${foreignRead.currency || "n/a"} (state ${foreignRead.state}); the obligation is ${reference} / ${expectedCurrencyAll || "n/a"}. The answer is not evidence about this exact operation: no recovery was sent, no verdict was drawn, manual provider-side verification required.`,
+      correlationId: target?.correlation_id ?? null
+    });
+    return "ambiguous";
+  }
   if (capturedRead) {
     // Exact-operation identity: a "captured" that names another amount or
     // another currency is evidence about SOME operation, not this one. Hold
@@ -3177,6 +3270,19 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
       autoKey: `payment-recovery-preflight-unverifiable:${args.participant_id}`,
       subject: `FINANCIAL_OUTCOME_UNRESOLVED: original capture cannot be verified for participant ${args.participant_id}`,
       description: `Provider ${paymentProvider.providerCode} could not report the state of authorization ${reference} (${reads.map((r) => r.error_code || "unknown").join(", ")}) and the recorded failure of ${target ? `${target.attempt_type} ${target.correlation_id}` : "the capture"} is not the provider's answer to that exact request (${target?.failure_evidence || "no evidence recorded"}). No recovery capture is sent on an unverifiable status; the job is held and an operator must establish the money truth.`,
+      correlationId: target?.correlation_id ?? null
+    });
+    return "ambiguous";
+  }
+  // Residual A — two consistent NEGATIVE reads let money move only when the
+  // provider contract classifies a negative status as authoritative for the
+  // exact operation, or when the provider itself declared the request failed.
+  // Waiting (a horizon that elapsed) is not proof.
+  if (!exactDecline && !policy.negative_status_authoritative) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-recovery-negative-finality-unproven:${args.participant_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED: recovery held — negative finality unproven for participant ${args.participant_id}`,
+      description: `Provider ${paymentProvider.providerCode} reports authorization ${reference} as ${reads.map((r) => `${r.state}/${r.final ? "final" : "open"}`).join(" then ")}, but its contract does not prove that the exact ${target?.attempt_type || "capture"} ${target?.correlation_id || ""} did not execute (${policy.basis}). No recovery capture is sent; verify at the provider and record failure_evidence='operator' on the identity.`,
       correlationId: target?.correlation_id ?? null
     });
     return "ambiguous";
@@ -3273,14 +3379,28 @@ async function handleRecoveryDealEvent(
     // seam says now — the review reproduced a double capture on a provider that
     // answered a consistent "failed/final" while the capture was still settling.
     const fence = await captureSettlementFenceUntil(p.participant_id, dealId);
-    if (fence) {
+    if (fence && fence.permanent) {
+      // Residual A / B — the failure was inferred and the provider's negative
+      // finality is not authoritative (Grow, a deployment that declares it
+      // unproven, a legacy row without horizon/authority): horizon expiry by
+      // itself is NOT proof. No recovery, no identity rotation — an operator
+      // resolves it (failure_evidence = 'operator' after provider-side checks).
+      await openPaymentOperationalCase({
+        autoKey: `payment-recovery-negative-finality-unproven:${p.participant_id}`,
+        subject: `FINANCIAL_OUTCOME_UNRESOLVED: recovery held — negative finality unproven for participant ${p.participant_id}`,
+        description: `A capture-side operation of participant ${p.participant_id} was recorded as failed from status evidence, and provider ${paymentProvider.providerCode} does not prove non-execution of the exact operation from a negative status (or the row predates the settlement-horizon policy). Waiting does not create proof: no recovery capture is sent and no new money identity is minted (worker event ${eventId}). Verify the original capture at the provider and record failure_evidence='operator' on the identity to release the hold.`,
+        correlationId: null
+      });
+      continue;
+    }
+    if (fence && fence.until) {
       await openPaymentOperationalCase({
         autoKey: `payment-recovery-settlement-horizon:${p.participant_id}`,
         subject: `Recovery held until the provider settlement horizon for participant ${p.participant_id}`,
-        description: `A capture-side operation of participant ${p.participant_id} was recorded as failed from provider status reads, not from the provider's answer to the request itself; provider ${paymentProvider.providerCode} may still settle it until ${fence.toISOString()}. No recovery capture is sent before that instant (worker event ${eventId}); the job is deferred to the horizon and the original capture is re-verified there.`,
+        description: `A capture-side operation of participant ${p.participant_id} was recorded as failed from provider status reads, not from the provider's answer to the request itself; provider ${paymentProvider.providerCode} may still settle it until ${fence.until.toISOString()}. No recovery capture is sent before that instant (worker event ${eventId}); the job is deferred to the horizon and the original capture is re-verified there.`,
         correlationId: null
       });
-      deferTo(fence);
+      deferTo(fence.until);
       continue;
     }
     // F-1 — last look at the original capture BEFORE a recovery identity is
@@ -3299,15 +3419,30 @@ async function handleRecoveryDealEvent(
       identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`
     });
     if (attempt.kind === "blocked") {
+      if (attempt.reason === "capture_blocked_by_released_authorization") {
+        // Residual C — the hold was released while the participant waited for
+        // recovery: no recovery capture of a released hold; money truth is the
+        // provider-proofed release, the business outcome follows at finalize.
+        await applyAuthorizationRelease(p.participant_id, dealId, `worker:${eventId}`, attempt.blocking.correlation_id);
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-refused-released-hold:${p.participant_id}`,
+          subject: `Recovery refused: the authorization of participant ${p.participant_id} was released while recovery was pending`,
+          description: `Release ${attempt.blocking.correlation_id} executed at provider ${paymentProvider.providerCode} before a recovery capture of participant ${p.participant_id} could be dispatched (worker event ${eventId}). No recovery was sent; the participant's money state is AuthReleased.`,
+          correlationId: attempt.blocking.correlation_id
+        });
+        continue;
+      }
       // R9C C1 — recovery is a SECOND capture of the same obligation: never
       // while the original capture is unresolved or already executed.
       await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "recovery", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
+      // Residual C — an UNRESOLVED release: retry once its truth exists (bounded).
+      if (attempt.reason === "capture_blocked_by_unresolved_release") deferTo(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
       continue;
     }
     if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
     if (attempt.kind === "fenced") {
       // DB-side view of the settlement fence (belt to the check above).
-      deferTo(attempt.until);
+      if (attempt.until) deferTo(attempt.until);
       continue;
     }
     if (attempt.kind === "unresolved") {
@@ -3745,18 +3880,39 @@ async function handleFinalizeDealEvent(
   // provider money" path. Defer the decision to the LAST open horizon, visibly.
   const fencedCaptures = await withTx(async (c) => {
     const r = await c.query(
-      `SELECT pa.participant_id, pa.attempt_type, pa.correlation_id, pa.settlement_horizon_at
+      `SELECT pa.participant_id, pa.attempt_type, pa.correlation_id, pa.settlement_horizon_at,
+              (pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)) AS permanent
        FROM siton.payment_attempts pa
        WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='permanent_fail'
          AND pa.failure_evidence IS DISTINCT FROM 'dispatch_response'
-         AND pa.settlement_horizon_at IS NOT NULL AND pa.settlement_horizon_at > clock_timestamp()
-       ORDER BY pa.settlement_horizon_at ASC`,
+         AND pa.failure_evidence IS DISTINCT FROM 'operator'
+         AND (pa.settlement_horizon_at IS NULL OR pa.settlement_horizon_at > clock_timestamp() OR NOT COALESCE(pa.negative_finality_authoritative, false))
+       ORDER BY pa.settlement_horizon_at ASC NULLS LAST`,
       [dealId]
     );
-    return r.rows as Array<{ participant_id: string; attempt_type: string; correlation_id: string; settlement_horizon_at: string }>;
+    return r.rows as Array<{ participant_id: string; attempt_type: string; correlation_id: string; settlement_horizon_at: Date | string | null; permanent: boolean }>;
   });
+  const permanentlyFenced = fencedCaptures.filter((row) => row.permanent);
+  if (permanentlyFenced.length > 0) {
+    // Residual A / B — waiting cannot resolve these (negative finality unproven
+    // for the provider, or a legacy row without horizon/authority): the deal is
+    // neither Completed nor Failed automatically; an operator records exact
+    // evidence (failure_evidence='operator') and the maintenance rescheduler
+    // brings finalize back.
+    await openPaymentOperationalCase({
+      autoKey: `deal-finalize-negative-finality-unproven:${dealId}`,
+      subject: `Deal finalization held: capture failure(s) with unproven negative finality (deal ${dealId})`,
+      description: `finalize_deal for deal ${dealId} cannot decide: ${permanentlyFenced.length} capture-side identit${permanentlyFenced.length === 1 ? "y was" : "ies were"} recorded as failed from status evidence that provider ${paymentProvider.providerCode} cannot tie to the exact operation, or predate the settlement-horizon policy (${permanentlyFenced.map((row) => `${row.attempt_type} ${row.correlation_id}`).join(", ")}). No hold is released and no participant is failed on that evidence; verify at the provider and record failure_evidence='operator' on each identity.`,
+      correlationId: permanentlyFenced[0]?.correlation_id ?? null
+    });
+    throw new PermanentFailError(`finalize_negative_finality_unproven deal ${dealId} (${permanentlyFenced.length})`);
+  }
   if (fencedCaptures.length > 0) {
-    const until = new Date(String(fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at));
+    // pg hands timestamptz back as a Date; String(date) would drop the milliseconds
+    // and defer the job up to 999 ms BEFORE the horizon (the outbox refuses a
+    // retry time that already passed -> spurious lease loss). Keep the exact instant.
+    const rawUntil: unknown = fencedCaptures[fencedCaptures.length - 1]!.settlement_horizon_at;
+    const until = rawUntil instanceof Date ? rawUntil : new Date(String(rawUntil));
     await openPaymentOperationalCase({
       autoKey: `deal-finalize-waiting-settlement-horizon:${dealId}`,
       subject: `Deal finalization waiting for the provider settlement horizon (deal ${dealId})`,
@@ -3785,7 +3941,8 @@ async function handleFinalizeDealEvent(
          ORDER BY created_at DESC LIMIT 1
        ) auth ON true
        WHERE pa.deal_id=$1 AND pa.attempt_type IN ('charge_start','recovery') AND pa.result_class='permanent_fail'
-         AND pa.failure_evidence IS DISTINCT FROM 'dispatch_response' AND pa.settlement_horizon_at IS NOT NULL
+         AND pa.failure_evidence IS DISTINCT FROM 'dispatch_response' AND pa.failure_evidence IS DISTINCT FROM 'operator'
+         AND pa.settlement_horizon_at IS NOT NULL
          AND p.money_state IN ('ChargeAttempt','ChargeFailedRecovery')
        ORDER BY pa.participant_id, pa.created_at DESC`,
       [dealId]

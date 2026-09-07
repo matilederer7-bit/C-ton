@@ -58,8 +58,9 @@ async function seedRecoverable(prefix: string) {
     [participantId, dealId, `mock-review-${prefix}`, `mock-review:${participantId}`, JSON.stringify({ authorization: "provider_authorized", authorization_id: authorization, authorization_provider: "mockpay" })]
   );
   await pool.query(
-    `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state)
-     VALUES ($1,$2,'charge_start','permanent_fail',$3,'responded')`,
+    // the mock DECLINED the capture itself (exact-request evidence), as the mock rail records it (064)
+    `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, failure_evidence, negative_finality_authoritative, settlement_horizon_at, dispatched_at)
+     VALUES ($1,$2,'charge_start','permanent_fail',$3,'responded','dispatch_response',true,clock_timestamp(),clock_timestamp() - interval '1 minute')`,
     [participantId, dealId, `capture:mock-review:n1:${participantId}`]
   );
   return { dealId, participantId, authorization };

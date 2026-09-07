@@ -47,7 +47,12 @@ export type PaymentAttemptLifecycleRow = {
   settlement_horizon_at: string | null;
   /** 064 — provenance of a permanent_fail verdict */
   failure_evidence: FailureEvidence | null;
+  /** 064 — whether a negative status proves non-execution for the provider contract this row was dispatched under (null: unproven / legacy) */
+  negative_finality_authoritative: boolean | null;
 };
+
+/** 064 — outcome of the settlement fence: fenced until an instant, or fenced until an operator resolves it (`permanent`) */
+export type SettlementFence = { until: Date | null; permanent: boolean };
 
 export type BeginProviderAttemptResult =
   /** brand-new identity, recorded before any I/O */
@@ -60,8 +65,8 @@ export type BeginProviderAttemptResult =
   | { kind: "in_flight"; correlation_id: string; owner_event_uuid: string | null; owner_lease_generation: number | null }
   /** a DIFFERENT money operation of this participant is unresolved (or already moved money): this rail may not start */
   | { kind: "blocked"; reason: string; blocking: { attempt_type: AttemptType; correlation_id: string; result_class: PaymentResultClass } }
-  /** 064 — a capture-side failure inferred from status may still settle until `until`: no recovery / release identity before that instant */
-  | { kind: "fenced"; reason: string; until: Date };
+  /** 064 — a capture-side failure inferred from status may still settle until `until` (or can never be resolved automatically: `permanent`): no recovery / release identity before that */
+  | { kind: "fenced"; reason: string; until: Date | null; permanent: boolean };
 
 export type ArmProviderDispatchResult = "armed" | "lease_lost" | "participant_state_changed" | "in_flight_elsewhere" | "resolved_elsewhere";
 
@@ -106,7 +111,7 @@ export function buildPaymentAttemptHelpers(deps: {
       `SELECT attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, owner_lease_generation,
               siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight,
               provider_reference, outcome_note, created_at::text AS created_at,
-              settlement_horizon_at::text AS settlement_horizon_at, failure_evidence
+              settlement_horizon_at::text AS settlement_horizon_at, failure_evidence, negative_finality_authoritative
        FROM siton.payment_attempts
        WHERE participant_id=$1 AND deal_id=$2
        ORDER BY created_at ASC, correlation_id ASC`,
@@ -124,7 +129,8 @@ export function buildPaymentAttemptHelpers(deps: {
       outcome_note: row.outcome_note ? String(row.outcome_note) : null,
       created_at: String(row.created_at),
       settlement_horizon_at: row.settlement_horizon_at ? String(row.settlement_horizon_at) : null,
-      failure_evidence: row.failure_evidence ? (String(row.failure_evidence) as FailureEvidence) : null
+      failure_evidence: row.failure_evidence ? (String(row.failure_evidence) as FailureEvidence) : null,
+      negative_finality_authoritative: row.negative_finality_authoritative === null || row.negative_finality_authoritative === undefined ? null : Boolean(row.negative_finality_authoritative)
     }));
   }
 
@@ -266,7 +272,18 @@ export function buildPaymentAttemptHelpers(deps: {
       const captureSide = rows.filter((row) => row.attempt_type === "charge_start" || row.attempt_type === "recovery");
       let blocking: PaymentAttemptLifecycleRow | undefined;
       let reason = "";
-      if (args.attempt_type === "recovery") {
+      // Residual C (final integration) — a capture-side operation may not start
+      // while a RELEASE of the same authorization is unresolved (may have
+      // released the hold) or executed (did release it): the two are
+      // contradictory economic operations. The 064 INSERT trigger backstops it.
+      const releaseConflict = (args.attempt_type === "charge_start" || args.attempt_type === "recovery")
+        ? rows.find((row) => row.attempt_type === "release" && row.result_class === "success")
+          || rows.find((row) => row.attempt_type === "release" && row.result_class === "unknown")
+        : undefined;
+      if (releaseConflict) {
+        blocking = releaseConflict;
+        reason = releaseConflict.result_class === "success" ? "capture_blocked_by_released_authorization" : "capture_blocked_by_unresolved_release";
+      } else if (args.attempt_type === "recovery") {
         blocking = rows.find((row) => row.attempt_type === "charge_start" && (row.result_class === "unknown" || row.result_class === "success"));
         reason = "recovery_blocked_by_unresolved_or_executed_capture";
       } else if (args.attempt_type === "refund" || args.attempt_type === "cancel_refund") {
@@ -292,7 +309,12 @@ export function buildPaymentAttemptHelpers(deps: {
       if (args.attempt_type === "recovery" || args.attempt_type === "release") {
         const fence = await settlementFenceInTx(c, args.participant_id, args.deal_id);
         if (fence) {
-          return { kind: "fenced" as const, reason: `${args.attempt_type}_fenced_by_settlement_horizon`, until: fence };
+          return {
+            kind: "fenced" as const,
+            reason: fence.permanent ? `${args.attempt_type}_fenced_negative_finality_unproven` : `${args.attempt_type}_fenced_by_settlement_horizon`,
+            until: fence.until,
+            permanent: fence.permanent
+          };
         }
       }
 
@@ -355,6 +377,8 @@ export function buildPaymentAttemptHelpers(deps: {
     provider_reference?: string | null;
     /** 064 — provider-specific settlement horizon opened by this dispatch (capture-side rails); null/0 = none */
     settlement_horizon_ms?: number | null;
+    /** 064 — the provider contract's negative-finality authority recorded on the identity at dispatch (capture-side rails) */
+    negative_finality_authoritative?: boolean | null;
   }): Promise<ArmProviderDispatchResult> {
     const generation = Number(args.lease_generation);
     if (!Number.isInteger(generation) || generation < 1) return "lease_lost";
@@ -384,9 +408,19 @@ export function buildPaymentAttemptHelpers(deps: {
              dispatched_at=clock_timestamp(), provider_reference=COALESCE($7, provider_reference), outcome_note=NULL,
              -- 064: the horizon opens at dispatch and only ever moves later (a
              -- re-arm after a pre-dispatch failure extends it, never resets it)
+             -- a policy horizon of 0 (synchronous provider) means "elapsed at
+             -- dispatch": the row still carries an instant, never NULL (NULL is a
+             -- LEGACY row and fails closed — residual B)
              settlement_horizon_at=CASE
-               WHEN $8::bigint IS NULL OR $8::bigint <= 0 THEN settlement_horizon_at
-               ELSE GREATEST(COALESCE(settlement_horizon_at, '-infinity'::timestamptz), clock_timestamp() + ($8::text || ' milliseconds')::interval)
+               WHEN $8::bigint IS NULL THEN settlement_horizon_at
+               ELSE GREATEST(COALESCE(settlement_horizon_at, '-infinity'::timestamptz), clock_timestamp() + (GREATEST($8::bigint, 0)::text || ' milliseconds')::interval)
+             END,
+             -- 064 (residual A): the provider contract's negative-finality authority
+             -- is recorded at dispatch; NULL stays NULL (unproven) and a recorded
+             -- authority is never raised afterwards (trigger).
+             negative_finality_authoritative=CASE
+               WHEN $9::boolean IS NULL THEN negative_finality_authoritative
+               ELSE COALESCE(negative_finality_authoritative, $9::boolean) AND $9::boolean
              END
          WHERE participant_id=$1 AND deal_id=$2 AND attempt_type=$3 AND correlation_id=$4
            AND result_class='unknown'
@@ -396,7 +430,8 @@ export function buildPaymentAttemptHelpers(deps: {
              AND siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation)
            )`,
         [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, args.event_uuid, generation, args.provider_reference ?? null,
-          Number.isFinite(Number(args.settlement_horizon_ms)) && Number(args.settlement_horizon_ms) > 0 ? Math.floor(Number(args.settlement_horizon_ms)) : null]
+          Number.isFinite(Number(args.settlement_horizon_ms)) && Number(args.settlement_horizon_ms) > 0 ? Math.floor(Number(args.settlement_horizon_ms)) : null,
+          args.negative_finality_authoritative === null || args.negative_finality_authoritative === undefined ? null : Boolean(args.negative_finality_authoritative)]
       );
       if (Number(armed.rowCount || 0) === 1) return "armed" as const;
       const current = await c.query(
@@ -512,15 +547,23 @@ export function buildPaymentAttemptHelpers(deps: {
    * failure is NOT exact-request evidence (null = no fence). Mirrors the DB
    * predicate siton.payment_capture_settlement_fence used by the INSERT guard.
    */
-  async function settlementFenceInTx(c: any, participantId: string, dealId: string): Promise<Date | null> {
-    const r = await c.query(`SELECT siton.payment_capture_settlement_fence($1::uuid, $2::uuid) AS fence`, [participantId, dealId]);
-    const value = r.rows[0]?.fence;
-    if (!value) return null;
-    const at = new Date(value);
-    return Number.isFinite(at.getTime()) ? at : null;
+  async function settlementFenceInTx(c: any, participantId: string, dealId: string): Promise<SettlementFence | null> {
+    // 'infinity' = fenced until an operator records exact evidence (no horizon on
+    // the row, or the provider's negative finality is not authoritative — residual A/B)
+    const r = await c.query(
+      `SELECT (f IS NOT NULL) AS fenced, (f = 'infinity'::timestamptz) AS permanent,
+              CASE WHEN f = 'infinity'::timestamptz THEN NULL ELSE f END AS until
+       FROM (SELECT siton.payment_capture_settlement_fence($1::uuid, $2::uuid) AS f) x`,
+      [participantId, dealId]
+    );
+    const row = r.rows[0];
+    if (!row || row.fenced !== true) return null;
+    if (row.permanent === true) return { until: null, permanent: true };
+    const at = new Date(row.until);
+    return Number.isFinite(at.getTime()) ? { until: at, permanent: false } : { until: null, permanent: true };
   }
 
-  async function captureSettlementFenceUntil(participantId: string, dealId: string): Promise<Date | null> {
+  async function captureSettlementFenceUntil(participantId: string, dealId: string): Promise<SettlementFence | null> {
     return deps.withTx(async (c) => settlementFenceInTx(c, participantId, dealId));
   }
 

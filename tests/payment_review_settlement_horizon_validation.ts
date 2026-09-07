@@ -224,10 +224,11 @@ await run("H-6 the terminal deal decision waits for the horizon: finalize is def
   assert.equal(row?.deferred, true);
   assert.match(String(row?.last_error || ""), /finalize_waiting_for_settlement_horizon/);
   assert.ok((await lab.pool.query(`SELECT 1 FROM siton.operational_cases WHERE auto_key=$1`, [`deal-finalize-waiting-settlement-horizon:${d.deal_id}`])).rowCount === 1);
-  await lab.drain({ dealIds: [d.deal_id], maxRounds: 60, waitDeferredUpToMs: 2000 });
+  const drained = await lab.drain({ dealIds: [d.deal_id], maxRounds: 60, waitDeferredUpToMs: 2000 });
   const deal = await lab.deal(d.deal_id);
   const part = await lab.participant(p.participant_id);
   console.log(`  after horizon: deal=${deal.state} participant=${part.buyer_state}/${part.money_state} status_reads=${lab.sim.requestsOf(p.authorization, "status").length} effects=${JSON.stringify(lab.sim.effectsOf(p.authorization))}`);
+  console.log(`  drain: rounds=${drained.rounds} waited=${drained.waited} advanced=${drained.advanced} results=${JSON.stringify(drained.results.map((r) => `${r.event_type}:${r.status}:${String(r.error || "").slice(0, 90)}`))} outbox=${JSON.stringify(await lab.outboxRow(event))} dlq=${JSON.stringify((await lab.dlqRows(d.deal_id)).map((r) => `${r.event_type}:${String(r.last_error || "").slice(0, 90)}`))} attempts=${JSON.stringify((await lab.attempts(p.participant_id)).map((a) => `${a.attempt_type}:${a.result_class}:${a.failure_evidence}:${a.settlement_horizon_at}:${a.negative_finality_authoritative}`))}`);
   assert.equal(deal.state, "Failed");
   assert.ok(lab.sim.requestsOf(p.authorization, "status").length >= 2, "the capture was re-verified at the provider before the decision");
   assert.equal(lab.sim.effectsOf(p.authorization).release, 1, "the hold was released WITH provider proof after the decision");

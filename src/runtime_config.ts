@@ -51,6 +51,12 @@ export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY |
 // conservative (24 h): an owner sets the real value per provider contract; it
 // is never guessed from a provider's expiry behaviour.
 export const PAYMENT_SETTLEMENT_HORIZON_MS = readNumberEnv("PAYMENT_SETTLEMENT_HORIZON_MS", 24 * 60 * 60 * 1000);
+// Final financial integration (residual A) — whether a NEGATIVE status read of
+// the provider-ready HTTP rail proves non-execution of the exact operation.
+// "false" forces the rail into the fail-closed policy (no automatic recovery
+// from status evidence, ever); anything else keeps the adapter's declared
+// contract value. Never guessed for Grow (Grow is fail-closed by construction).
+export const PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE = String(process.env.PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE || "").trim().toLowerCase() !== "false";
 export const GROW_USER_ID = process.env.GROW_USER_ID || "";
 export const GROW_PAGE_CODE = process.env.GROW_PAGE_CODE || "";
 export const GROW_API_KEY = process.env.GROW_API_KEY || "";

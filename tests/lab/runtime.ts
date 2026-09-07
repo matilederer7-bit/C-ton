@@ -22,7 +22,7 @@ export type LabParticipantSpec = {
   binding?: boolean;
   /** No binding and a join audit WITHOUT an authorization id: the adapter proves dispatched:false (pre-dispatch failure). */
   withoutAuthorization?: boolean;
-  priorAttempts?: Array<{ attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release"; result_class: "unknown" | "success" | "permanent_fail"; correlation_id?: string; dispatch_state?: "recorded" | "responded"; failure_evidence?: "dispatch_response" | "status_inference" | "provider_event" | "operator" | null; settlement_horizon_at?: Date | null }>;
+  priorAttempts?: Array<{ attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release"; result_class: "unknown" | "success" | "permanent_fail"; correlation_id?: string; dispatch_state?: "recorded" | "responded"; failure_evidence?: "dispatch_response" | "status_inference" | "provider_event" | "operator" | null; settlement_horizon_at?: Date | null; negative_finality_authoritative?: boolean | null; dispatched_at?: Date | null }>;
 };
 
 export type LabDealSpec = {
@@ -150,9 +150,18 @@ export async function bootLab(options: LabOptions) {
       }
       for (const prior of p.priorAttempts || []) {
         await pool.query(
-          `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, failure_evidence, settlement_horizon_at)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-          [participantId, dealId, prior.attempt_type, prior.result_class, prior.correlation_id || `${prior.attempt_type}:lab-prior:n1:${participantId}`, prior.dispatch_state || (prior.result_class === "unknown" ? "responded" : "responded"), prior.failure_evidence ?? null, prior.settlement_horizon_at ? prior.settlement_horizon_at.toISOString() : null]
+          `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, failure_evidence, settlement_horizon_at, negative_finality_authoritative, dispatched_at)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          // A seeded row models an operation THIS lab provider dispatched earlier:
+          // unless a scenario says otherwise, a declared failure is the provider's
+          // answer to the request (dispatch_response), the row carries the lab
+          // provider's negative-finality authority and an already-elapsed horizon.
+          // An EXPLICIT null models a legacy row (residual B) and fails closed.
+          [participantId, dealId, prior.attempt_type, prior.result_class, prior.correlation_id || `${prior.attempt_type}:lab-prior:n1:${participantId}`, prior.dispatch_state || (prior.result_class === "unknown" ? "responded" : "responded"),
+            prior.failure_evidence === undefined ? (prior.result_class === "permanent_fail" ? "dispatch_response" : null) : prior.failure_evidence,
+            prior.settlement_horizon_at === undefined ? new Date(Date.now() - 1000).toISOString() : (prior.settlement_horizon_at ? prior.settlement_horizon_at.toISOString() : null),
+            prior.negative_finality_authoritative === undefined ? (String(process.env.PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE || "").toLowerCase() !== "false") : prior.negative_finality_authoritative,
+            prior.dispatched_at === undefined ? new Date(Date.now() - 60_000).toISOString() : (prior.dispatched_at ? prior.dispatched_at.toISOString() : null)]
         );
       }
       participants.push({ participant_id: participantId, buyer_id: buyerId, authorization, qty, delivery_cost: delivery, amount_minor: amountMinor });
@@ -291,10 +300,10 @@ export async function bootLab(options: LabOptions) {
     return (await pool.query(
       `SELECT attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, owner_lease_generation, provider_reference, outcome_note,
               siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight,
-              failure_evidence, settlement_horizon_at::text AS settlement_horizon_at, dispatched_at::text AS dispatched_at
+              failure_evidence, settlement_horizon_at::text AS settlement_horizon_at, dispatched_at::text AS dispatched_at, negative_finality_authoritative
        FROM siton.payment_attempts WHERE participant_id=$1 AND ($2::text IS NULL OR attempt_type=$2) ORDER BY created_at ASC, correlation_id ASC`,
       [participantId, attemptType ?? null]
-    )).rows as Array<{ attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; owner_event_uuid: string | null; owner_lease_generation: number | null; provider_reference: string | null; outcome_note: string | null; in_flight: boolean; failure_evidence: string | null; settlement_horizon_at: string | null; dispatched_at: string | null }>;
+    )).rows as Array<{ attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; owner_event_uuid: string | null; owner_lease_generation: number | null; provider_reference: string | null; outcome_note: string | null; in_flight: boolean; failure_evidence: string | null; settlement_horizon_at: string | null; dispatched_at: string | null; negative_finality_authoritative: boolean | null }>;
   }
   async function ledger(participantId: string) {
     return (await pool.query(`SELECT logical_entry_type, platform_fee_amount, gross_amount, seller_net_amount FROM siton.platform_fee_money_events WHERE participant_id=$1 ORDER BY created_at`, [participantId])).rows as Array<{ logical_entry_type: string; platform_fee_amount: string; gross_amount: string; seller_net_amount: string }>;

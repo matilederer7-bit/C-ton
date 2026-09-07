@@ -47,7 +47,16 @@ const RAILS: Array<{ rail: Rail; attempt_type: string; seed: () => Promise<{ dea
 ];
 
 async function insertAttempt(pid: string, dealId: string, attemptType: string, resultClass: string, correlation: string, dispatchState: "recorded" | "responded" = "responded") {
-  await lab.pool.query(`INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state) VALUES ($1,$2,$3,$4,$5,$6)`, [pid, dealId, attemptType, resultClass, correlation, dispatchState]);
+  // 064: a seeded row models an operation the lab provider dispatched earlier — a
+  // declared failure is the provider's own answer, the row carries the contract's
+  // authority and an elapsed horizon (a NOT_DISPATCHED row carries none yet)
+  await lab.pool.query(
+    `INSERT INTO siton.payment_attempts (participant_id, deal_id, attempt_type, result_class, correlation_id, dispatch_state, failure_evidence, negative_finality_authoritative, settlement_horizon_at, dispatched_at)
+     VALUES ($1,$2,$3,$4,$5,$6, CASE WHEN $4 = 'permanent_fail' THEN 'dispatch_response' END, true,
+             CASE WHEN $6 = 'recorded' THEN NULL ELSE clock_timestamp() - interval '1 second' END,
+             CASE WHEN $6 = 'recorded' THEN NULL ELSE clock_timestamp() - interval '1 minute' END)`,
+    [pid, dealId, attemptType, resultClass, correlation, dispatchState]
+  );
 }
 async function makeInFlight(pid: string, dealId: string, attemptType: string, correlation: string) {
   // A foreign worker holds a live lease on a processing job and armed this identity.

@@ -46,7 +46,7 @@ export type Behavior =
   // ("legacy shape"); the money may (effect:true) or may not have moved.
   | { kind: "ID_ONLY_2XX"; effect: boolean };
 
-export type StatusBehavior =
+type StatusBehaviorKind =
   | { kind: "TRUTH" }
   | { kind: "STALE_AUTHORIZED"; final: boolean }
   | { kind: "PENDING" }
@@ -70,6 +70,9 @@ export type StatusBehavior =
   // LIE: the provider CLAIMS a money effect that never happened (or denies one
   // that did) — bypasses the honest() downgrade. Consumed per read.
   | { kind: "LIE"; state: "authorized" | "captured" | "refunded" | "released" | "failed"; final?: boolean; amount_minor?: number | null };
+// `persist`: the entry stays armed for every read (like FLAP) instead of being
+// consumed — a provider that answers the same wrong thing for ever.
+export type StatusBehavior = StatusBehaviorKind & { persist?: boolean };
 
 export type EffectCounters = {
   capture: number;
@@ -179,8 +182,8 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
     const queue = statusScripts.get(auth);
     if (queue && queue.length) {
       const next = queue[0] as StatusBehavior;
-      // FLAP / WHILE_SETTLING entries stay armed; everything else is consumed.
-      if (next.kind !== "FLAP" && next.kind !== "WHILE_SETTLING") queue.shift();
+      // FLAP / WHILE_SETTLING / persist entries stay armed; everything else is consumed.
+      if (next.kind !== "FLAP" && next.kind !== "WHILE_SETTLING" && !next.persist) queue.shift();
       return next;
     }
     return { kind: "TRUTH" };
