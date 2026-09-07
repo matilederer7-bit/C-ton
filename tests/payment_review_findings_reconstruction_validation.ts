@@ -69,6 +69,45 @@ await run("FR-2 finalize defers while a RECOVERY identity is UNKNOWN, even thoug
   await lab.oracle("fr2", [d.deal_id], { allowUnresolved: true });
 });
 
+await run("FR-2b (R-11) finalize defers while a capture identity is SUCCESS but its canonical state is not yet applied (settle/ingest gap), then completes EVERY paid participant", async () => {
+  const d = await lab.seedDeal({ state: "CompletionWindow", threshold_units: 1, completionWindowUntil: new Date(Date.now() - 1000), participants: [
+    { buyer_state: "ChargedSuccess", money_state: "ChargedSuccess", priorAttempts: [{ attempt_type: "charge_start", result_class: "success" }] },
+    // executed at the provider, identity SUCCESS, canonical state not yet applied
+    { buyer_state: "ChargingAttempt", money_state: "ChargeAttempt", priorAttempts: [{ attempt_type: "charge_start", result_class: "success" }] }
+  ] });
+  const [paid, unpersisted] = d.participants as [typeof d.participants[0], typeof d.participants[0]];
+  lab.sim.forceEffect("capture", paid.authorization, paid.amount_minor);
+  lab.sim.forceEffect("capture", unpersisted.authorization, unpersisted.amount_minor);
+  const event = await lab.enqueueFinalize(d.deal_id);
+  const first = await lab.processOutboxEventById(event);
+  console.log(`  finalize: ${first?.status} error=${String((first as any)?.error || "").slice(0, 60)} deal=${(await lab.deal(d.deal_id)).state}`);
+  assert.equal((await lab.deal(d.deal_id)).state, "CompletionWindow", "no terminal decision while executed money is not yet canonical");
+  assert.match(String((await lab.outboxRow(event))?.last_error || ""), /finalize_waiting_for_unresolved_captures/);
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 60, waitDeferredUpToMs: 2000 });
+  const states = await Promise.all(d.participants.map((p) => lab.participant(p.participant_id)));
+  console.log(`  after: deal=${(await lab.deal(d.deal_id)).state} participants=${states.map((s) => `${s.buyer_state}/${s.money_state}`).join(",")}`);
+  assert.equal((await lab.deal(d.deal_id)).state, "Completed");
+  assert.ok(states.every((s) => s.buyer_state === "DealCompleted" && s.money_state === "ChargedSuccess"), "every paid participant is DealCompleted");
+  await lab.oracle("fr2b", [d.deal_id]);
+});
+
+await run("FR-2c (R-11) finalize retried on an already-Completed deal sweeps a paid participant left at ChargedSuccess to DealCompleted (idempotent)", async () => {
+  const d = await lab.seedDeal({ state: "Completed", participants: [
+    { buyer_state: "DealCompleted", money_state: "ChargedSuccess", priorAttempts: [{ attempt_type: "charge_start", result_class: "success" }] },
+    { buyer_state: "ChargedSuccess", money_state: "ChargedSuccess", priorAttempts: [{ attempt_type: "charge_start", result_class: "success" }] }
+  ] });
+  for (const p of d.participants) lab.sim.forceEffect("capture", p.authorization, p.amount_minor);
+  const stranded = d.participants[1]!;
+  const event = await lab.enqueueFinalize(d.deal_id);
+  const r = await lab.processOutboxEventById(event);
+  assert.equal(r?.status, "sent", JSON.stringify(r));
+  assert.equal((await lab.participant(stranded.participant_id)).buyer_state, "DealCompleted");
+  const again = await lab.enqueueFinalize(d.deal_id);
+  assert.equal((await lab.processOutboxEventById(again))?.status, "sent");
+  assert.equal((await lab.moneyAudits(stranded.participant_id)).filter((a) => a.to_state === "DealCompleted").length, 1, "the sweep is idempotent");
+  await lab.oracle("fr2c", [d.deal_id]);
+});
+
 // ── FR-3 ───────────────────────────────────────────────────────────────────────
 await run("FR-3 HTTP webhook: late recovery_captured for a Dropped participant (recovery declared failed, effect real) → contradiction case, recovery identity success, the pending release is BLOCKED", async () => {
   const recoveryCorrelation = `recovery:fr3:n1:${randomUUID()}`;
