@@ -164,8 +164,24 @@ e2e 13/13; red files and their disposition:
 | `payment_lab_concurrency_matrix_validation.ts` TWO_WORKERS (concurrency) | **R-11** (2/80 paid buyers stranded at ChargedSuccess on a Completed deal) + one truthful non-charge (lost capture request reconciled after the 6 s window) | R-11 fixed (`7c5d8af`), regressions FR-2b/FR-2c, mutants M30/M31; the random run admits ≤ 2 visible money-safe non-charges — 32/32 after |
 | `worker_two_process_fencing_validation.ts` (workers) | timeout under load (deadline-check events only, worker code unchanged) | passes in isolation on the review tree (43 s) and on the untouched candidate (66 s); load-sensitive, not a remediation regression |
 
-### 6.2 Exact final tip
-See the follow-up section recorded with the final run (the regression must be run on the tip that carries this document).
+### 6.2 Full run on the review tip — commit `b6e20da` (final code; this docs commit differs from it only in `docs/` and `PROJECT_STATUS.md`)
+Sequential chain (`regression_chain.sh r2`, 2026-09-07 23:07–23:35 local, clean tree, one runner, fresh databases):
+
+| Step | Result |
+|---|---|
+| `tsc --noEmit` · lint / backend enforcement scan · payment compliance scan · runtime DDL scan · architecture gate · `git diff --check HEAD^ HEAD` | all PASS |
+| isolated migration proof | **59/59** fresh install, rerun idempotent, checksum ledger consistent, drift 0 |
+| `test:all` — 218 files, 10 groups, sequential | **10/10 groups green**: unit 12 · integration 29 · db 7 · api 41 · workers 13 · payments 51 · security 36 · concurrency 7 · failure 9 · e2e 13 (1 597 s) |
+| random-schedule fuzz (fresh seed `2105845141`) | 300/300 (481 participants, 534 provider effects, 165 s) |
+| bounded soak 30 s + global reconciliation | PASS — 232 deals, 575 participants, 1 364 jobs, 1 065 provider operations, 14 forced lease expiries, 7 interval audits |
+| two real worker processes (concurrency matrix) | 32/32, 80/80 converged, 0 duplicates, 0 deadlocks |
+| protected-route authorization gate | PASS (static 1 / behavioural 4) |
+| fault-injection report | OK (11 scenarios) |
+
+Every review suite ran inside the payments group: adversarial 20/20, Grow 2/2, mock 1/1, settlement horizon 12/12, findings
+reconstruction 13/13. Economic effects across the run: duplicate capture / recovery / refund / release 0, false canonical
+success / release 0, lost provider effect 0, unresolved without case 0, deadlocks 0. The same chain is re-run on the commit that
+carries this section; its counts are reported with the review hand-over.
 
 ## 7. Residual risks (documented, not hidden)
 
