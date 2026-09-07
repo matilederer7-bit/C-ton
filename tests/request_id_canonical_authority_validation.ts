@@ -1,3 +1,4 @@
+import { assertRequestCorrelation } from "./support/log_security_assertions.js";
 // ONE REQUEST ID — normalised once, at creation, and the same everywhere after.
 //
 // Independent review MEDIUM-2: V7 made Fastify read `x-request-id` for the log
@@ -117,11 +118,19 @@ for (const testCase of CASES) {
     if (testCase.expectPreserved) assert.equal(echoed, testCase.header, "a well-formed caller id must be preserved verbatim");
     else if (testCase.header !== null) assert.notEqual(echoed, testCase.header, "a hostile caller id must be replaced, not echoed");
 
-    const logIds = [...new Set([...logs.matchAll(/"reqId":"([^"]*)"/g)].map((match) => match[1]!))];
-    assert.equal(logIds.length, 1, `expected exactly one request id in the log for this request, saw ${JSON.stringify(logIds.map((id) => id.slice(0, 40)))}`);
-    assert.equal(logIds[0], echoed, "the log carries a different id than the response");
+    assertRequestCorrelation(logs, echoed);
     if (testCase.header !== null && !testCase.expectPreserved) {
-      assert.ok(!logs.includes(testCase.header), "the raw hostile header value reached the log");
+      // A leaked hostile value reaches a pino line as a complete JSON string
+      // value (the reqId, an echoed header, an error message) - so that is the
+      // form to look for. A bare substring test is wrong for a SHORT value such
+      // as "abc": any hex identifier in the captured lines (the minted request
+      // id, the deal id in the url) can contain it by chance, which made this
+      // proof fail intermittently on CI while the header was correctly replaced.
+      // Long values keep a prefix substring check so a TRUNCATED leak of an
+      // oversized header is still caught (a 64-character run cannot collide).
+      const leakedAsValue = logs.includes(JSON.stringify(testCase.header)) || logs.includes(`"reqId":"${testCase.header}`);
+      const leakedTruncated = testCase.header.length >= 64 && logs.includes(testCase.header.slice(0, 64));
+      assert.ok(!leakedAsValue && !leakedTruncated, "the raw hostile header value reached the log");
     }
 
     const audit = await pool.query(`SELECT request_id FROM siton.audit_log WHERE deal_id=$1 AND action_name='deal.cancel' LIMIT 1`, [dealId]);
@@ -129,6 +138,31 @@ for (const testCase of CASES) {
     assert.equal(String(audit.rows[0].request_id), echoed, `audit request_id (${String(audit.rows[0].request_id).slice(0, 40)}) differs from the log/response id`);
   });
 }
+
+// Regression for the intermittent CI failure of the "short" case: the hostile
+// value "abc" is also a substring of ordinary hex identifiers. When the deal id
+// in the logged url happens to contain it, a bare substring check reports a
+// leak that never happened. Force that coincidence and require the proof to
+// still distinguish "the header was replaced" from "a hex id contains abc".
+await run("a short hostile id that is also a substring of an unrelated identifier in the log is still recognised as replaced (no false positive)", async () => {
+  const forcedDealId = `0abc0000-0000-4000-8000-${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  await pool.query(
+    `INSERT INTO siton.deals (deal_id, title, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, state)
+     VALUES ($1,$2,50,1,20,5,$3,$4,'Draft')`,
+    [forcedDealId, `Reqid forced ${randomUUID().slice(0, 8)}`, new Date(Date.now() + 3 * 60 * 60_000).toISOString(), SELLER]
+  );
+  let response: any;
+  const logs = await captureOutput(async () => {
+    response = await app.inject({ method: "POST", url: `/deals/${forcedDealId}/cancel`, headers: { cookie, "content-type": "application/json", "x-request-id": "abc" }, payload: { reason: "request id probe" } } as any);
+  });
+  assert.equal(response.statusCode, 200, `cancel failed: ${response.body}`);
+  const echoed = String(response.headers["x-request-id"] || "");
+  assert.match(echoed, CANONICAL);
+  assert.notEqual(echoed, "abc", "a hostile caller id must be replaced, not echoed");
+  assert.ok(logs.includes(forcedDealId), "the forced deal id must appear in the captured log for this regression to mean anything");
+  assert.ok(logs.includes("abc"), "VACUOUS: the log does not even contain the token as a substring - the coincidence was not forced");
+  assert.ok(!logs.includes(JSON.stringify("abc")) && !logs.includes('"reqId":"abc'), "the raw hostile header value reached the log as a value");
+});
 
 await run("a CR/LF in the request id cannot forge a log line", async () => {
   // Node refuses raw CR/LF in header values on the wire; inject bypasses the
