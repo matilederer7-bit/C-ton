@@ -237,9 +237,16 @@ await run("pool hygiene: after every termination the pool holds no dead clients 
   assert.equal(appPool.waitingCount, 0, "requests left waiting for a pool slot");
   // This scenario itself must not need the guard; make the vacuity check explicit
   // by terminating one idle pooled backend here (absorbed by pg-pool's idle listener).
-  const idlePid = Number((await killer.query(
-    `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'siton-%' AND state='idle' AND pid <> pg_backend_pid() LIMIT 1`
-  )).rows[0]?.pid || 0);
+  // The pooled clients report idle asynchronously (pg_stat_activity lags the
+  // pool by a few ms and pg-pool may still be releasing the last client): poll
+  // briefly instead of trusting a single snapshot.
+  let idlePid = 0;
+  for (let i = 0; i < 40 && idlePid === 0; i++) {
+    idlePid = Number((await killer.query(
+      `SELECT pid FROM pg_stat_activity WHERE datname=current_database() AND application_name LIKE 'siton-%' AND state='idle' AND pid <> pg_backend_pid() LIMIT 1`
+    )).rows[0]?.pid || 0);
+    if (idlePid === 0) await settle(50);
+  }
   assert.ok(idlePid > 0, "no idle pooled backend to terminate");
   await terminate(idlePid);
   await settle(300);

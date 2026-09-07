@@ -227,6 +227,40 @@ recovery identity (unknown / success) exists — those are owned by the identity
 `resolvePriorProviderAttempt`; it guards the FIRST recovery of a participant only. The oracle now counts
 NOT_DISPATCHED rows instead of flagging them (zero money risk, attended by the sweeper).
 
+### F-9 — CRITICAL in synthetic terms (fixed): a flapping status defeated the single-read recovery pre-flight → double capture
+
+*Found by:* the random-seed run of `payment_lab_random_schedule_fuzz_validation.ts` inside the full repository
+regression (regression #3; the full run does not pin `LAB_FUZZ_SEED`, so every regression draws a fresh seed and
+prints it). Seed **2061983203**, scenario #141, minimised to ONE participant:
+capture behaviour `DELAYED_EFFECT(90 ms)` (the provider answers `200 {status: "pending"}` and executes the capture
+90 ms later), status behaviour `FLAP(failed, captured)` (consecutive status reads alternate).
+
+*Before:* capture → UNKNOWN (declared pending) → reconcile read #1 `failed / final` → `charge_failed`,
+`ChargeFailedCompletion` → recovery rail → pre-flight read #2 … the alternation made this read `failed` again
+(the reconcile rail and other readers consume flap positions) → recovery captured 4 200 → the delayed original
+capture landed → provider captured **8 400** for a 4 200 participant; canonical truth showed one capture.
+Oracle: `DUPLICATE_CAPTURE` + `CAPTURE_AMOUNT_MISMATCH`.
+
+*Root cause:* every money decision after an ambiguous capture rested on ONE status read. A provider that contradicts
+itself between reads is not a lying-final-negative provider (the documented residual) — it is detectable, and the
+candidate did not try.
+
+*Fix (`verifyOriginalCaptureBeforeRecovery`):* two status reads a confirmation interval apart
+(`RECOVERY_PREFLIGHT_CONFIRM_MS`, default 1 000 ms, lab 60 ms) and the most conservative verdict: any read
+`captured` → captured (late-effect ingestion + case, no recovery); any read `pending` → hold; two reads that
+disagree → hold + case `payment-recovery-preflight-flapping`; only two consistent negative answers let money move.
+The held job stays visible (retries, then DLQ).
+
+*Residual (unchanged, documented in §5):* a provider that answers `failed / final` or `authorized / final`
+CONSISTENTLY while a settlement is still pending cannot be distinguished from a truthful failure by any number of
+reads; the simulator's honest mode never does this, `FLAP` does when its cycle aligns. The effect then surfaces as
+a late-effect case (money captured on a failed participant) — visible, not automatic; the only structural defence
+is a provider-specific settlement horizon before recovery, which is an owner decision.
+
+*Regression:* three pinned scenarios in `payment_lab_refund_release_recovery_validation.ts` (the minimised fuzz
+schedule; declared-failed capture with a `failed ↔ captured` flap; two disagreeing negatives `failed ↔ authorized`),
+plus the fuzz rerun on the exact seed 2061983203.
+
 ### F-6 — MEDIUM (NOT fixed — semantics decision for the owner): `recovery_failed` sets `AuthReleased` without a provider release
 *Where:* canonical `charging.recovery_failed` transition (`ChargeFailedRecovery → AuthReleased`, `ChargeFailedCompletion → Dropped`).
 *Observation (fuzz index 69, minimised):* a recovery that the provider declines (or that reconciliation proves not
