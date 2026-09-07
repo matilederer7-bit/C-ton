@@ -3018,8 +3018,14 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
     });
     return "captured";
   }
-  if (status.state === "authorized" || status.state === "failed" || status.state === "released") return "proceed";
-  return "ambiguous";
+  // "pending" is positive evidence that a settlement is still in progress: hold.
+  // "unknown" (a provider that cannot look the reference up, a transport or
+  // parsing failure mapped by the adapter) is NO evidence of a capture: the
+  // identity discipline that already blocks recovery on an UNKNOWN charge_start
+  // row stays the primary guard, and the pre-existing behaviour (proceed) is
+  // kept so providers without a usable status seam are not stalled for ever.
+  if (status.state === "pending") return "ambiguous";
+  return "proceed";
 }
 
 async function handleRecoveryDealEvent(
