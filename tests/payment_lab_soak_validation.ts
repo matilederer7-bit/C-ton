@@ -31,8 +31,8 @@ const uncaught: string[] = [];
 let stopped = false;
 // Recorders only: a failure anywhere is printed loudly and stops the soak; the
 // handlers must never turn a fatal error into a silent hang.
-process.on("unhandledRejection", (reason: any) => { unhandled.push(String(reason?.stack || reason?.message || reason)); console.error("SOAK_UNHANDLED_REJECTION", String(reason?.stack || reason)); stopped = true; });
-process.on("uncaughtException", (error: any) => { uncaught.push(String(error?.stack || error?.message || error)); console.error("SOAK_UNCAUGHT_EXCEPTION", String(error?.stack || error)); stopped = true; });
+process.on("unhandledRejection", (reason: any) => { unhandled.push(String(reason?.stack || reason?.message || reason)); console.error("SOAK_UNHANDLED_REJECTION", String(reason?.stack || reason)); stopped = true; setTimeout(() => process.exit(1), 200).unref(); });
+process.on("uncaughtException", (error: any) => { uncaught.push(String(error?.stack || error?.message || error)); console.error("SOAK_UNCAUGHT_EXCEPTION", String(error?.stack || error)); stopped = true; setTimeout(() => process.exit(1), 200).unref(); });
 
 let seedState = 0x5eed5eed;
 const rnd = () => { seedState = (Math.imul(seedState, 1664525) + 1013904223) >>> 0; return seedState / 4294967296; };
@@ -128,7 +128,9 @@ const d2 = await lab.drain({ dealIds, maxRounds: 120, advanceDelayMs: 0 });
 console.log(`  quiescence drains: money=${d1.processed}p/${d1.advanced}a/${d1.rounds}r finalize=${d2.processed}p/${d2.advanced}a/${d2.rounds}r in ${Math.round((Date.now() - drainStartedAt) / 1000)}s remaining=${d2.remaining_pending}/${d2.remaining_processing}`);
 
 // ── Phase 20: global reconciliation ──────────────────────────────────────────
-const report = await lab.oracle("soak:final", dealIds, { allowUnresolved: false, seededStates: false, allowedCodes: ["UNRESOLVED_WITHOUT_CASE", "UNRESOLVED_AT_QUIESCENCE", "MONEY_EVENTS_NOT_QUIESCENT", "OPERATION_STILL_IN_FLIGHT", "PROVIDER_SUCCESS_INVISIBLE", "FAILED_DEAL_HOLDS_CAPTURED_MONEY", "COMPLETED_DEAL_PARTICIPANT_NOT_FINAL"], print: true });
+// CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF = F-6 (recovery_failed → AuthReleased without a release request): documented, counted, not fixed here.
+const report = await lab.oracle("soak:final", dealIds, { allowUnresolved: false, seededStates: false, allowedCodes: ["UNRESOLVED_WITHOUT_CASE", "UNRESOLVED_AT_QUIESCENCE", "MONEY_EVENTS_NOT_QUIESCENT", "OPERATION_STILL_IN_FLIGHT", "PROVIDER_SUCCESS_INVISIBLE", "FAILED_DEAL_HOLDS_CAPTURED_MONEY", "COMPLETED_DEAL_PARTICIPANT_NOT_FINAL", "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF"], print: true });
+console.log(`  F-6 occurrences (AuthReleased via recovery_failed without a provider release): ${report.violations.filter((v) => v.code === "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF").length}`);
 const canonical = (await lab.pool.query(
   `SELECT
      COALESCE(SUM(CASE WHEN p.money_state IN ('ChargedSuccess','RecoveredCharge','Refunded') THEN ROUND((p.qty * d.price_per_unit + p.delivery_cost) * 100) END),0)::bigint AS captured_minor,

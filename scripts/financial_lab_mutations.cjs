@@ -45,7 +45,7 @@ const MUTATIONS = [
     suites: [["payments", "payment_lab_c1_c2"]] },
   { id: "M08_late_event_protection_removed", invariant: "late economically-real event never discarded silently (contradiction case)", file: "src/app.ts",
     from: `  if (!contradiction) return;`,
-    to: `  return;`,
+    to: `  if (!contradiction || moneyState.length >= 0) return;`,
     suites: [["payments", "payment_lab_terminal_economics"], ["payments", "payment_lab_c1_c2"]] },
   { id: "M09_duplicate_webhook_protection_removed", invariant: "duplicate webhook protection (same provider event id processed once)", file: "src/webhook_ingestion.ts",
     from: `      if (!existing.rowCount) {`,
@@ -56,10 +56,10 @@ const MUTATIONS = [
     to: `      void lease;`,
     suites: [["concurrency", "payment_lab_concurrency_matrix"], ["payments", "payment_lab_crash_matrix"]] },
   { id: "M11_fee_7_percent", invariant: "Siton fee = exactly 8 % (7 %)", file: "src/platform_fee_money.ts",
-    from: `export const SITON_PLATFORM_FEE_RATE = 0.08;`, to: `export const SITON_PLATFORM_FEE_RATE = 0.07;`,
+    from: `export const SITON_PLATFORM_FEE_RATE = 0.08;`, to: `export const SITON_PLATFORM_FEE_RATE: number = 0.07;`,
     suites: [["payments", "payment_lab_terminal_economics"]] },
   { id: "M12_fee_9_percent", invariant: "Siton fee = exactly 8 % (9 %)", file: "src/platform_fee_money.ts",
-    from: `export const SITON_PLATFORM_FEE_RATE = 0.08;`, to: `export const SITON_PLATFORM_FEE_RATE = 0.09;`,
+    from: `export const SITON_PLATFORM_FEE_RATE = 0.08;`, to: `export const SITON_PLATFORM_FEE_RATE: number = 0.09;`,
     suites: [["payments", "payment_lab_terminal_economics"]] },
   { id: "M13_vat_included_in_fee_base", invariant: "buyer VAT excluded from the fee base", file: "src/platform_fee_money.ts",
     from: `  const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));`, to: `  const feeBaseAmount = roundMoney(Math.max(0, grossAmount));`,
@@ -71,8 +71,8 @@ const MUTATIONS = [
     from: `  const sellerNetAmount = roundMoney(grossAmount - platformFeeTotalAmount);`, to: `  const sellerNetAmount = roundMoney(grossAmount - platformFeeTotalAmount - grossAmount * 0.05);`,
     suites: [["payments", "payment_lab_terminal_economics"]] },
   { id: "M16_recovery_preflight_removed", invariant: "F-1 recovery pre-flight (original capture re-verified before a second capture)", file: "src/app.ts",
-    from: `  if (status.state === "captured") {\n    await ingestAndProcessPaymentEvent({\n      provider: paymentProvider.providerCode,\n      event_id: \`recovery-preflight:\${args.participant_id}:charge_captured\`,`,
-    to: `  if (false) {\n    await ingestAndProcessPaymentEvent({\n      provider: paymentProvider.providerCode,\n      event_id: \`recovery-preflight:\${args.participant_id}:charge_captured\`,`,
+    from: `  if (status.state === "captured") {\n    // The effect belongs to the ORIGINAL capture identity: settle that row, never\n    // the recovery identity this job may have minted.`,
+    to: `  if (false) {\n    // The effect belongs to the ORIGINAL capture identity: settle that row, never\n    // the recovery identity this job may have minted.`,
     suites: [["payments", "payment_lab_lifecycle_reconcile"]] }
 ];
 

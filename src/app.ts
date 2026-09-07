@@ -1764,6 +1764,37 @@ async function schedulePaymentReconcile(args: PaymentReconcilePayload): Promise<
  * request collided with another pending reconcile of the same participant, and
  * more generally guarantees that no UNKNOWN identity stays unattended.
  */
+/**
+ * F-2b (financial torture lab) — a finalize_deal that deferred on unresolved
+ * captures may exhaust its bounded attempts (DLQ) before those identities
+ * resolve; without a live finalize the deal would stay CompletionWindow for
+ * ever. Worker maintenance re-queues one finalize for every deal whose window
+ * has elapsed and that has no live finalize (idempotent through the
+ * one-pending-per-aggregate index). The finalize itself keeps deferring while
+ * identities are unresolved, so this never finalizes on ambiguous money.
+ */
+export async function rescheduleStalledFinalizations(limit = 100): Promise<number> {
+  return withTx(async (c) => {
+    const r = await c.query(
+      `INSERT INTO siton.outbox_events (event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+       SELECT 'finalize_deal', 'deal', d.deal_id, jsonb_build_object('deal_id', d.deal_id, 'reason', 'maintenance_stalled_finalize'), 'pending', 0, clock_timestamp()
+       FROM siton.deals d
+       WHERE d.state = 'CompletionWindow'
+         AND d.completion_window_until IS NOT NULL
+         AND d.completion_window_until <= clock_timestamp() - interval '5 seconds'
+         AND NOT EXISTS (
+           SELECT 1 FROM siton.outbox_events o
+           WHERE o.event_type='finalize_deal' AND o.aggregate_type='deal' AND o.aggregate_id=d.deal_id AND o.status IN ('pending','processing')
+         )
+       ORDER BY d.completion_window_until ASC
+       LIMIT $1
+       ON CONFLICT DO NOTHING`,
+      [Math.max(1, Math.floor(limit))]
+    );
+    return Number(r.rowCount || 0);
+  });
+}
+
 export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3_000): Promise<number> {
   const orphans = await withTx(async (c) => {
     const r = await c.query(
@@ -3921,6 +3952,8 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
 export async function runWorkerMaintenance() {
   // F-4 — no UNKNOWN money identity may stay without a live reconcile.
   await reconcileOrphanedUnknownIdentities().catch(() => 0);
+  // F-2b — no deal past its completion window may stay without a live finalize.
+  await rescheduleStalledFinalizations().catch(() => 0);
   // Crash recovery for the notification rail: stranded 'processing' rows are
   // reclaimed with a bounded attempt budget before the next flush.
   await reclaimStrandedNotifications(pool, Number(process.env.NOTIFICATION_STUCK_TIMEOUT_MS || 5 * 60_000)).catch(() => 0);

@@ -124,6 +124,12 @@ opens/refreshes the case `deal-finalize-waiting-unresolved:<deal>`, and defers (
 finalized only on resolved truth. If an identity stays UNKNOWN forever the deal remains un-finalized and visible
 (reconcile DLQ + cases) — fail closed, never Failed with charged money.
 
+*F-2b (fixed, same family):* a finalize that deferred on unresolved captures could exhaust its bounded attempts
+(DLQ) before those identities resolved, leaving the deal in `CompletionWindow` for ever. Worker maintenance now
+re-queues one `finalize_deal` for every deal past its window with no live finalize
+(`rescheduleStalledFinalizations`); it keeps deferring while money is unresolved, so it never finalizes on
+ambiguous truth (regression: finalize-guard "unknown forever → truth").
+
 ### F-3 — HIGH (fixed): the HTTP webhook path silently ignored economically real late events
 *Where:* `handleWebhookPayments` (`src/frontend_runtime.ts`).
 *Reproduction:* `payment_lab_terminal_economics_validation.ts` — a signed `charge_captured` callback for a
@@ -212,7 +218,34 @@ canonical transition of the money state machine; the reviewer/owner should decid
 
 ## 4. Results
 
-_(filled from the final runs of this program — see `PROJECT_STATUS.md` for the counts and the `logs/` evidence)_
+### 4.1 Mutation testing (Phase 21) — `node scripts/financial_lab_mutations.cjs`
+
+Each mutation is applied to the working copy, the mapped suite(s) run on fresh databases, the file is restored with
+`git checkout --`. A mutation that stays GREEN is reported as **SURVIVED** and explained; it is never hidden.
+
+| Mutation | Invariant | Outcome |
+|---|---|---|
+| M01 post-dispatch 5xx classified as declared failure | UNKNOWN fencing | CAUGHT (`payment_lab_c1_c2`) |
+| M02 recovery no longer blocked behind unresolved/executed capture (app layer) | recovery blocking | CAUGHT |
+| M03 UNKNOWN refund re-fired as a retry | refund ambiguity fencing | CAUGHT |
+| M04 fresh identity minted while the prior is unresolved | operation identity persistence | CAUGHT |
+| M05 arm-time CAS removed (app layer) | payment_attempt lifecycle CAS | **SURVIVED — redundant defence**: the migration-063 trigger `payment_attempt_dispatch_in_flight` refuses the same re-arm at the database, and `beginProviderAttempt` already answers `in_flight` before the CAS is reached; the DB guard is proven directly by the lifecycle suite ("DB guards") |
+| M06 fee-ledger entry skipped inside the state transaction | ledger/state atomicity | CAUGHT (`payment_lab_foundation`) |
+| M07 reconcile no longer defers on an in-flight operation | reconciliation deferral | CAUGHT |
+| M08 late-event contradiction guard removed | late event protection | see 4.1b |
+| M09 duplicate webhook dedupe removed | duplicate webhook protection | see 4.1b (the first run's assertion was itself vacuous — it matched the JSON key `"duplicate"`; fixed to check the value and the stored row count) |
+| M10 lease-ownership check at arm time removed | worker lease ownership | **SURVIVED — redundant defence**: with a dead lease the arm CAS (`NOT (dispatching AND foreign owner AND in flight)`) and the 063 trigger still refuse; the stale-owner proofs pass through those layers. The lease check is the first, cheapest fence, not the only one |
+| M11 / M12 fee 7 % / 9 % | Siton fee exactly 8 % | see 4.1b (the first run was invalid: the literal type `0.08` made the mutant fail to compile; retyped as `number`) |
+| M13 buyer VAT included in the fee base | VAT excluded | CAUGHT (`payment_lab_terminal_economics`) |
+| M14 delivery excluded from the fee base | delivery included | CAUGHT |
+| M15 5 % distributor commission deducted from seller net | distributor 0 | CAUGHT |
+| M16 F-1 pre-flight removed | recovery pre-flight | see 4.1b |
+
+_4.1b — second pass (M08, M09, M11, M12, M16 after the anchor/type corrections): see `PROJECT_STATUS.md`._
+
+### 4.2 Suite results, fuzz, soak, global reconciliation and the full repository regression
+
+_See `PROJECT_STATUS.md` (financial torture program section) for the final counts and the `logs/` evidence paths._
 
 ---
 
