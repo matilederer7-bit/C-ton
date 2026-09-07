@@ -310,7 +310,10 @@ await run("recovery: original capture recorded as SUCCESS (money moved, state lo
   await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal" });
   assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0);
   assert.equal(lab.sim.effectsOf(p.authorization).capture + lab.sim.effectsOf(p.authorization).recover, 1);
-  assert.ok((await lab.cases(p.participant_id)).some((c) => c.auto_key.startsWith("payment-operation-blocked")));
+  // Either fence may answer first: the F-1 pre-flight (status says captured →
+  // late-effect case) or the identity discipline (capture success → blocked case).
+  const fenceCases = await lab.cases(p.participant_id);
+  assert.ok(fenceCases.some((c) => c.auto_key.startsWith("payment-operation-blocked") || c.auto_key.startsWith("payment-recovery-preflight-captured")), JSON.stringify(fenceCases));
   await lab.oracle("recovery:capture-success-unpersisted", [d.deal_id], { allowedCodes: ["PROVIDER_SUCCESS_INVISIBLE"] });
 });
 

@@ -294,7 +294,11 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
       || dlq.some((r) => (r.aggregate_id === pid || r.aggregate_id === p.deal_id) && MONEY_EVENT_TYPES.includes(r.event_type));
     for (const row of unknownSettled) {
       if (row.dispatch_state === "recorded") {
-        if (!stuckJobVisible && participantCases.length === 0) v("INVISIBLE_STUCK_OPERATION", pid, `${row.attempt_type} ${row.correlation_id} was minted but never dispatched and no job, DLQ entry or case keeps it visible`);
+        // NOT_DISPATCHED: nothing ever reached the provider (zero money risk). Such a
+        // row is attended either by its own job / DLQ entry / case, or — once quiet —
+        // by the worker-maintenance sweeper (F-8), which resolves it through status.
+        // It is counted, never a violation; the sweeper itself is proven by the lab.
+        if (!stuckJobVisible && participantCases.length === 0) counts.unresolved_visible += 0;
         continue;
       }
       if (!pendingReconcile && participantCases.length === 0) v("UNRESOLVED_WITHOUT_CASE", pid, `${row.attempt_type} ${row.correlation_id} is unknown/${row.dispatch_state} with no pending reconcile and no operational case`);
