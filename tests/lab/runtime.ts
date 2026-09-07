@@ -75,6 +75,8 @@ export async function bootLab(options: LabOptions) {
   process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || `admin-session-secret-lab-${options.tag}`;
   process.env.PAYMENT_PROVIDER = "payrail-http";
   process.env.PAYMENT_PROVIDER_MODE = "provider-ready";
+  // F-9 pre-flight confirmation interval: short in the lab (the simulator flaps per call), 1 s by default in the app.
+  process.env.RECOVERY_PREFLIGHT_CONFIRM_MS = process.env.RECOVERY_PREFLIGHT_CONFIRM_MS || "60";
   process.env.PAYMENT_PROVIDER_API_KEY = `lab-provider-key-${options.tag}`;
   process.env.PAYMENT_PROVIDER_BASE_URL = baseUrl;
   process.env.PAYMENT_PROVIDER_AUTH_PATH = "/authorize";

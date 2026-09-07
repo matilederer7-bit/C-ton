@@ -387,6 +387,56 @@ await run("F-7 release: provider answers 200 {status:'pending'} and never releas
   await lab.oracle("f7:release-pending", [d.deal_id]);
 });
 
+// ── F-9: a flapping status must never license a recovery capture ─────────────
+// Found by the random-seed fuzz during the full repository regression
+// (seed 2061983203, scenario #141, minimised to one participant): the capture
+// answered 200 "pending" with a delayed effect while the status seam flapped
+// failed ↔ captured; the reconcile rail read "failed", the single-read pre-flight
+// read "failed" again, the recovery captured, then the delayed capture landed —
+// 8 400 minor captured for a 4 200 minor participant.
+
+const F9_ALLOWED = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND", "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF"];
+
+await run("F-9 pinned (fuzz seed 2061983203 #141): capture answers 200 pending with a delayed effect while status flaps failed↔captured → no recovery capture, exactly one capture-side effect", async () => {
+  const d = await lab.seedDeal({ state: "Charging", participants: [{ buyer_state: "ChargingAttempt", money_state: "ChargeAttempt", qty: 1, delivery_cost: 0 }] });
+  const p = d.participants[0]!;
+  lab.sim.script(p.authorization, "capture", [{ kind: "DELAYED_EFFECT", delayMs: 90 }]);
+  lab.sim.scriptStatus(p.authorization, [{ kind: "FLAP", states: ["failed", "captured"] }]);
+  await lab.enqueueCharge(d.deal_id);
+  await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 60 });
+  const eff = lab.sim.effectsOf(p.authorization);
+  assert.equal(eff.capture + eff.recover, 1, `exactly one capture-side effect: ${JSON.stringify(eff)}`);
+  assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0, "a flapping status must never license a recovery capture");
+  await lab.oracle("f9:pinned-fuzz-141", [d.deal_id], { allowUnresolved: true, allowedCodes: F9_ALLOWED });
+});
+
+await run("F-9: original capture declared failed, status flaps failed↔captured (capture executed) → pre-flight holds on the captured read, late-effect case, zero recovery requests", async () => {
+  const { d, p } = await seedRecoverable("permanent_fail");
+  lab.sim.forceEffect("capture", p.authorization, p.amount_minor);
+  lab.sim.scriptStatus(p.authorization, [{ kind: "FLAP", states: ["failed", "captured"] }]);
+  await lab.enqueueRecovery(d.deal_id);
+  await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 40 });
+  assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0);
+  assert.equal(lab.sim.effectsOf(p.authorization).recover, 0);
+  const cases = await lab.cases(p.participant_id);
+  assert.ok(cases.some((c) => c.auto_key.startsWith("payment-recovery-preflight-captured")), JSON.stringify(cases));
+  await lab.oracle("f9:flap-captured", [d.deal_id], { allowUnresolved: true, allowedCodes: F9_ALLOWED });
+});
+
+await run("F-9: two consecutive negative reads that DISAGREE (failed↔authorized) → recovery held, flapping case, zero recovery requests, job stays visible", async () => {
+  const { d, p } = await seedRecoverable("permanent_fail");
+  lab.sim.scriptStatus(p.authorization, [{ kind: "FLAP", states: ["failed", "authorized"] }]);
+  const event = await lab.enqueueRecovery(d.deal_id);
+  await lab.drain({ dealIds: [d.deal_id], skip: (e) => e.event_type === "finalize_deal", maxRounds: 40 });
+  assert.equal(lab.sim.requestsOf(p.authorization, "recover").length, 0);
+  assert.notEqual((await lab.participant(p.participant_id)).money_state, "RecoveredCharge");
+  const cases = await lab.cases(p.participant_id);
+  assert.ok(cases.some((c) => c.auto_key.startsWith("payment-recovery-preflight-flapping")), JSON.stringify(cases));
+  const row = await lab.outboxRow(event);
+  assert.ok(row && ["pending", "failed", "dlq"].includes(String(row.status)), `held recovery job must stay visible: ${JSON.stringify(row)}`);
+  await lab.oracle("f9:flap-disagree", [d.deal_id], { allowUnresolved: true, allowedCodes: F9_ALLOWED });
+});
+
 const failed = summary();
 await lab.close();
 process.exit(failed ? 1 : 0);

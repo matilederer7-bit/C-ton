@@ -2998,13 +2998,25 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
     return Number(r.rowCount || 0) > 0;
   });
   if (priorRecovery) return "proceed";
-  let status: PaymentStatusResult;
-  try {
-    status = await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `recovery-preflight:${args.event_id}:${args.participant_id}` });
-  } catch {
-    return "ambiguous";
+  // F-9: ONE status read is defeated by a flapping provider (failed <-> captured
+  // on consecutive reads): the reconcile rail may have seen "failed" and this
+  // pre-flight "failed" again while the capture had in fact executed. Read twice,
+  // a confirmation interval apart, and take the most conservative verdict: any
+  // "captured" -> captured, any "pending" or two reads that disagree -> hold.
+  // Only two consistent negative answers let money move.
+  const confirmMs = Math.max(0, Number(process.env.RECOVERY_PREFLIGHT_CONFIRM_MS || 1000) || 0);
+  const reads: PaymentStatusResult[] = [];
+  for (let i = 0; i < 2; i++) {
+    if (i > 0 && confirmMs > 0) await new Promise((resolve) => setTimeout(resolve, confirmMs));
+    try {
+      reads.push(await paymentProvider.status({ provider_reference: reference, operation: "capture", correlation_id: `recovery-preflight:${args.event_id}:${args.participant_id}:${i + 1}` }));
+    } catch {
+      return "ambiguous";
+    }
   }
-  if (status.state === "captured") {
+  const capturedRead = reads.find((r) => r.state === "captured");
+  const status: PaymentStatusResult = capturedRead ?? reads[0]!;
+  if (capturedRead) {
     // The effect belongs to the ORIGINAL capture identity: settle that row, never
     // the recovery identity this job may have minted.
     const originalCapture = await withTx(async (c) => {
@@ -3038,7 +3050,16 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   // identity discipline that already blocks recovery on an UNKNOWN charge_start
   // row stays the primary guard, and the pre-existing behaviour (proceed) is
   // kept so providers without a usable status seam are not stalled for ever.
-  if (status.state === "pending") return "ambiguous";
+  if (reads.some((r) => r.state === "pending")) return "ambiguous";
+  if (new Set(reads.map((r) => `${r.state}:${r.final ? "final" : "open"}`)).size > 1) {
+    await openPaymentOperationalCase({
+      autoKey: `payment-recovery-preflight-flapping:${args.participant_id}`,
+      subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider status is flapping for participant ${args.participant_id}`,
+      description: `Two consecutive status reads for authorization ${reference} disagreed (${reads.map((r) => `${r.state}/${r.final ? "final" : "open"}`).join(" then ")}). No recovery capture is sent while the provider contradicts itself; the recovery job is held and an operator must establish the money truth.`,
+      correlationId: null
+    });
+    return "ambiguous";
+  }
   return "proceed";
 }
 
