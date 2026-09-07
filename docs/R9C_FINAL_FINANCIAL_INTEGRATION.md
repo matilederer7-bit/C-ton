@@ -115,7 +115,60 @@ again (3 consecutive isolated runs green after the fix, 2 of 3 red before it).
 value; Grow automatic recovery from status evidence stays disabled (fail-closed, `negative_status_authoritative:false`,
 `same_identity_repeat_safe:false`). Lab horizons: 1.5 s (torture lab), 0.7 s (residual suites), 0.4 s (identity-crash suite).
 
-## 6. Evidence (filled by the final run — see §7)
+## 6. Evidence
+
+### 6.1 Phase 2 financial suite set (tip `bf05b76`, fresh isolated databases) — 23/23 files
+| suite | result |
+|---|---|
+| `payment_final_residual_a_unproven` (AU-1..9, AU-9b) | 10/10 |
+| `payment_final_residual_a_authoritative` (AA-1..7; AA-2/AA-7 = contract boundary) | 7/7 |
+| `payment_final_residual_b` (LB-1..7) | 7/7 |
+| `payment_final_residual_c` (RC-1..9) | 9/9 |
+| `payment_review_settlement_horizon` (H-1..8; deterministic after I-1: 3/3 consecutive isolated runs) | 12/12 |
+| `payment_review_adversarial` / `_findings_reconstruction` / `_grow_negative_status` / `_mock_provider_truth` | 20 / 13 / 2 / 1 |
+| `payment_lab_c1_c2` / `_crash_matrix` / `_finalize_guard` / `_foundation` / `_lifecycle_reconcile` / `_refund_release_recovery` / `_terminal_economics` | 27 / 13 / 3 / 23 / 37 / 29 / 17 |
+| `payment_r9c_ambiguous_outcomes` / `_reconciliation_race` / `_stale_owner_settle`, `payment_grow_ambiguity_policy`, `payment_provider_operation_identity_crash`, `payment_recovery_real_rail`, `payment_release_lifecycle` | all green |
+
+### 6.2 Anti-vacuity mutations (Phase 6, tip `bf05b76` src, runner `58b8381`) — 35 run · 33 caught · 2 survived
+Every mutant is applied to the working copy, the suites that must catch it are run on fresh databases, the source is restored and
+verified byte-identical (`scripts/financial_lab_mutations.cjs`, report `mutations_bf05b76.json` + `mutations_m22_m25.json`).
+
+| owner-listed invariant | mutant | catching suite | outcome |
+|---|---|---|---|
+| settlement horizon disabled (app fence AND DB predicate) | M18 | `payment_review_settlement_horizon` | CAUGHT |
+| horizon expiry alone treated as proof (residual A) | M32 | `payment_final_residual_a_unproven` | CAUGHT |
+| NULL horizon treated as elapsed (residual B negative control) | M33 | `payment_final_residual_b` | CAUGHT |
+| release-in-flight fence removed (residual C, app AND DB) | M34 | `payment_final_residual_c` | CAUGHT |
+| exact-reference check removed (residual A) | M35 | `payment_final_residual_a_authoritative` | CAUGHT |
+| currency check removed | M20 | `payment_review_adversarial` | CAUGHT |
+| AuthReleased without release proof (F-6) | M19 | `payment_review_adversarial` | CAUGHT |
+| R-11 guard removed (executed capture, canonical state not applied) / completed-deal sweep removed | M30 / M31 | `payment_review_findings_reconstruction` | CAUGHT / CAUGHT |
+| UNKNOWN reclassified as retryable / declared failure | M01 | `payment_lab_c1_c2` | CAUGHT |
+| fee 8 % → 7 % / 9 % | M11 / M12 | `payment_lab_terminal_economics` | CAUGHT / CAUGHT |
+| VAT folded into the fee base | M13 | `payment_lab_terminal_economics` | CAUGHT |
+| delivery excluded from the fee base | M14 | `payment_lab_terminal_economics` | CAUGHT |
+| distributor commission introduced | M15 | `payment_lab_terminal_economics` | CAUGHT |
+| terminal decision ignores the horizon / release rail ignores the horizon | M25 / M26 | `payment_review_settlement_horizon` | CAUGHT / CAUGHT |
+| status echo rewrites the binding (O-1) — WITH the residual-A reconcile mismatch guard disabled too | M22 | `payment_review_adversarial` (RA-5) | CAUGHT |
+| other reviewed invariants (M02–M04, M06–M09, M16, M17, M21, M23, M24, M27–M29) | — | lab / review suites | CAUGHT |
+| arm-time CAS removed (app layer) | M05 | `payment_lab_lifecycle_reconcile` | SURVIVED — redundant defence: the 063 trigger refuses the same re-arm at the database (documented in `FINANCIAL_TORTURE_LAB.md` §4.1, unchanged) |
+| lease-ownership check at arm time removed | M10 | `payment_lab_concurrency_matrix` + `_crash_matrix` | SURVIVED — redundant defence: the arm CAS and the 063 trigger still refuse a foreign in-flight owner (documented, unchanged) |
+
+Runner changes in this integration: M18/M25 anchors follow the 064 fence function and the I-1 deferral; M25 uses an always-false
+predicate TypeScript does not narrow to `never` (the `&& false` form became a compile error, i.e. "mutation invalid, not evidence");
+M22's single edit had become a MASKED mutant after residual A (the reconcile reference-mismatch case fires first) — it now disables both
+guards, and RA-5 still goes red. A masked mutant is reported as such, never counted as caught.
+
+### 6.3 Fresh fuzz (Phase 7) and soak (Phase 8) — tip `58b8381` (src/tests identical to `bf05b76`)
+| run | parameters | result |
+|---|---|---|
+| `payment_lab_random_schedule_fuzz` — FRESH seed | `FUZZ_SEED=2114779962`, 3 000 scenarios (time-based seed, printed by the suite; replayable with `LAB_FUZZ_SEED=2114779962 LAB_FUZZ_SCENARIOS=3000`) | **3000/3000**, 4 676 participants, 5 329 provider effects, 1 473 s, 0 duplicate effects (oracle per scenario) |
+| `payment_lab_soak` — two in-process workers + reconciler loop + chaos (random lease expiry) + periodic oracle, then the Phase 20 global reconciliation | `LAB_SOAK_SECONDS=600` | **PASS**: 3 979 deals, 9 970 participants, 18 036 provider operations, 25 828 jobs, 243 lease expiries, 33 oracle runs; final oracle: effects cap 8 067 / rec 244 / ref 0 / rel 1 651 == canonical charged 8 067 / recovered 244 / refunded 0 / released 1 651; unknown 0; visible_unresolved 55 = cases 55 (no unresolved obligation without a case); ledger rows 8 311, fees == ledger fees (oracle recomputes 8 % of gross-incl-delivery minus buyer VAT per participant; rate / base / VAT / delivery checked row by row), violations 0; deadlocks 0, unhandled 0, uncaught 0, max pool 5, max heap 246 MB; DLQ 673 (bounded jobs parked with their cases, "hard" failures 0) |
+
+The known F-9 seed (`2061983203`) and a second fresh fuzz seed are replayed inside the exact-tip regression (§7).
+
+
+
 
 ## 7. Exact-tip regression (filled at the end)
 
