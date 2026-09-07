@@ -313,8 +313,22 @@ unhandled rejections 0, uncaught exceptions 0, app pool ≤ 3 connections, heap 
 (2, 46, 69, 132, 159 of seed 20260907) was minimised, root-caused (F-4, F-5, F-5b, F-6 documented, F-7) and replays
 green.
 
-_Mutation pass 3 (all 16 on the final tree), the full repository regression and the long fuzz (2 000) / soak (180 s)
-runs are recorded in `PROJECT_STATUS.md`._
+**Long soak (180 s, `lab_run_15ls.log`): 1 181 deals, 2 894 participants, 6 846 jobs, 82 forced lease expiries,
+22 interval audits, 4 687 provider operations — PASS.**
+
+| Source | captures | recoveries | releases | captured minor | fees minor | seller net minor |
+|---|---|---|---|---|---|---|
+| provider simulator ledger | 2 395 | 100 | 394 | 22 489 550 | — | — |
+| canonical states | 2 395 | 100 | 399 (= 394 provider releases + 5 F-6 `recovery_failed → AuthReleased`) | 22 489 550 | — | — |
+| platform-fee ledger (2 495 entries) | — | — | — | 22 489 550 gross | 2 122 649 | 20 366 901 |
+| oracle (independent) | — | — | — | — | 2 122 649 | 20 366 901 |
+
+`payment_attempts`: 2 889 success + 504 permanent_fail; DLQ 9 (bounded retries, all visible), deadlocks 0, unhandled
+rejections 0, uncaught exceptions 0, app pool ≤ 3, heap ≤ 190 MB; every provider effect reflected canonically; the
+five-release difference is exactly the F-6 count.
+
+_Mutation pass 3 (all 16 on the final tree), the second full repository regression and the long fuzz (2 000)
+rerun are recorded in `PROJECT_STATUS.md`._
 
 ---
 
