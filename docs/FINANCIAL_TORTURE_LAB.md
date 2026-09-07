@@ -417,3 +417,33 @@ keeps the fuzz seed UNPINNED in `test:all`: a pinned seed would never have drawn
 
 `SAFE_FOR_REAL_MONEY = NO`. A fresh independent adversarial review of the exact candidate SHA, a Codex re-review and
 the Grow sandbox proof are still required before R10.
+
+---
+
+## 6. Independent adversarial review of `5dcee1f` — addendum (2026-09-07)
+
+The exact candidate SHA was reviewed independently (`docs/R9C_FINANCIAL_REVIEW.md`, branch
+`claude/r9c-financial-review-remediation`). Corrections to the statements above:
+
+* **F-6 is now FIXED** (owner decision): `charging.recovery_failed` moves `buyer_state` to `Dropped` only; the hold stays
+  `ChargeFailedRecovery` and the provider-proofed release rail establishes `AuthReleased`. The oracle code
+  `CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF` no longer exists — every `AuthReleased` without a provider release effect is
+  `FALSE_CANONICAL_RELEASE`.
+* The §3 F-9 residual ("a provider that answers `failed / final` or `authorized / final` CONSISTENTLY while a settlement is
+  still pending … the only structural defence is a provider-specific settlement horizon … an owner decision") was
+  reproduced as a **double capture** (review RA-1a/1b/1c, RA-9) and is closed by **migration 064** (durable
+  `settlement_horizon_at` + `failure_evidence`, fence on recovery / release / finalize, post-horizon re-verification).
+  The lab runs with `PAYMENT_SETTLEMENT_HORIZON_MS=1500` (`tests/lab/runtime.ts`); the drain honours a deferral due
+  within 3 s instead of pulling it forward.
+* **O-1 is fixed** in the durable sense: a status READ never rewrites the participant's provider reference
+  (`BINDING_REFERENCE_DRIFT` in the oracle). Reference-level verification of status answers remains a real-provider
+  contract item.
+* The reconcile rail treats `failed` like `authorized/final`: a verdict only for providers whose negative status is
+  authoritative — **Grow fails closed on `failed`** (the review reproduced a second `settleSuspendedTransaction`).
+* A reconcile job carrying an already-terminal identity steps aside while a sibling identity of the same family is
+  UNKNOWN (review R-10: the stale identity had been flipped to `success` from the live identity's status).
+* Refund / release adapters no longer treat an id-only 2xx body as success (UNKNOWN → reconcile).
+* The mock provider's status is truthful (it answers from what it executed).
+
+Review suites (`tests/payment_review_*`): adversarial 20, Grow negative status 2, mock truth 1, settlement horizon 12,
+findings reconstruction 11. Mutants M18–M29 added to `scripts/financial_lab_mutations.cjs` (multi-file mutants supported).
