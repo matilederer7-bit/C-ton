@@ -128,9 +128,9 @@ const d2 = await lab.drain({ dealIds, maxRounds: 120, advanceDelayMs: 0 });
 console.log(`  quiescence drains: money=${d1.processed}p/${d1.advanced}a/${d1.rounds}r finalize=${d2.processed}p/${d2.advanced}a/${d2.rounds}r in ${Math.round((Date.now() - drainStartedAt) / 1000)}s remaining=${d2.remaining_pending}/${d2.remaining_processing}`);
 
 // ── Phase 20: global reconciliation ──────────────────────────────────────────
-// CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF = F-6 (recovery_failed → AuthReleased without a release request): documented, counted, not fixed here.
-const report = await lab.oracle("soak:final", dealIds, { allowUnresolved: false, seededStates: false, allowedCodes: ["UNRESOLVED_WITHOUT_CASE", "UNRESOLVED_AT_QUIESCENCE", "MONEY_EVENTS_NOT_QUIESCENT", "OPERATION_STILL_IN_FLIGHT", "PROVIDER_SUCCESS_INVISIBLE", "FAILED_DEAL_HOLDS_CAPTURED_MONEY", "COMPLETED_DEAL_PARTICIPANT_NOT_FINAL", "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF"], print: true });
-console.log(`  F-6 occurrences (AuthReleased via recovery_failed without a provider release): ${report.violations.filter((v) => v.code === "CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF").length}`);
+// F-6 is FIXED by the independent review: AuthReleased without a provider release effect is a hard FALSE_CANONICAL_RELEASE.
+const report = await lab.oracle("soak:final", dealIds, { allowUnresolved: false, seededStates: false, allowedCodes: ["UNRESOLVED_WITHOUT_CASE", "UNRESOLVED_AT_QUIESCENCE", "MONEY_EVENTS_NOT_QUIESCENT", "OPERATION_STILL_IN_FLIGHT", "PROVIDER_SUCCESS_INVISIBLE", "FAILED_DEAL_HOLDS_CAPTURED_MONEY", "COMPLETED_DEAL_PARTICIPANT_NOT_FINAL"], print: true });
+console.log(`  false releases (AuthReleased without a provider release effect): ${report.violations.filter((v) => v.code === "FALSE_CANONICAL_RELEASE").length}`);
 const canonical = (await lab.pool.query(
   `SELECT
      COALESCE(SUM(CASE WHEN p.money_state IN ('ChargedSuccess','RecoveredCharge','Refunded') THEN ROUND((p.qty * d.price_per_unit + p.delivery_cost) * 100) END),0)::bigint AS captured_minor,

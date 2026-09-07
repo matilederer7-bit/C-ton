@@ -95,7 +95,8 @@ export function buildSyntheticPaymentProvider(script: SyntheticPaymentScript = {
     ambiguityPolicy: {
       same_identity_repeat_safe: true,
       negative_status_authoritative: true,
-      basis: "synthetic in-process provider: no external side effects; idempotency replay table per correlation"
+      settlement_horizon_ms: 0,
+      basis: "synthetic in-process provider: no external side effects; idempotency replay table per correlation; settles synchronously (no settlement horizon)"
     },
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
       const correlationId = String(input.correlation_id || input.request_id || "synthetic-authorize");

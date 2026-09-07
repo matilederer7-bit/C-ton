@@ -409,7 +409,11 @@ async function main() {
     assert.equal(droppedTracking.statusCode, 200);
     const droppedJson = droppedTracking.json() as any;
     assert.equal(droppedJson.tracking.buyer_state, "Dropped");
-    assert.equal(droppedJson.tracking.money_state, "AuthReleased");
+    // F-6 (independent financial review): a failed recovery ends the participation
+    // but is NOT release proof — the hold stays represented as held until the
+    // provider-proofed release rail (payment_release) establishes AuthReleased
+    // (proven in payment_recovery_real_rail_validation / payment_review_adversarial).
+    assert.equal(droppedJson.tracking.money_state, "ChargeFailedRecovery");
     assert.equal(droppedJson.tracking.tone, "info");
   });
 
