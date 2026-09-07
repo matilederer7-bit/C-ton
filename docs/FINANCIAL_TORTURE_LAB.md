@@ -81,7 +81,7 @@ a short pause, dead leases expired and reclaimed), delivers signed webhooks, and
 | `payment_lab_concurrency_matrix_validation.ts` | concurrency | 8, 14 | claim races 2/5/10/25/50 on every rail; 5/10/25/50 parallel deals; capture vs reconcile ×5; capture vs recovery; stale owner vs 2/5/10 successors; poison event, duplicate, retry storm, 60-job backlog; **two real worker processes** on 40 deals × 2 participants with random ambiguity; deadlocks read from `pg_stat_database` |
 | `payment_lab_finalize_guard_validation.ts` | payments | 7/16 (F-2) | finalize defers while captures are unresolved; in-flight capture; UNKNOWN-forever stays visible, never Failed-with-charged-money |
 | `payment_lab_terminal_economics_validation.ts` | payments | 16–17 | terminal-state attacks (duplicates, out-of-order, wrong/missing references, contradictions → cases); integer-agorot economics under explicit 17 % VAT: 1 agora, odd agorot, delivery 0 / > item, large amounts and quantities, 12 participants |
-| `payment_lab_random_schedule_fuzz_validation.ts` | payments | 18 | seeded random schedules (`LAB_FUZZ_SEED`, `LAB_FUZZ_SCENARIOS`, `LAB_FUZZ_REPLAY`); on failure: descriptor persisted + greedy minimisation |
+| `payment_lab_random_schedule_fuzz_validation.ts` | payments | 18 | seeded random schedules (`LAB_FUZZ_SEED` — unset = fresh seed, printed in the summary; `LAB_FUZZ_SCENARIOS`; `LAB_FUZZ_REPLAY`); on failure: descriptor persisted + greedy minimisation. ~0.4 s per scenario: runs above ~1 200 scenarios need `LAB_TEST_TIMEOUT_MS` (e.g. `1800000` for 2 000) |
 | `payment_lab_soak_validation.ts` | payments | 19–20 | bounded soak (`LAB_SOAK_SECONDS`) with producer, two workers, chaos (lease expiry, deferred advance), interval oracle; global reconciliation of totals |
 | `scripts/financial_lab_mutations.cjs` | — | 21 | 16 deliberate defects applied one at a time to a throwaway copy and reverted; each must turn the mapped suite red |
 
@@ -332,14 +332,14 @@ effect is red. ANTI_VACUITY = PASS with the two documented redundant-defence sur
 
 ### 4.2 Suite results, fuzz, soak, global reconciliation and the full repository regression
 
-Final tree (`claude/r9c-financial-torture-candidate` with F-1…F-5b and F-7 applied), fresh isolated databases:
+Final tree (`claude/r9c-financial-torture-candidate` with F-1…F-5b, F-7, F-8 and F-9 applied), fresh isolated databases:
 
 | Suite | Result |
 |---|---|
 | `payment_lab_foundation_validation.ts` | 23/23 |
 | `payment_lab_c1_c2_validation.ts` | 27/27 |
 | `payment_lab_lifecycle_reconcile_validation.ts` | 37/37 |
-| `payment_lab_refund_release_recovery_validation.ts` (non-idempotent provider) | 26/26 |
+| `payment_lab_refund_release_recovery_validation.ts` (non-idempotent provider; 3 F-9 pins) | 29/29 |
 | `payment_lab_crash_matrix_validation.ts` | 13/13 |
 | `payment_lab_finalize_guard_validation.ts` | 3/3 |
 | `payment_lab_terminal_economics_validation.ts` | 17/17 |
