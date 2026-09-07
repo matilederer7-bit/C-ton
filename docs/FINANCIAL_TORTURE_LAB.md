@@ -376,8 +376,26 @@ green.
 rejections 0, uncaught exceptions 0, app pool ≤ 3, heap ≤ 190 MB; every provider effect reflected canonically; the
 five-release difference is exactly the F-6 count.
 
-_Mutation pass 3 (all 16 on the final tree), the second full repository regression and the long fuzz (2 000)
-rerun are recorded in `PROJECT_STATUS.md`._
+**Full repository regression (`npm run test:all`, 213 files, 10 groups, fresh databases; every run also re-runs the
+random-schedule fuzz with a FRESH seed, printed in its summary) and the anti-vacuity passes:**
+
+| Run | Tree | Result | What the red files were |
+|---|---|---|---|
+| #1 | `5e521f3` | 8/10 groups | db 6/7 + payments 44/46 — the first F-1 pre-flight treated status `unknown` as ambiguous and stalled two recovery proofs; the R9A webhook-truth proof asserted the pre-F-3 behaviour. Fixed (`d4c2046`, `f5ab275`). |
+| #2 | `f5ab275` | 9/10 groups | payments 43/46 — the F-8 pre-mint pre-flight read status for participants that ALREADY carried a recovery identity (R9C proof S9, two lab scenarios). Fixed (`565270f`); the recovery real-rail stub made truthful (`3b67821`). |
+| #3 | `3b67821` | 8/10 groups | payments: the fuzz drew seed **2061983203** and found **F-9** (double capture under a flapping status, §3); db: the Phase 1B pool-hygiene proof trusted one `pg_stat_activity` snapshot (flake, now polled). Fixed (`6cec97f`). |
+| #4 | `6cec97f` | 9/10 groups | payments GREEN (fresh seed 2064003608, 300/300); db: the pool-hygiene proof red a second time (`guard did not observe the idle termination`) — in a full run it could terminate another test process's idle `siton-%` backend, invisible to its own pool by design, and waited a fixed 300 ms. A first hardening (own pool backends only, bounded poll — `9aa5417`) still raced the 100 ms idle reaper of the test pool (1 of 2 reruns red); the vacuity check now holds one client checked out, terminates exactly that backend and polls for the guard observation. db group reruns: **3/3 green** (7/7 each, `40f94d1`). |
+
+| Pass on the final tree (`6cec97f` src) | Result |
+|---|---|
+| fuzz, seed 2061983203 (the F-9 seed), 300 scenarios | **300/300** (456 participants, 512 provider effects, 126 s) — the F-9 schedule replays green |
+| fuzz, seed 20260907, 2 000 scenarios | **2 000/2 000** (3 107 participants, 3 576 provider effects, 789 s, `LAB_TEST_TIMEOUT_MS=1800000`) — the run that earlier failed at #344 (F-8) replays green end to end |
+| mutations M16 (pre-flight removed), M17 (single-read pre-flight), M01 (fee 7 %) on the final tree | **3/3 caught** (`mutation_final.log`); program total 17 mutations tested / 15 caught / 2 survived |
+| mutation pass 3, all 16 (tree `f5ab275`, §4.1) | 14 caught / 2 survived (M05, M10 — redundant defences proven at the database) |
+
+Each regression's red files were attributable to this program's own changes or to a test that trusted a single
+snapshot; none was a defect of master or of the R9C lifecycle as ported. Regression #3 is the reason this program
+keeps the fuzz seed UNPINNED in `test:all`: a pinned seed would never have drawn F-9.
 
 ---
 
