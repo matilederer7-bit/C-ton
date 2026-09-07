@@ -71,8 +71,11 @@ const MUTATIONS = [
     from: `  const sellerNetAmount = roundMoney(grossAmount - platformFeeTotalAmount);`, to: `  const sellerNetAmount = roundMoney(grossAmount - platformFeeTotalAmount - grossAmount * 0.05);`,
     suites: [["payments", "payment_lab_terminal_economics"]] },
   { id: "M16_recovery_preflight_removed", invariant: "F-1 recovery pre-flight (original capture re-verified before a second capture)", file: "src/app.ts",
-    from: `  if (status.state === "captured") {\n    // The effect belongs to the ORIGINAL capture identity: settle that row, never\n    // the recovery identity this job may have minted.`,
-    to: `  if (false) {\n    // The effect belongs to the ORIGINAL capture identity: settle that row, never\n    // the recovery identity this job may have minted.`,
+    // the pre-flight is neutralised entirely (always "proceed"): a mutation that only
+    // dropped the captured branch still blocked the recovery through the ambiguous
+    // deferral and therefore survived without proving anything
+    from: `  const reference = String(args.authorization_id || "").trim();\n  if (!paymentProvider.status || !reference) return "proceed";`,
+    to: `  const reference = String(args.authorization_id || "").trim();\n  if (!paymentProvider.status || !reference || reference.length >= 0) return "proceed";`,
     suites: [["payments", "payment_lab_lifecycle_reconcile"]] }
 ];
 
