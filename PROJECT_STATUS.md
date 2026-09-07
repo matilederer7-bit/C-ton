@@ -1,15 +1,15 @@
 <!-- CODEX_BASELINE_INTEGRATION_START -->
-## CODEX BASELINE RESILIENCE + CI INTEGRATION - FULL REGRESSION PENDING
+## CODEX BASELINE RESILIENCE + CI INTEGRATION - LOCALLY VERIFIED, NOT MERGED
 
-**COMPLETED:** Narrow repairs independently reviewed on branches from exact master 60ebf6d. Resilience input 7317b7211fcfd6ea67dfb2f787a5fa0c0b96f6ff and test-only CI input 2c4fa9c3d8bcedb1f07cd07d2a4da5b92c76d671 admitted and cherry-picked separately into codex/baseline-resilience-ci-integration. No conflicts, financial code, provider changes, or migrations imported.
+**COMPLETED:** Independently repaired and admitted the resilience and test-only CI inputs from exact master 60ebf6d; integrated only their verified changes into codex/baseline-resilience-ci-integration. Runtime scope is src/app.ts and src/db.ts; no financial code, provider changes or migrations imported. Historical rejection evidence below is preserved and superseded by this repaired candidate.
 
-**TESTED:** Cancel 22/22; PG process survival 11/11 plus log safety 7/7 on three runs; CI credential/correlation matrix 181/181; real request-ID 9/9; two-process worker proof passed. All eight deliberate protection/detection mutations turned red and were restored.
+**TESTED:** Full sequential regression 197/197 files: UNIT 12, INTEGRATION 29, DB 8, API 41, WORKERS 13, PAYMENTS 29, SECURITY 37, CONCURRENCY 6, FAILURE 9, E2E 13. All static/build/route/mobile gates passed (route authorization 4/4); secret scan and diff --check passed. Independent cancel 22/22, PG survival 11/11 and log safety 7/7 on three input runs, CI matrix 181/181, request-ID 9/9, two-process worker proof passed; all eight negative mutations turned red and were restored. See [final integration report](docs/CODEX_BASELINE_INTEGRATION_REPORT.md) and [exact regression results](docs/CODEX_BASELINE_FULL_REGRESSION.json).
 
-**OPEN:** Full ten-group sequential regression and static/build/mobile gates on the combined candidate are starting. Promotion is not approved until that validation completes. GitHub branch CI and hosted smoke are not yet claimed green.
+**OPEN:** GitHub branch Actions NOT_TRIGGERED (push filters target master; API verified). Owner must verify master GitHub CI and hosted smoke after promotion. Financial-candidate review and external mobile signing/store release remain separate. No master merge or financial-branch modification performed.
 
-**PERCENTAGE:** Independent input admission 100%; combined regression pending; master promotion 0%.
+**PERCENTAGE:** Requested local baseline repair/integration/regression 100%; master promotion 0%. Historical product and financial-program completion figures are unchanged.
 
-**NEXT STEP:** Complete sequential regression, inspect any failures without hiding them, publish exact results, and push only the Codex integration branch. Never merge master or modify Claude's financial worktree.
+**NEXT STEP:** Owner fast-forwards the clean baseline candidate to master, verifies GitHub CI plus hosted smoke, then ports/rebases and reviews the FINAL financial candidate. SAFE_TO_FAST_FORWARD_MASTER = YES for this locally validated candidate. SAFE_FOR_FINANCIAL_BASELINE = YES as a baseline, not financial release approval.
 <!-- CODEX_BASELINE_INTEGRATION_END -->
 
 ## CODEX INDEPENDENT BASELINE ADMISSION REVIEW (2026-09-07) - NOT APPROVED FOR PROMOTION

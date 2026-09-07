@@ -1,0 +1,175 @@
+{
+  "sourceSha": "c0d25d97d3238e3e5a8a84362faeaad87322c0b9",
+  "groups": [
+    {
+      "group": "unit",
+      "exit": 0,
+      "passed": 12,
+      "failed": 0,
+      "durationMs": 35868,
+      "failures": []
+    },
+    {
+      "group": "integration",
+      "exit": 0,
+      "passed": 29,
+      "failed": 0,
+      "durationMs": 69029,
+      "failures": []
+    },
+    {
+      "group": "db",
+      "exit": 0,
+      "passed": 8,
+      "failed": 0,
+      "durationMs": 57722,
+      "failures": []
+    },
+    {
+      "group": "api",
+      "exit": 0,
+      "passed": 41,
+      "failed": 0,
+      "durationMs": 178614,
+      "failures": []
+    },
+    {
+      "group": "workers",
+      "exit": 0,
+      "passed": 13,
+      "failed": 0,
+      "durationMs": 69781,
+      "failures": []
+    },
+    {
+      "group": "payments",
+      "exit": 0,
+      "passed": 29,
+      "failed": 0,
+      "durationMs": 88799,
+      "failures": []
+    },
+    {
+      "group": "security",
+      "exit": 0,
+      "passed": 37,
+      "failed": 0,
+      "durationMs": 268310,
+      "failures": []
+    },
+    {
+      "group": "concurrency",
+      "exit": 0,
+      "passed": 6,
+      "failed": 0,
+      "durationMs": 108326,
+      "failures": []
+    },
+    {
+      "group": "failure",
+      "exit": 0,
+      "passed": 9,
+      "failed": 0,
+      "durationMs": 56774,
+      "failures": []
+    },
+    {
+      "group": "e2e",
+      "exit": 0,
+      "passed": 13,
+      "failed": 0,
+      "durationMs": 127805,
+      "failures": []
+    }
+  ],
+  "gates": [
+    {
+      "name": "typecheck",
+      "exit": 0,
+      "summary": []
+    },
+    {
+      "name": "lint",
+      "exit": 0,
+      "summary": [
+        "BACKEND_ENFORCEMENT_SCAN_PASS",
+        "DIRECT_STATE_MUTATION_PASS",
+        "PAYMENT_SDK_BOUNDARY_PASS",
+        "SECRET_SCAN_PASS",
+        "CONTROL_BYTE_SCAN_PASS"
+      ]
+    },
+    {
+      "name": "backend-enforcement",
+      "exit": 0,
+      "summary": [
+        "BACKEND_ENFORCEMENT_SCAN_PASS",
+        "DIRECT_STATE_MUTATION_PASS",
+        "PAYMENT_SDK_BOUNDARY_PASS",
+        "SECRET_SCAN_PASS",
+        "CONTROL_BYTE_SCAN_PASS"
+      ]
+    },
+    {
+      "name": "payment-compliance",
+      "exit": 0,
+      "summary": [
+        "PAYMENT_COMPLIANCE_SCAN_PASS"
+      ]
+    },
+    {
+      "name": "runtime-ddl",
+      "exit": 0,
+      "summary": [
+        "RUNTIME_DDL_SCAN_PASS",
+        "SCANNED_RUNTIME_FILES=62"
+      ]
+    },
+    {
+      "name": "architecture",
+      "exit": 0,
+      "summary": [
+        "ARCHITECTURE_GATE_PASS production=base44 worker=siton-worker-tick render=r3_staging_web target_inventory=canonical_postgres"
+      ]
+    },
+    {
+      "name": "demo-build",
+      "exit": 0,
+      "summary": []
+    },
+    {
+      "name": "route-authorization",
+      "exit": 0,
+      "summary": [
+        "ROUTE_INVENTORY_GATE_PASS UNGUARDED_PROTECTED_ROUTES=0",
+        "TEST_PASS file=admin_route_auth_coverage_validation.ts duration_ms=3046",
+        "TEST_PASS file=protected_route_authorization_gate.ts duration_ms=3463",
+        "TEST_PASS file=seller_lifecycle_route_authority_validation.ts duration_ms=2489",
+        "TEST_PASS file=seller_route_auth_coverage_validation.ts duration_ms=2638",
+        "TEST_SUMMARY group=security passed=4 failed=0 duration_ms=31450",
+        "ROUTE_AUTHORIZATION_GATE_PASS static=1 behavioural=4"
+      ]
+    },
+    {
+      "name": "mobile-build",
+      "exit": 0,
+      "summary": []
+    },
+    {
+      "name": "mobile-normalize",
+      "exit": 0,
+      "summary": []
+    },
+    {
+      "name": "mobile-gate",
+      "exit": 0,
+      "summary": [
+        "MOBILE_GATE_PASS pwa=ready android_project=ready ios_project=ready native_capabilities=8 secure_storage=keystore+keychain app_links=configured external_placeholders=pending"
+      ]
+    },
+    {
+      "name": "diff-check",
+      "exit": 0
+    }
+  ]
+}
