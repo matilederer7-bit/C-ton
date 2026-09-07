@@ -1,0 +1,68 @@
+{
+  "candidate-cancel.log": [
+    "SUMMARY cancel_outbox_concurrency passed=22 failed=0",
+    "TEST_PASS file=cancel_outbox_concurrency_validation.ts duration_ms=6076",
+    "TEST_SUMMARY group=concurrency passed=1 failed=0 duration_ms=19587"
+  ],
+  "candidate-pg.log": [
+    "SUMMARY db_client_error_process_survival passed=9 failed=1 uncaught=0 guard_observations=21",
+    "TEST_FAIL file=db_client_error_process_survival_validation.ts duration_ms=12524 reason=exit 1",
+    "TEST_SUMMARY group=db passed=0 failed=1 duration_ms=27419"
+  ],
+  "candidate-request-id.log": [
+    "SUMMARY passed=9 failed=0",
+    "TEST_PASS file=request_id_canonical_authority_validation.ts duration_ms=4863",
+    "TEST_SUMMARY group=security passed=1 failed=0 duration_ms=19957"
+  ],
+  "candidate-worker.log": [
+    "TEST_PASS file=worker_two_process_fencing_validation.ts duration_ms=19618",
+    "TEST_SUMMARY group=workers passed=1 failed=0 duration_ms=36785"
+  ],
+  "ci-only-master-request-id.log": [
+    "SUMMARY passed=9 failed=0",
+    "TEST_PASS file=request_id_canonical_authority_validation.ts duration_ms=3990",
+    "TEST_SUMMARY group=security passed=1 failed=0 duration_ms=19501"
+  ],
+  "ci-only-master-worker.log": [
+    "TEST_PASS file=worker_two_process_fencing_validation.ts duration_ms=19184",
+    "TEST_SUMMARY group=workers passed=1 failed=0 duration_ms=32980"
+  ],
+  "diagnostic-pg-idle-timeout-and-rollback.log": [
+    "PASS INDEPENDENT: backend terminated during rollback preserves the original transaction failure",
+    "SUMMARY db_client_error_process_survival passed=11 failed=0 uncaught=0 guard_observations=23",
+    "TEST_PASS file=db_client_error_process_survival_validation.ts duration_ms=12998",
+    "TEST_SUMMARY group=db passed=1 failed=0 duration_ms=27881"
+  ],
+  "master-reproduction.log": [
+    "TEST_SUMMARY group=unit passed=0 failed=0 duration_ms=26076",
+    "TEST_SUMMARY group=integration passed=0 failed=0 duration_ms=22391",
+    "SUMMARY db_client_error_process_survival passed=0 failed=10 uncaught=20 guard_observations=0",
+    "TEST_FAIL file=db_client_error_process_survival_validation.ts duration_ms=24935 reason=exit 1",
+    "TEST_SUMMARY group=db passed=0 failed=1 duration_ms=47566",
+    "TEST_SUMMARY group=api passed=0 failed=0 duration_ms=21667",
+    "TEST_SUMMARY group=workers passed=0 failed=0 duration_ms=24317",
+    "TEST_SUMMARY group=payments passed=0 failed=0 duration_ms=16146",
+    "TEST_SUMMARY group=security passed=0 failed=0 duration_ms=20304",
+    "SUMMARY cancel_outbox_concurrency passed=6 failed=16",
+    "TEST_FAIL file=cancel_outbox_concurrency_validation.ts duration_ms=7792 reason=exit 1",
+    "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=30397",
+    "TEST_SUMMARY group=failure passed=0 failed=0 duration_ms=21790",
+    "TEST_SUMMARY group=e2e passed=0 failed=0 duration_ms=18184",
+    "TEST_SUMMARY group=all files=2 groups_passed=8 groups_failed=2 duration_ms=250793"
+  ],
+  "negative-cancel-outbox-order.log": [
+    "SUMMARY cancel_outbox_concurrency passed=0 failed=22",
+    "TEST_FAIL file=cancel_outbox_concurrency_validation.ts duration_ms=3464 reason=exit 1",
+    "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=16419"
+  ],
+  "negative-cancel-reread.log": [
+    "SUMMARY cancel_outbox_concurrency passed=7 failed=15",
+    "TEST_FAIL file=cancel_outbox_concurrency_validation.ts duration_ms=5427 reason=exit 1",
+    "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=19790"
+  ],
+  "negative-cancel-serialization.log": [
+    "SUMMARY cancel_outbox_concurrency passed=6 failed=16",
+    "TEST_FAIL file=cancel_outbox_concurrency_validation.ts duration_ms=4317 reason=exit 1",
+    "TEST_SUMMARY group=concurrency passed=0 failed=1 duration_ms=18134"
+  ]
+}

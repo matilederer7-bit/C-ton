@@ -1,0 +1,49 @@
+{
+  "scope": "review-only branch; unchanged master runtime; not combined-candidate acceptance",
+  "results": [
+    {
+      "name": "typecheck",
+      "exit": 0
+    },
+    {
+      "name": "lint",
+      "exit": 0
+    },
+    {
+      "name": "backend-enforcement",
+      "exit": 0
+    },
+    {
+      "name": "payment-compliance",
+      "exit": 0
+    },
+    {
+      "name": "runtime-ddl",
+      "exit": 0
+    },
+    {
+      "name": "architecture",
+      "exit": 0
+    },
+    {
+      "name": "demo-build",
+      "exit": 0
+    },
+    {
+      "name": "route-authorization",
+      "exit": 0
+    },
+    {
+      "name": "mobile-build",
+      "exit": 0
+    },
+    {
+      "name": "mobile-normalize",
+      "exit": 0
+    },
+    {
+      "name": "mobile-gate",
+      "exit": 0
+    }
+  ]
+}

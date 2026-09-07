@@ -1,0 +1,74 @@
+{
+  "reviewed": {
+    "preFinancial": "82f9171490ae84fb85eeea198ae071c7e96d4f59",
+    "ci": "00861b9ee7205cf9f1304a919a74adad1c32e72f"
+  },
+  "total": 59,
+  "passed": 51,
+  "failed": 8,
+  "failures": [
+    {
+      "area": "credential",
+      "case": 5,
+      "form": "spaced JSON",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 14,
+      "form": "redacted",
+      "expected": false,
+      "actual": true,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 26,
+      "form": "spaced JSON",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 37,
+      "form": "encoded URL",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 39,
+      "form": "compact JSON",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 40,
+      "form": "spaced JSON",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "credential",
+      "case": 47,
+      "form": "spaced JSON",
+      "expected": true,
+      "actual": false,
+      "pass": false
+    },
+    {
+      "area": "pg logging",
+      "name": "code-less error message redaction",
+      "expected": false,
+      "actual": true,
+      "pass": false
+    }
+  ]
+}

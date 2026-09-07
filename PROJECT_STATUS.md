@@ -1,3 +1,15 @@
+## CODEX INDEPENDENT BASELINE ADMISSION REVIEW (2026-09-07) - NOT APPROVED FOR PROMOTION
+
+**COMPLETED:** Independently verified remote master 60ebf6d, pre-financial 82f9171, and CI repair 00861b9. Created isolated codex/baseline-resilience-ci-integration from exact 60ebf6d. Reproduced master cancel HTTP 500 and real PG child-process death. Reviewed exact candidate source and ran deterministic matrices and negative controls. Runtime test materializations and mutations were restored; no financial code or migrations imported. This branch records a rejection, not a clean integration candidate.
+
+**TESTED:** Proposed cancel 22/22; proposed PG 9/10 with zero uncaught errors and surviving child; diagnostic longer test idle timeout plus during-rollback termination 11/11. CI request-ID 9/9 and two-process worker test passed independently on unchanged master. Independent exact-source probes 51/59: seven credential-detection cases and one code-less PG logging case failed. Serialization/state-reread/outbox-order mutations all red; missing PG guard kills the child. See [review report](docs/CODEX_BASELINE_REVIEW.md) and sanitized evidence beside it.
+
+**OPEN:** Repair encoded/escaped/spaced credential detection and username-substring false positives; remove arbitrary PG error-message logging; stabilize the idle-termination test. Part C admission failed. Full combined regression, accepted integration, GitHub CI and hosted smoke are not certified. SAFE_TO_FAST_FORWARD_MASTER = NO. SAFE_FOR_FINANCIAL_BASELINE = NO.
+
+**PERCENTAGE:** Baseline promotion 0%; independent admission decision reached (rejected); full combined regression 0%. These figures do not revise historical project or financial-program progress.
+
+**NEXT STEP:** Correct and re-review the baseline inputs, then port only verified fixes and complete full sequential regression/gates before seeking promotion. Do not fast-forward this review-only branch as the new financial baseline.
+
 # PROJECT STATUS
 
 ## CI SECURITY FAILURE — CONCURRENT PUBLISH / OUTBOX RACE FIXED DETERMINISTICALLY (2026-09-06) — branch `claude/concurrent-publish-outbox-fix`, fix commit `a7f9f42` on base master `75baa21`, NOT merged
