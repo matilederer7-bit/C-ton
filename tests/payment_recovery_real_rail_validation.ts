@@ -63,14 +63,19 @@ async function startProviderStub() {
       });
 
       if (req.url && req.url.startsWith("/status/")) {
-        // Authoritative status lookup seam used by the payment_reconcile rail.
+        // Authoritative status lookup seam used by the payment_reconcile rail AND by
+        // the F-1 recovery pre-flight. A truthful provider reports "captured" only
+        // once a recovery for this authorization actually executed; before that the
+        // failed original capture leaves the hold merely authorized (final).
+        const reference = decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!).replace(/^rec-/, "");
+        const recovered = recoveryCalls.some((call) => call.url === "/recover" && String(call.body?.authorization_id || "") === reference && !reference.includes("fail"));
         res.setHeader("content-type", "application/json");
         res.statusCode = 200;
         res.end(
           JSON.stringify({
-            state: "captured",
+            state: recovered ? "captured" : "authorized",
             final: true,
-            provider_reference: decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!)
+            provider_reference: recovered ? `rec-${reference}` : reference
           })
         );
         return;
