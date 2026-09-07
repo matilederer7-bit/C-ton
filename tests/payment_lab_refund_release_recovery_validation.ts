@@ -352,6 +352,38 @@ await run("recovery vs reconcile of the original capture: while recovery is in f
   await lab.oracle("recovery:vs-reconcile", [d.deal_id]);
 });
 
+// ── F-7: a 2xx "pending" answer is not an executed refund / release ──────────
+
+await run("F-7 refund: provider answers 200 {status:'pending'} and never refunds → UNKNOWN (never Refunded on a promise), reconcile proves not refunded, one fresh identity later refunds once", async () => {
+  const { d, p } = await seedCharged();
+  lab.sim.script(p.authorization, "refund", [{ kind: "PENDING_NO_EFFECT" }, { kind: "SUCCESS" }]);
+  await lab.enqueueRefund(d.deal_id);
+  await lab.drain({ dealIds: [d.deal_id], types: ["refund_issue"] });
+  const first = (await lab.attempts(p.participant_id, "refund"))[0]!;
+  assert.equal(first.result_class, "unknown", `a pending answer must not be an issued refund: ${JSON.stringify(first)}`);
+  assert.equal((await lab.participant(p.participant_id)).money_state, "ChargedSuccess", "canonical truth must not run ahead of the provider");
+  assert.equal(lab.sim.effectsOf(p.authorization).refund, 0);
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 40 });
+  assert.equal((await lab.participant(p.participant_id)).money_state, "Refunded");
+  assert.equal(lab.sim.effectsOf(p.authorization).refund, 1, "exactly one refund executed");
+  await lab.oracle("f7:refund-pending", [d.deal_id]);
+});
+
+await run("F-7 release: provider answers 200 {status:'pending'} and never releases → UNKNOWN (never AuthReleased on a promise), then one real release", async () => {
+  const { d, p } = await seedHeld();
+  lab.sim.script(p.authorization, "release", [{ kind: "PENDING_NO_EFFECT" }, { kind: "SUCCESS" }]);
+  await lab.enqueueRelease(p.participant_id, d.deal_id);
+  await lab.drain({ dealIds: [d.deal_id], types: ["payment_release"] });
+  const first = (await lab.attempts(p.participant_id, "release"))[0]!;
+  assert.equal(first.result_class, "unknown", `a pending answer must not be an executed release: ${JSON.stringify(first)}`);
+  assert.equal((await lab.participant(p.participant_id)).money_state, "AuthLocked");
+  assert.equal(lab.sim.effectsOf(p.authorization).release, 0);
+  await lab.drain({ dealIds: [d.deal_id], maxRounds: 40 });
+  assert.equal((await lab.participant(p.participant_id)).money_state, "AuthReleased");
+  assert.equal(lab.sim.effectsOf(p.authorization).release, 1);
+  await lab.oracle("f7:release-pending", [d.deal_id]);
+});
+
 const failed = summary();
 await lab.close();
 process.exit(failed ? 1 : 0);

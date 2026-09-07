@@ -179,6 +179,20 @@ provider callback (such an identity would then block recovery and drive finalize
 resolution decides; the late-effect exception settles an identity only within the event's family (the case is still
 opened). Fuzz seed/index above replays green.
 
+### F-7 — HIGH (fixed): the provider-ready refund and release adapters declared success on a 2xx "pending" body
+*Where:* `buildProviderReadyPaymentProvider().refund` / `.release` (`src/payment_provider.ts`); found by the seeded
+fuzzer (`LAB_FUZZ_SEED=20260907`, index 159, minimised to: refund rail, provider answers `200 {ok:true,status:"pending"}`
+and never refunds).
+*Mechanism:* the capture and recovery adapters classify the 2xx body (`classifyCaptureEventType`: "pending" → no
+declared outcome → UNKNOWN), but the refund and release adapters returned `success` for ANY parseable 2xx. A pending
+(or otherwise undeclared) refund became `refund_issued` → canonical `Refunded`, fee-ledger `refund_adjustment`,
+refund receipt — while the provider never moved the money (`ATTEMPT_SUCCESS_WITHOUT_PROVIDER_EFFECT` /
+`FALSE_CANONICAL_REFUND`): a buyer told they were refunded who was not, with no retry.
+*Fix:* `classifyRefundOutcome` / `classifyReleaseOutcome` — success only for a declared success status (or the legacy
+id-only shape), declared failure → `permanent_fail`, anything else (pending, processing, unknown) → UNKNOWN on the
+same identity and the reconcile rail decides. Regression: rrr suite "F-7 refund/release: 200 pending"; the fuzz
+seed/index above replays green.
+
 ### F-6 — MEDIUM (NOT fixed — semantics decision for the owner): `recovery_failed` sets `AuthReleased` without a provider release
 *Where:* canonical `charging.recovery_failed` transition (`ChargeFailedRecovery → AuthReleased`, `ChargeFailedCompletion → Dropped`).
 *Observation (fuzz index 69, minimised):* a recovery that the provider declines (or that reconciliation proves not

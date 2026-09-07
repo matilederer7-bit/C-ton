@@ -155,7 +155,8 @@ console.log(`  attempts: ${JSON.stringify(attempts)} dlq=${dlq} cases=${cases} d
 console.log(`  unresolved-with-visibility=${report.counts.unresolved_visible} violations(allowed)=${report.violations.map((v) => v.code).join(",") || "none"}`);
 
 // Hard global invariants
-const dupes = report.violations.filter((v) => ["DUPLICATE_CAPTURE", "DUPLICATE_REFUND", "DUPLICATE_RELEASE", "FALSE_CANONICAL_SUCCESS", "LEDGER_AMOUNT_MISMATCH", "FEE_RATE_NOT_8_PERCENT", "AUTOMATIC_REPEAT_WHILE_UNKNOWN", "ATTEMPT_SUCCESS_WITHOUT_PROVIDER_EFFECT", "LEDGER_CHARGE_ENTRY_COUNT", "AUDIT_CAPTURE_TRANSITION_COUNT", "LOST_PROVIDER_EFFECT"]);
+// Hard codes only — CANONICAL_RELEASE_WITHOUT_PROVIDER_PROOF (F-6) is counted above, not a failure here.
+const dupes = report.violations.filter((v) => HARD_CODES.includes(v.code) || ["LEDGER_CHARGE_ENTRY_COUNT", "LOST_PROVIDER_EFFECT"].includes(v.code));
 assert.deepEqual(dupes, [], `hard financial violations: ${JSON.stringify(dupes)}`);
 // Every provider capture effect must be reflected canonically OR visibly unresolved (case / unknown attempt).
 const providerCaptures = provider.totals.capture + provider.totals.recover;

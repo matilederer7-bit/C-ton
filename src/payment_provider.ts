@@ -377,6 +377,27 @@ function stripeErrorMessage(payload: any, fallback: string) {
   return String(payload?.error?.message || payload?.message || fallback);
 }
 
+// F-7 (financial torture lab) — a 2xx body is a DECLARED outcome only when it
+// says so. A refund or release answered `{ ok: true, status: "pending" }` has not
+// executed yet (or not at all); reporting it as success made canonical truth
+// (Refunded / AuthReleased, fee-ledger adjustment) run ahead of the provider.
+// Unknown or missing status → UNKNOWN (reconcile decides), never success.
+function classifyRefundOutcome(payload: any): "success" | "permanent_fail" | "unknown" {
+  const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.refund_status || "").trim().toLowerCase();
+  if (["refund_issued", "refunded", "succeeded", "success", "approved", "completed", "issued"].includes(value)) return "success";
+  if (["refund_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
+  if (!value && (payload?.refund_id || payload?.provider_reference)) return "success"; // legacy shape: an id and no status field
+  return "unknown";
+}
+
+function classifyReleaseOutcome(payload: any): "success" | "permanent_fail" | "unknown" {
+  const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.release_status || "").trim().toLowerCase();
+  if (["authorization_released", "payment_released", "released", "voided", "void", "canceled", "cancelled", "succeeded", "success", "approved", "completed"].includes(value)) return "success";
+  if (["release_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
+  if (!value && (payload?.release_id || payload?.provider_reference || payload?.authorization_id)) return "success";
+  return "unknown";
+}
+
 function classifyCaptureEventType(payload: any): "charge_captured" | "charge_failed" | null {
   const value = String(
     payload?.event_type || payload?.status || payload?.result || payload?.capture_status || ""
@@ -1043,14 +1064,25 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: captureReference || authorizationId || null, correlation_id: correlationId, reconciliation_event_type: null };
         }
 
+        const refundOutcome = classifyRefundOutcome(payload);
+        const refundReference = String(payload?.provider_reference || payload?.refund_id || captureReference || authorizationId || "").trim() || null;
+        const refundCorrelation = String(payload?.correlation_id || payload?.reference || correlationId);
+        if (refundOutcome === "unknown") {
+          // F-7 — a 2xx that does not declare the refund issued (e.g. pending):
+          // UNKNOWN on the same identity, the reconcile rail decides.
+          return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: refundReference, correlation_id: refundCorrelation, reconciliation_event_type: null };
+        }
+        if (refundOutcome === "permanent_fail") {
+          return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: false, dispatched: true, provider_reference: refundReference, correlation_id: refundCorrelation, reconciliation_event_type: null };
+        }
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
           retryable: false,
           mock: false,
           dispatched: true,
-          provider_reference: String(payload?.provider_reference || payload?.refund_id || captureReference || authorizationId || "").trim() || null,
-          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          provider_reference: refundReference,
+          correlation_id: refundCorrelation,
           reconciliation_event_type: "refund_issued"
         };
       } catch {
@@ -1068,6 +1100,11 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         // R9C C2 — dispatched; only a declared rejection is a definite failure.
         if (!response.ok || payload?.ok === false) return { provider: PAYMENT_PROVIDER, result_class: classifyPostDispatchHttpFailure(response.status, payload) === "declared_failure" ? "permanent_fail" : "unknown", retryable: false, mock: false, dispatched: true, provider_reference: input.authorization_id, correlation_id: correlationId };
         if (responseBodyMalformed(payload)) return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: input.authorization_id, correlation_id: correlationId };
+        const releaseOutcome = classifyReleaseOutcome(payload);
+        if (releaseOutcome !== "success") {
+          // F-7 — pending / undeclared → UNKNOWN (reconcile); declared failure → permanent_fail.
+          return { provider: PAYMENT_PROVIDER, result_class: releaseOutcome === "permanent_fail" ? "permanent_fail" : "unknown", retryable: false, mock: false, dispatched: true, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
+        }
         return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: false, dispatched: true, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
       } catch {
         // Transport loss after dispatch — the release may have happened.
