@@ -192,7 +192,16 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
      ORDER BY created_at ASC`,
     [dealIds, participantIds.length ? participantIds : ["00000000-0000-4000-8000-000000000000"]]
   )).rows as Array<OutboxRow & { due: boolean }>;
-  for (const p of participants) p.authorization = canonicalAuthorization(options.participantAuthorizations?.[p.participant_id] ?? p.authorization);
+  // Independent review — the reference the APPLICATION stores for a participant
+  // must still name the authorization the lab gave it: a status answer that
+  // carried another operation's reference and was written back into the binding
+  // (O-1) is reported here as BINDING_REFERENCE_DRIFT.
+  for (const p of participants) {
+    const stored = canonicalAuthorization(p.authorization);
+    const seeded = options.participantAuthorizations?.[p.participant_id] ? canonicalAuthorization(options.participantAuthorizations[p.participant_id]) : null;
+    if (seeded && stored && stored !== seeded) v("BINDING_REFERENCE_DRIFT", p.participant_id, `application stores reference ${stored} but the participant's authorization is ${seeded}`);
+    p.authorization = seeded ?? stored;
+  }
   const dlq = (await pool.query(
     `SELECT event_type, aggregate_id FROM siton.outbox_dlq
      WHERE (aggregate_type='deal' AND aggregate_id = ANY($1::uuid[])) OR (aggregate_type='participant' AND aggregate_id = ANY($2::uuid[]))`,
