@@ -140,6 +140,15 @@ participant whose hold was already `AuthReleased` (the provider's ledger really 
 `ignored` classification with a resolved target — worker/HTTP parity. The contradiction is now a
 `payment-late-money-effect` case and the identity converges to success (monotonic), so recovery/refund/release
 stay blocked for that participant.
+*Test impact:* the R9A proof `webhook_truth_handling_validation.ts` ("conflicting events are recorded but the
+logical state wins") asserted that a late `charge_captured` leaves the identity at `permanent_fail`; under the R9C
+rule it now asserts the state still does not flip, the identity converges to provider truth (`success`) and the
+contradiction case exists — the same expectation the R9C worker-path proof already had.
+*Regression during this program:* the first F-1 pre-flight treated a status answer of `unknown` as ambiguous and
+deferred recovery for ever, which stalled `charging_completion_window_validation.ts` and
+`payment_recovery_real_rail_validation.ts` (their stubs answer `unknown`). Corrected in `d4c2046`: the pre-flight holds
+on `captured` (case, no recovery) and `pending` (defer) only; `unknown` keeps the pre-existing behaviour, the UNKNOWN
+charge_start identity discipline remaining the primary guard.
 
 ### F-4 — MEDIUM (fixed): a reconcile request behind another pending reconcile was silently dropped
 *Where:* `schedulePaymentReconcile` (`src/app.ts`); found by the seeded fuzzer (`LAB_FUZZ_SEED=20260907`, index 2,
@@ -192,6 +201,19 @@ refund receipt — while the provider never moved the money (`ATTEMPT_SUCCESS_WI
 id-only shape), declared failure → `permanent_fail`, anything else (pending, processing, unknown) → UNKNOWN on the
 same identity and the reconcile rail decides. Regression: rrr suite "F-7 refund/release: 200 pending"; the fuzz
 seed/index above replays green.
+
+### F-8 — LOW (fixed): a recovery identity minted before a deferring pre-flight could be left NOT_DISPATCHED for ever
+*Where:* `handleRecoveryDealEvent`; found by the long fuzz run (`LAB_FUZZ_SEED=20260907`, index 344, minimised to:
+recovery rail, provider status `pending` once, an early reconcile racing the recovery job).
+*Mechanism:* the F-1 pre-flight ran after `beginProviderAttempt` had minted the recovery identity; when the pre-flight
+deferred (`pending`) and a reconcile then moved the participant out of the recoverable state
+(`recovery_failed → Dropped`), the retried recovery job found no eligible participant and acked, leaving
+`recovery … n1` at `unknown / recorded` with no job, DLQ entry or case (`INVISIBLE_STUCK_OPERATION`). No money moved
+(NOT_DISPATCHED means nothing was ever sent) and the row would have resolved itself the moment any later money
+operation was blocked by it, but it was invisible until then.
+*Fix:* the pre-flight runs BEFORE the identity is minted, so a held recovery mints nothing; and the maintenance
+sweeper also reconciles NOT_DISPATCHED identities that have been quiet for ≥ 10 s (a status read settles them as
+declared-failed or executed — never a repeat).
 
 ### F-6 — MEDIUM (NOT fixed — semantics decision for the owner): `recovery_failed` sets `AuthReleased` without a provider release
 *Where:* canonical `charging.recovery_failed` transition (`ChargeFailedRecovery → AuthReleased`, `ChargeFailedCompletion → Dropped`).
@@ -246,20 +268,53 @@ Each mutation is applied to the working copy, the mapped suite(s) run on fresh d
 | M05 arm-time CAS removed (app layer) | payment_attempt lifecycle CAS | **SURVIVED — redundant defence**: the migration-063 trigger `payment_attempt_dispatch_in_flight` refuses the same re-arm at the database, and `beginProviderAttempt` already answers `in_flight` before the CAS is reached; the DB guard is proven directly by the lifecycle suite ("DB guards") |
 | M06 fee-ledger entry skipped inside the state transaction | ledger/state atomicity | CAUGHT (`payment_lab_foundation`) |
 | M07 reconcile no longer defers on an in-flight operation | reconciliation deferral | CAUGHT |
-| M08 late-event contradiction guard removed | late event protection | see 4.1b |
-| M09 duplicate webhook dedupe removed | duplicate webhook protection | see 4.1b (the first run's assertion was itself vacuous — it matched the JSON key `"duplicate"`; fixed to check the value and the stored row count) |
+| M08 late-event contradiction guard removed | late event protection | CAUGHT (`payment_lab_terminal_economics`; the first attempt was an invalid mutant — unused-variable compile error — corrected) |
+| M09 duplicate webhook dedupe removed | duplicate webhook protection | CAUGHT (the first run's assertion was itself vacuous — it matched the JSON key `"duplicate"`; fixed to check the value and the stored row count, after which the mutant is red) |
 | M10 lease-ownership check at arm time removed | worker lease ownership | **SURVIVED — redundant defence**: with a dead lease the arm CAS (`NOT (dispatching AND foreign owner AND in flight)`) and the 063 trigger still refuse; the stale-owner proofs pass through those layers. The lease check is the first, cheapest fence, not the only one |
-| M11 / M12 fee 7 % / 9 % | Siton fee exactly 8 % | see 4.1b (the first run was invalid: the literal type `0.08` made the mutant fail to compile; retyped as `number`) |
+| M11 / M12 fee 7 % / 9 % | Siton fee exactly 8 % | CAUGHT ×2 (`payment_lab_terminal_economics`: 14 of 17 scenarios red under either rate; the first run was invalid because the literal type `0.08` made the mutant fail to compile — retyped as `number`) |
 | M13 buyer VAT included in the fee base | VAT excluded | CAUGHT (`payment_lab_terminal_economics`) |
 | M14 delivery excluded from the fee base | delivery included | CAUGHT |
 | M15 5 % distributor commission deducted from seller net | distributor 0 | CAUGHT |
-| M16 F-1 pre-flight removed | recovery pre-flight | see 4.1b |
+| M16 F-1 pre-flight removed | recovery pre-flight | first two mutants SURVIVED — honestly: (a) the simulator's provider-side guard declined the second capture (fixed: the scenario now scripts a provider that honours a recovery on a captured authorization), (b) a mutant that only dropped the "captured" branch still blocked the recovery through the ambiguous deferral. The mutant now neutralises the pre-flight entirely (`always proceed`); result of that run: see `PROJECT_STATUS.md` |
 
-_4.1b — second pass (M08, M09, M11, M12, M16 after the anchor/type corrections): see `PROJECT_STATUS.md`._
+Full pass on the final tree (`lab_mutations_3.json`): **tested 16 · caught 13 · survived 3** (M05, M10 — redundant
+defences masked by the migration-063 trigger and the arm CAS; M16 — mutant too weak, re-run with the strengthened
+mutant recorded in `PROJECT_STATUS.md`).
 
 ### 4.2 Suite results, fuzz, soak, global reconciliation and the full repository regression
 
-_See `PROJECT_STATUS.md` (financial torture program section) for the final counts and the `logs/` evidence paths._
+Final tree (`claude/r9c-financial-torture-candidate` with F-1…F-5b and F-7 applied), fresh isolated databases:
+
+| Suite | Result |
+|---|---|
+| `payment_lab_foundation_validation.ts` | 23/23 |
+| `payment_lab_c1_c2_validation.ts` | 27/27 |
+| `payment_lab_lifecycle_reconcile_validation.ts` | 37/37 |
+| `payment_lab_refund_release_recovery_validation.ts` (non-idempotent provider) | 26/26 |
+| `payment_lab_crash_matrix_validation.ts` | 13/13 |
+| `payment_lab_finalize_guard_validation.ts` | 3/3 |
+| `payment_lab_terminal_economics_validation.ts` | 17/17 |
+| `payment_lab_concurrency_matrix_validation.ts` (incl. two real worker processes, 80/80 converged, 0 duplicates, 0 deadlocks) | 32/32 |
+| `payment_lab_random_schedule_fuzz_validation.ts` seed `20260907`, 300 scenarios | 300/300 (451 participants, 525 provider effects, 92 s) |
+| `payment_lab_soak_validation.ts` 30 s | see global reconciliation below |
+
+**Global reconciliation (30 s soak, 231 deals, 550 participants, 2 079 jobs, 12 forced lease expiries, 8 interval audits):**
+
+| Source | captures | recoveries | captured minor | fees minor | seller net minor |
+|---|---|---|---|---|---|
+| provider simulator ledger | 452 | 97 | 5 000 950 | — | — |
+| canonical states (`ChargedSuccess` / `RecoveredCharge`) | 452 | 97 | 5 000 950 | — | — |
+| platform-fee ledger (549 entries) | — | — | 5 000 950 gross | 472 019 | 4 528 931 |
+| oracle (independent 8 % over canonical captured) | — | — | — | 472 019 | 4 528 931 |
+
+`payment_attempts`: 549 success + 99 permanent_fail (declined captures recovered once each), DLQ 0, deadlocks 0,
+unhandled rejections 0, uncaught exceptions 0, app pool ≤ 3 connections, heap ≤ 144 MB. One F-6 occurrence
+(`recovery_failed → AuthReleased` without a provider release) counted. Every earlier failing fuzz index
+(2, 46, 69, 132, 159 of seed 20260907) was minimised, root-caused (F-4, F-5, F-5b, F-6 documented, F-7) and replays
+green.
+
+_Mutation pass 3 (all 16 on the final tree), the full repository regression and the long fuzz (2 000) / soak (180 s)
+runs are recorded in `PROJECT_STATUS.md`._
 
 ---
 

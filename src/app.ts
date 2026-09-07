@@ -1810,9 +1810,11 @@ export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3
        ) auth ON true
        WHERE pa.attempt_type IN ('charge_start','recovery','refund','cancel_refund','release')
          AND pa.result_class='unknown'
-         AND pa.dispatch_state <> 'recorded'
          AND NOT siton.payment_operation_in_flight(pa.owner_event_uuid, pa.owner_lease_generation)
-         AND pa.updated_at <= clock_timestamp() - ($2::text || ' milliseconds')::interval
+         -- F-8: a NOT_DISPATCHED identity whose job is gone (participant left the
+         -- state, job acked or archived) is resolved through status as well — a
+         -- later, longer quiet period keeps a merely deferred job undisturbed.
+         AND pa.updated_at <= clock_timestamp() - (CASE WHEN pa.dispatch_state = 'recorded' THEN GREATEST($2::bigint * 5, 10000) ELSE $2::bigint END::text || ' milliseconds')::interval
          AND NOT EXISTS (
            SELECT 1 FROM siton.outbox_events o
            WHERE o.event_type='payment_reconcile' AND o.aggregate_type='participant' AND o.aggregate_id=pa.participant_id
@@ -3106,6 +3108,14 @@ async function handleRecoveryDealEvent(
       pricePerUnit: Number(p.price_per_unit || 0),
       deliveryCost: Number(p.delivery_cost || 0)
     });
+    // F-1 — last look at the original capture BEFORE a recovery identity is
+    // minted (F-8: minting first left a NOT_DISPATCHED recovery identity behind
+    // whenever the pre-flight deferred and the participant later left the
+    // recoverable state).
+    const preflight = await verifyOriginalCaptureBeforeRecovery({ participant_id: p.participant_id, deal_id: dealId, authorization_id: p.authorization_id || null, event_id: eventId });
+    if (preflight === "captured") continue;
+    if (preflight === "ambiguous") { deferAfterLoop = true; continue; }
+
     // R9C — durable identity + reconcile-before-new-operation (see charge rail).
     const attempt = await beginProviderAttempt({
       participant_id: p.participant_id,
@@ -3135,11 +3145,6 @@ async function handleRecoveryDealEvent(
       if (resolution !== "reuse") continue;
     }
     const correlation = attempt.correlation_id;
-
-    // F-1 — last look at the original capture before a second capture is armed.
-    const preflight = await verifyOriginalCaptureBeforeRecovery({ participant_id: p.participant_id, deal_id: dealId, authorization_id: p.authorization_id || null, event_id: eventId });
-    if (preflight === "captured") continue;
-    if (preflight === "ambiguous") { deferAfterLoop = true; continue; }
 
     const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
       amount_minor: amountMinor,
