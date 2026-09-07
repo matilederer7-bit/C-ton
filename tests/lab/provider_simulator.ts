@@ -54,7 +54,19 @@ export type StatusBehavior =
   | { kind: "WRONG_REFERENCE" }
   | { kind: "MISSING_REFERENCE" }
   | { kind: "WRONG_AMOUNT"; amount_minor: number }
-  | { kind: "FLAP"; states: Array<"authorized" | "captured" | "refunded" | "released" | "failed" | "pending"> };
+  | { kind: "FLAP"; states: Array<"authorized" | "captured" | "refunded" | "released" | "failed" | "pending"> }
+  // Independent review — additional adversarial status behaviours.
+  // WHILE_SETTLING: while an asynchronous settlement (DELAYED_EFFECT / LATE_SUCCESS)
+  //   is still pending the provider answers the scripted (wrong) state; once the
+  //   money has landed it answers the truth. Stays armed like FLAP. This is the
+  //   "status says failed/authorized final while the capture is still settling"
+  //   provider that a settlement horizon must defend against.
+  | { kind: "WHILE_SETTLING"; state: "failed" | "authorized" | "pending"; final: boolean }
+  // WRONG_CURRENCY: truthful state and amount, wrong currency.
+  | { kind: "WRONG_CURRENCY"; currency: string }
+  // LIE: the provider CLAIMS a money effect that never happened (or denies one
+  // that did) — bypasses the honest() downgrade. Consumed per read.
+  | { kind: "LIE"; state: "authorized" | "captured" | "refunded" | "released" | "failed"; final?: boolean; amount_minor?: number | null };
 
 export type EffectCounters = {
   capture: number;
@@ -164,8 +176,8 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
     const queue = statusScripts.get(auth);
     if (queue && queue.length) {
       const next = queue[0] as StatusBehavior;
-      // FLAP entries stay armed; everything else is consumed.
-      if (next.kind !== "FLAP") queue.shift();
+      // FLAP / WHILE_SETTLING entries stay armed; everything else is consumed.
+      if (next.kind !== "FLAP" && next.kind !== "WHILE_SETTLING") queue.shift();
       return next;
     }
     return { kind: "TRUTH" };
@@ -222,6 +234,12 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
       case "WRONG_REFERENCE": return { statusCode: 200, body: JSON.stringify({ ...base, provider_reference: `other-${randomUUID().slice(0, 8)}`, state: operationState(), final: true }), behavior: "WRONG_REFERENCE" };
       case "MISSING_REFERENCE": { const b: any = { ...base, state: operationState(), final: true }; delete b.provider_reference; return { statusCode: 200, body: JSON.stringify(b), behavior: "MISSING_REFERENCE" }; }
       case "WRONG_AMOUNT": return { statusCode: 200, body: JSON.stringify({ ...base, amount_minor: behavior.amount_minor, state: operationState(), final: true }), behavior: `WRONG_AMOUNT(${behavior.amount_minor})` };
+      case "WHILE_SETTLING": {
+        if (settling) return { statusCode: 200, body: JSON.stringify({ ...base, state: behavior.state, final: behavior.final }), behavior: `WHILE_SETTLING(${behavior.state}/${behavior.final ? "final" : "open"})` };
+        return { statusCode: 200, body: JSON.stringify({ ...base, state: operationState(), final: true }), behavior: "WHILE_SETTLING(truth)" };
+      }
+      case "WRONG_CURRENCY": return { statusCode: 200, body: JSON.stringify({ ...base, currency: behavior.currency, state: operationState(), final: true }), behavior: `WRONG_CURRENCY(${behavior.currency})` };
+      case "LIE": return { statusCode: 200, body: JSON.stringify({ ...base, ...(behavior.amount_minor !== undefined ? { amount_minor: behavior.amount_minor } : {}), state: behavior.state, final: behavior.final ?? true }), behavior: `LIE(${behavior.state})` };
       case "FLAP": {
         const i = flapCursor.get(auth) || 0;
         flapCursor.set(auth, i + 1);
@@ -426,6 +444,8 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
       statusScripts.set(auth, [...(statusScripts.get(auth) || []), ...behaviors]);
     },
     clearStatusScript(auth: string) { statusScripts.delete(auth); flapCursor.delete(auth); },
+    /** Number of asynchronous settlements still pending for an authorization (review instrument). */
+    pendingEffectsOf(auth: string) { return pendingEffects.get(auth) || 0; },
     /** Force the economic truth directly (e.g. an out-of-band capture the app never asked for). */
     forceEffect(op: MoneyOp, auth: string, amountMinor: number | null) { applyEffect(op, auth, amountMinor); },
     effectsOf(auth: string): EffectCounters { return { ...(effects.get(auth) || emptyCounters()) }; },

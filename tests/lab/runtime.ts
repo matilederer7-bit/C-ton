@@ -41,7 +41,7 @@ export type SeededParticipant = { participant_id: string; buyer_id: string; auth
 export type SeededDeal = { deal_id: string; participants: SeededParticipant[]; price_per_unit: number };
 
 export type DrainResult = { event_uuid: string; event_type: string; status: string; error?: string | null };
-export type DrainStats = { rounds: number; processed: number; advanced: number; reclaimed: number; results: DrainResult[]; remaining_pending: number; remaining_processing: number };
+export type DrainStats = { rounds: number; processed: number; advanced: number; waited: number; reclaimed: number; results: DrainResult[]; remaining_pending: number; remaining_processing: number };
 
 export type LabOptions = {
   tag: string;
@@ -219,8 +219,8 @@ export async function bootLab(options: LabOptions) {
    * reclaim dead leases, process due events one at a time, pull deferred
    * money events forward (bounded), stop when nothing in scope is live.
    */
-  async function drain(opts: { dealIds: string[]; maxRounds?: number; advanceDeferred?: boolean; advanceDelayMs?: number; types?: string[]; skip?: (event: { event_uuid: string; event_type: string }) => boolean; onResult?: (result: DrainResult) => void }): Promise<DrainStats> {
-    const stats: DrainStats = { rounds: 0, processed: 0, advanced: 0, reclaimed: 0, results: [], remaining_pending: 0, remaining_processing: 0 };
+  async function drain(opts: { dealIds: string[]; maxRounds?: number; advanceDeferred?: boolean; advanceDelayMs?: number; waitDeferredUpToMs?: number; types?: string[]; skip?: (event: { event_uuid: string; event_type: string }) => boolean; onResult?: (result: DrainResult) => void }): Promise<DrainStats> {
+    const stats: DrainStats = { rounds: 0, processed: 0, advanced: 0, waited: 0, reclaimed: 0, results: [], remaining_pending: 0, remaining_processing: 0 };
     const maxRounds = opts.maxRounds ?? 40;
     const participantIds = await participantIdsOf(opts.dealIds);
     while (stats.rounds < maxRounds) {
@@ -234,8 +234,19 @@ export async function bootLab(options: LabOptions) {
         const deferred = await scopedEvents(opts.dealIds, participantIds, `status='pending' AND available_at > clock_timestamp()`, opts.types);
         const processing = await scopedEvents(opts.dealIds, participantIds, `status='processing'`, opts.types);
         if (deferred.length && opts.advanceDeferred !== false) {
-          // Backoff is compressed, not skipped: a short pause keeps asynchronous
-          // provider settlements (DELAYED_EFFECT / LATE_SUCCESS) realistic.
+          // A deferral that is due SOON (a settlement-horizon fence, a short hold)
+          // is honoured by waiting for it: pulling it forward would only make the
+          // job re-run, re-defer and burn a bounded outbox attempt. Long backoffs
+          // (exponential retry, lease margins) are compressed, not skipped: a short
+          // pause keeps asynchronous provider settlements (DELAYED_EFFECT /
+          // LATE_SUCCESS) realistic.
+          const soonestMs = Math.min(...deferred.map((e) => new Date(e.available_at).getTime())) - Date.now();
+          const waitCap = opts.waitDeferredUpToMs ?? 3_000;
+          if (soonestMs > 0 && soonestMs <= waitCap) {
+            await new Promise((resolve) => setTimeout(resolve, soonestMs + 10));
+            stats.waited += 1;
+            continue;
+          }
           await new Promise((resolve) => setTimeout(resolve, opts.advanceDelayMs ?? 75));
           await pool.query(`UPDATE siton.outbox_events SET available_at=clock_timestamp() WHERE event_uuid = ANY($1::uuid[])`, [deferred.map((e) => e.event_uuid)]);
           stats.advanced += deferred.length;
