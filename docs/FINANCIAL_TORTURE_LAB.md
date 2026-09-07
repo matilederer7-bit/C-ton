@@ -108,6 +108,11 @@ re-read through the status seam: `captured` → late-money-effect case + identit
 recovery**; `pending`/`unknown`/transport failure → the recovery job defers (`DeferredEventError`, bounded);
 `authorized`/`failed` → proceed. A provider without a status capability keeps the pre-existing behaviour (residual).
 *After:* the same scenario ends `recover_requests=0`, cases `payment-late-money-effect` + `payment-recovery-preflight-captured`, one effect.
+*Test impact:* `payment_recovery_real_rail_validation.ts` carried a status stub that answered `captured / final` for
+EVERY reference (it was written for the reconcile of a timed-out recovery); with the pre-flight in place that stub
+claimed the original capture had executed and correctly blocked the recovery. The stub now answers `authorized`
+until a recovery for that authorization actually executed — a truthful provider — and the proof passes unchanged
+otherwise.
 
 ### F-2 — HIGH (fixed): finalize_deal decided Completed/Failed while capture identities were UNKNOWN
 *Where:* `handleFinalizeDealEvent` (`src/app.ts`).
@@ -214,6 +219,13 @@ operation was blocked by it, but it was invisible until then.
 *Fix:* the pre-flight runs BEFORE the identity is minted, so a held recovery mints nothing; and the maintenance
 sweeper also reconciles NOT_DISPATCHED identities that have been quiet for ≥ 10 s (a status read settles them as
 declared-failed or executed — never a repeat).
+*Regression during this program (regression #2):* moving the pre-flight ahead of `beginProviderAttempt` made it
+read status for participants that ALREADY carried a recovery identity (unknown after a crash — R9C proof S9 —, or
+success whose canonical state was never persisted); the provider's `captured` was then that recovery, misread as a
+late original capture, and the recovery identity was never resolved. The pre-flight now steps aside whenever a
+recovery identity (unknown / success) exists — those are owned by the identity discipline and
+`resolvePriorProviderAttempt`; it guards the FIRST recovery of a participant only. The oracle now counts
+NOT_DISPATCHED rows instead of flagging them (zero money risk, attended by the sweeper).
 
 ### F-6 — MEDIUM (NOT fixed — semantics decision for the owner): `recovery_failed` sets `AuthReleased` without a provider release
 *Where:* canonical `charging.recovery_failed` transition (`ChargeFailedRecovery → AuthReleased`, `ChargeFailedCompletion → Dropped`).
@@ -277,9 +289,12 @@ Each mutation is applied to the working copy, the mapped suite(s) run on fresh d
 | M15 5 % distributor commission deducted from seller net | distributor 0 | CAUGHT |
 | M16 F-1 pre-flight removed | recovery pre-flight | first two mutants SURVIVED — honestly: (a) the simulator's provider-side guard declined the second capture (fixed: the scenario now scripts a provider that honours a recovery on a captured authorization), (b) a mutant that only dropped the "captured" branch still blocked the recovery through the ambiguous deferral. The mutant now neutralises the pre-flight entirely (`always proceed`); result of that run: see `PROJECT_STATUS.md` |
 
-Full pass on the final tree (`lab_mutations_3.json`): **tested 16 · caught 13 · survived 3** (M05, M10 — redundant
-defences masked by the migration-063 trigger and the arm CAS; M16 — mutant too weak, re-run with the strengthened
-mutant recorded in `PROJECT_STATUS.md`).
+Full pass on the final tree (`lab_mutations_3.json`) plus the strengthened M16 (`lab_mutations_4.json`, the
+neutralised pre-flight lets the scripted provider honour the recovery → `DUPLICATE_CAPTURE`, lifecycle suite red):
+**tested 16 · caught 14 · survived 2** — M05 and M10, both redundant defences masked by the migration-063 trigger and
+the arm-time CAS (the database guard is proven directly by the lifecycle suite). Every economic-constitution mutation
+(8 % → 7 % / 9 %, VAT included, delivery excluded, distributor 5 %) and every money-safety mutation with an observable
+effect is red. ANTI_VACUITY = PASS with the two documented redundant-defence survivors.
 
 ### 4.2 Suite results, fuzz, soak, global reconciliation and the full repository regression
 
