@@ -3,6 +3,7 @@ import { clamp, countdownView, ils, num, progressColor, stateLabel } from "./uti
 import { absoluteShareUrl, sendFunnelEvent } from "./viral";
 import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
+import { QUANTITY_INPUT_ATTRS, parseQuantityInput } from "./quantityInput";
 
 export { BrandLoader } from "./brand";
 
@@ -99,13 +100,38 @@ export function Countdown(props: { until: string | null | undefined; label?: str
   );
 }
 
-export function QtyStepper(props: { value: number; min?: number; max: number; onChange: (v: number) => void }) {
+// SPRINT 4 (A9) — typed quantity: a plain numeric field, digits only, no +/−
+// steppers and no browser spinner. The parent's `value` is the last ACCEPTED
+// quantity; the field itself owns the in-progress text so an empty or
+// out-of-window entry is shown with its reason instead of being silently
+// clamped or turned into a decimal/zero order.
+export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; id?: string; testId?: string; ariaLabel?: string }) {
   const min = props.min ?? 1;
+  const [text, setText] = useState(String(props.value));
+  const [touched, setTouched] = useState(false);
+  const parsed = parseQuantityInput(text, min, props.max);
+  // keep the field in step with an external correction (e.g. stock shrank under the buyer)
+  useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
+  const testId = props.testId || "qty-input";
+  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? "יש להזין כמות" : null);
   return (
-    <div className="qty-stepper" role="group" aria-label="בחירת כמות">
-      <button type="button" aria-label="הוסף יחידה" disabled={props.value >= props.max} onClick={() => props.onChange(clamp(props.value + 1, min, props.max))}>+</button>
-      <span className="qty-value" aria-live="polite">{num(props.value)}</span>
-      <button type="button" aria-label="הפחת יחידה" disabled={props.value <= min} onClick={() => props.onChange(clamp(props.value - 1, min, props.max))}>−</button>
+    <div className="qty-input-wrap">
+      <input
+        {...QUANTITY_INPUT_ATTRS}
+        id={props.id}
+        className={`qty-input${problem ? " invalid" : ""}`}
+        data-testid={testId}
+        aria-label={props.ariaLabel || "כמות יחידות"}
+        aria-invalid={problem ? "true" : undefined}
+        value={text}
+        onChange={(e) => {
+          const next = parseQuantityInput(e.target.value, min, props.max);
+          setText(next.digits);
+          if (next.value !== null) props.onChange(next.value);
+        }}
+        onBlur={() => setTouched(true)}
+      />
+      {problem ? <span className="qty-input-error" data-testid={`${testId}-error`} role="alert">{problem}</span> : null}
     </div>
   );
 }

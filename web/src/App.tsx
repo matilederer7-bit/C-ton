@@ -6,7 +6,9 @@ import { TrackPage } from "./pages/track";
 import { SellerArea } from "./pages/seller";
 import { AdminArea } from "./pages/admin";
 import { SupportPage } from "./pages/support";
+import { LegalPage } from "./pages/legal";
 import { ResetPasswordPage } from "./pages/reset";
+import { installScrollRestoration } from "./scrollRestoration";
 import { getPreviewMeta } from "./previewMeta";
 import { captureAuthRedirect } from "./authRedirect";
 
@@ -60,9 +62,13 @@ function parseHash(): Route {
 function useRoute(): [Route, (hash: string) => void] {
   const [route, setRoute] = useState<Route>(parseHash);
   useEffect(() => {
-    const onChange = () => { setRoute(parseHash()); window.scrollTo(0, 0); };
+    // SPRINT 4 (A5) — history-aware scroll: Back/Forward restore the exact
+    // position of the entry they return to; a NEW entry starts at the top.
+    // (Replaces the old unconditional scroll-to-top on every hashchange.)
+    const restoration = installScrollRestoration();
+    const onChange = () => { restoration.onHashChange(); setRoute(parseHash()); };
     window.addEventListener("hashchange", onChange);
-    return () => window.removeEventListener("hashchange", onChange);
+    return () => { window.removeEventListener("hashchange", onChange); restoration.dispose(); };
   }, []);
   const navigate = (hash: string) => { window.location.hash = hash; };
   return [route, navigate];
@@ -186,8 +192,10 @@ export default function App() {
           {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
           {page === "support" ? <SupportPage /> : null}
+          {/* SPRINT 4 (A4) — legal documents are native React routes on the ONE canonical source */}
+          {page === "legal" ? <LegalPage slug={route.seg[1] || "terms"} navigate={navigate} /> : null}
           {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}
-          {!["", "deals", "deal", "track", "seller", "support", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
+          {!["", "deals", "deal", "track", "seller", "support", "legal", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 
@@ -195,9 +203,10 @@ export default function App() {
         <footer className="footer">
           <div>
             <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>
-            <a href="/legal/terms">תקנון ותנאי שימוש</a>
-            <a href="/legal/privacy">פרטיות</a>
-            <a href="/legal/refunds">מדיניות ביטולים והחזרים</a>
+            {/* SPRINT 4 (A4) — the legal documents stay INSIDE the React product */}
+            <a href="#/legal/terms" data-testid="footer-legal-terms" onClick={(e) => { e.preventDefault(); navigate("#/legal/terms"); }}>תקנון ותנאי שימוש</a>
+            <a href="#/legal/privacy" data-testid="footer-legal-privacy" onClick={(e) => { e.preventDefault(); navigate("#/legal/privacy"); }}>פרטיות</a>
+            <a href="#/legal/refunds" data-testid="footer-legal-refunds" onClick={(e) => { e.preventDefault(); navigate("#/legal/refunds"); }}>מדיניות ביטולים והחזרים</a>
           </div>
           <div style={{ marginTop: 8 }}>
             C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)

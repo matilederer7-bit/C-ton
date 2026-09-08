@@ -112,7 +112,7 @@ run("P3: join sheet — required markers, per-field Hebrew errors, plausible-pho
   assert.match(dealPage, /if \(!terms\) errs\.terms = "יש לאשר את התקנון";/);
   assert.match(dealPage, /buyer_terms_accepted: true,\s*\n\s*payment_disclosure_accepted: true,/);
   assert.match(dealPage, /payment_method: payMethod,/, "payment-method preference unchanged");
-  assert.match(dealPage, /href="\/legal\/terms"/);
+  assert.match(dealPage, /href="#\/legal\/terms"/); // SPRINT 4 (A4): the terms open inside the React product
   // the refusal funnel event carries the code/status only — never a field value
   assert.match(dealPage, /sendFunnelEvent\(String\(deal\.deal_id\), "join_failed", \{ detail: String\(code \|\| status \|\| "unknown"\)\.slice\(0, 80\) \}\);/);
 });

@@ -482,13 +482,12 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .deal-price-hero .price { font-size: 2rem; color: var(--brand-hi); }
 .deal-price-was { color: var(--ink-faint); }
 
-.qty-stepper { display: inline-flex; align-items: center; gap: 0; border: 1.5px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--bg-deep); }
-.qty-stepper button {
-  border: none; background: var(--surface-warm); width: 44px; height: 44px;
-  font-size: 1.3rem; font-weight: 700; cursor: pointer; color: var(--ink);
-}
-.qty-stepper button:disabled { opacity: .4; cursor: not-allowed; }
-.qty-stepper .qty-value { width: 56px; text-align: center; font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+/* SPRINT 4 (A9) — typed quantity: a plain numeric field, no steppers, no spinner */
+.qty-input-wrap { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 100%; }
+.qty-input { width: 96px; height: 44px; text-align: center; font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; border-radius: 12px; }
+.qty-input-error { font-size: .8rem; color: var(--pomegranate); font-weight: 600; text-align: end; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 
 .delivery-option { display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--line-strong); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; transition: border-color .12s; min-height: 48px; }
 .delivery-option:hover { border-color: var(--brand); }
@@ -858,10 +857,6 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 /* ── tracking screen ───────────────────────────────────────────────────── */
 .track-hero { text-align: center; padding: 8px 0 4px; }
 .track-hero .status { font-size: 1rem; padding: 6px 18px; }
-.impact-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
-.impact-stat { background: var(--surface-warm); border: 1px solid var(--line); border-radius: var(--radius); padding: 14px; text-align: center; }
-.impact-stat .num { font-size: 1.6rem; font-weight: 800; color: var(--brand-hi); font-variant-numeric: tabular-nums; }
-.impact-stat .lbl { font-size: .8rem; color: var(--ink-soft); }
 
 /* ── admin ─────────────────────────────────────────────────────────────── */
 .admin-shell { display: grid; grid-template-columns: 216px 1fr; gap: 0; min-height: calc(100dvh - 60px); }
@@ -1434,3 +1429,22 @@ tr.clickable:hover { background: var(--brand-tint); }
   .pickup-code-xl { font-size: 2.2rem; }
   .handoff-verdict-text { font-size: 1.35rem; }
 }
+
+/* ── SPRINT 4 (A4) — native legal documents ─────────────────────────────── */
+.legal-page { max-width: 860px; margin: 0 auto; min-width: 0; }
+.legal-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.legal-nav .chip { text-decoration: none; }
+.legal-doc { padding: clamp(18px, 3.5vw, 32px); line-height: 1.75; overflow-wrap: anywhere; }
+.legal-doc p { margin: 0 0 14px; color: var(--ink); }
+.legal-title { font-size: clamp(1.5rem, 4vw, 2.1rem); margin: 0 0 16px; }
+.legal-section { font-size: 1.15rem; margin: 26px 0 8px; color: var(--ink); }
+.legal-notice { margin: 0 0 18px; }
+.notice.warn { background: var(--surface-warm); color: var(--ink-soft); border-color: var(--line-strong); }
+.legal-foot { text-align: center; margin-top: 16px; }
+
+/* ── SPRINT 4 (A1) — Google Maps + Waze navigation actions ──────────────── */
+.pickup-nav { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; flex-basis: 100%; min-width: 0; }
+.pickup-nav-btn { display: inline-flex; align-items: center; gap: 6px; direction: ltr; white-space: nowrap; }
+.pickup-nav-mode { flex-basis: 100%; }
+.pickup-precision.exact { color: var(--accent-cyan); }
+.pickup-precision.address { color: var(--saffron); font-weight: 600; }

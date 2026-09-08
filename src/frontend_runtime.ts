@@ -202,7 +202,10 @@ import {
   sellerOrderProjection,
   SELLER_NOT_READY_COPY
 } from "./physical_fulfillment.js";
-import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
+import { isLegalPageSlug, legalPageProjection } from "./legal_pages.js";
+import { buyerNameRankSql, buyerSearchPredicateSql, classifyBuyerSearch } from "./buyer_search_intent.js";
+import { resolveGrowthWindow } from "./growth_window.js";
+import { computeGrowthWindowMetrics } from "./growth_metrics.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
@@ -361,67 +364,8 @@ function escapeHtml(value: unknown) {
     .replace(/"/g, "&quot;");
 }
 
-function renderLegalMarkdown(markdown: string) {
-  return markdown
-    .split(/\n{2,}/)
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
-      if (trimmed.startsWith("## ")) return `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
-      return `<p>${escapeHtml(trimmed).replace(/\n/g, "<br>")}</p>`;
-    })
-    .join("\n");
-}
-
-function renderLegalHtmlPage(slug: LegalPageSlug) {
-  const page = LEGAL_PAGES[slug];
-  // P0.3-12 — the visible legal nav stays lean (core buyer documents only);
-  // sellers/affiliates pages remain reachable by direct link from their flows.
-  const CORE_LEGAL_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds"];
-  const navSlugs = CORE_LEGAL_NAV.includes(slug) ? CORE_LEGAL_NAV : [...CORE_LEGAL_NAV, slug];
-  const nav = LEGAL_PAGE_ORDER.filter((item) => navSlugs.includes(item)).map((item) => {
-    const target = LEGAL_PAGES[item];
-    return `<a href="/legal/${target.slug}"${target.slug === slug ? ` aria-current="page"` : ""}>${escapeHtml(target.navLabel)}</a>`;
-  }).join("");
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>C-ton | ${escapeHtml(page.title)}</title>
-  <style>
-    :root{color-scheme:light;--bg:#2F3237;--card:#fff;--text:#1F2933;--muted:#56616f;--brand:#C65A1E}
-    *{box-sizing:border-box}body{margin:0;font-family:Arial,"Noto Sans Hebrew",sans-serif;background:linear-gradient(135deg,#2F3237 0%,#25282D 100%);color:var(--text);line-height:1.75}
-    .shell{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:32px 0 56px}
-    header{color:#fff;margin-bottom:22px}header a{color:#fff}.brand{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}.brand strong{font-size:1.5rem}
-    nav{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}nav a{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 13px;text-decoration:none;background:rgba(255,255,255,.08)}nav a[aria-current=page]{background:var(--brand);border-color:var(--brand)}
-    main{background:var(--card);border-radius:24px;padding:clamp(22px,4vw,42px);box-shadow:0 24px 60px rgba(0,0,0,.24);border:1px solid rgba(255,255,255,.18)}
-    h1{font-size:clamp(1.8rem,4vw,3rem);line-height:1.15;margin:0 0 18px}h2{font-size:1.35rem;margin:34px 0 8px;color:#111827}p{margin:0 0 14px;color:var(--text)}.notice{margin:0 0 24px;padding:14px 16px;border-radius:16px;background:#FFF1E8;border:1px solid rgba(198,90,30,.28);color:#53311f}
-    footer{color:#D1D5DB;margin-top:22px;display:flex;gap:14px;flex-wrap:wrap}footer a{color:#fff}
-    @media(max-width:520px){.shell{width:min(100% - 20px,1060px);padding-top:18px}main{border-radius:18px;padding:18px}nav a{width:calc(50% - 5px);text-align:center}}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <header>
-      <div class="brand"><strong>C-ton</strong><a href="/preview/">חזרה לאתר</a></div>
-      <nav aria-label="ניווט משפטי">${nav}</nav>
-    </header>
-    <main>
-      <div class="notice">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div>
-      ${renderLegalMarkdown(page.body)}
-    </main>
-    <footer>
-      <a href="/legal/terms">תקנון</a>
-      <a href="/legal/privacy">מדיניות פרטיות</a>
-      <a href="/legal/refunds">ביטולים והחזרים</a>
-      <a href="/preview/#/support">תמיכה</a>
-    </footer>
-  </div>
-</body>
-</html>`;
-}
+// SPRINT 4 (A4) — the standalone legal HTML shell is gone: the React product
+// renders the documents from the JSON projection (see /api/legal/:slug below).
 
 function mapSellerProfile(profile: any, contextSource: string) {
   return {
@@ -10676,28 +10620,25 @@ export function registerFrontendExperience(
     });
   });
 
+  // SPRINT 4 (A8) — the virality dashboard is WINDOWED: default last 7 days,
+  // presets 7/30/90, a custom [from,to) range (UTC instants; the UI enters
+  // Israel-local days) or all time. The window drives every number in
+  // `windowed`; the lifetime rollup stays a separate, explicitly labelled block.
   app.get("/api/admin/growth", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
+    const resolved = resolveGrowthWindow(req.query || {});
+    if (!resolved.ok) return reply.code(400).send({ ok: false, error: resolved.error, message: resolved.message_he });
+    const window = resolved.window;
     return deps.withTx(async (c) => {
       const platform = await readViralMetricsCache(c, "platform", "global");
-      const recentEvents = await c.query(
-        `SELECT event_type, COUNT(*)::int AS cnt
-         FROM siton.viral_events
-         WHERE created_at > now() - interval '7 days'
-         GROUP BY event_type`
-      );
-      const recentAttributed = await c.query(
-        `SELECT COUNT(*)::int AS cnt
-         FROM siton.viral_attributions
-         WHERE origin_ref_type <> 'none' AND created_at > now() - interval '7 days'`
-      );
+      const windowed = await computeGrowthWindowMetrics(c, window);
       return {
         ok: true,
-        platform,
-        last_7_days: {
-          funnel_events: Object.fromEntries(recentEvents.rows.map((r: any) => [String(r.event_type), Number(r.cnt)])),
-          attributed_joins: Number(recentAttributed.rows[0]?.cnt || 0)
-        }
+        window,
+        windowed,
+        lifetime: { ...platform, label_he: "מצטבר מאז ההשקה (כל הזמן)" },
+        // kept for older readers of this payload; identical to `lifetime`
+        platform
       };
     });
   });
@@ -11525,33 +11466,44 @@ export function registerFrontendExperience(
   });
 
   // Admin: buyers/participants roster (aggregated by buyer identity).
+  // SPRINT 4 (A6) — intent-sensitive search (src/buyer_search_intent.ts):
+  // letters → NAME only, digits → phone, "@" → e-mail, CT-… → order code,
+  // UUID → technical id. The predicate runs on the DISPLAYED values of the
+  // aggregated buyer row (a name query surfaces the participation name that
+  // matched), so the admin can never see a hit whose visible name lacks the
+  // query, and every row says why it matched.
   app.get("/api/admin/r6/buyers", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
-    const q = String(req.query?.q || "").trim().slice(0, 120);
+    const plan = classifyBuyerSearch(req.query?.q);
+    const rank = buyerNameRankSql(plan, "p", 1);
+    const predicate = buyerSearchPredicateSql(plan, "agg", 1 + rank.params.length);
     return deps.withTx(async (c) => {
       const rows = await c.query(
-        `SELECT p.buyer_id,
-                MAX(p.buyer_name) AS buyer_name,
-                MAX(p.buyer_phone) AS buyer_phone,
-                MAX(p.buyer_email) AS buyer_email,
-                COUNT(*)::int AS participations,
-                COUNT(DISTINCT p.deal_id)::int AS deals,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
-                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
-                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
-                COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
-                (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
-                (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
-                MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
-                MAX(p.created_at) AS last_join_at
-         FROM siton.participants p
-         JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%' OR p.buyer_phone ILIKE '%' || $1 || '%')
-         GROUP BY p.buyer_id
+        `WITH agg AS (
+           SELECT p.buyer_id,
+                  (ARRAY_AGG(p.buyer_name ORDER BY (p.buyer_name IS NOT NULL) DESC, ${rank.sql}p.created_at DESC))[1] AS buyer_name,
+                  (ARRAY_AGG(p.buyer_phone ORDER BY (p.buyer_phone IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_phone,
+                  (ARRAY_AGG(p.buyer_email ORDER BY (p.buyer_email IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_email,
+                  COUNT(*)::int AS participations,
+                  COUNT(DISTINCT p.deal_id)::int AS deals,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                  COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                    FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                  COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                  (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
+                  (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
+                  MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
+                  MAX(p.created_at) AS last_join_at
+           FROM siton.participants p
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           GROUP BY p.buyer_id
+         )
+         SELECT * FROM agg
+         WHERE ${predicate.sql}
          ORDER BY last_join_at DESC
          LIMIT 200`,
-        [q]
+        [...rank.params, ...predicate.params]
       );
       // Verification is REAL, never fabricated: a contact is verified ONLY if a
       // verified OTP challenge exists for its normalized-destination hash (same
@@ -11578,9 +11530,15 @@ export function registerFrontendExperience(
       const buyers = rows.rows.map((b: any) => ({
         ...b,
         email_verified: emailHashes.has(String(b.buyer_id)) && verified.has(`email:${emailHashes.get(String(b.buyer_id))}`),
-        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`)
+        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`),
+        match: plan.intent === "empty" ? null : { field: plan.intent, label_he: plan.match_label_he }
       }));
-      return { ok: true, buyers, contact_privacy: "admin_only" };
+      return {
+        ok: true,
+        buyers,
+        contact_privacy: "admin_only",
+        search: { intent: plan.intent, label_he: plan.label_he, normalized: plan.normalized, tokens: plan.tokens }
+      };
     });
   });
 
@@ -11911,12 +11869,21 @@ export function registerFrontendExperience(
   // legacy vanilla app stays reachable at /app for anyone who links to it
   // directly, but nobody who types the domain ends up in the wrong frontend.
   app.get("/", async (_req, reply) => reply.redirect("/preview/", 302));
+  // SPRINT 4 (A4) — the legal documents are rendered natively by the React
+  // product (#/legal/terms, #/legal/privacy, #/legal/refunds, …) from the ONE
+  // canonical source (src/legal_pages.ts) over this JSON projection. The
+  // direct legacy URLs (/legal/terms …) keep working: they redirect into the
+  // canonical React experience, so every old link, the legacy /app shell and
+  // the seller flows land on the same document.
+  app.get("/api/legal/:slug", async (req: any, reply) => {
+    const slug = String(req.params.slug || "");
+    if (!isLegalPageSlug(slug)) return reply.code(404).send({ ok: false, error: "legal page not found" });
+    return { ok: true, page: legalPageProjection(slug) };
+  });
   app.get("/legal/:slug", async (req: any, reply) => {
-    const slug = String(req.params.slug || "") as LegalPageSlug;
-    if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {
-      return reply.code(404).send({ ok: false, error: "legal page not found" });
-    }
-    return reply.type("text/html; charset=utf-8").send(renderLegalHtmlPage(slug));
+    const slug = String(req.params.slug || "");
+    if (!isLegalPageSlug(slug)) return reply.code(404).send({ ok: false, error: "legal page not found" });
+    return reply.header("cache-control", "no-store").redirect(`/preview/#/legal/${slug}`, 302);
   });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);

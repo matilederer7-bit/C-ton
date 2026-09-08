@@ -226,7 +226,7 @@ export function ViralPanel({ analytics, dealScope, navigate }: { analytics: Json
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>🌱 הפצה ויראלית</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>🌱 הפצה ויראלית (מצטבר — כל הזמן)</div>
         {dealScope ? (
           <button className="btn btn-sm btn-primary" data-testid="open-viral-tree" onClick={() => navigate(`#/seller/deal/${dealScope}/viral`)}>
             פתיחת העץ הוויראלי

@@ -5296,9 +5296,10 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       delivery_cost: deliveryCost,
       acquisition_source: acquisitionSource,
       hold_total: Number(qty) * Number(dealRow.rows[0].price_per_unit || 0) + deliveryCost,
+      // SPRINT 4 (A3): the public join reply carries the buyer's share identity
+      // only — the generation/tree position stays in seller/admin backstage.
       viral: {
         attributed: viralJoin.attributed,
-        generation: viralJoin.generation,
         personal_share_code: viralJoin.personal_share_code,
         personal_share_url: viralJoin.personal_share_code
           ? personalShareUrl(dealId, viralJoin.personal_share_code)

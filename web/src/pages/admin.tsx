@@ -7,7 +7,8 @@ import { AuthPanel } from "../auth";
 import { BrandLoader, Countdown, EmptyState, Modal, Spinner, StatTile, StatusPill, Toast, useToast } from "../components";
 import { BrandMark } from "../brand";
 import { PropagationTree } from "../propagation";
-import { buyerStateLabel, fmtDate, ils, moneyStateLabel, NOTIFICATION_STATUS_LABELS, num, pct, stateLabel, timeAgo } from "../util";
+import { buyerStateLabel, fmtDate, ils, israelPartsToUtcIso, moneyStateLabel, NOTIFICATION_STATUS_LABELS, num, pct, stateLabel, timeAgo } from "../util";
+import { DEFAULT_GROWTH_RANGE, GROWTH_RANGE_PRESETS, growthRangeLabel, growthRangeParams, validateCustomRange, type GrowthRange } from "../growthRange";
 
 // ── login (the shared truthful auth panel + server-side admin verification) ─
 function AdminLogin({ onDone }: { onDone: () => void }) {
@@ -858,10 +859,16 @@ function VerifyBadge({ value, label }: { value: boolean; label: string }) {
   return <span className={`vbadge ${value ? "ok" : "no"}`} title={value ? `${label} מאומת` : `${label} לא מאומת`}>{value ? "✓" : "○"} {label}</span>;
 }
 
+// SPRINT 4 (A6) — the search is intent-sensitive (letters → name, digits →
+// phone, @ → e-mail, CT-… → order code, UUID → id) and every row says why it
+// matched. Typing is debounced so the roster does not flicker per keystroke.
 function BuyersScreen() {
+  const [typed, setTyped] = useState("");
   const [q, setQ] = useState("");
+  useEffect(() => { const id = setTimeout(() => setQ(typed.trim()), 250); return () => clearTimeout(id); }, [typed]);
   const { data, error } = useFetch(() => api.adminBuyers(q), [q]);
   const buyers: Json[] = (data as Json)?.buyers || [];
+  const search = ((data as Json)?.search || {}) as Json;
   const totalCharged = buyers.reduce((s, b) => s + Number(b.charged_gross || 0), 0);
   const totalUnitsCharged = buyers.reduce((s, b) => s + Number(b.units_charged || 0), 0);
   const inRecovery = buyers.reduce((s, b) => s + Number(b.in_recovery || 0), 0);
@@ -877,23 +884,31 @@ function BuyersScreen() {
           <StatTile num={num(inRecovery)} label="בהשלמת חיוב" tone={inRecovery > 0 ? "warn" : undefined} />
         </div>
       ) : null}
-      <input placeholder="חיפוש שם / טלפון / אימייל…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
+      <div className="stack" style={{ gap: 4, marginBottom: 14, maxWidth: 420 }}>
+        <input data-testid="buyer-search" placeholder="שם (אותיות) · טלפון (ספרות) · אימייל · קוד הזמנה CT-…" value={typed} onChange={(e) => setTyped(e.target.value)} />
+        {q && search.label_he ? (
+          <span className="small muted" data-testid="buyer-search-intent" data-intent={String(search.intent || "")}>{String(search.label_he)}</span>
+        ) : (
+          <span className="small muted">אותיות מחפשות בשם בלבד; ספרות בטלפון; @ באימייל; CT-1234-5678 בקוד הזמנה.</span>
+        )}
+      </div>
       <Err msg={error} />
       {!data ? <Spinner /> : buyers.length === 0 ? (
-        <EmptyState icon="👤" title="אין קונים תואמים" body={q ? "נסו חיפוש אחר." : "עדיין אין השתתפויות במערכת."} />
+        <EmptyState icon="👤" title="אין קונים תואמים" body={q ? `לא נמצאה ${String(search.match_label_he || search.label_he || "התאמה").replace("חיפוש לפי", "התאמה ב")} עבור ״${q}״.` : "עדיין אין השתתפויות במערכת."} />
       ) : (
         <div className="table-wrap">
           <table className="data">
             <thead><tr>
-              <th>שם</th><th>טלפון</th><th>אימייל</th><th>אימות</th>
+              <th>שם</th>{q ? <th>התאמה</th> : null}<th>טלפון</th><th>אימייל</th><th>אימות</th>
               <th className="num">השת׳</th><th className="num">עסקאות</th>
               <th className="num">יח׳ הצטרפו</th><th className="num">יח׳ חויבו</th><th className="num">נגבה ₪</th>
               <th>סטטוס קונה</th><th>סטטוס כסף</th><th>פעילות אחרונה</th>
             </tr></thead>
             <tbody>
               {buyers.map((b: Json) => (
-                <tr key={b.buyer_id}>
-                  <td>{b.buyer_name || "—"}</td>
+                <tr key={b.buyer_id} data-testid="buyer-row" data-buyer-name={String(b.buyer_name || "")}>
+                  <td data-testid="buyer-row-name">{b.buyer_name || "—"}</td>
+                  {q ? <td><span className="status small" data-testid="buyer-row-match">{String((b.match as Json)?.label_he || "—")}</span></td> : null}
                   <td dir="ltr">{b.buyer_phone || (String(b.buyer_id).match(/^[0-9+]/) ? b.buyer_id : "—")}</td>
                   <td dir="ltr" className="small">{b.buyer_email || <span className="muted">—</span>}</td>
                   <td><VerifyBadge value={Boolean(b.phone_verified)} label="טלפון" /> <VerifyBadge value={Boolean(b.email_verified)} label="מייל" /></td>
@@ -926,68 +941,138 @@ function MoneyPill({ state, recovery }: { state: string; recovery: number }) {
 }
 
 // ── growth (global virality) ───────────────────────────────────────────────
+// SPRINT 4 (A8) — WINDOWED virality. The selected range (default 7 days;
+// 7 / 30 / 90 / custom Israel-local days / all time) drives the actual
+// numbers; the lifetime rollup is a separate block labelled as lifetime so no
+// card silently mixes windows.
 function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
-  const { data, error } = useFetch(() => api.adminGrowth(), [], 60_000);
-  if (error) return <Err msg={error} />;
-  if (!data) return <Spinner />;
-  const platform = (data as Json).platform?.metrics as Json | null;
-  const last7 = (data as Json).last_7_days || {};
+  const [range, setRange] = useState<GrowthRange>(DEFAULT_GROWTH_RANGE);
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customError, setCustomError] = useState("");
+  const params = useMemo(() => growthRangeParams(range, israelPartsToUtcIso), [range]);
+  const { data, error } = useFetch(() => api.adminGrowth(params), [params], 60_000);
+  const applyCustom = () => {
+    const problem = validateCustomRange(customFrom, customTo);
+    setCustomError(problem || "");
+    if (!problem) setRange({ kind: "custom", from: customFrom, to: customTo });
+  };
+  const w = ((data as Json)?.windowed || null) as Json | null;
+  const lifetime = ((data as Json)?.lifetime?.metrics || (data as Json)?.platform?.metrics || null) as Json | null;
+  const windowLabel = growthRangeLabel(range);
   return (
     <>
-      <h1>צמיחה וויראליות</h1>
-      {!platform ? <p className="muted">עדיין אין נתוני ויראליות מצטברים — הם יחושבו אוטומטית אחרי הצטרפויות.</p> : (
+      <h1>ויראליות</h1>
+      <div className="panel" data-testid="growth-range">
+        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <span className="small muted">טווח זמן:</span>
+          {GROWTH_RANGE_PRESETS.map((p) => (
+            <button key={p.days} type="button" className={`chip-btn${range.kind === "days" && range.days === p.days ? " active" : ""}`}
+              data-testid={`growth-range-${p.days}`} onClick={() => { setCustomOpen(false); setRange({ kind: "days", days: p.days }); }}>
+              {p.label}
+            </button>
+          ))}
+          <button type="button" className={`chip-btn${range.kind === "custom" || customOpen ? " active" : ""}`} data-testid="growth-range-custom"
+            onClick={() => setCustomOpen((v) => !v)}>טווח מותאם</button>
+          <button type="button" className={`chip-btn${range.kind === "all" ? " active" : ""}`} data-testid="growth-range-all"
+            onClick={() => { setCustomOpen(false); setRange({ kind: "all" }); }}>כל הזמן</button>
+        </div>
+        {customOpen ? (
+          <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }} data-testid="growth-custom-range">
+            <div className="field" style={{ marginBottom: 0, flex: "1 1 150px" }}>
+              <label>מתאריך</label>
+              <input type="date" dir="ltr" data-testid="growth-custom-from" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
+            </div>
+            <div className="field" style={{ marginBottom: 0, flex: "1 1 150px" }}>
+              <label>עד תאריך</label>
+              <input type="date" dir="ltr" data-testid="growth-custom-to" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
+            </div>
+            <button type="button" className="btn btn-sm btn-primary" data-testid="growth-custom-apply" onClick={applyCustom}>הצגה</button>
+            {customError ? <span className="small" style={{ color: "var(--pomegranate)", flexBasis: "100%" }} data-testid="growth-custom-error">{customError}</span> : null}
+            <span className="hint" style={{ flexBasis: "100%" }}>ימים שלמים לפי שעון ישראל.</span>
+          </div>
+        ) : null}
+        <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }} data-testid="growth-window-label" data-window-kind={range.kind}>
+          מוצג: <b>{windowLabel}</b>
+        </p>
+      </div>
+      {error ? <Err msg={error} /> : null}
+      {!data ? <Spinner /> : null}
+      {w ? (
         <>
-          <div className="stat-row">
-            <StatTile num={String(platform.viral_coefficient ?? 0)} label="מקדם ויראלי פלטפורמתי" />
-            <StatTile num={pct(platform.viral_share_of_joins || 0)} label="שיעור הצטרפויות משיתוף" />
-            <StatTile num={pct(platform.viral_share_of_charged || 0)} label="שיעור חיובים מוצלחים משיתוף" />
-            <StatTile num={ils(platform.attributed_charged_gmv || 0)} label="GMV מחויב שמקורו בשיתוף" tone="good" />
-            <StatTile num={num(platform.attributed_charged_units || 0)} label="יחידות מחויבות משיתוף" />
-            <StatTile num={num(platform.max_generation || 0)} label="עומק שרשרת מקסימלי" />
+          <div className="stat-row" data-testid="growth-windowed">
+            <StatTile num={num(w.joins || 0)} label={`הצטרפויות (${windowLabel})`} />
+            <StatTile num={num(w.attributed_joins || 0)} label="הצטרפויות משיתוף" tone="good" />
+            <StatTile num={String(w.viral_coefficient ?? 0)} label="מקדם ויראלי בטווח" />
+            <StatTile num={pct(w.viral_share_of_joins || 0)} label="שיעור הצטרפויות משיתוף" />
+            <StatTile num={ils(w.attributed_charged_gmv || 0)} label="GMV מחויב שמקורו בשיתוף" tone="good" />
+            <StatTile num={num(w.attributed_charged_units || 0)} label="יחידות מחויבות משיתוף" />
           </div>
           <div className="stat-row">
-            <StatTile num={num(platform.personal_links || 0)} label="לינקים אישיים שנוצרו" />
-            <StatTile num={num(platform.sharing_participants || 0)} label="משתתפים שהביאו חברים" />
-            <StatTile num={num(platform.share_clicks || 0)} label="לחיצות שיתוף" />
-            <StatTile num={num(platform.link_entries || 0)} label="כניסות מלינקים" />
-            <StatTile num={num(last7.attributed_joins || 0)} label="הצטרפויות ויראליות (7 ימים)" />
+            <StatTile num={num(w.personal_links || 0)} label="לינקים אישיים שנוצרו" />
+            <StatTile num={num(w.sharing_participants || 0)} label="משתתפים שהביאו חברים" />
+            <StatTile num={num(w.share_button_clicks || 0)} label="לחיצות על כפתור שיתוף" />
+            <StatTile num={num(w.link_entries || 0)} label="כניסות מלינקים" />
+            <StatTile num={num(w.deal_views || 0)} label="צפיות בעסקאות" />
+            <StatTile num={num(w.max_generation || 0)} label="עומק שרשרת בטווח" />
           </div>
-          {(platform.top_deals as Json[])?.length ? (
+          {(w.top_deals as Json[])?.length ? (
             <div className="panel">
-              <div className="panel-title">עסקאות מובילות בויראליות</div>
+              <div className="panel-title">עסקאות מובילות בויראליות ({windowLabel})</div>
               <div className="table-wrap"><table className="data">
-                <thead><tr><th>עסקה</th><th className="num">הצטרפויות משיתוף</th><th className="num">יח׳ מחויבות</th><th className="num">GMV מחויב</th><th className="num">שיעור ויראלי</th><th className="num">עומק</th></tr></thead>
-                <tbody>{(platform.top_deals as Json[]).map((t) => (
+                <thead><tr><th>עסקה</th><th className="num">הצטרפויות משיתוף</th><th className="num">יח׳ מחויבות</th><th className="num">GMV מחויב</th><th className="num">עומק</th></tr></thead>
+                <tbody>{(w.top_deals as Json[]).map((t) => (
                   <tr key={t.deal_id} className="clickable" onClick={() => navigate(`#/admin/deal/${t.deal_id}`)}>
                     <td><b>{t.deal_title || t.deal_id}</b></td>
                     <td className="num">{num(t.attributed_participants)}</td>
                     <td className="num">{num(t.attributed_charged_units)}</td>
                     <td className="num">{ils(t.attributed_charged_gmv)}</td>
-                    <td className="num">{pct(t.viral_share_of_joins)}</td>
                     <td className="num">{num(t.max_generation)}</td>
                   </tr>
                 ))}</tbody>
               </table></div>
             </div>
-          ) : null}
-          {(platform.top_sellers as Json[])?.length ? (
+          ) : <p className="muted small" data-testid="growth-window-empty">אין הצטרפויות משיתוף בטווח שנבחר.</p>}
+          {(w.top_sellers as Json[])?.length ? (
             <div className="panel">
-              <div className="panel-title">מוכרים מובילים בויראליות</div>
+              <div className="panel-title">מוכרים מובילים בויראליות ({windowLabel})</div>
               <div className="table-wrap"><table className="data">
-                <thead><tr><th>מוכר</th><th className="num">הצטרפויות משיתוף</th><th className="num">GMV מחויב משיתוף</th><th className="num">שיעור ויראלי</th></tr></thead>
-                <tbody>{(platform.top_sellers as Json[]).map((t) => (
+                <thead><tr><th>מוכר</th><th className="num">הצטרפויות משיתוף</th><th className="num">GMV מחויב משיתוף</th><th className="num">עסקאות</th></tr></thead>
+                <tbody>{(w.top_sellers as Json[]).map((t) => (
                   <tr key={t.seller_id} className="clickable" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(t.seller_id)}`)}>
-                    <td><b>{t.seller_id}</b></td>
+                    <td><b>{t.seller_name || t.seller_id}</b></td>
                     <td className="num">{num(t.attributed_participants)}</td>
                     <td className="num">{ils(t.attributed_charged_gmv)}</td>
-                    <td className="num">{pct(t.viral_share_of_joins)}</td>
+                    <td className="num">{num(t.deals)}</td>
                   </tr>
                 ))}</tbody>
               </table></div>
             </div>
           ) : null}
         </>
-      )}
+      ) : null}
+      {data ? (
+        <div className="panel" data-testid="growth-lifetime">
+          <div className="panel-title">מצטבר מאז ההשקה (כל הזמן)</div>
+          {!lifetime ? <p className="muted small">עדיין אין נתוני ויראליות מצטברים — הם יחושבו אוטומטית אחרי הצטרפויות.</p> : (
+            <>
+              <div className="stat-row">
+                <StatTile num={String(lifetime.viral_coefficient ?? 0)} label="מקדם ויראלי (כל הזמן)" />
+                <StatTile num={pct(lifetime.viral_share_of_joins || 0)} label="שיעור הצטרפויות משיתוף (כל הזמן)" />
+                <StatTile num={pct(lifetime.viral_share_of_charged || 0)} label="שיעור חיובים משיתוף (כל הזמן)" />
+                <StatTile num={ils(lifetime.attributed_charged_gmv || 0)} label="GMV מחויב משיתוף (כל הזמן)" />
+                <StatTile num={num(lifetime.max_generation || 0)} label="עומק שרשרת מקסימלי (כל הזמן)" />
+              </div>
+              {(data as Json)?.lifetime?.computed_at ? (
+                <p className="muted small" style={{ marginBottom: 0 }}>
+                  חושב לאחרונה: {fmtDate(String((data as Json).lifetime.computed_at))}{(data as Json).lifetime.stale ? " · ממתין לחישוב מחדש" : ""}
+                </p>
+              ) : null}
+            </>
+          )}
+        </div>
+      ) : null}
     </>
   );
 }
@@ -1516,7 +1601,7 @@ function SystemScreen() {
 const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
   { label: "", items: [["overview", "תמונת מצב"]] },
   { label: "מסחר", items: [["deals", "עסקאות"], ["sellers", "מוכרים"], ["buyers", "קונים"]] },
-  { label: "צמיחה", items: [["growth", "צמיחה וויראליות"]] },
+  { label: "צמיחה", items: [["growth", "ויראליות"]] },
   { label: "תפעול", items: [["operations", "תור ו-Worker"], ["payments", "תשלומים"], ["notifications", "התראות"], ["support", "תמיכה"]] },
   { label: "מערכת", items: [["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
 ];

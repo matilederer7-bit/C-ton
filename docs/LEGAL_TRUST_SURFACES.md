@@ -39,14 +39,16 @@ Refunds are system-mandated only. Seller-buyer disputes can be recorded as suppo
 
 ## Footer Links
 
-The Hebrew footer links the four legal surfaces:
+The canonical React product (Sprint 4, A4) renders the documents natively from the ONE content source (`src/legal_pages.ts`) over `GET /api/legal/:slug`:
 
-- Terms (`/app/terms`)
-- Privacy (`/app/privacy`)
-- Refund policy (`/app/refunds`)
-- Contact (`/app/contact`)
+- Terms (`#/legal/terms`)
+- Privacy (`#/legal/privacy`)
+- Refund policy (`#/legal/refunds`)
+- Support (`#/support`)
 
-`tests/legal_trust_validation.ts` asserts that those routes are registered as part of the `app` shell so the footer links never 404.
+The direct URLs `/legal/terms`, `/legal/privacy`, `/legal/refunds` (and the other slugs) redirect (302) into the React route, so old links, the legacy `/app` shell and the seller flows all land on the same document. The legacy shell still registers `/app/terms`, `/app/privacy`, `/app/refunds`, `/app/contact`.
+
+`tests/legal_trust_validation.ts` and `tests/legal_trust_layer_validation.ts` assert the redirect, the JSON projection for all seven slugs and the React footer links so nothing 404s.
 
 ## Accessibility
 
