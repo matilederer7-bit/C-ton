@@ -13,7 +13,7 @@ const [bridge, app, css, worker, manifestRaw, androidManifest, androidGradle, an
   readFile("ios/App/App/App.entitlements", "utf8"),
   readFile("ios/App/CapApp-SPM/Package.swift", "utf8"),
   readFile("capacitor.config.ts", "utf8"),
-  readFile(".mobile_dist/app/index.html", "utf8")
+  readFile(".mobile_dist/preview/index.html", "utf8")
 ]);
 
 const manifest = JSON.parse(manifestRaw);

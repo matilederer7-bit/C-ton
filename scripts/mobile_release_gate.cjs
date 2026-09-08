@@ -1,86 +1,76 @@
-const fs = require("node:fs");
-
-function read(file) { return fs.readFileSync(file, "utf8"); }
-function assert(condition, message) { if (!condition) throw new Error(`MOBILE_GATE_FAIL ${message}`); }
-
-for (const file of [
-  "capacitor.config.ts",
-  ".mobile_dist/mobile-build.json",
-  ".mobile_dist/app/index.html",
-  ".mobile_dist/app/assets/app.js",
-  ".mobile_dist/app/assets/mobile-bridge.js",
-  "frontend/manifest.webmanifest",
-  "frontend/service-worker.js",
-  "frontend/mobile-bridge.js",
-  "android/gradlew",
-  "android/app/src/main/AndroidManifest.xml",
-  "android/app/build.gradle",
-  "android/app/src/androidTest/java/il/co/siton/app/SitonInstrumentedTest.java",
-  "android/app/src/main/res/xml/network_security_config.xml",
-  "ios/App/App.xcodeproj/project.pbxproj",
-  "ios/App/CapApp-SPM/Package.swift",
-  "ios/App/App/Info.plist",
-  "ios/App/App/App.entitlements",
-  "mobile-plugins/siton-secure-storage/android/src/main/java/il/co/siton/securestorage/SitonSecureStoragePlugin.java",
-  "mobile-plugins/siton-secure-storage/ios/Sources/SitonSecureStoragePlugin/SitonSecureStoragePlugin.swift"
-]) assert(fs.existsSync(file), `${file} missing`);
-
-const manifest = JSON.parse(read("frontend/manifest.webmanifest"));
-assert(manifest.display === "standalone", "PWA display must be standalone");
-assert(manifest.dir === "rtl" && manifest.lang === "he-IL", "PWA Hebrew RTL contract missing");
-assert(Array.isArray(manifest.icons) && manifest.icons.some((icon) => String(icon.purpose).includes("maskable") && icon.sizes === "512x512"), "512px maskable icon missing");
-const pngMagic = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-for (const icon of manifest.icons) {
-  assert(icon.type === "image/png" && String(icon.src).endsWith(".png"), `PWA icon MIME/path mismatch: ${icon.src}`);
-  const iconPath = String(icon.src).replace(/^\/app\//, "frontend/");
-  assert(fs.existsSync(iconPath), `PWA icon file missing: ${iconPath}`);
-  assert(fs.readFileSync(iconPath).subarray(0, pngMagic.length).equals(pngMagic), `PWA icon bytes are not PNG: ${iconPath}`);
+﻿const fs=require('node:fs');
+const path=require('node:path');
+const assert=require('node:assert/strict');
+const {parseStringPromise}=require('xml2js');
+const plist=require('plist');
+const {loadConfig}=require('@capacitor/cli/dist/config');
+const {verifyBundle,hash}=require('./mobile_bundle_contract.cjs');
+const read=p=>fs.readFileSync(p,'utf8');
+async function gate() {
+  assert(fs.existsSync('capacitor.config.ts'),'Capacitor config missing');
+  const config=(await loadConfig()).app.extConfig;
+  assert.equal(config.webDir,'.mobile_dist');
+  assert.equal(config.server.appStartPath,'/preview/');
+  assert(!config.server.url,'Hosted runtime override forbidden');
+  assert.equal(config.server.cleartext,false);
+  assert.deepEqual(config.server.allowNavigation,[]);
+  assert.equal(config.android.allowMixedContent,false);
+  assert.notEqual(config.android.webContentsDebuggingEnabled,true);
+  const bundle=verifyBundle('.mobile_dist');
+  for(const dir of ['android/app/src/main/assets','ios/App/App']) {
+    const native=JSON.parse(read(dir+'/capacitor.config.json'));
+    assert.equal(native.appId,config.appId);
+    assert.deepEqual(native.server,config.server,'Native config stale');
+    assert.deepEqual(native.android,config.android,'Native Android settings stale');
+    assert.deepEqual(native.plugins,config.plugins,'Native plugins stale');
+    assert.deepEqual(JSON.parse(read(dir+'/public/mobile-build.json')),bundle,'Native manifest stale');
+    for(const [file,digest] of Object.entries(bundle.files)) assert.equal(hash(fs.readFileSync(path.join(dir,'public',file))),digest,'Native asset stale: '+file);
+    assert(!fs.existsSync(dir+'/public/app'),'Legacy runtime remains in native assets');
+  }
+  const xml=await parseStringPromise(read('android/app/src/main/AndroidManifest.xml'));
+  const app=xml.manifest.application[0];
+  assert.equal(app.$['android:allowBackup'],'false');
+  assert.equal(app.$['android:usesCleartextTraffic'],'false');
+  assert.notEqual(app.$['android:debuggable'],'true');
+  const permissions=xml.manifest['uses-permission'].map(p=>p.$['android:name']);
+  for(const p of ['INTERNET','CAMERA','ACCESS_COARSE_LOCATION','ACCESS_FINE_LOCATION']) assert(permissions.includes('android.permission.'+p),'Missing permission '+p);
+  for(const p of permissions) assert(!/BACKGROUND_LOCATION|READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|READ_MEDIA/.test(p),'Unnecessary broad permission');
+  const activity=app.activity[0];
+  assert.equal(activity.$['android:exported'],'true');
+  assert(activity['intent-filter'].some(f=>f.$?.['android:autoVerify']==='true' && f.data?.some(d=>d.$['android:pathPrefix']==='/preview/' && d.$['android:host']==='${sitonAppLinkHost}')));
+  for(const provider of app.provider||[]) assert.equal(provider.$['android:exported'],'false');
+  const paths=(await parseStringPromise(read('android/app/src/main/res/xml/file_paths.xml'))).paths;
+  assert(!paths['external-path'] && !paths['root-path'],'Broad file provider exposure');
+  const network=(await parseStringPromise(read('android/app/src/main/res/xml/network_security_config.xml')))['network-security-config'];
+  assert.equal(network['base-config'][0].$.cleartextTrafficPermitted,'false');
+  assert(!network['domain-config'] && !network['debug-overrides'],'Unreviewed network override');
+  const info=plist.parse(read('ios/App/App/Info.plist'));
+  for(const key of ['NSLocationWhenInUseUsageDescription','NSCameraUsageDescription','NSPhotoLibraryUsageDescription']) assert(typeof info[key]==='string' && info[key].trim(),'Missing iOS usage '+key);
+  assert(!info.NSAppTransportSecurity,'Unreviewed ATS exception');
+  assert.equal(info.CFBundleVersion,'$(CURRENT_PROJECT_VERSION)');
+  const ent=plist.parse(read('ios/App/App/App.entitlements'));
+  assert(ent['com.apple.developer.associated-domains'].includes('applinks:$(SITON_APP_LINK_HOST)'));
+  const gradle=read('android/app/build.gradle');
+  assert(/versionCode\s+1\b/.test(gradle),'Version code drift (update reviewed release metadata)');
+  assert(/versionName\s+"1.0"/.test(gradle),'Version name drift');
+  assert(/release\s*\{\s*debuggable false/.test(gradle),'Release debugging must be explicitly disabled');
+  assert(!/debuggable\s*(?:=\s*)?true|signingConfig\s+signingConfigs.debug/.test(gradle),'Unsafe release config');
+  const project=read('ios/App/App.xcodeproj/project.pbxproj');
+  assert.equal((project.match(/CURRENT_PROJECT_VERSION = 1;/g)||[]).length,2,'iOS build number drift');
+  assert.equal((project.match(/MARKETING_VERSION = 1.0;/g)||[]).length,2,'iOS version drift');
+  for(const file of ['android/gradlew','android/gradlew.bat','android/gradle/wrapper/gradle-wrapper.jar','ios/App/CapApp-SPM/Package.swift']) assert(fs.existsSync(file),file+' missing');
+  assert(!/path:\s*"[^"\n]*\\/.test(read('ios/App/CapApp-SPM/Package.swift')),'SwiftPM Windows path');
+  for(const [file] of Object.entries(bundle.files)) {
+    if(!/\.(?:js|html|json|css)$/.test(file)) continue;
+    const text=read('.mobile_dist/'+file);
+    assert(!/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk_live_|sb_secret_)[A-Za-z0-9_-]+|AKIA[A-Z0-9]{16}/.test(text),'Secret pattern in '+file);
+  }
+  if(process.argv.includes('--release')) {
+    assert(!bundle.placeholder_configuration,'Release endpoints not configured');
+    assert(!/staging|onrender|localhost|127\.0\.0\.1/i.test(bundle.api_origin),'Staging endpoint in production release');
+    assert(!config.appId.endsWith('.preview'),'Release identifier is placeholder');
+  }
+  console.log('MOBILE_GATE_PASS canonical hashes, synced assets, parsed permissions/security, versions, bundled secret patterns; device behavior NOT certified');
 }
-const worker = read("frontend/service-worker.js");
-for (const forbidden of ["/api/", "/deals/", "/payment", "/track/", "/recovery/"]) assert(worker.includes(forbidden), `financial/offline cache exclusion missing: ${forbidden}`);
-const bridge = read("frontend/mobile-bridge.js");
-for (const capability of ["Share", "Camera", "PushNotifications", "Network", "Browser", "appUrlOpen", "SitonSecureStorage"]) assert(bridge.includes(capability), `mobile capability missing: ${capability}`);
-assert(bridge.includes("hosted_payment_https_required"), "hosted payments must require HTTPS");
-assert(!/localStorage|sessionStorage/.test(bridge), "mobile bridge must not persist secrets in web storage");
-assert(bridge.includes("apiBaseUrl") && bridge.includes("siton-api-base-url"), "native API origin boundary missing");
-assert(bridge.includes("appLinkHost") && bridge.includes("siton-app-link-host"), "native App Link host boundary missing");
-assert(bridge.includes("secure_storage_key_invalid") && bridge.includes("65_536"), "web-to-native secure-storage bounds missing");
-const app = read("frontend/app.js");
-for (const integration of [
-  "resolveApiUrl", "native_api_base_url_not_configured", "credentials: \"include\"",
-  "persistNativePendingPayment", "restoreNativePendingPayment", "clearNativePendingPayment",
-  "captureNativeSellerImage", "SitonMobile.shareDeal", "configuredAppLinkHost"
-]) assert(app.includes(integration), `native app integration missing: ${integration}`);
-const androidSecure = read("mobile-plugins/siton-secure-storage/android/src/main/java/il/co/siton/securestorage/SitonSecureStoragePlugin.java");
-assert(androidSecure.includes("AndroidKeyStore") && androidSecure.includes("AES/GCM/NoPadding"), "Android Keystore AES-GCM implementation missing");
-assert(androidSecure.includes("MAX_VALUE_BYTES") && androidSecure.includes("requiredKey"), "Android secure-storage input bounds missing");
-const iosSecure = read("mobile-plugins/siton-secure-storage/ios/Sources/SitonSecureStoragePlugin/SitonSecureStoragePlugin.swift");
-assert(iosSecure.includes("SecItemAdd") && iosSecure.includes("kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly"), "iOS Keychain device-only implementation missing");
-assert(iosSecure.includes("maxValueBytes") && iosSecure.includes("regularExpression"), "iOS secure-storage input bounds missing");
-assert(fs.existsSync("android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png"), "Android release icon missing");
-assert(fs.existsSync("ios/App/App/Assets.xcassets/AppIcon.appiconset/AppIcon-512@2x.png"), "iOS store icon missing");
-const androidManifest = read("android/app/src/main/AndroidManifest.xml");
-assert(androidManifest.includes('android:autoVerify="true"') && androidManifest.includes('${sitonAppLinkHost}'), "Android App Link host must be build-configured");
-assert(androidManifest.includes('android:usesCleartextTraffic="false"'), "Android cleartext traffic must be blocked");
-const entitlements = read("ios/App/App/App.entitlements");
-assert(entitlements.includes("applinks:$(SITON_APP_LINK_HOST)"), "iOS universal-link host must be build-configured");
-const capacitor = read("capacitor.config.ts");
-assert(capacitor.includes("process.env.SITON_APP_ID") && capacitor.includes("il.co.siton.preview"), "bundle identifier must use a documented placeholder/config boundary");
-assert(capacitor.includes('webDir: ".mobile_dist"') && capacitor.includes('appStartPath: "/app"'), "Capacitor must load the purpose-built /app mobile bundle");
-assert(/CapacitorHttp:\s*\{\s*enabled:\s*true/s.test(capacitor) && /CapacitorCookies:\s*\{\s*enabled:\s*true/s.test(capacitor), "native HTTP/cookie bridges must be enabled");
-const mobileIndex = read(".mobile_dist/app/index.html");
-assert(!/__([A-Z0-9_]+)__/.test(mobileIndex), "mobile bundle contains unresolved placeholders");
-assert(mobileIndex.includes('name="siton-api-base-url"') && mobileIndex.includes('name="siton-app-link-host"'), "mobile bundle runtime endpoints missing");
-const mobileBuild = JSON.parse(read(".mobile_dist/mobile-build.json"));
-assert(mobileBuild.schema_version === 1 && typeof mobileBuild.api_origin === "string" && typeof mobileBuild.app_link_host === "string", "mobile build manifest invalid");
-const androidGradle = read("android/app/build.gradle");
-assert(/namespace\s*=\s*"il\.co\.siton\.app"/.test(androidGradle), "Android namespace must remain stable independently of release applicationId");
-const androidTest = read("android/app/src/androidTest/java/il/co/siton/app/SitonInstrumentedTest.java");
-assert(androidTest.includes("BuildConfig.APPLICATION_ID") && !androidTest.includes("com.getcapacitor"), "Android instrumented test package identity is stale");
-const swiftPackage = read("ios/App/CapApp-SPM/Package.swift");
-assert(!/\.package\(name:[^\n]*path:\s*"[^"]*\\/.test(swiftPackage), "SwiftPM local dependency contains Windows path separators");
-const ignores = `${read(".gitignore")}\n${read("android/.gitignore")}`;
-for (const signingArtifact of ["*.jks", "*.keystore", "*.p12", "*.mobileprovision", "GoogleService-Info.plist", "google-services.json"]) {
-  assert(ignores.includes(signingArtifact), `signing/local artifact is not ignored: ${signingArtifact}`);
-}
-console.log(`MOBILE_GATE_PASS pwa=ready android_project=ready ios_project=ready native_capabilities=8 secure_storage=keystore+keychain app_links=configured external_placeholders=${mobileBuild.placeholder_configuration ? "pending" : "configured"}`);
+module.exports={gate};
+if(require.main===module) gate().catch(e=>{console.error('MOBILE_GATE_FAIL '+e.message);process.exitCode=1;});

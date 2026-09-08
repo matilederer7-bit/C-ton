@@ -107,12 +107,12 @@
     "test:grow-adapter": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/grow_payment_adapter_validation.js",
     "test:synthetic-money": "node scripts/run_launch_rehearsal.cjs",
     "test:launch-rehearsal": "node scripts/run_launch_rehearsal.cjs",
-    "test:mobile-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mobile_readiness_validation.js",
+    "test:mobile-readiness": "node scripts/mobile_readiness_tests.cjs",
     "mobile:build": "node scripts/build_mobile_bundle.cjs",
     "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
-    "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
+    "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize && npm run mobile:verify",
     "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\"",
-    "mobile:verify": "npm run mobile:build && npm run mobile:normalize && node scripts/mobile_release_gate.cjs",
+    "mobile:verify": "node scripts/mobile_release_gate.cjs",
     "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs"
   },
   "engines": {

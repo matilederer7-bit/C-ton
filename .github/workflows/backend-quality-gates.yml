@@ -93,7 +93,9 @@ jobs:
         run: npm run gate:architecture 2>&1 | tee .ci-artifacts/architecture-gate.log
 
       - name: PWA and native shell contract
-        run: npm run mobile:verify 2>&1 | tee .ci-artifacts/mobile-gate.log
+        run: |
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
+          npm run mobile:sync 2>&1 | tee .ci-artifacts/mobile-gate.log
 
       - name: Diff whitespace gate
         run: git diff --check HEAD^ HEAD 2>&1 | tee .ci-artifacts/git-diff-check.log

@@ -8,8 +8,7 @@ const config: CapacitorConfig = {
     androidScheme: "https",
     cleartext: false,
     allowNavigation: [],
-    appStartPath: "/app",
-    errorPath: "app/offline.html"
+    appStartPath: "/preview/"
   },
   android: {
     allowMixedContent: false,

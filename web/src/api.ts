@@ -1,3 +1,4 @@
+import { publicWebOrigin } from "./mobileUrls";
 // Same-origin API client for the canonical Fastify service.
 //
 // ONE Supabase session (access + refresh token, see session.ts) may carry more
@@ -182,7 +183,7 @@ export const api = {
 export interface SupabaseCfg { supabase_url: string; supabase_anon_key: string }
 
 function authRedirectTo(): string {
-  return `${window.location.origin}/preview/`;
+  return `${publicWebOrigin()}/preview/`;
 }
 
 async function authPost(cfg: SupabaseCfg, path: string, payload: Json): Promise<{ res: Response; body: Json }> {
