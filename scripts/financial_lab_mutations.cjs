@@ -242,7 +242,7 @@ for (const m of toRun) {
     const eol = current.includes("\r\n") ? "\r\n" : "\n";
     const from = normalizeEol(e.from, eol);
     if (!current.includes(from)) { console.error(`  ANCHOR_MISSING while applying ${m.id} to ${e.file}`); process.exit(3); }
-    fs.writeFileSync(e.file, current.replace(from, normalizeEol(e.to, eol)));
+    fs.writeFileSync(e.file, current.replace(from, () => normalizeEol(e.to, eol)));
   }
   console.log(`\n[${m.id}] applied to ${edits.map((e) => e.file).join(", ")} — ${m.invariant}`);
   const suiteResults = [];
@@ -254,7 +254,7 @@ for (const m of toRun) {
       if (reportPath) { fs.mkdirSync(path.dirname(reportPath), { recursive: true }); fs.writeFileSync(path.join(path.dirname(reportPath), `${m.id}-${pattern}.log`), out); }
       const summary = (out.match(/^SUMMARY .*$/gm) || []).slice(-1)[0] || "";
       const compileFailed = /error TS\d+/.test(out);
-      const status = run.status === 0 ? "GREEN" : compileFailed ? "COMPILE_ERROR" : "RED";
+      const status = run.status === 0 ? "GREEN" : compileFailed ? "COMPILE_ERROR" : !/^TEST_FAIL file=/m.test(out) ? "SETUP_ERROR" : "RED";
       suiteResults.push({ group, pattern, status, summary, seconds: Math.round((Date.now() - startedAt) / 1000) });
       console.log(`  ${pattern}: ${status} (${Math.round((Date.now() - startedAt) / 1000)}s) ${summary}`);
       if (status === "RED") break;
@@ -271,9 +271,9 @@ for (const m of toRun) {
     }
   }
   const caught = suiteResults.some((s) => s.status === "RED");
-  const compileError = suiteResults.some((s) => s.status === "COMPILE_ERROR");
-  results.push({ id: m.id, invariant: m.invariant, outcome: caught ? "CAUGHT" : compileError ? "COMPILE_ERROR" : "SURVIVED", suites: suiteResults });
-  console.log(`  => ${caught ? "CAUGHT" : compileError ? "COMPILE_ERROR (mutation invalid, not evidence)" : "SURVIVED — tests insufficient for this invariant"}`);
+  const invalidStatus = suiteResults.find((s) => s.status === "COMPILE_ERROR" || s.status === "SETUP_ERROR")?.status;
+  results.push({ id: m.id, invariant: m.invariant, outcome: caught ? "CAUGHT" : invalidStatus || "SURVIVED", suites: suiteResults });
+  console.log(`  => ${caught ? "CAUGHT" : invalidStatus ? `${invalidStatus} (mutation invalid, not evidence)` : "SURVIVED — tests insufficient for this invariant"}`);
 }
 
 const caught = results.filter((r) => r.outcome === "CAUGHT").length;
@@ -281,4 +281,4 @@ const survived = results.filter((r) => r.outcome === "SURVIVED");
 console.log(`\nMUTATION_SUMMARY tested=${results.length} caught=${caught} survived=${survived.length} invalid=${results.filter((r) => r.outcome !== "CAUGHT" && r.outcome !== "SURVIVED").length}`);
 for (const r of results) console.log(`  ${r.outcome.padEnd(14)} ${r.id} — ${r.invariant}`);
 if (reportPath) { fs.mkdirSync(path.dirname(reportPath), { recursive: true }); fs.writeFileSync(reportPath, JSON.stringify({ generated_at: new Date().toISOString(), results }, null, 2)); }
-process.exit(survived.length ? 1 : 0);
+process.exit(results.some((r) => r.outcome !== "CAUGHT") ? 1 : 0);

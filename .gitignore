@@ -67,3 +67,6 @@ base44/.app.jsonc
 *.provisionprofile
 GoogleService-Info.plist
 google-services.json
+
+# Local independent review logs; summarized evidence is committed under docs.
+/.review-evidence/

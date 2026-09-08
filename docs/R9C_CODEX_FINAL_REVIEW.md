@@ -65,3 +65,11 @@ Initial targeted mutations: 9/9 reported caught. Final evidence rerun will prese
 per-mutation output; first fee run overlapped a subsequently stopped filtered test runner,
 so it is not the run of record. The full regression will run sequentially after stabilization.
 The final soak proof now fails on UNRESOLVED_WITHOUT_CASE rather than allowing it.
+
+### FFR-4 ? MEDIUM ? POST-LAUNCH FOLLOW-UP category ? proof tooling repaired
+Raw M18 evidence showed migration setup failed with SQL syntax error before any financial test ran.
+The replacement string contained PostgreSQL $$ delimiters; String.replace interpreted $$ as a literal
+single dollar. The runner also treated any non-TypeScript error as a caught mutation.
+The fix uses a replacement callback, requires TEST_FAIL evidence for RED, classifies setup failures
+separately and exits nonzero for invalid or surviving mutations. The original M18 result is excluded
+from accepted proof. A corrected M18 rerun is retained separately.
