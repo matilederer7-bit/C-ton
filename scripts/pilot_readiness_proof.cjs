@@ -13,6 +13,9 @@
 //   --admin-key=<ADMIN_API_KEY>   runs the owner/ops read probes (x-admin-key)
 //   --out=<file.json>             machine-readable summary
 //   --keep                        do not pause/reopen the deal at the end
+//   --joins=<n>                   synthetic joins to perform (default: the threshold; 0 = none — keeps the
+//                                 deal deletable so a hosted run leaves nothing behind)
+//   --cleanup                     delete the proof deal at the end (only possible with zero joins)
 //
 // Usage: node scripts/pilot_readiness_proof.cjs --base-url=http://127.0.0.1:3210 --seller-id=.. --seller-code=..
 const { randomUUID, randomBytes } = require("node:crypto");
@@ -25,6 +28,8 @@ if (!BASE) { console.error("--base-url is required"); process.exit(1); }
 const ADMIN_KEY = String(args["admin-key"] || "");
 const KEEP = Boolean(args.keep);
 const OUT = String(args.out || "");
+const JOINS = args.joins === undefined ? null : Math.max(0, Number(args.joins) || 0);
+const CLEANUP = Boolean(args.cleanup);
 
 let passed = 0, failed = 0;
 const results = [];
@@ -219,8 +224,10 @@ const tag = randomBytes(3).toString("hex");
   });
 
   const joins = [];
-  await step(`buyer: ${facts.threshold_units || 5} synthetic joins reach the threshold (mock authorization, real money 0)`, async () => {
-    const n = Math.max(1, facts.threshold_units || 5);
+  const plannedJoins = JOINS === null ? Math.max(1, facts.threshold_units || 5) : JOINS;
+  await step(`buyer: ${plannedJoins} synthetic join(s) (mock authorization, real money 0)${JOINS === null ? " reach the threshold" : ""}`, async () => {
+    const n = plannedJoins;
+    if (n === 0) return "skipped by --joins=0 (deal stays deletable)";
     const pickup = (publicDeal.delivery_options || []).find((o) => o.option_type === "pickup") || publicDeal.delivery_options[0];
     for (let i = 0; i < n; i++) {
       const phone = `05${String(300000000 + parseInt(tag, 16) % 100000 + i).slice(0, 8)}`;
@@ -231,11 +238,12 @@ const tag = randomBytes(3).toString("hex");
     }
     const g = await call(`/api/deals/${dealId}/public`); const d = g.json.deal || g.json;
     facts.state_after_joins = d.state;
-    assert(d.state === "TargetReached", `expected TargetReached after ${n} joins, got ${d.state}`);
+    if (JOINS === null) assert(d.state === "TargetReached", `expected TargetReached after ${n} joins, got ${d.state}`);
     return { joins: joins.length, state: d.state, personal_share_links: joins.filter((j) => j.share_url).length };
   });
 
   await step("buyer: personal tracking page reads (token-bound)", async () => {
+    if (plannedJoins === 0) return "skipped (no joins)";
     const j = joins[0]; assert(j, "no join to track");
     const r = await call(`/api/participants/${j.participant_id}/tracking`, { headers: { authorization: `Bearer ${j.token}` } });
     assert(r.status === 200, `${r.status} ${r.text.slice(0, 120)}`);
@@ -329,6 +337,22 @@ const tag = randomBytes(3).toString("hex");
       assert(r.status === 200, `${r.status} ${r.text.slice(0, 160)}`);
       assert(r.json?.sellers && r.json?.deals && r.json?.buyers, `keys: ${Object.keys(r.json || {})}`);
       return { sellers: r.json.sellers, deals: r.json.deals, buyers: r.json.buyers };
+    });
+  }
+
+  if (CLEANUP) {
+    await step("cleanup: delete the proof deal (allowed only while it has zero joins)", async () => {
+      const g = await call(`/api/seller/deals/${dealId}`, { auth: "seller" });
+      const d = g.json.deal || g.json;
+      if (String(d.state) === "ClosedForJoining") {
+        const r = await call(`/api/deals/${dealId}/reopen_joining`, { method: "POST", auth: "seller", body: {} });
+        assert(r.status === 200, `reopen before delete ${r.status} ${r.text.slice(0, 120)}`);
+      }
+      const del = await call(`/api/seller/deals/${dealId}`, { method: "DELETE", auth: "seller" });
+      assert(del.status === 200 || del.status === 204, `delete ${del.status} ${del.text.slice(0, 160)}`);
+      const gone = await call(`/api/deals/${dealId}/public`);
+      assert(gone.status === 404, `deal still public after delete: ${gone.status}`);
+      return "deal deleted, public 404";
     });
   }
 

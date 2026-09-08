@@ -5365,7 +5365,11 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
 app.post("/deals/:id/close_joining", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   const dealId = String(req.params.id);
   const requestId = req.headers["x-request-id"] ? String(req.headers["x-request-id"]) : `req:${randomUUID()}`;
-  const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}`;
+  // LAUNCH MODE — a header-less pause must act every time: the previous default
+  // (`close:<dealId>`) replayed the FIRST pause's stored response after a
+  // reopen, so a seller's second pause silently did nothing. Mirror the reopen
+  // route: a caller that wants replay protection sends its own key.
+  const idem = req.headers["idempotency-key"] ? String(req.headers["idempotency-key"]) : `close:${dealId}:${Date.now()}`;
 
   const closeContext = await withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);

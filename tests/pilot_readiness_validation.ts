@@ -48,6 +48,22 @@ async function createDeal(extra: Record<string, unknown> = {}) {
   });
 }
 
+await run("root routing: bare domain → /preview/ (React pilot product); /d/:id share route still lands on the React deal page; /app still answers", async () => {
+  const root = await app.inject({ method: "GET", url: "/" });
+  assert.equal(root.statusCode, 302, root.body);
+  assert.equal(root.headers.location, "/preview/");
+  const rootQuery = await app.inject({ method: "GET", url: "/?utm_source=whatsapp" });
+  assert.equal(rootQuery.statusCode, 302);
+  assert.equal(rootQuery.headers.location, "/preview/");
+  const legacy = await app.inject({ method: "GET", url: "/app" });
+  assert.notEqual(legacy.statusCode, 404, "legacy /app must remain reachable for direct links");
+  // share route: a human browser must be forwarded INTO the React deal page, never the legacy app
+  const share = await app.inject({ method: "GET", url: `/d/${randomUUID()}`, headers: { "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" } });
+  assert.ok([200, 302, 404].includes(share.statusCode), `share route ${share.statusCode}`);
+  const target = share.statusCode === 302 ? String(share.headers.location || "") : share.body;
+  assert.ok(!/\/app\b/.test(target.slice(0, 4000)) || /preview\/#\/deal/.test(target), `share route points at the legacy app: ${target.slice(0, 200)}`);
+});
+
 await run("migration 065: columns + constraints present", async () => {
   const cols = await pool.query(
     `SELECT table_name, column_name FROM information_schema.columns
@@ -188,6 +204,27 @@ await run("pilot metrics: anonymous refused; owner key answers the pilot questio
   assert.ok(mine && mine.published === 1 && mine.drafts === 2, JSON.stringify(mine));
   const clamp = await app.inject({ method: "GET", url: "/api/admin/pilot-metrics?days=9999", headers: ADMIN });
   assert.equal((clamp.json() as any).window_days, 365);
+});
+
+await run("pause → reopen → pause again (no client idempotency key) acts every time; an explicit key still replays", async () => {
+  const state = async () => String(((await app.inject({ method: "GET", url: `/api/deals/${dealId}/public` })).json() as any).deal.state);
+  const pause = (headers: Record<string, string> = {}) => app.inject({ method: "POST", url: `/deals/${dealId}/close_joining`, headers: { ...H, ...headers }, payload: {} });
+  const reopen = () => app.inject({ method: "POST", url: `/deals/${dealId}/reopen_joining`, headers: H, payload: {} });
+  assert.ok(["PendingTarget", "TargetReached"].includes(await state()), `precondition: deal open, got ${await state()}`);
+  const p1 = await pause(); assert.equal(p1.statusCode, 200, p1.body);
+  assert.equal(await state(), "ClosedForJoining");
+  const r1 = await reopen(); assert.equal(r1.statusCode, 200, r1.body);
+  assert.ok(["PendingTarget", "TargetReached"].includes(await state()), "reopen failed");
+  const p2 = await pause(); assert.equal(p2.statusCode, 200, p2.body);
+  assert.equal(await state(), "ClosedForJoining", "second header-less pause must close the deal again (was replayed as a no-op before)");
+  const r2 = await reopen(); assert.equal(r2.statusCode, 200, r2.body);
+  // explicit key: first call acts, the exact same key replays without touching state
+  const key = `pilot-close-${randomUUID()}`;
+  const p3 = await pause({ "idempotency-key": key }); assert.equal(p3.statusCode, 200, p3.body);
+  assert.equal(await state(), "ClosedForJoining");
+  const r3 = await reopen(); assert.equal(r3.statusCode, 200, r3.body);
+  const p4 = await pause({ "idempotency-key": key }); assert.equal(p4.statusCode, 200, p4.body);
+  assert.ok(["PendingTarget", "TargetReached"].includes(await state()), "same explicit key must replay, not act");
 });
 
 await run("admin sellers list carries verification_status (who is waiting for approval)", async () => {

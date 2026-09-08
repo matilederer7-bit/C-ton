@@ -34,7 +34,7 @@ async function main() {
     assert.deepEqual(response.json(), { ok: true });
   });
 
-  await runTest("root route redirects to app shell", async () => {
+  await runTest("root route redirects to the canonical React product (/preview/), legacy /app stays reachable", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/"
@@ -42,7 +42,10 @@ async function main() {
 
     assert.notEqual(response.statusCode, 404);
     assert.equal(response.statusCode, 302);
-    assert.equal(response.headers.location, "/app");
+    assert.equal(response.headers.location, "/preview/");
+
+    const legacy = await app.inject({ method: "GET", url: "/app" });
+    assert.notEqual(legacy.statusCode, 404, "legacy /app must stay reachable for direct links");
   });
 
   await runTest("canonical state transitions stay intact", async () => {

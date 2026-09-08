@@ -11366,7 +11366,10 @@ export function registerFrontendExperience(
       .send(html);
   };
 
-  app.get("/", async (_req, reply) => reply.redirect("/app", 302));
+  // LAUNCH MODE — the bare domain lands on the canonical React product. The
+  // legacy vanilla app stays reachable at /app for anyone who links to it
+  // directly, but nobody who types the domain ends up in the wrong frontend.
+  app.get("/", async (_req, reply) => reply.redirect("/preview/", 302));
   app.get("/legal/:slug", async (req: any, reply) => {
     const slug = String(req.params.slug || "") as LegalPageSlug;
     if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {

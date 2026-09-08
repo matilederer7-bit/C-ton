@@ -124,10 +124,11 @@ export const api = {
     req(`/api/seller/deals/${id}/duplicate`, { method: "POST", headers: { "idempotency-key": `preview-dup-${crypto.randomUUID()}` }, body: JSON.stringify({}) }, "seller"),
   publishDeal: (id: string) =>
     req(`/api/deals/${id}/publish`, { method: "POST", body: JSON.stringify({ seller_terms_accepted: true, seller_critical_terms_accepted: true, seller_threshold_90_accepted: true }) }, "seller"),
+  // Each pause/reopen is its own operation (fresh idempotency key): pause → reopen → pause must act every time.
   closeJoining: (id: string) =>
-    req(`/api/deals/${id}/close_joining`, { method: "POST", body: JSON.stringify({}) }, "seller"),
+    req(`/api/deals/${id}/close_joining`, { method: "POST", headers: { "idempotency-key": `preview-close-${crypto.randomUUID()}` }, body: JSON.stringify({}) }, "seller"),
   reopenJoining: (id: string) =>
-    req(`/api/deals/${id}/reopen_joining`, { method: "POST", body: JSON.stringify({}) }, "seller"),
+    req(`/api/deals/${id}/reopen_joining`, { method: "POST", headers: { "idempotency-key": `preview-reopen-${crypto.randomUUID()}` }, body: JSON.stringify({}) }, "seller"),
   deleteDeal: (id: string) =>
     req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
   sellerBusinessProfile: () => req(`/api/seller/business-profile`, {}, "seller"),
