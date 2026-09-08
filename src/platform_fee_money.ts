@@ -273,10 +273,12 @@ export function buildPlatformFeeMoney(deps: { withTx: WithTx }) {
     return deps.withTx(async (c) => summarizeParticipantSettlementInTx(c, participantId));
   }
 
-  async function recordProviderFinancialEvent(args: ProviderMoneyEventInput) {
-    await ensurePlatformFeeMoneyTables(deps.withTx);
-
-    return deps.withTx(async (c) => {
+  // R9C — the ledger write is exposed IN-TRANSACTION so the money-state
+  // transition and its fee-ledger truth commit atomically (see
+  // applyPaymentWebhookClassification). The standalone wrapper remains for
+  // callers that are not inside a state transaction.
+  async function recordProviderFinancialEventInTx(c: any, args: ProviderMoneyEventInput) {
+    {
       const context = await loadParticipantChargeContext(c, args.participant_id, args.deal_id);
 
       if (args.event_type === "refund_issued" && !(await logicalEntryExists(c, args.participant_id, "charge"))) {
@@ -325,11 +327,17 @@ export function buildPlatformFeeMoney(deps: { withTx: WithTx }) {
         snapshot: await summarizeParticipantSettlementInTx(c, args.participant_id),
         amounts: entry.amounts
       };
-    });
+    }
+  }
+
+  async function recordProviderFinancialEvent(args: ProviderMoneyEventInput) {
+    await ensurePlatformFeeMoneyTables(deps.withTx);
+    return deps.withTx((c) => recordProviderFinancialEventInTx(c, args));
   }
 
   return {
     summarizeParticipantSettlement,
-    recordProviderFinancialEvent
+    recordProviderFinancialEvent,
+    recordProviderFinancialEventInTx
   };
 }
