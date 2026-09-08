@@ -117,7 +117,8 @@ export function attributionHints(): AttributionHints {
 // Fire-and-forget PII-free funnel event. client_event_id deduplicates browser
 // retries server-side.
 const sentEvents = new Set<string>();
-export function sendFunnelEvent(dealId: string, eventType: "deal_view" | "share_button_click" | "join_started", extra?: { share_channel?: string; once_key?: string }): void {
+export type FunnelEventType = "deal_view" | "share_button_click" | "join_started" | "join_failed" | "inquiry_started";
+export function sendFunnelEvent(dealId: string, eventType: FunnelEventType, extra?: { share_channel?: string; once_key?: string; detail?: string }): void {
   const onceKey = extra?.once_key ? `${dealId}:${eventType}:${extra.once_key}` : null;
   if (onceKey) {
     if (sentEvents.has(onceKey)) return;
@@ -130,7 +131,9 @@ export function sendFunnelEvent(dealId: string, eventType: "deal_view" | "share_
     share_channel: extra?.share_channel || null,
     visitor_id: visitorId(),
     session_id: sessionId(),
-    client_event_id: onceKey ? `ev_${hashKey(onceKey)}` : randomId("ev")
+    client_event_id: onceKey ? `ev_${hashKey(onceKey)}` : randomId("ev"),
+    // LAUNCH MODE — bounded, PII-free context (e.g. the join refusal code)
+    detail: extra?.detail ? String(extra.detail).slice(0, 120) : null
   };
   try {
     void fetch("/api/viral/events", {

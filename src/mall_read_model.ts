@@ -56,6 +56,7 @@ export const PUBLIC_MALL_DEAL_FIELDS = [
   "canonical_state",
   "mall_status",
   "price_per_unit",
+  "list_price_per_unit",
   "seller_business_name",
   "primary_image_url",
   "primary_thumbnail_url",
@@ -264,7 +265,7 @@ export function buildMallDiscoveryQuery(query: MallQuery): { text: string; value
     text: `
 WITH mall_page AS (
   SELECT d.deal_id, d.title, d.description, d.description_short, d.deal_type,
-         d.state::text AS canonical_state, d.price_per_unit,
+         d.state::text AS canonical_state, d.price_per_unit, d.list_price_per_unit,
          d.threshold_units, d.max_units, d.deadline, d.published_at,
          d.updated_at AS source_updated_at, d.seller_id
     FROM siton.deals d
@@ -280,6 +281,7 @@ SELECT p.deal_id::text AS deal_id,
        p.deal_type,
        p.canonical_state,
        p.price_per_unit,
+       p.list_price_per_unit,
        COALESCE(NULLIF(btrim(sa.business_name), ''), NULLIF(btrim(sa.display_name), ''), 'Siton seller') AS seller_business_name,
        img.image_id::text AS primary_image_id,
        img.mime_type AS primary_image_mime_type,
@@ -355,6 +357,7 @@ export function projectMallRow(row: Record<string, unknown>): PublicMallDeal {
     canonical_state: canonicalState,
     mall_status: mallStatus,
     price_per_unit: finiteNonNegative(row.price_per_unit),
+    list_price_per_unit: row.list_price_per_unit == null || !Number.isFinite(Number(row.list_price_per_unit)) ? null : Number(row.list_price_per_unit),
     seller_business_name: publicText(row.seller_business_name, 160) || "Siton seller",
     primary_image_url: primaryImageUrl,
     primary_thumbnail_url: nullablePublicText(row.primary_thumbnail_url, 2048) ?? primaryImageUrl,

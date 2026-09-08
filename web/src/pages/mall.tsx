@@ -10,6 +10,7 @@ type MallDeal = {
   deal_type: string;
   state: string;
   price_per_unit: number;
+  list_price_per_unit?: number | null;
   seller_business_name?: string | null;
   joined_units: number;
   threshold_units: number;
@@ -61,6 +62,9 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
         <div className="card-price-row">
           <span className="price">{ils(deal.price_per_unit)}</span>
           <span className="price-unit">ליחידה</span>
+          {Number(deal.list_price_per_unit) > Number(deal.price_per_unit)
+            ? <span className="price-was" dir="ltr" aria-label="מחיר רגיל">{ils(deal.list_price_per_unit)}</span>
+            : null}
           {deal.availability.can_join && toTarget > 0
             ? <span className="muted small" style={{ marginInlineStart: "auto" }}>עוד {num(toTarget)} ליעד</span>
             : null}

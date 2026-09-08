@@ -3716,6 +3716,9 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     err.statusCode = 400;
     throw err;
   }
+  // LAUNCH MODE — optional regular ("normal") price; when given it must be
+  // ABOVE the group price, otherwise the shown saving would be a lie.
+  const listPrice = readListPricePerUnit(body.list_price_per_unit, priceRaw);
   const requestedMinUnitsRaw = body.min_units ?? body.threshold_units ?? 10;
   const minUnits = Math.max(1, Number(requestedMinUnitsRaw || 10));
   const requestedMaxUnitsRaw = body.max_units ?? Math.max(minUnits, 20);
@@ -3815,8 +3818,8 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     }
     const ins = await c.query(
       `INSERT INTO siton.deals
-       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type)
-       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10)
+       (deal_id, title, description, description_short, price_per_unit, min_units, max_units, threshold_units, deadline, seller_id, deal_type, list_price_per_unit)
+       VALUES ($1,$2,$3,$11,$4,$5,$6,$7,$8,$9,$10,$12)
        RETURNING deal_id, state, deal_type`,
       [
         stableDealId,
@@ -3829,7 +3832,8 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         deadlineIso,
         sellerAuthority.seller_id,
         dealType,
-        descriptionShort || null
+        descriptionShort || null,
+        listPrice
       ]
     );
     const deal = ins.rows[0];
@@ -3869,7 +3873,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
   const hasOwn = (key: string) => Object.prototype.hasOwnProperty.call(body, key);
   const titleFields = ["title", "sellerTitle", "dealTitle", "productName", "name", "deal_name"];
   const hasTitle = titleFields.some(hasOwn);
-  const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
+  const hasEditableField = hasTitle || ["description", "description_short", "price_per_unit", "list_price_per_unit", "min_units", "max_units", "deadline", "delivery_options", "voucher_terms", "ticket_terms"].some(hasOwn);
 
   return withTx(async (c) => {
     const sellerAuthority = await requireSellerAuthority(req, c);
@@ -3881,7 +3885,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
       throw Object.assign(new Error("Draft patch contains no editable fields"), { statusCode: 400, code: "DRAFT_PATCH_EMPTY" });
     }
     const currentResult = await c.query(
-      `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit,
+      `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit, list_price_per_unit,
               min_units, max_units, threshold_units, deadline, deal_type, updated_at
        FROM siton.deals
        WHERE deal_id=$1
@@ -3924,6 +3928,10 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (descriptionShort.length > DESCRIPTION_SHORT_MAX) throw Object.assign(new Error(`description_short must be ${DESCRIPTION_SHORT_MAX} characters or fewer`), { statusCode: 400, code: "description_short_too_long" });
     const price = hasOwn("price_per_unit") ? Number(body.price_per_unit) : Number(current.price_per_unit);
     if (!Number.isFinite(price) || price <= 0) throw Object.assign(new Error("price_per_unit must be a positive number"), { statusCode: 400, code: "price_invalid" });
+    // LAUNCH MODE — regular price is re-validated against the (possibly new) group price
+    const listPrice = hasOwn("list_price_per_unit")
+      ? readListPricePerUnit(body.list_price_per_unit, price)
+      : readListPricePerUnit(current.list_price_per_unit, price, { tolerateInvalid: true });
     const minUnits = hasOwn("min_units") ? Number(body.min_units) : Number(current.min_units);
     const maxUnits = hasOwn("max_units") ? Number(body.max_units) : Number(current.max_units);
     if (!Number.isInteger(minUnits) || minUnits < 1) throw Object.assign(new Error("min_units must be a positive integer"), { statusCode: 400, code: "min_units_invalid" });
@@ -3940,12 +3948,12 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
 
     const updated = await c.query(
       `UPDATE siton.deals
-       SET title=$2, description=$3, description_short=$9, price_per_unit=$4, min_units=$5, max_units=$6,
+       SET title=$2, description=$3, description_short=$9, price_per_unit=$4, list_price_per_unit=$10, min_units=$5, max_units=$6,
            threshold_units=$7, deadline=$8, updated_at=now()
        WHERE deal_id=$1
-       RETURNING deal_id, state, title, description, description_short, price_per_unit, min_units,
+       RETURNING deal_id, state, title, description, description_short, price_per_unit, list_price_per_unit, min_units,
                  max_units, threshold_units, deadline, deal_type, updated_at`,
-      [dealId, title, description || null, price, minUnits, maxUnits, Math.ceil(0.9 * minUnits), deadline, descriptionShort || null]
+      [dealId, title, description || null, price, minUnits, maxUnits, Math.ceil(0.9 * minUnits), deadline, descriptionShort || null, listPrice]
     );
 
     if (hasOwn("delivery_options")) {
@@ -4093,6 +4101,20 @@ function normalizeDeliveryCoordinates(option: any): { latitude: number | null; l
     return { latitude: Math.round(lat * 1e6) / 1e6, longitude: Math.round(lng * 1e6) / 1e6 };
   }
   return { latitude: null, longitude: null };
+}
+
+// LAUNCH MODE — optional regular ("normal") price per unit. Absent/empty →
+// null. When present it must be a finite number ABOVE the group price, so a
+// displayed saving can never be fabricated. `tolerateInvalid` is used when
+// re-validating a stored value against a NEW group price on a Draft edit:
+// a now-invalid stored anchor is dropped (null) rather than blocking the edit.
+function readListPricePerUnit(raw: unknown, groupPrice: number, opts: { tolerateInvalid?: boolean } = {}): number | null {
+  if (raw === undefined || raw === null || String(raw).trim() === "") return null;
+  const value = Number(raw);
+  const valid = Number.isFinite(value) && value > 0 && value > groupPrice;
+  if (valid) return Math.round(value * 100) / 100;
+  if (opts.tolerateInvalid) return null;
+  throw Object.assign(new Error("list_price_per_unit must be a number above price_per_unit"), { statusCode: 400, code: "list_price_invalid" });
 }
 
 function readCreateDealTitle(body: Record<string, any>) {

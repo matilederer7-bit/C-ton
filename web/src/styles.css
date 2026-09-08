@@ -1186,3 +1186,9 @@ tr.clickable:hover { background: var(--brand-tint); }
 .inq-followup { display: flex; gap: 8px; }
 .inq-followup input { flex: 1; min-width: 0; }
 @media (max-width: 560px) { .inq-meta { display: none; } .inq-row { min-height: 52px; } }
+
+/* LAUNCH MODE — regular price + saving badge (deal page hero, mall card) */
+.deal-saving { display: flex; align-items: center; gap: 10px; margin-top: 6px; flex-wrap: wrap; }
+.price-was { color: var(--muted, #9aa0a6); text-decoration: line-through; font-size: 1.05rem; }
+.saving-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--accent, #f28c28); color: #1b1b1b; font-weight: 700; font-size: 0.9rem; }
+.card-price-row .price-was { font-size: 0.85rem; margin-inline-start: 6px; }

@@ -112,6 +112,8 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
         </div>
       ) : null}
 
+      <PilotMetricsPanel navigate={navigate} />
+
       {ops.recent_dlq?.length ? (
         <div className="panel">
           <div className="panel-title">⚠️ כשלים אחרונים (DLQ)</div>
@@ -128,6 +130,55 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
         </div>
       ) : null}
     </>
+  );
+}
+
+// LAUNCH MODE — the pilot's learning panel: sellers in → created → published;
+// buyers viewed → tried → joined (conversion); thresholds; repeat sellers.
+function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
+  const [days, setDays] = useState(30);
+  const { data, error } = useFetch(() => api.adminPilotMetrics(days), [days], 60_000);
+  if (error) return <div className="panel"><div className="panel-title">📊 מדדי פיילוט</div><Err msg={error} /></div>;
+  if (!data) return null;
+  const m = data as Json;
+  const s = m.sellers || {}, dl = m.deals || {}, b = m.buyers || {}, inq = m.inquiries || {};
+  const pctText = (v: unknown) => (v === null || v === undefined ? "—" : `${v}%`);
+  return (
+    <div className="panel" data-testid="pilot-metrics">
+      <div className="panel-title">
+        📊 מדדי פיילוט — {num(days)} הימים האחרונים
+        <span className="row" style={{ marginInlineStart: "auto", gap: 6 }}>
+          {[7, 30, 90].map((d) => <button key={d} className={`btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}`} onClick={() => setDays(d)}>{d} ימים</button>)}
+        </span>
+      </div>
+      <div className="stat-row" style={{ marginBottom: 8 }}>
+        <StatTile num={num(s.signed_up || 0)} label="מוכרים נרשמו (סה״כ)" sub={`${num(s.signed_up_in_window || 0)} בחלון`} />
+        <StatTile num={num(s.pending_approval || 0)} label="ממתינים לאישור" tone={Number(s.pending_approval) > 0 ? "warn" : undefined} />
+        <StatTile num={num(s.created_a_deal || 0)} label="מוכרים שיצרו עסקה" />
+        <StatTile num={num(s.published_a_deal || 0)} label="מוכרים שפרסמו" />
+        <StatTile num={num(s.repeat_publishers || 0)} label="מוכרים חוזרים (2+ פרסומים)" tone="good" />
+      </div>
+      <div className="stat-row" style={{ marginBottom: 8 }}>
+        <StatTile num={num(dl.drafts_created || 0)} label="טיוטות נוצרו" />
+        <StatTile num={num(dl.published || 0)} label="פורסמו" />
+        <StatTile num={num(dl.reached_threshold || 0)} label="הגיעו ליעד" tone="good" />
+        <StatTile num={num(dl.completed || 0)} label="הושלמו" tone="good" />
+        <StatTile num={num(dl.failed || 0)} label="נכשלו" tone={Number(dl.failed) > 0 ? "warn" : undefined} />
+      </div>
+      <div className="stat-row" style={{ marginBottom: 0 }}>
+        <StatTile num={num(b.deal_views || 0)} label="צפיות בעסקאות" sub={`${num(b.unique_visitors || 0)} מבקרים`} />
+        <StatTile num={num(b.join_starts || 0)} label="ניסיונות הצטרפות" sub={`${num(b.join_failures || 0)} נדחו`} />
+        <StatTile num={num(b.joins || 0)} label="הצטרפו בפועל" sub={`${num(b.distinct_buyers || 0)} קונים`} tone="good" />
+        <StatTile num={pctText(b.view_to_join_pct)} label="המרה צפייה→הצטרפות" sub={`ניסיון→הצטרפות ${pctText(b.join_start_to_join_pct)}`} />
+        <StatTile num={num(inq.threads || 0)} label="פניות למוכרים" sub={`${num(inq.answered || 0)} נענו · ${num(b.inquiry_starts || 0)} נפתחו`} />
+      </div>
+      {(m.per_seller || []).some((r: Json) => r.verification_status === "pending") ? (
+        <p className="small" style={{ marginTop: 10 }}>
+          יש מוכרים שממתינים לאישור —{" "}
+          <a href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>לרשימת המוכרים</a>
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -509,7 +560,13 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
             {((data as Json).sellers || []).map((s: Json) => (
               <tr key={s.seller_id} className="clickable" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(s.seller_id)}`)}>
                 <td><b>{s.business_name || s.display_name}</b><div className="muted small" dir="ltr">{s.login_email || s.seller_id}</div></td>
-                <td><span className={`status ${s.seller_status === "Active" ? "Completed" : "Failed"}`}>{s.seller_status}</span>{s.supabase_bound ? <span className="tree-badge charged" style={{ marginInlineStart: 6 }}>Auth✓</span> : null}</td>
+                <td>
+                  <span className={`status ${s.seller_status === "Active" ? "Completed" : "Failed"}`}>{s.seller_status}</span>
+                  {s.supabase_bound ? <span className="tree-badge charged" style={{ marginInlineStart: 6 }}>Auth✓</span> : null}
+                  {/* LAUNCH MODE — who is waiting for the owner's approval */}
+                  {s.verification_status === "pending" ? <span className="tree-badge" style={{ marginInlineStart: 6, background: "var(--amber, #d9931c)", color: "#1b1b1b" }}>ממתין לאישור</span> : null}
+                  {s.verification_status === "rejected" ? <span className="tree-badge" style={{ marginInlineStart: 6 }}>נדחה</span> : null}
+                </td>
                 <td className="num">{num(s.deals_total)}</td>
                 <td className="num">{num(s.deals_active)}</td>
                 <td className="num">{num(s.deals_completed)}</td>
@@ -528,8 +585,43 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
   );
 }
 
+// LAUNCH MODE — the closed-market gate: a self-registered seller stays
+// "pending" (drafts only) until the owner approves here. Uses the existing
+// server decision route; nothing else changes on the account.
+function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
+  const status = String(seller.verification_status || "pending");
+  const decide = async (decision: "approve" | "reject") => {
+    if (busy) return;
+    if (decision === "reject" && !window.confirm("לדחות את המוכר? הוא לא יוכל לפרסם עסקאות.")) return;
+    setBusy(true); setMsg("");
+    try {
+      await api.adminSellerKycDecision(String(seller.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
+      setMsg(decision === "approve" ? "המוכר אושר — יכול לפרסם עסקאות." : "המוכר נדחה.");
+      onChanged();
+    } catch (e: any) { setMsg(e.message || "הפעולה נכשלה"); }
+    setBusy(false);
+  };
+  return (
+    <div className={`notice ${status === "approved" ? "info" : "err"}`} data-testid="seller-approval" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <span>
+        <b>אישור מוכר:</b>{" "}
+        {status === "approved" ? "מאושר — יכול לפרסם" : status === "rejected" ? "נדחה — לא יכול לפרסם" : "ממתין לאישור — יכול להכין טיוטות בלבד"}
+      </span>
+      <span className="row" style={{ marginInlineStart: "auto", gap: 8 }}>
+        {status !== "approved" ? <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => decide("approve")}>אשר מוכר</button> : null}
+        {status !== "rejected" ? <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => decide("reject")}>דחה</button> : null}
+      </span>
+      {msg ? <span className="small" style={{ flexBasis: "100%" }}>{msg}</span> : null}
+    </div>
+  );
+}
+
 function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: string) => void }) {
-  const { data, error } = useFetch(() => api.adminSellerDetail(sellerId), [sellerId]);
+  const [version, setVersion] = useState(0);
+  const reload = () => setVersion((v) => v + 1);
+  const { data, error } = useFetch(() => api.adminSellerDetail(sellerId), [sellerId, version]);
   const [tab, setTab] = useState("deals");
   if (error) return <Err msg={error} />;
   if (!data) return <BrandLoader minHeight={360} />;
@@ -545,6 +637,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
         {s.supabase_bound ? <span className="tree-badge charged">זהות Supabase מקושרת</span> : <span className="tree-badge">ללא קישור Auth</span>}
       </div>
       <p className="muted small" dir="ltr">{s.login_email || ""} · {s.seller_id}</p>
+      <SellerApprovalPanel seller={s} onChanged={reload} />
       {(d.warnings || []).length ? (
         <div className="notice err"><b>אזהרות מערכת:</b> {(d.warnings as string[]).join(" · ")}</div>
       ) : null}

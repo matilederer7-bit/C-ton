@@ -910,6 +910,7 @@ function mapDealListRow(row: DealListRow) {
     title: row.title,
     state: row.state,
     price_per_unit: Number(row.price_per_unit),
+    list_price_per_unit: (row as any).list_price_per_unit == null ? null : Number((row as any).list_price_per_unit),
     min_units: Number(row.min_units),
     max_units: maxUnits,
     threshold_units: thresholdUnits,
@@ -2767,7 +2768,7 @@ export function registerFrontendExperience(
   // contact is the internal inquiry rail ("פנייה למוכר").
   async function buildPublicDealPayload(c: any, dealId: string, options: { requirePublished: boolean; sellerId?: string | null }) {
     const dealResult = await c.query(
-      `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.min_units, d.max_units,
+      `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.list_price_per_unit, d.min_units, d.max_units,
               d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
               d.created_at, d.seller_id, d.deal_type,
               sa.business_name, sa.business_description
@@ -2845,6 +2846,9 @@ export function registerFrontendExperience(
         state: deal.state,
         deal_type: dealType,
         price_per_unit: Number(deal.price_per_unit),
+        // LAUNCH MODE — the seller's regular price (null when not provided) so
+        // the buyer can SEE the group saving instead of guessing it.
+        list_price_per_unit: (deal as any).list_price_per_unit == null ? null : Number((deal as any).list_price_per_unit),
         min_units: Number(deal.min_units),
         max_units: Number(deal.max_units),
         threshold_units: Number(deal.threshold_units),
@@ -3778,6 +3782,7 @@ export function registerFrontendExperience(
            d.title,
            d.state,
            d.price_per_unit,
+           d.list_price_per_unit,
            d.min_units,
            d.max_units,
            d.threshold_units,
@@ -3897,7 +3902,7 @@ export function registerFrontendExperience(
       if (!sellerContext) return reply;
       requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const result = await c.query(
-        `SELECT deal_id, seller_id, state, title, description, price_per_unit,
+        `SELECT deal_id, seller_id, state, title, description, price_per_unit, list_price_per_unit,
                 min_units, max_units, threshold_units, deadline, deal_type,
                 created_at, updated_at
          FROM siton.deals
@@ -3938,6 +3943,7 @@ export function registerFrontendExperience(
           title: String(draft.title || ""),
           description: String(draft.description || ""),
           price_per_unit: Number(draft.price_per_unit),
+          list_price_per_unit: draft.list_price_per_unit == null ? null : Number(draft.list_price_per_unit),
           min_units: Number(draft.min_units),
           max_units: Number(draft.max_units),
           threshold_units: Number(draft.threshold_units),
@@ -3986,6 +3992,7 @@ export function registerFrontendExperience(
            d.state,
            d.close_reason,
            d.price_per_unit,
+           d.list_price_per_unit,
            d.min_units,
            d.max_units,
            d.threshold_units,
@@ -5944,6 +5951,7 @@ export function registerFrontendExperience(
            d.title,
            d.state,
            d.price_per_unit,
+           d.list_price_per_unit,
            d.min_units,
            d.max_units,
            d.threshold_units,
@@ -8834,6 +8842,7 @@ export function registerFrontendExperience(
            d.state AS deal_state,
            d.deal_type,
            d.price_per_unit,
+           d.list_price_per_unit,
            d.min_units,
            d.max_units,
            d.threshold_units,
@@ -9900,7 +9909,8 @@ export function registerFrontendExperience(
         share_channel: body.share_channel,
         visitor_id: body.visitor_id,
         session_id: body.session_id,
-        client_event_id: String(body.client_event_id || "")
+        client_event_id: String(body.client_event_id || ""),
+        detail: body.detail
       })
     );
     if (!result.recorded && result.reason && result.reason !== "deal_not_found") {
@@ -10028,6 +10038,117 @@ export function registerFrontendExperience(
   });
 
   // Admin: platform growth/virality dashboard (cached platform scope).
+  // LAUNCH MODE — owner pilot metrics: the questions a closed web pilot must
+  // answer (how many sellers entered / created / published; how many buyers
+  // viewed / tried / joined; conversion; thresholds reached; repeat sellers).
+  // Read-only, aggregate, no PII. Window defaults to 30 days.
+  app.get("/api/admin/pilot-metrics", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const daysRaw = Number(req.query?.days);
+    const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, Math.floor(daysRaw)) : 30;
+    const since = `now() - ($1::int * interval '1 day')`;
+    return deps.withTx(async (c) => {
+      await ensureProductSurfaces();
+      await ensureInquiryTables();
+      const [sellers, deals, events, joins, inquiries, perSeller] = await Promise.all([
+        c.query(
+          `WITH s AS (
+             SELECT sa.seller_id, sa.created_at, COALESCE(sa.verification_status,'pending') AS verification_status,
+                    (sa.auth_user_id IS NOT NULL AND sa.seller_id <> 'c-ton-owner') AS self_signup
+             FROM siton.seller_accounts sa
+           ), d AS (
+             SELECT seller_id, COUNT(*)::int AS drafts, COUNT(*) FILTER (WHERE published_at IS NOT NULL)::int AS published
+             FROM siton.deals WHERE seller_id IS NOT NULL GROUP BY seller_id
+           )
+           SELECT COUNT(*)::int AS total,
+                  COUNT(*) FILTER (WHERE s.self_signup)::int AS signed_up,
+                  COUNT(*) FILTER (WHERE s.self_signup AND s.created_at >= ${since})::int AS signed_up_in_window,
+                  COUNT(*) FILTER (WHERE s.verification_status='pending')::int AS pending_approval,
+                  COUNT(*) FILTER (WHERE s.verification_status='approved')::int AS approved,
+                  COUNT(*) FILTER (WHERE COALESCE(d.drafts,0) > 0)::int AS created_a_deal,
+                  COUNT(*) FILTER (WHERE COALESCE(d.published,0) > 0)::int AS published_a_deal,
+                  COUNT(*) FILTER (WHERE COALESCE(d.published,0) >= 2)::int AS repeat_publishers
+           FROM s LEFT JOIN d ON d.seller_id = s.seller_id`,
+          [days]
+        ),
+        c.query(
+          `SELECT COUNT(*)::int AS drafts_created,
+                  COUNT(*) FILTER (WHERE published_at IS NOT NULL)::int AS published,
+                  COUNT(*) FILTER (WHERE state IN ('PendingTarget','TargetReached','ClosedForJoining'))::int AS open_now,
+                  COUNT(*) FILTER (WHERE state IN ('ReadyForCharging','Charging','CompletionWindow'))::int AS settling,
+                  COUNT(*) FILTER (WHERE state='Completed')::int AS completed,
+                  COUNT(*) FILTER (WHERE state='Failed')::int AS failed,
+                  COUNT(*) FILTER (WHERE state='Cancelled')::int AS cancelled,
+                  (SELECT COUNT(DISTINCT deal_id) FROM siton.audit_log
+                    WHERE action_name='deal.target_reached' AND created_at >= ${since})::int AS reached_threshold
+           FROM siton.deals WHERE created_at >= ${since}`,
+          [days]
+        ),
+        c.query(
+          `SELECT COUNT(*) FILTER (WHERE event_type='deal_view')::int AS deal_views,
+                  COUNT(DISTINCT visitor_id) FILTER (WHERE event_type='deal_view')::int AS unique_visitors,
+                  COUNT(*) FILTER (WHERE event_type='share_button_click')::int AS share_clicks,
+                  COUNT(*) FILTER (WHERE event_type='join_started')::int AS join_starts,
+                  COUNT(*) FILTER (WHERE event_type='join_failed')::int AS join_failures,
+                  COUNT(*) FILTER (WHERE event_type='inquiry_started')::int AS inquiry_starts
+           FROM siton.viral_events WHERE created_at >= ${since}`,
+          [days]
+        ),
+        c.query(
+          `SELECT COUNT(*)::int AS joins,
+                  COUNT(DISTINCT buyer_id)::int AS distinct_buyers,
+                  COUNT(*) FILTER (WHERE money_state IN ('ChargedSuccess','RecoveredCharge'))::int AS charged
+           FROM siton.participants WHERE created_at >= ${since}`,
+          [days]
+        ),
+        c.query(
+          `SELECT COUNT(*)::int AS threads,
+                  COUNT(*) FILTER (WHERE last_sender_type='Seller' OR status='Answered')::int AS answered
+           FROM siton.seller_inquiry_threads WHERE created_at >= ${since}`,
+          [days]
+        ),
+        c.query(
+          `SELECT sa.seller_id,
+                  COALESCE(NULLIF(btrim(sa.business_name),''), sa.display_name) AS name,
+                  COALESCE(sa.verification_status,'pending') AS verification_status,
+                  (sa.auth_user_id IS NOT NULL) AS bound,
+                  sa.created_at,
+                  COUNT(d.deal_id)::int AS drafts,
+                  COUNT(d.deal_id) FILTER (WHERE d.published_at IS NOT NULL)::int AS published,
+                  COUNT(d.deal_id) FILTER (WHERE d.state='Completed')::int AS completed,
+                  COUNT(d.deal_id) FILTER (WHERE d.state='Failed')::int AS failed,
+                  MAX(d.published_at) AS last_published_at
+           FROM siton.seller_accounts sa
+           LEFT JOIN siton.deals d ON d.seller_id = sa.seller_id
+           GROUP BY sa.seller_id
+           ORDER BY MAX(d.created_at) DESC NULLS LAST, sa.created_at DESC
+           LIMIT 100`
+        )
+      ]);
+      const ev = events.rows[0] || {};
+      const jn = joins.rows[0] || {};
+      const pct = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 1000) / 10 : null);
+      return {
+        ok: true,
+        window_days: days,
+        generated_at: new Date().toISOString(),
+        sellers: sellers.rows[0],
+        deals: deals.rows[0],
+        buyers: {
+          ...ev,
+          joins: Number(jn.joins || 0),
+          distinct_buyers: Number(jn.distinct_buyers || 0),
+          charged: Number(jn.charged || 0),
+          view_to_join_start_pct: pct(Number(ev.join_starts || 0), Number(ev.deal_views || 0)),
+          join_start_to_join_pct: pct(Number(jn.joins || 0), Number(ev.join_starts || 0)),
+          view_to_join_pct: pct(Number(jn.joins || 0), Number(ev.deal_views || 0))
+        },
+        inquiries: inquiries.rows[0],
+        per_seller: perSeller.rows
+      };
+    });
+  });
+
   app.get("/api/admin/growth", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
     return deps.withTx(async (c) => {
@@ -10703,6 +10824,7 @@ export function registerFrontendExperience(
       const rows = await c.query(
         `SELECT sa.seller_id, sa.display_name, sa.business_name,
                 COALESCE(sa.seller_status,'Active') AS seller_status,
+                COALESCE(sa.verification_status,'pending') AS verification_status,
                 sa.login_email, sa.auth_enabled, (sa.auth_user_id IS NOT NULL) AS supabase_bound,
                 sa.created_at,
                 COUNT(DISTINCT d.deal_id)::int AS deals_total,

@@ -486,6 +486,8 @@ function JoinModal(props: {
       });
       props.onSuccess(result);
     } catch (err: any) {
+      // LAUNCH MODE — a refused join is a pilot signal (PII-free: only the code/status)
+      sendFunnelEvent(String(deal.deal_id), "join_failed", { detail: String(err?.body?.code || err?.body?.error || err?.status || "unknown").slice(0, 80) });
       setError(
         err?.body?.code === "max_units_exceeded" ? "המלאי אזל בזמן ההצטרפות — נסו כמות קטנה יותר"
         : err?.message || "ההצטרפות נכשלה"
@@ -743,6 +745,15 @@ export function DealPage({ dealId, navigate, preview = false }: { dealId: string
               <span className="price">{ils(deal.price_per_unit)}</span>
               <span className="price-unit">ליחידה · {dealTypeLabel(deal.deal_type)}</span>
             </div>
+            {/* LAUNCH MODE — the saving is the whole point: show it when the seller gave a regular price */}
+            {Number(deal.list_price_per_unit) > Number(deal.price_per_unit) ? (
+              <div className="deal-saving" data-testid="deal-saving">
+                <span className="price-was" dir="ltr">{ils(deal.list_price_per_unit)}</span>
+                <span className="saving-badge">
+                  חיסכון {Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100)}% מהמחיר הרגיל
+                </span>
+              </div>
+            ) : null}
             <div style={{ margin: "18px 0 4px" }}>
               <GroupMeter large joined={joined} threshold={Number(deal.threshold_units)} max={Number(deal.max_units)} showFlag />
             </div>
@@ -840,7 +851,7 @@ export function DealPage({ dealId, navigate, preview = false }: { dealId: string
           </div>
           <ActivityTicker activity={activity} />
           <ChatPanel dealId={dealId} canWrite={!preview && OPEN_STATES.includes(state)} preview={preview} />
-          <SellerContactPanel seller={seller} onOpen={() => { if (!preview) setInquiryOpen(true); }} dealId={dealId} refreshKey={inquiryRefresh} preview={preview} />
+          <SellerContactPanel seller={seller} onOpen={() => { if (!preview) { sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); } }} dealId={dealId} refreshKey={inquiryRefresh} preview={preview} />
           {preview ? null : (
             <div className="panel" style={{ textAlign: "center" }}>
               <p style={{ fontWeight: 700, marginBottom: 8 }}>יש לכם מה למכור בקבוצה?</p>

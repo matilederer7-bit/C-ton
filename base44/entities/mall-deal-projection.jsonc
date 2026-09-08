@@ -38,6 +38,7 @@
     "canonical_state": { "type": "string", "enum": ["PendingTarget", "TargetReached", "ClosedForJoining", "ReadyForCharging", "Charging", "CompletionWindow", "Completed", "Failed", "Cancelled"] },
     "mall_status": { "type": "string", "enum": ["underway", "reached_target", "succeeded", "failed", "cancelled"] },
     "price_per_unit": { "type": "number", "minimum": 0 },
+    "list_price_per_unit": { "type": ["number", "null"], "minimum": 0, "default": null },
     "seller_business_name": { "type": "string", "maxLength": 160 },
     "primary_image_url": { "type": "string", "maxLength": 2048, "default": "" },
     "primary_thumbnail_url": { "type": "string", "maxLength": 2048, "default": "" },

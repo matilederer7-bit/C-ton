@@ -524,7 +524,9 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       `SELECT COUNT(*) FILTER (WHERE ve.event_type='deal_view')::int AS views,
               COUNT(DISTINCT ve.visitor_id) FILTER (WHERE ve.event_type='deal_view')::int AS unique_visitors,
               COUNT(*) FILTER (WHERE ve.event_type='share_button_click')::int AS share_clicks,
-              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts
+              COUNT(*) FILTER (WHERE ve.event_type='join_started')::int AS join_starts,
+              COUNT(*) FILTER (WHERE ve.event_type='join_failed')::int AS join_failures,
+              COUNT(*) FILTER (WHERE ve.event_type='inquiry_started')::int AS inquiry_starts
        FROM siton.viral_events ve
        JOIN siton.deals d ON d.deal_id = ve.deal_id
        WHERE COALESCE(d.seller_id, $2) = $1${scopeDealClause} AND ve.created_at >= ${seriesTs}`,
@@ -806,6 +808,9 @@ export async function buildSellerAnalytics(c: any, sellerId: string, period: Sel
       unique_visitors: num(funnelTotals.unique_visitors),
       share_clicks: num(funnelTotals.share_clicks),
       join_starts: num(funnelTotals.join_starts),
+      // LAUNCH MODE — refused join attempts and inquiry intent (pilot learning)
+      join_failures: num(funnelTotals.join_failures),
+      inquiry_starts: num(funnelTotals.inquiry_starts),
       joins: joinsInWindow,
       charged_buyers: moneyTotals.eligible_buyers
     },

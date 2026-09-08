@@ -226,7 +226,10 @@ export function personalShareUrl(dealId: string, code: string): string {
 }
 
 // ── Funnel events (public, PII-free, deduplicated) ─────────────────────────
-const FUNNEL_EVENT_TYPES = new Set(["deal_view", "share_button_click", "join_started"]);
+// LAUNCH MODE: join_failed / inquiry_started added so the pilot can measure
+// attempted-but-refused joins and inquiry intent (both PII-free; `detail`
+// carries only a bounded refusal code / surface name).
+const FUNNEL_EVENT_TYPES = new Set(["deal_view", "share_button_click", "join_started", "join_failed", "inquiry_started"]);
 const SHARE_CHANNELS = new Set(["whatsapp", "telegram", "facebook", "x", "email", "copy", "native", "other"]);
 
 export interface FunnelEventInput {
@@ -237,6 +240,7 @@ export interface FunnelEventInput {
   visitor_id?: unknown;
   session_id?: unknown;
   client_event_id: string;
+  detail?: unknown;
 }
 
 export async function recordViralFunnelEvent(db: Queryable, input: FunnelEventInput): Promise<{ recorded: boolean; reason?: string }> {
@@ -262,10 +266,11 @@ export async function recordViralFunnelEvent(db: Queryable, input: FunnelEventIn
     linkId = linkRes.rows[0] ? String(linkRes.rows[0].link_id) : null;
   }
 
+  const detail = boundedText(input.detail, 120);
   const inserted = await db.query(
     `INSERT INTO siton.viral_events
-       (event_type, deal_id, link_id, ref_code, share_channel, visitor_id, session_id, client_event_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (event_type, deal_id, link_id, ref_code, share_channel, visitor_id, session_id, client_event_id, detail)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
      ON CONFLICT (deal_id, event_type, client_event_id) DO NOTHING
      RETURNING event_id`,
     [
@@ -276,7 +281,8 @@ export async function recordViralFunnelEvent(db: Queryable, input: FunnelEventIn
       channel,
       boundedText(input.visitor_id, 64),
       boundedText(input.session_id, 64),
-      clientEventId
+      clientEventId,
+      detail
     ]
   );
   return { recorded: Boolean(inserted.rowCount) };

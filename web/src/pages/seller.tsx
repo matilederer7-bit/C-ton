@@ -214,6 +214,13 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         </div>
       </div>
 
+      {/* LAUNCH MODE — a self-registered seller is pending until the owner approves; say so plainly */}
+      {String(profile.verification_status || "") === "pending" ? (
+        <div className="notice info" data-testid="seller-pending-approval">
+          <b>החשבון ממתין לאישור C-ton.</b> אפשר כבר להכין עסקה כטיוטה, להעלות תמונות ולראות תצוגה מקדימה —
+          הפרסום ייפתח מיד כשהחשבון יאושר (בדרך כלל תוך שעות ספורות).
+        </div>
+      ) : null}
       {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
         <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span>
@@ -470,6 +477,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [shortDesc, setShortDesc] = useState("");
   const [longDesc, setLongDesc] = useState("");
   const [price, setPrice] = useState("");
+  const [listPrice, setListPrice] = useState(""); // LAUNCH MODE — regular price (optional)
   const [images, setImages] = useState<LocalImage[]>([]);
   const [uploadStatus, setUploadStatus] = useState("");
   // step 2
@@ -513,6 +521,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       if (!title.trim()) errs.title = "יש להזין שם לעסקה";
       if (!shortDesc.trim()) errs.short = "יש להזין תיאור קצר — המשפט שמוכר את העסקה";
       if (!(priceNum > 0)) errs.price = "יש להזין מחיר ליחידה";
+      if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
       if (images.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
     }
     if (s === 1) {
@@ -604,6 +613,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         description: longDesc.trim(),
         description_short: shortDesc.trim(),
         price_per_unit: priceNum,
+        ...(listPrice.trim() ? { list_price_per_unit: Number(listPrice) } : {}),
         min_units: minNum,
         max_units: maxNum,
         deadline: deadlineCheck.iso,
@@ -685,6 +695,15 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                 value={price} onChange={(e) => setPrice(e.target.value)} />
               <FieldError msg={errors.price} />
               <span className="hint">המחיר ננעל לאחר הפרסום</span>
+            </div>
+            <div className="field">
+              <label>מחיר רגיל ליחידה (₪) <span className="hint">(לא חובה — המחיר ״הרגיל״ מחוץ לקבוצה; הקונים יראו את החיסכון באחוזים)</span></label>
+              <input id="f-listPrice" data-testid="deal-list-price" dir="ltr" type="number" min={1} step="0.5" className={errors.listPrice ? "invalid" : ""}
+                value={listPrice} onChange={(e) => setListPrice(e.target.value)} placeholder={priceNum > 0 ? String(Math.round(priceNum * 1.3)) : ""} />
+              <FieldError msg={errors.listPrice} />
+              {listPrice.trim() && Number(listPrice) > priceNum && priceNum > 0
+                ? <span className="hint">יוצג לקונים: חיסכון {Math.round((1 - priceNum / Number(listPrice)) * 100)}% מהמחיר הרגיל</span>
+                : null}
             </div>
             <div className="field" id="f-images" tabIndex={-1}>
               <label>תמונות (עד 12) <span className="req">*</span></label>
@@ -932,6 +951,7 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
   const [shortDesc, setShortDesc] = useState(String(deal.description_short || ""));
   const [longDesc, setLongDesc] = useState(String(deal.description || ""));
   const [price, setPrice] = useState(String(deal.price_per_unit ?? ""));
+  const [listPrice, setListPrice] = useState(deal.list_price_per_unit == null ? "" : String(deal.list_price_per_unit));
   const [minUnits, setMinUnits] = useState(String(deal.min_units ?? ""));
   const [maxUnits, setMaxUnits] = useState(String(deal.max_units ?? ""));
   const initialParts = utcIsoToIsraelParts(deal.deadline);
@@ -959,6 +979,7 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     const errs: Record<string, string> = {};
     if (!title.trim()) errs.title = "יש להזין שם לעסקה";
     if (!(Number(price) > 0)) errs.price = "יש להזין מחיר ליחידה";
+    if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
     const minN = Number(minUnits), maxN = Number(maxUnits);
     if (!(minN >= 1)) errs.min = "יש להזין כמות מינימום";
     if (!(maxN >= minN)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
@@ -982,6 +1003,7 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
         description: longDesc.trim(),
         description_short: shortDesc.trim(),
         price_per_unit: Number(price),
+        list_price_per_unit: listPrice.trim() ? Number(listPrice) : null,
         min_units: minN,
         max_units: maxN,
         deadline: dl.iso,
@@ -1050,6 +1072,11 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
           <label>מחיר ליחידה (₪) <span className="req">*</span></label>
           <input id="f-price" dir="ltr" type="number" min={1} step="0.5" className={errors.price ? "invalid" : ""} value={price} onChange={(e) => setPrice(e.target.value)} />
           <FieldError msg={errors.price} />
+        </div>
+        <div className="field">
+          <label>מחיר רגיל (₪) <span className="hint">(לא חובה)</span></label>
+          <input id="f-listPrice" dir="ltr" type="number" min={1} step="0.5" className={errors.listPrice ? "invalid" : ""} value={listPrice} onChange={(e) => setListPrice(e.target.value)} />
+          <FieldError msg={errors.listPrice} />
         </div>
         <div className="field">
           <label>כמות מינימום <span className="req">*</span></label>
@@ -1422,6 +1449,9 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
       </div>
       <div className="kv" style={{ margin: "14px 0" }}>
         <span className="k">מחיר ליחידה</span><span className="v">{ils(deal.price_per_unit)}</span>
+        {Number(deal.list_price_per_unit) > Number(deal.price_per_unit) ? <>
+          <span className="k">מחיר רגיל (יוצג כחיסכון)</span><span className="v">{ils(deal.list_price_per_unit)} · חיסכון {Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100)}%</span>
+        </> : null}
         <span className="k">יעד (מינימום)</span><span className="v">{num(deal.min_units)} יחידות</span>
         <span className="k">סף הצלחה (90%)</span><span className="v">{num(threshold)} יחידות מחויבות</span>
         <span className="k">מועד סיום</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
