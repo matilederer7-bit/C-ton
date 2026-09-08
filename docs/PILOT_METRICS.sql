@@ -81,3 +81,19 @@ FROM sellers, deals, ev, jn, inq;
 -- SELECT COALESCE(detail,'(none)') AS reason, COUNT(*) FROM siton.viral_events
 -- WHERE event_type='join_failed' AND created_at >= now() - interval '30 days'
 -- GROUP BY 1 ORDER BY 2 DESC;
+
+-- ── buyer feedback (sprint 2: "היה משהו שלא היה ברור?") ─────────────────
+-- Stored as CLOSED operational cases opened by `buyer_feedback` (no PII).
+-- Counts per answer in the window:
+-- SELECT COALESCE(substring(description from '(?:^|\n)קטגוריה: ([a-z_]+)'), 'unknown') AS category,
+--        COUNT(*) AS answers
+-- FROM siton.operational_cases
+-- WHERE opened_by = 'buyer_feedback' AND created_at >= now() - interval '30 days'
+-- GROUP BY 1 ORDER BY answers DESC;
+-- The free texts (last 50), with the deal they came from:
+-- SELECT oc.created_at, oc.deal_id, d.title,
+--        substring(oc.description from '(?:^|\n)קטגוריה: ([a-z_]+)') AS category,
+--        substring(oc.description from '\nטקסט: (.*)$') AS text
+-- FROM siton.operational_cases oc LEFT JOIN siton.deals d ON d.deal_id = oc.deal_id
+-- WHERE oc.opened_by = 'buyer_feedback' AND oc.description LIKE '%טקסט: %'
+-- ORDER BY oc.created_at DESC LIMIT 50;

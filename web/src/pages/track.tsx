@@ -1,21 +1,63 @@
-﻿import React, { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
-import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, useToast } from "../components";
-import { fmtDate, ils, initialOf, num, timeAgo } from "../util";
+import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, copyText, useToast } from "../components";
+import { fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
+import { NOTIFICATIONS_OFF_LINE, INQUIRY_PRIVACY_LINE, PILOT_MOCK_MONEY_LINE, SHARE_LOOP_TITLE, notificationsLine } from "../buyerCopy";
+import { FeedbackPrompt } from "../feedback";
 
 // מסך המעקב של הקונה — מקור האמת היחיד מרגע ההצטרפות ועד ההכרעה.
+// LAUNCH POLISH 2 (P4/P5/P6/P7/P8): the page answers, in order — what is my
+// status, what still has to happen and until when, how I get back here (and
+// the honest "no e-mail/SMS in the pilot" line), how I ask the seller, how I
+// help the deal succeed, one feedback question. Every sentence derives from
+// the server payload; nothing here promises a notification that does not exist.
+
+const OPEN_STATES = ["PendingTarget", "TargetReached"];
+
+function nextSteps(t: Json): string[] {
+  const state = String(t.deal_state || "");
+  const current = Number(t.progress?.current_units || 0);
+  const threshold = Number(t.threshold_units || t.progress?.target_units || 1);
+  const toTarget = Math.max(0, threshold - current);
+  const deadline = formatIsraelDateTime(t.deadline);
+  if (OPEN_STATES.includes(state)) {
+    return [
+      toTarget > 0 ? `חסרות עוד ${num(toTarget)} יחידות כדי שהעסקה תצא לפועל` : "היעד הושג — ההצטרפות עדיין פתוחה עד מועד הסיום",
+      deadline ? `מועד הסיום: ${deadline}` : "",
+      "הגיעו ליעד עד אז → החיוב מתבצע והמוכר מתאם את הקבלה. לא הגיעו → המסגרת משתחררת ואף אחד לא משלם."
+    ].filter(Boolean);
+  }
+  if (["ClosedForJoining", "ReadyForCharging", "Charging"].includes(state)) {
+    return ["ההצטרפות נסגרה — העסקה בתהליך סגירה וחיוב", "המסך הזה מתעדכן לבד; אין צורך לעשות דבר"];
+  }
+  if (state === "CompletionWindow") return ["חלון השלמה: חלק מהחיובים לא עברו. אם זה נוגע אליכם — ההנחיה מופיעה למעלה במסך הזה"];
+  if (state === "Completed") return ["העסקה הושלמה", t.delivery_method_label ? `אופן הקבלה: ${t.delivery_method_label}` : "המוכר מתאם את הקבלה"];
+  if (state === "Failed") return ["העסקה לא יצאה לפועל — לא בוצע חיוב, המסגרת משתחררת"];
+  if (state === "Cancelled") return ["העסקה בוטלה — לא בוצע חיוב"];
+  return [];
+}
+
 export function TrackPage({ participantId, token }: { participantId: string; token: string }) {
   const [payload, setPayload] = useState<Json | null>(null);
   const [impact, setImpact] = useState<Json | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<{ kind: "link" | "gone" | "network" | "busy" | "other"; message: string } | null>(null);
   const [toast, showToast] = useToast();
+  const [notifLine, setNotifLine] = useState(NOTIFICATIONS_OFF_LINE);
 
   useEffect(() => {
     let alive = true;
     const load = () =>
       api.tracking(participantId, token)
-        .then((r) => { if (alive) { setPayload(r); setError(""); } })
-        .catch((e) => { if (alive && !payload) setError(e.status === 401 || e.status === 403 ? "הקישור אינו תקף — פתחו את הקישור המלא שקיבלתם" : e.message); });
+        .then((r) => { if (alive) { setPayload(r); setError(null); } })
+        .catch((e) => {
+          if (!alive || payload) return;
+          const status = Number(e?.status || 0);
+          if (status === 401 || status === 403) setError({ kind: "link", message: "הקישור אינו תקף או לא הועתק במלואו — פתחו את הקישור המלא שקיבלתם אחרי ההצטרפות." });
+          else if (status === 404) setError({ kind: "gone", message: "לא מצאנו את ההצטרפות הזו. בדקו שהקישור הועתק במלואו." });
+          else if (!status) setError({ kind: "network", message: "לא הצלחנו לטעון את מסך המעקב. בדקו את החיבור ונסו שוב — הקישור עצמו תקין." });
+          else if (status === 429 || status >= 500) setError({ kind: "busy", message: "השרת לא הספיק לענות. הקישור עצמו תקין — נסו שוב בעוד כמה שניות." });
+          else setError({ kind: "other", message: String(e?.message || "משהו השתבש — נסו שוב") });
+        });
     load();
     const id = setInterval(load, 6_000);
     return () => { alive = false; clearInterval(id); };
@@ -23,14 +65,34 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
   useEffect(() => {
     api.impact(participantId, token).then((r) => setImpact(r.impact)).catch(() => undefined);
+    notificationsLine().then(setNotifLine).catch(() => undefined);
   }, [participantId, token]);
 
-  if (error) return <EmptyState icon="🔒" title="אין גישה למסך המעקב" body={error} />;
+  if (error) {
+    return (
+      <EmptyState icon={error.kind === "network" ? "📡" : error.kind === "busy" ? "⏳" : "🔒"}
+        title={error.kind === "network" ? "בעיית תקשורת" : error.kind === "busy" ? "עומס רגעי — נסו שוב בעוד רגע" : "אין גישה למסך המעקב"} body={error.message}
+        action={
+          <div className="row" style={{ justifyContent: "center" }}>
+            {error.kind === "network" || error.kind === "busy" ? <button className="btn btn-primary" data-testid="track-retry" onClick={() => window.location.reload()}>נסו שוב</button> : null}
+            <a className="btn btn-ghost" href="#/support" data-testid="track-support">תמיכה</a>
+          </div>
+        } />
+    );
+  }
   if (!payload?.tracking) return <BrandLoader label="טוענים את מסך המעקב…" minHeight={420} />;
 
   const t = payload.tracking;
   const toneClass = t.tone === "success" ? "ok" : t.tone === "danger" ? "err" : "info";
   const inCompletionWindow = t.buyer_state === "ChargeFailedCompletion";
+  const steps = nextSteps(t);
+  const dealHash = `#/deal/${t.deal_id}`;
+  const askHash = `#/deal/${t.deal_id}?inquiry=1`;
+  const deadlineText = formatIsraelDateTime(t.deadline);
+  const copyHere = async () => {
+    if (await copyText(window.location.href)) showToast("קישור המעקב הועתק");
+    else showToast("ההעתקה נכשלה — סמנו את הקישור והעתיקו ידנית");
+  };
 
   return (
     <>
@@ -42,7 +104,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
       <div className="deal-layout">
         <div className="stack">
-          <div className="panel">
+          <div className="panel" data-testid="track-status">
             <div className={`notice ${toneClass}`} style={{ marginTop: 0 }}>
               <b>{t.headline}</b>
               {t.subline ? <div className="small" style={{ marginTop: 4 }}>{t.subline}</div> : null}
@@ -68,9 +130,15 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
               את/ה ועוד {num(Math.max(0, Number(t.progress?.participants_count || 1) - 1))} משתתפים בעסקה
             </p>
             <div className="kv">
-              <span className="k">דדליין</span>
-              <span className="v"><Countdown until={t.deadline} overText="עבר" /></span>
+              <span className="k">סיום ההצטרפות</span>
+              <span className="v"><Countdown until={t.deadline} overText="עבר" />{deadlineText ? <div className="muted small" style={{ fontWeight: 400 }}>{deadlineText}</div> : null}</span>
             </div>
+            {steps.length ? (
+              <div className="track-next" data-testid="track-next">
+                <div className="track-next-title">מה עוד צריך לקרות?</div>
+                <ul>{steps.map((s, i) => <li key={i}>{s}</li>)}</ul>
+              </div>
+            ) : null}
           </div>
 
           <div className="panel">
@@ -85,6 +153,21 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
             <div className="order-note" style={{ marginTop: 12 }}>
               מסגרת האשראי נתפסה — <b>לא בוצע חיוב בפועל</b> עד סגירת העסקה בהצלחה.
               אין אפשרות שינוי או ביטול לאחר נעילת העסקה.
+              <div className="muted small" style={{ marginTop: 4 }}>{PILOT_MOCK_MONEY_LINE}</div>
+            </div>
+          </div>
+
+          {/* LAUNCH POLISH 2 (P4/P7) — how I get back here + how I ask the seller */}
+          <div className="panel" data-testid="track-return">
+            <div className="panel-title">🔖 לחזור לכאן ולשאול את המוכר</div>
+            <p className="small" style={{ marginTop: 0 }} data-testid="track-notif-line">{notifLine}</p>
+            <div className="row" style={{ gap: 8 }}>
+              <button type="button" className="btn btn-ghost btn-sm" data-testid="track-copy-link" onClick={copyHere}>העתקת קישור המעקב</button>
+              <a className="btn btn-ghost btn-sm" data-testid="track-deal-link" href={dealHash}>לדף העסקה ←</a>
+            </div>
+            <div className="track-ask" style={{ marginTop: 12 }}>
+              <a className="btn btn-primary btn-sm" data-testid="track-ask-seller" href={askHash}>✉️ שאלה למוכר</a>
+              <p className="muted small" style={{ margin: "6px 0 0" }}>{INQUIRY_PRIVACY_LINE} התשובה מופיעה בדף העסקה תחת ״הפניות שלי״.</p>
             </div>
           </div>
 
@@ -105,8 +188,9 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
         </div>
 
         <div className="stack">
-          <div className="panel">
-            <div className="panel-title">🌱 ההשפעה שלי</div>
+          {/* LAUNCH POLISH 2 (P5) — the share loop: the deal depends on aggregation */}
+          <div className="panel" data-testid="track-share">
+            <div className="panel-title">🌱 {SHARE_LOOP_TITLE}</div>
             {impact ? (
               <>
                 <div className="impact-stats">
@@ -120,20 +204,26 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
                   </p>
                 ) : (
                   <p className="muted small" style={{ marginTop: 10, textAlign: "center" }}>
-                    שתפו את הלינק האישי — כל מצטרף דרככם נספר כאן.
+                    שתפו את הקישור האישי — כל מצטרף דרככם נספר כאן ומקרב את העסקה ליעד.
                   </p>
                 )}
               </>
             ) : <p className="muted small">טוען…</p>}
             <div style={{ marginTop: 12 }}>
               <ShareActions
-                compact
+                layout="loop"
                 dealId={t.deal_id}
                 title={t.deal_title}
+                price={Number(t.price_per_unit)}
                 code={impact?.personal_share_code || null}
                 onNotify={showToast}
               />
             </div>
+          </div>
+
+          {/* LAUNCH POLISH 2 (P6) — one question, once per deal, never forced */}
+          <div className="panel" data-testid="track-feedback">
+            <FeedbackPrompt dealId={String(t.deal_id)} surface="tracking" />
           </div>
 
           {Array.isArray(t.activity_feed) && t.activity_feed.length ? (

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { clamp, countdownView, num, progressColor, stateLabel } from "./util";
+import { clamp, countdownView, ils, num, progressColor, stateLabel } from "./util";
 import { absoluteShareUrl, sendFunnelEvent } from "./viral";
 import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
@@ -180,25 +180,37 @@ export async function copyText(text: string): Promise<boolean> {
 // primary action. Instagram has no reliable web prefill — it truthfully
 // copies the link and tells the user to paste it (never a silent fail).
 // Every share is a funnel event; the URL carries the sharer's personal code.
+// LAUNCH POLISH 2 — `layout="loop"` is the post-join / tracking variant: the
+// messaging channel Israeli groups actually use leads as ONE labelled button,
+// the message carries the group price and the "only if the group is reached"
+// rule, and the personal ?ref= code stays on the canonical /d/:id URL.
+// Still exactly one copy control; no forced share, no repeat prompts.
 export function ShareActions(props: {
   dealId: string;
   title: string;
   code?: string | null;
   onNotify?: (msg: string) => void;
   compact?: boolean;
+  layout?: "loop";
+  price?: number | null;
 }) {
   const url = useMemo(() => absoluteShareUrl(props.dealId, props.code || null), [props.dealId, props.code]);
   const shareTitle = `${props.title} — קנייה קבוצתית ב-C-ton`;
+  const messageText = props.price != null && Number(props.price) > 0
+    ? `${props.title} — מחיר קבוצתי ${ils(props.price)} ליחידה. העסקה יוצאת לפועל רק אם מספיק אנשים מצטרפים. הצטרפו דרך הקישור:`
+    : shareTitle;
   const canNative = typeof navigator !== "undefined" && Boolean((navigator as any).share);
+  const loop = props.layout === "loop";
   const track = (channel: string) => sendFunnelEvent(props.dealId, "share_button_click", { share_channel: channel });
   const copy = async () => {
     track("copy");
     if (await copyText(url)) props.onNotify?.("הקישור הועתק");
     else props.onNotify?.("ההעתקה נכשלה — סמנו את הקישור והעתיקו ידנית");
   };
+  const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${messageText}\n${url}`)}`;
 
   const nets: { key: string; label: string; icon: React.ReactNode; href?: string; onClick?: () => void }[] = [
-    { key: "whatsapp", label: "שיתוף בוואטסאפ", icon: <WhatsAppIcon />, href: `https://wa.me/?text=${encodeURIComponent(`${shareTitle}\n${url}`)}` },
+    ...(loop ? [] : [{ key: "whatsapp", label: "שיתוף בוואטסאפ", icon: <WhatsAppIcon />, href: whatsappHref }]),
     { key: "facebook", label: "שיתוף בפייסבוק", icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
     { key: "x", label: "שיתוף ב-X", icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
     { key: "telegram", label: "שיתוף בטלגרם", icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
@@ -213,12 +225,18 @@ export function ShareActions(props: {
   ];
 
   return (
-    <div className="share-actions">
+    <div className={`share-actions${loop ? " share-loop" : ""}`} data-share-layout={loop ? "loop" : "default"}>
+      {loop ? (
+        <a className="btn btn-share-lead btn-block" data-testid="share-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"
+          onClick={() => track("whatsapp")}>
+          <WhatsAppIcon /> שיתוף בוואטסאפ
+        </a>
+      ) : null}
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className="btn btn-primary" aria-label="שיתוף" onClick={async () => {
+          <button className={`btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" data-testid="share-native" onClick={async () => {
             track("native");
-            try { await (navigator as any).share({ title: shareTitle, url }); } catch { /* user cancelled */ }
+            try { await (navigator as any).share({ title: shareTitle, text: messageText, url }); } catch { /* user cancelled */ }
           }}>
             <NativeShareIcon /> שיתוף
           </button>

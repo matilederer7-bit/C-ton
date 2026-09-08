@@ -12,8 +12,21 @@ export interface LandingFaqItem { q: string; a: string }
 export const LANDING_HE = {
   hero: {
     title: "מוכרים בקבוצה. סוגרים בכמות.",
-    sub: "C-ton היא פלטפורמה לעסקאות קבוצתיות: פותחים עסקה עם יעד יחידות, הקונים מצטרפים ומשתפים, והחיוב מתבצע רק אם הקבוצה מגיעה ליעד. לא הגיעה — אף אחד לא משלם.",
+    // ONE sentence that explains the product to both sides, then the rule.
+    sub: "C-ton (סיטון) היא פלטפורמה לקנייה קבוצתית: המוכר פותח עסקה עם יעד יחידות, הקונים מצטרפים ומשתפים, והחיוב מתבצע רק אם הקבוצה מגיעה ליעד. לא הגיעה — אף אחד לא משלם.",
     note: "קיבלתם קישור לעסקה? פתחו אותו ישירות — ההצטרפות לא דורשת חשבון."
+  },
+
+  // LAUNCH POLISH 2 (P9) — the buyer's way in (deals are reached by link in
+  // the closed pilot; a public list exists only while the Mall is enabled) and
+  // the truthful pilot disclosure. No production-payment claim anywhere.
+  buyerEntry: {
+    title: "קונים? ככה מצטרפים",
+    body: "פותחים את קישור העסקה שקיבלתם מהמוכר או מחבר, בוחרים כמות ומאשרים — בלי חשבון. בהצטרפות נתפסת מסגרת בלבד; החיוב רק אם הקבוצה מגיעה ליעד.",
+    cta: "לעסקאות הפתוחות"
+  },
+  pilot: {
+    note: "פיילוט סגור — בשלב זה לא מתבצעים חיובים אמיתיים."
   },
 
   howItWorks: {

@@ -237,9 +237,20 @@ stopped, use §5.
 
 ## 7. Collect buyer feedback
 
-- The join success screen and the tracking page are the only two moments you
-  own. For the pilot, ask each seller to forward this one-line message to their
-  group after the deal closes: "מה היה לא ברור בדף העסקה? תשובה במילה אחת מספיקה."
+- **In product (sprint 2):** the join success screen and the tracking page ask
+  ONE question — "היה משהו שלא היה ברור?" — with six fixed answers (how it
+  works / price / what if the target is missed / payment / delivery / other),
+  an optional 280-character text and a "הכול היה ברור" shortcut. Asked once per
+  deal per browser, never forced. Answers are PII-free (no name, phone, e-mail
+  or participant id) and land on the operational-cases rail as CLOSED, low
+  priority, `opened_by = buyer_feedback` — they never appear as open support
+  work. Read the aggregate in Admin → overview → **מדדי פיילוט** → "משוב
+  קונים" (counts per answer + the last free texts), or with the SQL block
+  "buyer feedback" in `PILOT_METRICS.sql`. A category that repeats across
+  deals is a page defect to fix, not a buyer problem.
+- For the buyers who never reached the success screen, ask each seller to
+  forward this one-line message to their group after the deal closes:
+  "מה היה לא ברור בדף העסקה? תשובה במילה אחת מספיקה."
 - Buyers who used **פנייה למוכר** already told you what was unclear — read the
   first message of every inquiry thread (Admin → מוכרים → seller → תמיכה, or the SQL in
   `PILOT_METRICS.sql`, "join refusals by reason" for the automated part).

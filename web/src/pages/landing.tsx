@@ -55,8 +55,22 @@ function ContentSection({ id, title, body }: { id: string; title: string; body: 
   );
 }
 
+// LAUNCH POLISH 2 (P9) — the buyer entry links to the open-deals list ONLY
+// while the runtime says the Mall is enabled; otherwise deals are reached by
+// link (closed pilot) and the box says exactly that.
+function useMallEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    getPreviewMeta().then((meta) => { if (alive) setEnabled(Boolean(meta?.public_mall_enabled)); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+  return enabled;
+}
+
 export function Landing({ navigate }: { navigate: (h: string) => void }) {
   const authed = Boolean(getSellerToken());
+  const mallEnabled = useMallEnabled();
   const c = LANDING_HE;
   return (
     <div className="landing">
@@ -86,7 +100,16 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
               </>
             )}
           </div>
-          <p className="landing-note">{c.hero.note}</p>
+          <div className="landing-buyer-entry" data-testid="landing-buyer-entry">
+            <b>{c.buyerEntry.title}</b>
+            <p>{c.buyerEntry.body}</p>
+            {mallEnabled ? (
+              <button className="btn btn-ghost btn-sm" data-testid="landing-open-deals" onClick={() => navigate("#/deals")}>{c.buyerEntry.cta} ←</button>
+            ) : (
+              <p className="landing-note" style={{ margin: 0 }}>{c.hero.note}</p>
+            )}
+          </div>
+          <p className="landing-note landing-pilot" data-testid="landing-pilot-note">🧪 {c.pilot.note}</p>
         </div>
       </section>
 

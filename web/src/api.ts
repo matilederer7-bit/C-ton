@@ -90,6 +90,9 @@ export const api = {
     req(`/api/inquiries/${threadId}?t=${encodeURIComponent(token)}`),
   inquiryFollowUp: (threadId: string, payload: Json) =>
     req(`/api/inquiries/${threadId}/messages`, { method: "POST", body: JSON.stringify(payload) }),
+  // LAUNCH POLISH 2 — one compact, PII-free buyer feedback answer per deal
+  dealFeedback: (id: string, payload: Json) =>
+    req(`/api/deals/${id}/feedback`, { method: "POST", body: JSON.stringify(payload) }),
 
   // ── seller (Supabase Bearer, seller capability) ─────────────────────────
   sellerContext: () => req(`/api/seller/context`, {}, "seller"),

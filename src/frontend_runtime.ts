@@ -2891,7 +2891,7 @@ export function registerFrontendExperience(
       `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.list_price_per_unit, d.min_units, d.max_units,
               d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
               d.created_at, d.seller_id, d.deal_type,
-              sa.business_name, sa.business_description
+              sa.business_name, sa.business_description, sa.verification_status
        FROM siton.deals d
        LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
        WHERE d.deal_id=$1
@@ -3040,9 +3040,13 @@ export function registerFrontendExperience(
         )
       },
       // Business identity only. No e-mail, no phone: contact stays in the product.
+      // LAUNCH POLISH 2 (P2) — `approved` is the one trust fact the backend can
+      // prove: the operator's KYC decision (verification_status = 'approved').
+      // A boolean only — never the raw status, never a date, never a reviewer.
       seller: {
         business_name: (deal as any).business_name ?? null,
         business_description: (deal as any).business_description ?? null,
+        approved: String((deal as any).verification_status || "") === "approved",
         contact_channel: "siton_inquiry"
       },
       availability
@@ -10020,6 +10024,81 @@ export function registerFrontendExperience(
   // Growth analytics only: nothing below creates or moves money, and
   // sharers/links earn NOTHING through the system, by product constitution.
 
+  // ── LAUNCH POLISH 2 (P6) — buyer feedback ────────────────────────────────
+  // ONE compact question after a join / on the tracking page: "היה משהו שלא
+  // היה ברור?" with a fixed category list and an optional bounded free text.
+  // No schema change: the answer is stored on the existing operational-cases
+  // rail as a CLOSED, low-priority Buyer case opened by `buyer_feedback`, so
+  // the support queue never treats it as work while the owner reads the
+  // aggregate in GET /api/admin/pilot-metrics. PII-free by construction: the
+  // route accepts no name/phone/e-mail/participant id and stores none; the
+  // free text is bounded (280) and whitespace-normalised. Bounded by an hourly
+  // cap per deal and platform-wide, plus the honeypot the support form uses.
+  const BUYER_FEEDBACK_CATEGORIES: Record<string, string> = {
+    how_it_works: "איך העסקה עובדת",
+    price: "המחיר / ההנחה",
+    target: "מה קורה אם לא מגיעים ליעד",
+    payment: "תשלום",
+    delivery: "משלוח / איסוף",
+    other: "משהו אחר",
+    all_clear: "הכול היה ברור"
+  };
+  const BUYER_FEEDBACK_SURFACES = new Set(["join_success", "tracking"]);
+  const BUYER_FEEDBACK_TEXT_MAX = 280;
+  app.post("/api/deals/:dealId/feedback", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "").trim();
+    requireUuid(dealId, "deal_id");
+    await ensureOperationalCaseTables(deps.withTx);
+    const body = req.body && typeof req.body === "object" ? req.body : {};
+    if (String(body.website || "").trim()) {
+      return reply.code(200).send({ ok: true, received: true });
+    }
+    const category = String(body.category || "").trim();
+    if (!BUYER_FEEDBACK_CATEGORIES[category]) {
+      return reply.code(400).send({ ok: false, error: "feedback category invalid", code: "feedback_category_invalid" });
+    }
+    const surfaceRaw = String(body.surface || "").trim();
+    const surface = BUYER_FEEDBACK_SURFACES.has(surfaceRaw) ? surfaceRaw : "unknown";
+    const text = String(body.text || "").replace(/\s+/g, " ").trim();
+    if (text.length > BUYER_FEEDBACK_TEXT_MAX) {
+      return reply.code(400).send({ ok: false, error: "feedback text too long", code: "feedback_text_too_long" });
+    }
+    return deps.withTx(async (c) => {
+      const deal = await c.query(
+        `SELECT deal_id, seller_id FROM siton.deals WHERE deal_id=$1 AND published_at IS NOT NULL LIMIT 1`,
+        [dealId]
+      );
+      if (!deal.rowCount) {
+        return reply.code(404).send({ ok: false, error: "deal not found", code: "feedback_deal_unavailable" });
+      }
+      const counts = await c.query(
+        `SELECT count(*) FILTER (WHERE deal_id = $1) AS per_deal, count(*) AS total
+         FROM siton.operational_cases
+         WHERE opened_by = 'buyer_feedback' AND created_at > now() - interval '1 hour'`,
+        [dealId]
+      );
+      const limits = counts.rows[0] || {};
+      if (Number(limits.per_deal || 0) >= 60 || Number(limits.total || 0) >= 200) {
+        return reply.code(429).send({ ok: false, error: "feedback rate limited", code: "feedback_rate_limited" });
+      }
+      const label = BUYER_FEEDBACK_CATEGORIES[category]!;
+      const description = [
+        `קטגוריה: ${category}`,
+        `מסך: ${surface}`,
+        text ? `טקסט: ${text}` : null
+      ].filter((line) => line !== null).join("\n");
+      const inserted = await c.query(
+        `INSERT INTO siton.operational_cases
+           (case_type, status, priority, source, deal_id, seller_id, opened_by, subject, description, resolution_note, closed_at)
+         VALUES ('Other', 'Closed', 'Low', 'Buyer', $1, $2, 'buyer_feedback', $3, $4,
+                 'משוב קונה — נאסף לצורך למידה, אינו דורש טיפול', now())
+         RETURNING case_id`,
+        [dealId, deal.rows[0].seller_id ?? null, `משוב קונה: ${label}`.slice(0, 200), description]
+      );
+      return reply.code(201).send({ ok: true, feedback_id: inserted.rows[0].case_id, category });
+    });
+  });
+
   // Public, PII-free funnel events (deal_view / share_button_click /
   // join_started). Client retries deduplicate on client_event_id.
   app.post("/api/viral/events", async (req: any, reply: any) => {
@@ -10175,7 +10254,7 @@ export function registerFrontendExperience(
     return deps.withTx(async (c) => {
       await ensureProductSurfaces();
       await ensureInquiryTables();
-      const [sellers, deals, events, joins, inquiries, perSeller] = await Promise.all([
+      const [sellers, deals, events, joins, inquiries, feedbackByCategory, feedbackRecent, perSeller] = await Promise.all([
         c.query(
           `WITH s AS (
              SELECT sa.seller_id, sa.created_at, COALESCE(sa.verification_status,'pending') AS verification_status,
@@ -10232,6 +10311,26 @@ export function registerFrontendExperience(
            FROM siton.seller_inquiry_threads WHERE created_at >= ${since}`,
           [days]
         ),
+        // LAUNCH POLISH 2 (P6) — buyer feedback aggregate (the category key is
+        // the first description line; the optional free text is the last one)
+        c.query(
+          `SELECT COALESCE(substring(description from '(?:^|\\n)קטגוריה: ([a-z_]+)'), 'unknown') AS category,
+                  COUNT(*)::int AS cnt
+           FROM siton.operational_cases
+           WHERE opened_by = 'buyer_feedback' AND created_at >= ${since}
+           GROUP BY 1 ORDER BY cnt DESC`,
+          [days]
+        ),
+        c.query(
+          `SELECT COALESCE(substring(description from '(?:^|\\n)קטגוריה: ([a-z_]+)'), 'unknown') AS category,
+                  substring(description from '\\nטקסט: (.*)$') AS text,
+                  created_at
+           FROM siton.operational_cases
+           WHERE opened_by = 'buyer_feedback' AND created_at >= ${since}
+             AND description LIKE '%טקסט: %'
+           ORDER BY created_at DESC LIMIT 12`,
+          [days]
+        ),
         c.query(
           `SELECT sa.seller_id,
                   COALESCE(NULLIF(btrim(sa.business_name),''), sa.display_name) AS name,
@@ -10269,6 +10368,11 @@ export function registerFrontendExperience(
           view_to_join_pct: pct(Number(jn.joins || 0), Number(ev.deal_views || 0))
         },
         inquiries: inquiries.rows[0],
+        feedback: {
+          total: feedbackByCategory.rows.reduce((sum: number, r: any) => sum + Number(r.cnt || 0), 0),
+          by_category: feedbackByCategory.rows.map((r: any) => ({ category: String(r.category), count: Number(r.cnt || 0) })),
+          recent: feedbackRecent.rows.map((r: any) => ({ category: String(r.category), text: String(r.text || "").slice(0, 280), at: r.created_at }))
+        },
         per_seller: perSeller.rows
       };
     });

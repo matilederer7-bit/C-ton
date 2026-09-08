@@ -197,6 +197,43 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
           <a href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>לרשימת המוכרים</a>
         </p>
       ) : null}
+      {/* LAUNCH POLISH 2 (P6) — what buyers said was unclear (aggregate, PII-free) */}
+      <BuyerFeedbackSummary feedback={m.feedback} />
+    </div>
+  );
+}
+
+const FEEDBACK_LABEL_HE: Record<string, string> = {
+  how_it_works: "איך העסקה עובדת", price: "המחיר / ההנחה", target: "מה קורה אם לא מגיעים ליעד",
+  payment: "תשלום", delivery: "משלוח / איסוף", other: "משהו אחר", all_clear: "הכול היה ברור", unknown: "לא ידוע"
+};
+function BuyerFeedbackSummary({ feedback }: { feedback: Json | undefined }) {
+  const total = Number(feedback?.total || 0);
+  const rows: Json[] = Array.isArray(feedback?.by_category) ? feedback!.by_category : [];
+  const recent: Json[] = Array.isArray(feedback?.recent) ? feedback!.recent : [];
+  return (
+    <div className="feedback-summary" data-testid="pilot-feedback" data-total={total} style={{ marginTop: 14, borderTop: "1px dashed var(--line-strong)", paddingTop: 12 }}>
+      <div style={{ fontWeight: 800, marginBottom: 6 }}>🗣️ משוב קונים — ״היה משהו שלא היה ברור?״ ({num(total)})</div>
+      {total === 0 ? (
+        <p className="muted small" style={{ margin: 0 }}>עדיין אין משובים בחלון הזה. השאלה מוצגת לקונים אחרי ההצטרפות ובמסך המעקב.</p>
+      ) : (
+        <>
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            {rows.map((r) => (
+              <span key={String(r.category)} className={`chip${r.category === "all_clear" ? " active" : ""}`} data-testid={`pilot-feedback-${String(r.category)}`}>
+                {FEEDBACK_LABEL_HE[String(r.category)] || String(r.category)} · {num(r.count)}
+              </span>
+            ))}
+          </div>
+          {recent.length ? (
+            <ul className="small" style={{ margin: "10px 0 0", paddingInlineStart: 18, color: "var(--ink-soft)" }}>
+              {recent.slice(0, 6).map((r, i) => (
+                <li key={i}><b>{FEEDBACK_LABEL_HE[String(r.category)] || String(r.category)}:</b> {String(r.text || "")} <span className="muted">· {fmtDate(r.at)}</span></li>
+              ))}
+            </ul>
+          ) : null}
+        </>
+      )}
     </div>
   );
 }

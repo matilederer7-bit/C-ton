@@ -179,12 +179,15 @@ export default function App() {
       ) : (
         <main className="container">
           {page === "" ? <Home navigate={navigate} /> : null}
-          {page === "deal" && route.seg[1] ? <DealPage dealId={route.seg[1]} navigate={navigate} /> : null}
+          {/* LAUNCH POLISH 2 — a named buyer entry into the open deals; it only
+              exists while the Mall is enabled, otherwise it is the landing */}
+          {page === "deals" ? (mallEnabled ? <Mall navigate={navigate} /> : <Landing navigate={navigate} />) : null}
+          {page === "deal" && route.seg[1] ? <DealPage dealId={route.seg[1]} navigate={navigate} openInquiry={route.query.get("inquiry") === "1"} /> : null}
           {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
           {page === "support" ? <SupportPage /> : null}
           {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}
-          {!["", "deal", "track", "seller", "support", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
+          {!["", "deals", "deal", "track", "seller", "support", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 

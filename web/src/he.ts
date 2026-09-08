@@ -79,10 +79,29 @@ const CODE_MESSAGES: Record<string, string> = {
   inquiry_rate_limited: "נשלחו יותר מדי פניות בשעה האחרונה — נסו שוב מאוחר יותר",
   inquiry_deal_unavailable: "העסקה אינה זמינה לפניות",
   inquiry_not_found: "הפנייה לא נמצאה",
-  pickup_location_required: "לאיסוף עצמי / נקודת חלוקה חסרה כתובת או מיקום — עדכנו באפשרויות האספקה לפני הפרסום"
+  pickup_location_required: "לאיסוף עצמי / נקודת חלוקה חסרה כתובת או מיקום — עדכנו באפשרויות האספקה לפני הפרסום",
+  // LAUNCH POLISH 2 — buyer join refusals answered in product Hebrew (the
+  // canonical codes stay internal; the buyer reads what happened + what to do)
+  joining_paused_by_admin: "ההצטרפות מושהית זמנית — נסו שוב מאוחר יותר",
+  delivery_address_required: "נא למלא כתובת למשלוח",
+  invalid_delivery_option: "אפשרות האספקה שנבחרה כבר אינה זמינה — רעננו את הדף ובחרו שוב",
+  payment_disclosure_required: "נדרש אישור הבהרת התשלום",
+  payment_authorization_required: "לא ניתן להשלים את ההצטרפות כרגע — נסו שוב בעוד רגע",
+  delivery_notes_too_long: "ההערות ארוכות מדי (עד 200 תווים)",
+  // LAUNCH POLISH 2 — buyer feedback
+  feedback_category_invalid: "יש לבחור אחת מהאפשרויות",
+  feedback_text_too_long: "הטקסט ארוך מדי (עד 280 תווים)",
+  feedback_rate_limited: "תודה — המשוב לעסקה הזו כבר התקבל",
+  feedback_deal_unavailable: "העסקה אינה זמינה"
 };
 
 const PATTERN_MESSAGES: [RegExp, string][] = [
+  // LAUNCH POLISH 2 — the join route's code-less refusals (409 "deal is not
+  // open for joining", inventory exhaustion, missing buyer id)
+  [/not open for joining/i, "ההצטרפות לעסקה נסגרה בינתיים — רעננו את הדף לסטטוס העדכני"],
+  [/exceeds available inventory|inventory_exhausted/i, "המלאי אזל בזמן ההצטרפות — נסו כמות קטנה יותר"],
+  [/buyer_id required/i, "נא למלא טלפון נייד"],
+  [/tracking_token_required/i, "הקישור אינו מלא — פתחו את הקישור המלא שקיבלתם"],
   [/invalid login credentials|invalid credentials|invalid grant/i, "אימייל או סיסמה שגויים"],
   [/not confirmed/i, "המייל טרם אומת — בדקו את תיבת הדואר ולחצו על קישור האימות"],
   [/already registered|already exists/i, "החשבון כבר קיים — נסו להתחבר"],
@@ -101,6 +120,7 @@ const STATUS_MESSAGES: Record<number, string> = {
   404: "לא נמצא",
   409: "הפעולה מתנגשת עם מצב קיים — רעננו ונסו שוב",
   413: "הקובץ גדול מדי",
+  423: "הפעולה מושהית זמנית — נסו שוב מאוחר יותר",
   429: "יותר מדי בקשות — נסו שוב בעוד רגע",
   500: "שגיאה זמנית במערכת — נסו שוב",
   502: "שגיאה זמנית במערכת — נסו שוב",
