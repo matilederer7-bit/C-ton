@@ -1,0 +1,250 @@
+{
+  "reviewed_sha": "0a24396fc7edc8731075f033010e2ee2d221b7a5",
+  "tested_code_sha": "f62ab41428efbcf9b5d420aff9b62afc8abdbd31",
+  "requested_master": "8ead7c828e6d6233bf7d17bf7f67d1a67ad35767",
+  "current_master": "ed9d6f80aedb8f77a52d2ea8f1452af73dbc5f00",
+  "behind_current_master": 7,
+  "full_suite": [
+    "TEST_SUMMARY group=unit passed=12 failed=0 duration_ms=37725",
+    "TEST_SUMMARY group=integration passed=29 failed=0 duration_ms=78469",
+    "TEST_SUMMARY group=db passed=8 failed=0 duration_ms=56639",
+    "TEST_SUMMARY group=api passed=41 failed=0 duration_ms=168188",
+    "TEST_SUMMARY group=workers passed=13 failed=0 duration_ms=74153",
+    "TEST_SUMMARY group=payments passed=57 failed=0 duration_ms=825085",
+    "TEST_SUMMARY group=security passed=37 failed=0 duration_ms=218292",
+    "TEST_SUMMARY group=concurrency passed=7 failed=0 duration_ms=259607",
+    "TEST_SUMMARY group=failure passed=9 failed=0 duration_ms=77172",
+    "TEST_SUMMARY group=e2e passed=13 failed=0 duration_ms=142595",
+    "TEST_SUMMARY group=all files=226 groups_passed=10 groups_failed=0 duration_ms=1939493"
+  ],
+  "fuzz": [
+    "SUMMARY payment_lab_random_schedule_fuzz seed=26090817 scenarios=500 passed=500 failed=0 participants=783 provider_effects=886 duration_s=269"
+  ],
+  "known_seed": [
+    "SUMMARY payment_lab_random_schedule_fuzz seed=2061983203 scenarios=200 passed=200 failed=0 participants=300 provider_effects=343 duration_s=89"
+  ],
+  "soak": [
+    "  oracle soak:final: participants=2156 effects[cap=1741 rec=68 ref=0 rel=346] canonical[charged=1741 recovered=68 refunded=0 released=346] unknown=0 visible_unresolved=13 cases=14 ledger=1809 live=0 totals[captured=15598300 recovered=637150 refunded=0 fees=1532354 ledger_fees=1532354] violations=0",
+    "GLOBAL_RECONCILIATION deals=853 participants=2156 jobs=4454 lease_expiries=42 oracle_runs=17 soak_s=120",
+    "  provider: capture=1741 recover=68 refund=0 release=346 captured_minor=16235450",
+    "  canonical: charged=1741 recovered=68 refunded=0 released=346 other=1 captured_minor=16235450",
+    "  ledger: entries=1809 gross=16235450 fees=1532354 net=14703096 | oracle fees=1532354 net=14703096",
+    "  attempts: [{\"result_class\":\"permanent_fail\",\"n\":416},{\"result_class\":\"success\",\"n\":2155}] dlq=126 cases=14 deadlocks=0 unhandled=0 uncaught=0 max_pool=3 max_heap=184MB",
+    "  unresolved-with-visibility=13 violations(allowed)=none",
+    "SUMMARY payment_lab_soak passed=1 failed=0 deals=853 participants=2156 provider_operations=3941"
+  ],
+  "baseline": [
+    "TEST_PASS file=db_client_error_log_safety_validation.ts duration_ms=852",
+    "SUMMARY db_client_error_process_survival passed=11 failed=0 uncaught=0 guard_observations=25",
+    "TEST_PASS file=worker_two_process_fencing_validation.ts duration_ms=19169",
+    "SUMMARY ci_log_security passed=181 failed=0",
+    "TEST_PASS file=request_id_canonical_authority_validation.ts duration_ms=2089",
+    "SUMMARY cancel_outbox_concurrency passed=22 failed=0"
+  ],
+  "static_gates": [
+    {
+      "name": "typecheck",
+      "exit": 0,
+      "duration_ms": 16393
+    },
+    {
+      "name": "lint-backend",
+      "exit": 0,
+      "duration_ms": 1118
+    },
+    {
+      "name": "payment-scan",
+      "exit": 0,
+      "duration_ms": 268
+    },
+    {
+      "name": "runtime-ddl",
+      "exit": 0,
+      "duration_ms": 94
+    },
+    {
+      "name": "architecture",
+      "exit": 0,
+      "duration_ms": 92
+    },
+    {
+      "name": "base44-integrity",
+      "exit": 0,
+      "duration_ms": 544
+    },
+    {
+      "name": "route-authorization",
+      "exit": 0,
+      "duration_ms": 49129
+    },
+    {
+      "name": "fault-report",
+      "exit": 0,
+      "duration_ms": 90
+    },
+    {
+      "name": "fresh-migrations",
+      "exit": 0,
+      "duration_ms": 2026
+    }
+  ],
+  "mutations": {
+    "generated_at": "2026-09-08T05:59:10.054Z",
+    "results": [
+      {
+        "id": "M36_arbitrary_reference_prefix",
+        "invariant": "foreign prefixes never alias an exact provider reference",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_final_reference_collision",
+            "status": "RED",
+            "summary": "SUMMARY payment_final_reference_collision passed=0 failed=1 failed_names=[\"foreign three-letter reference prefix cannot establish a capture\"]",
+            "seconds": 20
+          }
+        ]
+      },
+      {
+        "id": "M11_fee_7_percent",
+        "invariant": "Siton fee = exactly 8 % (7 %)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_lab_terminal_economics",
+            "status": "RED",
+            "summary": "SUMMARY payment_lab_terminal_economics passed=3 failed=14 failed_names=[\"terminal ChargedSuccess: duplicate, out-of-order and stale callbacks change nothing; duplicates are recognised as duplicates\",\"terminal Refunded: a late 'charge_captured' or second 'refund_issued' changes nothing; provider truth stays one capture + one refund\",\"terminal Completed deal: late refund/failure events for a DealCompleted participant are ignored or cased, never applied; late 'refund_issued' for a captured participant is a contradiction case\",\"terminal RecoveredCharge: wrong-reference and missing-reference callbacks never move money; a duplicate 'recovery_captured' is a duplicate\",\"economics: minimum: 1 agora item, no delivery → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: odd agorot: 0.07 × 3 → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: 1 agora item + 1 agora delivery → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: delivery greater than the item → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: typical: 42 × 2 + 12.5 delivery → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: odd rounding: 33.33 × 3 + 0.03 → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: large legal amount: 4999.99 × 20 → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: large quantity: 0.99 × 500 → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: prime agorot: 0.13 × 7 + 0.11 → ledger equals the oracle's 8 % of (gross incl. delivery − 17 % buyer VAT), distributor 0\",\"economics: many participants, threshold boundary, mixed deliveries — every ledger row and the deal totals agree with the oracle\"]",
+            "seconds": 27
+          }
+        ]
+      },
+      {
+        "id": "M18_settlement_horizon_fence_removed",
+        "invariant": "settlement horizon fences automatic recovery (app fence AND DB predicate)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_review_settlement_horizon",
+            "status": "RED",
+            "summary": "SUMMARY payment_review_settlement_horizon passed=6 failed=6 failed_names=[\"H-1 the horizon opens at dispatch, is durable, fences the recovery job to the horizon (visible) and the capture is re-verified there → one capture, no recovery\",\"H-3 late effect 600 ms < horizon 1200 ms under a consistent failed/final status → exactly one capture, zero recoveries\",\"H-3 late effect 1100 ms < horizon 1200 ms under a consistent failed/final status → exactly one capture, zero recoveries\",\"H-5 the fence holds the RELEASE rail: no release while an inferred capture failure may still settle; one release after the horizon\",\"H-7 DB backstop: the INSERT trigger refuses a recovery / release identity while fenced and admits it once the horizon passed\",\"H-8 the fence reads EVERY capture-side row: a later exact-evidence row (or a rotated identity) does not lift an older open horizon\"]",
+            "seconds": 43
+          }
+        ]
+      },
+      {
+        "id": "M19_f6_release_proof_removed",
+        "invariant": "F-6: AuthReleased only through the provider-proofed release rail (never by assumption on recovery_failed)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_review_adversarial",
+            "status": "RED",
+            "summary": "SUMMARY payment_review_adversarial passed=17 failed=3 failed_names=[\"RA-2a F-6: recovery DECLINED by the provider → business state Dropped, money state released ONLY through a provider release (proof), never by assumption\",\"RA-2b F-6 via reconciliation: recovery UNKNOWN (503 before effect), status proves not executed → recovery_failed → hold released only WITH proof\",\"RA-2c F-6 when the provider REFUSES the release: money stays honestly held (ChargeFailedRecovery) with an operator case, business state Dropped, never AuthReleased\"]",
+            "seconds": 30
+          }
+        ]
+      },
+      {
+        "id": "M20_currency_check_removed",
+        "invariant": "currency is part of the exact-operation identity (reconcile)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_review_adversarial",
+            "status": "RED",
+            "summary": "SUMMARY payment_review_adversarial passed=19 failed=1 failed_names=[\"RA-3 a status answer with the right amount but the WRONG currency is a mismatch hold (case), never a captured verdict; the next truthful read converges\"]",
+            "seconds": 31
+          }
+        ]
+      },
+      {
+        "id": "M32_horizon_expiry_alone_is_proof",
+        "invariant": "residual A: horizon expiry by itself never authorises recovery (negative finality must be authoritative)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_final_residual_a_unproven",
+            "status": "RED",
+            "summary": "SUMMARY payment_final_residual_a_unproven passed=8 failed=2 failed_names=[\"AU-9 a provider-EVENT failure on this contract is fenced PERMANENTLY inside the completion window (recovery / release hold with cases, DB backstop); operator evidence is the only way out — then exactly one recovery\",\"AU-9b the terminal decision on this contract is held PERMANENTLY (case, neither Completed nor Failed, no release) on a provider-event failure; operator evidence lets it decide — a proofed release, never a capture\"]",
+            "seconds": 39
+          }
+        ]
+      },
+      {
+        "id": "M33_legacy_rows_admitted",
+        "invariant": "residual B: a legacy row (NULL horizon / NULL authority) is never treated as elapsed and authoritative",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_final_residual_b",
+            "status": "RED",
+            "summary": "SUMMARY payment_final_residual_b passed=2 failed=5 failed_names=[\"LB-1 legacy dispatched DEFINITELY_FAILED (no horizon, no evidence, no authority) → recovery, release and finalize all HOLD with cases; operator evidence → exactly one recovery\",\"LB-2 legacy UNKNOWN → an authoritative provider status resolves it to permanent_fail, but the row's authority is unproven → still fenced, no recovery\",\"LB-4 legacy row missing its provider reference → fenced; nothing is dispatched; case\",\"LB-6 backfill: re-applying migration 064 on a legacy row with a dispatch instant reconstructs horizon = dispatched_at + 24 h and keeps it fenced (authority unproven)\",\"LB-7 DB backstop: no recovery / release identity can be minted for a legacy-fenced participant\"]",
+            "seconds": 18
+          }
+        ]
+      },
+      {
+        "id": "M34_release_in_flight_fence_removed",
+        "invariant": "residual C: no capture / recovery while a release of the authorization is unresolved or executed (app AND DB)",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_final_residual_c",
+            "status": "RED",
+            "summary": "SUMMARY payment_final_residual_c passed=1 failed=8 failed_names=[\"RC-1 capture vs release IN FLIGHT: the capture is never dispatched; the release truth ends the hold as AuthReleased (ChargeAttempt → AuthReleased)\",\"RC-2 recovery vs release IN FLIGHT: no recovery request; the release truth wins\",\"RC-3 two in-process workers: the charge job races the parked release job → no capture, one release, consistent end state\",\"RC-4 lease loss: the release owner dies after the effect; a successor reclaims and proves the release; the capture never starts; the stale owner is fenced\",\"RC-5 release effect then 503 → release UNKNOWN → the capture is held, the reconcile proves the release → AuthReleased, capture never dispatched\",\"RC-6 release effect then timeout → release UNKNOWN → the capture is held, the reconcile proves the release → AuthReleased, capture never dispatched\",\"RC-7 release status UNKNOWN for ever → the capture stays held (bounded retries, DLQ + case); it is never dispatched\",\"RC-9 DB backstop: no charge_start / recovery identity while a release of the authorization is unknown or executed\"]",
+            "seconds": 20
+          }
+        ]
+      },
+      {
+        "id": "M35_reference_match_check_removed",
+        "invariant": "residual A: a status answer naming another reference is never a verdict",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_final_residual_a_authoritative",
+            "status": "RED",
+            "summary": "SUMMARY payment_final_residual_a_authoritative passed=6 failed=1 failed_names=[\"AA-5 wrong-reference negative beyond the horizon → reference mismatch case, no verdict from it, no recovery\"]",
+            "seconds": 38
+          }
+        ]
+      },
+      {
+        "id": "M30_finalize_ignores_success_unpersisted",
+        "invariant": "R-11: the terminal decision waits for an executed capture whose canonical state is not yet applied",
+        "outcome": "CAUGHT",
+        "suites": [
+          {
+            "group": "payments",
+            "pattern": "payment_review_findings_reconstruction",
+            "status": "RED",
+            "summary": "SUMMARY payment_review_findings_reconstruction passed=12 failed=1 failed_names=[\"FR-2b (R-11) finalize defers while a capture identity is SUCCESS but its canonical state is not yet applied (settle/ingest gap), then completes EVERY paid participant\"]",
+            "seconds": 22
+          }
+        ]
+      }
+    ],
+    "note": "Ten distinct valid financial mutations caught. Superseded M18 SQL setup failures are excluded; corrected M18 fails six financial assertions. Twenty mutation executions overall including initial/superseded runs; this object is the accepted ten-mutation proof."
+  },
+  "master_advance": [
+    "MASTER_ADVANCE_PROOF current_master_065_position=58 candidate_063_position=58 upgrade=BLOCKED duplicate_position=REPRODUCED"
+  ],
+  "pre_fix": [
+    "B2_THRESHOLD_PROOF qty=1 threshold=2 three_declines=3 expected=Failed",
+    "B2_THRESHOLD_PROOF qty=3 threshold=2 three_declines=3 expected=Completed",
+    "REFERENCE_COLLISION_EVIDENCE {\"money_state\":\"ChargedSuccess\",\"effects\":{\"capture\":0,\"recover\":0,\"refund\":0,\"release\":0,\"capture_amount_minor\":0,\"recover_amount_minor\":0,\"refund_amount_minor\":0},\"attempts\":[\"success\"]}"
+  ],
+  "post_fix": [
+    "SUMMARY payment_final_b2_threshold passed=2 failed=0",
+    "REFERENCE_COLLISION_EVIDENCE {\"money_state\":\"ChargeAttempt\",\"effects\":{\"capture\":0,\"recover\":0,\"refund\":0,\"release\":0,\"capture_amount_minor\":0,\"recover_amount_minor\":0,\"refund_amount_minor\":0},\"attempts\":[\"unknown\"]}",
+    "SUMMARY payment_final_reference_collision passed=1 failed=0"
+  ]
+}

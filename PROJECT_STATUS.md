@@ -1,3 +1,15 @@
+## CODEX FINAL FINANCIAL REVIEW ? EXACT CANDIDATE REVIEWED; CURRENT-MASTER INTEGRATION BLOCKED
+
+**COMPLETED:** Reviewed exact candidate `0a24396fc7edc8731075f033010e2ee2d221b7a5` on isolated branch `codex/r9c-final-financial-review`, based on requested master `8ead7c8`. Reproduced and fixed HIGH foreign-reference false canonical success; made B2 deterministic; repaired invalid mutation evidence. No merge, deployment or real Grow calls.
+
+**TESTED:** Sequential full suite **226/226**, all 10 groups; 10/10 distinct valid mutations caught; fresh fuzz **500/500** seed `26090817`; known F-9 **200/200** seed `2061983203`; 120-second soak plus drain, 853 deals/2,156 participants, global financial violations 0; baseline preserved; static gates 9/9, demo/mobile builds and gate PASS; fresh 59 migrations/rerun/drift 0; requested-base 57-to-59 upgrade PASS. Tested code SHA `f62ab41428efbcf9b5d420aff9b62afc8abdbd31`. Details: `docs/R9C_CODEX_FINAL_REVIEW.md` and evidence JSON.
+
+**OPEN:** At final remote check master advanced to `ed9d6f80aedb8f77a52d2ea8f1452af73dbc5f00` (review branch 7 behind). Its 065 ledger position 58 collides with candidate 063: disposable upgrade failure reproduced. Integration/promotion launch blocker OPEN 1; LF/CRLF migration checksum portability followup OPEN 1; Grow external provider blocker OPEN 1. HIGH found 2/fixed 1, MEDIUM found 3/fixed 2, CRITICAL/LOW 0. No unconditional financial guarantee for providers that lie after declared finality.
+
+**PERCENTAGE:** Exact-SHA independent review and local regression 100%; integration with newly advanced master 0%; real money 0%.
+
+**NEXT STEP:** Preserve current master's applied 065 position, append financial migrations during a separate combined integration, verify combined candidate + GitHub CI/hosted smoke, then Launch Gap Review. `SAFE_TO_MERGE_TO_MASTER=NO`, `SAFE_FOR_REAL_MONEY=NO`, `READY_FOR_LAUNCH_MODE=NO` for the current combined release. Original master and Claude branch were not modified.
+
 ## FINAL FINANCIAL INTEGRATION — COMPLETE, EXACT-TIP REGRESSION RECORDED (2026-09-08) — branch `claude/r9c-final-financial-integration` @ `2aff706 + the docs-only tip commit` (from exact master `8ead7c8`, 0 behind), NOT merged
 
 **COMPLETED**
