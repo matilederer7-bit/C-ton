@@ -218,7 +218,7 @@ const text = (sel) => `(document.querySelector(${JSON.stringify(sel)})?.innerTex
         return {
           title: top(q('.deal-title')), price: top(q('.deal-price-hero')), priceLabel: (q('.deal-price-hero') || {}).innerText,
           saving: top(q('[data-testid="deal-saving"]')), meter: top(q('.gm')), countdown: top(q('[data-testid="deal-countdown"]')),
-          qty: top(q('.qty-stepper')), delivery: top(q('[data-testid="delivery-options"]')), cta: top(q('[data-testid="join-open"]')),
+          qty: top(q('[data-testid="join-qty"]')), delivery: top(q('[data-testid="delivery-options"]')), cta: top(q('[data-testid="join-open"]')),
           ctaText: q('[data-testid="join-open"]').innerText, demo: Boolean(q('.staging-flag')), inquiry: top(q('[data-testid="inquiry-open"]')),
           meterText: (q('.gm-meta') || {}).innerText, vh: window.innerHeight, needed: (q('[data-testid="deal-needed"]') || {}).innerText || null
         };

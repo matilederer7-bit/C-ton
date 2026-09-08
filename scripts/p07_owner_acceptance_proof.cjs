@@ -136,7 +136,7 @@ async function main() {
       assert(loc.includes(findings.pickup_location_text), `pickup text mismatch: ${loc}`);
       const fallback = await cdp.evaluate(exists('[data-testid="pickup-location-fallback"]'));
       assert(!fallback, "neutral fallback rendered although a location exists");
-      const nav = await cdp.evaluate(`(() => { const a = document.querySelector('[data-testid="pickup-nav"]'); return a ? a.getAttribute('href') : null; })()`);
+      const nav = await cdp.evaluate(`(() => { const a = document.querySelector('[data-testid="pickup-nav-google"]'); return a ? a.getAttribute('href') : null; })()`);
       findings.pickup_map_link = nav;
       assert(!nav || /google\.com\/maps/.test(nav), `unexpected map link: ${nav}`);
       const optionTitle = await cdp.evaluate(`(() => { const l = document.querySelector('[data-testid="delivery-option"][data-option-type="pickup"], [data-testid="delivery-option"][data-option-type="distribution_point"]'); return l ? l.textContent.trim() : ""; })()`);

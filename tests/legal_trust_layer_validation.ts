@@ -95,24 +95,33 @@ async function cleanupDeal(dealId: string, sellerId: string) {
 }
 
 await run("legal pages and payment disclosure text are available", async () => {
-  const terms = await app.inject({ method: "GET", url: "/legal/terms" });
-  const refunds = await app.inject({ method: "GET", url: "/legal/refunds" });
-  const privacy = await app.inject({ method: "GET", url: "/legal/privacy" });
-  const sellers = await app.inject({ method: "GET", url: "/legal/sellers" });
-  const affiliates = await app.inject({ method: "GET", url: "/legal/affiliates" });
-  const demo = await app.inject({ method: "GET", url: "/legal/demo" });
-  const payments = await app.inject({ method: "GET", url: "/legal/payments" });
+  // SPRINT 4 (A4): every direct legacy URL redirects into the canonical React
+  // route, and the JSON projection carries the document text for all seven slugs.
+  const slugs = ["terms", "refunds", "privacy", "sellers", "affiliates", "demo", "payments"];
+  for (const slug of slugs) {
+    const legacy = await app.inject({ method: "GET", url: `/legal/${slug}` });
+    assert.equal(legacy.statusCode, 302, `/legal/${slug} redirects into the React product`);
+    assert.equal(legacy.headers.location, `/preview/#/legal/${slug}`);
+  }
+  const missing = await app.inject({ method: "GET", url: "/legal/not-a-document" });
+  assert.equal(missing.statusCode, 404);
+  const pages: Record<string, any> = {};
+  for (const slug of slugs) {
+    const res = await app.inject({ method: "GET", url: `/api/legal/${slug}` });
+    assert.equal(res.statusCode, 200, `/api/legal/${slug}`);
+    pages[slug] = res.json().page;
+    assert.equal(pages[slug].slug, slug);
+    assert.ok(Array.isArray(pages[slug].blocks) && pages[slug].blocks.length > 3, `${slug} carries its sections`);
+  }
+  const textOf = (page: any) => page.blocks.map((b: any) => (b.type === "p" ? b.lines.join("\n") : b.text)).join("\n");
+  const terms = { body: textOf(pages.terms) }, refunds = { body: textOf(pages.refunds) }, privacy = { body: textOf(pages.privacy) };
   const appJs = await readFile("frontend/app.js", "utf8");
-  assert.equal(terms.statusCode, 200);
-  assert.equal(refunds.statusCode, 200);
-  assert.equal(privacy.statusCode, 200);
-  assert.equal(sellers.statusCode, 200);
-  assert.equal(affiliates.statusCode, 200);
-  assert.equal(demo.statusCode, 200);
-  assert.equal(payments.statusCode, 200);
+  assert.equal(pages.terms.title, "תקנון שימוש ותנאי שירות C-ton");
   assert.match(terms.body, /תקנון שימוש ותנאי שירות C-ton/);
   assert.match(refunds.body, /מדיניות ביטולים, החזרים ושחרור מסגרת/);
   assert.doesNotMatch(`${terms.body}\n${refunds.body}\n${privacy.body}`, /ניווט מהיר|עמודי trust ציבוריים|placeholder פנימי|פתוח להצגה/);
+  assert.deepEqual(pages.terms.nav.map((n: any) => n.slug), ["terms", "privacy", "refunds"], "core nav only on a core document");
+  assert.deepEqual(pages.sellers.nav.map((n: any) => n.slug), ["terms", "privacy", "refunds", "sellers"], "a non-core document is appended to its own nav");
   assert.match(appJs, /\/legal\/terms/);
   assert.match(appJs, /\/legal\/refunds/);
   assert.match(appJs, /sellerPublishLegalAccepted/);

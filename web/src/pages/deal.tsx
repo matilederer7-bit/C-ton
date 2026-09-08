@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
-  BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, copyText, useToast
+  BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyInput, Toast, copyText, useToast
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
 // P0.7C — bounded read polling: immediate, never overlapping, paused when hidden,
@@ -14,7 +14,8 @@ import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessio
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, seller
 // payload, public payload): the buyer preview IS this page, so what a seller
 // previews is exactly what buyers see after publication.
-import { hasUsablePickupLocation, isPickupOptionType, pickupDirectionsUrl, pickupLocationText } from "../../../src/pickup_location";
+import { PICKUP_NAV_MODE_COPY, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupNavigation } from "../../../src/pickup_location";
+import { GoogleMapsIcon, WazeIcon } from "../navIcons";
 // LAUNCH POLISH 2 — shared buyer copy (what/why/what-if, honesty lines) + the
 // one-question feedback surface.
 import {
@@ -52,20 +53,39 @@ function deliveryOptionTitle(o: DeliveryOption): string {
 function PickupLocationLine({ option, showNav }: { option: DeliveryOption; showNav: boolean }) {
   if (!isPickupOptionType(option.option_type)) return null;
   const text = pickupLocationText(option);
-  const nav = pickupDirectionsUrl(option);
+  // SPRINT 4 (A1) — one navigation truth for BOTH apps: exact coordinates when
+  // the seller stored them, an address search (never a fabricated pin) otherwise.
+  const nav = pickupNavigation(option);
   const usable = hasUsablePickupLocation(option);
   return (
     <div className="pickup-location" data-testid="pickup-location" data-option-type={option.option_type} data-has-location={usable ? "1" : "0"}>
       {text ? (
         <span className="pickup-location-text" data-testid="pickup-location-text">📍 {text}</span>
-      ) : nav ? (
+      ) : nav?.exact ? (
         <span className="pickup-location-text" data-testid="pickup-location-text">📍 נקודת האיסוף מסומנת במפה</span>
       ) : (
         <span className="pickup-location-text muted" data-testid="pickup-location-fallback">📍 המוכר טרם פרסם כתובת לנקודת האיסוף — אפשר לשאול דרך ״פנייה למוכר״</span>
       )}
       {nav && showNav ? (
-        <a className="btn btn-ghost btn-sm" data-testid="pickup-nav" href={nav} target="_blank" rel="noreferrer">🧭 פתח במפה</a>
+        <PickupNavActions nav={nav} testIdPrefix="pickup-nav" />
       ) : null}
+    </div>
+  );
+}
+
+// SPRINT 4 (A1) — the two navigation actions a buyer actually uses on a phone.
+// Both links resolve to the same coordinates (exact) or the same address
+// search; the mode line never claims "exact" unless coordinates exist.
+export function PickupNavActions({ nav, testIdPrefix }: { nav: NonNullable<ReturnType<typeof pickupNavigation>>; testIdPrefix: string }) {
+  return (
+    <div className="pickup-nav" data-testid={testIdPrefix} data-nav-mode={nav.mode} data-nav-exact={nav.exact ? "1" : "0"}>
+      <a className="btn btn-ghost btn-sm pickup-nav-btn" data-testid={`${testIdPrefix}-google`} href={nav.google_maps_url} target="_blank" rel="noreferrer">
+        <GoogleMapsIcon /> Google Maps
+      </a>
+      <a className="btn btn-ghost btn-sm pickup-nav-btn" data-testid={`${testIdPrefix}-waze`} href={nav.waze_url} target="_blank" rel="noreferrer">
+        <WazeIcon /> Waze
+      </a>
+      <span className="pickup-nav-mode small muted" data-testid={`${testIdPrefix}-mode`}>{PICKUP_NAV_MODE_COPY[nav.mode]}</span>
     </div>
   );
 }
@@ -712,7 +732,7 @@ function JoinModal(props: {
         <div className={`field${fieldErrors.terms ? " invalid" : ""}`} id="join-field-terms" style={{ marginBottom: 0 }}>
           <label className="check">
             <input data-testid="join-terms" type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} aria-invalid={Boolean(fieldErrors.terms)} />
-            <span><span className="req" aria-hidden="true">* </span>קראתי ואני מסכים/ה <a href="/legal/terms" target="_blank" rel="noreferrer">לתקנון</a> ולמדיניות הביטולים.</span>
+            <span><span className="req" aria-hidden="true">* </span>קראתי ואני מסכים/ה <a href="#/legal/terms" target="_blank" rel="noreferrer">לתקנון</a> ולמדיניות הביטולים.</span>
           </label>
           {fieldErrors.terms ? <span className="field-error" data-testid="join-error-terms" role="alert">{fieldErrors.terms}</span> : null}
         </div>
@@ -1085,8 +1105,9 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             <div className="panel">
               <div className="panel-title">ההזמנה שלי</div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontWeight: 700 }}>כמות יחידות</span>
-                <QtyStepper value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
+                <label htmlFor="join-qty" style={{ fontWeight: 700 }}>כמות יחידות</label>
+                {/* SPRINT 4 (A9) — typed quantity, numeric keyboard, no +/− steppers */}
+                <QtyInput id="join-qty" testId="join-qty" value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
               </div>
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">

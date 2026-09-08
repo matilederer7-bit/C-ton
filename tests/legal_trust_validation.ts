@@ -43,11 +43,17 @@ await run("legal_footer_links_validation", async () => {
   // P0.3-12: the visible legal footer/nav is trimmed to the core buyer
   // documents + support; sellers/affiliates pages stay ROUTED (LEGAL_PAGES)
   // and linked from their own flows, not from the buyer footer.
-  assert.match(runtime, /\/legal\/terms/);
-  assert.match(runtime, /\/legal\/privacy/);
-  assert.match(runtime, /\/legal\/refunds/);
-  assert.match(runtime, /\/preview\/#\/support/);
+  // SPRINT 4 (A4): the documents are native React routes; the legacy direct
+  // URLs redirect into them, and the React footer links every core document.
+  assert.match(runtime, /app\.get\("\/legal\/:slug"/);
+  assert.match(runtime, /redirect\(`\/preview\/#\/legal\/\$\{slug\}`, 302\)/);
+  assert.match(runtime, /app\.get\("\/api\/legal\/:slug"/);
   assert.match(runtime, /\/app\/contact/);
+  const appTsx = await readFile("web/src/App.tsx", "utf8");
+  assert.match(appTsx, /href="#\/legal\/terms"/);
+  assert.match(appTsx, /href="#\/legal\/privacy"/);
+  assert.match(appTsx, /href="#\/legal\/refunds"/);
+  assert.match(appTsx, /navigate\("#\/support"\)/);
   const legalPages = await readFile("src/legal_pages.ts", "utf8");
   assert.match(legalPages, /sellers/);
   assert.match(legalPages, /affiliates/);
