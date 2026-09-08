@@ -1,0 +1,1059 @@
+{
+  "base_master_sha": "d4c7877f9b704734036d69f57f7d98f794f4d034",
+  "source_review_sha": "3809b32c11d82e57d6ed106f88dea7a55b76499a",
+  "runtime_migration_commits": [
+    "7358d7d79e2e15a943ab2d94760272fb3fa60bd0 chore(db): append reviewed R9C migrations after landed master 065",
+    "803d9b06b21b8b1f5bfa18c60fb16614ffb96224 fix(payments): port reviewed R9C financial safety fixes"
+  ],
+  "groups": {
+    "focused": {
+      "summaries": [
+        "TEST_SUMMARY group=unit passed=0 failed=0 duration_ms=23557",
+        "TEST_SUMMARY group=integration passed=0 failed=0 duration_ms=20731",
+        "TEST_SUMMARY group=db passed=0 failed=0 duration_ms=24300",
+        "TEST_SUMMARY group=api passed=0 failed=0 duration_ms=23893",
+        "TEST_SUMMARY group=workers passed=0 failed=0 duration_ms=16156",
+        "TEST_SUMMARY group=payments passed=2 failed=0 duration_ms=24599",
+        "TEST_SUMMARY group=security passed=0 failed=0 duration_ms=17328",
+        "TEST_SUMMARY group=concurrency passed=0 failed=0 duration_ms=17447",
+        "TEST_SUMMARY group=failure passed=0 failed=0 duration_ms=21369",
+        "TEST_SUMMARY group=e2e passed=1 failed=0 duration_ms=27413",
+        "TEST_SUMMARY group=all files=3 groups_passed=10 groups_failed=0 duration_ms=217979"
+      ],
+      "files": [
+        {
+          "file": "payment_final_b2_threshold_validation.ts",
+          "duration_ms": 2674
+        },
+        {
+          "file": "payment_final_reference_collision_validation.ts",
+          "duration_ms": 1952
+        },
+        {
+          "file": "deal_types_e2e_validation.ts",
+          "duration_ms": 4215
+        }
+      ]
+    },
+    "payments": {
+      "summaries": [
+        "TEST_SUMMARY group=payments passed=57 failed=0 duration_ms=347903"
+      ],
+      "files": [
+        {
+          "file": "grow_payment_adapter_validation.ts",
+          "duration_ms": 1259
+        },
+        {
+          "file": "grow_payment_sandbox_activation_validation.ts",
+          "duration_ms": 3556
+        },
+        {
+          "file": "invoice_dispatch_proof.ts",
+          "duration_ms": 892
+        },
+        {
+          "file": "invoice_morning_activation_validation.ts",
+          "duration_ms": 1327
+        },
+        {
+          "file": "invoice_morning_adapter_validation.ts",
+          "duration_ms": 1584
+        },
+        {
+          "file": "invoice_queue_hardening_proof.ts",
+          "duration_ms": 1568
+        },
+        {
+          "file": "invoice_rail_validation.ts",
+          "duration_ms": 671
+        },
+        {
+          "file": "money_tax_invoice_canon_validation.ts",
+          "duration_ms": 698
+        },
+        {
+          "file": "payment_authorization_binding_validation.ts",
+          "duration_ms": 1779
+        },
+        {
+          "file": "payment_authorization_env_guard_validation.ts",
+          "duration_ms": 1831
+        },
+        {
+          "file": "payment_authorization_real_rail_validation.ts",
+          "duration_ms": 1265
+        },
+        {
+          "file": "payment_capture_webhook_real_rail_validation.ts",
+          "duration_ms": 2772
+        },
+        {
+          "file": "payment_final_b2_threshold_validation.ts",
+          "duration_ms": 1967
+        },
+        {
+          "file": "payment_final_reference_collision_validation.ts",
+          "duration_ms": 1736
+        },
+        {
+          "file": "payment_final_residual_a_authoritative_validation.ts",
+          "duration_ms": 23062
+        },
+        {
+          "file": "payment_final_residual_a_unproven_validation.ts",
+          "duration_ms": 23518
+        },
+        {
+          "file": "payment_final_residual_b_validation.ts",
+          "duration_ms": 2128
+        },
+        {
+          "file": "payment_final_residual_c_validation.ts",
+          "duration_ms": 6314
+        },
+        {
+          "file": "payment_grow_ambiguity_policy_validation.ts",
+          "duration_ms": 747
+        },
+        {
+          "file": "payment_lab_c1_c2_validation.ts",
+          "duration_ms": 7127
+        },
+        {
+          "file": "payment_lab_crash_matrix_validation.ts",
+          "duration_ms": 5655
+        },
+        {
+          "file": "payment_lab_finalize_guard_validation.ts",
+          "duration_ms": 15202
+        },
+        {
+          "file": "payment_lab_foundation_validation.ts",
+          "duration_ms": 17376
+        },
+        {
+          "file": "payment_lab_lifecycle_reconcile_validation.ts",
+          "duration_ms": 11262
+        },
+        {
+          "file": "payment_lab_random_schedule_fuzz_validation.ts",
+          "duration_ms": 48652
+        },
+        {
+          "file": "payment_lab_refund_release_recovery_validation.ts",
+          "duration_ms": 10872
+        },
+        {
+          "file": "payment_lab_soak_validation.ts",
+          "duration_ms": 21017
+        },
+        {
+          "file": "payment_lab_terminal_economics_validation.ts",
+          "duration_ms": 10501
+        },
+        {
+          "file": "payment_production_hardening_validation.ts",
+          "duration_ms": 1364
+        },
+        {
+          "file": "payment_provider_operation_identity_crash_validation.ts",
+          "duration_ms": 6576
+        },
+        {
+          "file": "payment_r9c_ambiguous_outcomes_validation.ts",
+          "duration_ms": 4290
+        },
+        {
+          "file": "payment_r9c_reconciliation_race_validation.ts",
+          "duration_ms": 5196
+        },
+        {
+          "file": "payment_r9c_stale_owner_settle_validation.ts",
+          "duration_ms": 1829
+        },
+        {
+          "file": "payment_reconcile_boundary_validation.ts",
+          "duration_ms": 2315
+        },
+        {
+          "file": "payment_recovery_real_rail_validation.ts",
+          "duration_ms": 6080
+        },
+        {
+          "file": "payment_refund_real_rail_validation.ts",
+          "duration_ms": 3031
+        },
+        {
+          "file": "payment_release_lifecycle_validation.ts",
+          "duration_ms": 2758
+        },
+        {
+          "file": "payment_review_adversarial_validation.ts",
+          "duration_ms": 15407
+        },
+        {
+          "file": "payment_review_findings_reconstruction_validation.ts",
+          "duration_ms": 5031
+        },
+        {
+          "file": "payment_review_grow_negative_status_validation.ts",
+          "duration_ms": 1646
+        },
+        {
+          "file": "payment_review_mock_provider_truth_validation.ts",
+          "duration_ms": 1622
+        },
+        {
+          "file": "payment_review_settlement_horizon_validation.ts",
+          "duration_ms": 15817
+        },
+        {
+          "file": "payment_sandbox_contract_validation.ts",
+          "duration_ms": 726
+        },
+        {
+          "file": "payment_state_ledger_atomicity_validation.ts",
+          "duration_ms": 2012
+        },
+        {
+          "file": "payment_stripe_adapter_validation.ts",
+          "duration_ms": 792
+        },
+        {
+          "file": "payment_terminal_state_late_events_validation.ts",
+          "duration_ms": 2073
+        },
+        {
+          "file": "platform_fee_boundary_rounding_validation.ts",
+          "duration_ms": 723
+        },
+        {
+          "file": "platform_fee_payments_8_percent_validation.ts",
+          "duration_ms": 888
+        },
+        {
+          "file": "provider_environment_capability_validation.ts",
+          "duration_ms": 1268
+        },
+        {
+          "file": "provider_live_money_readiness_validation.ts",
+          "duration_ms": 670
+        },
+        {
+          "file": "provider_production_readiness_validation.ts",
+          "duration_ms": 648
+        },
+        {
+          "file": "refund_policy_validation.ts",
+          "duration_ms": 739
+        },
+        {
+          "file": "seller_payout_rail_validation.ts",
+          "duration_ms": 1929
+        },
+        {
+          "file": "synthetic_money_provider_validation.ts",
+          "duration_ms": 762
+        },
+        {
+          "file": "webhook_hmac_validation.ts",
+          "duration_ms": 1258
+        },
+        {
+          "file": "webhook_secret_policy_validation.ts",
+          "duration_ms": 729
+        },
+        {
+          "file": "webhook_truth_handling_validation.ts",
+          "duration_ms": 1711
+        }
+      ]
+    },
+    "concurrency": {
+      "summaries": [
+        "TEST_SUMMARY group=concurrency passed=8 failed=0 duration_ms=171644"
+      ],
+      "files": [
+        {
+          "file": "cancel_outbox_concurrency_validation.ts",
+          "duration_ms": 4901
+        },
+        {
+          "file": "concurrency_proof.ts",
+          "duration_ms": 19359
+        },
+        {
+          "file": "load_capacity_baseline.ts",
+          "duration_ms": 38999
+        },
+        {
+          "file": "otp_single_use_concurrency_validation.ts",
+          "duration_ms": 2961
+        },
+        {
+          "file": "payment_lab_concurrency_matrix_validation.ts",
+          "duration_ms": 73372
+        },
+        {
+          "file": "pickup_fulfillment_concurrency_validation.ts",
+          "duration_ms": 4252
+        },
+        {
+          "file": "publish_outbox_concurrency_validation.ts",
+          "duration_ms": 6494
+        },
+        {
+          "file": "scale_readiness_validation.ts",
+          "duration_ms": 741
+        }
+      ]
+    },
+    "api": {
+      "summaries": [
+        "TEST_SUMMARY group=api passed=44 failed=0 duration_ms=146606"
+      ],
+      "files": [
+        {
+          "file": "admin_affiliate_no_commission_regression_validation.ts",
+          "duration_ms": 2358
+        },
+        {
+          "file": "admin_control_plane_validation.ts",
+          "duration_ms": 2330
+        },
+        {
+          "file": "admin_dashboard_data_validation.ts",
+          "duration_ms": 1794
+        },
+        {
+          "file": "admin_deal_profile_validation.ts",
+          "duration_ms": 1899
+        },
+        {
+          "file": "admin_forbidden_money_actions_validation.ts",
+          "duration_ms": 726
+        },
+        {
+          "file": "admin_intervention_validation.ts",
+          "duration_ms": 727
+        },
+        {
+          "file": "admin_launch_console_validation.ts",
+          "duration_ms": 1896
+        },
+        {
+          "file": "admin_mutation_route_inventory_validation.ts",
+          "duration_ms": 705
+        },
+        {
+          "file": "admin_no_public_search_regression_validation.ts",
+          "duration_ms": 811
+        },
+        {
+          "file": "admin_observability_proof.ts",
+          "duration_ms": 2485
+        },
+        {
+          "file": "admin_omnisearch_validation.ts",
+          "duration_ms": 1979
+        },
+        {
+          "file": "admin_rtl_surface_validation.ts",
+          "duration_ms": 689
+        },
+        {
+          "file": "admin_support_cases_validation.ts",
+          "duration_ms": 2140
+        },
+        {
+          "file": "admin_system_status_validation.ts",
+          "duration_ms": 1749
+        },
+        {
+          "file": "backend_sanity_suite.ts",
+          "duration_ms": 1495
+        },
+        {
+          "file": "buyer_delivery_data_validation.ts",
+          "duration_ms": 1808
+        },
+        {
+          "file": "buyer_feedback_support_operations_validation.ts",
+          "duration_ms": 1863
+        },
+        {
+          "file": "buyer_recovery_flow_validation.ts",
+          "duration_ms": 2635
+        },
+        {
+          "file": "buyer_tracking_command_center_validation.ts",
+          "duration_ms": 1900
+        },
+        {
+          "file": "buyer_tracking_refinement_validation.ts",
+          "duration_ms": 657
+        },
+        {
+          "file": "deal_chat_validation.ts",
+          "duration_ms": 1960
+        },
+        {
+          "file": "deal_duplicate_validation.ts",
+          "duration_ms": 1796
+        },
+        {
+          "file": "deal_images_validation.ts",
+          "duration_ms": 2039
+        },
+        {
+          "file": "join_flow_qa_validation.ts",
+          "duration_ms": 6582
+        },
+        {
+          "file": "master_product_depth_validation.ts",
+          "duration_ms": 1835
+        },
+        {
+          "file": "mission_control_validation.ts",
+          "duration_ms": 1700
+        },
+        {
+          "file": "p04_seller_command_delivery_validation.ts",
+          "duration_ms": 2055
+        },
+        {
+          "file": "p05_admin_viral_support_validation.ts",
+          "duration_ms": 1740
+        },
+        {
+          "file": "p07_seller_inquiries_pickup_validation.ts",
+          "duration_ms": 1780
+        },
+        {
+          "file": "p07b_seller_draft_preview_validation.ts",
+          "duration_ms": 1666
+        },
+        {
+          "file": "real_integrations_validation.ts",
+          "duration_ms": 2003
+        },
+        {
+          "file": "seller_analytics_validation.ts",
+          "duration_ms": 1950
+        },
+        {
+          "file": "seller_cancel_ui_validation.ts",
+          "duration_ms": 1740
+        },
+        {
+          "file": "seller_creation_depth_validation.ts",
+          "duration_ms": 2171
+        },
+        {
+          "file": "seller_deal_excel_export_validation.ts",
+          "duration_ms": 1661
+        },
+        {
+          "file": "seller_delivery_excel_export_validation.ts",
+          "duration_ms": 11412
+        },
+        {
+          "file": "seller_delivery_handoff_validation.ts",
+          "duration_ms": 1725
+        },
+        {
+          "file": "seller_delivery_no_logistics_management_validation.ts",
+          "duration_ms": 6425
+        },
+        {
+          "file": "seller_enforcement_validation.ts",
+          "duration_ms": 1708
+        },
+        {
+          "file": "seller_onboarding_validation.ts",
+          "duration_ms": 603
+        },
+        {
+          "file": "seller_pickup_fulfillment_validation.ts",
+          "duration_ms": 2708
+        },
+        {
+          "file": "seller_profile_readiness_validation.ts",
+          "duration_ms": 11534
+        },
+        {
+          "file": "seller_shipping_export_validation.ts",
+          "duration_ms": 11561
+        },
+        {
+          "file": "support_operations_validation.ts",
+          "duration_ms": 617
+        }
+      ]
+    },
+    "integration": {
+      "summaries": [
+        "TEST_SUMMARY group=integration passed=30 failed=0 duration_ms=75838"
+      ],
+      "files": [
+        {
+          "file": "base44_canonical_integrity_validation.ts",
+          "duration_ms": 827
+        },
+        {
+          "file": "base44_mall_contract_validation.ts",
+          "duration_ms": 682
+        },
+        {
+          "file": "buyer_document_visibility_validation.ts",
+          "duration_ms": 742
+        },
+        {
+          "file": "buyer_verification_policy_validation.ts",
+          "duration_ms": 667
+        },
+        {
+          "file": "canonical_postgres_runtime_boundary_validation.ts",
+          "duration_ms": 2481
+        },
+        {
+          "file": "charge_attempt_rate_limit_validation.ts",
+          "duration_ms": 1160
+        },
+        {
+          "file": "deal_ops_summary_proof.ts",
+          "duration_ms": 1977
+        },
+        {
+          "file": "frontend_flow_validation.ts",
+          "duration_ms": 2325
+        },
+        {
+          "file": "hosted_v11_activation_gate_validation.ts",
+          "duration_ms": 783
+        },
+        {
+          "file": "infrastructure_health_validation.ts",
+          "duration_ms": 1280
+        },
+        {
+          "file": "mall_read_model_validation.ts",
+          "duration_ms": 1044
+        },
+        {
+          "file": "mall_runtime_validation.ts",
+          "duration_ms": 2592
+        },
+        {
+          "file": "mobile_readiness_validation.ts",
+          "duration_ms": 856
+        },
+        {
+          "file": "object_storage_adapter_validation.ts",
+          "duration_ms": 1234
+        },
+        {
+          "file": "operational_repair_validation.ts",
+          "duration_ms": 766
+        },
+        {
+          "file": "operational_runbooks_validation.ts",
+          "duration_ms": 712
+        },
+        {
+          "file": "p03_pause_reopen_business_profile_validation.ts",
+          "duration_ms": 2155
+        },
+        {
+          "file": "pilot_readiness_validation.ts",
+          "duration_ms": 2250
+        },
+        {
+          "file": "r3_render_web_runtime_validation.ts",
+          "duration_ms": 2066
+        },
+        {
+          "file": "r5_actor_resolver_validation.ts",
+          "duration_ms": 671
+        },
+        {
+          "file": "r5_guest_join_safety_validation.ts",
+          "duration_ms": 1844
+        },
+        {
+          "file": "r6_viral_graph_validation.ts",
+          "duration_ms": 4697
+        },
+        {
+          "file": "r7_supabase_broker_storage_validation.ts",
+          "duration_ms": 759
+        },
+        {
+          "file": "rate_limit_read_budget_validation.ts",
+          "duration_ms": 3329
+        },
+        {
+          "file": "stage32c_product_surface_closure_validation.ts",
+          "duration_ms": 2476
+        },
+        {
+          "file": "stage32d_identity_resume_validation.ts",
+          "duration_ms": 2264
+        },
+        {
+          "file": "storage_cleanup_validation.ts",
+          "duration_ms": 1599
+        },
+        {
+          "file": "storage_readiness_validation.ts",
+          "duration_ms": 629
+        },
+        {
+          "file": "stripe_sandbox_external_gate_validation.ts",
+          "duration_ms": 789
+        },
+        {
+          "file": "supabase_inventory_activation_hardening_validation.ts",
+          "duration_ms": 609
+        }
+      ]
+    },
+    "security": {
+      "summaries": [
+        "TEST_SUMMARY group=security passed=39 failed=0 duration_ms=240163"
+      ],
+      "files": [
+        {
+          "file": "admin_auth_validation.ts",
+          "duration_ms": 1948
+        },
+        {
+          "file": "admin_route_auth_coverage_validation.ts",
+          "duration_ms": 1714
+        },
+        {
+          "file": "admin_security_hardening_validation.ts",
+          "duration_ms": 1597
+        },
+        {
+          "file": "body_control_byte_security_validation.ts",
+          "duration_ms": 2304
+        },
+        {
+          "file": "ci_log_security_validation.ts",
+          "duration_ms": 1326
+        },
+        {
+          "file": "cross_principal_authorization_isolation_validation.ts",
+          "duration_ms": 2674
+        },
+        {
+          "file": "db_invariant_authority_validation.ts",
+          "duration_ms": 2969
+        },
+        {
+          "file": "debug_surface_guard_validation.ts",
+          "duration_ms": 1603
+        },
+        {
+          "file": "forensic_logging_authority_validation.ts",
+          "duration_ms": 1883
+        },
+        {
+          "file": "input_error_surface_authority_validation.ts",
+          "duration_ms": 45177
+        },
+        {
+          "file": "legal_trust_layer_validation.ts",
+          "duration_ms": 32904
+        },
+        {
+          "file": "legal_trust_validation.ts",
+          "duration_ms": 700
+        },
+        {
+          "file": "log_serializer_hostile_url_security_validation.ts",
+          "duration_ms": 3603
+        },
+        {
+          "file": "mutation_replay_authority_validation.ts",
+          "duration_ms": 4747
+        },
+        {
+          "file": "otp_rail_validation.ts",
+          "duration_ms": 32071
+        },
+        {
+          "file": "otp_runtime_guard_validation.ts",
+          "duration_ms": 1401
+        },
+        {
+          "file": "principal_state_authority_validation.ts",
+          "duration_ms": 3135
+        },
+        {
+          "file": "protected_route_authorization_gate.ts",
+          "duration_ms": 3412
+        },
+        {
+          "file": "r2_money_authority_validation.ts",
+          "duration_ms": 1247
+        },
+        {
+          "file": "r6_owner_admin_authority_validation.ts",
+          "duration_ms": 2147
+        },
+        {
+          "file": "rate_limit_classifier_authority_validation.ts",
+          "duration_ms": 1310
+        },
+        {
+          "file": "rate_limiter_validation.ts",
+          "duration_ms": 1632
+        },
+        {
+          "file": "real_listener_hostile_request_security_validation.ts",
+          "duration_ms": 2675
+        },
+        {
+          "file": "request_id_canonical_authority_validation.ts",
+          "duration_ms": 2261
+        },
+        {
+          "file": "security_hardening_validation.ts",
+          "duration_ms": 679
+        },
+        {
+          "file": "security_identity_tracking_validation.ts",
+          "duration_ms": 615
+        },
+        {
+          "file": "security_production_guards_validation.ts",
+          "duration_ms": 640
+        },
+        {
+          "file": "seller_auth_authority_validation.ts",
+          "duration_ms": 2002
+        },
+        {
+          "file": "seller_auth_session_validation.ts",
+          "duration_ms": 2679
+        },
+        {
+          "file": "seller_fulfillment_security_validation.ts",
+          "duration_ms": 1619
+        },
+        {
+          "file": "seller_lifecycle_route_authority_validation.ts",
+          "duration_ms": 1668
+        },
+        {
+          "file": "seller_route_auth_coverage_validation.ts",
+          "duration_ms": 1820
+        },
+        {
+          "file": "seller_self_binding_security_validation.ts",
+          "duration_ms": 2685
+        },
+        {
+          "file": "server_side_money_authority_validation.ts",
+          "duration_ms": 1574
+        },
+        {
+          "file": "state_machine_race_authority_validation.ts",
+          "duration_ms": 2673
+        },
+        {
+          "file": "storage_boundary_authority_validation.ts",
+          "duration_ms": 2602
+        },
+        {
+          "file": "supabase_auth_verifier_validation.ts",
+          "duration_ms": 1166
+        },
+        {
+          "file": "supabase_staging_security_foundation_validation.ts",
+          "duration_ms": 1929
+        },
+        {
+          "file": "synthetic_soak_authority_validation.ts",
+          "duration_ms": 33696
+        }
+      ]
+    },
+    "db": {
+      "summaries": [
+        "TEST_SUMMARY group=db passed=1 failed=0 duration_ms=29623"
+      ],
+      "files": [
+        {
+          "file": "charging_completion_window_validation.ts",
+          "duration_ms": 5747
+        }
+      ]
+    },
+    "e2e": {
+      "summaries": [
+        "TEST_SUMMARY group=e2e passed=2 failed=0 duration_ms=31269"
+      ],
+      "files": [
+        {
+          "file": "full_e2e_gate_validation.ts",
+          "duration_ms": 5416
+        },
+        {
+          "file": "full_system_qa_validation.ts",
+          "duration_ms": 5134
+        }
+      ]
+    },
+    "unit": {
+      "summaries": [
+        "TEST_SUMMARY group=unit passed=3 failed=0 duration_ms=43707"
+      ],
+      "files": [
+        {
+          "file": "frontend_foundation_buyer_polish_validation.ts",
+          "duration_ms": 1548
+        },
+        {
+          "file": "frontend_foundation_pickup_validation.ts",
+          "duration_ms": 1238
+        },
+        {
+          "file": "frontend_foundation_react_legacy_route_validation.ts",
+          "duration_ms": 3780
+        }
+      ]
+    },
+    "workers": {
+      "summaries": [
+        "TEST_SUMMARY group=workers passed=3 failed=0 duration_ms=58034"
+      ],
+      "files": [
+        {
+          "file": "outbox_worker_failure_recovery_validation.ts",
+          "duration_ms": 1109
+        },
+        {
+          "file": "outbox_worker_recovery_validation.ts",
+          "duration_ms": 4871
+        },
+        {
+          "file": "worker_two_process_fencing_validation.ts",
+          "duration_ms": 21065
+        }
+      ]
+    },
+    "restored": {
+      "summaries": [
+        "TEST_SUMMARY group=payments passed=4 failed=0 duration_ms=71576"
+      ],
+      "files": [
+        {
+          "file": "payment_final_reference_collision_validation.ts",
+          "duration_ms": 2946
+        },
+        {
+          "file": "payment_final_residual_a_unproven_validation.ts",
+          "duration_ms": 23068
+        },
+        {
+          "file": "payment_lab_c1_c2_validation.ts",
+          "duration_ms": 7756
+        },
+        {
+          "file": "payment_lab_lifecycle_reconcile_validation.ts",
+          "duration_ms": 14258
+        }
+      ]
+    }
+  },
+  "unique_passed_test_files": 188,
+  "directly_ported_test_files": 39,
+  "directly_ported_tests_all_passed": true,
+  "directly_ported_tests": [
+    "tests/charge_attempt_rate_limit_validation.ts",
+    "tests/charging_completion_window_validation.ts",
+    "tests/deal_types_e2e_validation.ts",
+    "tests/full_e2e_gate_validation.ts",
+    "tests/full_system_qa_validation.ts",
+    "tests/grow_payment_sandbox_activation_validation.ts",
+    "tests/payment_final_b2_threshold_validation.ts",
+    "tests/payment_final_reference_collision_validation.ts",
+    "tests/payment_final_residual_a_authoritative_validation.ts",
+    "tests/payment_final_residual_a_unproven_validation.ts",
+    "tests/payment_final_residual_b_validation.ts",
+    "tests/payment_final_residual_c_validation.ts",
+    "tests/payment_grow_ambiguity_policy_validation.ts",
+    "tests/payment_lab_c1_c2_validation.ts",
+    "tests/payment_lab_concurrency_matrix_validation.ts",
+    "tests/payment_lab_crash_matrix_validation.ts",
+    "tests/payment_lab_finalize_guard_validation.ts",
+    "tests/payment_lab_foundation_validation.ts",
+    "tests/payment_lab_lifecycle_reconcile_validation.ts",
+    "tests/payment_lab_random_schedule_fuzz_validation.ts",
+    "tests/payment_lab_refund_release_recovery_validation.ts",
+    "tests/payment_lab_soak_validation.ts",
+    "tests/payment_lab_terminal_economics_validation.ts",
+    "tests/payment_provider_operation_identity_crash_validation.ts",
+    "tests/payment_r9c_ambiguous_outcomes_validation.ts",
+    "tests/payment_r9c_reconciliation_race_validation.ts",
+    "tests/payment_r9c_stale_owner_settle_validation.ts",
+    "tests/payment_recovery_real_rail_validation.ts",
+    "tests/payment_release_lifecycle_validation.ts",
+    "tests/payment_review_adversarial_validation.ts",
+    "tests/payment_review_findings_reconstruction_validation.ts",
+    "tests/payment_review_grow_negative_status_validation.ts",
+    "tests/payment_review_mock_provider_truth_validation.ts",
+    "tests/payment_review_settlement_horizon_validation.ts",
+    "tests/payment_state_ledger_atomicity_validation.ts",
+    "tests/payment_terminal_state_late_events_validation.ts",
+    "tests/platform_fee_boundary_rounding_validation.ts",
+    "tests/real_integrations_validation.ts",
+    "tests/webhook_truth_handling_validation.ts"
+  ],
+  "mutants": [
+    {
+      "id": "M36_arbitrary_reference_prefix",
+      "invariant": "foreign prefixes never alias an exact provider reference",
+      "outcome": "CAUGHT",
+      "suites": [
+        {
+          "group": "payments",
+          "pattern": "payment_final_reference_collision",
+          "status": "RED",
+          "summary": "SUMMARY payment_final_reference_collision passed=0 failed=1 failed_names=[\"foreign three-letter reference prefix cannot establish a capture\"]",
+          "seconds": 45
+        }
+      ],
+      "financial_failure_evidence": [
+        "REFERENCE_COLLISION_EVIDENCE {\"money_state\":\"ChargedSuccess\",\"effects\":{\"capture\":0,\"recover\":0,\"refund\":0,\"release\":0,\"capture_amount_minor\":0,\"recover_amount_minor\":0,\"refund_amount_minor\":0},\"attempts\":[\"success\"]}",
+        "FAIL foreign three-letter reference prefix cannot establish a capture: AssertionError [ERR_ASSERTION]: foreign reference created false canonical capture",
+        "TEST_FAIL file=payment_final_reference_collision_validation.ts duration_ms=8133 reason=exit 1"
+      ]
+    },
+    {
+      "id": "M01_unknown_fencing_503_declared",
+      "invariant": "UNKNOWN fencing (post-dispatch 5xx/429 is UNKNOWN, not a declared failure)",
+      "outcome": "CAUGHT",
+      "suites": [
+        {
+          "group": "payments",
+          "pattern": "payment_lab_c1_c2",
+          "status": "RED",
+          "summary": "SUMMARY payment_lab_c1_c2 passed=19 failed=8 failed_names=[\"C2 capture: EFFECT_THEN_503 → UNKNOWN on the same identity (no n2), one effect, reconciled to ChargedSuccess\",\"C2 capture: EFFECT_THEN_429 → UNKNOWN on the same identity (no n2), one effect, reconciled to ChargedSuccess\",\"C2 recovery: EFFECT_THEN_503 → UNKNOWN same identity, one recovery effect, reconciled to RecoveredCharge\",\"C2 recovery: EFFECT_THEN_429 → UNKNOWN same identity, one recovery effect, reconciled to RecoveredCharge\",\"C2 refund: EFFECT_THEN_503 → UNKNOWN same identity, one refund effect, reconciled to Refunded\",\"C2 refund: EFFECT_THEN_429 → UNKNOWN same identity, one refund effect, reconciled to Refunded\",\"C2 release: EFFECT_THEN_503 → UNKNOWN same identity, one release effect, reconciled to AuthReleased\",\"C2 release: EFFECT_THEN_429 → UNKNOWN same identity, one release effect, reconciled to AuthReleased\"]",
+          "seconds": 45
+        }
+      ],
+      "financial_failure_evidence": [
+        "FAIL C2 capture: EFFECT_THEN_503 → UNKNOWN on the same identity (no n2), one effect, reconciled to ChargedSuccess: AssertionError [ERR_ASSERTION]: post-dispatch ambiguity must be UNKNOWN, got {\"attempt_type\":\"charge_start\",\"correlation_id\":\"capture:3ca648f8-bf75-4dcf-a3b1-ba5dc472f7e8:n1:075a9a5e-36b1-4096-ad78-0e9b6710715a\",\"result_class\":\"permanent_fail\",\"dispatch_state\":\"responded\",\"owner_event_uuid\":\"3ca648f8-bf75-4dcf-a3b1-ba5dc472f7e8\",\"owner_lease_generation\":1,\"provider_reference\":\"auth-23d709a7-23e\",\"outcome_note\":null,\"in_flight\":false,\"failure_evidence\":\"dispatch_response\",\"settlement_horizon_at\":\"2026-09-09 00:05:44.214807+03\",\"dispatched_at\":\"2026-09-09 00:05:42.714807+03\",\"negative_finality_authoritative\":true}",
+        "FAIL C2 capture: EFFECT_THEN_429 → UNKNOWN on the same identity (no n2), one effect, reconciled to ChargedSuccess: AssertionError [ERR_ASSERTION]: post-dispatch ambiguity must be UNKNOWN, got {\"attempt_type\":\"charge_start\",\"correlation_id\":\"capture:b61a9518-b1c4-4d63-a424-3b90b9207c31:n1:a354cdb4-9e36-4888-8e4c-796027e23106\",\"result_class\":\"permanent_fail\",\"dispatch_state\":\"responded\",\"owner_event_uuid\":\"b61a9518-b1c4-4d63-a424-3b90b9207c31\",\"owner_lease_generation\":1,\"provider_reference\":\"auth-4099609d-656\",\"outcome_note\":null,\"in_flight\":false,\"failure_evidence\":\"dispatch_response\",\"settlement_horizon_at\":\"2026-09-09 00:05:44.296831+03\",\"dispatched_at\":\"2026-09-09 00:05:42.796831+03\",\"negative_finality_authoritative\":true}",
+        "FAIL C2 recovery: EFFECT_THEN_503 → UNKNOWN same identity, one recovery effect, reconciled to RecoveredCharge: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL C2 recovery: EFFECT_THEN_429 → UNKNOWN same identity, one recovery effect, reconciled to RecoveredCharge: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL C2 refund: EFFECT_THEN_503 → UNKNOWN same identity, one refund effect, reconciled to Refunded: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL C2 refund: EFFECT_THEN_429 → UNKNOWN same identity, one refund effect, reconciled to Refunded: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL C2 release: EFFECT_THEN_503 → UNKNOWN same identity, one release effect, reconciled to AuthReleased: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL C2 release: EFFECT_THEN_429 → UNKNOWN same identity, one release effect, reconciled to AuthReleased: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "TEST_FAIL file=payment_lab_c1_c2_validation.ts duration_ms=10310 reason=exit 1"
+      ]
+    },
+    {
+      "id": "M04_identity_rotation",
+      "invariant": "operation identity persistence (no fresh identity while prior is unresolved)",
+      "outcome": "CAUGHT",
+      "suites": [
+        {
+          "group": "payments",
+          "pattern": "payment_lab_lifecycle_reconcile",
+          "status": "RED",
+          "summary": "SUMMARY payment_lab_lifecycle_reconcile passed=24 failed=13 failed_names=[\"lifecycle capture ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect\",\"lifecycle capture ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2\",\"lifecycle capture ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request\",\"lifecycle recovery ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect\",\"lifecycle recovery ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2\",\"lifecycle recovery ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request\",\"lifecycle refund ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect\",\"lifecycle refund ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2\",\"lifecycle refund ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request\",\"lifecycle release ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect\",\"lifecycle release ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2\",\"lifecycle release ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request\",\"idempotency: manual requeue after a pre-dispatch DLQ reuses the ORIGINAL identity once the authorization is repaired\"]",
+          "seconds": 60
+        }
+      ],
+      "financial_failure_evidence": [
+        "FAIL lifecycle capture ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect: AssertionError [ERR_ASSERTION]: the provider must see the NOT_DISPATCHED identity itself: []",
+        "FAIL lifecycle capture ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:",
+        "FAIL lifecycle capture ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL lifecycle recovery ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect: AssertionError [ERR_ASSERTION]: the provider must see the NOT_DISPATCHED identity itself: []",
+        "FAIL lifecycle recovery ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:",
+        "FAIL lifecycle recovery ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL lifecycle refund ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect: AssertionError [ERR_ASSERTION]: the provider must see the NOT_DISPATCHED identity itself: []",
+        "FAIL lifecycle refund ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:",
+        "FAIL lifecycle refund ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:",
+        "FAIL lifecycle release ← NOT_DISPATCHED: the minted-but-never-sent identity is reused verbatim, exactly one effect: AssertionError [ERR_ASSERTION]: the provider must see the NOT_DISPATCHED identity itself: []",
+        "FAIL lifecycle release ← UNKNOWN (not executed per authoritative status): the SAME identity is re-sent, one effect, no n2: AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:",
+        "FAIL lifecycle release ← SUCCEEDED but canonical state never persisted: state converges from the row + status, no new money request: AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:"
+      ]
+    },
+    {
+      "id": "M32_horizon_expiry_alone_is_proof",
+      "invariant": "residual A: horizon expiry by itself never authorises recovery (negative finality must be authoritative)",
+      "outcome": "CAUGHT",
+      "suites": [
+        {
+          "group": "payments",
+          "pattern": "payment_final_residual_a_unproven",
+          "status": "RED",
+          "summary": "SUMMARY payment_final_residual_a_unproven passed=8 failed=2 failed_names=[\"AU-9 a provider-EVENT failure on this contract is fenced PERMANENTLY inside the completion window (recovery / release hold with cases, DB backstop); operator evidence is the only way out — then exactly one recovery\",\"AU-9b the terminal decision on this contract is held PERMANENTLY (case, neither Completed nor Failed, no release) on a provider-event failure; operator evidence lets it decide — a proofed release, never a capture\"]",
+          "seconds": 49
+        }
+      ],
+      "financial_failure_evidence": [
+        "FAIL AU-9 a provider-EVENT failure on this contract is fenced PERMANENTLY inside the completion window (recovery / release hold with cases, DB backstop); operator evidence is the only way out — then exactly one recovery: AssertionError [ERR_ASSERTION]: no recovery beyond the horizon without authoritative negative finality",
+        "FAIL AU-9b the terminal decision on this contract is held PERMANENTLY (case, neither Completed nor Failed, no release) on a provider-event failure; operator evidence lets it decide — a proofed release, never a capture: AssertionError [ERR_ASSERTION]: The input did not match the regular expression /finalize_negative_finality_unproven/. Input:",
+        "TEST_FAIL file=payment_final_residual_a_unproven_validation.ts duration_ms=24733 reason=exit 1"
+      ]
+    }
+  ],
+  "fuzz": "SUMMARY payment_lab_random_schedule_fuzz seed=26090866 scenarios=100 passed=100 failed=0 participants=162 provider_effects=191 duration_s=47",
+  "soak": [
+    "GLOBAL_RECONCILIATION deals=82 participants=213 jobs=769 lease_expiries=6 oracle_runs=3 soak_s=10",
+    "SUMMARY payment_lab_soak passed=1 failed=0 deals=82 participants=213 provider_operations=409"
+  ],
+  "migrations": [
+    "FRESH_DB_PROOF PASS migrations=60 rerun=PASS ledger_unchanged=YES",
+    "LEGACY_UPGRADE_PROOF PASS rows=3 outcomes=permanent_fail,unknown,success canonical_states_preserved=YES legacy_negative_fenced=YES master_065_list_price_preserved=YES",
+    "CURRENT_MASTER_UPGRADE_PROOF PASS base=d4c7877f9b704734036d69f57f7d98f794f4d034 upgrade=58->60 applied_only=066,067 master_ledger_unchanged=YES master_data_preserved=YES schema_matches_fresh=YES full_rerun=PASS raw_sql_rerun=PASS checksum_mismatch=REJECTED",
+    "MIGRATION_SQL_SEMANTICS_PRESERVED=YES reviewed_blob_bytes_equal=YES migration_065_unchanged=YES hosted_changes=0"
+  ],
+  "static_gates": [
+    "GATE_START C:\\Users\\Lenovo\\Documents\\C-ton\\node_modules\\typescript\\bin\\tsc --noEmit",
+    "GATE_START scripts/backend_enforcement_scan.cjs",
+    "BACKEND_ENFORCEMENT_SCAN_PASS",
+    "DIRECT_STATE_MUTATION_PASS",
+    "PAYMENT_SDK_BOUNDARY_PASS",
+    "SECRET_SCAN_PASS",
+    "CONTROL_BYTE_SCAN_PASS",
+    "GATE_START scripts/compliance_payment_scan.cjs",
+    "PAYMENT_COMPLIANCE_SCAN_PASS",
+    "GATE_START scripts/runtime_ddl_scan.cjs",
+    "RUNTIME_DDL_SCAN_PASS",
+    "GATE_START scripts/architecture_truth_gate.cjs",
+    "ARCHITECTURE_GATE_PASS production=base44 worker=siton-worker-tick render=r3_staging_web target_inventory=canonical_postgres",
+    "STATIC_GATES_PASS count=5"
+  ],
+  "master_product_smoke": [
+    "seller_self_binding_security_validation.ts",
+    "seller_onboarding_validation.ts",
+    "join_flow_qa_validation.ts",
+    "buyer_tracking_command_center_validation.ts",
+    "buyer_feedback_support_operations_validation.ts",
+    "seller_pickup_fulfillment_validation.ts",
+    "pickup_fulfillment_concurrency_validation.ts",
+    "frontend_foundation_pickup_validation.ts",
+    "frontend_foundation_buyer_polish_validation.ts",
+    "frontend_foundation_react_legacy_route_validation.ts"
+  ],
+  "real_money_executed": 0,
+  "grow_runtime_enabled": false,
+  "safe_for_real_money": false,
+  "initial_setup_failures": [
+    "Migration proof fixture table name and JavaScript quoting repaired; final fresh/upgrade/legacy proof passed.",
+    "Initial integration: 29 passed, mobile_readiness failed due absent ignored local mobile bundle. Placeholder local build created; final group 30/30 passed.",
+    "Temporary campaign-driver edit had a quoting error and a transient file lock. Replaced with a syntax-checked driver; no source mutation or test result accepted from this setup failure."
+  ],
+  "proof_boundary": "Supported provider contracts only. Authoritative-provider breach and deliberately false signed-callback controls are not zero-violation proof for arbitrary provider evidence. Grow credentials, exact-operation finality/idempotency/settlement horizon and callback/effect proof remain external.",
+  "pickup_qr_roundtrip": "PASS: all 9 helper/source assertions, including three independently decoded QR payloads; no skip in final run"
+}

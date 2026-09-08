@@ -110,7 +110,12 @@ async function main() {
           ? 900000
           : item.name === "web_sigterm_fault_process_validation.ts"
             ? 600000
-            : 180000;
+            // Financial torture lab: the seeded fuzzer and the bounded soak scale with
+            // LAB_FUZZ_SCENARIOS / LAB_SOAK_SECONDS; long deliberate runs raise the
+            // budget through LAB_TEST_TIMEOUT_MS.
+            : item.name === "payment_lab_random_schedule_fuzz_validation.ts" || item.name === "payment_lab_soak_validation.ts"
+              ? Math.max(600000, Number(process.env.LAB_TEST_TIMEOUT_MS || 0))
+              : 180000;
         const result = spawnSync(process.execPath, [compiled], {
           stdio: "inherit",
           env: isolatedTestEnv({ DATABASE_URL: databaseUrl(baseUrl, testDb) }),
