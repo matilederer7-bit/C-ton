@@ -116,6 +116,11 @@ Record in your pilot sheet: seller name, e-mail, seller_id, date, template used.
 
 `#/seller/deal/<id>` → **פרסום העסקה** → checklist all ✓ → two acknowledgements → publish. State becomes **PendingTarget**. The share link is `https://siton-staging-web.onrender.com/d/<deal id>` (real Open-Graph card with the product photo). The seller shares it in their own WhatsApp groups first; every buyer then gets a personal link after joining.
 
+> **Only `/d/<id>` and `/preview/…` links are the pilot product.** The bare domain
+> (`https://siton-staging-web.onrender.com/`) still redirects to `/app`, the legacy
+> mall UI, which has no inquiries and is not counted by **מדדי פיילוט**. Never tell
+> anyone to "go to the site" — send the link.
+
 ### 2.4 What the seller must understand after publish (say it out loud)
 
 1. **Nothing is charged during the pilot.** Joining "holds a frame" in the app only; the deal closing does **not** move money. Fulfilment and payment are settled between seller and buyers outside Siton for now.
@@ -156,6 +161,7 @@ What happens automatically:
 |---|---|---|
 | Buyer says the link shows a blank page for 20 s | Render web plan still `free` | upgrade to `starter` (0.3) or accept the cold start |
 | "העסקה אינה זמינה" on a shared link | deal is Draft / deleted, or the link lost its id | seller must publish; re-copy from **שיתוף** |
+| Buyer/seller sees an unfamiliar "קניון" screen with no inquiry button | they typed the bare domain → legacy `/app` | send them the `/d/<id>` or `/preview/#/seller` link |
 | Publish refused: `חשבון המוכר ממתין לאישור` | seller `verification_status` ≠ `approved` | Admin → מוכרים → seller → **אשר מוכר** |
 | Publish refused: pickup address | option label is generic ("איסוף עצמי") | edit delivery options with a full address or GPS |
 | Buyer cannot join: "ההצטרפות הסתיימה" | deadline passed, or seller paused joining | seller **פתיחה מחדש** (only while deadline ahead and stock left) |

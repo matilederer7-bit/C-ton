@@ -67,7 +67,7 @@ The web container runs `run_migrations` at start as the `siton_web_login` role, 
 
 ---
 
-## IMPORTANT AFTER LAUNCH (9)
+## IMPORTANT AFTER LAUNCH (10)
 
 | # | Item | Why it can wait | Workaround during the pilot |
 |---|---|---|---|
@@ -80,6 +80,7 @@ The web container runs `run_migrations` at start as the `siton_web_login` role, 
 | A-7 | Join/create mutations are on the global rate bucket only (P0.7C alias gotcha) | fine at pilot scale | — |
 | A-8 | Deadline hard cap 7 days; some sellers will ask for 10–14 | product decision | template guidance |
 | A-9 | Showcase/demo data from Aug 31 – Sep 3 (`r6-showcase-seller`, `demo-seller-preview`, owner test deals) is inside a 30-day metrics window | cosmetic in metrics | read **מדדי פיילוט** at 7 days for the first week, or tombstone the showcase deals before day one |
+| A-10 | **Two frontends.** The bare domain `https://siton-staging-web.onrender.com/` 302-redirects to `/app`, the legacy vanilla-JS mall ("קניון עסקאות קבוצתיות") with its own join flow, no inquiry UI and a separate funnel rail (`discovery_events`); only `/preview/` and the share route `/d/:id` (verified: lands on `/preview/#/deal/:id`) are the pilot product. A buyer or seller who types the domain gets the old product and is invisible to **מדדי פיילוט** | every pilot link is `/d/<id>` or `/preview/…`; nobody is asked to type the domain | runbook §2.3 rule; candidate one-line fix after launch: point the root redirect (`src/frontend_runtime.ts`, `GET /` → `/app`) at `/preview/` and retire `/app` for the pilot |
 
 ## BACKLOG (6)
 
