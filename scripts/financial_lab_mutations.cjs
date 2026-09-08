@@ -15,6 +15,9 @@ const fs = require("node:fs");
 const path = require("node:path");
 
 const MUTATIONS = [
+  { id: "M36_arbitrary_reference_prefix", invariant: "foreign prefixes never alias an exact provider reference", file: "src/payment_provider.ts",
+    from: 'replace(/^(cap|rec|ref|rel)-/, "")', to: 'replace(/^[a-z]{3}-/i, "")',
+    suites: [["payments", "payment_final_reference_collision"]] },
   { id: "M01_unknown_fencing_503_declared", invariant: "UNKNOWN fencing (post-dispatch 5xx/429 is UNKNOWN, not a declared failure)", file: "src/payment_provider.ts",
     from: `  if (status === 408 || status === 425 || status === 429 || status >= 500 || status < 400) return "unknown";`,
     to: `  if (status === 408 || status === 425 || status < 400) return "unknown"; return "declared_failure";`,
@@ -248,6 +251,7 @@ for (const m of toRun) {
       const startedAt = Date.now();
       const run = spawnSync(process.execPath, ["scripts/run_test_group.cjs", group], { env: { ...process.env, TEST_FILE_PATTERN: pattern }, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
       const out = `${run.stdout || ""}\n${run.stderr || ""}`;
+      if (reportPath) { fs.mkdirSync(path.dirname(reportPath), { recursive: true }); fs.writeFileSync(path.join(path.dirname(reportPath), `${m.id}-${pattern}.log`), out); }
       const summary = (out.match(/^SUMMARY .*$/gm) || []).slice(-1)[0] || "";
       const compileFailed = /error TS\d+/.test(out);
       const status = run.status === 0 ? "GREEN" : compileFailed ? "COMPILE_ERROR" : "RED";

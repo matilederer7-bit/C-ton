@@ -1181,8 +1181,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         // Provider-ready reference discipline: an answer may carry an
         // operation-scoped form of the queried reference (`cap-<auth>`,
         // `rec-<auth>`, ...); anything that does not reduce to the queried
-        // reference names ANOTHER operation (residual A).
-        const bareReference = (value: unknown) => String(value || "").trim().replace(/^[a-z]{3}-/i, "");
+        // reference names ANOTHER operation (residual A). Only the defined
+        // operation prefixes are aliases; arbitrary prefixes are distinct IDs.
+        const bareReference = (value: unknown) => String(value || "").trim().replace(/^(cap|rec|ref|rel)-/, "");
         const echoedReference = String(payload?.provider_reference || "").trim();
         const referenceMatchesQuery = !echoedReference || bareReference(echoedReference) === bareReference(input.provider_reference) || echoedReference === input.provider_reference;
         return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed"), reference_matches_query: referenceMatchesQuery };
