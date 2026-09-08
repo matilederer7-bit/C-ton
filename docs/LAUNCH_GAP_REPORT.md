@@ -63,7 +63,7 @@ Missing today: `join_failed` (refused joins persisted nowhere), `inquiry_started
 | seller_repeat_deal_created | `COUNT(published) >= 2` per seller → `sellers.repeat_publishers` |
 
 ### B-6 · Migration 065 must be applied to staging before the branch is deployed
-The web container runs `run_migrations` at start as the `siton_web_login` role, which cannot run DDL; an unapplied manifest entry fails the boot. Established procedure (runbook §0.2): run the migration SQL in the Supabase SQL editor as `postgres`, then insert the `migration_ledger` row (`migration_id='065'`, `position=58`, checksum of the file). Manifest ordering note: 063/064 belong to the financial branch; whichever branch lands second appends after the other (position is what the ledger checks).
+The web container runs `run_migrations` at start as the `siton_web_login` role, which cannot run DDL; an unapplied manifest entry fails the boot. Established procedure (runbook §0.2): run the migration SQL in the Supabase SQL editor as `postgres`, then insert the `migration_ledger` row (`migration_id='065'`, `position=58`, `checksum_sha256='94da04e4d5ec1e5841da28075fa4737952e0a83927694ac44046c36a0b1ab308'` — the LF/BOM-stripped file as stored in git; exact statement in the runbook). Manifest ordering note: 063/064 belong to the financial branch; whichever branch lands second appends after the other (position is what the ledger checks).
 
 ---
 

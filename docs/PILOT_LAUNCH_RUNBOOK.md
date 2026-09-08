@@ -19,12 +19,27 @@ Companion documents: `docs/LAUNCH_GAP_REPORT.md` (what blocks, what waits),
 | # | Action | Where | Why |
 |---|---|---|---|
 | 0.1 | Merge `claude/launch-gap-pilot-readiness` (after review) and let Render redeploy `siton-staging-web` + `siton-staging-worker` | GitHub → Render | brings migration 065, the pilot metrics panel, seller approval UI, regular-price field |
-| 0.2 | Apply migration `065_pilot_readiness.sql` to staging **before** the deploy finishes: run its SQL in the Supabase SQL editor, then insert the ledger row (`migration_id='065'`, `position=58`, `filename`, `checksum_sha256` = sha256 of the file with BOM stripped, `status='succeeded'`, `started_at/completed_at=now()`) | Supabase → SQL editor | the container runs `run_migrations` at start as the web login role, which cannot run DDL; an un-applied manifest entry fails the boot |
+| 0.2 | Apply migration `065_pilot_readiness.sql` to staging **before** the deploy finishes: run the file's SQL in the Supabase SQL editor (as `postgres`), then insert the ledger row — exact statement below | Supabase → SQL editor | the container runs `run_migrations` at start as the web login role, which cannot run DDL; an un-applied manifest entry fails the boot |
 | 0.3 | Upgrade the Render **web** service from `free` to `starter` (or add an external 5-minute keep-alive ping to `/health`) | Render → siton-staging-web → Settings | free tier idles after 15 min; first buyer on a shared link waits ~20–25 s on a blank page (measured 23.0 s cold / 0.3 s warm) |
 | 0.4 | Supabase → Authentication → URL Configuration: **Site URL** = `https://siton-staging-web.onrender.com/preview/`, add `https://siton-staging-web.onrender.com/preview/**` to Redirect URLs | Supabase dashboard | seller signup confirmation links must land on the product, not on localhost |
 | 0.5 | Supabase → Authentication → SMTP: configure a real SMTP sender (or confirm the default sender's hourly cap is acceptable for ≤10 sellers) | Supabase dashboard | the built-in sender is rate-limited and lands in spam; a seller who never gets the mail never enters |
 | 0.6 | Confirm your owner login works on the hosted preview (`#/seller` with your Supabase e-mail) and the admin gate (two taps on the hidden corner dot → step-up) opens `#/admin` | browser | you will approve sellers and read metrics from here |
 | 0.7 | Read the deal templates and pick 2–3 for your first conversations | `docs/PILOT_DEAL_TEMPLATES.md` | |
+
+Ledger row for step 0.2 (checksum = sha256 of the file as stored in git, LF line
+endings, BOM stripped — the value `scripts/run_migrations.cjs` will compute on Render):
+
+```sql
+INSERT INTO siton.migration_ledger
+  (migration_id, position, filename, checksum_sha256, started_at, completed_at, status)
+VALUES
+  ('065', 58, '065_pilot_readiness.sql',
+   '94da04e4d5ec1e5841da28075fa4737952e0a83927694ac44046c36a0b1ab308', now(), now(), 'succeeded');
+```
+
+If the financial branch (063/064) lands on staging first, its rows take positions
+58–59 and this row becomes position 60 — keep the manifest order and the ledger
+positions identical.
 
 Optional but recommended: run the API journey against hosted with your owner
 login once after the deploy (takes ~1 min, creates one synthetic deal under
