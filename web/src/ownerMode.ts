@@ -16,6 +16,15 @@ import { traceAuth } from "./authTrace";
 
 const CAPS_KEY = "siton_owner_caps_v1";
 const GUEST_KEY = "siton_guest_mode_v1";
+const SELLER_BINDING_KEY = "siton_seller_binding_v1";
+
+// LAUNCH POLISH (P1) — the server's self-service binding outcome from the last
+// capability discovery ("bound", "already_bound", "existing", "owner",
+// "email_in_use", "seller_id_in_use", "throttled", "disabled",
+// "email_required", "anonymous_identity"). Presentation only.
+export function readSellerBindingHint(): string {
+  try { return String(sessionStorage.getItem(SELLER_BINDING_KEY) || ""); } catch { return ""; }
+}
 
 export interface OwnerCaps { email: string; seller: boolean; admin: boolean }
 
@@ -117,6 +126,9 @@ export async function adoptCapabilities(token: string): Promise<CapabilityAdopti
       const body = await res.json();
       if (!body?.ok) throw new Error("capabilities not ok");
       const caps: OwnerCaps = { email: String(body.email || ""), seller: Boolean(body.seller), admin: Boolean(body.admin) };
+      // LAUNCH POLISH (P1) — presentation hint only: WHY this identity has (or
+      // has not) a seller capability (self-signup outcome). Never authority.
+      try { sessionStorage.setItem(SELLER_BINDING_KEY, String(body.seller_binding || "")); } catch { /* noop */ }
       if (caps.seller) grantSurface("seller");
       if (caps.admin) { grantSurface("admin"); storeOwnerCaps(caps); }
       else { try { localStorage.removeItem(CAPS_KEY); } catch { /* noop */ } notifyCapsChanged(); }

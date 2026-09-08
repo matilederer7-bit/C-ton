@@ -52,6 +52,19 @@ function Err({ msg }: { msg: string }) {
 }
 
 // ── overview ───────────────────────────────────────────────────────────────
+// LAUNCH POLISH (P4) — the owner sees waiting sellers BEFORE any other number.
+function PendingSellersAlert({ navigate }: { navigate: (h: string) => void }) {
+  const { data } = useFetch(() => api.adminSellers(), [], 60_000);
+  const pending = ((data as Json)?.sellers || []).filter((s: Json) => s.verification_status === "pending");
+  if (!pending.length) return null;
+  return (
+    <div className="notice err" data-testid="pending-sellers-alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <span><b>{num(pending.length)} מוכרים ממתינים לאישור</b> — {pending.slice(0, 3).map((s: Json) => s.business_name || s.display_name || s.seller_id).join(" · ")}{pending.length > 3 ? " …" : ""}</span>
+      <button className="btn btn-sm btn-primary" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/sellers")}>לאישור עכשיו ←</button>
+    </div>
+  );
+}
+
 function Overview({ navigate }: { navigate: (h: string) => void }) {
   const { data, error } = useFetch(() => api.adminOverview(), [], 30_000);
   if (error) return <Err msg={error} />;
@@ -67,6 +80,7 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
   return (
     <>
       <h1>תמונת מצב — כל המערכת</h1>
+      <PendingSellersAlert navigate={navigate} />
       <div className="stat-row">
         <StatTile num={num(d.deals?.active || 0)} label="עסקאות פעילות" sub={`סה״כ ${num(d.deals?.total || 0)}`} />
         <StatTile num={num(d.sellers?.active || 0)} label="מוכרים פעילים" />
@@ -161,6 +175,8 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
       <div className="stat-row" style={{ marginBottom: 8 }}>
         <StatTile num={num(dl.drafts_created || 0)} label="טיוטות נוצרו" />
         <StatTile num={num(dl.published || 0)} label="פורסמו" />
+        {/* LAUNCH POLISH (P7) — what is live RIGHT NOW (open for joining), from the same aggregate */}
+        <StatTile num={num(dl.open_now || 0)} label="פתוחות להצטרפות עכשיו" sub={`${num(dl.settling || 0)} בסגירה/חיוב`} />
         <StatTile num={num(dl.reached_threshold || 0)} label="הגיעו ליעד" tone="good" />
         <StatTile num={num(dl.completed || 0)} label="הושלמו" tone="good" />
         <StatTile num={num(dl.failed || 0)} label="נכשלו" tone={Number(dl.failed) > 0 ? "warn" : undefined} />
@@ -170,7 +186,10 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
         <StatTile num={num(b.join_starts || 0)} label="ניסיונות הצטרפות" sub={`${num(b.join_failures || 0)} נדחו`} />
         <StatTile num={num(b.joins || 0)} label="הצטרפו בפועל" sub={`${num(b.distinct_buyers || 0)} קונים`} tone="good" />
         <StatTile num={pctText(b.view_to_join_pct)} label="המרה צפייה→הצטרפות" sub={`ניסיון→הצטרפות ${pctText(b.join_start_to_join_pct)}`} />
-        <StatTile num={num(inq.threads || 0)} label="פניות למוכרים" sub={`${num(inq.answered || 0)} נענו · ${num(b.inquiry_starts || 0)} נפתחו`} />
+        {/* LAUNCH POLISH (P7) — unresolved inquiries are the owner's daily nudge to sellers */}
+        <StatTile num={num(Math.max(0, Number(inq.threads || 0) - Number(inq.answered || 0)))} label="פניות ממתינות למענה"
+          sub={`${num(inq.threads || 0)} סה״כ · ${num(inq.answered || 0)} נענו`}
+          tone={Number(inq.threads || 0) - Number(inq.answered || 0) > 0 ? "warn" : "good"} />
       </div>
       {(m.per_seller || []).some((r: Json) => r.verification_status === "pending") ? (
         <p className="small" style={{ marginTop: 10 }}>
@@ -543,13 +562,67 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
 }
 
 // ── sellers ────────────────────────────────────────────────────────────────
+// LAUNCH POLISH (P4) — the pending queue: every self-registered seller waiting
+// for the owner, with WHO they are and approve/reject right here (no need to
+// open the seller). Target: signup → approval in under a minute.
+function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]; navigate: (h: string) => void; onChanged: () => void }) {
+  const [busy, setBusy] = useState("");
+  const [confirmReject, setConfirmReject] = useState("");
+  const [msg, setMsg] = useState("");
+  if (!pending.length) return <div className="notice ok" data-testid="pending-sellers-empty">אין מוכרים שממתינים לאישור.</div>;
+  const decide = async (s: Json, decision: "approve" | "reject") => {
+    if (busy) return;
+    setBusy(String(s.seller_id)); setMsg("");
+    try {
+      await api.adminSellerKycDecision(String(s.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
+      setMsg(decision === "approve" ? `${s.business_name || s.display_name} אושר — יכול לפרסם.` : `${s.business_name || s.display_name} נדחה.`);
+      setConfirmReject("");
+      onChanged();
+    } catch (e: any) { setMsg(e.message || "הפעולה נכשלה"); }
+    setBusy("");
+  };
+  return (
+    <section className="pending-queue" data-testid="pending-sellers-queue" aria-label="מוכרים ממתינים לאישור">
+      <div className="panel-title">⏳ ממתינים לאישור <span className="count">({num(pending.length)})</span></div>
+      <p className="small muted" style={{ margin: "0 0 4px" }}>מוכר שנרשם עצמאית יכול להכין טיוטות; פרסום נפתח רק אחרי ״אשר מוכר״.</p>
+      {pending.map((s) => (
+        <div className="pending-row" key={s.seller_id} data-testid="pending-seller-row" data-seller-id={s.seller_id}>
+          <div className="who">
+            <b>{s.business_name || s.display_name || s.seller_id}</b>
+            <span className="small" dir="ltr">{s.login_email || s.seller_id}</span>
+            <div className="small">
+              נרשם {s.created_at ? timeAgo(s.created_at) : "—"} · {s.supabase_bound ? "התחברות מאומתת" : "ללא קישור התחברות"} · טיוטות: {num(s.deals_total || 0)}
+            </div>
+          </div>
+          <div className="acts">
+            <button className="btn btn-sm btn-ghost" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(String(s.seller_id))}`)}>פתיחה</button>
+            {confirmReject === s.seller_id ? (
+              <button className="btn btn-sm btn-danger" data-testid="pending-reject-confirm" disabled={Boolean(busy)} onClick={() => decide(s, "reject")}>אישור הדחייה</button>
+            ) : (
+              <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="pending-reject" disabled={Boolean(busy)} onClick={() => setConfirmReject(String(s.seller_id))}>דחייה</button>
+            )}
+            <button className="btn btn-sm btn-primary" data-testid="pending-approve" disabled={Boolean(busy)} onClick={() => decide(s, "approve")}>
+              {busy === s.seller_id ? "רגע…" : "אשר מוכר"}
+            </button>
+          </div>
+        </div>
+      ))}
+      {msg ? <div className="small" style={{ marginTop: 8 }} data-testid="pending-queue-msg">{msg}</div> : null}
+    </section>
+  );
+}
+
 function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
-  const { data, error } = useFetch(() => api.adminSellers(), []);
+  const [version, setVersion] = useState(0);
+  const { data, error } = useFetch(() => api.adminSellers(), [version]);
   if (error) return <Err msg={error} />;
   if (!data) return <Spinner />;
+  const sellers: Json[] = (data as Json).sellers || [];
+  const pending = sellers.filter((s) => s.verification_status === "pending");
   return (
     <>
       <h1>מוכרים</h1>
+      <PendingSellersQueue pending={pending} navigate={navigate} onChanged={() => setVersion((v) => v + 1)} />
       <div className="table-wrap">
         <table className="data">
           <thead><tr>
@@ -591,27 +664,36 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
 function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
+  // LAUNCH POLISH (P4) — inline two-step reject (window.confirm is invisible
+  // on some mobile browsers and blocks the tab); approve stays one tap.
+  const [confirmReject, setConfirmReject] = useState(false);
   const status = String(seller.verification_status || "pending");
   const decide = async (decision: "approve" | "reject") => {
     if (busy) return;
-    if (decision === "reject" && !window.confirm("לדחות את המוכר? הוא לא יוכל לפרסם עסקאות.")) return;
     setBusy(true); setMsg("");
     try {
       await api.adminSellerKycDecision(String(seller.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
       setMsg(decision === "approve" ? "המוכר אושר — יכול לפרסם עסקאות." : "המוכר נדחה.");
+      setConfirmReject(false);
       onChanged();
     } catch (e: any) { setMsg(e.message || "הפעולה נכשלה"); }
     setBusy(false);
   };
   return (
-    <div className={`notice ${status === "approved" ? "info" : "err"}`} data-testid="seller-approval" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+    <div className={`notice ${status === "approved" ? "ok" : status === "rejected" ? "err" : "info"}`} data-testid="seller-approval" data-status={status} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span>
         <b>אישור מוכר:</b>{" "}
-        {status === "approved" ? "מאושר — יכול לפרסם" : status === "rejected" ? "נדחה — לא יכול לפרסם" : "ממתין לאישור — יכול להכין טיוטות בלבד"}
+        {status === "approved" ? "מאושר" : status === "rejected" ? "נדחה" : "ממתין לאישור"}
+        {" · "}
+        <b data-testid="seller-can-publish">{status === "approved" ? "יכול לפרסם ✓" : "לא יכול לפרסם (טיוטות בלבד)"}</b>
       </span>
       <span className="row" style={{ marginInlineStart: "auto", gap: 8 }}>
-        {status !== "approved" ? <button className="btn btn-sm btn-primary" disabled={busy} onClick={() => decide("approve")}>אשר מוכר</button> : null}
-        {status !== "rejected" ? <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => decide("reject")}>דחה</button> : null}
+        {status !== "approved" ? <button className="btn btn-sm btn-primary" data-testid="seller-approve" disabled={busy} onClick={() => decide("approve")}>אשר מוכר</button> : null}
+        {status !== "rejected" ? (
+          confirmReject
+            ? <button className="btn btn-sm btn-danger" data-testid="seller-reject-confirm" disabled={busy} onClick={() => decide("reject")}>אישור הדחייה</button>
+            : <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="seller-reject" disabled={busy} onClick={() => setConfirmReject(true)}>דחה</button>
+        ) : null}
       </span>
       {msg ? <span className="small" style={{ flexBasis: "100%" }}>{msg}</span> : null}
     </div>
@@ -638,6 +720,18 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
       </div>
       <p className="muted small" dir="ltr">{s.login_email || ""} · {s.seller_id}</p>
       <SellerApprovalPanel seller={s} onChanged={reload} />
+      {/* LAUNCH POLISH (P4) — who is this seller, in one glance (no KYC infrastructure: the profile they typed) */}
+      <div className="id-block" data-testid="seller-identity">
+        <div><div className="k">שם העסק</div><div className="v">{s.business_name || "— (טרם מולא)"}</div></div>
+        <div><div className="k">איש קשר</div><div className="v">{s.contact_name || "—"}</div></div>
+        <div><div className="k">טלפון</div><div className="v" dir="ltr">{s.support_phone || "—"}</div></div>
+        <div><div className="k">אימייל תמיכה</div><div className="v" dir="ltr">{s.support_email || "—"}</div></div>
+        <div><div className="k">מזהה עסק</div><div className="v" dir="ltr">{s.business_identifier || "—"}</div></div>
+        <div><div className="k">מקור החשבון</div><div className="v">{s.self_signup ? "נרשם עצמאית (Supabase)" : s.admin_note === "owner_email_claim" ? "חשבון הבעלים" : /pilot_manual/.test(String(s.admin_note || "")) ? "קושר ידנית (פיילוט)" : s.supabase_bound ? "התחברות מקושרת" : "חשבון ללא קישור התחברות"}</div></div>
+        <div><div className="k">נרשם</div><div className="v">{fmtDate(s.created_at)}</div></div>
+        <div><div className="k">התחברות אחרונה</div><div className="v">{s.last_login_at ? fmtDate(s.last_login_at) : "—"}</div></div>
+        {s.business_description ? <div style={{ gridColumn: "1 / -1" }}><div className="k">תיאור</div><div className="v" style={{ fontWeight: 400 }}>{s.business_description}</div></div> : null}
+      </div>
       {(d.warnings || []).length ? (
         <div className="notice err"><b>אזהרות מערכת:</b> {(d.warnings as string[]).join(" · ")}</div>
       ) : null}

@@ -31,6 +31,9 @@ export interface VerifiedToken {
   email?: string;
   phone?: string;
   aal?: string;
+  // Supabase anonymous sign-ins carry role=authenticated with is_anonymous=true.
+  // Surfaced so provisioning paths can refuse them explicitly (never authority).
+  is_anonymous?: boolean;
 }
 
 export type Jwk = {
@@ -164,6 +167,7 @@ export async function verifySupabaseAccessToken(token: unknown, opts: VerifyOpti
   if (payload?.email) out.email = String(payload.email);
   if (payload?.phone) out.phone = String(payload.phone);
   if (payload?.aal) out.aal = String(payload.aal);
+  if (payload?.is_anonymous === true) out.is_anonymous = true;
   return out;
 }
 

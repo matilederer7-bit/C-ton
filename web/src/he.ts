@@ -58,6 +58,9 @@ const CODE_MESSAGES: Record<string, string> = {
   deal_reopen_not_allowed: "ההצטרפות נסגרה אוטומטית (מועד סיום או מלאי) — לא ניתן לפתוח מחדש",
   deal_reopen_deadline_passed: "מועד הסיום עבר — לא ניתן לפתוח את ההצטרפות מחדש",
   deal_reopen_capacity_full: "המלאי הסתיים — לא ניתן לפתוח את ההצטרפות מחדש",
+  // LAUNCH POLISH — the server's state-machine refusal (the deal is no longer
+  // in the state the action requires). Cancel has its own, more specific copy.
+  STATE_CONFLICT: "מצב העסקה השתנה בינתיים — רעננו את המסך ונסו שוב",
   // P0.3 — chat
   chat_closed: "הצ׳אט סגור בעסקה זו",
   chat_reply_target_not_found: "ההודעה שאליה ניסיתם להגיב כבר לא זמינה",

@@ -1750,7 +1750,8 @@ export function registerFrontendExperience(
       return_to: safeSellerReturnTo(options?.returnTo),
       onboarding: {
         required: onboardingRequired,
-        next_path: "/app/seller#seller-profile-section"
+        // LAUNCH POLISH (P5) — the React business-profile page is the canonical destination
+        next_path: "/preview/#/seller/profile"
       },
       seller_context: sellerContext
         ? {
@@ -1843,12 +1844,26 @@ export function registerFrontendExperience(
         // explicitly; other capabilities on the same principal are ignored.
         const caps = await resolveSupabaseCapabilities(req, c, verifier);
         if (caps && caps.seller && caps.seller.auth_enabled) {
+          // LAUNCH POLISH — the Supabase path used to hard-code
+          // verification_status "approved", so a PENDING self-signup seller saw
+          // no pending banner and the dashboard could not tell them they may not
+          // publish yet. Read the same canonical profile row the cookie session
+          // path reads (business name, contacts, approval, enforcement status).
+          const profile = await c.query(
+            `SELECT seller_id, display_name, login_email, auth_enabled, business_name, support_email, support_phone,
+                    verification_status, settlement_status, payout_method, payout_details_masked, admin_note,
+                    COALESCE(seller_status, 'Active') AS seller_status, seller_status_reason,
+                    seller_status_updated_at, seller_status_updated_by, created_at, updated_at, last_login_at
+             FROM siton.seller_accounts WHERE seller_id = $1 LIMIT 1`,
+            [caps.seller.seller_id]
+          );
+          if (profile.rowCount) return mapSellerProfile(profile.rows[0], "supabase_session");
           return {
             seller_id: caps.seller.seller_id,
             display_name: caps.seller.display_name,
             seller_status: caps.seller.seller_status || "Active",
-            verification_status: "approved",
-            settlement_status: "active",
+            verification_status: caps.seller.verification_status || "pending",
+            settlement_status: caps.seller.settlement_status || "active",
             is_default_context: false,
             context_source: "supabase_session"
           };
@@ -1934,12 +1949,98 @@ export function registerFrontendExperience(
     );
   }
 
+  // LAUNCH POLISH (P1) — SELF-SERVICE SELLER BINDING for the closed pilot.
+  // A VERIFIED Supabase token (signature, issuer, audience, authenticated
+  // role, confirmed e-mail claim — Supabase only issues tokens after
+  // confirmation) whose principal holds NO seller capability yet is given a
+  // PENDING seller row bound to its auth_user_id. Trust model identical to the
+  // owner claims above. Invariants, all enforced by the database:
+  //   * never auto-approved: verification_status='pending' (publish stays gated)
+  //   * never claims another seller: ON CONFLICT DO NOTHING on the primary key,
+  //     the unique auth_user_id index and the unique login_email index — an
+  //     existing row is NEVER updated, an existing auth_user_id NEVER overwritten
+  //   * deterministic + idempotent: seller_id = e-mail slug + 8 hex of sha256(sub)
+  //   * race-safe: two concurrent first logins → one row; the loser observes the
+  //     winner's committed row and resolves the same capability
+  //   * no credentials: nothing is created that can log in outside Supabase
+  //   * audited in siton.seller_security_events
+  //   * bounded: SELLER_SELF_SIGNUP_HOURLY_CAP (default 20/h platform-wide),
+  //     SELLER_SELF_SIGNUP_ENABLED=0 switches the branch off entirely
+  const SELLER_SELF_SIGNUP_ENABLED = String(process.env.SELLER_SELF_SIGNUP_ENABLED ?? "1").trim() !== "0";
+  const SELLER_SELF_SIGNUP_HOURLY_CAP = (() => {
+    const n = Number(process.env.SELLER_SELF_SIGNUP_HOURLY_CAP);
+    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 20;
+  })();
+  const SELF_SIGNUP_ADMIN_NOTE = "self_signup";
+  type SellerSelfBindingOutcome =
+    | "bound" | "already_bound" | "email_in_use" | "seller_id_in_use"
+    | "throttled" | "disabled" | "email_required" | "anonymous_identity";
+
+  function selfSignupSellerId(email: string, sub: string): string {
+    const local = String(email.split("@")[0] || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 32) || "seller";
+    const tag = createHash("sha256").update(sub).digest("hex").slice(0, 8);
+    return normalizeSellerId(`s-${local}-${tag}`);
+  }
+
+  async function claimSelfServiceSellerBinding(
+    c: any,
+    req: any,
+    caps: NonNullable<Awaited<ReturnType<typeof resolveSupabaseCapabilities>>>
+  ): Promise<SellerSelfBindingOutcome> {
+    if (!SELLER_SELF_SIGNUP_ENABLED) return "disabled";
+    if (caps.token.is_anonymous) return "anonymous_identity";
+    const email = normalizeSellerLoginEmail(caps.email);
+    if (!email) return "email_required";
+    const sellerId = selfSignupSellerId(email, caps.sub);
+    const displayName = normalizeSellerDisplayName(email.split("@")[0], sellerId);
+    if (SELLER_SELF_SIGNUP_HOURLY_CAP > 0) {
+      // counted from the append-only audit rail, not from admin_note (the
+      // approval decision rewrites admin_note, which must not reset the cap)
+      const recent = await c.query(
+        `SELECT COUNT(*)::int AS n FROM siton.seller_security_events
+         WHERE event_type = 'seller.self_signup.bound' AND created_at > now() - interval '1 hour'`
+      );
+      if (Number(recent.rows[0]?.n || 0) >= SELLER_SELF_SIGNUP_HOURLY_CAP) return "throttled";
+    }
+    const inserted = await c.query(
+      `INSERT INTO siton.seller_accounts
+         (seller_id, display_name, business_name, login_email, support_email, verification_status, settlement_status, auth_enabled, auth_user_id, admin_note)
+       VALUES ($1, $2, '', $3, $3, 'pending', 'active', true, $4, $5)
+       ON CONFLICT DO NOTHING
+       RETURNING seller_id`,
+      [sellerId, displayName, email, caps.sub, SELF_SIGNUP_ADMIN_NOTE]
+    );
+    if (inserted.rowCount) {
+      await c.query(
+        `INSERT INTO siton.seller_security_events
+           (seller_id, event_type, from_status, to_status, actor_ref, reason, request_id, idempotency_key, payload)
+         VALUES ($1, 'seller.self_signup.bound', NULL, 'pending', $2, 'self_signup', $3, $4, $5)`,
+        [
+          sellerId,
+          `supabase:${caps.sub}`,
+          String(req.headers?.["x-request-id"] || `self-signup:${sellerId}`),
+          `self-signup:${sellerId}`,
+          JSON.stringify({ source: "api/auth/capabilities", auth_user_id: caps.sub })
+        ]
+      );
+      return "bound";
+    }
+    // The insert was refused by a unique rule. Say which, without touching anything.
+    const bySub = await c.query(`SELECT seller_id FROM siton.seller_accounts WHERE auth_user_id = $1 LIMIT 1`, [caps.sub]);
+    if (bySub.rowCount) return "already_bound"; // a concurrent first login won
+    const byEmail = await c.query(`SELECT seller_id FROM siton.seller_accounts WHERE lower(login_email) = lower($1) LIMIT 1`, [email]);
+    if (byEmail.rowCount) return "email_in_use"; // an existing account (manual/legacy) owns this e-mail — never claimed here
+    return "seller_id_in_use";
+  }
+
   // OWNER THREE-MODE — read-only capability discovery for one authenticated
   // identity. The client uses this ONLY to decide which legitimate experience
   // to expose (guest/seller/admin); every privileged route keeps authorizing
   // independently against the canonical capability bindings. The configured
   // owner email is auto-provisioned its SuperAdmin + owner-seller bindings
   // here, under the same verified-token trust model as the admin owner claim.
+  // Any OTHER verified identity without a seller binding gets the pending
+  // self-service seller binding (see claimSelfServiceSellerBinding).
   app.get("/api/auth/capabilities", async (req: any, reply: any) => {
     const verifier = frontendSupabaseVerifier();
     if (!verifier || !bearerToken(req)) {
@@ -1950,10 +2051,18 @@ export function registerFrontendExperience(
       let caps: Awaited<ReturnType<typeof resolveSupabaseCapabilities>> = null;
       try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
       if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
+      let sellerBinding: SellerSelfBindingOutcome | "owner" | "existing" = "existing";
       if (isConfiguredOwnerClaimEmail(caps.email)) {
+        sellerBinding = "owner";
         if (!caps.admin) await claimOwnerAdminBinding(c, caps.sub, caps.email);
         if (!caps.seller) await claimOwnerSellerBinding(c, caps.sub, caps.email);
         if (!caps.admin || !caps.seller) {
+          try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
+          if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
+        }
+      } else if (!caps.seller) {
+        sellerBinding = await claimSelfServiceSellerBinding(c, req, caps);
+        if (sellerBinding === "bound" || sellerBinding === "already_bound") {
           try { caps = await resolveSupabaseCapabilities(req, c, verifier); } catch { caps = null; }
           if (!caps) return reply.code(401).send({ ok: false, error: "invalid_token" });
         }
@@ -1962,11 +2071,18 @@ export function registerFrontendExperience(
         ok: true,
         email: caps.email,
         seller: caps.seller && caps.seller.auth_enabled
-          ? { seller_id: caps.seller.seller_id, display_name: caps.seller.display_name }
+          ? {
+              seller_id: caps.seller.seller_id,
+              display_name: caps.seller.display_name,
+              verification_status: caps.seller.verification_status
+            }
           : null,
         admin: caps.admin && caps.admin.status === "Active"
           ? { role: caps.admin.role }
-          : null
+          : null,
+        // presentation hint only (why there is / is not a seller capability);
+        // never consulted for authority anywhere
+        seller_binding: sellerBinding
       };
     });
   });
@@ -2716,8 +2832,10 @@ export function registerFrontendExperience(
         ok: true,
         seller_context: {
           ...sellerContext,
-          workspace_url: "/app/seller",
-          create_deal_url: "/app/seller/new"
+          // LAUNCH POLISH (P5) — navigation hints for the canonical React product
+          // (the legacy app never read these; /api/site/home keeps its own)
+          workspace_url: "/preview/#/seller",
+          create_deal_url: "/preview/#/seller/new"
         }
       };
     });
@@ -2744,8 +2862,10 @@ export function registerFrontendExperience(
           settlement_status: String(profile.settlement_status || "active"),
           is_default_context: String(profile.seller_id) === DEFAULT_SELLER_ID,
           context_source: "explicit",
-          workspace_url: "/app/seller",
-          create_deal_url: "/app/seller/new"
+          // LAUNCH POLISH (P5) — navigation hints for the canonical React product
+          // (the legacy app never read these; /api/site/home keeps its own)
+          workspace_url: "/preview/#/seller",
+          create_deal_url: "/preview/#/seller/new"
         },
         seller_auth: sellerAuthSummary({
           seller_id: String(profile.seller_id),
@@ -4205,6 +4325,11 @@ export function registerFrontendExperience(
           },
         seller_actions: {
           can_publish: (dealResult.rows[0] as DealListRow).state === "Draft",
+          // LAUNCH POLISH (P2) — mirrors the canonical deal state machine
+          // (DEAL_TRANSITIONS in src/app.ts: Cancelled is reachable from Draft
+          // only). A hint for the seller UI; POST /deals/:id/cancel remains
+          // the authority and refuses everything else with 409 STATE_CONFLICT.
+          can_cancel: (dealResult.rows[0] as DealListRow).state === "Draft",
           edit_locked: (dealResult.rows[0] as DealListRow).state !== "Draft",
           delivery_editable: deliveryEditable,
           delivery_lock_reason: deliveryLockReason,
@@ -10822,7 +10947,10 @@ export function registerFrontendExperience(
     if (!(await requireAdminRead(req, reply))) return;
     return deps.withTx(async (c) => {
       const rows = await c.query(
-        `SELECT sa.seller_id, sa.display_name, sa.business_name,
+        `SELECT sa.seller_id, sa.display_name,
+                -- LAUNCH POLISH (P4) — a self-registered seller types the business name into the
+                -- business profile first; show it in the queue before the account row carries it
+                COALESCE(NULLIF(btrim(sa.business_name),''), bp.business_name) AS business_name,
                 COALESCE(sa.seller_status,'Active') AS seller_status,
                 COALESCE(sa.verification_status,'pending') AS verification_status,
                 sa.login_email, sa.auth_enabled, (sa.auth_user_id IS NOT NULL) AS supabase_bound,
@@ -10839,9 +10967,10 @@ export function registerFrontendExperience(
                   FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
                 MAX(GREATEST(d.updated_at, p.updated_at)) AS last_activity_at
          FROM siton.seller_accounts sa
+         LEFT JOIN siton.seller_business_profiles bp ON bp.seller_id = sa.seller_id
          LEFT JOIN siton.deals d ON d.seller_id = sa.seller_id
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
-         GROUP BY sa.seller_id
+         GROUP BY sa.seller_id, bp.business_name
          ORDER BY last_activity_at DESC NULLS LAST
          LIMIT 200`
       );
@@ -10867,12 +10996,22 @@ export function registerFrontendExperience(
     const sellerId = String(req.params.sellerId || "").slice(0, 120);
     return deps.withTx(async (c) => {
       const seller = await c.query(
-        `SELECT seller_id, display_name, business_name, business_identifier,
-                support_phone, support_email, business_description,
-                COALESCE(seller_status,'Active') AS seller_status, seller_status_reason,
-                login_email, auth_enabled, (auth_user_id IS NOT NULL) AS supabase_bound,
-                verification_status, created_at, updated_at
-         FROM siton.seller_accounts WHERE seller_id=$1 LIMIT 1`,
+        `SELECT sa.seller_id, sa.display_name,
+                COALESCE(NULLIF(btrim(sa.business_name),''), bp.business_name) AS business_name,
+                COALESCE(NULLIF(btrim(sa.business_identifier),''), bp.business_id_number) AS business_identifier,
+                COALESCE(NULLIF(btrim(sa.contact_name),''), bp.contact_name) AS contact_name,
+                COALESCE(NULLIF(btrim(sa.support_phone),''), bp.contact_phone) AS support_phone,
+                COALESCE(NULLIF(btrim(sa.support_email),''), bp.contact_email) AS support_email,
+                sa.business_description,
+                COALESCE(sa.seller_status,'Active') AS seller_status, sa.seller_status_reason,
+                sa.login_email, sa.auth_enabled, (sa.auth_user_id IS NOT NULL) AS supabase_bound,
+                sa.verification_status, sa.admin_note, sa.created_at, sa.updated_at, sa.last_login_at,
+                -- LAUNCH POLISH (P4) — provenance from the append-only audit rail (admin_note is rewritten by decisions)
+                EXISTS (SELECT 1 FROM siton.seller_security_events e
+                         WHERE e.seller_id = sa.seller_id AND e.event_type = 'seller.self_signup.bound') AS self_signup
+         FROM siton.seller_accounts sa
+         LEFT JOIN siton.seller_business_profiles bp ON bp.seller_id = sa.seller_id
+         WHERE sa.seller_id=$1 LIMIT 1`,
         [sellerId]
       );
       if (!seller.rowCount) {

@@ -741,9 +741,10 @@ export function DealPage({ dealId, navigate, preview = false }: { dealId: string
         {/* 3-8 — price → progress → deadline → qty → delivery → CTA */}
         <div className="deal-area-buy">
           <div className="panel">
-            <div className="deal-price-hero" style={{ marginTop: 0 }}>
+            {/* LAUNCH POLISH (P6) — say WHICH price this is: the group price, per unit */}
+            <div className="deal-price-hero" style={{ marginTop: 0 }} data-testid="deal-price">
               <span className="price">{ils(deal.price_per_unit)}</span>
-              <span className="price-unit">ליחידה · {dealTypeLabel(deal.deal_type)}</span>
+              <span className="price-unit">מחיר קבוצתי ליחידה · {dealTypeLabel(deal.deal_type)}</span>
             </div>
             {/* LAUNCH MODE — the saving is the whole point: show it when the seller gave a regular price */}
             {Number(deal.list_price_per_unit) > Number(deal.price_per_unit) ? (

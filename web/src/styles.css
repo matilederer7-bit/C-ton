@@ -1192,3 +1192,62 @@ tr.clickable:hover { background: var(--brand-tint); }
 .price-was { color: var(--muted, #9aa0a6); text-decoration: line-through; font-size: 1.05rem; }
 .saving-badge { display: inline-block; padding: 3px 10px; border-radius: 999px; background: var(--accent, #f28c28); color: #1b1b1b; font-weight: 700; font-size: 0.9rem; }
 .card-price-row .price-was { font-size: 0.85rem; margin-inline-start: 6px; }
+
+/* ── LAUNCH POLISH (P3) — first-time seller journey strip ─────────────── */
+/* "מה קורה מכאן?" — 5 compact steps, current one lit, mobile: horizontal scroll-free wrap */
+.journey { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 14px; }
+.journey-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.journey-head h3 { margin: 0; font-size: 1rem; }
+.journey-head .small { color: var(--ink-soft); }
+.journey-steps { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; list-style: none; margin: 0; padding: 0; }
+.journey-step { position: relative; border-radius: var(--radius-sm); padding: 8px 6px 8px; background: var(--bg-deep); border: 1px solid var(--line); min-width: 0; text-align: center; }
+.journey-step .j-n { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: var(--surface-warm); color: var(--ink-soft); font-weight: 800; font-size: .78rem; margin-bottom: 4px; }
+.journey-step .j-t { font-weight: 800; font-size: .8rem; line-height: 1.2; overflow-wrap: anywhere; }
+.journey-step .j-b { font-size: .72rem; color: var(--ink-soft); line-height: 1.3; margin-top: 3px; }
+.journey-step.done { border-color: rgba(111, 211, 224, .35); }
+.journey-step.done .j-n { background: var(--success-tint); color: var(--success); }
+.journey-step.now { border-color: var(--brand); background: linear-gradient(160deg, var(--brand-tint), var(--bg-deep) 80%); box-shadow: 0 0 0 1px var(--brand) inset; }
+.journey-step.now .j-n { background: var(--brand); color: #16130f; }
+.journey-step.now .j-t { color: var(--brand-hi); }
+.journey-foot { display: flex; gap: 10px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-top: 10px; font-size: .82rem; color: var(--ink-soft); }
+@media (max-width: 640px) {
+  .journey-steps { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+  .journey-step { padding: 7px 3px; }
+  .journey-step .j-t { font-size: .72rem; }
+  .journey-step .j-b { display: none; }
+  .journey-step.now .j-b { display: block; }
+}
+
+/* ── LAUNCH POLISH (P8) — slow-load hint under the brand loader ────────── */
+.brand-loader-slow { color: var(--ink-faint); font-size: .84rem; margin: 6px auto 0; max-width: 320px; line-height: 1.4; }
+
+/* ── LAUNCH POLISH (P2) — cancel vs pause inside the confirmation sheet ── */
+.cancel-compare { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0 14px; }
+.cancel-compare > div { background: var(--bg-deep); border: 1px solid var(--line); border-radius: var(--radius-sm); padding: 10px 12px; font-size: .88rem; }
+.cancel-compare b { display: block; margin-bottom: 4px; }
+.cancel-compare .is-cancel { border-color: rgba(240, 86, 58, .45); }
+.cancel-compare .is-cancel b { color: var(--pomegranate); }
+.cancel-compare .is-pause b { color: var(--saffron); }
+@media (max-width: 480px) { .cancel-compare { grid-template-columns: 1fr; } }
+
+/* ── LAUNCH POLISH (P4/P7) — admin: pending sellers queue ───────────────── */
+.pending-queue { border: 1.5px solid var(--saffron); background: var(--saffron-tint); border-radius: var(--radius-lg); padding: 14px 16px; margin-bottom: 16px; }
+.pending-queue .panel-title { margin-bottom: 8px; }
+.pending-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 14px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(245, 166, 35, .25); }
+.pending-row:first-of-type { border-top: none; }
+.pending-row .who { min-width: 0; }
+.pending-row .who b { display: block; overflow-wrap: anywhere; }
+.pending-row .who .small { color: var(--ink-soft); }
+.pending-row .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+@media (max-width: 640px) { .pending-row { grid-template-columns: 1fr; } .pending-row .acts { justify-content: flex-start; } .pending-row .acts .btn { flex: 1; } }
+.id-block { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 6px 18px; font-size: .92rem; margin: 8px 0 12px; }
+.id-block .k { color: var(--ink-faint); font-size: .78rem; }
+.id-block .v { font-weight: 600; overflow-wrap: anywhere; }
+
+/* ── LAUNCH POLISH (P6) — phone: keep price · saving · meter · countdown near the fold ─ */
+/* the 4:3 hero image pushed the price ~1 screen down at 390px; a 16:10 cap brings the
+   decision block (price → saving → group meter → countdown) up without a redesign */
+@media (max-width: 640px) {
+  .deal-gallery-main { aspect-ratio: 16/10; max-height: 250px; }
+}
+.deal-price-hero .price-unit { font-size: .84rem; color: var(--ink-soft); }

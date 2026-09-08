@@ -14,10 +14,27 @@
       /* pre-hydration paint: the C-ton graphite ground, never a white flash */
       html { background: #17181b; }
       body { margin: 0; background: #17181b; }
+      /* LAUNCH POLISH (P8) — while the JS bundle is still downloading/parsing
+         the shell already says WHAT is happening (no dark unexplained screen).
+         React replaces this node on mount; no dependency, no script. */
+      .boot-loader { min-height: 100dvh; display: grid; place-items: center; color: #a8aeb9; font: 500 15px/1.5 "Assistant", "Segoe UI", system-ui, sans-serif; text-align: center; }
+      .boot-loader img { width: 64px; height: 64px; border-radius: 16px; display: block; margin: 0 auto 14px; }
+      .boot-loader .boot-bar { width: 120px; height: 4px; border-radius: 2px; background: #2c2f36; margin: 0 auto 12px; overflow: hidden; position: relative; }
+      .boot-loader .boot-bar::after { content: ""; position: absolute; inset: 0; width: 45%; background: #ec6608; border-radius: 2px; animation: boot-slide 1.1s ease-in-out infinite alternate; }
+      @keyframes boot-slide { from { transform: translateX(-70%); } to { transform: translateX(170%); } }
+      @media (prefers-reduced-motion: reduce) { .boot-loader .boot-bar::after { animation: none; width: 100%; } }
     </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot-loader" role="status" aria-live="polite" data-testid="boot-loader">
+        <div>
+          <img src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="64" height="64" />
+          <div class="boot-bar" aria-hidden="true"></div>
+          <div>C-ton נטען…</div>
+        </div>
+      </div>
+    </div>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

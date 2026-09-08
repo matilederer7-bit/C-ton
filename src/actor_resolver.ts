@@ -23,6 +23,11 @@ export interface SellerCapability {
   display_name: string;
   auth_enabled: boolean;
   seller_status: string;
+  // LAUNCH POLISH — the closed-market gate state travels with the capability so
+  // a Supabase-bound seller's surfaces never assume "approved" (pending sellers
+  // may draft but not publish; the publish route re-reads the row anyway).
+  verification_status: string;
+  settlement_status: string;
 }
 
 export interface AdminCapability {
@@ -79,7 +84,9 @@ export async function resolveSupabaseCapabilities(
 
   const [sellerRes, adminRes, distRes] = await Promise.all([
     db.query(
-      `SELECT seller_id, display_name, auth_enabled, COALESCE(seller_status,'Active') AS seller_status
+      `SELECT seller_id, display_name, auth_enabled, COALESCE(seller_status,'Active') AS seller_status,
+              COALESCE(verification_status,'pending') AS verification_status,
+              COALESCE(settlement_status,'active') AS settlement_status
        FROM siton.seller_accounts WHERE auth_user_id = $1 LIMIT 2`,
       [sub]
     ),
@@ -114,7 +121,9 @@ export async function resolveSupabaseCapabilities(
           seller_id: String(sellerRow.seller_id),
           display_name: String(sellerRow.display_name || sellerRow.seller_id),
           auth_enabled: Boolean(sellerRow.auth_enabled),
-          seller_status: String(sellerRow.seller_status)
+          seller_status: String(sellerRow.seller_status),
+          verification_status: String(sellerRow.verification_status || "pending"),
+          settlement_status: String(sellerRow.settlement_status || "active")
         }
       : null,
     admin: adminRow

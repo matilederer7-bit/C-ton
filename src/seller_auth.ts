@@ -79,7 +79,8 @@ export function sellerAuthFailurePayload(
       return_to: safeSellerReturnTo(options?.returnTo),
       onboarding: {
         required: false,
-        next_path: "/app/seller#seller-profile-section"
+        // LAUNCH POLISH (P5) — the React business-profile page is the canonical destination
+        next_path: "/preview/#/seller/profile"
       }
     }
   };

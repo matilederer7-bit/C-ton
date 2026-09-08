@@ -129,6 +129,12 @@ export const api = {
     req(`/api/deals/${id}/close_joining`, { method: "POST", headers: { "idempotency-key": `preview-close-${crypto.randomUUID()}` }, body: JSON.stringify({}) }, "seller"),
   reopenJoining: (id: string) =>
     req(`/api/deals/${id}/reopen_joining`, { method: "POST", headers: { "idempotency-key": `preview-reopen-${crypto.randomUUID()}` }, body: JSON.stringify({}) }, "seller"),
+  // LAUNCH POLISH (P2) — PERMANENT cancellation (never a pause). The server is
+  // the only authority on whether the deal's state allows it (409 otherwise).
+  // ONE intent = ONE idempotency key: the caller mints the key when the
+  // confirmation opens, so a double-click or a retry replays instead of acting twice.
+  cancelDeal: (id: string, intentKey: string) =>
+    req(`/api/deals/${id}/cancel`, { method: "POST", headers: { "idempotency-key": `preview-cancel-${intentKey}` }, body: JSON.stringify({}) }, "seller"),
   deleteDeal: (id: string) =>
     req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
   sellerBusinessProfile: () => req(`/api/seller/business-profile`, {}, "seller"),

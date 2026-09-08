@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearAuthSession, getSellerToken, Json } from "../api";
-import { clearOwnerSession } from "../ownerMode";
+import { clearOwnerSession, readSellerBindingHint } from "../ownerMode";
+import { readSession } from "../session";
 import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, StatusPill, StatTile, Toast, copyText, useToast
@@ -35,6 +36,90 @@ function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?
       signupLabel="פתיחת חשבון מוכר"
       onDone={onDone}
     />
+  );
+}
+
+// ── LAUNCH POLISH (P1) — why a logged-in identity has no seller account ────
+// The server binds a verified login to a PENDING seller account automatically.
+// When it refuses (never silently), the reason is explained here instead of
+// bouncing the user back to the login form with no clue.
+const BINDING_HINT_COPY: Record<string, string> = {
+  email_in_use: "כתובת האימייל הזו כבר שייכת לחשבון מוכר קיים ב-C-ton שאינו מקושר להתחברות הזו. לא נפתח חשבון כפול — פנו לתמיכה ונקשר אותו.",
+  seller_id_in_use: "לא הצלחנו לפתוח חשבון מוכר אוטומטית (התנגשות מזהה). פנו לתמיכה ונקשר את החשבון ידנית.",
+  throttled: "נרשמו הרבה מוכרים חדשים בשעה האחרונה. ההרשמה שלכם נשמרה — נסו להתחבר שוב בעוד כמה דקות.",
+  disabled: "פתיחת חשבון מוכר אוטומטית כבויה כרגע. פנו ל-C-ton כדי שנפתח לכם חשבון.",
+  email_required: "לחשבון ההתחברות אין כתובת אימייל מאומתת — נדרשת כתובת אימייל כדי לפתוח חשבון מוכר.",
+  anonymous_identity: "התחברות אנונימית אינה יכולה לפתוח חשבון מוכר. הירשמו עם אימייל וסיסמה."
+};
+function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
+  const hint = readSellerBindingHint();
+  const copy = BINDING_HINT_COPY[hint];
+  if (!copy || !readSession()?.access_token) return null;
+  return (
+    <div style={{ maxWidth: 420, margin: "24px auto -24px" }}>
+      <div className="notice err" data-testid="seller-binding-notice" data-binding={hint}>
+        <b>ההתחברות הצליחה, אבל אין לחשבון הזה גישת מוכר.</b>
+        <div className="small" style={{ marginTop: 4 }}>{copy}</div>
+        <div className="row" style={{ marginTop: 8, gap: 8 }}>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>תמיכה ויצירת קשר</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── LAUNCH POLISH (P3) — "מה קורה מכאן?" the seller journey in one strip ────
+// Five steps a first-time seller must understand in ~10 seconds: what THEY do
+// (create → preview → publish → share), what SITON does (counts joins, holds
+// frames only, charges only on success), when it succeeds, what happens if the
+// target is missed. The lit step follows the real deal state; nothing here
+// claims a real payment — the demo disclosure stays on the strip.
+type JourneyStage = 0 | 1 | 2 | 3 | 4;
+const JOURNEY_STEPS: { t: string; b: string }[] = [
+  { t: "יצירת עסקה", b: "מוצר, מחיר, יעד יחידות, מועד סיום" },
+  { t: "תצוגה מקדימה", b: "רואים בדיוק מה הקונים יראו" },
+  { t: "פרסום", b: "מקבלים קישור אחד לשיתוף" },
+  { t: "איסוף משתתפים", b: "קונים מצטרפים ומשתפים — נתפסת מסגרת בלבד, אין חיוב" },
+  { t: "הצלחה / כישלון", b: "הגיעו ליעד → חיוב ואספקה · לא הגיעו → המסגרות משתחררות" }
+];
+function journeyStageOf(deal: Json | null): JourneyStage {
+  if (!deal) return 0;
+  const state = String(deal.state || "");
+  if (state === "Draft") return (deal.images || []).length ? 1 : 0;
+  if (["PendingTarget", "TargetReached", "ClosedForJoining"].includes(state)) return 3;
+  return 4;
+}
+function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
+  const stage = journeyStageOf(deal);
+  const state = String(deal?.state || "");
+  const terminal = ["Completed", "Failed", "Cancelled"].includes(state);
+  const outcome = state === "Completed" ? "הושלמה בהצלחה — אפשר לספק"
+    : state === "Failed" ? "לא הגיעה ליעד — המסגרות שוחררו, אף אחד לא חויב"
+    : state === "Cancelled" ? "בוטלה — אף אחד לא חויב"
+    : "";
+  return (
+    <section className="journey" data-testid="seller-journey" data-stage={stage} aria-label={title}>
+      <div className="journey-head">
+        <h3>{title}</h3>
+        <span className="small">סביבת הדגמה — ללא חיובים אמיתיים</span>
+      </div>
+      <ol className="journey-steps">
+        {JOURNEY_STEPS.map((s, i) => {
+          const cls = i < stage || (terminal && i === 4) ? "done" : i === stage ? "now" : "";
+          return (
+            <li key={s.t} className={`journey-step ${cls}`} data-testid={`journey-step-${i + 1}`} aria-current={i === stage ? "step" : undefined}>
+              <span className="j-n" aria-hidden="true">{i < stage || (terminal && i === 4) ? "✓" : i + 1}</span>
+              <div className="j-t">{s.t}</div>
+              <div className="j-b">{i === 4 && outcome ? outcome : s.b}</div>
+            </li>
+          );
+        })}
+      </ol>
+      <div className="journey-foot">
+        <span><b>מה סיטון עושה:</b> סופר הצטרפויות, שומר מסגרות אשראי בלבד, ומחייב רק אם הקבוצה הגיעה ליעד עד מועד הסיום.</span>
+      </div>
+    </section>
   );
 }
 
@@ -217,10 +302,17 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {/* LAUNCH MODE — a self-registered seller is pending until the owner approves; say so plainly */}
       {String(profile.verification_status || "") === "pending" ? (
         <div className="notice info" data-testid="seller-pending-approval">
-          <b>החשבון ממתין לאישור C-ton.</b> אפשר כבר להכין עסקה כטיוטה, להעלות תמונות ולראות תצוגה מקדימה —
-          הפרסום ייפתח מיד כשהחשבון יאושר (בדרך כלל תוך שעות ספורות).
+          <b>החשבון ממתין לאישור C-ton — עדיין לא ניתן לפרסם.</b> אפשר כבר להכין עסקה כטיוטה, להעלות תמונות ולראות תצוגה מקדימה;
+          הטיוטה נשמרת, והפרסום ייפתח מיד כשהחשבון יאושר (בדרך כלל תוך שעות ספורות).
         </div>
       ) : null}
+      {String(profile.verification_status || "") === "rejected" ? (
+        <div className="notice err" data-testid="seller-rejected">
+          <b>החשבון לא אושר לפרסום עסקאות.</b> טיוטות נשמרות, אך פרסום אינו אפשרי. לשאלות — <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>.
+        </div>
+      ) : null}
+      {/* LAUNCH POLISH (P3) — a seller who never published sees the whole path once, compactly */}
+      {deals.every((d) => !d.published_at) ? <SellerJourney deal={null} title="מה קורה מכאן?" /> : null}
       {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
         <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span>
@@ -1478,6 +1570,12 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [reopening, setReopening] = useState(false);
+  // LAUNCH POLISH (P2) — permanent cancellation. ONE intent key per opened
+  // confirmation: a double-click or a retry replays the same server operation.
+  const [confirmCancel, setConfirmCancel] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelRefusal, setCancelRefusal] = useState("");
+  const cancelIntentKey = useRef("");
   const [toast, showToast] = useToast();
 
   const load = () => api.sellerDeal(dealId).then(setPayload).catch((e) => setError(e.message));
@@ -1561,6 +1659,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         </div>
       ) : null}
 
+      {/* LAUNCH POLISH (P3) — where this deal is on the path, in one glance */}
+      <SellerJourney deal={deal} title="איך העסקה עובדת?" />
+
       {/* constant header: name, image, big colored status */}
       <div className="panel">
         <div className="sd-top">
@@ -1643,6 +1744,17 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           )}
           {deletable ? (
             <button className="btn btn-ghost btn-danger-ghost" data-testid="deal-delete-open" onClick={() => setConfirmDelete(true)}>מחיקת העסקה</button>
+          ) : null}
+          {/* LAUNCH POLISH (P2) — visible, not prominent: ghost + last in the row.
+              Offered for every non-terminal, pre-charging state; the SERVER
+              decides (Draft only today — a live deal is refused with a clear
+              explanation and the pause alternative). Never shown once money
+              may be moving (ReadyForCharging/Charging/CompletionWindow). */}
+          {(isDraft || isOpen || paused) && !closed ? (
+            <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="deal-cancel-open" style={{ marginInlineStart: "auto" }}
+              onClick={() => { cancelIntentKey.current = crypto.randomUUID(); setCancelRefusal(""); setConfirmCancel(true); }}>
+              ביטול העסקה
+            </button>
           ) : null}
         </div>
       </div>
@@ -1805,6 +1917,67 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           </div>
         </Modal>
       ) : null}
+
+      {/* LAUNCH POLISH (P2) — cancel confirmation: what cancel means, how it
+          differs from pause, and the server's answer verbatim in Hebrew. No
+          financial consequence is invented: the copy states only what the
+          canonical rules guarantee (nobody is charged in the pilot; frames are
+          released when a deal ends without success). */}
+      {confirmCancel ? (
+        <Modal title="ביטול העסקה — לצמיתות" onClose={() => { if (!cancelling) setConfirmCancel(false); }}>
+          <div className="cancel-compare" data-testid="cancel-vs-pause">
+            <div className="is-cancel">
+              <b>ביטול</b>
+              סופי. העסקה נסגרת ולא ניתן לפתוח אותה מחדש. קונים לא יוכלו להצטרף, והיא תוצג כ״בוטלה״.
+            </div>
+            <div className="is-pause">
+              <b>השהיה (חלופה)</b>
+              זמנית. עוצרת הצטרפויות חדשות בלבד; אפשר לפתוח מחדש כל עוד מועד הסיום לא עבר.
+            </div>
+          </div>
+          <p className="muted small">
+            השרת מחליט אם הביטול מותר במצב הנוכחי של העסקה
+            {!isDraft ? " — עסקה שכבר פורסמה עשויה להיות מוגנת מביטול כדי לא לפגוע במצטרפים." : "."}
+          </p>
+          {cancelRefusal ? (
+            <div className="notice err" data-testid="cancel-refused">
+              <b>הביטול נדחה על ידי השרת.</b>
+              <div className="small" style={{ marginTop: 4 }}>{cancelRefusal}</div>
+              {isOpen ? (
+                <button className="btn btn-sm btn-ghost" style={{ marginTop: 8 }} data-testid="cancel-refused-pause"
+                  onClick={() => { setConfirmCancel(false); setConfirmClose(true); }}>
+                  להשהות את ההצטרפות במקום
+                </button>
+              ) : null}
+            </div>
+          ) : null}
+          <div className="row" style={{ justifyContent: "flex-end" }}>
+            <button className="btn btn-ghost" disabled={cancelling} onClick={() => setConfirmCancel(false)}>חזרה</button>
+            {!cancelRefusal ? (
+              <button className="btn btn-danger" data-testid="deal-cancel-confirm" disabled={cancelling} onClick={async () => {
+                if (cancelling) return;
+                setCancelling(true);
+                try {
+                  await api.cancelDeal(dealId, cancelIntentKey.current);
+                  setConfirmCancel(false);
+                  showToast("העסקה בוטלה");
+                  await load(); // refresh the seller state immediately after success
+                } catch (e: any) {
+                  const code = String(e?.body?.code || e?.body?.error || "");
+                  setCancelRefusal(
+                    code === "STATE_CONFLICT" && !isDraft
+                      ? "עסקה שכבר פורסמה אינה ניתנת לביטול מלא. אפשר להשהות את ההצטרפות; אם היעד לא יושג עד מועד הסיום, העסקה תיסגר מעצמה והמסגרות של המצטרפים ישוחררו."
+                      : code === "STATE_CONFLICT"
+                        ? "מצב העסקה השתנה בינתיים — רעננו את המסך ונסו שוב."
+                        : String(e?.message || "הביטול נכשל — נסו שוב")
+                  );
+                }
+                setCancelling(false);
+              }}>{cancelling ? "מבטלים…" : "ביטול סופי של העסקה"}</button>
+            ) : null}
+          </div>
+        </Modal>
+      ) : null}
       <Toast msg={toast} />
     </>
   );
@@ -1963,7 +2136,18 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
 // ── entry ──────────────────────────────────────────────────────────────────
 export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: URLSearchParams; navigate: (h: string) => void }) {
   const [authed, setAuthed] = useState(Boolean(getSellerToken()));
-  if (!authed) return <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"} onDone={() => setAuthed(true)} />;
+  // a login that ends WITHOUT a seller surface (binding refused) must still
+  // re-render so the explanation notice appears — bump forces it
+  const [, bump] = useState(0);
+  if (!authed) {
+    return (
+      <>
+        <SellerBindingNotice navigate={navigate} />
+        <SellerLogin initialMode={query?.get("signup") ? "signup" : "login"}
+          onDone={() => { setAuthed(Boolean(getSellerToken())); bump((n) => n + 1); }} />
+      </>
+    );
+  }
   if (sub[0] === "inquiries" && sub[1]) return <SellerInquiryThreadPage threadId={sub[1]} navigate={navigate} />;
   if (sub[0] === "inquiries") return <SellerInquiriesPage navigate={navigate} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;

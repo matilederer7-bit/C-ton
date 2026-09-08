@@ -51,24 +51,43 @@ node scripts/pilot_readiness_proof.cjs --base-url=https://siton-staging-web.onre
 
 ---
 
-## 1. Onboard a seller — 3 minutes, three steps
+## 1. Onboard a seller — 2 minutes, two steps (automatic binding)
 
-There is no automatic seller binding yet (after-launch item A-4). For the first
-5–10 sellers the owner binds each login by hand. **Verified on staging
-2026-09-08:** the statement below bound a confirmed login to a pending seller
-row that the server resolves as a seller; a bound + approved seller then ran the
-whole journey (login → dashboard → draft → edit → image → preview → publish →
-public deal → join → inquiry → reply → pause/reopen) 23/23.
+**Since launch polish sprint 1 (branch `claude/launch-polish-seller-ops`) the
+binding is automatic.** A confirmed Supabase login is bound to a **pending**
+seller account on its first login (`GET /api/auth/capabilities`; deterministic
+`seller_id` = `s-<e-mail slug>-<8 hex>`; audited in `seller_security_events` as
+`seller.self_signup.bound`; capped at `SELLER_SELF_SIGNUP_HOURLY_CAP` = 20 per
+hour platform-wide; `SELLER_SELF_SIGNUP_ENABLED=0` switches it off). Nothing is
+auto-approved: publishing opens only after your **אשר מוכר**. The manual SQL
+below stays as the fallback. The earlier manual procedure was verified on
+staging 2026-09-08 (bound + approved seller ran the whole journey 23/23).
 
-**Step 1 — seller signs up (1 min, the seller alone).**
+**Step 1 — seller signs up and logs in (1–2 min, the seller alone).**
 Send the seller this link: `https://siton-staging-web.onrender.com/preview/#/seller?signup=1`.
-They enter e-mail + password, open the confirmation mail, tap the link. Done
-when they can log in at `/preview/#/seller` (they will see the login screen
-again — that is expected until step 2).
+They enter e-mail + password, open the confirmation mail, tap the link, log in
+at `/preview/#/seller` → they land on the dashboard with the banner
+"החשבון ממתין לאישור C-ton — עדיין לא ניתן לפרסם" and the 5-step
+"מה קורה מכאן?" strip. They can already fill **פרופיל עסקי**, create a draft,
+upload photos and preview it — not publish.
 
-**Step 2 — owner binds the login (1 min).** Supabase → SQL editor → paste, fill
-the three `<…>` values, run. `'approved'` lets them publish immediately; use
-`'pending'` if you want to look at the first draft first.
+If instead they see "ההתחברות הצליחה, אבל אין לחשבון הזה גישת מוכר" the
+automatic binding refused, and the notice says why: `email_in_use` = an older
+seller account owns that e-mail and was deliberately NOT claimed → bind it with
+the fallback SQL (fill `auth_user_id` from `auth.users`); `throttled` = more than
+20 signups in the last hour → log in again later; anything else → fallback SQL.
+
+**Step 2 — owner approves (30 s).** Admin → **תמונת מצב** opens with
+"N מוכרים ממתינים לאישור → לאישור עכשיו", or Admin → **מוכרים** → the
+**ממתינים לאישור** queue at the top: business name (from their profile),
+e-mail, signed up when, drafts so far; **פתיחה** for the full identity block
+and "יכול לפרסם: לא/כן"; **אשר מוכר** (one tap) or **דחייה** (two taps). On the
+seller's next dashboard load the banner disappears and publishing works.
+
+**Fallback — manual bind (1 min, only when the automatic binding refused or is
+switched off).** Supabase → SQL editor → paste, fill the three `<…>` values,
+run. `'approved'` lets them publish immediately; use `'pending'` if you want to
+look at the first draft first.
 
 ```sql
 INSERT INTO siton.seller_accounts
@@ -87,10 +106,10 @@ RETURNING seller_id, verification_status;
 Zero rows returned = the e-mail is not confirmed yet (or the slug already
 exists). One row = bound.
 
-**Step 3 — seller logs in again (30 s).** `/preview/#/seller` → dashboard.
-If you chose `'pending'`: Admin → **מוכרים** → the seller → **אשר מוכר** when
-you are ready; until then they see "החשבון ממתין לאישור" and can prepare a
-draft, upload photos and preview, but not publish.
+After a fallback bind the seller logs in again (30 s): `/preview/#/seller` →
+dashboard. If you chose `'pending'`, approve from the queue exactly as in
+step 2; until then they see "החשבון ממתין לאישור" and can prepare a draft,
+upload photos and preview, but not publish.
 
 Then, together (phone or screen share): **פרופיל עסקי** → business name,
 contact name, phone/e-mail (bank details optional — money is 0) → first deal
