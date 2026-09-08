@@ -59,10 +59,10 @@ const MIGRATIONS = [
   ["059", "059_deal_field_change_audit.sql"],
   ["060", "060_support_case_messages.sql"],
   ["061", "061_seller_customer_inquiries.sql"],
-  // 063/064 are reserved by the financial candidate branch (not merged yet);
-  // 065 takes the next free id. Whichever branch lands second appends AFTER
-  // the other so ledger positions stay contiguous.
-  ["065", "065_pilot_readiness.sql"]
+  // Landed master migrations retain their positions; reviewed financial SQL appends.
+  ["065", "065_pilot_readiness.sql"],
+  ["066", "066_payment_operation_lifecycle.sql"],
+  ["067", "067_payment_settlement_horizon.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
