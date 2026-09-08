@@ -1,5 +1,6 @@
 import { assertRequiredTables } from "./schema_contract.js";
 import { pickupOptionsMissingLocation } from "./pickup_location.js";
+import { DEADLINE_DEFAULT_MS as DEADLINE_POLICY_DEFAULT_MS, RUNTIME_DEADLINE_POLICY } from "./deadline_policy.js";
 import Fastify from "fastify";
 import { pool } from "./db.js";
 import {
@@ -124,10 +125,15 @@ const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
 
 // Per spec: deal deadline must be at least 2 hours and at most 7 days in the future.
-const DEADLINE_MIN_MS = 2 * 60 * 60 * 1000;
-const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
+// LONG-HORIZON (item 8): the bounds come from the ONE deadline policy
+// (src/deadline_policy.ts). The 7-day ceiling is the PROVEN lifetime of the
+// join-time authorization hold (Grow J5), not a calendar preference; it moves
+// only when a provider capability that survives months is proven. Behaviour
+// here is unchanged: 2 h … 7 d, same error codes and messages.
+const DEADLINE_MIN_MS = RUNTIME_DEADLINE_POLICY.min_ms;
+const DEADLINE_MAX_MS = RUNTIME_DEADLINE_POLICY.max_ms;
 // Default deadline when caller does not provide one (sits comfortably inside the 2h–7d window).
-const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
+const DEADLINE_DEFAULT_MS = DEADLINE_POLICY_DEFAULT_MS;
 
 // P0.2 — deal content + media bounds. The short description is the concise
 // sales line (cards/OG/top of the deal page); the long description is the full

@@ -26,6 +26,7 @@ import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./
 import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
 import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
+import { LONG_HORIZON_WARNING_HE, RUNTIME_DEADLINE_POLICY, classifyDeadline, describeDeadlineMax } from "../../../src/deadline_policy";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -409,7 +410,10 @@ function DeadlinePicker(props: {
   const prefix = props.idPrefix || "deadline";
   const iso = israelPartsToUtcIso(props.date, props.time);
   const todayIsrael = utcIsoToIsraelParts(new Date().toISOString()).date;
-  const maxIsrael = utcIsoToIsraelParts(new Date(Date.now() + 7 * 864e5).toISOString()).date;
+  // LONG-HORIZON (item 8): the picker's ceiling is the ONE deadline policy (the
+  // proven authorization-hold lifetime today), never a calendar constant of its own.
+  const maxIsrael = utcIsoToIsraelParts(new Date(Date.now() + RUNTIME_DEADLINE_POLICY.max_ms).toISOString()).date;
+  const verdict = iso ? classifyDeadline(Date.parse(iso), Date.now()) : null;
   return (
     <div className="field">
       <label>מועד סיום ההצטרפות <span className="req">*</span> <span className="hint">(שעון ישראל)</span></label>
@@ -423,7 +427,19 @@ function DeadlinePicker(props: {
       {iso && !props.error ? (
         <span className="deadline-confirm">✓ {formatIsraelDateTime(iso)}</span>
       ) : null}
-      <span className="hint">בין שעתיים ל-7 ימים מרגע הפרסום.</span>
+      {verdict?.long_horizon_warning ? <LongHorizonWarning /> : null}
+      <span className="hint">בין שעתיים ל-{describeDeadlineMax(RUNTIME_DEADLINE_POLICY)} מרגע הפרסום.</span>
+    </div>
+  );
+}
+
+// LONG-HORIZON (item 8): the strong warning for deadlines beyond one year.
+// Dormant while the runtime policy caps deadlines at the proven hold lifetime;
+// it renders the moment a long-horizon policy admits such a date.
+function LongHorizonWarning() {
+  return (
+    <div className="notice err" data-testid="long-horizon-warning" role="alert" style={{ marginTop: 6 }}>
+      <b>שימו לב:</b> {LONG_HORIZON_WARNING_HE}
     </div>
   );
 }
@@ -432,10 +448,9 @@ function validateDeadline(date: string, time: string): { iso: string | null; err
   if (!date || !time) return { iso: null, error: "יש לבחור תאריך ושעה למועד הסיום" };
   const iso = israelPartsToUtcIso(date, time);
   if (!iso) return { iso: null, error: "יש לבחור תאריך ושעה תקינים" };
-  const ms = Date.parse(iso) - Date.now();
-  if (ms < 2 * 3600_000) return { iso, error: "מועד הסיום חייב להיות לפחות שעתיים מעכשיו" };
-  if (ms > 7 * 24 * 3600_000) return { iso, error: "מועד הסיום יכול להיות עד 7 ימים קדימה" };
-  return { iso, error: "" };
+  // the SAME policy the server enforces (2 h … proven hold lifetime), same Hebrew reasons
+  const verdict = classifyDeadline(Date.parse(iso), Date.now());
+  return { iso, error: verdict.ok ? "" : verdict.message_he };
 }
 
 // ── create wizard — saves a Draft and lands INSIDE the deal (P0.2-G) ───────
