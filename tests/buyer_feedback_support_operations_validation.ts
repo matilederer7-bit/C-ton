@@ -17,6 +17,7 @@ process.env.DISABLE_OUTBOX_WORKER = "1";
 process.env.ADMIN_API_KEY = process.env.ADMIN_API_KEY || `feedback-test-admin-${randomUUID().slice(0, 8)}`;
 
 const { app } = await import("../src/app.js");
+const { armTestFault } = await import("../src/fault_injection.js");
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL || "postgresql://postgres:postgres@localhost:5432/siton",
   max: 4
@@ -221,6 +222,31 @@ await run("9: a joined buyer's tracking answers what/how-many/deadline (unchange
   assert.ok(t.deadline && t.headline && t.deal_id === dealId);
   const bad = await app.inject({ method: "GET", url: `/api/participants/${j.participant_id}/tracking`, headers: { authorization: "Bearer not-the-token" } });
   assert.ok([401, 403].includes(bad.statusCode), `bad token got ${bad.statusCode}`);
+});
+
+await run("10: the 201 is sent only after COMMIT — with the INSERT's transaction parked before COMMIT the reply stays pending; once it arrives, a separate connection reads the returned feedback_id at once (no sleeps, no retries)", async () => {
+  const raceDeal = await createDeal();
+  await publish(raceDeal);
+  // withTx #1 of the request is ensureOperationalCaseTables; #2 holds the INSERT.
+  const barrier = armTestFault("db.before_commit", { kind: "block" }, 2);
+  assert.ok(barrier, "block fault did not return a barrier");
+  const order: string[] = [];
+  const settled = feedback(raceDeal, { category: "delivery", surface: "tracking" }).then((res) => { order.push("response"); return res; });
+  await barrier!.entered;
+  const parked = await pool.query(
+    `SELECT count(*)::int AS n FROM pg_stat_activity WHERE state = 'idle in transaction' AND query ILIKE '%INSERT INTO siton.operational_cases%'`
+  );
+  assert.equal(parked.rows[0].n, 1, "the INSERT's transaction is parked before COMMIT");
+  const uncommitted = await pool.query(`SELECT count(*)::int AS n FROM siton.operational_cases WHERE deal_id=$1 AND opened_by='buyer_feedback'`, [raceDeal]);
+  assert.equal(uncommitted.rows[0].n, 0, "nothing is visible to another connection before COMMIT");
+  order.push("release");
+  barrier!.release();
+  const res = await settled;
+  assert.equal(res.statusCode, 201, res.body);
+  assert.deepEqual(order, ["release", "response"], `the reply must not be dispatched before COMMIT (observed ${order.join(" -> ")})`);
+  const row = await pool.query(`SELECT description FROM siton.operational_cases WHERE case_id=$1`, [(res.json() as any).feedback_id]);
+  assert.equal(row.rowCount, 1, "the feedback_id returned with the 201 is readable at once on another connection");
+  assert.match(String(row.rows[0].description), /^קטגוריה: delivery\nמסך: tracking$/);
 });
 
 await pool.end();

@@ -10063,13 +10063,15 @@ export function registerFrontendExperience(
     if (text.length > BUYER_FEEDBACK_TEXT_MAX) {
       return reply.code(400).send({ ok: false, error: "feedback text too long", code: "feedback_text_too_long" });
     }
-    return deps.withTx(async (c) => {
+    // The HTTP reply is sent only after withTx has COMMITTED, so a caller that
+    // receives the 201 can read the returned feedback_id on another connection.
+    const result = await deps.withTx(async (c) => {
       const deal = await c.query(
         `SELECT deal_id, seller_id FROM siton.deals WHERE deal_id=$1 AND published_at IS NOT NULL LIMIT 1`,
         [dealId]
       );
       if (!deal.rowCount) {
-        return reply.code(404).send({ ok: false, error: "deal not found", code: "feedback_deal_unavailable" });
+        return { status: 404, body: { ok: false, error: "deal not found", code: "feedback_deal_unavailable" } };
       }
       const counts = await c.query(
         `SELECT count(*) FILTER (WHERE deal_id = $1) AS per_deal, count(*) AS total
@@ -10079,7 +10081,7 @@ export function registerFrontendExperience(
       );
       const limits = counts.rows[0] || {};
       if (Number(limits.per_deal || 0) >= 60 || Number(limits.total || 0) >= 200) {
-        return reply.code(429).send({ ok: false, error: "feedback rate limited", code: "feedback_rate_limited" });
+        return { status: 429, body: { ok: false, error: "feedback rate limited", code: "feedback_rate_limited" } };
       }
       const label = BUYER_FEEDBACK_CATEGORIES[category]!;
       const description = [
@@ -10095,8 +10097,9 @@ export function registerFrontendExperience(
          RETURNING case_id`,
         [dealId, deal.rows[0].seller_id ?? null, `משוב קונה: ${label}`.slice(0, 200), description]
       );
-      return reply.code(201).send({ ok: true, feedback_id: inserted.rows[0].case_id, category });
+      return { status: 201, body: { ok: true, feedback_id: inserted.rows[0].case_id, category } };
     });
+    return reply.code(result.status).send(result.body);
   });
 
   // Public, PII-free funnel events (deal_view / share_button_click /
