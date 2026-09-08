@@ -143,6 +143,21 @@ export const api = {
   sellerBusinessProfile: () => req(`/api/seller/business-profile`, {}, "seller"),
   saveSellerBusinessProfile: (payload: Json) =>
     req(`/api/seller/business-profile`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),
+  // LAUNCH SPRINT 3 — physical pickup handoff. The server resolves code →
+  // order → seller ownership → live eligibility; the client never trusts the
+  // QR. ONE handoff intent = ONE idempotency key (minted when the confirmation
+  // opens), so a double tap or a retry after a timeout replays the same truth.
+  sellerPickupResolve: (code: string) => req(`/api/seller/fulfillment/resolve?code=${encodeURIComponent(code)}`, {}, "seller"),
+  sellerPickupSearch: (q: string) => req(`/api/seller/fulfillment/search?q=${encodeURIComponent(q)}`, {}, "seller"),
+  sellerPickupHandoff: (payload: Json, intentKey: string) =>
+    req(`/api/seller/fulfillment/handoff`, { method: "POST", headers: { "idempotency-key": `preview-handoff-${intentKey}` }, body: JSON.stringify(payload) }, "seller"),
+  sellerDealFulfillment: (id: string, params: { status?: string; q?: string } = {}) => {
+    const qs = new URLSearchParams();
+    if (params.status) qs.set("status", params.status);
+    if (params.q) qs.set("q", params.q);
+    const suffix = qs.toString();
+    return req(`/api/seller/deals/${id}/fulfillment${suffix ? `?${suffix}` : ""}`, {}, "seller");
+  },
 
   // ── admin (Supabase Bearer, admin capability — server-validated) ────────
   adminMe: () => req(`/api/admin/auth/me`, {}, "admin"),

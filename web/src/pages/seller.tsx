@@ -22,6 +22,8 @@ import { PropagationTree } from "../propagation";
 // P0.7 polish — the buyer preview IS the public deal renderer (preview mode)
 import { DealPage } from "./deal";
 import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./sellerInquiries";
+// LAUNCH SPRINT 3 — physical pickup handoff (scanner + per-deal fulfillment list)
+import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
 import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
 
@@ -195,6 +197,9 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
             if (await copyText(absoluteShareUrl(deal.deal_id, null))) showToast("הקישור הועתק");
           }}>העתקת קישור</button>
         ) : null}
+        {closed && state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
+          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>📦 הזמנות למסירה</button>
+        ) : null}
         {closed ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
             try {
@@ -294,6 +299,8 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
           <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>🏢 פרופיל עסקי</button>
+          {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
+          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
           <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
         </div>
@@ -1732,13 +1739,23 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           ) : isDraft ? (
             <a className="btn btn-ghost" data-testid="draft-preview-open" href={`#/seller/deal/${dealId}/preview`} target="_blank">תצוגה מקדימה כקונה</a>
           ) : closed ? (
-            <button className="btn btn-ghost" onClick={async () => {
-              try {
-                const r = await api.duplicateDeal(dealId);
-                const newId = r?.deal?.deal_id || r?.deal_id;
-                if (newId) { showToast("נוצרה טיוטה — חובה לעדכן תאריכים"); navigate(`#/seller/deal/${newId}`); }
-              } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
-            }}>יצירת עסקה דומה</button>
+            <>
+              {/* LAUNCH SPRINT 3 — a completed physical deal is now an operational
+                  handoff queue: the list + the counter scanner come first */}
+              {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
+                <>
+                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>📦 הזמנות למסירה</button>
+                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
+                </>
+              ) : null}
+              <button className="btn btn-ghost" onClick={async () => {
+                try {
+                  const r = await api.duplicateDeal(dealId);
+                  const newId = r?.deal?.deal_id || r?.deal_id;
+                  if (newId) { showToast("נוצרה טיוטה — חובה לעדכן תאריכים"); navigate(`#/seller/deal/${newId}`); }
+                } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
+              }}>יצירת עסקה דומה</button>
+            </>
           ) : (
             <span className="muted small">העסקה נעולה לצפייה בלבד. כל הפעולות מתבצעות אוטומטית.</span>
           )}
@@ -1829,6 +1846,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           </div>
           {state === "Completed" ? (
             <div className="row" style={{ marginTop: 10 }}>
+              {String(deal.deal_type || "physical_product") === "physical_product" ? (
+                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>📦 הזמנות למסירה</button>
+              ) : null}
               <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">הורדת רשימת משלוחים (Excel)</a>
             </div>
           ) : null}
@@ -2150,6 +2170,10 @@ export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: UR
   }
   if (sub[0] === "inquiries" && sub[1]) return <SellerInquiryThreadPage threadId={sub[1]} navigate={navigate} />;
   if (sub[0] === "inquiries") return <SellerInquiriesPage navigate={navigate} />;
+  // LAUNCH SPRINT 3 — global pickup scanner (a phone camera opening the buyer's
+  // QR lands here with ?code=…) + the per-deal "הזמנות למסירה" list
+  if (sub[0] === "pickup") return <SellerPickupPage navigate={navigate} initialCode={query?.get("code") || null} />;
+  if (sub[0] === "deal" && sub[1] && sub[2] === "fulfillment") return <SellerFulfillmentPage dealId={sub[1]} navigate={navigate} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
   if (sub[0] === "profile") return <BusinessProfilePage navigate={navigate} />;
   if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;

@@ -3277,7 +3277,11 @@ function applySecurityHeaders(reply: any) {
   // so "השתמש במיקום שלי" always failed instantly with PERMISSION_DENIED and
   // no browser prompt. geolocation=(self) lets OUR page ask the user (the
   // browser prompt/deny still fully applies); every other capability stays off.
-  reply.header("permissions-policy", "camera=(), microphone=(), geolocation=(self), payment=(), usb=(), serial=()");
+  // LAUNCH SPRINT 3: camera=(self) for the seller pickup scanner — requested
+  // only on an explicit tap inside our own page, manual code entry always
+  // available (docs/PHYSICAL_FULFILLMENT_PICKUP.md §6). Microphone/payment/
+  // usb/serial stay off.
+  reply.header("permissions-policy", "camera=(self), microphone=(), geolocation=(self), payment=(), usb=(), serial=()");
 }
 
 function isImmutableDealImageRoute(req: any) {

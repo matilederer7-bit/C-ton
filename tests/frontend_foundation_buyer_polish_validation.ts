@@ -7,7 +7,7 @@
 //    keeps typed data on refusal, and never sends PII to the funnel rail
 //  * success + tracking say honestly that no e-mail/SMS is sent in the pilot
 //  * the share loop uses the canonical /d/:id route and exactly one copy control
-//  * feedback is PII-free by construction and asked once per deal
+//  * feedback has no structured PII fields (optional free text is user-provided content) and is asked once per deal
 //  * every closed state has a what-happened / what-next story
 //  * landing carries the buyer entry + pilot disclosure and no legacy reference
 import { strict as assert } from "node:assert";

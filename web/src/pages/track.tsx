@@ -4,6 +4,7 @@ import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPil
 import { fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
 import { NOTIFICATIONS_OFF_LINE, INQUIRY_PRIVACY_LINE, PILOT_MOCK_MONEY_LINE, SHARE_LOOP_TITLE, notificationsLine } from "../buyerCopy";
 import { FeedbackPrompt } from "../feedback";
+import { PickupCard } from "../pickupCard";
 
 // מסך המעקב של הקונה — מקור האמת היחיד מרגע ההצטרפות ועד ההכרעה.
 // LAUNCH POLISH 2 (P4/P5/P6/P7/P8): the page answers, in order — what is my
@@ -156,6 +157,10 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
               <div className="muted small" style={{ marginTop: 4 }}>{PILOT_MOCK_MONEY_LINE}</div>
             </div>
           </div>
+
+          {/* LAUNCH SPRINT 3 — physical pickup credential: only when the server
+              says the order is canonically eligible; "handed over" afterwards */}
+          <PickupCard pickup={t.pickup} />
 
           {/* LAUNCH POLISH 2 (P4/P7) — how I get back here + how I ask the seller */}
           <div className="panel" data-testid="track-return">

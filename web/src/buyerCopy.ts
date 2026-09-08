@@ -48,3 +48,10 @@ export const INQUIRY_PRIVACY_LINE = `הפנייה עוברת דרך ${PRODUCT_NA
 
 // Share loop headline after a join.
 export const SHARE_LOOP_TITLE = "עזרו לעסקה להצליח — שתפו עם עוד אנשים";
+
+// ── LAUNCH SPRINT 3 — physical pickup credential ───────────────────────────
+// Shown only when the server says the order is canonically eligible (deal
+// completed, buyer completed, money settled). The QR carries a locator only.
+export const PICKUP_SHOW_TO_SELLER_LINE = "הציגו את הקוד למוכר בעת האיסוף.";
+export const PICKUP_SCREENSHOT_LINE = "אפשר לצלם מסך — הקוד מזהה את ההזמנה בלבד, בלי פרטים אישיים. המוכר מאמת את התשלום מול המערכת.";
+export const PICKUP_DELIVERY_LINE = "המוכר ישלח את ההזמנה לכתובת שמסרתם. קוד ההזמנה משמש לזיהוי מול המוכר.";

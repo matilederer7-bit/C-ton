@@ -507,6 +507,13 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
         <StatTile num={ils(gross)} label="נגבה בפועל" tone="good" />
         <StatTile num={ils(Math.round(gross * 0.08 * 100) / 100)} label="עמלת C-ton (8% מהנגבה)" />
         <StatTile num={<Countdown until={deal.completion_window_until || deal.deadline} overText="עבר" />} label={deal.completion_window_until ? "חלון השלמה" : "דדליין"} />
+        {/* LAUNCH SPRINT 3 — physical handoff truth for support: awaiting vs handed over (server-computed) */}
+        {p.fulfillment?.applicable ? (
+          <>
+            <StatTile num={num(p.fulfillment.awaiting)} label="ממתינות למסירה" tone={Number(p.fulfillment.awaiting) > 0 ? "warn" : undefined} />
+            <StatTile num={num(p.fulfillment.fulfilled)} label="נמסרו" tone="good" />
+          </>
+        ) : null}
       </div>
 
       <div className="tabbar">
@@ -518,9 +525,14 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
       {tab === "summary" ? (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>קונה</th><th>טלפון</th><th className="num">כמות</th><th>מצב קונה</th><th>מצב כסף</th><th>אספקה</th><th>מקור</th><th>מתי</th></tr></thead>
+            <thead><tr><th>קונה</th><th>טלפון</th><th className="num">כמות</th><th>מצב קונה</th><th>מצב כסף</th><th>אספקה</th><th>מסירה</th><th>מקור</th><th>מתי</th></tr></thead>
             <tbody>
-              {participants.map((x) => (
+              {participants.map((x) => {
+                const f = p.fulfillment?.by_participant?.[String(x.participant_id)] || null;
+                const fulfillmentText = !f || f.fulfillment_status === "none" ? "—"
+                  : f.fulfillment_status === "fulfilled" ? `נמסר ${fmtDate(f.fulfilled_at)}${f.order_code_last4 ? ` · •${f.order_code_last4}` : ""}`
+                    : f.fulfillment_status === "awaiting" ? `ממתין${f.order_code_last4 ? ` · •${f.order_code_last4}` : ""}` : "אין למסור";
+                return (
                 <tr key={x.participant_id}>
                   <td>{x.buyer_name || "—"}</td>
                   <td dir="ltr">{x.buyer_phone || x.buyer_id}</td>
@@ -528,10 +540,12 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
                   <td>{buyerStateLabel(String(x.buyer_state))}</td>
                   <td><span className={`status ${["ChargedSuccess", "RecoveredCharge"].includes(String(x.money_state)) ? "Completed" : String(x.money_state) === "ChargeFailedRecovery" ? "CompletionWindow" : "ClosedForJoining"}`}>{moneyStateLabel(String(x.money_state))}</span></td>
                   <td>{x.delivery_method_label || "—"}</td>
+                  <td>{fulfillmentText}</td>
                   <td>{x.acquisition_source || "direct"}</td>
                   <td>{fmtDate(x.created_at)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

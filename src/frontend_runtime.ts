@@ -187,6 +187,21 @@ import {
   csvSafeCell,
   type DealType
 } from "./deal_types.js";
+import {
+  buyerPickupProjection,
+  dealFulfillmentSnapshot,
+  ensurePhysicalOrderCredential,
+  findSellerOrderByCode,
+  handoffPhysicalOrder,
+  listDealPhysicalOrders,
+  loadPhysicalOrderByParticipant,
+  normalizeOrderCodeInput,
+  normalizeSearchQuery,
+  publicOriginFromHeaders,
+  searchSellerPhysicalOrders,
+  sellerOrderProjection,
+  SELLER_NOT_READY_COPY
+} from "./physical_fulfillment.js";
 import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
@@ -4616,8 +4631,31 @@ export function registerFrontendExperience(
         try { return new Date(v).toISOString().slice(0, 10); } catch { return ""; }
       }
 
+      // LAUNCH SPRINT 3 — the order code + handoff state per settled order come
+      // from the canonical fulfillment_units rows (physical only). Rows without
+      // units yet show an empty code and "ממתין למסירה".
+      const unitRows = await c.query(
+        `SELECT participant_id, status, redeemed_at, metadata_jsonb->>'order_code' AS order_code
+           FROM siton.fulfillment_units
+          WHERE deal_id = $1 AND deal_type = 'physical_product'`,
+        [dealId]
+      );
+      const fulfillmentByParticipant = new Map<string, { code: string; open: number; redeemed: number; redeemed_at: string }>();
+      for (const u of unitRows.rows as any[]) {
+        const key = String(u.participant_id);
+        const entry = fulfillmentByParticipant.get(key) || { code: "", open: 0, redeemed: 0, redeemed_at: "" };
+        if (u.order_code && !entry.code) entry.code = String(u.order_code);
+        if (String(u.status) === "Redeemed") {
+          entry.redeemed += 1;
+          const at = u.redeemed_at ? new Date(u.redeemed_at).toISOString() : "";
+          if (at > entry.redeemed_at) entry.redeemed_at = at;
+        } else entry.open += 1;
+        fulfillmentByParticipant.set(key, entry);
+      }
+
       const ws = wb.addWorksheet("מסירת נתוני אספקה");
       ws.columns = [
+        { header: "קוד הזמנה", key: "order_code", width: 16 },
         { header: "מזהה עסקה", key: "deal_id", width: 38 },
         { header: "שם עסקה", key: "deal_title", width: 30 },
         { header: "מזהה השתתפות", key: "participant_id", width: 38 },
@@ -4630,6 +4668,9 @@ export function registerFrontendExperience(
         { header: "כתובת", key: "delivery_address", width: 32 },
         { header: "עיר", key: "delivery_city", width: 18 },
         { header: "הערת משלוח", key: "delivery_notes", width: 26 },
+        { header: "מצב תשלום", key: "payment_status", width: 14 },
+        { header: "מצב מסירה", key: "fulfillment_status", width: 16 },
+        { header: "תאריך מסירה", key: "fulfilled_at", width: 22 },
         { header: "תאריך הצטרפות", key: "joined_at", width: 22 }
       ];
 
@@ -4639,7 +4680,10 @@ export function registerFrontendExperience(
       headerRow.commit();
 
       for (const p of participantsResult.rows as any[]) {
+        const f = fulfillmentByParticipant.get(String(p.participant_id));
+        const handedOver = Boolean(f && f.open === 0 && f.redeemed > 0);
         ws.addRow([
+          safeTextDH(f?.code || ""),
           safeTextDH(dealId),
           safeTextDH(deal.title),
           safeTextDH(p.participant_id),
@@ -4652,6 +4696,9 @@ export function registerFrontendExperience(
           safeTextDH(p.delivery_address),
           safeTextDH(p.delivery_city),
           safeTextDH(p.delivery_notes),
+          "שולם",
+          handedOver ? "נמסר" : "ממתין למסירה",
+          handedOver ? fmtDateDH(f?.redeemed_at) : "",
           fmtDateDH(p.created_at)
         ]);
       }
@@ -4661,8 +4708,9 @@ export function registerFrontendExperience(
       wsNotes.addRow([""]);
       wsNotes.addRow(["סיטון מוסרת כאן את פרטי הקונים שחויבו בפועל וזכאים למוצר."]);
       wsNotes.addRow(["האספקה עצמה מתבצעת באחריות המוכר בלבד ומחוץ למערכת סיטון."]);
+      wsNotes.addRow(["קוד ההזמנה הוא מזהה לזיהוי הקונה בעת המסירה; מצב המסירה מתעדכן כשהמוכר מאשר מסירה בסיטון."]);
       wsNotes.addRow([""]);
-      wsNotes.addRow(["הקובץ לא כולל מספרי מעקב, סטטוס משלוח, או נתוני סליקה פנימיים."]);
+      wsNotes.addRow(["הקובץ לא כולל מספרי מעקב של חברות שילוח או נתוני סליקה פנימיים."]);
       wsNotes.addRow([`הופק: ${new Date().toISOString().slice(0, 10)}`]);
 
       const buf = await wb.xlsx.writeBuffer();
@@ -4670,6 +4718,231 @@ export function registerFrontendExperience(
         .header("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         .header("Content-Disposition", `attachment; filename="siton-delivery-handoff-${dealId}.xlsx"`)
         .send(buf);
+    });
+  });
+
+  // ── LAUNCH SPRINT 3 — physical pickup credential + seller handoff ────────
+  // Extends the canonical fulfillment_units rail (docs/PHYSICAL_FULFILLMENT_PICKUP.md).
+  // Every route: seller guard FIRST (authorization precedes observation), then
+  // input parsing. An unknown code, another seller's code and a non-physical
+  // unit all answer ONE identical 404 (no enumeration). Money is never touched.
+  function mockMoneyRuntime() {
+    return Boolean(deps.isDemoPreview)
+      || /mock/i.test(String(process.env.PAYMENT_PROVIDER || "mockpay"))
+      || /mock/i.test(String(process.env.PAYMENT_PROVIDER_MODE || ""));
+  }
+  function pickupCodeNotFound(reply: any) {
+    return reply.code(404).send({ ok: false, error: "pickup code not found", code: "pickup_code_not_found", message: "הקוד אינו תקין" });
+  }
+  function handoffActorRef(sellerContext: any) {
+    return `seller:${String(sellerContext.seller_id)}:${String(sellerContext.context_source || "session")}`;
+  }
+
+  // Resolve a scanned / typed order code inside the seller's own deals.
+  app.get("/api/seller/fulfillment/resolve", async (req: any, reply: any) => {
+    await ensureDealTypeTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      if (!(await ensureSellerActionAllowed(c, sellerContext.seller_id, "operate", reply))) return reply;
+      const digits = normalizeOrderCodeInput(req.query?.code); // after the guard
+      if (!digits) return pickupCodeNotFound(reply);
+      const found = await findSellerOrderByCode(c, { sellerId: sellerContext.seller_id, digits });
+      if (found.ambiguous) {
+        return reply.code(409).send({ ok: false, error: "pickup code ambiguous", code: "pickup_code_ambiguous", message: "הקוד אינו חד-משמעי — חפשו לפי שם או טלפון" });
+      }
+      if (!found.order) return pickupCodeNotFound(reply);
+      const order = await ensurePhysicalOrderCredential(c, found.order);
+      return { ok: true, order: sellerOrderProjection(order, { revealPhone: true }), mock_money: mockMoneyRuntime() };
+    });
+  });
+
+  // Fallback identification: phone / buyer name across the seller's completed
+  // physical deals. A code typed here is routed to the code resolver.
+  app.get("/api/seller/fulfillment/search", async (req: any, reply: any) => {
+    await ensureDealTypeTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      if (!(await ensureSellerActionAllowed(c, sellerContext.seller_id, "operate", reply))) return reply;
+      const raw = req.query?.q; // after the guard
+      const digits = normalizeOrderCodeInput(raw);
+      if (digits) {
+        const found = await findSellerOrderByCode(c, { sellerId: sellerContext.seller_id, digits });
+        const order = found.order ? await ensurePhysicalOrderCredential(c, found.order) : null;
+        return {
+          ok: true,
+          mode: "code",
+          ambiguous: found.ambiguous,
+          orders: order ? [sellerOrderProjection(order, { revealPhone: true })] : [],
+          mock_money: mockMoneyRuntime()
+        };
+      }
+      const query = normalizeSearchQuery(raw);
+      if (!query) return { ok: true, mode: "search", ambiguous: false, orders: [], mock_money: mockMoneyRuntime() };
+      const orders = await searchSellerPhysicalOrders(c, { sellerId: sellerContext.seller_id, query, limit: 20 });
+      return {
+        ok: true,
+        mode: "search",
+        ambiguous: false,
+        orders: orders.map((order) => sellerOrderProjection(order, { revealPhone: true })),
+        mock_money: mockMoneyRuntime()
+      };
+    });
+  });
+
+  // The handoff mutation: whole order, exactly once, seller-owned, audited.
+  // The reply is sent only AFTER withTx has committed.
+  app.post("/api/seller/fulfillment/handoff", async (req: any, reply: any) => {
+    await ensureDealTypeTables(deps.withTx);
+    const result = await deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return null;
+      if (!(await ensureSellerActionAllowed(c, sellerContext.seller_id, "operate", reply))) return null;
+      const body = req.body && typeof req.body === "object" ? req.body : {}; // after the guard
+      const participantId = String(body.participant_id || "").trim();
+      requireUuid(participantId, "participant_id");
+      const orderCodeDigits = body.order_code === undefined || body.order_code === null || body.order_code === ""
+        ? null
+        : normalizeOrderCodeInput(body.order_code);
+      if (body.order_code && !orderCodeDigits) {
+        return { status: 404, body: { ok: false, error: "pickup code not found", code: "pickup_code_not_found", message: "הקוד אינו תקין" } };
+      }
+      const expectedQtyRaw = body.expected_qty;
+      const expectedQty = expectedQtyRaw === undefined || expectedQtyRaw === null || expectedQtyRaw === "" ? null : Number(expectedQtyRaw);
+      if (expectedQty !== null && (!Number.isInteger(expectedQty) || expectedQty < 1)) {
+        return { status: 400, body: { ok: false, error: "expected_qty invalid", code: "fulfillment_expected_qty_invalid" } };
+      }
+      const sourceRaw = String(body.source || "").trim();
+      const source = ["scan", "manual", "search", "list"].includes(sourceRaw) ? sourceRaw : "unknown";
+      const idempotencyKey = String(req.headers?.["idempotency-key"] || body.idempotency_key || `handoff:${participantId}`).trim().slice(0, 200);
+      const requestId = String(req.headers?.["x-request-id"] || req.id || `handoff:${participantId}:${Date.now()}`).slice(0, 200);
+      const outcome = await handoffPhysicalOrder(c, {
+        sellerId: sellerContext.seller_id,
+        participantId,
+        orderCodeDigits,
+        expectedQty,
+        source,
+        actorRef: handoffActorRef(sellerContext),
+        requestId,
+        idempotencyKey
+      });
+      if (!outcome.ok) {
+        const failure = outcome.failure;
+        if (failure.kind === "not_found" || failure.kind === "ambiguous") {
+          return { status: 404, body: { ok: false, error: "pickup order not found", code: "pickup_code_not_found", message: "הקוד אינו תקין" } };
+        }
+        if (failure.kind === "qty_mismatch") {
+          return {
+            status: 409,
+            body: {
+              ok: false,
+              error: "quantity changed",
+              code: "fulfillment_qty_mismatch",
+              message: `הכמות בהזמנה היא ${failure.actual} יחידות (ולא ${failure.expected}). בדקו שוב לפני המסירה.`,
+              order: sellerOrderProjection(failure.order, { revealPhone: true })
+            }
+          };
+        }
+        return {
+          status: 409,
+          body: {
+            ok: false,
+            error: "order not ready for handoff",
+            code: "fulfillment_not_ready",
+            reason: failure.reason,
+            message: SELLER_NOT_READY_COPY[failure.reason],
+            order: sellerOrderProjection(failure.order, { revealPhone: true })
+          }
+        };
+      }
+      return {
+        status: 200,
+        body: {
+          ok: true,
+          idempotent: outcome.idempotent,
+          replay: outcome.replay,
+          already_fulfilled: outcome.idempotent,
+          units_marked: outcome.units_marked,
+          fulfilled_at: outcome.fulfilled_at,
+          message: outcome.idempotent ? "כבר סומן כנמסר" : "המסירה נרשמה",
+          order: sellerOrderProjection(outcome.order, { revealPhone: true }),
+          mock_money: mockMoneyRuntime()
+        }
+      };
+    });
+    if (!result) return reply;
+    return reply.code(result.status).send(result.body);
+  });
+
+  // Operational list for ONE completed physical deal: every settled order with
+  // its order code, buyer, phone, quantity, method, payment eligibility and
+  // fulfillment state. Filters: status=pending|fulfilled|all, q=code|phone|name.
+  app.get("/api/seller/deals/:dealId/fulfillment", async (req: any, reply: any) => {
+    const dealId = String(req.params.dealId || "");
+    await ensureDealTypeTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
+      const sellerId = sellerContext.seller_id;
+      const dealResult = await c.query(
+        `SELECT deal_id, COALESCE(seller_id, $2) AS effective_seller_id, title, state, deal_type
+         FROM siton.deals WHERE deal_id = $1`,
+        [dealId, sellerId]
+      );
+      // Another seller's deal answers exactly like a deal that does not exist.
+      if (!dealResult.rowCount || String(dealResult.rows[0].effective_seller_id) !== sellerId) {
+        const err: any = new Error("deal not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      const deal = dealResult.rows[0] as any;
+      if (String(deal.deal_type || "physical_product") !== "physical_product") {
+        const err: any = new Error("fulfillment list is for physical deals");
+        err.statusCode = 409;
+        err.code = "fulfillment_not_physical";
+        throw err;
+      }
+      if (String(deal.state) !== "Completed") {
+        const err: any = new Error("fulfillment requires a completed deal");
+        err.statusCode = 409;
+        err.code = "deal_not_completed";
+        throw err;
+      }
+      const orders = (await listDealPhysicalOrders(c, { sellerId, dealId }))
+        .map((order) => sellerOrderProjection(order, { revealPhone: true }));
+      const statusFilter = ["pending", "fulfilled", "all"].includes(String(req.query?.status || "")) ? String(req.query.status) : "all";
+      const qDigits = normalizeOrderCodeInput(req.query?.q);
+      const qSearch = qDigits ? null : normalizeSearchQuery(req.query?.q);
+      const filtered = orders.filter((order) => {
+        if (statusFilter === "pending" && order.fulfillment_status !== "awaiting") return false;
+        if (statusFilter === "fulfilled" && order.fulfillment_status !== "fulfilled") return false;
+        if (qDigits) return order.order_code === `CT-${qDigits.slice(0, 4)}-${qDigits.slice(4)}`;
+        if (qSearch) {
+          const phoneDigits = String(order.buyer_phone || "").replace(/\D/g, "");
+          const name = String(order.buyer_name || "").toLowerCase();
+          const codeDigits = String(order.order_code || "").replace(/\D/g, "");
+          if (qSearch.digits && (phoneDigits.includes(qSearch.digits) || codeDigits.includes(qSearch.digits))) return true;
+          if (qSearch.text && name.includes(qSearch.text.toLowerCase())) return true;
+          return false;
+        }
+        return true;
+      });
+      return {
+        ok: true,
+        deal: { deal_id: dealId, title: String(deal.title || ""), state: String(deal.state) },
+        counts: {
+          awaiting: orders.filter((order) => order.fulfillment_status === "awaiting").length,
+          fulfilled: orders.filter((order) => order.fulfillment_status === "fulfilled").length,
+          blocked: orders.filter((order) => order.fulfillment_status === "blocked").length,
+          total: orders.length
+        },
+        filter: { status: statusFilter, q: String(req.query?.q || "").slice(0, 80) },
+        orders: filtered,
+        disclaimer: "האספקה מתבצעת באחריות המוכר ומחוץ למערכת סיטון.",
+        mock_money: mockMoneyRuntime()
+      };
     });
   });
 
@@ -8147,11 +8420,16 @@ export function registerFrontendExperience(
         ? await deps.payoutRail.getDealPayoutSummary(dealId)
         : { batches: [], items: [] };
 
+      // LAUNCH SPRINT 3 — physical fulfillment counts + per-participant handoff
+      // state for support/dispute work (order code as last4 only, read-only).
+      const fulfillment = await dealFulfillmentSnapshot(c, dealId);
+
       return {
         ok: true,
         profile: {
           deal: deal.rows[0],
           participants: participants.rows,
+          fulfillment,
           outbox: outbox.rows,
           payment_attempts: attempts.rows,
           audit: audit.rows,
@@ -9119,6 +9397,21 @@ export function registerFrontendExperience(
         buyerState: row.buyer_state,
         moneyState: row.money_state
       });
+      // LAUNCH SPRINT 3 — physical pickup credential. The order code is a
+      // locator minted lazily for an ELIGIBLE order (deal Completed + buyer
+      // DealCompleted + money settled); the QR payload carries the locator
+      // only. Payment truth stays in the participant row.
+      // Non-physical deals answer an explicit { applicable: false } block so the
+      // UI never has to guess; the helper returns early for voucher/ticket.
+      let pickup: ReturnType<typeof buyerPickupProjection> | null = null;
+      const physicalOrder = await loadPhysicalOrderByParticipant(c, participantId);
+      if (physicalOrder) {
+        const ensured = dealType === "physical_product" ? await ensurePhysicalOrderCredential(c, physicalOrder) : physicalOrder;
+        pickup = buyerPickupProjection(ensured, {
+          publicOrigin: publicOriginFromHeaders(req.headers),
+          mockMoney: mockMoneyRuntime()
+        });
+      }
       const copy = deriveTrackingCopy(row.deal_state, row.buyer_state, row.money_state);
       const documentVisibility = deriveBuyerDocumentVisibility({
         dealState: row.deal_state,
@@ -9220,6 +9513,7 @@ export function registerFrontendExperience(
               : null,
             copy: fulfillmentCopyForBuyer
           },
+          pickup,
           price_per_unit: Number(row.price_per_unit),
           min_units: Number(row.min_units),
           max_units: Number(row.max_units),
@@ -10030,9 +10324,10 @@ export function registerFrontendExperience(
   // No schema change: the answer is stored on the existing operational-cases
   // rail as a CLOSED, low-priority Buyer case opened by `buyer_feedback`, so
   // the support queue never treats it as work while the owner reads the
-  // aggregate in GET /api/admin/pilot-metrics. PII-free by construction: the
+  // aggregate in GET /api/admin/pilot-metrics. No structured PII fields: the
   // route accepts no name/phone/e-mail/participant id and stores none; the
-  // free text is bounded (280) and whitespace-normalised. Bounded by an hourly
+  // optional free text is bounded (280), whitespace-normalised, and must be
+  // treated as user-provided content (it may contain what the buyer typed). Bounded by an hourly
   // cap per deal and platform-wide, plus the honeypot the support form uses.
   const BUYER_FEEDBACK_CATEGORIES: Record<string, string> = {
     how_it_works: "איך העסקה עובדת",

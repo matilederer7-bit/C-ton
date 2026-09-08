@@ -4,7 +4,7 @@ import { hebrewError } from "./he";
 
 // ── LAUNCH POLISH 2 (P6) — the smallest useful buyer feedback surface ──────
 // ONE question ("היה משהו שלא היה ברור?"), a fixed category list, an optional
-// bounded free text. PII-free by construction: the payload carries the deal
+// bounded free text. No structured PII fields: the payload carries the deal
 // id, the category, the surface and the text — never a name, phone, e-mail or
 // the participant id. Asked once per deal per browser (localStorage), never
 // forced, never blocks anything. The server stores it on the existing

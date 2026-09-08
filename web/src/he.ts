@@ -92,7 +92,15 @@ const CODE_MESSAGES: Record<string, string> = {
   feedback_category_invalid: "יש לבחור אחת מהאפשרויות",
   feedback_text_too_long: "הטקסט ארוך מדי (עד 280 תווים)",
   feedback_rate_limited: "תודה — המשוב לעסקה הזו כבר התקבל",
-  feedback_deal_unavailable: "העסקה אינה זמינה"
+  feedback_deal_unavailable: "העסקה אינה זמינה",
+  // LAUNCH SPRINT 3 — physical pickup handoff (seller side)
+  pickup_code_not_found: "הקוד אינו תקין — לא נמצאה הזמנה כזו בעסקאות שלכם",
+  pickup_code_ambiguous: "הקוד אינו חד-משמעי — חפשו לפי שם או טלפון",
+  fulfillment_not_ready: "אין למסור את ההזמנה — ראו את הסיבה בכרטיס",
+  fulfillment_qty_mismatch: "הכמות בהזמנה השתנתה — בדקו שוב לפני המסירה",
+  fulfillment_expected_qty_invalid: "כמות לא תקינה",
+  fulfillment_not_physical: "זו לא עסקה של מוצר פיזי — אין מסירה פיזית",
+  deal_not_completed: "העסקה טרם הושלמה — אין עדיין הזמנות למסירה"
 };
 
 const PATTERN_MESSAGES: [RegExp, string][] = [

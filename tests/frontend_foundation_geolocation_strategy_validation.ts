@@ -405,12 +405,17 @@ await run("seller.tsx exposes explicit-click, pending (attempt-aware), every fai
   assert.match(sellerTsx, /if \(inFlight\.current\) return;/, "clicks never stack requests");
 });
 
-await run("app.ts security header keeps geolocation=(self) and every other capability off", () => {
+await run("app.ts security header keeps geolocation=(self) + camera=(self) (seller pickup scanner, explicit tap only) and every other capability off", () => {
   const header = appTs.match(/reply\.header\("permissions-policy", "([^"]+)"\)/)?.[1] || "";
   assert.match(header, /geolocation=\(self\)/);
-  assert.match(header, /camera=\(\)/);
+  // LAUNCH SPRINT 3: the seller pickup scanner needs the camera for OUR page
+  // only; the browser prompt/deny still applies and the typed-code fallback is
+  // always available. Third-party frames stay excluded (self, not *).
+  assert.match(header, /camera=\(self\)/);
+  assert.doesNotMatch(header, /camera=\(\*\)|camera=\(self [^)]+\)/);
   assert.match(header, /microphone=\(\)/);
   assert.match(header, /payment=\(\)/);
+  assert.match(header, /usb=\(\)/);
 });
 
 console.log(`GEOLOCATION_STRATEGY_VALIDATION passed=${passed}`);

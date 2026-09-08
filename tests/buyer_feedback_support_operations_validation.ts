@@ -1,7 +1,7 @@
 // LAUNCH POLISH 2 — buyer feedback rail + seller trust fact, DB-exercised:
 //  * POST /api/deals/:id/feedback stores ONE compact answer on the existing
 //    operational-cases rail (Closed / Low / Buyer / opened_by=buyer_feedback):
-//    no migration, PII-free by construction (name/phone/e-mail/participant id
+//    no migration, no structured PII fields; optional free text must be treated as user-provided content (name/phone/e-mail/participant id
 //    are neither accepted nor stored), bounded text, fixed categories,
 //    honeypot, per-deal + platform hourly caps, unpublished deals refused
 //  * the support queue never sees it as work (status Closed, not in Open)

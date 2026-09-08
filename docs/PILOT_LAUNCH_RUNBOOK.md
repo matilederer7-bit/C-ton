@@ -267,3 +267,25 @@ stopped, use §5.
 - `view_to_join_pct` measured on ≥ 200 deal views.
 - Every inquiry thread answered by the seller within 24 h.
 - Zero DLQ entries and zero 5xx in the web logs during live deals.
+
+## 9. Counter pickup — physical handoff (LAUNCH SPRINT 3)
+
+When a physical deal is **Completed** and a buyer's payment is canonically settled, the buyer's tracking page shows a pickup card: product, quantity, pickup point, an order code `CT-NNNN-NNNN` and a QR. The seller verifies it in the product — no SQL, no Excel, no e-mail search. Full design: `docs/PHYSICAL_FULFILLMENT_PICKUP.md`.
+
+**At the counter (5–10 seconds):**
+
+1. Seller opens **📷 סריקת איסוף** (seller dashboard, or the deal's **📦 הזמנות למסירה** screen) on the phone.
+2. Scans the buyer's QR (the buyer taps **הצגת קוד לאיסוף** for the full-screen code). If the camera is denied or unavailable: tap **הקלדת קוד** and type the 8 digits, or **חיפוש** by phone / name. A phone camera app that scans the QR opens the same screen with the code filled in.
+3. Reads the card. Only a **✓ מוכן למסירה** card with **שולם ✓** is a go. It names the buyer, the product, the **quantity**, the method and the code.
+4. Taps **אישור מסירה — N יחידות**, then confirms "אתם מוסרים עכשיו N יחידות של X ל-Y" (**אישור מסירה** / **חזרה**).
+5. Sees **נמסר ✓**. The buyer's page now says **ההזמנה נמסרה** with the time.
+
+**Do not hand over when the card is red — the reason line says why:** התשלום לא הושלם · העסקה טרם הושלמה · העסקה נכשלה · העסקה בוטלה · התשלום הוחזר · הקוד אינו תקין (unknown, mistyped, or another seller's code — all answer the same).
+
+**Amber — כבר נמסר:** the order was already handed over (time shown). A second scan or a double tap never marks it twice; two devices confirming together record exactly one handoff.
+
+**Delivery (courier) orders:** no counter QR. Open **📦 הזמנות למסירה** → the courier rows carry code, buyer, phone, e-mail, quantity, address, city, notes, payment and handoff state; **אישור מסירה** marks them from the list. The Excel export (**הורדת Excel לוגיסטי**) carries the same columns for bulk logistics.
+
+**Support / disputes (admin):** the admin deal profile shows ממתינות למסירה / נמסרו and, per buyer, the handoff time and the last 4 digits of the code. Every handoff is an audit event (seller, request id, idempotency key, quantity). There is no "undo delivered" in the product — a mistaken handoff is a support case.
+
+**What the pilot does NOT do:** no e-mail/SMS when an order becomes ready (the tracking link is the credential carrier), no partial handoff, no carrier integration, no shipment tracking.
