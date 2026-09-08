@@ -170,7 +170,86 @@ The known F-9 seed (`2061983203`) and a second fresh fuzz seed are replayed insi
 
 
 
-## 7. Exact-tip regression (filled at the end)
+## 7. Exact-tip regression — tip `2aff7068eef60c02752d4c31c271e7d4a6d728e3` (label `2aff706`)
+
+ONE clean, sequential run on the exact tip (dirty files 0 at start), fresh isolated databases, Windows / Node 24.
+
+| step | result | seconds |
+|---|---|---|
+| typecheck (`tsc --noEmit`) | PASS | 4 |
+| lint (`backend_enforcement_scan`) | PASS | 2 |
+| backend enforcement scan | PASS | 2 |
+| payment compliance scan | PASS | 1 |
+| runtime DDL scan | PASS | 1 |
+| architecture truth gate | PASS | 1 |
+| `git diff --check` (whole delta vs master 8ead7c8) | PASS | 0 |
+| demo build (`build:demo`) | PASS | 6 |
+| mobile verification (`mobile:verify`, read-only gate; tree clean after) | PASS | 2 |
+| isolated migration proof (fresh + rerun + checksum ledger + drift) | PASS | 2 |
+| `ci:migrations` against the long-lived local `postgres` database | exit 1 | 1 |
+| complete repository suite (10 groups) | exit 1 | 1186 |
+| route authorization gate | PASS | 22 |
+| fault report | PASS | 1 |
+| known F-9 seed replay | PASS | 89 |
+| fresh fuzz | PASS | 460 |
+| soak (two workers + reconciler + global reconciliation) | PASS | 448 |
+| two-process worker fencing proof | PASS | 32 |
+
+| test group | files | result |
+|---|---|---|
+| unit | 12 | 12/12 PASS |
+| integration | 29 | 29/29 PASS |
+| db | 8 | 8/8 PASS |
+| api | 41 | 41/41 PASS |
+| workers | 13 | 13/13 PASS |
+| payments | 55 | 55/55 PASS |
+| security | 37 | 37/37 PASS |
+| concurrency | 7 | 7/7 PASS |
+| failure | 9 | 9/9 PASS |
+| e2e | 13 | 12 passed, 1 FAILED |
+| **all** | **224** | **groups 9/10** |
+
+| financial replay / proof | result |
+|---|---|
+| fuzz seed 2061983203 (known F-9 seed), 200 scenarios | 200/200, 300 participants, 343 provider effects, 76 s |
+| fuzz seed 2121261207 (FRESH), 1000 scenarios | 1000/1000, 1504 participants, 1721 provider effects, 446 s |
+| soak 300 s | PASS: 2095 deals, 5181 participants, 9541 provider operations; deals=2095 participants=5181 jobs=14718 lease_expiries=141 oracle_runs=29 soak_s=300; participants=5181 effects[cap=4187 rec=183 ref=0 rel=809] canonical[charged=4187 recovered=183 refunded=0 released=809] unknown=0 visible_unresolved=32 cases=32 ledger=4370 live=0 totals[captured=37277950 recovered=1633600 refunded=0 fees=3672610 ledger_fees=3672610] violations=0; attempts: [{"result_class":"permanent_fail","n":995},{"result_class":"success","n":5179}] dlq=134 cases=32 deadlocks=0 unhandled=0 uncaught=0 max_pool=3 max_heap=198MB |
+| two-process worker fencing (`worker_two_process_fencing_validation`) | passed=1 failed=0 duration_ms=31347 |
+
+### 7.1 Non-PASS items, stated plainly
+* **e2e 12/13 in this run** — `deal_types_e2e_validation.ts` B2 (voucher buyer flow) asserted `expected Completed, got Failed`
+  once. Same tip, afterwards: the file alone 20/20, the full e2e group 6/6 (78/78 files), one more full e2e-group pass 13/13, and chain #1
+  on identical `src/` (`e0d162d`) 13/13 — 33 clean runs, zero reproductions, so the root cause is NOT established and it is reported
+  as an unresolved intermittent, not explained away. What is known: the test drives the in-process mock provider whose seeded draw is
+  keyed by run-varying identifiers and declines 10 % of captures permanently (`payment_provider.ts` capture branch: 75 % success,
+  15 % pre-dispatch transient, 10 % permanent); B2 finalizes `Failed` only when buyers A, B and C (3 + 2 + 2 units against threshold 2)
+  are all declined, ≈ 0.2 % per run under that model — the observed 1-in-34 does not contradict it but is not proven by it. Nothing
+  in the financial delta touches the voucher flow; the finalize decision path for exact-evidence declines is unchanged from the
+  reviewed branch. A diagnostic that dumps participants / `payment_attempts` / outbox / DLQ / cases whenever a driven deal ends
+  other than `Completed` was used for the reruns and is kept OUT of the branch (baseline test file, no repair folded in); it is
+  recommended for the baseline so the next occurrence carries evidence. Master's own GitHub CI failure is at the same
+  "complete repository suite" step (recorded in Phase 0, financial-independent).
+* **`ci:migrations` exit 1** — environment artifact, not the tip: the script migrates whatever `DATABASE_URL` names, here the
+  long-lived local `postgres` development database whose `migration_ledger` carries a stale checksum for
+  `014_demo_preview_bootstrap.sql`. The same script against a FRESH disposable database on this tip passes
+  (`CI_MIGRATION_REPORT_PASS expected_migrations=59 total=59 succeeded=59 tables=73 functions=24 triggers=19 constraints=1053 indexes=249 foreign_keys=73 rerun=pass`),
+  as does the isolated migration proof (fresh install, repeat, checksum ledger, drift 0, production changes 0). GitHub CI runs it on a
+  fresh service database.
+
+### 7.2 Chain #1 on `e0d162d` (same `src/`, one test file older)
+9/10 groups green; integration RED only at `charge_attempt_rate_limit_validation.ts`: its synthetic "provider-declared" failures were seeded
+without `failure_evidence`, which migration 064 classifies as legacy/status-inferred rows — the third insert (`recovery`) was refused by
+the negative-finality fence. The test now seeds `failure_evidence='dispatch_response'` (its own stated intent, commit `2aff706`); the
+rate limit is unchanged (7/7, integration 29/29). Chain #1's other results: e2e 13/13, route authorization / fault report PASS, F-9 seed
+200/200, fresh fuzz seed 2118756557 1000/1000, soak 300 s PASS; the two-process fencing proof ran separately (pattern fix) — PASS.
+
+### 7.3 Read-only mobile check
+`mobile:verify` rewrites `ios/App/CapApp-SPM/Package.swift` idempotently (normalisation); the tree was clean after every run — no
+`android/`, `ios/`, mobile release script or store-readiness file changed on this branch.
+
+### 7.4 Post-docs verification
+The final commit on the branch is docs/status only. `git diff --stat 2aff706 <FINAL_SHA> -- src tests scripts` is empty (byte-identical
+source, test and script trees), and the lightweight re-verification after the docs commit is recorded in `PROJECT_STATUS.md`.
 
 ## 8. Open external provider requirements
 * Grow sandbox proof of exact-operation status and settle/refund idempotency (until then: fail-closed, no automatic recovery on Grow).
