@@ -1,0 +1,20 @@
+﻿# Mobile data inventory
+
+Technical evidence only, 2026-09-08; not completed Apple App Privacy or Google Data Safety declarations. App-accessed data does not automatically mean third-party sharing or tracking under store definitions. Retention, linkage, purposes and processor roles need owner/privacy review against deployed services.
+
+| Category | Code evidence / technical access | Questions before store declarations |
+| --- | --- | --- |
+| Account identifiers/email | `web/src/auth.tsx`, `api.ts`, `session.ts`: email sign-in/sign-up/recovery, Supabase access and refresh tokens, seller/admin capability context | Account deletion, processor/retention and linkage; native session protection. Password entered for authentication, not saved by session module. |
+| Buyer/contact/business data | `web/src/pages/deal.tsx`, `seller.tsx`, API request models: participant, delivery/contact and seller business-profile fields | Inventory actual required versus optional fields and deployed retention. Business/settlement fields are read-only audit scope here. |
+| Location | `web/src/geo.ts` and seller LocationCapture: explicit-click coordinates, accuracy/failure handling, manual pickup address | Precise versus approximate outcome, whether submitted coordinates link to seller/pickup, retention. No background location code added. |
+| Photos/camera | `web/src/images.tsx`: chosen image bytes, original filename, MIME, optimized upload, deal association | Public deal image visibility, removal/retention, whether metadata persists. Small images can preserve metadata; do not promise EXIF stripping. No gallery-wide scan. |
+| Orders/transactions | `web/src/pages/track.tsx`, `api.ts`: participant/tracking token, fulfillment and order/payment status displayed | Business record retention and financial processors require separate owner/provider inventory. This audit does not establish raw-card collection by the native app. |
+| Support/inquiries/chat | Seller inquiries and deal chat API/UI; support contact form | User-generated content retention, moderation and recipient visibility. |
+| Attribution/device-network | `web/src/viral.ts`: anonymous visitor/session IDs, referral history and funnel events; bounded local history of 8 touches / 90 days. Network requests expose ordinary IP/network metadata to endpoints. | These identifiers are not a hardware advertising ID. Determine deployed logs, analytics purposes and whether store tracking definitions apply. Do not declare zero analytics. |
+| External resources | `web/index.html`: Google Fonts stylesheet/font hosts; public API host, Supabase auth and returned image/map/social links | Actual processors, IP/request metadata and international transfers need deployment inventory. |
+| Push | Plugin installed; canonical React app does not register a device push token in this branch | Presence alone is not proof of collection. Firebase native SDK behavior and merged permissions still require artifact review. |
+| Local storage | `session.ts`: localStorage access/refresh tokens; `ownerMode.ts`: guest/capability context; viral localStorage and sessionStorage; browser-generated image object URLs | Reinstall/backup/logout/guest/process-death acceptance. Android backup disabled; secure native session integration remains open. |
+
+No contact-list, microphone, background-location, Bluetooth or advertising-ID feature was found in the audited canonical mobile paths. This is a bounded source observation, not proof about every transitive SDK or the eventual compiled binary. Review merged Android permissions, iOS SDK privacy manifests/required-reason APIs and actual runtime traffic before answering store forms.
+
+Required later evidence: deployed data map and processors, retention/deletion policy and account deletion implementation, consent/permission screenshots, image metadata samples, staging traffic capture without token leakage, SDK privacy manifests, production support/privacy/terms URLs, and owner-approved Apple/Google form answers. No legal wording has been invented and no external account action taken.

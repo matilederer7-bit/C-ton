@@ -6098,3 +6098,15 @@ Provider Sandbox / Live Money Validation gate. The Post-E2E audit explicitly mar
   legal/business approval and operational drills remain.
 - The immutable final master SHA is recorded by the Git commit/ref verification
   produced by this repository-lock operation; a commit cannot embed its own SHA.
+
+## Dedicated mobile release readiness — 2026-09-08
+
+Scope: `codex/mobile-release-readiness`, isolated from financial work, base `8ead7c828e6d6233bf7d17bf7f67d1a67ad35767`. No master merge.
+
+- COMPLETED: canonical web/ native packaging at /preview/, synced asset/source hash gates, native API/public URL/link/share layer, foreground location metadata, Android backup/debug/FileProvider hardening, static CI, technical/data/store-policy inventories and real-device/Mac runbook.
+- TESTED: canonical TypeScript/Vite and native static sync/gate, 12 restored negative controls, mobile URL/transport behavior, 27 geolocation checks, RTL baseline, root typecheck/lint/architecture/demo build, source/bundle secret patterns, read-only staging HTTP smoke.
+- OPEN: Java/SDK/Android artifacts, Mac/Xcode build, device E2E, secure native session integration, external browser/permissions/images acceptance, verified domains/auth redirects, branding approval, store/legal/account work; two DB-backed tests blocked by local Postgres authentication.
+- PERCENTAGE: 100% of this branch's inventory/runbook deliverables; **not a measured percentage of RC readiness**. Android/iOS RC remains blocked and no store readiness percentage is claimed.
+- NEXT STEP: provision JDK 21 + SDK 36 + isolated test DB; compile Android debug/unsigned release/AAB, then execute the staging real-device acceptance sheet. Mac unsigned build handoff is documented.
+
+Canonical mobile report: [MOBILE_RELEASE_READINESS](docs/MOBILE_RELEASE_READINESS.md). Financial status above is unchanged.
