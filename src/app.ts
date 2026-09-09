@@ -24,11 +24,21 @@ import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./paymen
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
-  enqueueNotification,
   ensureNotificationRailTables,
   flushPendingNotifications,
   reclaimStrandedNotifications
 } from "./notification_dispatch.js";
+import {
+  canonicalPublicOrigin,
+  enqueueAdminSecurityAlert,
+  enqueueBuyerDealNotification,
+  enqueueDealOutcomeNotifications,
+  enqueueFulfillmentIssuedNotification,
+  enqueueSellerDealNotification,
+  enqueueTargetReachedNotifications,
+  moneyModeForPaymentProvider
+} from "./notification_events.js";
+import { publicOrigin as requestPublicOrigin } from "./seller_inquiries.js";
 import {
   enqueueInvoiceDocument,
   enqueuePendingInvoiceDocumentOutboxEvents,
@@ -1064,8 +1074,10 @@ async function applyPaymentWebhookClassification(args: {
       source_money_state: "ChargedSuccess"
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
-    // Notify buyer: charge succeeded
-    await enqueueNotificationForParticipant("charge_succeeded", args.target.participant_id, args.target.deal_id).catch(() => undefined);
+    // No buyer message for an ordinary capture: the canonical buyer-facing
+    // moment is deal completion (buyer_deal_completed, same transaction as the
+    // Completed transition). The former "charge_succeeded" alias rendered the
+    // "payment recovered" template here, which was untrue.
     return;
   }
 
@@ -1098,11 +1110,21 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
+      outbox: null,
+      // buyer_recovery_required commits WITH the ChargeFailedRecovery truth
+      // (savepoint-guarded: a notification fault never blocks the money state).
+      insideTx: async (c) => {
+        const target = args.target;
+        if (!target) return;
+        await enqueueBuyerDealNotification(c, {
+          event_type: "buyer_recovery_required",
+          participant_id: target.participant_id,
+          deal_id: target.deal_id,
+          ctx: notificationEventContext(args.event.correlation_id ?? target.correlation_id ?? null)
+        });
+      }
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
-    // Notify buyer: charge failed, recovery upcoming
-    await enqueueNotificationForParticipant("charge_failed_recovery", args.target.participant_id, args.target.deal_id).catch(() => undefined);
     return;
   }
 
@@ -1135,7 +1157,18 @@ async function applyPaymentWebhookClassification(args: {
           payload: eventPayload
         }
       ],
-      outbox: null
+      outbox: null,
+      // buyer_payment_recovered commits WITH the RecoveredCharge truth.
+      insideTx: async (c) => {
+        const target = args.target;
+        if (!target) return;
+        await enqueueBuyerDealNotification(c, {
+          event_type: "buyer_payment_recovered",
+          participant_id: target.participant_id,
+          deal_id: target.deal_id,
+          ctx: notificationEventContext(args.event.correlation_id ?? target.correlation_id ?? null)
+        });
+      }
     });
     await platformFeeMoney.recordProviderFinancialEvent({
       participant_id: args.target.participant_id,
@@ -1213,8 +1246,9 @@ async function applyPaymentWebhookClassification(args: {
       source_money_state: args.target.money_state
     });
     await finalizeAttemptFromWebhookIfNeeded({ eventType: args.event.event_type, target: args.target });
-    // Notify buyer: refund issued
-    await enqueueNotificationForParticipant("refund_issued", args.target.participant_id, args.target.deal_id).catch(() => undefined);
+    // No second "deal failed" message on refund: the buyer was notified when
+    // the deal failed (same transaction as the Failed transition); the refund
+    // is visible on the tracking page and the refund receipt document below.
     // Issue refund receipt document
     await enqueueRefundReceiptForParticipant(args.target.participant_id, args.target.deal_id).catch(() => undefined);
   }
@@ -1393,14 +1427,25 @@ async function issueFulfillmentForCompletedDeal(dealId: string): Promise<void> {
     };
   });
   for (const participant of eligible) {
-    await withTx(async (c) =>
-      issueFulfillmentUnitsForParticipant(c, {
+    await withTx(async (c) => {
+      await issueFulfillmentUnitsForParticipant(c, {
         dealId,
         participantId: participant.participant_id,
         qty: Math.max(1, Number(participant.qty || 1)),
         dealType
-      })
-    ).catch((error) => {
+      });
+      // buyer_voucher_issued / buyer_ticket_issued commit WITH the issuance
+      // (same transaction; idempotent per participant; the message carries the
+      // tracking link only — never the code). Physical deals get nothing here.
+      await enqueueFulfillmentIssuedNotification(c, {
+        deal_id: dealId,
+        participant_id: participant.participant_id,
+        deal_type: dealType,
+        origin: notificationOrigin(),
+        money_mode: notificationMoneyMode(),
+        correlation_id: `fulfillment:${dealId}`
+      });
+    }).catch((error) => {
       console.error("[fulfillment] participant issuance failed", participant.participant_id, error);
     });
   }
@@ -1669,6 +1714,14 @@ async function openPaymentOperationalCase(args: {
         args.requestId || null
       ]
     );
+    // A system-opened PaymentMismatch case is an operational security fact the
+    // admin must hear about: ONE alert per case identity, committed with it.
+    await enqueueAdminSecurityAlert(c, {
+      alert_key: `case:PaymentMismatch:${args.autoKey.slice(0, 120)}`,
+      alert_title: `PaymentMismatch: ${args.subject}`,
+      alert_ref: args.autoKey.slice(0, 200),
+      correlation_id: args.correlationId || null
+    });
   }).catch(() => undefined);
 }
 
@@ -2455,91 +2508,53 @@ async function handleRecoveryDealEvent(
   return;
 }
 
+// ── Pilot transactional communications (src/notification_events.ts) ──────────
+// Every business event enqueues INSIDE the transaction that commits the
+// canonical state, through the helpers below. Nothing here sends anything.
+
+/** Financial truth for buyer-facing copy: the synthetic provider never charges. */
+function notificationMoneyMode() {
+  return moneyModeForPaymentProvider(paymentProvider.mode);
+}
+
 /**
- * Fetch buyer_id + deal title for a participant and enqueue a notification.
- * Non-fatal — intended for use inside webhook/worker handlers.
+ * Configured public origin (PUBLIC_BASE_URL / RENDER_EXTERNAL_URL); a request
+ * path may fall back to its forwarded host, the Worker never has one.
  */
-async function enqueueNotificationForParticipant(
-  notificationEventType: "join_authorized" | "charge_succeeded" | "charge_failed_recovery" | "deal_completed" | "deal_failed" | "refund_issued" | "deal_cancelled",
-  participantId: string,
-  dealId: string
-): Promise<void> {
-  const row = await pool.query(
-    `SELECT p.buyer_id, d.title
-     FROM siton.participants p
-     JOIN siton.deals d ON d.deal_id = p.deal_id
-     WHERE p.participant_id=$1`,
-    [participantId]
-  );
-  if (!row.rowCount) return; // participant not found — skip silently
-  const { buyer_id, title } = row.rows[0] as { buyer_id: string; title: string };
-  await enqueueNotification({
-    eventKey: `${notificationEventType}:${participantId}:sms`,
-    notificationEventType,
-    channel: "sms",
-    recipient: buyer_id,
-    templateParams: { deal_id: dealId, deal_title: String(title || ""), participant_id: participantId },
-    providerCode: notificationService.providerCode
-  }, pool);
+function notificationOrigin(req?: any) {
+  return canonicalPublicOrigin() || (req ? requestPublicOrigin(req) : "");
 }
 
-/** Enqueue notifications for a list of participants on a deal. Non-fatal — logs errors. */
-async function enqueueParticipantNotifications(
-  notificationEventType: "join_authorized" | "charge_succeeded" | "charge_failed_recovery" | "deal_completed" | "deal_failed" | "refund_issued" | "deal_cancelled",
-  participants: Array<{ participant_id: string; buyer_id: string }>,
-  dealId: string,
-  dealTitle: string,
-  logger: Pick<typeof console, "error">
-): Promise<void> {
-  for (const p of participants) {
-    try {
-      await enqueueNotification({
-        eventKey: `${notificationEventType}:${p.participant_id}:sms`,
-        notificationEventType,
-        channel: "sms",
-        recipient: p.buyer_id,
-        templateParams: { deal_id: dealId, deal_title: dealTitle, participant_id: p.participant_id },
-        providerCode: notificationService.providerCode
-      }, pool);
-    } catch (e) {
-      logger.error(`[notifications] enqueue failed`, { notificationEventType, participant_id: p.participant_id, err: String(e) });
-    }
-  }
+function notificationEventContext(correlationId: string | null, req?: any) {
+  return { origin: notificationOrigin(req), money_mode: notificationMoneyMode(), correlation_id: correlationId };
 }
 
-async function enqueueSellerNotification(
-  eventType: "seller_deal_published" | "seller_deal_completed" | "seller_deal_failed" | "seller_excel_ready",
-  dealId: string,
-  dealTitle: string,
-  logger: Pick<Console, "error"> = console
-): Promise<void> {
-  try {
-    const sellerRow = await pool.query(
-      `SELECT d.seller_id, d.title, COALESCE(sa.support_email, '') AS support_email
-       FROM siton.deals d
-       LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
-       WHERE d.deal_id=$1`,
-      [dealId]
-    );
-    if (!sellerRow.rowCount) return;
-    const seller = sellerRow.rows[0] as { seller_id: string | null; title: string | null; support_email: string | null };
-    const sellerId = normalizeSellerId(seller.seller_id);
-    if (!sellerId) return;
-    const recipientRef = String(seller.support_email || sellerId);
-    const title = dealTitle || String(seller.title || "");
-    await enqueueNotification({
-      event_type: eventType,
-      recipient_type: "seller",
-      recipient_ref: recipientRef,
+/**
+ * The outcome each participant will receive from the deal transition that is
+ * being committed — the SAME rule the participant state machine applies right
+ * after (ChargedSuccess/Recovered → DealCompleted; anything that may still
+ * fail → DealFailed; Dropped/terminal → nothing).
+ */
+function dealOutcomeClassifier(outcome: "completed" | "failed") {
+  return (p: { buyer_state: string; money_state: string }): "completed" | "failed" | "none" => {
+    if (outcome === "completed" && (p.buyer_state === "ChargedSuccess" || p.buyer_state === "Recovered")) return "completed";
+    if (BUYER_TRANSITIONS[p.buyer_state]?.includes("DealFailed")) return "failed";
+    return "none";
+  };
+}
+
+function enqueueDealOutcomeInsideTx(dealId: string, outcome: "completed" | "failed", correlationId: string) {
+  return async (c: PoolClient) => {
+    await enqueueDealOutcomeNotifications(c, {
       deal_id: dealId,
-      seller_id: sellerId,
-      channel: "internal",
-      payload_jsonb: { deal_id: dealId, deal_title: title },
-      idempotency_key: `${eventType}:seller:${sellerId}:${dealId}:internal`
-    }, pool);
-  } catch (e) {
-    logger.error("[notifications] seller enqueue failed", { eventType, dealId, err: String(e) });
-  }
+      outcome,
+      classify: dealOutcomeClassifier(outcome),
+      origin: notificationOrigin(),
+      money_mode: notificationMoneyMode(),
+      correlation_id: correlationId,
+      default_seller_id: normalizeSellerId(null)
+    });
+  };
 }
 
 /**
@@ -2678,7 +2693,11 @@ async function handleFinalizeDealEvent(
       requestId: `worker:${eventId}`,
       idempotencyKey: `deal-finalize-ok:${dealId}`,
       outbox: null,
-      payload: { decision }
+      payload: { decision },
+      // buyer_deal_completed / buyer_deal_failed / seller_deal_completed commit
+      // WITH the Completed transition (one row per participant, one for the
+      // seller); a finalize replay is a no-op on the idempotency keys.
+      insideTx: enqueueDealOutcomeInsideTx(dealId, "completed", `finalize:${dealId}`)
     });
 
     const participants = await withTx(async (c) => {
@@ -2726,22 +2745,15 @@ async function handleFinalizeDealEvent(
     // authorization — release it (Worker-owned, provider-proofed).
     await scheduleAuthorizationReleasesForDeal(dealId, "deal_completed_unrecovered");
 
-    // Notify participants: deal_completed for DealCompleted, deal_failed for DealFailed
-    const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
-    const dealTitle = String(dealTitleRow.rows[0]?.title || "");
-    const allParticipants = await withTx(async (c) => {
+    // Buyer / seller completion notifications were enqueued inside the
+    // Completed transition above (post-commit truth, exactly once).
+    const completedParticipants = await withTx(async (c) => {
       const r = await c.query(
-        `SELECT participant_id, buyer_id, buyer_state FROM siton.participants WHERE deal_id=$1`,
+        `SELECT participant_id FROM siton.participants WHERE deal_id=$1 AND buyer_state='DealCompleted'`,
         [dealId]
       );
-      return r.rows as Array<{ participant_id: string; buyer_id: string; buyer_state: string }>;
+      return r.rows as Array<{ participant_id: string }>;
     });
-    const completedParticipants = allParticipants.filter(p => p.buyer_state === "DealCompleted");
-    const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
-    await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
-    await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
-    await enqueueSellerNotification("seller_deal_completed", dealId, dealTitle, console);
-    await enqueueSellerNotification("seller_excel_ready", dealId, dealTitle, console);
     // Issue charge receipts for every DealCompleted participant (money settled, deal succeeded)
     for (const p of completedParticipants) {
       await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
@@ -2768,23 +2780,16 @@ async function handleFinalizeDealEvent(
     requestId: `worker:${eventId}`,
     idempotencyKey: `deal-finalize-fail:${dealId}`,
     outbox: { event_type: "refund_issue", aggregate_type: "deal", aggregate_id: dealId, payload: { deal_id: dealId } },
-    payload: { decision }
+    payload: { decision },
+    // buyer_deal_failed (every participant still in the deal) + seller_deal_failed
+    // commit WITH the Failed transition.
+    insideTx: enqueueDealOutcomeInsideTx(dealId, "failed", `finalize:${dealId}`)
   });
 
   await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
   // Release every still-held (uncaptured) authorization; captured participants
   // are refunded by the refund_issue job enqueued with the Failed transition.
   await scheduleAuthorizationReleasesForDeal(dealId, "deal_finalize_failed");
-
-  // Notify all participants: deal failed — refund will be issued
-  const dealTitleRowFail = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
-  const dealTitleFail = String(dealTitleRowFail.rows[0]?.title || "");
-  const failedParts = await withTx(async (c) => {
-    const r = await c.query(`SELECT participant_id, buyer_id FROM siton.participants WHERE deal_id=$1`, [dealId]);
-    return r.rows as Array<{ participant_id: string; buyer_id: string }>;
-  });
-  await enqueueParticipantNotifications("deal_failed", failedParts, dealId, dealTitleFail, console);
-  await enqueueSellerNotification("seller_deal_failed", dealId, dealTitleFail, console);
   return;
 }
 
@@ -2847,7 +2852,10 @@ async function workerProcessEvent(event: {
       requestId: `worker:${eventId}`,
       idempotencyKey: `deadline:${dealId}`,
       outbox: null,
-      payload: { total, threshold: Number(deal.threshold_units) }
+      payload: { total, threshold: Number(deal.threshold_units) },
+      // Deadline failure: buyer_deal_failed + seller_deal_failed commit WITH the
+      // Failed transition (a replayed deadline_check is a no-op).
+      insideTx: enqueueDealOutcomeInsideTx(dealId, "failed", `deadline:${dealId}`)
     });
 
     await failAllParticipantsForDeal(dealId, `worker:${eventId}`);
@@ -2855,16 +2863,6 @@ async function workerProcessEvent(event: {
     // AuthReleased only with authoritative provider proof).
     await scheduleAuthorizationReleasesForDeal(dealId, "deal_deadline_failed");
     await cleanupObsoleteDealOutboxEvents(dealId);
-
-    // Notify all participants: deadline passed, deal failed
-    const deadlineTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
-    const deadlineTitle = String(deadlineTitleRow.rows[0]?.title || "");
-    const deadlineParts = await withTx(async (c) => {
-      const r = await c.query(`SELECT participant_id, buyer_id FROM siton.participants WHERE deal_id=$1`, [dealId]);
-      return r.rows as Array<{ participant_id: string; buyer_id: string }>;
-    });
-    await enqueueParticipantNotifications("deal_failed", deadlineParts, dealId, deadlineTitle, console);
-    await enqueueSellerNotification("seller_deal_failed", dealId, deadlineTitle, console);
     return;
   }
 
@@ -4696,6 +4694,15 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
         threshold,
         dealId
       ]);
+      // seller_deal_published commits WITH the PendingTarget transition.
+      await enqueueSellerDealNotification(c, {
+        event_type: "seller_deal_published",
+        deal_id: dealId,
+        seller_id: publishSellerId,
+        origin: notificationOrigin(req),
+        money_mode: notificationMoneyMode(),
+        correlation_id: requestId
+      });
     }
   });
   await withTx(async (c) => {
@@ -4710,7 +4717,6 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       metadata: { terms_version: TERMS_VERSION }
     });
   });
-  await enqueueSellerNotification("seller_deal_published", dealId, "").catch(() => undefined);
   return result;
 });
 
@@ -4727,7 +4733,18 @@ async function tryTargetReached(dealId: string, requestId: string) {
       requestId,
       idempotencyKey: `target-reached:${dealId}`,
       outbox: null,
-      payload: {}
+      payload: {},
+      // buyer_deal_target_reached (every participant) + seller_target_reached
+      // commit WITH the TargetReached transition.
+      insideTx: async (c) => {
+        await enqueueTargetReachedNotifications(c, {
+          deal_id: dealId,
+          origin: notificationOrigin(),
+          money_mode: notificationMoneyMode(),
+          correlation_id: requestId,
+          default_seller_id: normalizeSellerId(null)
+        });
+      }
     });
   } catch (error: any) {
     const message = String(error?.message || error || "");
@@ -5249,6 +5266,15 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       if (targetUpdate.rowCount !== 1) {
         throw new Error(`State mismatch deal ${dealId} expected PendingTarget`);
       }
+      // The Join that crosses the threshold notifies every participant (this
+      // one included — its row already exists in this transaction) + the seller.
+      await enqueueTargetReachedNotifications(c, {
+        deal_id: dealId,
+        origin: notificationOrigin(req),
+        money_mode: notificationMoneyMode(),
+        correlation_id: correlationId,
+        default_seller_id: normalizeSellerId(null)
+      });
     }
 
     await recordLegalAcceptance({
@@ -5263,25 +5289,22 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       metadata: { no_charge_before_successful_close: true }
     });
 
-    await enqueueNotification({
-      eventKey: `join_authorized:${pid}:sms`,
-      notificationEventType: "join_authorized",
-      channel: "sms",
-      recipient: buyer_id,
-      templateParams: {
-        deal_id: dealId,
-        deal_title: String(dealRow.rows[0].title || ""),
-        participant_id: pid
-      },
-      providerCode: notificationService.providerCode
-    }, c);
-
     const trackingAccess = await issueParticipantTrackingToken(c, {
       participant_id: pid,
       deal_id: dealId,
       purpose: "tracking",
       issued_via: "buyer_join",
       correlation_id: correlationId
+    });
+
+    // buyer_joined_authorized commits WITH the Join (same transaction); the
+    // message carries the buyer's own tokenized tracking link, never a charge.
+    await enqueueBuyerDealNotification(c, {
+      event_type: "buyer_joined_authorized",
+      participant_id: pid,
+      deal_id: dealId,
+      deal_title: String(dealRow.rows[0].title || ""),
+      ctx: { ...notificationEventContext(correlationId, req), tracking_token: trackingAccess.token }
     });
     const deliveryCost = Number(selectedDelivery?.cost || 0);
     const response = {
@@ -5510,6 +5533,10 @@ app.post("/deals/:id/reopen_joining", SELLER_AUTHORITY_ROUTE, async (req: any) =
         `UPDATE siton.deals SET close_reason=NULL, closed_for_joining_at=NULL WHERE deal_id=$1`,
         [dealId]
       );
+      // No notification fan-out here: a paused deal that reopens at TargetReached
+      // re-enters a state it already announced (joins are impossible while
+      // paused, so the threshold cannot be crossed by a reopen). The only
+      // "target reached" moment is PendingTarget → TargetReached.
       // The deadline authority must keep working after reopen. The publish-time
       // deadline_check is normally still pending (one-pending-per-aggregate-event
       // unique index) — insert only if it is somehow gone, never collide.
