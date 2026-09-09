@@ -18,6 +18,15 @@ net.connect = function (...args) {
 };
 net.createConnection = net.connect;
 
+// tls.connect, https.request, pg and any raw socket call Socket.prototype.connect
+// directly (never net.connect), so the guard must sit on the socket itself.
+const originalSocketConnect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function (...args) {
+  const host = hostFromArgs(args);
+  if (!allowed(host)) throw new Error(`NO_NETWORK_REHEARSAL_BLOCKED:${host}`);
+  return originalSocketConnect.apply(this, args);
+};
+
 if (typeof globalThis.fetch === "function") {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = function (input, init) {

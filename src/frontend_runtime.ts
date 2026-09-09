@@ -4297,11 +4297,22 @@ export function registerFrontendExperience(
           };
         });
 
+      // Fee base = success gross (price × qty + delivery) minus the authoritative
+      // buyer VAT (VAT authority; synthetic_zero keeps it at 0 by declared policy).
+      const successProductGross = fulfilledParticipants.reduce(
+        (sum: number, row: any) => sum + Number(row.gross_amount || 0) - Number(row.delivery_cost || 0),
+        0
+      );
+      const successDeliveryGross = fulfilledParticipants.reduce(
+        (sum: number, row: any) => sum + Number(row.delivery_cost || 0),
+        0
+      );
       const financialSummary = summarizeMoney({
-        grossAmount: fulfilledParticipants.reduce(
-          (sum: number, row: any) => sum + Number(row.gross_amount || 0),
-          0
-        )
+        grossAmount: successProductGross + successDeliveryGross,
+        vatAmount: computeCustomerChargeVat({
+          productGrossAmount: successProductGross,
+          deliveryGrossAmount: successDeliveryGross
+        }).vat_amount
       });
 
       return {
