@@ -564,16 +564,21 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .seller-countdown-block .lbl { font-size: .84rem; font-weight: 700; color: var(--ink-soft); }
 
 /* ── brand share icon buttons (P0.3) ───────────────────────────────────── */
-.share-icons { gap: 10px; }
+.share-icons { gap: 10px; width: 100%; justify-content: center; align-items: center; }
 .share-ico-btn {
-  width: 46px; height: 46px; border-radius: 50%;
+  width: 46px; height: 46px; flex: 0 0 46px; box-sizing: border-box; border-radius: 50%;
   display: inline-flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--line-strong); background: var(--surface-warm);
   color: var(--ink-soft); cursor: pointer; padding: 0;
   transition: transform .12s ease, border-color .12s ease, color .12s ease;
 }
-.share-ico-btn:hover { transform: translateY(-2px); border-color: var(--brand); color: var(--brand-hi); }
-.share-ico-btn svg { display: block; }
+.share-ico-btn:hover { transform: translateY(-2px); border-color: currentColor; }
+.share-ico-btn svg { display: block; width: 24px; height: 24px; flex-shrink: 0; }
+.share-ico-btn.net-whatsapp { color: #25d366; }
+.share-ico-btn.net-telegram { color: #26a5e4; }
+.share-ico-btn.net-facebook { color: #1877f2; }
+.share-ico-btn.net-instagram { color: #e4405f; }
+.share-ico-btn.net-x { color: #000; background: #fff; }
 
 /* ── deal chat (P0.3: replies + reactions) ─────────────────────────────── */
 .chat-reply-context {
