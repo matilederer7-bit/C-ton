@@ -73,3 +73,25 @@ Recovery / tracking links sent via SMS or email must use the tokenized participa
 - `npm run test:notifications-readiness`
 - `npm run test:notification-rail`
 - `npm run test:mission-control`
+
+## Pilot Communications (2026-09-09)
+
+Event wiring, recipient resolution, deterministic idempotency, post-commit policy, the dry-run provider and
+the real-adapter contract are specified in `docs/PILOT_COMMUNICATIONS_READINESS.md`. Summary of what
+changed on top of this foundation:
+
+- Every pilot event (`buyer_joined_authorized`, `buyer_deal_target_reached`, `buyer_deal_completed`,
+  `buyer_deal_failed`, `buyer_recovery_required`, `buyer_payment_recovered`, `buyer_voucher_issued`,
+  `buyer_ticket_issued`, `seller_deal_published`, `seller_target_reached`, `seller_deal_completed`,
+  `seller_deal_failed`, `seller_customer_inquiry`, `seller_kyc_approved`, `seller_kyc_rejected`,
+  `admin_security_alert`) is enqueued INSIDE the transaction that commits its canonical state, under a
+  savepoint (`src/notification_events.ts`).
+- Legacy aliases `charge_succeeded` and `refund_issued` were removed from the compatibility adapter
+  (wrong template / duplicate intent). `seller_excel_ready` is no longer emitted at completion.
+- Templates carry `money_mode` (mock money never claims a charge), canonical `/preview/#/…` links
+  (tokenized participant tracking token for buyers), brand `C-ton`; KYC rejection reason is optional,
+  bounded and sanitized; the internal admin note is never forwarded.
+- Provider modes gain `dry-run`; the safety gate validates destination format in dry-run and real modes;
+  payload hygiene refuses secret-like values at enqueue.
+- Operator inspection: `GET /api/admin/notifications/:notificationId`.
+- Validation: `npm run test:notification-pilot`, `npm run rehearsal:communications`.

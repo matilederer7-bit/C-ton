@@ -12,6 +12,7 @@ and how to confirm each queue is clean.
 |----------|--------|---------|
 | `/api/admin/outbox-status` | GET | Outbox queue health: pending/failed counts, stuck candidates, worker running |
 | `/api/admin/notifications-status` | GET | Notifications queue health: counts by status and channel |
+| `/api/admin/notifications/:notificationId` | GET | One notification for an operator: masked destination, redacted rendered subject/body, attempts, business correlation, safety verdicts (pilot communications) |
 | `/api/admin/invoice-status` | GET | Invoice document queue health: counts by status and document type |
 | `/api/admin/system-ops-status` | GET | Unified snapshot: all three queues in one call |
 | `/api/admin/participants/:id/ops` | GET | Cross-system read surface for one participant |

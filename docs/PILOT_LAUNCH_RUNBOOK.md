@@ -41,6 +41,12 @@ If the financial branch (063/064) lands on staging first, its rows take position
 58–59 and this row becomes position 60 — keep the manifest order and the ledger
 positions identical.
 
+Communications (pilot, no real delivery): apply `supabase/staging/023_pilot_communications_worker_grants.sql`
+through the privileged procedure so Worker-side buyer links are tokenized (until then they are queued
+with `link_mode=tokenless`); optionally set `NOTIFICATION_PROVIDER_MODE=dry-run` on the Worker to
+rehearse the full rail. Real e-mail/SMS stays OFF — activation steps live in
+`docs/PILOT_COMMUNICATIONS_READINESS.md` §11–12.
+
 Optional but recommended: run the API journey against hosted with your owner
 login once after the deploy (takes ~1 min, creates one synthetic deal under
 your seller account which you can delete as a Draft afterwards or leave paused):
@@ -204,6 +210,7 @@ What happens automatically:
 | DLQ > 0 / worker "לא מדווח" | Admin → תור ו-Worker | restart the worker service on Render (Manual Deploy → "Clear build cache & deploy" is not needed; **Restart** is) and re-check within 2 min |
 | 5xx on a page | Render logs (web service) | copy the `request_id` from the error toast; check `GET /api/preview/meta` runtime commit is the expected SHA |
 | Signup e-mail never arrives | Supabase Auth logs / SMTP cap | resend from the login screen; if still nothing, use the manual bind SQL (§1) after creating the user with "Invite user" in the Supabase dashboard |
+| A buyer/seller asks "did C-ton notify me?" | Admin → `GET /api/admin/notifications-status` (counts) and `GET /api/admin/notifications/<id>` (exact redacted text, masked destination, attempts, reason) | In the pilot nothing is delivered externally (`NOTIFICATION_PROVIDER=log-only`; `NOTIFICATION_PROVIDER_MODE=dry-run` rehearses the same rail). Every business moment already has its queued row — see `docs/PILOT_COMMUNICATIONS_READINESS.md`; a `blocked` row names a bad destination, a `failed` row the provider reason (admin **retry**). |
 
 Never edit deals, participants or money tables by hand. If a deal must be
 stopped, use §5.
