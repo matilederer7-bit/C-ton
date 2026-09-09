@@ -6364,6 +6364,8 @@ export function registerFrontendExperience(
            ${SITON_PLATFORM_FEE_RATE}::numeric AS platform_fee_rate,
            COALESCE(SUM(p.qty),0) AS joined_units,
            COALESCE(SUM(p.delivery_cost),0) AS joined_delivery_cost,
+           COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS settled_units,
+           COALESCE(SUM(p.delivery_cost) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0) AS settled_delivery_cost,
            COUNT(p.participant_id)::int AS participants_count
          FROM siton.deals d
          LEFT JOIN siton.participants p ON p.deal_id = d.deal_id
@@ -6416,15 +6418,16 @@ export function registerFrontendExperience(
 
       const rows = deals.rows as DealListRow[];
       const completedDeals = rows.filter((row) => row.state === "Completed");
+      // Settlement totals include successful money only; joined inventory is not revenue.
       // Fee base = actual collected amount (price × qty + delivery), excluding
       // the authoritative VAT portion (explicit VAT authority; synthetic_zero
       // keeps staging at 0 by declared policy).
       const sellerSettlementProductGross = completedDeals.reduce(
-        (sum, row) => sum + Number(row.price_per_unit || 0) * Number(row.joined_units || 0),
+        (sum, row) => sum + Number(row.price_per_unit || 0) * Number((row as any).settled_units || 0),
         0
       );
       const sellerSettlementDeliveryGross = completedDeals.reduce(
-        (sum, row) => sum + Number((row as any).joined_delivery_cost || 0),
+        (sum, row) => sum + Number((row as any).settled_delivery_cost || 0),
         0
       );
       const sellerSettlementGross = sellerSettlementProductGross + sellerSettlementDeliveryGross;
