@@ -13,6 +13,7 @@ import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./paymen
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
 import type { InvoiceProvider } from "./invoice_dispatch.js";
+import { withNotificationSavepoint } from "./notification_dispatch.js";
 import {
   ADMIN_API_KEY,
   isProductionLikeEnv,
@@ -50,7 +51,14 @@ import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_f
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
-import { ensureNotificationRailTables } from "./notification_dispatch.js";
+import { describeNotificationForOperator, ensureNotificationRailTables } from "./notification_dispatch.js";
+import { maskNotificationRecipient } from "./notification_safety.js";
+import {
+  canonicalPublicOrigin,
+  enqueueAdminSecurityAlert,
+  enqueueSellerKycDecisionNotification,
+  sanitizeSellerFacingReason
+} from "./notification_events.js";
 import { describePickupLocation } from "./pickup_location.js";
 import {
   INQUIRY_LIMITS, INQUIRY_MESSAGE_MAX, INQUIRY_MESSAGE_MIN, INQUIRY_NAME_MAX,
@@ -202,7 +210,10 @@ import {
   sellerOrderProjection,
   SELLER_NOT_READY_COPY
 } from "./physical_fulfillment.js";
-import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
+import { isLegalPageSlug, legalPageProjection } from "./legal_pages.js";
+import { buyerNameRankSql, buyerSearchPredicateSql, classifyBuyerSearch } from "./buyer_search_intent.js";
+import { resolveGrowthWindow } from "./growth_window.js";
+import { computeGrowthWindowMetrics } from "./growth_metrics.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
@@ -361,67 +372,8 @@ function escapeHtml(value: unknown) {
     .replace(/"/g, "&quot;");
 }
 
-function renderLegalMarkdown(markdown: string) {
-  return markdown
-    .split(/\n{2,}/)
-    .map((block) => {
-      const trimmed = block.trim();
-      if (!trimmed) return "";
-      if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
-      if (trimmed.startsWith("## ")) return `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
-      return `<p>${escapeHtml(trimmed).replace(/\n/g, "<br>")}</p>`;
-    })
-    .join("\n");
-}
-
-function renderLegalHtmlPage(slug: LegalPageSlug) {
-  const page = LEGAL_PAGES[slug];
-  // P0.3-12 — the visible legal nav stays lean (core buyer documents only);
-  // sellers/affiliates pages remain reachable by direct link from their flows.
-  const CORE_LEGAL_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds"];
-  const navSlugs = CORE_LEGAL_NAV.includes(slug) ? CORE_LEGAL_NAV : [...CORE_LEGAL_NAV, slug];
-  const nav = LEGAL_PAGE_ORDER.filter((item) => navSlugs.includes(item)).map((item) => {
-    const target = LEGAL_PAGES[item];
-    return `<a href="/legal/${target.slug}"${target.slug === slug ? ` aria-current="page"` : ""}>${escapeHtml(target.navLabel)}</a>`;
-  }).join("");
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>C-ton | ${escapeHtml(page.title)}</title>
-  <style>
-    :root{color-scheme:light;--bg:#2F3237;--card:#fff;--text:#1F2933;--muted:#56616f;--brand:#C65A1E}
-    *{box-sizing:border-box}body{margin:0;font-family:Arial,"Noto Sans Hebrew",sans-serif;background:linear-gradient(135deg,#2F3237 0%,#25282D 100%);color:var(--text);line-height:1.75}
-    .shell{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:32px 0 56px}
-    header{color:#fff;margin-bottom:22px}header a{color:#fff}.brand{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}.brand strong{font-size:1.5rem}
-    nav{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}nav a{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 13px;text-decoration:none;background:rgba(255,255,255,.08)}nav a[aria-current=page]{background:var(--brand);border-color:var(--brand)}
-    main{background:var(--card);border-radius:24px;padding:clamp(22px,4vw,42px);box-shadow:0 24px 60px rgba(0,0,0,.24);border:1px solid rgba(255,255,255,.18)}
-    h1{font-size:clamp(1.8rem,4vw,3rem);line-height:1.15;margin:0 0 18px}h2{font-size:1.35rem;margin:34px 0 8px;color:#111827}p{margin:0 0 14px;color:var(--text)}.notice{margin:0 0 24px;padding:14px 16px;border-radius:16px;background:#FFF1E8;border:1px solid rgba(198,90,30,.28);color:#53311f}
-    footer{color:#D1D5DB;margin-top:22px;display:flex;gap:14px;flex-wrap:wrap}footer a{color:#fff}
-    @media(max-width:520px){.shell{width:min(100% - 20px,1060px);padding-top:18px}main{border-radius:18px;padding:18px}nav a{width:calc(50% - 5px);text-align:center}}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <header>
-      <div class="brand"><strong>C-ton</strong><a href="/preview/">חזרה לאתר</a></div>
-      <nav aria-label="ניווט משפטי">${nav}</nav>
-    </header>
-    <main>
-      <div class="notice">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div>
-      ${renderLegalMarkdown(page.body)}
-    </main>
-    <footer>
-      <a href="/legal/terms">תקנון</a>
-      <a href="/legal/privacy">מדיניות פרטיות</a>
-      <a href="/legal/refunds">ביטולים והחזרים</a>
-      <a href="/preview/#/support">תמיכה</a>
-    </footer>
-  </div>
-</body>
-</html>`;
-}
+// SPRINT 4 (A4) — the standalone legal HTML shell is gone: the React product
+// renders the documents from the JSON projection (see /api/legal/:slug below).
 
 function mapSellerProfile(profile: any, contextSource: string) {
   return {
@@ -1501,6 +1453,15 @@ export function registerFrontendExperience(
          VALUES ($1,$2,$3,$4)`,
         [args.provider, args.event_id ?? null, args.failure_reason, args.remote_hint ?? ""]
       );
+      // admin_security_alert: ONE alert per provider + failure reason + hour
+      // bucket, committed with the security event (a burst never fans out into
+      // N alerts; the durable rows keep every occurrence).
+      const hourBucket = new Date().toISOString().slice(0, 13);
+      await enqueueAdminSecurityAlert(c, {
+        alert_key: `webhook:${args.provider}:${args.failure_reason}:${hourBucket}`.slice(0, 160),
+        alert_title: `Webhook ${args.failure_reason} (${args.provider})`,
+        alert_ref: args.event_id ? `event ${String(args.event_id).slice(0, 80)}` : `hour ${hourBucket}`
+      });
     });
   };
   const upsertBuyerPaymentMethod = async (args: {
@@ -3248,15 +3209,17 @@ export function registerFrontendExperience(
     // the seller has not read yet never fan out into more e-mails.
     let notification: { result: string; channel: string } = { result: "not_needed", channel: "none" };
     if (created || previousStatus !== "Open") {
-      const queued = await enqueueSellerInquiryNotification(c, {
+      const guarded = await withNotificationSavepoint(c, () => enqueueSellerInquiryNotification(c, {
         sellerId: args.sellerId,
         dealId: args.dealId,
         dealTitle: args.dealTitle,
         threadId: thread.thread_id,
         messageId,
         origin: publicOrigin(args.req)
-      });
-      notification = { result: queued.result, channel: queued.recipient.channel };
+      }));
+      notification = guarded.ok
+        ? { result: guarded.value.result, channel: guarded.value.recipient.channel }
+        : { result: "error", channel: "none" };
     }
     // Return the payload instead of reply.send(): Fastify serializes it only
     // after withTx COMMITs, so a 201 always means the thread/message/event are
@@ -7910,6 +7873,9 @@ export function registerFrontendExperience(
              COUNT(*)                                                  FILTER (WHERE status='sent')       AS sent_count,
              COUNT(*)                                                  FILTER (WHERE status='failed')     AS failed_count,
              COUNT(*)                                                  FILTER (WHERE status='skipped')    AS skipped_count,
+             COUNT(*)                                                  FILTER (WHERE status='blocked')    AS blocked_count,
+             COUNT(*)                                                  FILTER (WHERE status='cancelled')  AS cancelled_count,
+             COUNT(*)                                                  FILTER (WHERE status='pending' AND attempt_count > 0) AS retry_scheduled_count,
              COUNT(*)                                                  FILTER (WHERE status='pending' AND last_error IS NOT NULL) AS retryable_count,
              COUNT(DISTINCT idempotency_key)                                                             AS unique_event_keys,
              EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_s,
@@ -7920,15 +7886,16 @@ export function registerFrontendExperience(
           `SELECT channel,
                   COUNT(*)                          FILTER (WHERE status='pending') AS pending,
                   COUNT(*)                          FILTER (WHERE status='sent')    AS sent,
-                  COUNT(*)                          FILTER (WHERE status='failed')  AS failed
+                  COUNT(*)                          FILTER (WHERE status='failed')  AS failed,
+                  COUNT(*)                          FILTER (WHERE status='blocked') AS blocked
            FROM siton.notification_events
            GROUP BY channel
            ORDER BY channel`
         ),
         c.query(
-          `SELECT ne.notification_id, ne.event_type, ne.recipient_type, ne.channel,
+          `SELECT ne.notification_id, ne.event_type, ne.recipient_type, ne.recipient_ref, ne.channel,
                   ne.status, ne.deal_id, d.title AS deal_title, ne.participant_id, ne.seller_id,
-                  ne.scheduled_for, ne.sent_at, ne.created_at, ne.last_error,
+                  ne.scheduled_for, ne.sent_at, ne.created_at, ne.last_error, ne.attempt_count, ne.correlation_id,
                   (SELECT COUNT(*)::int FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id) AS attempts,
                   (SELECT na.provider FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider,
                   (SELECT na.provider_mode FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider_mode
@@ -7947,6 +7914,9 @@ export function registerFrontendExperience(
           sent:              Number(t.sent_count        ?? 0),
           failed:            Number(t.failed_count      ?? 0),
           skipped:           Number(t.skipped_count     ?? 0),
+          blocked:           Number(t.blocked_count     ?? 0),
+          cancelled:         Number(t.cancelled_count   ?? 0),
+          retry_scheduled:   Number(t.retry_scheduled_count ?? 0),
           retryable:         Number(t.retryable_count   ?? 0),
           unique_event_keys: Number(t.unique_event_keys ?? 0),
           oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
@@ -7961,23 +7931,27 @@ export function registerFrontendExperience(
           channel: String(r.channel),
           pending: Number(r.pending ?? 0),
           sent:    Number(r.sent    ?? 0),
-          failed:  Number(r.failed  ?? 0)
+          failed:  Number(r.failed  ?? 0),
+          blocked: Number(r.blocked ?? 0)
         })),
         recent_events: recentEvents.rows.map((r: any) => ({
           notification_id: String(r.notification_id),
           event_type: String(r.event_type),
           recipient_type: String(r.recipient_type),
+          recipient_masked: maskNotificationRecipient(String(r.channel), r.recipient_ref),
           channel: String(r.channel),
           status: String(r.status),
           deal_id: r.deal_id,
           deal_title: r.deal_title,
           participant_id: r.participant_id,
           seller_id: r.seller_id,
+          correlation_id: r.correlation_id ?? null,
           scheduled_for: r.scheduled_for,
           sent_at: r.sent_at,
           created_at: r.created_at,
           last_error: r.last_error,
           attempts: Number(r.attempts ?? 0),
+          attempt_count: Number(r.attempt_count ?? 0),
           adapter: r.last_provider || (deps.notificationSummary.external_delivery ? deps.notificationSummary.provider : "log-only"),
           adapter_mode: r.last_provider_mode || (deps.notificationSummary.external_delivery ? deps.notificationSummary.mode : "log-only")
         }))
@@ -7985,6 +7959,57 @@ export function registerFrontendExperience(
     });
   };
   app.get("/api/admin/notifications-status", notificationStatusHandler);
+
+  // ── One notification, operator view ───────────────────────────────────────
+  // What WOULD be / was sent: rendered subject + body with tokens, phone
+  // numbers and e-mails redacted, the masked destination, every attempt, the
+  // business correlation, and the safety verdict for the current provider mode
+  // plus the real-mode shadow verdict. Never the raw destination or a link
+  // credential. Read-only; admin read guard.
+  app.get("/api/admin/notifications/:notificationId", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const notificationId = String(req.params?.notificationId || "").trim();
+    requireUuid(notificationId, "notification_id");
+    return deps.withTx(async (c) => {
+      const event = await c.query(
+        `SELECT ne.*, d.title AS deal_title
+         FROM siton.notification_events ne
+         LEFT JOIN siton.deals d ON d.deal_id = ne.deal_id
+         WHERE ne.notification_id = $1
+         LIMIT 1`,
+        [notificationId]
+      );
+      if (!event.rowCount) return reply.code(404).send({ ok: false, error: "notification_not_found" });
+      const attempts = await c.query(
+        `SELECT attempt_id, provider, provider_mode, result_status, provider_message_id, error_code, error_message, created_at
+         FROM siton.notification_attempts
+         WHERE notification_id = $1
+         ORDER BY created_at ASC, attempt_id ASC`,
+        [notificationId]
+      );
+      const row = event.rows[0] as any;
+      const view = describeNotificationForOperator(row, deps.notificationSummary.mode);
+      return {
+        ok: true,
+        notification: { ...view, deal_title: row.deal_title ?? null },
+        attempts: attempts.rows.map((a: any) => ({
+          attempt_id: Number(a.attempt_id),
+          provider: String(a.provider),
+          provider_mode: String(a.provider_mode),
+          result_status: String(a.result_status),
+          provider_message_id: a.provider_message_id ?? null,
+          error_code: a.error_code ?? null,
+          error_message: a.error_message ?? null,
+          created_at: a.created_at
+        })),
+        provider: {
+          code: deps.notificationSummary.provider,
+          mode: deps.notificationSummary.mode,
+          external_delivery: deps.notificationSummary.external_delivery
+        }
+      };
+    });
+  });
   app.get("/api/admin/notifications/status", notificationStatusHandler);
 
   // ── Invoice documents operational status ─────────────────────────────────
@@ -8651,7 +8676,8 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any, reply: any) => {
-    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "admin_users.manage");
+    if (!adminIdentity) return;
     const subjectType = String(req.params.subjectType || "").trim();
     const subjectId = String(req.params.subjectId || "").trim();
     const decision = String(req.body?.decision || "").trim();
@@ -8670,15 +8696,21 @@ export function registerFrontendExperience(
       requireUuid(subjectId, "affiliate_id");
     }
 
+    // PILOT COMMUNICATIONS — an optional SELLER-FACING reason (bounded,
+    // sanitized). The internal admin_note is never forwarded to the seller.
+    const sellerReason = sanitizeSellerFacingReason(req.body?.seller_reason);
+
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const nextStatus = decision === "approve" ? "approved" : "rejected";
       if (subjectType === "seller") {
         const updated = await c.query(
-          `UPDATE siton.seller_accounts
+          `UPDATE siton.seller_accounts sa
            SET verification_status = $2, admin_note = $3, updated_at = now()
-           WHERE seller_id = $1
-           RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
+           FROM (SELECT seller_id, verification_status AS previous_status FROM siton.seller_accounts WHERE seller_id = $1 FOR UPDATE) prev
+           WHERE sa.seller_id = prev.seller_id
+           RETURNING sa.seller_id AS subject_id, sa.verification_status AS status, sa.admin_note,
+                     prev.previous_status, sa.display_name, sa.business_name`,
           [subjectId, nextStatus, adminNote]
         );
         if (!updated.rowCount) {
@@ -8686,7 +8718,53 @@ export function registerFrontendExperience(
           err.statusCode = 404;
           throw err;
         }
-        return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+        const row = updated.rows[0] as any;
+        const previousStatus = String(row.previous_status || "");
+        let notification: { result: string; ordinal: number | null } = { result: "not_needed", ordinal: null };
+        // A decision that changes nothing (double submit, HTTP retry) is not a
+        // new business fact: no audit row, no second notification. A real
+        // change is recorded in seller_security_events and the notification is
+        // keyed on that decision's ordinal — both commit with the status row.
+        if (previousStatus !== nextStatus) {
+          const ordinalRow = await c.query(
+            `SELECT COUNT(*)::int + 1 AS ordinal FROM siton.seller_security_events
+             WHERE seller_id = $1 AND event_type = 'seller.kyc.decision'`,
+            [subjectId]
+          );
+          const ordinal = Number(ordinalRow.rows[0]?.ordinal || 1);
+          const requestId = String(req.headers?.["x-request-id"] || `kyc-decision:${subjectId}:${ordinal}`);
+          await c.query(
+            `INSERT INTO siton.seller_security_events
+               (seller_id, event_type, from_status, to_status, actor_ref, reason, request_id, idempotency_key, payload)
+             VALUES ($1, 'seller.kyc.decision', $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              subjectId,
+              previousStatus || null,
+              nextStatus,
+              adminActorRef(adminIdentity, "admin"),
+              sellerReason,
+              requestId,
+              `kyc-decision:${subjectId}:${ordinal}`,
+              JSON.stringify({ decision, ordinal, seller_reason_present: Boolean(sellerReason) })
+            ]
+          );
+          const queued = await enqueueSellerKycDecisionNotification(c, {
+            seller_id: subjectId,
+            decision: nextStatus === "approved" ? "approved" : "rejected",
+            ordinal,
+            seller_name: String(row.business_name || row.display_name || ""),
+            seller_reason: sellerReason || null,
+            origin: canonicalPublicOrigin() || publicOrigin(req),
+            correlation_id: requestId
+          });
+          notification = { result: queued.result, ordinal };
+        }
+        return {
+          ok: true,
+          subject_type: subjectType,
+          result: { subject_id: row.subject_id, status: row.status, admin_note: row.admin_note },
+          notification
+        };
       }
 
       const affiliateNextStatus = decision === "approve" ? "verified" : "rejected";
@@ -10676,28 +10754,25 @@ export function registerFrontendExperience(
     });
   });
 
+  // SPRINT 4 (A8) — the virality dashboard is WINDOWED: default last 7 days,
+  // presets 7/30/90, a custom [from,to) range (UTC instants; the UI enters
+  // Israel-local days) or all time. The window drives every number in
+  // `windowed`; the lifetime rollup stays a separate, explicitly labelled block.
   app.get("/api/admin/growth", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
+    const resolved = resolveGrowthWindow(req.query || {});
+    if (!resolved.ok) return reply.code(400).send({ ok: false, error: resolved.error, message: resolved.message_he });
+    const window = resolved.window;
     return deps.withTx(async (c) => {
       const platform = await readViralMetricsCache(c, "platform", "global");
-      const recentEvents = await c.query(
-        `SELECT event_type, COUNT(*)::int AS cnt
-         FROM siton.viral_events
-         WHERE created_at > now() - interval '7 days'
-         GROUP BY event_type`
-      );
-      const recentAttributed = await c.query(
-        `SELECT COUNT(*)::int AS cnt
-         FROM siton.viral_attributions
-         WHERE origin_ref_type <> 'none' AND created_at > now() - interval '7 days'`
-      );
+      const windowed = await computeGrowthWindowMetrics(c, window);
       return {
         ok: true,
-        platform,
-        last_7_days: {
-          funnel_events: Object.fromEntries(recentEvents.rows.map((r: any) => [String(r.event_type), Number(r.cnt)])),
-          attributed_joins: Number(recentAttributed.rows[0]?.cnt || 0)
-        }
+        window,
+        windowed,
+        lifetime: { ...platform, label_he: "מצטבר מאז ההשקה (כל הזמן)" },
+        // kept for older readers of this payload; identical to `lifetime`
+        platform
       };
     });
   });
@@ -11525,33 +11600,44 @@ export function registerFrontendExperience(
   });
 
   // Admin: buyers/participants roster (aggregated by buyer identity).
+  // SPRINT 4 (A6) — intent-sensitive search (src/buyer_search_intent.ts):
+  // letters → NAME only, digits → phone, "@" → e-mail, CT-… → order code,
+  // UUID → technical id. The predicate runs on the DISPLAYED values of the
+  // aggregated buyer row (a name query surfaces the participation name that
+  // matched), so the admin can never see a hit whose visible name lacks the
+  // query, and every row says why it matched.
   app.get("/api/admin/r6/buyers", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
-    const q = String(req.query?.q || "").trim().slice(0, 120);
+    const plan = classifyBuyerSearch(req.query?.q);
+    const rank = buyerNameRankSql(plan, "p", 1);
+    const predicate = buyerSearchPredicateSql(plan, "agg", 1 + rank.params.length);
     return deps.withTx(async (c) => {
       const rows = await c.query(
-        `SELECT p.buyer_id,
-                MAX(p.buyer_name) AS buyer_name,
-                MAX(p.buyer_phone) AS buyer_phone,
-                MAX(p.buyer_email) AS buyer_email,
-                COUNT(*)::int AS participations,
-                COUNT(DISTINCT p.deal_id)::int AS deals,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
-                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
-                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
-                COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
-                (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
-                (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
-                MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
-                MAX(p.created_at) AS last_join_at
-         FROM siton.participants p
-         JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%' OR p.buyer_phone ILIKE '%' || $1 || '%')
-         GROUP BY p.buyer_id
+        `WITH agg AS (
+           SELECT p.buyer_id,
+                  (ARRAY_AGG(p.buyer_name ORDER BY (p.buyer_name IS NOT NULL) DESC, ${rank.sql}p.created_at DESC))[1] AS buyer_name,
+                  (ARRAY_AGG(p.buyer_phone ORDER BY (p.buyer_phone IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_phone,
+                  (ARRAY_AGG(p.buyer_email ORDER BY (p.buyer_email IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_email,
+                  COUNT(*)::int AS participations,
+                  COUNT(DISTINCT p.deal_id)::int AS deals,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                  COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                    FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                  COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                  (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
+                  (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
+                  MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
+                  MAX(p.created_at) AS last_join_at
+           FROM siton.participants p
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           GROUP BY p.buyer_id
+         )
+         SELECT * FROM agg
+         WHERE ${predicate.sql}
          ORDER BY last_join_at DESC
          LIMIT 200`,
-        [q]
+        [...rank.params, ...predicate.params]
       );
       // Verification is REAL, never fabricated: a contact is verified ONLY if a
       // verified OTP challenge exists for its normalized-destination hash (same
@@ -11578,9 +11664,15 @@ export function registerFrontendExperience(
       const buyers = rows.rows.map((b: any) => ({
         ...b,
         email_verified: emailHashes.has(String(b.buyer_id)) && verified.has(`email:${emailHashes.get(String(b.buyer_id))}`),
-        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`)
+        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`),
+        match: plan.intent === "empty" ? null : { field: plan.intent, label_he: plan.match_label_he }
       }));
-      return { ok: true, buyers, contact_privacy: "admin_only" };
+      return {
+        ok: true,
+        buyers,
+        contact_privacy: "admin_only",
+        search: { intent: plan.intent, label_he: plan.label_he, normalized: plan.normalized, tokens: plan.tokens }
+      };
     });
   });
 
@@ -11911,12 +12003,21 @@ export function registerFrontendExperience(
   // legacy vanilla app stays reachable at /app for anyone who links to it
   // directly, but nobody who types the domain ends up in the wrong frontend.
   app.get("/", async (_req, reply) => reply.redirect("/preview/", 302));
+  // SPRINT 4 (A4) — the legal documents are rendered natively by the React
+  // product (#/legal/terms, #/legal/privacy, #/legal/refunds, …) from the ONE
+  // canonical source (src/legal_pages.ts) over this JSON projection. The
+  // direct legacy URLs (/legal/terms …) keep working: they redirect into the
+  // canonical React experience, so every old link, the legacy /app shell and
+  // the seller flows land on the same document.
+  app.get("/api/legal/:slug", async (req: any, reply) => {
+    const slug = String(req.params.slug || "");
+    if (!isLegalPageSlug(slug)) return reply.code(404).send({ ok: false, error: "legal page not found" });
+    return { ok: true, page: legalPageProjection(slug) };
+  });
   app.get("/legal/:slug", async (req: any, reply) => {
-    const slug = String(req.params.slug || "") as LegalPageSlug;
-    if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {
-      return reply.code(404).send({ ok: false, error: "legal page not found" });
-    }
-    return reply.type("text/html; charset=utf-8").send(renderLegalHtmlPage(slug));
+    const slug = String(req.params.slug || "");
+    if (!isLegalPageSlug(slug)) return reply.code(404).send({ ok: false, error: "legal page not found" });
+    return reply.header("cache-control", "no-store").redirect(`/preview/#/legal/${slug}`, 302);
   });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);

@@ -1,5 +1,5 @@
 import { assertRequiredTables } from "./schema_contract.js";
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import pg from "pg";
 import {
   getTemplateDefinition,
@@ -15,10 +15,25 @@ import {
 
 const { Pool } = pg;
 
-import { evaluateNotificationRecipientSafety } from "./notification_safety.js";
+import {
+  evaluateNotificationRecipientSafety,
+  explainNotificationRecipientSafety,
+  maskNotificationRecipient,
+  redactNotificationText
+} from "./notification_safety.js";
 import { NOTIFICATION_MAX_ATTEMPTS } from "./runtime_config.js";
 
-export type NotificationProviderMode = "dev" | "real" | "disabled" | "log-only";
+/**
+ * Provider modes:
+ *   dev / log-only — internal log provider, nothing leaves the system.
+ *   disabled       — every notification is recorded as skipped.
+ *   dry-run        — PILOT REHEARSAL: the real rail (claim, safety gate,
+ *                    rendering, attempt recording) runs end-to-end and the
+ *                    provider records what WOULD have been sent. Zero network.
+ *   real           — a verified external adapter. None exists in this
+ *                    repository; requesting it fails closed at construction.
+ */
+export type NotificationProviderMode = "dev" | "real" | "disabled" | "log-only" | "dry-run";
 export type NotificationResultStatus = "success" | "temporary_fail" | "permanent_fail" | "skipped";
 
 export type NotificationForProvider = {
@@ -38,6 +53,25 @@ export type NotificationProviderResult = {
   error_message?: string | null;
 };
 
+/**
+ * PROVIDER-READY CONTRACT (docs/PILOT_COMMUNICATIONS_READINESS.md §real adapter).
+ * A future real adapter implements `send` and must:
+ *   - return `success` ONLY after the provider accepted the message and
+ *     returned a provider message id (stored in notification_attempts);
+ *   - map provider throttling / 5xx / timeouts to `temporary_fail` (the rail
+ *     retries with bounded exponential backoff, then terminates as failed);
+ *   - map invalid destination / rejected content / 4xx to `permanent_fail`;
+ *   - never throw for a provider outcome (a thrown error is treated as a
+ *     temporary failure and counts toward the attempt budget);
+ *   - never log the full destination or the rendered body — use
+ *     maskNotificationRecipient / redactNotificationText;
+ *   - expect at-least-once invocation: a crash between provider acceptance and
+ *     the attempt row is reclaimed and retried, so pass `notification_id` as
+ *     the provider-side idempotency key where the provider supports one;
+ *   - be reachable only through mode === "real", which additionally requires
+ *     NOTIFICATION_DELIVERY_ENABLED=1, the channel switch and, outside
+ *     production, the explicit recipient allowlist (notification_safety.ts).
+ */
 export interface NotificationProvider {
   readonly providerCode: string;
   readonly mode: NotificationProviderMode;
@@ -94,7 +128,7 @@ class LogNotificationProvider implements NotificationProvider {
       event_type: notification.event_type,
       channel: notification.channel,
       recipient_type: notification.recipient_type,
-      recipient_ref: notification.recipient_ref,
+      recipient_masked: maskNotificationRecipient(notification.channel, notification.recipient_ref),
       provider_message_id: providerMessageId
     });
 
@@ -103,6 +137,48 @@ class LogNotificationProvider implements NotificationProvider {
 
   async sendSms(_to: string, _body: string): Promise<{ messageId: string }> {
     return { messageId: `log_${randomUUID()}` };
+  }
+}
+
+/**
+ * Pilot rehearsal provider. Exercises every real step of the rail except the
+ * external I/O: the rendered message is validated, the destination is masked
+ * and a deterministic provider message id is returned so an operator can
+ * correlate repeated rehearsals. It never opens a socket.
+ */
+export class DryRunNotificationProvider implements NotificationProvider {
+  readonly providerCode = "dry-run";
+  readonly mode: NotificationProviderMode = "dry-run";
+
+  constructor(private logger: Pick<Console, "info"> = console) {}
+
+  async send(notification: NotificationForProvider): Promise<NotificationProviderResult> {
+    const rendered = renderNotification(
+      notification.event_type,
+      notification.channel,
+      notification.payload_jsonb,
+      notification.template_key
+    );
+    if (!rendered || !rendered.body.trim()) {
+      return {
+        status: "skipped",
+        error_code: "notification_template_not_supported",
+        error_message: "Template is not compatible with channel"
+      };
+    }
+    const providerMessageId = `dryrun_${createHash("sha256").update(`dry-run:${notification.notification_id}`).digest("hex").slice(0, 24)}`;
+    this.logger.info("[notification.dry-run] would send", {
+      notification_id: notification.notification_id,
+      event_type: notification.event_type,
+      channel: notification.channel,
+      recipient_type: notification.recipient_type,
+      recipient_masked: maskNotificationRecipient(notification.channel, notification.recipient_ref),
+      subject: rendered.subject ? redactNotificationText(rendered.subject) : null,
+      body_chars: rendered.body.length,
+      provider_message_id: providerMessageId,
+      external_delivery: false
+    });
+    return { status: "success", provider_message_id: providerMessageId };
   }
 }
 
@@ -120,6 +196,8 @@ export function buildNotificationProvider(
       `NOTIFICATION_PROVIDER_MODE=real requires a verified real notification adapter; provider "${provider}" has none. Real delivery stays disabled until a provider adapter passes the communications safety gate.`
     );
   }
+
+  if (mode === "dry-run" || provider === "dry-run") return new DryRunNotificationProvider(logger);
 
   // 'log' and the deployment alias 'log-only' are the same internal provider.
   if (provider !== "log" && provider !== "log-only") {
@@ -165,11 +243,9 @@ export type EnqueueNotificationInput = {
 
 type LegacyEventType =
   | "join_authorized"
-  | "charge_succeeded"
   | "charge_failed_recovery"
   | "deal_completed"
   | "deal_failed"
-  | "refund_issued"
   | "deal_cancelled";
 
 export type LegacyEnqueueParams = {
@@ -184,11 +260,9 @@ export type LegacyEnqueueParams = {
 function normalizeLegacyInput(params: LegacyEnqueueParams): EnqueueNotificationInput {
   const eventMap: Record<LegacyEventType, NotificationEventType> = {
     join_authorized: "buyer_joined_authorized",
-    charge_succeeded: "buyer_payment_recovered",
     charge_failed_recovery: "buyer_recovery_required",
     deal_completed: "buyer_deal_completed",
     deal_failed: "buyer_deal_failed",
-    refund_issued: "buyer_deal_failed",
     deal_cancelled: "buyer_deal_failed"
   };
   const channel = params.channel === "log" ? "internal" : params.channel;
@@ -220,6 +294,50 @@ function buildIdempotencyKey(input: EnqueueNotificationInput): string {
   ].join(":");
 }
 
+// ── Payload hygiene ──────────────────────────────────────────────────────────
+// A notification payload is rendered into an outbound message. It must never
+// carry a credential, a card number, a raw voucher/ticket code or an unbounded
+// blob. Sanctioned link fields (tracking_url / inquiry_url / deal_url /
+// workspace_url) may carry the tokenized product link — that IS the message.
+const PAYLOAD_MAX_BYTES = 8 * 1024;
+const PAYLOAD_STRING_MAX = 2000;
+const PAYLOAD_FORBIDDEN_KEYS = /(password|passwd|secret|api[_-]?key|private[_-]?key|card[_-]?(?:number|code|security)|security[_-]?code|\bpan\b|plaintext_code|voucher_code\b|ticket_code\b|auth_secret|bearer)/i;
+const PAYLOAD_SECRET_PATTERNS: RegExp[] = [
+  /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
+  /\bAKIA[0-9A-Z]{16}\b/,
+  /\bgh[pousr]_[A-Za-z0-9_]{30,}\b/,
+  /\bxox[baprs]-[A-Za-z0-9-]{20,}\b/,
+  /\bsk_(?:live|test)_[A-Za-z0-9]{16,}\b/,
+  /\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\b/,
+  /\b(?:\d[ -]?){13,19}\b/
+];
+const PAYLOAD_LINK_KEYS = new Set(["tracking_url", "inquiry_url", "deal_url", "workspace_url"]);
+
+function assertPayloadHygiene(payload: Record<string, unknown>) {
+  const serialized = JSON.stringify(payload);
+  if (Buffer.byteLength(serialized, "utf8") > PAYLOAD_MAX_BYTES) {
+    throw new NotificationValidationError("notification_payload_too_large");
+  }
+  for (const [key, value] of Object.entries(payload)) {
+    if (PAYLOAD_FORBIDDEN_KEYS.test(key)) {
+      throw new NotificationValidationError("notification_payload_forbidden_field", key);
+    }
+    if (typeof value === "string") {
+      if (value.length > PAYLOAD_STRING_MAX) {
+        throw new NotificationValidationError("notification_payload_field_too_long", key);
+      }
+      if (PAYLOAD_LINK_KEYS.has(key)) continue;
+      for (const pattern of PAYLOAD_SECRET_PATTERNS) {
+        if (pattern.test(value)) {
+          throw new NotificationValidationError("notification_payload_secret_like_value", key);
+        }
+      }
+    } else if (value !== null && typeof value === "object") {
+      throw new NotificationValidationError("notification_payload_nested_value", key);
+    }
+  }
+}
+
 function validateEnqueueInput(input: EnqueueNotificationInput): Required<Pick<EnqueueNotificationInput, "template_key" | "locale" | "payload_jsonb">> {
   if (!isNotificationEventType(input.event_type)) {
     throw new NotificationValidationError("invalid_notification_event_type");
@@ -247,6 +365,7 @@ function validateEnqueueInput(input: EnqueueNotificationInput): Required<Pick<En
       throw new NotificationValidationError("notification_payload_missing_required_field", field);
     }
   }
+  assertPayloadHygiene(payload);
   return { template_key: templateKey, locale: input.locale || "he-IL", payload_jsonb: payload };
 }
 
@@ -283,6 +402,117 @@ export async function enqueueNotification(
   return (result.rowCount ?? 0) > 0 ? "queued" : "duplicate";
 }
 
+/** True when a row with this idempotency key already exists (any status). */
+export async function notificationExists(db: pg.Pool | pg.PoolClient, idempotencyKey: string): Promise<boolean> {
+  const r = await db.query(`SELECT 1 FROM siton.notification_events WHERE idempotency_key=$1 LIMIT 1`, [idempotencyKey]);
+  return (r.rowCount ?? 0) > 0;
+}
+
+/**
+ * Run a notification side effect INSIDE a business transaction without ever
+ * being able to abort it. A failure (validation, permission, constraint) is
+ * rolled back to the savepoint, reported to the caller, and the surrounding
+ * canonical transition still commits: a notification bug must never block
+ * money or deal truth, and a notification must never announce something the
+ * enclosing transaction later rolls back.
+ */
+export async function withNotificationSavepoint<T>(
+  c: { query: (sql: string, params?: unknown[]) => Promise<unknown> },
+  fn: () => Promise<T>,
+  logger: Pick<Console, "error"> = console
+): Promise<{ ok: true; value: T } | { ok: false; error: string }> {
+  const name = `notif_${randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  await c.query(`SAVEPOINT ${name}`);
+  try {
+    const value = await fn();
+    await c.query(`RELEASE SAVEPOINT ${name}`);
+    return { ok: true, value };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await c.query(`ROLLBACK TO SAVEPOINT ${name}`).catch(() => undefined);
+    await c.query(`RELEASE SAVEPOINT ${name}`).catch(() => undefined);
+    logger.error("[notification.savepoint] side effect rolled back; business transaction continues", { error: message });
+    return { ok: false, error: message };
+  }
+}
+
+// ── Operator projection ──────────────────────────────────────────────────────
+export type NotificationOperatorView = {
+  notification_id: string;
+  event_type: string;
+  recipient_type: string;
+  recipient_masked: string;
+  channel: string;
+  template_key: string;
+  status: string;
+  attempt_count: number;
+  subject: string | null;
+  body_preview: string | null;
+  render_ok: boolean;
+  last_error: string | null;
+  why: {
+    deal_id: string | null;
+    participant_id: string | null;
+    seller_id: string | null;
+    correlation_id: string | null;
+    idempotency_key: string;
+    money_mode: string | null;
+  };
+  timing: {
+    created_at: string | null;
+    scheduled_for: string | null;
+    sent_at: string | null;
+    updated_at: string | null;
+  };
+  safety: ReturnType<typeof explainNotificationRecipientSafety>;
+};
+
+/**
+ * What an operator may see about one notification: the rendered message with
+ * tokens / phone numbers / e-mails redacted, the masked destination, why it
+ * exists (business correlation) and how the safety gate treats it in the
+ * current provider mode and in a future real mode. Never the raw destination,
+ * never a tokenized link.
+ */
+export function describeNotificationForOperator(row: Record<string, any>, providerMode: string): NotificationOperatorView {
+  const payload = row.payload_jsonb && typeof row.payload_jsonb === "object" ? (row.payload_jsonb as Record<string, unknown>) : {};
+  const rendered = renderNotification(String(row.event_type), String(row.channel), payload, row.template_key);
+  const iso = (value: unknown) => (value ? new Date(String(value)).toISOString() : null);
+  return {
+    notification_id: String(row.notification_id),
+    event_type: String(row.event_type),
+    recipient_type: String(row.recipient_type),
+    recipient_masked: maskNotificationRecipient(String(row.channel), row.recipient_ref),
+    channel: String(row.channel),
+    template_key: String(row.template_key),
+    status: String(row.status),
+    attempt_count: Number(row.attempt_count ?? 0),
+    subject: rendered?.subject ? redactNotificationText(rendered.subject) : null,
+    body_preview: rendered ? redactNotificationText(rendered.body) : null,
+    render_ok: Boolean(rendered),
+    last_error: row.last_error ? redactNotificationText(row.last_error) : null,
+    why: {
+      deal_id: row.deal_id ? String(row.deal_id) : null,
+      participant_id: row.participant_id ? String(row.participant_id) : null,
+      seller_id: row.seller_id ? String(row.seller_id) : null,
+      correlation_id: row.correlation_id ? String(row.correlation_id) : null,
+      idempotency_key: String(row.idempotency_key),
+      money_mode: typeof payload.money_mode === "string" ? payload.money_mode : null
+    },
+    timing: {
+      created_at: iso(row.created_at),
+      scheduled_for: iso(row.scheduled_for),
+      sent_at: iso(row.sent_at),
+      updated_at: iso(row.updated_at)
+    },
+    safety: explainNotificationRecipientSafety({
+      channel: String(row.channel),
+      recipient: row.recipient_ref,
+      providerMode
+    })
+  };
+}
+
 const NOTIFICATION_BATCH_SIZE = 20;
 
 function maxNotificationAttempts(): number {
@@ -315,7 +545,7 @@ async function recordAttempt(
       result.status,
       result.provider_message_id || null,
       result.error_code || null,
-      result.error_message || null
+      result.error_message ? redactNotificationText(result.error_message).slice(0, 500) : null
     ]
   );
 }
@@ -343,6 +573,7 @@ export async function flushPendingNotifications(
   const maxAttempts = maxNotificationAttempts();
 
   const applyTemporaryFailure = async (notification: ClaimedNotification, message: string) => {
+    message = redactNotificationText(message);
     const attemptNumber = Number(notification.attempt_count || 0) + 1;
     if (attemptNumber >= maxAttempts) {
       // Bounded retries: terminal failure with visible reason instead of an
@@ -369,7 +600,8 @@ export async function flushPendingNotifications(
     try {
       // Shared communications safety gate: evaluated BEFORE any provider I/O.
       // A real-mode provider may only reach an allowlisted/approved recipient;
-      // internal-only modes always pass (they never leave the system).
+      // dry-run validates the destination like a real adapter would; internal
+      // modes always pass (they never leave the system).
       const safety = evaluateNotificationRecipientSafety({
         channel: notification.channel,
         recipient: notification.recipient_ref,
@@ -432,7 +664,7 @@ export async function flushPendingNotifications(
           `UPDATE siton.notification_events
            SET status='skipped', processing_started_at=NULL, last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
-          [notification.notification_id, result.error_message || result.error_code || "skipped"]
+          [notification.notification_id, redactNotificationText(result.error_message || result.error_code || "skipped")]
         );
       } else if (result.status === "temporary_fail") {
         await applyTemporaryFailure(notification, result.error_message || result.error_code || "temporary_fail");
@@ -442,7 +674,7 @@ export async function flushPendingNotifications(
            SET status='failed', attempt_count=attempt_count+1, processing_started_at=NULL,
                last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
-          [notification.notification_id, result.error_message || result.error_code || "permanent_fail"]
+          [notification.notification_id, redactNotificationText(result.error_message || result.error_code || "permanent_fail")]
         );
       }
       processed++;
@@ -454,7 +686,7 @@ export async function flushPendingNotifications(
         error_message: message
       }).catch(() => undefined);
       await applyTemporaryFailure(notification, message).catch(() => undefined);
-      logger.error("[notification.flush] provider exception", { notification_id: notification.notification_id, error: message });
+      logger.error("[notification.flush] provider exception", { notification_id: notification.notification_id, error: redactNotificationText(message) });
       processed++;
     }
   }

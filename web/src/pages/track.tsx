@@ -40,7 +40,10 @@ function nextSteps(t: Json): string[] {
 
 export function TrackPage({ participantId, token }: { participantId: string; token: string }) {
   const [payload, setPayload] = useState<Json | null>(null);
-  const [impact, setImpact] = useState<Json | null>(null);
+  // SPRINT 4 (A3) — the buyer only ever sees their personal share identity.
+  // The propagation tree (children / generations / branch depth) is seller +
+  // admin backstage tooling and never reaches a buyer surface.
+  const [shareIdentity, setShareIdentity] = useState<Json | null>(null);
   const [error, setError] = useState<{ kind: "link" | "gone" | "network" | "busy" | "other"; message: string } | null>(null);
   const [toast, showToast] = useToast();
   const [notifLine, setNotifLine] = useState(NOTIFICATIONS_OFF_LINE);
@@ -65,7 +68,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
   }, [participantId, token]);
 
   useEffect(() => {
-    api.impact(participantId, token).then((r) => setImpact(r.impact)).catch(() => undefined);
+    api.shareIdentity(participantId, token).then((r) => setShareIdentity(r.impact)).catch(() => undefined);
     notificationsLine().then(setNotifLine).catch(() => undefined);
   }, [participantId, token]);
 
@@ -196,31 +199,18 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
           {/* LAUNCH POLISH 2 (P5) — the share loop: the deal depends on aggregation */}
           <div className="panel" data-testid="track-share">
             <div className="panel-title">🌱 {SHARE_LOOP_TITLE}</div>
-            {impact ? (
-              <>
-                <div className="impact-stats">
-                  <div className="impact-stat"><div className="num">{num(impact.direct_children)}</div><div className="lbl">מצטרפים שהבאת</div></div>
-                  <div className="impact-stat"><div className="num">{num(impact.units_joined_via_branch)}</div><div className="lbl">יחידות דרך השרשרת שלך</div></div>
-                  <div className="impact-stat"><div className="num">{num(impact.branch_depth)}</div><div className="lbl">דורות בענף שלך</div></div>
-                </div>
-                {Number(impact.descendants) > 0 ? (
-                  <p className="muted small" style={{ marginTop: 10, textAlign: "center" }}>
-                    בסך הכול {num(impact.descendants)} מצטרפים בענף שלך 🎉
-                  </p>
-                ) : (
-                  <p className="muted small" style={{ marginTop: 10, textAlign: "center" }}>
-                    שתפו את הקישור האישי — כל מצטרף דרככם נספר כאן ומקרב את העסקה ליעד.
-                  </p>
-                )}
-              </>
-            ) : <p className="muted small">טוען…</p>}
+            {/* SPRINT 4 (A3) — no propagation counters here: the buyer gets the
+                simple share loop only; the tree lives in the seller/admin backstage. */}
+            <p className="muted small" style={{ marginTop: 4, textAlign: "center" }} data-testid="track-share-note">
+              שתפו את הקישור האישי — כל מצטרף דרככם מקרב את העסקה ליעד.
+            </p>
             <div style={{ marginTop: 12 }}>
               <ShareActions
                 layout="loop"
                 dealId={t.deal_id}
                 title={t.deal_title}
                 price={Number(t.price_per_unit)}
-                code={impact?.personal_share_code || null}
+                code={shareIdentity?.personal_share_code || null}
                 onNotify={showToast}
               />
             </div>

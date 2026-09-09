@@ -128,7 +128,7 @@ await run("DRAFT PREVIEW: same renderer in read-only mode — no join/share/chat
   assert.match(dealPage, /preview \? api\.sellerDealPreview\(dealId\) : api\.deal\(dealId\)/);
   assert.match(dealPage, /if \(!preview\) \{\s*\n\s*\/\/ real public traffic only[^\n]*\n\s*sendFunnelEvent\(dealId, "deal_view"/);
   assert.match(dealPage, /data-testid="preview-banner"/);
-  assert.match(dealPage, /data-testid="join-open" disabled=\{preview\}/);
+  assert.match(dealPage, /data-testid="join-open" disabled=\{preview \|\| !qtyValid\}/);
   assert.match(dealPage, /data-testid="share-preview-note"/);
   assert.match(dealPage, /canWrite=\{!preview && OPEN_STATES\.includes\(state\)\}/);
   assert.match(dealPage, /data-testid="inquiry-open" onClick=\{onOpen\} disabled=\{preview\}/);
@@ -192,11 +192,20 @@ await run("pickup rule: generic labels are not locations; address text or coordi
   assert.equal(hasUsablePickupLocation({ option_type: "delivery", label: "" }), true);
   assert.equal(isPickupOptionType("distribution_point"), true);
   assert.equal(isPickupOptionType("delivery"), false);
+  // SPRINT 4 (A1): the projection also carries the precision + the two-app navigation block
   assert.deepEqual(
     describePickupLocation({ option_type: "pickup", label: "איסוף עצמי", latitude: 31.7683, longitude: 35.2137 }),
-    { location_text: null, has_location: true, map_url: "https://www.google.com/maps/search/?api=1&query=31.7683,35.2137" }
+    {
+      location_text: null, has_location: true, map_url: "https://www.google.com/maps/search/?api=1&query=31.7683,35.2137",
+      precision: "exact",
+      navigation: {
+        exact: true, mode: "coordinates",
+        google_maps_url: "https://www.google.com/maps/dir/?api=1&destination=31.7683%2C35.2137",
+        waze_url: "https://waze.com/ul?ll=31.7683%2C35.2137&navigate=yes"
+      }
+    }
   );
-  assert.deepEqual(describePickupLocation({ option_type: "delivery", label: "משלוח" }), { location_text: null, has_location: false, map_url: null });
+  assert.deepEqual(describePickupLocation({ option_type: "delivery", label: "משלוח" }), { location_text: null, has_location: false, map_url: null, precision: "none", navigation: null });
   const missing = pickupOptionsMissingLocation([
     { option_type: "pickup", label: "איסוף עצמי" },
     { option_type: "pickup", label: "הרצל 1" },

@@ -942,3 +942,55 @@ export const LEGAL_PAGE_ORDER: LegalPageSlug[] = [
   "demo",
   "payments"
 ];
+
+// SPRINT 4 (A4) — ONE canonical legal content source, ONE parser.
+// The React product renders the documents natively from the JSON projection
+// (`GET /api/legal/:slug`), so the Hebrew text lives here and nowhere else.
+// The body grammar is deliberately tiny: `# ` (title), `## ` (section),
+// blank-line separated paragraphs; single newlines inside a paragraph are
+// line breaks. No links, no lists, no emphasis — nothing that could be
+// mis-rendered as a different legal meaning.
+
+/** The visible legal nav stays lean: the core buyer documents only (P0.3-12). */
+export const LEGAL_CORE_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds"];
+
+export const LEGAL_VERSION_NOTICE = "גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.";
+
+export type LegalBlock =
+  | { type: "h1"; text: string }
+  | { type: "h2"; text: string }
+  | { type: "p"; lines: string[] };
+
+export function parseLegalBlocks(markdown: string): LegalBlock[] {
+  const blocks: LegalBlock[] = [];
+  for (const block of String(markdown || "").split(/\n{2,}/)) {
+    const trimmed = block.trim();
+    if (!trimmed) continue;
+    if (trimmed.startsWith("# ")) blocks.push({ type: "h1", text: trimmed.slice(2).trim() });
+    else if (trimmed.startsWith("## ")) blocks.push({ type: "h2", text: trimmed.slice(3).trim() });
+    else blocks.push({ type: "p", lines: trimmed.split("\n").map((line) => line.trim()) });
+  }
+  return blocks;
+}
+
+export function isLegalPageSlug(value: unknown): value is LegalPageSlug {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(LEGAL_PAGES, value);
+}
+
+/** The wire projection the React product renders — content only, no markup. */
+export function legalPageProjection(slug: LegalPageSlug) {
+  const page = LEGAL_PAGES[slug];
+  const navSlugs = LEGAL_CORE_NAV.includes(slug) ? LEGAL_CORE_NAV : [...LEGAL_CORE_NAV, slug];
+  return {
+    slug: page.slug,
+    title: page.title,
+    nav_label: page.navLabel,
+    notice: LEGAL_VERSION_NOTICE,
+    blocks: parseLegalBlocks(page.body),
+    nav: LEGAL_PAGE_ORDER.filter((item) => navSlugs.includes(item)).map((item) => ({
+      slug: item,
+      nav_label: LEGAL_PAGES[item].navLabel,
+      current: item === slug
+    }))
+  };
+}

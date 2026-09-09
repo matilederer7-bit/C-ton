@@ -79,6 +79,15 @@ Legend:
 | `TWILIO_AUTH_TOKEN` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 🔒 | — | |
 | `TWILIO_FROM` | ⬜ | ⚠ if Twilio | ⚠ if Twilio | 📄 | — | E.164 sender. |
 | `NOTIFICATION_MAX_ATTEMPTS` | ⬜ | ⬜ | ⬜ | 📄 | `3` | |
+| `NOTIFICATION_PROVIDER_MODE` | ⬜ | ⬜ | ⬜ | 📄 | `dev` | `dev`/`log-only` internal log provider; `disabled`; `dry-run` = pilot rehearsal (real rail, deterministic dryrun_ message ids, ZERO network); `real` fails closed until a verified adapter exists. |
+| `NOTIFICATION_DELIVERY_ENABLED` | ⬜ | ⬜ | ⬜ | 📄 | unset | Master switch for external delivery. `1` requires `NOTIFICATION_PROVIDER_MODE=real` (boot guard). Never set in the pilot. |
+| `SMS_DELIVERY_ENABLED` / `EMAIL_DELIVERY_ENABLED` | ⬜ | ⬜ | ⬜ | 📄 | unset | Per-channel switches evaluated by the recipient safety gate in real mode only. |
+| `NOTIFICATION_RECIPIENT_ALLOWLIST` | ⬜ | ⚠ if real | ⬜ | 📄 | unset | Comma-separated E.164 numbers / e-mail addresses a real adapter may reach outside production. |
+| `NOTIFICATION_ALLOWED_EMAIL_DOMAINS` | ⬜ | ⬜ | ⬜ | 📄 | unset | Controlled e-mail domains allowed outside production (real mode). |
+| `NOTIFICATION_SYNTHETIC_RECIPIENTS` / `NOTIFICATION_SYNTHETIC_EMAIL_DOMAINS` | ⬜ | ⬜ | ⬜ | 📄 | unset | Extra destinations / domains a real adapter must never reach in production (defaults block example.com, siton.test, …). |
+| `NOTIFICATION_STUCK_TIMEOUT_MS` | ⬜ | ⬜ | ⬜ | 📄 | `300000` | Age after which a `processing` notification is reclaimed by the Worker maintenance pass. |
+| `ADMIN_ALERT_EMAIL` | ⬜ | ⬜ | ⚠ | 📄 | unset | The ONLY destination of `admin_security_alert`; unset/invalid → internal channel (admin console). |
+| `PUBLIC_BASE_URL` | ⬜ | ⬜ | ⚠ | 📄 | `RENDER_EXTERNAL_URL` | Canonical public origin for every link in a notification (custom domain later). Never localhost. |
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
 | `BUYER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs deal-bound HttpOnly buyer sessions used only for safe server-side resume. |
 | `DISTRIBUTOR_SESSION_SECRET` | ⬜ (demo context) | ⚠ | ⚠ | 🔒 | — | Required for non-demo distributor sessions and tenant resolution. |

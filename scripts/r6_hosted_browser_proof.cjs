@@ -161,7 +161,7 @@ async function main() {
         return {
           title: title.textContent,
           meter: !!document.querySelector('.gm-track.gm-lg'),
-          qty: !!document.querySelector('.qty-stepper'),
+          qty: !!document.querySelector('[data-testid="join-qty"]'),
           summary: !!document.querySelector('.order-summary'),
           share: document.querySelectorAll('.share-btn').length,
           disclosure: (document.body.textContent || '').includes('מסגרת אשראי'),

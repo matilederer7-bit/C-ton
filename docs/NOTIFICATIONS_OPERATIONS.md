@@ -1,5 +1,28 @@
 # Notification Operations
 
+> **Current rail (2026-09-09): `siton.notification_events` + `siton.notification_attempts`.**
+> The sections below this box describe the LEGACY `siton.notifications` table (migration 015) and are kept
+> for historical reference only. Pilot communications are specified in
+> `docs/PILOT_COMMUNICATIONS_READINESS.md`.
+>
+> Statuses on `notification_events`: `pending` (queued or waiting for its backoff — `scheduled_for`),
+> `processing` (claimed by the Worker; reclaimed after `NOTIFICATION_STUCK_TIMEOUT_MS`), `sent`,
+> `failed` (terminal: permanent provider failure or `max_attempts_exhausted`), `blocked` (terminal:
+> refused by the recipient safety gate before any provider call — `last_error` names the reason),
+> `skipped` (template/channel not compatible or provider disabled), `cancelled`.
+>
+> Operator surfaces: `GET /api/admin/notifications-status` (counts incl. `blocked`, `retry_scheduled`,
+> per-channel breakdown, recent events with `recipient_masked`) and
+> `GET /api/admin/notifications/:notificationId` (one row: masked destination, rendered subject + body
+> preview with tokens/phones/e-mails redacted, every attempt, business correlation, safety verdict for the
+> current provider mode and the real-mode shadow verdict). The Worker maintenance pass reclaims stranded
+> `processing` rows automatically; the manual reset below applies to the legacy table only.
+>
+> Provider modes: `dev`/`log-only` (internal log), `disabled`, `dry-run` (pilot rehearsal — real rail,
+> zero network, deterministic `dryrun_` message ids), `real` (fails closed: no adapter exists).
+> Local proof: `npm run rehearsal:communications`.
+
+
 Operational reference for the `siton.notifications` delivery layer.
 Covers: status meanings, what healthy looks like, how to identify failures,
 and the admin endpoint for monitoring.

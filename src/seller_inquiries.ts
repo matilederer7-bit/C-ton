@@ -10,7 +10,7 @@
 
 import { createHash, randomBytes, timingSafeEqual } from "crypto";
 import { assertRequiredTables } from "./schema_contract.js";
-import { enqueueNotification } from "./notification_dispatch.js";
+import { enqueueNotification, withNotificationSavepoint } from "./notification_dispatch.js";
 
 type WithTx = <T>(fn: (c: any) => Promise<T>) => Promise<T>;
 
@@ -116,20 +116,32 @@ export type SellerNotificationRecipient = {
  * seller's OWN account data server-side — never from the request.
  */
 export async function resolveSellerNotificationRecipient(c: any, sellerId: string): Promise<SellerNotificationRecipient> {
-  const row = await c.query(
+  const account = await c.query(
     `SELECT NULLIF(btrim(COALESCE(sa.support_email, '')), '') AS support_email,
-            NULLIF(btrim(COALESCE(sa.login_email, '')), '') AS login_email,
-            NULLIF(btrim(COALESCE(bp.contact_email, '')), '') AS contact_email
+            NULLIF(btrim(COALESCE(sa.login_email, '')), '') AS login_email
      FROM siton.seller_accounts sa
-     LEFT JOIN siton.seller_business_profiles bp ON bp.seller_id = sa.seller_id
      WHERE sa.seller_id = $1
      LIMIT 1`,
     [sellerId]
   );
-  const profile = row.rows[0] || {};
+  const profile = account.rows[0] || {};
   if (profile.support_email) return { channel: "email", recipient_ref: String(profile.support_email), source: "support_email" };
   if (profile.login_email) return { channel: "email", recipient_ref: String(profile.login_email), source: "login_email" };
-  if (profile.contact_email) return { channel: "email", recipient_ref: String(profile.contact_email), source: "business_profile_contact_email" };
+  // The business profile is a Web-runtime table (staging grant 019); the Worker
+  // resolves seller recipients too, so this fallback lookup is savepoint-guarded
+  // and a missing grant degrades to the internal channel instead of poisoning
+  // the enclosing business transaction.
+  const business = await withNotificationSavepoint(c, async () =>
+    c.query(
+      `SELECT NULLIF(btrim(COALESCE(bp.contact_email, '')), '') AS contact_email
+       FROM siton.seller_business_profiles bp
+       WHERE bp.seller_id = $1
+       LIMIT 1`,
+      [sellerId]
+    )
+  );
+  const contactEmail = business.ok ? business.value.rows[0]?.contact_email : null;
+  if (contactEmail) return { channel: "email", recipient_ref: String(contactEmail), source: "business_profile_contact_email" };
   return { channel: "internal", recipient_ref: sellerId, source: "none" };
 }
 

@@ -758,30 +758,13 @@ export async function enqueueViralRecompute(db: Queryable, dealId: string, reaso
   );
 }
 
-// ── Participant impact (safe aggregates only, no descendant PII) ───────────
+// ── Participant share identity (buyer-token surface) ──────────────────────
+// SPRINT 4 (A3): the propagation tree (children / descendants / generations /
+// branch depth / branch units) is seller + admin backstage tooling. A buyer
+// token only ever resolves the buyer's OWN personal share code + URL — no
+// tree aggregates leave the server on this surface.
+export const BUYER_SHARE_IDENTITY_KEYS = ["participant_id", "personal_share_code", "personal_share_url"] as const;
 export async function getParticipantImpact(db: Queryable, participantId: string): Promise<Record<string, unknown>> {
-  const res = await db.query(
-    `WITH RECURSIVE branch AS (
-       SELECT va.participant_id, va.generation, 0 AS rel_depth
-       FROM siton.viral_attributions va
-       WHERE va.parent_participant_id = $1
-       UNION ALL
-       SELECT va.participant_id, va.generation, b.rel_depth + 1
-       FROM siton.viral_attributions va
-       JOIN branch b ON va.parent_participant_id = b.participant_id
-       WHERE b.rel_depth < 30
-     )
-     SELECT
-       COUNT(*)::int AS descendants,
-       COUNT(*) FILTER (WHERE rel_depth = 0)::int AS direct_children,
-       COALESCE(MAX(rel_depth) + 1, 0)::int AS branch_depth,
-       COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('DealFailed','Dropped')), 0)::int AS units_joined,
-       COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ${SUCCESS_STATES_SQL}), 0)::int AS units_charged
-     FROM branch
-     JOIN siton.participants p ON p.participant_id = branch.participant_id`,
-    [participantId]
-  );
-  const row = res.rows[0] || {};
   const linkRes = await db.query(
     `SELECT l.source_code, l.deal_id
      FROM siton.affiliate_links l
@@ -793,11 +776,6 @@ export async function getParticipantImpact(db: Queryable, participantId: string)
   const link = linkRes.rows[0] || null;
   return {
     participant_id: participantId,
-    direct_children: Number(row.direct_children || 0),
-    descendants: Number(row.descendants || 0),
-    branch_depth: Number(row.branch_depth || 0),
-    units_joined_via_branch: Number(row.units_joined || 0),
-    units_charged_via_branch: Number(row.units_charged || 0),
     personal_share_code: link ? String(link.source_code) : null,
     personal_share_url: link ? personalShareUrl(String(link.deal_id), String(link.source_code)) : null
   };

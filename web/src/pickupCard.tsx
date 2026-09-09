@@ -3,6 +3,7 @@ import { Json } from "./api";
 import { QrCode } from "./qrcode";
 import { formatIsraelDateTime, num } from "./util";
 import { PICKUP_SHOW_TO_SELLER_LINE, PICKUP_SCREENSHOT_LINE, PICKUP_DELIVERY_LINE } from "./buyerCopy";
+import { PickupNavActions } from "./pages/deal";
 
 // ── LAUNCH SPRINT 3 — buyer pickup credential card (tracking page) ──────────
 // Everything shown derives from tracking.pickup (server-authoritative):
@@ -96,8 +97,9 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
               <span className="k">נקודת איסוף:</span> {location}
             </div>
           ) : null}
-          {location && pickup.pickup_map_url ? (
-            <a className="pickup-map-link" href={pickup.pickup_map_url} target="_blank" rel="noreferrer">📍 פתיחה במפה</a>
+          {/* SPRINT 4 (A1) — Google Maps + Waze, same target, server-derived (exact pin or address search) */}
+          {location && pickup.pickup_navigation ? (
+            <PickupNavActions nav={pickup.pickup_navigation as any} testIdPrefix="track-pickup-nav" />
           ) : null}
         </div>
         <div className="pickup-cred">

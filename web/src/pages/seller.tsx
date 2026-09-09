@@ -16,6 +16,7 @@ import {
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
 } from "../util";
 import { absoluteShareUrl } from "../viral";
+import { QUANTITY_INPUT_ATTRS, isPositiveIntegerText, quantityDigits } from "../quantityInput";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
 import { PropagationTree } from "../propagation";
@@ -25,7 +26,7 @@ import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./
 // LAUNCH SPRINT 3 — physical pickup handoff (scanner + per-deal fulfillment list)
 import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
-import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
+import { PICKUP_PRECISION_COPY, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupNavigation, pickupPrecision } from "../../../src/pickup_location";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -496,13 +497,15 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
   };
 
   if (row.latitude != null && row.longitude != null) {
-    const mapUrl = `https://www.google.com/maps/search/?api=1&query=${row.latitude},${row.longitude}`;
+    // SPRINT 4 (A1) — the seller sees the SAME two navigation links buyers get, from the canonical helper
+    const nav = pickupNavigation({ option_type: row.option_type, label: row.label, latitude: row.latitude, longitude: row.longitude });
     return (
       <div className="row" style={{ gap: 8, marginTop: -4, marginBottom: 10, flexWrap: "wrap" }}>
-        <span className="small" style={{ fontWeight: 700, color: "var(--accent-cyan)" }} data-testid="geo-captured">
-          ✓ המיקום נקלט ({row.latitude.toFixed(4)}, {row.longitude.toFixed(4)})
+        <span className="small" style={{ fontWeight: 700, color: "var(--accent-cyan)" }} data-testid="geo-captured" data-pickup-precision="exact">
+          ✓ {PICKUP_PRECISION_COPY.exact} ({row.latitude.toFixed(4)}, {row.longitude.toFixed(4)})
         </span>
-        <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">הצגה במפה</a>
+        {nav ? <a className="btn btn-sm btn-ghost" data-testid="geo-nav-google" href={nav.google_maps_url} target="_blank" rel="noreferrer">Google Maps</a> : null}
+        {nav ? <a className="btn btn-sm btn-ghost" data-testid="geo-nav-waze" href={nav.waze_url} target="_blank" rel="noreferrer">Waze</a> : null}
         <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>הסרת המיקום</button>
       </div>
     );
@@ -525,6 +528,12 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
           הזנת קואורדינטות ידנית
         </button>
       </div>
+      {/* SPRINT 4 (A1) — the seller always knows what buyers will navigate to */}
+      {pickupLocationText(row) ? (
+        <span className="small" style={{ color: "var(--saffron)", fontWeight: 600 }} data-testid="pickup-precision-address" data-pickup-precision="address">
+          ⚠️ {PICKUP_PRECISION_COPY.address}
+        </span>
+      ) : null}
       <span className="hint">לא חובה — מוסיף לקונים כפתור ניווט. הכתובת בשדה התיאור מספיקה תמיד.</span>
 
       {copy && outcome ? (
@@ -624,8 +633,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       if (images.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
     }
     if (s === 1) {
-      if (!(minNum >= 1)) errs.min = "יש להזין כמות מינימום";
-      if (!(maxNum >= minNum)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+      if (!isPositiveIntegerText(minUnits) || !(minNum >= 1)) errs.min = "יש להזין כמות מינימום — מספר שלם";
+      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = "כמות המקסימום חייבת להיות מספר שלם, לפחות כמו המינימום";
     }
     if (s === 2) {
       if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = "יש להוסיף לפחות אפשרות אספקה אחת";
@@ -817,15 +826,16 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             <div className="field-row">
               <div className="field">
                 <label>כמות מינימום <span className="req">*</span></label>
-                <input id="f-min" data-testid="deal-min" dir="ltr" type="number" min={1} className={errors.min ? "invalid" : ""}
-                  value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
+                {/* SPRINT 4 (A9) — typed quantity: digits only, numeric keyboard, no spinner */}
+                <input id="f-min" data-testid="deal-min" {...QUANTITY_INPUT_ATTRS} className={errors.min ? "invalid" : ""}
+                  value={minUnits} onChange={(e) => setMinUnits(quantityDigits(e.target.value))} />
                 <FieldError msg={errors.min} />
                 <span className="hint">היעד שהקבוצה צריכה להגיע אליו</span>
               </div>
               <div className="field">
                 <label>כמות מקסימלית (מלאי) <span className="req">*</span></label>
-                <input id="f-max" data-testid="deal-max" dir="ltr" type="number" min={minNum} className={errors.max ? "invalid" : ""}
-                  value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
+                <input id="f-max" data-testid="deal-max" {...QUANTITY_INPUT_ATTRS} className={errors.max ? "invalid" : ""}
+                  value={maxUnits} onChange={(e) => setMaxUnits(quantityDigits(e.target.value))} />
                 <FieldError msg={errors.max} />
                 <span className="hint">כשמגיעים — המכירה נסגרת</span>
               </div>
@@ -1080,8 +1090,8 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     if (!(Number(price) > 0)) errs.price = "יש להזין מחיר ליחידה";
     if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
     const minN = Number(minUnits), maxN = Number(maxUnits);
-    if (!(minN >= 1)) errs.min = "יש להזין כמות מינימום";
-    if (!(maxN >= minN)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+    if (!isPositiveIntegerText(minUnits) || !(minN >= 1)) errs.min = "יש להזין כמות מינימום — מספר שלם";
+    if (!isPositiveIntegerText(maxUnits) || !(maxN >= minN)) errs.max = "כמות המקסימום חייבת להיות מספר שלם, לפחות כמו המינימום";
     const dl = validateDeadline(deadlineDate, deadlineTime);
     if (dl.error) errs.editDeadline = dl.error;
     if (dealType === "voucher") {
@@ -1179,12 +1189,12 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
         </div>
         <div className="field">
           <label>כמות מינימום <span className="req">*</span></label>
-          <input id="f-min" dir="ltr" type="number" min={1} className={errors.min ? "invalid" : ""} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
+          <input id="f-min" data-testid="edit-deal-min" {...QUANTITY_INPUT_ATTRS} className={errors.min ? "invalid" : ""} value={minUnits} onChange={(e) => setMinUnits(quantityDigits(e.target.value))} />
           <FieldError msg={errors.min} />
         </div>
         <div className="field">
           <label>מקסימום (מלאי) <span className="req">*</span></label>
-          <input id="f-max" dir="ltr" type="number" min={1} className={errors.max ? "invalid" : ""} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
+          <input id="f-max" data-testid="edit-deal-max" {...QUANTITY_INPUT_ATTRS} className={errors.max ? "invalid" : ""} value={maxUnits} onChange={(e) => setMaxUnits(quantityDigits(e.target.value))} />
           <FieldError msg={errors.max} />
         </div>
       </div>
@@ -1246,10 +1256,6 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
 const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
 const DELIVERY_TYPE_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
 
-function mapsPlaceUrl(lat: number | null, lng: number | null): string | null {
-  if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
-  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
-}
 
 function DeliverySection({ deal, options, editable, lockReason, onSaved, showToast }: {
   deal: Json;
@@ -1333,7 +1339,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
         (options || []).length ? (
           <div className="stack" style={{ gap: 8, marginTop: 10 }}>
             {(options || []).map((o) => {
-              const nav = mapsPlaceUrl(o.latitude == null ? null : Number(o.latitude), o.longitude == null ? null : Number(o.longitude));
+              // SPRINT 4 (A1) — canonical navigation + precision truth (exact pin / address only / missing)
+              const nav = pickupNavigation(o);
+              const precision = pickupPrecision(o);
               return (
                 <div className="delivery-view-row" key={String(o.option_id)}>
                   <span className="ico" aria-hidden="true">{DELIVERY_TYPE_ICONS[String(o.option_type)] || "📦"}</span>
@@ -1341,14 +1349,20 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                     <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
                     {isPickupOptionType(o.option_type) ? (
                       hasUsablePickupLocation(o) ? (
-                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}</span>
+                        <>
+                          <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}</span>
+                          <span className={`pickup-precision ${precision}`} data-testid={`pickup-precision-${precision}`} data-pickup-precision={precision}>
+                            {" · "}{precision === "exact" ? "✓" : "⚠️"} {PICKUP_PRECISION_COPY[precision]}
+                          </span>
+                        </>
                       ) : (
                         <span className="pickup-missing" data-testid="pickup-location-missing"> · ⚠️ חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
                       )
                     ) : null}
                   </span>
                   <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
-                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">הצגה במפה</a> : null}
+                  {nav ? <a className="btn btn-sm btn-ghost" data-testid="seller-nav-google" href={nav.google_maps_url} target="_blank" rel="noreferrer">Google Maps</a> : null}
+                  {nav ? <a className="btn btn-sm btn-ghost" data-testid="seller-nav-waze" href={nav.waze_url} target="_blank" rel="noreferrer">Waze</a> : null}
                 </div>
               );
             })}

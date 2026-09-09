@@ -56,7 +56,7 @@ run("P1: the phone CTA bar exists only for an open deal outside preview, mirrors
   assert.match(dealPage, /\{isOpen && !preview \? \(\s*<StickyJoinBar anchor=\{ctaEl\} enabled=\{!joining && !joinResult && !inquiryOpen\}/);
   assert.match(dealPage, /data-testid="join-open-sticky"[^>]*onClick=\{onJoin\}/);
   assert.match(dealPage, /onJoin=\{startJoin\}/, "the sticky bar fires the SAME join start (funnel event + sheet)");
-  assert.match(dealPage, /const startJoin = \(\) => \{ if \(preview\) return; sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\); \};/);
+  assert.match(dealPage, /const startJoin = \(\) => \{ if \(preview \|\| !qtyValid\) return; sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\); \};/);
   assert.match(styles, /\.sticky-cta \{ display: none; \}/);
   assert.match(styles, /@media \(max-width: 860px\) \{\s*\n\s*\.sticky-cta \{\s*\n\s*position: fixed; bottom: 0;/);
   assert.match(dealPage, /setOffscreen\(!entry\.isIntersecting\)/, "shown only while the real CTA is off-screen");
@@ -112,7 +112,7 @@ run("P3: join sheet — required markers, per-field Hebrew errors, plausible-pho
   assert.match(dealPage, /if \(!terms\) errs\.terms = "יש לאשר את התקנון";/);
   assert.match(dealPage, /buyer_terms_accepted: true,\s*\n\s*payment_disclosure_accepted: true,/);
   assert.match(dealPage, /payment_method: payMethod,/, "payment-method preference unchanged");
-  assert.match(dealPage, /href="\/legal\/terms"/);
+  assert.match(dealPage, /href="#\/legal\/terms"/); // SPRINT 4 (A4): the terms open inside the React product
   // the refusal funnel event carries the code/status only — never a field value
   assert.match(dealPage, /sendFunnelEvent\(String\(deal\.deal_id\), "join_failed", \{ detail: String\(code \|\| status \|\| "unknown"\)\.slice\(0, 80\) \}\);/);
 });

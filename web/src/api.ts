@@ -76,13 +76,16 @@ export const api = {
     req(`/api/deals/${id}/join`, { method: "POST", headers: { "idempotency-key": `preview-join-${id}-${crypto.randomUUID()}` }, body: JSON.stringify(payload) }),
   tracking: (participantId: string, token: string) =>
     req(`/api/participants/${participantId}/tracking`, { headers: { authorization: `Bearer ${token}` } }),
-  impact: (participantId: string, token: string) =>
+  // SPRINT 4 (A3) — buyer-token surface: personal share identity ONLY (no tree aggregates)
+  shareIdentity: (participantId: string, token: string) =>
     req(`/api/participants/${participantId}/impact`, { headers: { authorization: `Bearer ${token}` } }),
   authConfig: (): Promise<{ ok: boolean; supabase_url: string; supabase_anon_key: string; configured: boolean }> =>
     req(`/api/preview/auth-config`) as any,
   supportContact: (payload: Json) =>
     req(`/api/support/contact`, { method: "POST", body: JSON.stringify(payload) }),
   previewMeta: () => req(`/api/preview/meta`),
+  // SPRINT 4 (A4) — the canonical legal document projection (src/legal_pages.ts over the wire)
+  legal: (slug: string) => req(`/api/legal/${encodeURIComponent(slug)}`),
   // P0.7 — internal buyer → seller inquiry (the DEAL determines the seller server-side)
   dealInquiry: (id: string, payload: Json) =>
     req(`/api/deals/${id}/inquiries`, { method: "POST", body: JSON.stringify(payload) }),
@@ -175,11 +178,15 @@ export const api = {
   adminSellerDetail: (id: string) => req(`/api/admin/r6/sellers/${encodeURIComponent(id)}`, {}, "admin"),
   adminSellerViral: (id: string) => req(`/api/admin/sellers/${encodeURIComponent(id)}/viral`, {}, "admin"),
   adminBuyers: (q = "") => req(`/api/admin/r6/buyers?q=${encodeURIComponent(q)}`, {}, "admin"),
-  adminGrowth: () => req(`/api/admin/growth`, {}, "admin"),
+  // SPRINT 4 (A8) — windowed virality: ?days=N | ?from=ISO&to=ISO | ?range=all (default 7 days)
+  adminGrowth: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return req(`/api/admin/growth${qs ? `?${qs}` : ""}`, {}, "admin");
+  },
   // LAUNCH MODE — pilot funnel + seller approval (closed-market gate)
   adminPilotMetrics: (days = 30) => req(`/api/admin/pilot-metrics?days=${encodeURIComponent(String(days))}`, {}, "admin"),
-  adminSellerKycDecision: (sellerId: string, decision: "approve" | "reject", adminNote = "") =>
-    req(`/api/admin/kyc/seller/${encodeURIComponent(sellerId)}/decision`, { method: "POST", body: JSON.stringify({ decision, admin_note: adminNote }) }, "admin"),
+  adminSellerKycDecision: (sellerId: string, decision: "approve" | "reject", adminNote = "", sellerReason = "") =>
+    req(`/api/admin/kyc/seller/${encodeURIComponent(sellerId)}/decision`, { method: "POST", body: JSON.stringify({ decision, admin_note: adminNote, ...(decision === "reject" ? { seller_reason: sellerReason } : {}) }) }, "admin"),
   adminSystemStatus: () => req(`/api/admin/system-status`, {}, "admin"),
   adminOutboxStatus: () => req(`/api/admin/outbox-status`, {}, "admin"),
   adminNotificationsStatus: () => req(`/api/admin/notifications-status`, {}, "admin"),

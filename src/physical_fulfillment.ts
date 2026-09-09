@@ -19,7 +19,7 @@ import {
   issueFulfillmentUnitsForParticipant,
   type DealType
 } from "./deal_types.js";
-import { describePickupLocation, isPickupOptionType } from "./pickup_location.js";
+import { describePickupLocation, isPickupOptionType, type PickupNavigation } from "./pickup_location.js";
 
 type Queryable = {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[]; rowCount?: number }>;
@@ -410,14 +410,17 @@ export function maskPhone(phone: string | null | undefined): string | null {
   return `•••${digits.slice(-4)}`;
 }
 
-export function pickupLocationOf(order: PhysicalOrderRecord): { text: string | null; map_url: string | null } {
+export function pickupLocationOf(order: PhysicalOrderRecord): { text: string | null; map_url: string | null; navigation: PickupNavigation | null } {
   if (order.pickup_option && isPickupOptionType(order.pickup_option.option_type)) {
     const described = describePickupLocation(order.pickup_option);
-    return { text: described.location_text || order.pickup_option.label || order.delivery_method_label, map_url: described.map_url };
+    // SPRINT 4 (A1): navigation is the canonical projection — exact coordinates
+    // or an address search of the REAL location text; a generic label never
+    // becomes a navigation target even though it is still shown as the label.
+    return { text: described.location_text || order.pickup_option.label || order.delivery_method_label, map_url: described.map_url, navigation: described.navigation };
   }
   const method = methodForDeliveryType(order.delivery_method_type);
-  if (method === "pickup") return { text: order.delivery_method_label, map_url: null };
-  return { text: null, map_url: null };
+  if (method === "pickup") return { text: order.delivery_method_label, map_url: null, navigation: null };
+  return { text: null, map_url: null, navigation: null };
 }
 
 // What the SELLER sees after a scan / code entry / search hit. Never a raw
@@ -502,6 +505,7 @@ export function buyerPickupProjection(order: PhysicalOrderRecord, args: { public
     product_title: order.deal_title,
     pickup_location: method === "pickup" ? location.text : null,
     pickup_map_url: method === "pickup" ? location.map_url : null,
+    pickup_navigation: method === "pickup" ? location.navigation : null,
     delivery_address: method === "delivery" ? order.delivery_address : null,
     delivery_city: method === "delivery" ? order.delivery_city : null,
     buyer_name: order.buyer_name,

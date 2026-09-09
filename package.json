@@ -113,7 +113,9 @@
     "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",
     "mobile:assets": "npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\" && npx @capacitor/assets generate --ios --assetPath assets --iconBackgroundColor \"#ec6608\" --iconBackgroundColorDark \"#c4530a\" --splashBackgroundColor \"#eef0f3\" --splashBackgroundColorDark \"#1b1f24\"",
     "mobile:verify": "npm run mobile:build && npm run mobile:normalize && node scripts/mobile_release_gate.cjs",
-    "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs"
+    "rehearsal:no-network": "node scripts/no_network_launch_rehearsal.cjs",
+    "rehearsal:communications": "node scripts/pilot_communications_rehearsal.cjs",
+    "test:notification-pilot": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/notification_pilot_events_validation.js && node .tmp_test_dist/tests/notification_pilot_rehearsal_validation.js"
   },
   "engines": {
     "node": ">=22.0.0"

@@ -352,7 +352,7 @@ async function main() {
         parentRef = code;
         if (!firstRef) firstRef = code;
       }
-      console.log(`SEED join ${r.item.key} buyer=${buyers[i][1]} gen=${res?.viral?.generation}`);
+      console.log(`SEED join ${r.item.key} buyer=${buyers[i][1]} attributed=${res?.viral?.attributed}`);
       await sleep(150);
     }
     r.codes = codes;

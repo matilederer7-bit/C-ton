@@ -71,6 +71,12 @@ async function join(dealId: string, buyerId: string, extra: Record<string, unkno
 }
 
 const dealId = await createDeal();
+// SPRINT 4 (A3): the generation is read from the canonical attribution row (backstage
+// truth), never from the public join reply.
+async function generationOf(participantId: string): Promise<number> {
+  const row = await pool.query(`SELECT generation FROM siton.viral_attributions WHERE participant_id=$1`, [participantId]);
+  return Number(row.rows[0]?.generation ?? -1);
+}
 
 // gen0 root joiner
 let rootShareCode = "";
@@ -80,7 +86,9 @@ await run("Join returns a personal share link (viral block) and records generati
   rootParticipantId = body.participant_id;
   assert.ok(body.viral, "join response carries viral block");
   assert.equal(body.viral.attributed, false);
-  assert.equal(body.viral.generation, 0);
+  // SPRINT 4 (A3): the tree position is backstage-only — never on the public join reply
+  assert.ok(!("generation" in body.viral), "public join reply must not expose the generation");
+  assert.equal((await generationOf(body.participant_id)), 0);
   rootShareCode = body.viral.personal_share_code;
   assert.ok(rootShareCode && /^[a-z0-9][a-z0-9_-]{7,63}$/.test(rootShareCode), `personal code shape: ${rootShareCode}`);
   assert.ok(String(body.viral.personal_share_url).includes(rootShareCode));
@@ -105,7 +113,7 @@ await run("Join through a personal link binds parent participant, chain origin a
   childParticipantId = body.participant_id;
   childShareCode = body.viral.personal_share_code;
   assert.equal(body.viral.attributed, true);
-  assert.equal(body.viral.generation, 1);
+  assert.ok(!("generation" in body.viral), "public join reply must not expose the generation");
   const attr = await pool.query(`SELECT * FROM siton.viral_attributions WHERE participant_id=$1`, [childParticipantId]);
   const row = attr.rows[0];
   assert.equal(String(row.parent_participant_id), rootParticipantId, "parent participant preserved permanently");
@@ -122,7 +130,7 @@ let grandchildId = "";
 await run("generation chains: grandchild joining via the child's personal link is generation 2 with correct chain origin", async () => {
   const { body } = await join(dealId, "0500000003", { affiliate_ref: childShareCode, qty: 3 });
   grandchildId = body.participant_id;
-  assert.equal(body.viral.generation, 2);
+  assert.equal(await generationOf(grandchildId), 2);
   const [gc, child] = await Promise.all([
     pool.query(`SELECT * FROM siton.viral_attributions WHERE participant_id=$1`, [grandchildId]),
     pool.query(`SELECT * FROM siton.viral_attributions WHERE participant_id=$1`, [childParticipantId])
@@ -154,7 +162,7 @@ await run("idempotent replay does NOT double-count: same idempotency key returns
 await run("a self/unknown/disabled ref degrades to unattributed, never an error", async () => {
   const { body } = await join(dealId, "0500000005", { affiliate_ref: "nonexistent-code-123" });
   assert.equal(body.viral.attributed, false);
-  assert.equal(body.viral.generation, 0);
+  assert.equal(await generationOf(body.participant_id), 0);
 });
 
 await run("share code collision resistance: 2000 generated codes are unique and canonical", async () => {
@@ -287,6 +295,12 @@ await run("participant impact endpoint is token-gated and returns safe aggregate
   assert.ok(impact.personal_share_code, "impact returns the personal share identity");
   const raw = JSON.stringify(impact);
   assert.ok(!raw.includes("05000000"), "impact carries no phone numbers");
+  // SPRINT 4 (A3): the buyer-token surface carries the share identity ONLY — the
+  // propagation tree (children / descendants / generations / branch) is backstage
+  assert.deepEqual(Object.keys(impact).sort(), ["participant_id", "personal_share_code", "personal_share_url"]);
+  for (const key of ["direct_children", "descendants", "branch_depth", "units_joined_via_branch", "units_charged_via_branch", "generation"]) {
+    assert.ok(!(key in impact), `buyer surface must not expose ${key}`);
+  }
 });
 
 await app.close().catch(() => undefined);
