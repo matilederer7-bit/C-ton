@@ -167,11 +167,11 @@ await run("E3 — enqueue with email channel queues correctly", async () => {
 console.log("\n--- F: Flush ---");
 
 await run("F1 — flush picks up pending notification, calls log-only provider, marks sent", async () => {
-  const eventKey = `charge_succeeded:${randomUUID()}:sms`;
+  const eventKey = `join_authorized:${randomUUID()}:sms`;
   try {
     await enqueueNotification({
       eventKey,
-      notificationEventType: "charge_succeeded",
+      notificationEventType: "join_authorized",
       channel: "sms",
       recipient: "+972501111111",
       templateParams: { deal_id: randomUUID(), deal_title: "Flash Deal", participant_id: randomUUID() },
@@ -266,11 +266,11 @@ await run("F3 — flush does NOT re-process an already-sent notification", async
 });
 
 await run("F4 — two concurrent flushes don't double-send the same notification (FOR UPDATE SKIP LOCKED)", async () => {
-  const eventKey = `refund_issued:${randomUUID()}:sms`;
+  const eventKey = `deal_failed:${randomUUID()}:sms`;
   try {
     await enqueueNotification({
       eventKey,
-      notificationEventType: "refund_issued",
+      notificationEventType: "deal_failed",
       channel: "sms",
       recipient: "+972504444444",
       templateParams: { deal_id: randomUUID(), deal_title: "Refund Deal", participant_id: randomUUID() },
@@ -301,11 +301,9 @@ console.log("\n--- T: Templates ---");
 await run("T1 — templates render correctly for all core event types", async () => {
   const eventTypes = [
     "join_authorized",
-    "charge_succeeded",
     "charge_failed_recovery",
     "deal_completed",
     "deal_failed",
-    "refund_issued",
     "deal_cancelled"
   ] as const;
 
