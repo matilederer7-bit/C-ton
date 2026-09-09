@@ -50,7 +50,14 @@ import { calculatePlatformFeeMoney, SITON_PLATFORM_FEE_RATE } from "./platform_f
 import { buildWebhookIngestion } from "./webhook_ingestion.js";
 import { buildPaymentReconciliation } from "./payment_reconciliation.js";
 import { ensurePayoutRailTables } from "./payout_rail.js";
-import { ensureNotificationRailTables } from "./notification_dispatch.js";
+import { describeNotificationForOperator, ensureNotificationRailTables } from "./notification_dispatch.js";
+import { maskNotificationRecipient } from "./notification_safety.js";
+import {
+  canonicalPublicOrigin,
+  enqueueAdminSecurityAlert,
+  enqueueSellerKycDecisionNotification,
+  sanitizeSellerFacingReason
+} from "./notification_events.js";
 import { describePickupLocation } from "./pickup_location.js";
 import {
   INQUIRY_LIMITS, INQUIRY_MESSAGE_MAX, INQUIRY_MESSAGE_MIN, INQUIRY_NAME_MAX,
@@ -1501,6 +1508,15 @@ export function registerFrontendExperience(
          VALUES ($1,$2,$3,$4)`,
         [args.provider, args.event_id ?? null, args.failure_reason, args.remote_hint ?? ""]
       );
+      // admin_security_alert: ONE alert per provider + failure reason + hour
+      // bucket, committed with the security event (a burst never fans out into
+      // N alerts; the durable rows keep every occurrence).
+      const hourBucket = new Date().toISOString().slice(0, 13);
+      await enqueueAdminSecurityAlert(c, {
+        alert_key: `webhook:${args.provider}:${args.failure_reason}:${hourBucket}`.slice(0, 160),
+        alert_title: `Webhook ${args.failure_reason} (${args.provider})`,
+        alert_ref: args.event_id ? `event ${String(args.event_id).slice(0, 80)}` : `hour ${hourBucket}`
+      });
     });
   };
   const upsertBuyerPaymentMethod = async (args: {
@@ -7910,6 +7926,9 @@ export function registerFrontendExperience(
              COUNT(*)                                                  FILTER (WHERE status='sent')       AS sent_count,
              COUNT(*)                                                  FILTER (WHERE status='failed')     AS failed_count,
              COUNT(*)                                                  FILTER (WHERE status='skipped')    AS skipped_count,
+             COUNT(*)                                                  FILTER (WHERE status='blocked')    AS blocked_count,
+             COUNT(*)                                                  FILTER (WHERE status='cancelled')  AS cancelled_count,
+             COUNT(*)                                                  FILTER (WHERE status='pending' AND attempt_count > 0) AS retry_scheduled_count,
              COUNT(*)                                                  FILTER (WHERE status='pending' AND last_error IS NOT NULL) AS retryable_count,
              COUNT(DISTINCT idempotency_key)                                                             AS unique_event_keys,
              EXTRACT(EPOCH FROM (now() - MIN(COALESCE(scheduled_for, created_at)) FILTER (WHERE status='pending'))) AS oldest_pending_age_s,
@@ -7920,15 +7939,16 @@ export function registerFrontendExperience(
           `SELECT channel,
                   COUNT(*)                          FILTER (WHERE status='pending') AS pending,
                   COUNT(*)                          FILTER (WHERE status='sent')    AS sent,
-                  COUNT(*)                          FILTER (WHERE status='failed')  AS failed
+                  COUNT(*)                          FILTER (WHERE status='failed')  AS failed,
+                  COUNT(*)                          FILTER (WHERE status='blocked') AS blocked
            FROM siton.notification_events
            GROUP BY channel
            ORDER BY channel`
         ),
         c.query(
-          `SELECT ne.notification_id, ne.event_type, ne.recipient_type, ne.channel,
+          `SELECT ne.notification_id, ne.event_type, ne.recipient_type, ne.recipient_ref, ne.channel,
                   ne.status, ne.deal_id, d.title AS deal_title, ne.participant_id, ne.seller_id,
-                  ne.scheduled_for, ne.sent_at, ne.created_at, ne.last_error,
+                  ne.scheduled_for, ne.sent_at, ne.created_at, ne.last_error, ne.attempt_count, ne.correlation_id,
                   (SELECT COUNT(*)::int FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id) AS attempts,
                   (SELECT na.provider FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider,
                   (SELECT na.provider_mode FROM siton.notification_attempts na WHERE na.notification_id = ne.notification_id ORDER BY na.created_at DESC LIMIT 1) AS last_provider_mode
@@ -7947,6 +7967,9 @@ export function registerFrontendExperience(
           sent:              Number(t.sent_count        ?? 0),
           failed:            Number(t.failed_count      ?? 0),
           skipped:           Number(t.skipped_count     ?? 0),
+          blocked:           Number(t.blocked_count     ?? 0),
+          cancelled:         Number(t.cancelled_count   ?? 0),
+          retry_scheduled:   Number(t.retry_scheduled_count ?? 0),
           retryable:         Number(t.retryable_count   ?? 0),
           unique_event_keys: Number(t.unique_event_keys ?? 0),
           oldest_pending_age_s: t.oldest_pending_age_s != null ? Number(Number(t.oldest_pending_age_s).toFixed(1)) : null,
@@ -7961,23 +7984,27 @@ export function registerFrontendExperience(
           channel: String(r.channel),
           pending: Number(r.pending ?? 0),
           sent:    Number(r.sent    ?? 0),
-          failed:  Number(r.failed  ?? 0)
+          failed:  Number(r.failed  ?? 0),
+          blocked: Number(r.blocked ?? 0)
         })),
         recent_events: recentEvents.rows.map((r: any) => ({
           notification_id: String(r.notification_id),
           event_type: String(r.event_type),
           recipient_type: String(r.recipient_type),
+          recipient_masked: maskNotificationRecipient(String(r.channel), r.recipient_ref),
           channel: String(r.channel),
           status: String(r.status),
           deal_id: r.deal_id,
           deal_title: r.deal_title,
           participant_id: r.participant_id,
           seller_id: r.seller_id,
+          correlation_id: r.correlation_id ?? null,
           scheduled_for: r.scheduled_for,
           sent_at: r.sent_at,
           created_at: r.created_at,
           last_error: r.last_error,
           attempts: Number(r.attempts ?? 0),
+          attempt_count: Number(r.attempt_count ?? 0),
           adapter: r.last_provider || (deps.notificationSummary.external_delivery ? deps.notificationSummary.provider : "log-only"),
           adapter_mode: r.last_provider_mode || (deps.notificationSummary.external_delivery ? deps.notificationSummary.mode : "log-only")
         }))
@@ -7985,6 +8012,57 @@ export function registerFrontendExperience(
     });
   };
   app.get("/api/admin/notifications-status", notificationStatusHandler);
+
+  // ── One notification, operator view ───────────────────────────────────────
+  // What WOULD be / was sent: rendered subject + body with tokens, phone
+  // numbers and e-mails redacted, the masked destination, every attempt, the
+  // business correlation, and the safety verdict for the current provider mode
+  // plus the real-mode shadow verdict. Never the raw destination or a link
+  // credential. Read-only; admin read guard.
+  app.get("/api/admin/notifications/:notificationId", async (req: any, reply: any) => {
+    if (!(await requireAdminRead(req, reply))) return;
+    const notificationId = String(req.params?.notificationId || "").trim();
+    requireUuid(notificationId, "notification_id");
+    return deps.withTx(async (c) => {
+      const event = await c.query(
+        `SELECT ne.*, d.title AS deal_title
+         FROM siton.notification_events ne
+         LEFT JOIN siton.deals d ON d.deal_id = ne.deal_id
+         WHERE ne.notification_id = $1
+         LIMIT 1`,
+        [notificationId]
+      );
+      if (!event.rowCount) return reply.code(404).send({ ok: false, error: "notification_not_found" });
+      const attempts = await c.query(
+        `SELECT attempt_id, provider, provider_mode, result_status, provider_message_id, error_code, error_message, created_at
+         FROM siton.notification_attempts
+         WHERE notification_id = $1
+         ORDER BY created_at ASC, attempt_id ASC`,
+        [notificationId]
+      );
+      const row = event.rows[0] as any;
+      const view = describeNotificationForOperator(row, deps.notificationSummary.mode);
+      return {
+        ok: true,
+        notification: { ...view, deal_title: row.deal_title ?? null },
+        attempts: attempts.rows.map((a: any) => ({
+          attempt_id: Number(a.attempt_id),
+          provider: String(a.provider),
+          provider_mode: String(a.provider_mode),
+          result_status: String(a.result_status),
+          provider_message_id: a.provider_message_id ?? null,
+          error_code: a.error_code ?? null,
+          error_message: a.error_message ?? null,
+          created_at: a.created_at
+        })),
+        provider: {
+          code: deps.notificationSummary.provider,
+          mode: deps.notificationSummary.mode,
+          external_delivery: deps.notificationSummary.external_delivery
+        }
+      };
+    });
+  });
   app.get("/api/admin/notifications/status", notificationStatusHandler);
 
   // ── Invoice documents operational status ─────────────────────────────────
@@ -8651,7 +8729,8 @@ export function registerFrontendExperience(
   });
 
   app.post("/api/admin/kyc/:subjectType/:subjectId/decision", async (req: any, reply: any) => {
-    if (!(await requireAdminMutation(req, reply, "admin_users.manage"))) return;
+    const adminIdentity = await requireAdminMutation(req, reply, "admin_users.manage");
+    if (!adminIdentity) return;
     const subjectType = String(req.params.subjectType || "").trim();
     const subjectId = String(req.params.subjectId || "").trim();
     const decision = String(req.body?.decision || "").trim();
@@ -8670,15 +8749,21 @@ export function registerFrontendExperience(
       requireUuid(subjectId, "affiliate_id");
     }
 
+    // PILOT COMMUNICATIONS — an optional SELLER-FACING reason (bounded,
+    // sanitized). The internal admin_note is never forwarded to the seller.
+    const sellerReason = sanitizeSellerFacingReason(req.body?.seller_reason);
+
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
       const nextStatus = decision === "approve" ? "approved" : "rejected";
       if (subjectType === "seller") {
         const updated = await c.query(
-          `UPDATE siton.seller_accounts
+          `UPDATE siton.seller_accounts sa
            SET verification_status = $2, admin_note = $3, updated_at = now()
-           WHERE seller_id = $1
-           RETURNING seller_id AS subject_id, verification_status AS status, admin_note`,
+           FROM (SELECT seller_id, verification_status AS previous_status FROM siton.seller_accounts WHERE seller_id = $1 FOR UPDATE) prev
+           WHERE sa.seller_id = prev.seller_id
+           RETURNING sa.seller_id AS subject_id, sa.verification_status AS status, sa.admin_note,
+                     prev.previous_status, sa.display_name, sa.business_name`,
           [subjectId, nextStatus, adminNote]
         );
         if (!updated.rowCount) {
@@ -8686,7 +8771,53 @@ export function registerFrontendExperience(
           err.statusCode = 404;
           throw err;
         }
-        return { ok: true, subject_type: subjectType, result: updated.rows[0] };
+        const row = updated.rows[0] as any;
+        const previousStatus = String(row.previous_status || "");
+        let notification: { result: string; ordinal: number | null } = { result: "not_needed", ordinal: null };
+        // A decision that changes nothing (double submit, HTTP retry) is not a
+        // new business fact: no audit row, no second notification. A real
+        // change is recorded in seller_security_events and the notification is
+        // keyed on that decision's ordinal — both commit with the status row.
+        if (previousStatus !== nextStatus) {
+          const ordinalRow = await c.query(
+            `SELECT COUNT(*)::int + 1 AS ordinal FROM siton.seller_security_events
+             WHERE seller_id = $1 AND event_type = 'seller.kyc.decision'`,
+            [subjectId]
+          );
+          const ordinal = Number(ordinalRow.rows[0]?.ordinal || 1);
+          const requestId = String(req.headers?.["x-request-id"] || `kyc-decision:${subjectId}:${ordinal}`);
+          await c.query(
+            `INSERT INTO siton.seller_security_events
+               (seller_id, event_type, from_status, to_status, actor_ref, reason, request_id, idempotency_key, payload)
+             VALUES ($1, 'seller.kyc.decision', $2, $3, $4, $5, $6, $7, $8)`,
+            [
+              subjectId,
+              previousStatus || null,
+              nextStatus,
+              adminActorRef(adminIdentity, "admin"),
+              sellerReason,
+              requestId,
+              `kyc-decision:${subjectId}:${ordinal}`,
+              JSON.stringify({ decision, ordinal, seller_reason_present: Boolean(sellerReason) })
+            ]
+          );
+          const queued = await enqueueSellerKycDecisionNotification(c, {
+            seller_id: subjectId,
+            decision: nextStatus === "approved" ? "approved" : "rejected",
+            ordinal,
+            seller_name: String(row.business_name || row.display_name || ""),
+            seller_reason: sellerReason || null,
+            origin: canonicalPublicOrigin() || publicOrigin(req),
+            correlation_id: requestId
+          });
+          notification = { result: queued.result, ordinal };
+        }
+        return {
+          ok: true,
+          subject_type: subjectType,
+          result: { subject_id: row.subject_id, status: row.status, admin_note: row.admin_note },
+          notification
+        };
       }
 
       const affiliateNextStatus = decision === "approve" ? "verified" : "rejected";

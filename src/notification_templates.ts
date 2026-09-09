@@ -49,6 +49,19 @@ export const NOTIFICATION_TEMPLATE_KEYS = [
 
 export type NotificationTemplateKey = (typeof NOTIFICATION_TEMPLATE_KEYS)[number];
 
+/** The product name used in every outbound transactional message. */
+export const NOTIFICATION_BRAND = "C-ton";
+
+/**
+ * Financial truth carried by every buyer-facing money statement.
+ *   mock — the pilot runs on the synthetic provider: NO real charge exists and
+ *          the copy must say so instead of announcing a payment.
+ *   real — a real provider settled the money (post-pilot); the copy may state
+ *          the charge that the canonical money state proves.
+ * Absent means unknown and is rendered as the conservative (mock) wording.
+ */
+export type NotificationMoneyMode = "mock" | "real";
+
 export type RenderedNotification = {
   subject?: string;
   body: string;
@@ -70,6 +83,20 @@ function dealTitle(payload: Record<string, unknown>): string {
   return text(payload.deal_title) || "העסקה";
 }
 
+function isMockMoney(payload: Record<string, unknown>): boolean {
+  return text(payload.money_mode) !== "real";
+}
+
+const MOCK_MONEY_LINE = "סביבת פיילוט: לא בוצע חיוב אמיתי.";
+
+function linkLine(label: string, url: unknown): string {
+  const value = text(url).trim();
+  return value ? `\n${label}\n${value}` : "";
+}
+
+const TRACKING_LABEL = "למעקב אחרי ההזמנה שלך:";
+const SELLER_DEAL_LABEL = "לצפייה בעסקה:";
+
 const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> = {
   buyer_joined_authorized_he: {
     eventType: "buyer_joined_authorized",
@@ -78,7 +105,11 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `הצטרפת לעסקה: ${dealTitle(p)}`,
-      body: `הצטרפת לעסקה "${dealTitle(p)}".\nלא בוצע חיוב בפועל. הסכום נתפס כמסגרת אשראי בלבד.\nנעדכן אותך כשהעסקה תתקדם.`
+      body: `הצטרפת לעסקה "${dealTitle(p)}" ב-${NOTIFICATION_BRAND}.\n${
+        isMockMoney(p)
+          ? MOCK_MONEY_LINE
+          : "לא בוצע חיוב בפועל. הסכום נתפס כמסגרת אשראי בלבד עד לסגירת העסקה."
+      }\nנעדכן אותך כשהעסקה תתקדם.${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_deal_target_reached_he: {
@@ -88,7 +119,9 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `המינימום הושג: ${dealTitle(p)}`,
-      body: `המינימום לעסקה "${dealTitle(p)}" הושג. העסקה מתקדמת לסגירה לפי התנאים שהוצגו.`
+      body: `המינימום לעסקה "${dealTitle(p)}" הושג. העסקה מתקדמת לסגירה לפי התנאים שהוצגו.${
+        isMockMoney(p) ? `\n${MOCK_MONEY_LINE}` : ""
+      }${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_deal_completed_he: {
@@ -98,7 +131,9 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `העסקה הושלמה: ${dealTitle(p)}`,
-      body: `העסקה "${dealTitle(p)}" הושלמה בהצלחה.\nהחיוב בוצע בהתאם לתנאי העסקה.\nפרטי ההמשך מופיעים במסך המעקב.`
+      body: `העסקה "${dealTitle(p)}" הושלמה בהצלחה.\n${
+        isMockMoney(p) ? MOCK_MONEY_LINE : "החיוב בוצע בהתאם לתנאי העסקה."
+      }\nפרטי ההמשך מופיעים במסך המעקב.${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_deal_failed_he: {
@@ -108,7 +143,11 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `העסקה לא הושלמה: ${dealTitle(p)}`,
-      body: `העסקה "${dealTitle(p)}" לא הושלמה.\nאם נתפסה מסגרת אשראי, היא תשוחרר בהתאם למדיניות ספק האשראי.`
+      body: `העסקה "${dealTitle(p)}" לא הושלמה.\n${
+        isMockMoney(p)
+          ? "לא בוצע חיוב. " + MOCK_MONEY_LINE
+          : "אם נתפסה מסגרת אשראי, היא תשוחרר בהתאם למדיניות ספק האשראי."
+      }${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_recovery_required_he: {
@@ -118,7 +157,9 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `נדרש עדכון תשלום: ${dealTitle(p)}`,
-      body: `החיוב עבור העסקה "${dealTitle(p)}" לא עבר.\nיש להשלים אמצעי תשלום בזמן חלון ההשלמה.`
+      body: `החיוב עבור העסקה "${dealTitle(p)}" לא עבר.\nיש להשלים אמצעי תשלום בזמן חלון ההשלמה, אחרת ההשתתפות תבוטל.${
+        isMockMoney(p) ? `\n${MOCK_MONEY_LINE}` : ""
+      }${linkLine("להשלמת התשלום:", p.tracking_url)}`
     })
   },
   buyer_payment_recovered_he: {
@@ -127,8 +168,12 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     compatibleChannels: ["sms", "email", "whatsapp_link", "internal"],
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
-      subject: `התשלום עודכן: ${dealTitle(p)}`,
-      body: `אמצעי התשלום עבור העסקה "${dealTitle(p)}" עודכן בהצלחה. פרטי ההמשך מופיעים במסך המעקב.`
+      subject: `התשלום הושלם: ${dealTitle(p)}`,
+      body: `${
+        isMockMoney(p)
+          ? `אמצעי התשלום עבור העסקה "${dealTitle(p)}" עודכן. ${MOCK_MONEY_LINE}`
+          : `התשלום עבור העסקה "${dealTitle(p)}" הושלם בהצלחה.`
+      }\nפרטי ההמשך מופיעים במסך המעקב.${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_voucher_issued_he: {
@@ -138,7 +183,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `השובר הונפק: ${dealTitle(p)}`,
-      body: `השובר עבור העסקה "${dealTitle(p)}" הונפק.\nפרטי המימוש (קוד אחרון, תוקף, מקום מימוש) זמינים במסך המעקב שלך.\nאחריות המימוש על המוכר לפי תנאי השובר שצוינו.`
+      body: `השובר עבור העסקה "${dealTitle(p)}" הונפק.\nקוד השובר ופרטי המימוש (תוקף, מקום מימוש) מוצגים רק במסך המעקב שלך ב-${NOTIFICATION_BRAND}.\nאחריות המימוש על המוכר לפי תנאי השובר שצוינו.${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   buyer_ticket_issued_he: {
@@ -148,7 +193,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
       subject: `הכרטיס הונפק: ${dealTitle(p)}`,
-      body: `הכרטיס עבור האירוע "${dealTitle(p)}" הונפק.\nפרטי הכניסה (תאריך, מקום, תנאים) זמינים במסך המעקב שלך.\nאחריות הכניסה לאירוע על המוכר.`
+      body: `הכרטיס עבור האירוע "${dealTitle(p)}" הונפק.\nקוד הכרטיס ופרטי הכניסה (תאריך, מקום, תנאים) מוצגים רק במסך המעקב שלך ב-${NOTIFICATION_BRAND}.\nאחריות הכניסה לאירוע על המוכר.${linkLine(TRACKING_LABEL, p.tracking_url)}`
     })
   },
   seller_deal_published_he: {
@@ -158,7 +203,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title", "deal_id"],
     render: (p) => ({
       subject: `העסקה פורסמה: ${dealTitle(p)}`,
-      body: `העסקה "${dealTitle(p)}" פורסמה. ניתן לשתף את לינק העסקה ממסך המוכר.`
+      body: `העסקה "${dealTitle(p)}" פורסמה ב-${NOTIFICATION_BRAND}. ניתן לשתף את לינק העסקה ממסך המוכר.${linkLine(SELLER_DEAL_LABEL, p.deal_url)}`
     })
   },
   // P0.7 — a POINTER back into the product. The e-mail never carries the
@@ -169,8 +214,8 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     compatibleChannels: ["email", "internal"],
     requiredPayloadFields: ["deal_title", "deal_id", "thread_id", "inquiry_url"],
     render: (p) => ({
-      subject: "יש לך פנייה חדשה מלקוח ב-C-ton",
-      body: `התקבלה פנייה חדשה מלקוח בנוגע לעסקה שלך "${dealTitle(p)}" ב-C-ton.\nכדי לצפות בפנייה ולהשיב, היכנס ל-C-ton:\n${text(p.inquiry_url)}\n\nהתשובה נכתבת בתוך C-ton בלבד — אין להשיב למייל זה.`
+      subject: `יש לך פנייה חדשה מלקוח ב-${NOTIFICATION_BRAND}`,
+      body: `התקבלה פנייה חדשה מלקוח בנוגע לעסקה שלך "${dealTitle(p)}" ב-${NOTIFICATION_BRAND}.\nכדי לצפות בפנייה ולהשיב, היכנס ל-${NOTIFICATION_BRAND}:\n${text(p.inquiry_url)}\n\nהתשובה נכתבת בתוך ${NOTIFICATION_BRAND} בלבד — אין להשיב למייל זה.`
     })
   },
   seller_target_reached_he: {
@@ -180,7 +225,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title", "deal_id"],
     render: (p) => ({
       subject: `המינימום הושג: ${dealTitle(p)}`,
-      body: `המינימום לעסקה "${dealTitle(p)}" הושג. העסקה מתקדמת לסגירה לפי התנאים.`
+      body: `המינימום לעסקה "${dealTitle(p)}" הושג. העסקה מתקדמת לסגירה לפי התנאים.${linkLine(SELLER_DEAL_LABEL, p.deal_url)}`
     })
   },
   seller_deal_completed_he: {
@@ -190,7 +235,9 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title", "deal_id"],
     render: (p) => ({
       subject: `העסקה הושלמה: ${dealTitle(p)}`,
-      body: `העסקה "${dealTitle(p)}" הושלמה.\nקובץ Excel עם פרטי הזכאים, הכמויות והכסף זמין במסך העסקה.`
+      body: `העסקה "${dealTitle(p)}" הושלמה.\nרשימת הזכאים, הכמויות וקובץ ה-Excel זמינים במסך העסקה.${
+        isMockMoney(p) ? `\n${MOCK_MONEY_LINE}` : ""
+      }${linkLine(SELLER_DEAL_LABEL, p.deal_url)}`
     })
   },
   seller_deal_failed_he: {
@@ -200,7 +247,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title", "deal_id"],
     render: (p) => ({
       subject: `העסקה לא הושלמה: ${dealTitle(p)}`,
-      body: `העסקה "${dealTitle(p)}" לא הושלמה. ניתן לראות את מצב העסקה במסך המוכר.`
+      body: `העסקה "${dealTitle(p)}" לא הושלמה. ניתן לראות את מצב העסקה במסך המוכר.${linkLine(SELLER_DEAL_LABEL, p.deal_url)}`
     })
   },
   seller_excel_ready_he: {
@@ -210,7 +257,7 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     requiredPayloadFields: ["deal_title", "deal_id"],
     render: (p) => ({
       subject: `Excel העסקה מוכן: ${dealTitle(p)}`,
-      body: `קובץ Excel לעסקה "${dealTitle(p)}" מוכן להורדה ממסך העסקה.`
+      body: `קובץ Excel לעסקה "${dealTitle(p)}" מוכן להורדה ממסך העסקה.${linkLine(SELLER_DEAL_LABEL, p.deal_url)}`
     })
   },
   seller_kyc_approved_he: {
@@ -219,18 +266,20 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     compatibleChannels: ["email", "internal", "sms"],
     requiredPayloadFields: ["seller_name"],
     render: (p) => ({
-      subject: `חשבון המוכר אושר`,
-      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך אושר ועכשיו אפשר לפרסם עסקאות חיות בסיטון.\nלא בוצעה תנועת כסף בעקבות האישור.`
+      subject: `חשבון המוכר שלך אושר ב-${NOTIFICATION_BRAND}`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך אושר ועכשיו אפשר לפרסם עסקאות ב-${NOTIFICATION_BRAND}.\nלא בוצעה תנועת כסף בעקבות האישור.${linkLine("לאזור המוכר:", p.workspace_url)}`
     })
   },
   seller_kyc_rejected_he: {
     eventType: "seller_kyc_rejected",
     templateKey: "seller_kyc_rejected_he",
     compatibleChannels: ["email", "internal", "sms"],
-    requiredPayloadFields: ["seller_name", "reason"],
+    requiredPayloadFields: ["seller_name"],
     render: (p) => ({
-      subject: `חשבון המוכר נדחה`,
-      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך לא אושר במצב הנוכחי.\nסיבה: ${text(p.reason) || "לא צוינה"}.\nלא בוצעה תנועת כסף בעקבות הדחייה. ניתן ליצור קשר עם התמיכה לקבלת פירוט.`
+      subject: `חשבון המוכר שלך לא אושר ב-${NOTIFICATION_BRAND}`,
+      body: `שלום ${text(p.seller_name) || "מוכר/ת"},\nחשבונך לא אושר במצב הנוכחי.${
+        text(p.reason).trim() ? `\nסיבה: ${text(p.reason).trim()}.` : ""
+      }\nלא בוצעה תנועת כסף בעקבות הדחייה. ניתן ליצור קשר עם התמיכה לקבלת פירוט.`
     })
   },
   seller_payout_frozen_he: {
@@ -259,8 +308,8 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
     compatibleChannels: ["email", "internal"],
     requiredPayloadFields: ["alert_title"],
     render: (p) => ({
-      subject: `התראת אבטחה: ${text(p.alert_title) || "התראה אדמין"}`,
-      body: `התקבלה התראת אבטחה אדמינית.\nכותרת: ${text(p.alert_title) || ""}\nמזהה התראה: ${text(p.alert_ref) || "לא צוין"}\nיש לבדוק את לוח Mission Control לפני נקיטת פעולה.`
+      subject: `התראת אבטחה ${NOTIFICATION_BRAND}: ${text(p.alert_title) || "התראה אדמין"}`,
+      body: `התקבלה התראת אבטחה תפעולית.\nכותרת: ${text(p.alert_title) || ""}\nמזהה התראה: ${text(p.alert_ref) || "לא צוין"}\nיש לבדוק את לוח Mission Control לפני נקיטת פעולה.`
     })
   }
 };
@@ -312,16 +361,21 @@ export function supportedChannels(eventType: NotificationEventType | string): No
   return [...definition.compatibleChannels];
 }
 
-function normalizeEventType(value: string): NotificationEventType | null {
+/**
+ * Legacy (pre-029) buyer event names accepted by the compatibility adapter.
+ * `charge_succeeded` and `refund_issued` were REMOVED: the first rendered the
+ * "payment recovered" template for an ordinary capture (untrue), the second
+ * re-sent "deal failed" after the deal-failed notification (duplicate intent).
+ */
+const LEGACY_EVENT_ALIASES: Record<string, NotificationEventType> = {
+  join_authorized: "buyer_joined_authorized",
+  charge_failed_recovery: "buyer_recovery_required",
+  deal_completed: "buyer_deal_completed",
+  deal_failed: "buyer_deal_failed",
+  deal_cancelled: "buyer_deal_failed"
+};
+
+export function normalizeEventType(value: string): NotificationEventType | null {
   if (isNotificationEventType(value)) return value;
-  const legacy: Record<string, NotificationEventType> = {
-    join_authorized: "buyer_joined_authorized",
-    charge_succeeded: "buyer_payment_recovered",
-    charge_failed_recovery: "buyer_recovery_required",
-    deal_completed: "buyer_deal_completed",
-    deal_failed: "buyer_deal_failed",
-    refund_issued: "buyer_deal_failed",
-    deal_cancelled: "buyer_deal_failed"
-  };
-  return legacy[value] || null;
+  return LEGACY_EVENT_ALIASES[value] || null;
 }
