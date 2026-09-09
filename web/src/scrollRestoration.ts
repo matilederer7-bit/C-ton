@@ -126,6 +126,13 @@ export class ScrollMemory {
     this.set(this.currentKey, this.deps.scrollY());
   }
 
+  /** Explicit input, unlike browser scroll anchoring, gives control to the user. */
+  userInteracted(): void {
+    this.restoreToken += 1;
+    this.pending = null;
+    this.remember();
+  }
+
   /**
    * The URL just changed (hashchange). Decide whether this is a traversal to a
    * known entry (restore) or a brand-new entry (top), and act on it.
@@ -174,7 +181,7 @@ export class ScrollMemory {
         if (target <= reachable || elapsed >= SCROLL_RESTORE_BUDGET_MS) {
           this.deps.scrollTo(Math.min(target, reachable));
           achieved = true;
-          unblock();
+          if (target === 0 || elapsed >= SCROLL_RESTORE_BUDGET_MS) unblock();
           if (elapsed >= SCROLL_RESTORE_BUDGET_MS) return;
         }
         this.deps.requestFrame(attempt);
@@ -197,14 +204,19 @@ export class ScrollMemory {
       if (clamped && y < target) {
         this.deps.scrollTo(target);
         clamped = false;
-        unblock();
+        if (target === 0) unblock();
         settledFrames = 0;
         this.deps.requestFrame(attempt);
         return;
       }
-      if (Math.abs(y - target) > 2) return; // the user took over
+      // Images, fonts and sticky controls can move the viewport after the
+      // loader has gone. A changed scrollY alone is not evidence of user input.
+      if (Math.abs(y - target) > 2) {
+        if (target === 0) return;
+        this.deps.scrollTo(target);
+      }
       settledFrames += 1;
-      if (settledFrames >= SCROLL_SETTLE_FRAMES) return;
+      if (target === 0 && settledFrames >= SCROLL_SETTLE_FRAMES) return;
       this.deps.requestFrame(attempt);
     };
     // scroll immediately (top / already-tall documents) and keep re-trying while the page grows
@@ -279,6 +291,14 @@ export function installScrollRestoration(deps: ScrollDeps = browserScrollDeps())
     frame = window.requestAnimationFrame(() => { frame = 0; memory.remember(); });
   };
   const onHide = () => { memory.remember(); memory.persist(); };
+  const onUserInput = () => memory.userInteracted();
+  const onKey = (event: KeyboardEvent) => {
+    if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " "].includes(event.key)) onUserInput();
+  };
+  window.addEventListener("wheel", onUserInput, { passive: true });
+  window.addEventListener("touchstart", onUserInput, { passive: true });
+  window.addEventListener("pointerdown", onUserInput, { passive: true });
+  window.addEventListener("keydown", onKey);
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("pagehide", onHide);
   window.addEventListener("visibilitychange", onHide);
@@ -286,6 +306,11 @@ export function installScrollRestoration(deps: ScrollDeps = browserScrollDeps())
     memory,
     onHashChange: () => { const plan = memory.navigated(); memory.persist(); return plan; },
     dispose: () => {
+      memory.userInteracted();
+      window.removeEventListener("wheel", onUserInput);
+      window.removeEventListener("touchstart", onUserInput);
+      window.removeEventListener("pointerdown", onUserInput);
+      window.removeEventListener("keydown", onKey);
       window.removeEventListener("scroll", onScroll);
       window.removeEventListener("pagehide", onHide);
       window.removeEventListener("visibilitychange", onHide);

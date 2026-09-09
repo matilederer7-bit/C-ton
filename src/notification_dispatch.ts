@@ -573,6 +573,7 @@ export async function flushPendingNotifications(
   const maxAttempts = maxNotificationAttempts();
 
   const applyTemporaryFailure = async (notification: ClaimedNotification, message: string) => {
+    message = redactNotificationText(message);
     const attemptNumber = Number(notification.attempt_count || 0) + 1;
     if (attemptNumber >= maxAttempts) {
       // Bounded retries: terminal failure with visible reason instead of an
@@ -663,7 +664,7 @@ export async function flushPendingNotifications(
           `UPDATE siton.notification_events
            SET status='skipped', processing_started_at=NULL, last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
-          [notification.notification_id, result.error_message || result.error_code || "skipped"]
+          [notification.notification_id, redactNotificationText(result.error_message || result.error_code || "skipped")]
         );
       } else if (result.status === "temporary_fail") {
         await applyTemporaryFailure(notification, result.error_message || result.error_code || "temporary_fail");
@@ -673,7 +674,7 @@ export async function flushPendingNotifications(
            SET status='failed', attempt_count=attempt_count+1, processing_started_at=NULL,
                last_error=$2, updated_at=now()
            WHERE notification_id=$1`,
-          [notification.notification_id, result.error_message || result.error_code || "permanent_fail"]
+          [notification.notification_id, redactNotificationText(result.error_message || result.error_code || "permanent_fail")]
         );
       }
       processed++;

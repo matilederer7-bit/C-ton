@@ -336,6 +336,7 @@ export async function enqueueTargetReachedNotifications(
   c: Queryable,
   args: { deal_id: string; origin: string; money_mode: NotificationMoneyMode; correlation_id?: string | null; default_seller_id: string }
 ): Promise<{ buyers: EnqueueOutcome[]; seller: EnqueueOutcome | null }> {
+  const guarded = await withNotificationSavepoint(c, async () => {
   const header = await dealHeader(c, args.deal_id);
   if (!header) return { buyers: [], seller: null };
   const buyers: EnqueueOutcome[] = [];
@@ -361,6 +362,8 @@ export async function enqueueTargetReachedNotifications(
     correlation_id: args.correlation_id ?? null
   });
   return { buyers, seller };
+  });
+  return guarded.ok ? guarded.value : { buyers: [], seller: null };
 }
 
 /**
@@ -381,6 +384,7 @@ export async function enqueueDealOutcomeNotifications(
     default_seller_id: string;
   }
 ): Promise<{ buyers: EnqueueOutcome[]; seller: EnqueueOutcome | null }> {
+  const guarded = await withNotificationSavepoint(c, async () => {
   const header = await dealHeader(c, args.deal_id);
   if (!header) return { buyers: [], seller: null };
   const buyers: EnqueueOutcome[] = [];
@@ -407,6 +411,8 @@ export async function enqueueDealOutcomeNotifications(
     correlation_id: args.correlation_id ?? null
   });
   return { buyers, seller };
+  });
+  return guarded.ok ? guarded.value : { buyers: [], seller: null };
 }
 
 // ── Voucher / ticket issuance ────────────────────────────────────────────────
@@ -420,6 +426,7 @@ export async function enqueueFulfillmentIssuedNotification(
   c: Queryable,
   args: { deal_id: string; participant_id: string; deal_type: string; origin: string; money_mode: NotificationMoneyMode; correlation_id?: string | null }
 ): Promise<EnqueueOutcome | null> {
+  const guarded = await withNotificationSavepoint(c, async (): Promise<EnqueueOutcome | null> => {
   const eventType: BuyerDealEventType | null =
     args.deal_type === "voucher" ? "buyer_voucher_issued" : args.deal_type === "ticket" ? "buyer_ticket_issued" : null;
   if (!eventType) return null;
@@ -436,6 +443,8 @@ export async function enqueueFulfillmentIssuedNotification(
     deal_id: args.deal_id,
     ctx: { origin: args.origin, money_mode: args.money_mode, correlation_id: args.correlation_id ?? null }
   });
+  });
+  return guarded.ok ? guarded.value : null;
 }
 
 // ── Seller KYC decision ──────────────────────────────────────────────────────

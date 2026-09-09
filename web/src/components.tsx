@@ -105,11 +105,12 @@ export function Countdown(props: { until: string | null | undefined; label?: str
 // quantity; the field itself owns the in-progress text so an empty or
 // out-of-window entry is shown with its reason instead of being silently
 // clamped or turned into a decimal/zero order.
-export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; id?: string; testId?: string; ariaLabel?: string }) {
+export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; onValidityChange?: (valid: boolean) => void; id?: string; testId?: string; ariaLabel?: string }) {
   const min = props.min ?? 1;
   const [text, setText] = useState(String(props.value));
   const [touched, setTouched] = useState(false);
   const parsed = parseQuantityInput(text, min, props.max);
+  useEffect(() => { props.onValidityChange?.(parsed.value !== null); }, [parsed.value, props.onValidityChange]);
   // keep the field in step with an external correction (e.g. stock shrank under the buyer)
   useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
   const testId = props.testId || "qty-input";

@@ -577,6 +577,55 @@ async function joinBuyer(dealId, { phone, name, qty, optionType, email, ref }) {
       });
     }
 
+    for (const w of [390, 430, 1280]) {
+      await cdp.viewport(w, 900, w < 1000);
+      await run(`Integration @${w}: invalid quantity cannot open checkout with stale accepted value`, async () => {
+        await cdp.navigate(`${BASE}/preview/#/deal/${dealOpen}`);
+        await waitFor(cdp, exists('[data-testid="join-qty"]'));
+        for (const invalid of ["0", "999999", ""]) {
+          await cdp.evaluate(setValue('[data-testid="join-qty"]', invalid));
+          await waitFor(cdp, `document.querySelector('[data-testid="join-open"]').disabled`);
+          await cdp.evaluate(click('[data-testid="join-open"]'));
+          assert(!(await cdp.evaluate(exists('[data-testid="join-terms"]'))), "invalid quantity opened checkout");
+        }
+        await cdp.evaluate(setValue('[data-testid="join-qty"]', "2"));
+        await waitFor(cdp, `!document.querySelector('[data-testid="join-open"]').disabled`);
+        return check(`quantity validation @${w}`);
+      });
+      for (const surface of ["queue", "profile"]) {
+        await run(`Integration @${w}: KYC reject ${surface} keeps internal note out of seller notification`, async () => {
+          const sellerId = `kyc-ui-${tag}-${w}-${surface}`;
+          await db.query(`INSERT INTO siton.seller_accounts (seller_id, display_name, business_name, support_email, login_email, verification_status) VALUES ($1,$1,$1,$2,$2,'pending')`, [sellerId, `${sellerId}@siton.test`]);
+          await cdp.navigate(`${BASE}/preview/#/admin/${surface === "queue" ? "sellers" : `seller/${sellerId}`}`);
+          const prefix = surface === "queue" ? `[data-seller-id="${sellerId}"] ` : "";
+          const reject = prefix + `[data-testid="${surface === "queue" ? "pending" : "seller"}-reject"]`;
+          await waitFor(cdp, exists(reject));
+          await cdp.evaluate(click(reject));
+          await waitFor(cdp, exists('[data-testid="kyc-seller-reason"]'));
+          const reason = "נא להשלים את מסמכי העסק";
+          const note = `INTERNAL_ONLY_${tag}_${w}_${surface}`;
+          await cdp.evaluate(setValue('[data-testid="kyc-seller-reason"]', reason));
+          await cdp.evaluate(setValue('[data-testid="kyc-admin-note"]', note));
+          await check(`KYC ${surface} form @${w}`);
+          await cdp.shot(shotName(w, `kyc_${surface}`));
+          await cdp.evaluate(click(prefix + `[data-testid="${surface === "queue" ? "pending" : "seller"}-reject-confirm"]`));
+          let row;
+          for (let i = 0; i < 50; i++) {
+            row = (await db.query(`SELECT verification_status, admin_note FROM siton.seller_accounts WHERE seller_id=$1`, [sellerId])).rows[0];
+            if (row.verification_status === "rejected") break;
+            await wait(100);
+          }
+          assert(row.verification_status === "rejected" && row.admin_note === note, "decision and internal note persisted");
+          const notifications = await db.query(`SELECT payload_jsonb FROM siton.notification_events WHERE seller_id=$1 AND event_type='seller_kyc_rejected'`, [sellerId]);
+          assert(notifications.rowCount === 1, "exactly one rejection notification");
+          assert(notifications.rows[0].payload_jsonb.reason === reason, "seller-facing reason preserved");
+          assert(!JSON.stringify(notifications.rows).includes(note), "internal note leaked");
+          const audit = await db.query(`SELECT reason FROM siton.seller_security_events WHERE seller_id=$1 AND event_type='seller.kyc.decision'`, [sellerId]);
+          assert(audit.rowCount === 1 && audit.rows[0].reason === reason, "decision audited");
+        });
+      }
+    }
+
     await run("0 console errors + 0 failed essential requests across the whole proof", async () => {
       assert(consoleErrors.length === 0, `console errors:\n${consoleErrors.join("\n")}`);
       assert(failedRequests.length === 0, `failed requests:\n${failedRequests.join("\n")}`);

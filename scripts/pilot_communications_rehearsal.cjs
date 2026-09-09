@@ -40,6 +40,11 @@ function databaseUrl(base, databaseName) {
 
 function refuseNonDisposableTarget(base) {
   const parsed = new URL(base);
+  // pg connection-string query parameters can override the URL authority.
+  // The disposable rehearsal accepts a plain local PostgreSQL URL only.
+  if (!["postgres:", "postgresql:"].includes(parsed.protocol) || parsed.search) {
+    throw new Error("REHEARSAL_REFUSED: use a plain local PostgreSQL URL without connection query overrides");
+  }
   const host = parsed.hostname.toLowerCase();
   const local = ["localhost", "127.0.0.1", "::1", "[::1]"].includes(host);
   const hostedHint = /supabase|pooler|render|amazonaws|neon|heroku|azure|gcp|cloud/i.test(host);
@@ -67,6 +72,7 @@ function rehearsalEnv(overrides) {
     PAYMENT_ENVIRONMENT: "demo",
     NOTIFICATION_PROVIDER: "log-only",
     NOTIFICATION_PROVIDER_MODE: "dry-run",
+    NODE_OPTIONS: `--require "${path.resolve("scripts/communications_local_network_guard.cjs").replace(/\\/g, "/")}"`,
     PUBLIC_BASE_URL: process.env.PUBLIC_BASE_URL || "https://pilot.c-ton.test",
     ADMIN_ALERT_EMAIL: process.env.ADMIN_ALERT_EMAIL || "ops-alerts@siton.test"
   };
@@ -162,7 +168,7 @@ async function main() {
     const failed = report.totals.find((r) => r.status === "failed");
     console.log(`\nPILOT_COMMUNICATIONS_REHEARSAL_PASS database=${name} kept=${KEEP} failed_rows=${failed ? failed.n : 0} (the rehearsal suite deliberately produces bounded 'failed'/'blocked' rows to prove terminal reasons)`);
   } finally {
-    if (KEEP) console.log(`REHEARSAL_DATABASE_KEPT ${target}`);
+    if (KEEP) console.log(`REHEARSAL_DATABASE_KEPT ${name} (local; connection credentials omitted)`);
     else await admin.query(`DROP DATABASE IF EXISTS ${quoted} WITH (FORCE)`).catch(() => undefined);
     await admin.end();
   }

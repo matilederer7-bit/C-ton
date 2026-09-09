@@ -896,6 +896,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
   const [error, setError] = useState("");
   const [errorKind, setErrorKind] = useState<"gone" | "network" | "busy" | "other">("other");
   const [qty, setQty] = useState(1);
+  const [qtyValid, setQtyValid] = useState(true);
   const [deliveryId, setDeliveryId] = useState<string>("");
   const [joining, setJoining] = useState(false);
   const [joinResult, setJoinResult] = useState<Json | null>(null);
@@ -1019,7 +1020,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     : state === "TargetReached"
       ? "הצטרפו ליחידות האחרונות"
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
-  const startJoin = () => { if (preview) return; sendFunnelEvent(dealId, "join_started"); setJoining(true); };
+  const startJoin = () => { if (preview || !qtyValid) return; sendFunnelEvent(dealId, "join_started"); setJoining(true); };
   const startInquiry = () => { if (preview) return; sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); };
   const story = isOpen ? null : closedStory({ state, soldOut, timeUp, deadline: String(deal.deadline), joined, threshold: Number(deal.threshold_units) });
   const pillLabel = story?.key === "awaiting_decision" ? "ההצטרפות הסתיימה — ממתינים להכרעה" : story?.key === "paused" ? "ההצטרפות מושהית זמנית" : buyerStateStory(state, unitsToTarget);
@@ -1107,7 +1108,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <label htmlFor="join-qty" style={{ fontWeight: 700 }}>כמות יחידות</label>
                 {/* SPRINT 4 (A9) — typed quantity, numeric keyboard, no +/− steppers */}
-                <QtyInput id="join-qty" testId="join-qty" value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
+                <QtyInput id="join-qty" testId="join-qty" value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} onValidityChange={setQtyValid} />
               </div>
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">
@@ -1135,7 +1136,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 💳 <b>לא משלמים עכשיו.</b> הסכום תופס מסגרת אשראי בלבד; החיוב מתבצע רק אם
                 העסקה נסגרת בהצלחה, ואם לא — המסגרת משתחררת אוטומטית.
               </div>
-              <button className="btn btn-join btn-block" data-testid="join-open" disabled={preview} ref={setCtaEl}
+              <button className="btn btn-join btn-block" data-testid="join-open" disabled={preview || !qtyValid} ref={setCtaEl}
                 title={preview ? "ההצטרפות מושבתת בתצוגה מקדימה" : undefined}
                 onClick={startJoin}>
                 {preview ? "הצטרפות (מושבת בתצוגה מקדימה)" : ctaText}

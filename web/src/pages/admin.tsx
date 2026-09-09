@@ -617,16 +617,33 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
 // LAUNCH POLISH (P4) — the pending queue: every self-registered seller waiting
 // for the owner, with WHO they are and approve/reject right here (no need to
 // open the seller). Target: signup → approval in under a minute.
+function KycRejectionFields({ reason, note, setReason, setNote, disabled }: {
+  reason: string; note: string; setReason: (v: string) => void; setNote: (v: string) => void; disabled: boolean;
+}) {
+  return <div data-testid="kyc-rejection-fields" style={{ flexBasis: "100%", minWidth: 0, width: "100%" }}>
+    <label className="field">סיבת דחייה למוכר (אופציונלי)
+      <textarea data-testid="kyc-seller-reason" maxLength={300} value={reason} disabled={disabled} onChange={(e) => setReason(e.target.value)} />
+      <span className="small muted">הטקסט הזה מיועד למוכר ויכול להופיע בהודעת הדחייה.</span>
+    </label>
+    <label className="field">הערה פנימית למנהל
+      <textarea data-testid="kyc-admin-note" maxLength={2000} value={note} disabled={disabled} onChange={(e) => setNote(e.target.value)} />
+      <span className="small muted">לשימוש פנימי בלבד — לא נשלחת בהודעה למוכר.</span>
+    </label>
+  </div>;
+}
+
 function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]; navigate: (h: string) => void; onChanged: () => void }) {
   const [busy, setBusy] = useState("");
   const [confirmReject, setConfirmReject] = useState("");
+  const [sellerReason, setSellerReason] = useState("");
+  const [adminNote, setAdminNote] = useState("");
   const [msg, setMsg] = useState("");
   if (!pending.length) return <div className="notice ok" data-testid="pending-sellers-empty">אין מוכרים שממתינים לאישור.</div>;
   const decide = async (s: Json, decision: "approve" | "reject") => {
     if (busy) return;
     setBusy(String(s.seller_id)); setMsg("");
     try {
-      await api.adminSellerKycDecision(String(s.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
+      await api.adminSellerKycDecision(String(s.seller_id), decision, decision === "approve" ? "pilot_approved" : adminNote, sellerReason);
       setMsg(decision === "approve" ? `${s.business_name || s.display_name} אושר — יכול לפרסם.` : `${s.business_name || s.display_name} נדחה.`);
       setConfirmReject("");
       onChanged();
@@ -651,11 +668,12 @@ function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]
             {confirmReject === s.seller_id ? (
               <button className="btn btn-sm btn-danger" data-testid="pending-reject-confirm" disabled={Boolean(busy)} onClick={() => decide(s, "reject")}>אישור הדחייה</button>
             ) : (
-              <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="pending-reject" disabled={Boolean(busy)} onClick={() => setConfirmReject(String(s.seller_id))}>דחייה</button>
+              <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="pending-reject" disabled={Boolean(busy)} onClick={() => { setSellerReason(""); setAdminNote(""); setConfirmReject(String(s.seller_id)); }}>דחייה</button>
             )}
             <button className="btn btn-sm btn-primary" data-testid="pending-approve" disabled={Boolean(busy)} onClick={() => decide(s, "approve")}>
               {busy === s.seller_id ? "רגע…" : "אשר מוכר"}
             </button>
+            {confirmReject === s.seller_id ? <KycRejectionFields reason={sellerReason} note={adminNote} setReason={setSellerReason} setNote={setAdminNote} disabled={Boolean(busy)} /> : null}
           </div>
         </div>
       ))}
@@ -714,6 +732,8 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
 // "pending" (drafts only) until the owner approves here. Uses the existing
 // server decision route; nothing else changes on the account.
 function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: () => void }) {
+  const [sellerReason, setSellerReason] = useState("");
+  const [adminNote, setAdminNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   // LAUNCH POLISH (P4) — inline two-step reject (window.confirm is invisible
@@ -724,7 +744,7 @@ function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: (
     if (busy) return;
     setBusy(true); setMsg("");
     try {
-      await api.adminSellerKycDecision(String(seller.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
+      await api.adminSellerKycDecision(String(seller.seller_id), decision, decision === "approve" ? "pilot_approved" : adminNote, sellerReason);
       setMsg(decision === "approve" ? "המוכר אושר — יכול לפרסם עסקאות." : "המוכר נדחה.");
       setConfirmReject(false);
       onChanged();
@@ -744,9 +764,10 @@ function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: (
         {status !== "rejected" ? (
           confirmReject
             ? <button className="btn btn-sm btn-danger" data-testid="seller-reject-confirm" disabled={busy} onClick={() => decide("reject")}>אישור הדחייה</button>
-            : <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="seller-reject" disabled={busy} onClick={() => setConfirmReject(true)}>דחה</button>
+            : <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="seller-reject" disabled={busy} onClick={() => { setSellerReason(""); setAdminNote(""); setConfirmReject(true); }}>דחה</button>
         ) : null}
       </span>
+      {confirmReject ? <KycRejectionFields reason={sellerReason} note={adminNote} setReason={setSellerReason} setNote={setAdminNote} disabled={busy} /> : null}
       {msg ? <span className="small" style={{ flexBasis: "100%" }}>{msg}</span> : null}
     </div>
   );

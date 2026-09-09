@@ -185,8 +185,8 @@ export const api = {
   },
   // LAUNCH MODE — pilot funnel + seller approval (closed-market gate)
   adminPilotMetrics: (days = 30) => req(`/api/admin/pilot-metrics?days=${encodeURIComponent(String(days))}`, {}, "admin"),
-  adminSellerKycDecision: (sellerId: string, decision: "approve" | "reject", adminNote = "") =>
-    req(`/api/admin/kyc/seller/${encodeURIComponent(sellerId)}/decision`, { method: "POST", body: JSON.stringify({ decision, admin_note: adminNote }) }, "admin"),
+  adminSellerKycDecision: (sellerId: string, decision: "approve" | "reject", adminNote = "", sellerReason = "") =>
+    req(`/api/admin/kyc/seller/${encodeURIComponent(sellerId)}/decision`, { method: "POST", body: JSON.stringify({ decision, admin_note: adminNote, ...(decision === "reject" ? { seller_reason: sellerReason } : {}) }) }, "admin"),
   adminSystemStatus: () => req(`/api/admin/system-status`, {}, "admin"),
   adminOutboxStatus: () => req(`/api/admin/outbox-status`, {}, "admin"),
   adminNotificationsStatus: () => req(`/api/admin/notifications-status`, {}, "admin"),

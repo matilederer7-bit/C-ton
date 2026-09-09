@@ -27,11 +27,17 @@ $$;
 
 -- (a) worker mints tracking tokens for notification links
 GRANT INSERT ON siton.participant_tracking_tokens TO siton_worker_runtime;
+-- INSERT ... RETURNING needs SELECT on exactly the returned columns.
+-- Do not expose token_hash or grant token update/delete authority.
+GRANT SELECT (tracking_token_id, participant_id, deal_id, purpose, status, expires_at)
+  ON siton.participant_tracking_tokens TO siton_worker_runtime;
+DROP POLICY IF EXISTS r2_worker_select ON siton.participant_tracking_tokens;
+CREATE POLICY r2_worker_select ON siton.participant_tracking_tokens FOR SELECT TO siton_worker_runtime USING (true);
 DROP POLICY IF EXISTS r2_worker_insert ON siton.participant_tracking_tokens;
 CREATE POLICY r2_worker_insert ON siton.participant_tracking_tokens FOR INSERT TO siton_worker_runtime WITH CHECK (true);
 
 -- (b) worker resolves the seller's business contact e-mail (no bank number)
-GRANT SELECT (seller_id, contact_email, contact_name, business_name, updated_at)
+GRANT SELECT (seller_id, contact_email)
   ON siton.seller_business_profiles TO siton_worker_runtime;
 DROP POLICY IF EXISTS r2_worker_select ON siton.seller_business_profiles;
 CREATE POLICY r2_worker_select ON siton.seller_business_profiles FOR SELECT TO siton_worker_runtime USING (true);
@@ -43,6 +49,10 @@ BEGIN
   END IF;
   IF has_table_privilege('siton_worker_runtime', 'siton.participant_tracking_tokens', 'DELETE') THEN
     RAISE EXCEPTION 'siton_worker_runtime must NOT have DELETE on participant_tracking_tokens';
+  END IF;
+  IF has_column_privilege('siton_worker_runtime', 'siton.participant_tracking_tokens', 'token_hash', 'SELECT')
+     OR has_table_privilege('siton_worker_runtime', 'siton.participant_tracking_tokens', 'UPDATE') THEN
+    RAISE EXCEPTION 'siton_worker_runtime must NOT read token_hash or update tracking tokens';
   END IF;
   IF NOT has_column_privilege('siton_worker_runtime', 'siton.seller_business_profiles', 'contact_email', 'SELECT') THEN
     RAISE EXCEPTION 'siton_worker_runtime is missing SELECT(contact_email) on seller_business_profiles';

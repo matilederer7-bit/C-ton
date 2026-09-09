@@ -735,6 +735,62 @@ await run("S15 every pilot template renders on each compatible channel, money tr
   assert.equal(view.recipient_masked, "+97250***567");
 });
 
+await run("S16 notification read/insert/token SQL failures preserve committed business truth", async () => {
+  const { enqueueTargetReachedNotifications, enqueueDealOutcomeNotifications, enqueueFulfillmentIssuedNotification } = await import("../src/notification_events.js");
+  const pid = String((await participants(dealA))[0].participant_id);
+  const ctx = { origin: ORIGIN, money_mode: "mock" as const };
+  const common = { deal_id: dealA, ...ctx, default_seller_id: sellerA };
+  const cases = [
+    { name: "target header", pattern: /SELECT title, seller_id/, call: (c: any) => enqueueTargetReachedNotifications(c, common) },
+    { name: "target participants", pattern: /SELECT participant_id, buyer_state/, call: (c: any) => enqueueTargetReachedNotifications(c, common) },
+    { name: "outcome header", pattern: /SELECT title, seller_id/, call: (c: any) => enqueueDealOutcomeNotifications(c, { ...common, outcome: "completed", classify: () => "completed" }) },
+    { name: "outcome participants", pattern: /SELECT participant_id, buyer_state/, call: (c: any) => enqueueDealOutcomeNotifications(c, { ...common, outcome: "completed", classify: () => "completed" }) },
+    { name: "fulfillment read", pattern: /FROM siton.fulfillment_units/, call: (c: any) => enqueueFulfillmentIssuedNotification(c, { ...common, participant_id: pid, deal_type: "voucher" }) },
+    { name: "buyer recipient", pattern: /SELECT p.participant_id, p.buyer_id/, call: (c: any) => enqueueBuyerDealNotification(c, { event_type: "buyer_ticket_issued", participant_id: pid, deal_id: dealA, ctx }) },
+    { name: "notification insert", pattern: /INSERT INTO siton.notification_events/, call: (c: any) => enqueueBuyerDealNotification(c, { event_type: "buyer_ticket_issued", participant_id: pid, deal_id: dealA, ctx }) },
+    { name: "tracking token", pattern: /INSERT INTO siton.participant_tracking_tokens/, call: (c: any) => enqueueBuyerDealNotification(c, { event_type: "buyer_ticket_issued", participant_id: pid, deal_id: dealA, ctx }) }
+  ];
+  for (const test of cases) {
+    const correlation = `failure-proof-${randomUUID()}`;
+    let injected = false;
+    await withTx(async (c) => {
+      // A real PostgreSQL statement error poisons the transaction unless the
+      // notification helper actually rolls back to a savepoint.
+      const proxy = { query: (sql: string, values?: any[]) => {
+        if (!injected && test.pattern.test(sql)) { injected = true; return c.query("SELECT 1 / 0"); }
+        return c.query(sql, values);
+      } };
+      await c.query("CREATE TEMP TABLE IF NOT EXISTS notification_business_proof (id text) ON COMMIT PRESERVE ROWS");
+      await c.query("INSERT INTO notification_business_proof VALUES ($1)", [correlation]);
+      await test.call(proxy);
+      assert.equal(injected, true, test.name);
+      assert.equal((await c.query("SELECT count(*)::int AS n FROM notification_business_proof WHERE id=$1", [correlation])).rows[0].n, 1, test.name);
+    });
+  }
+});
+
+await run("S17 failed inquiry notification insert cannot roll back the customer message", async () => {
+  const deal = await createDeal(HA, { title: `Inquiry failure ${RUN}` });
+  assert.equal((await publish(HA, deal)).statusCode, 200);
+  await pool.query(`CREATE FUNCTION siton.test_inquiry_notification_failure() RETURNS trigger LANGUAGE plpgsql AS $$
+    BEGIN IF NEW.event_type='seller_customer_inquiry' THEN RAISE EXCEPTION 'injected notification insert failure'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER test_inquiry_notification_failure BEFORE INSERT ON siton.notification_events FOR EACH ROW EXECUTE FUNCTION siton.test_inquiry_notification_failure()`);
+  try {
+    const payload = { name: "Inquiry tester", email: `failure-${RUN}@buyer.siton.test`, message: "Please confirm pickup hours" };
+    const result = await app.inject({ method: "POST", url: `/api/deals/${deal}/inquiries`, payload });
+    assert.equal(result.statusCode, 201, result.body);
+    const body = result.json() as any;
+    assert.equal(body.notification.result, "error");
+    assert.equal((await pool.query("SELECT 1 FROM siton.seller_inquiry_messages WHERE message_id=$1", [body.message_id])).rowCount, 1);
+    assert.equal(await count("seller_customer_inquiry", "deal_id=$2", [deal]), 0);
+    const retry = await app.inject({ method: "POST", url: `/api/deals/${deal}/inquiries`, payload });
+    assert.equal(retry.statusCode, 200, retry.body);
+    assert.equal((retry.json() as any).duplicate, true);
+  } finally {
+    await pool.query("DROP TRIGGER test_inquiry_notification_failure ON siton.notification_events; DROP FUNCTION siton.test_inquiry_notification_failure()");
+  }
+});
+
 console.log("\nPILOT_COMMS_REPORT");
 for (const line of report) console.log(`  ${line}`);
 console.log(`SUMMARY passed=${passed} failed=${failed} real_email_sent=0 real_sms_sent=0 external_delivery=0`);

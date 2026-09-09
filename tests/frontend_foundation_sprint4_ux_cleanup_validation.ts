@@ -181,6 +181,23 @@ await run("A5 scroll: a restore gives up after the budget (scrolls to the reacha
   assert.deepEqual(parsePositions("not json"), {});
 });
 
+await run("A5 late layout shifts retain the saved position; explicit user input cancels restoration", () => {
+  const { world, deps, flush } = fakeScrollWorld();
+  const memory = new ScrollMemory(deps as any);
+  memory.boot();
+  const key = readScrollKey(world.state)!;
+  world.y = 900; memory.remember();
+  world.state = null; memory.navigated(900);
+  world.state = { [SCROLL_STATE_FIELD]: key }; memory.navigated(0);
+  for (let i = 0; i < 30; i++) flush();
+  world.y = 962; memory.remember(); flush();
+  assert.equal(world.y, 900, "late browser anchoring does not shift the saved position");
+  assert.equal(memory.savedPosition(key), 900);
+  memory.userInteracted(); world.y = 1100; memory.remember(); flush();
+  assert.equal(world.y, 1100, "user scrolling wins");
+  assert.equal(memory.savedPosition(key), 1100);
+});
+
 await run("A5 source pins: the router no longer forces scrollTo(0,0); restoration is installed on the hashchange path; no global overflow-x band-aid", () => {
   const app = read("web/src/App.tsx");
   const css = read("web/src/styles.css");

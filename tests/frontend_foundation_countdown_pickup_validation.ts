@@ -128,7 +128,7 @@ await run("DRAFT PREVIEW: same renderer in read-only mode — no join/share/chat
   assert.match(dealPage, /preview \? api\.sellerDealPreview\(dealId\) : api\.deal\(dealId\)/);
   assert.match(dealPage, /if \(!preview\) \{\s*\n\s*\/\/ real public traffic only[^\n]*\n\s*sendFunnelEvent\(dealId, "deal_view"/);
   assert.match(dealPage, /data-testid="preview-banner"/);
-  assert.match(dealPage, /data-testid="join-open" disabled=\{preview\}/);
+  assert.match(dealPage, /data-testid="join-open" disabled=\{preview \|\| !qtyValid\}/);
   assert.match(dealPage, /data-testid="share-preview-note"/);
   assert.match(dealPage, /canWrite=\{!preview && OPEN_STATES\.includes\(state\)\}/);
   assert.match(dealPage, /data-testid="inquiry-open" onClick=\{onOpen\} disabled=\{preview\}/);

@@ -13,6 +13,7 @@ import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./paymen
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildPayoutProvider, getPayoutProviderSummary, type PayoutProvider } from "./payout_provider.js";
 import type { InvoiceProvider } from "./invoice_dispatch.js";
+import { withNotificationSavepoint } from "./notification_dispatch.js";
 import {
   ADMIN_API_KEY,
   isProductionLikeEnv,
@@ -3208,15 +3209,17 @@ export function registerFrontendExperience(
     // the seller has not read yet never fan out into more e-mails.
     let notification: { result: string; channel: string } = { result: "not_needed", channel: "none" };
     if (created || previousStatus !== "Open") {
-      const queued = await enqueueSellerInquiryNotification(c, {
+      const guarded = await withNotificationSavepoint(c, () => enqueueSellerInquiryNotification(c, {
         sellerId: args.sellerId,
         dealId: args.dealId,
         dealTitle: args.dealTitle,
         threadId: thread.thread_id,
         messageId,
         origin: publicOrigin(args.req)
-      });
-      notification = { result: queued.result, channel: queued.recipient.channel };
+      }));
+      notification = guarded.ok
+        ? { result: guarded.value.result, channel: guarded.value.recipient.channel }
+        : { result: "error", channel: "none" };
     }
     // Return the payload instead of reply.send(): Fastify serializes it only
     // after withTx COMMITs, so a 201 always means the thread/message/event are

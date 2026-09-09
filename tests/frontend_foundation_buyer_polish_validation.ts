@@ -56,7 +56,7 @@ run("P1: the phone CTA bar exists only for an open deal outside preview, mirrors
   assert.match(dealPage, /\{isOpen && !preview \? \(\s*<StickyJoinBar anchor=\{ctaEl\} enabled=\{!joining && !joinResult && !inquiryOpen\}/);
   assert.match(dealPage, /data-testid="join-open-sticky"[^>]*onClick=\{onJoin\}/);
   assert.match(dealPage, /onJoin=\{startJoin\}/, "the sticky bar fires the SAME join start (funnel event + sheet)");
-  assert.match(dealPage, /const startJoin = \(\) => \{ if \(preview\) return; sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\); \};/);
+  assert.match(dealPage, /const startJoin = \(\) => \{ if \(preview \|\| !qtyValid\) return; sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\); \};/);
   assert.match(styles, /\.sticky-cta \{ display: none; \}/);
   assert.match(styles, /@media \(max-width: 860px\) \{\s*\n\s*\.sticky-cta \{\s*\n\s*position: fixed; bottom: 0;/);
   assert.match(dealPage, /setOffscreen\(!entry\.isIntersecting\)/, "shown only while the real CTA is off-screen");
