@@ -116,6 +116,40 @@ const MUTANTS = [
     suites: ["review_payment_dual_capture_durable_escalation_validation.ts"]
   },
   {
+    id: "RM-8",
+    invariant: "an unreadable capture-side identity evidence set is never answered as \"not a dual capture\"",
+    layer: "readCaptureSideIdentityEvidence fail-closed (Codex round-3 blocker)",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `  } catch (cause) {
+    // NOT an empty set. The evidence is unknown, and unknown is its own answer.
+    return { outcome: "unreadable", cause };
+  }`,
+        // the pre-fix swallow: a read error becomes an empty evidence set, which
+        // is spelled exactly like "no other capture succeeded"
+        to: `  } catch (cause) {
+    void cause;
+    rows = [];
+  }`
+      }
+    ],
+    suites: ["review_payment_dual_capture_durable_escalation_validation.ts"]
+  },
+  {
+    id: "RM-9",
+    invariant: "a late claim never overwrites the provider's answer to the exact request",
+    layer: "reportedExactDecline settle gate (fuzz seed 209752203 index 152)",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `  const settleReportedIdentity = Boolean(correlation) && !evidence.reportedExactDecline;`,
+        to: `  const settleReportedIdentity = Boolean(correlation);`
+      }
+    ],
+    suites: ["review_payment_dual_capture_escalation_validation.ts"]
+  },
+  {
     id: "RM-4",
     invariant: "prior-attempt resolution refuses a status answer about another operation before reusing an identity",
     layer: "resolvePriorProviderAttempt reference-mismatch guard",
