@@ -1,3 +1,4 @@
+import { useSiteContent } from "../receiptContent";
 import React, { useEffect, useRef, useState } from "react";
 import { getSellerToken } from "../api";
 import { BRAND_LOGO_URL } from "../config";
@@ -71,7 +72,8 @@ function useMallEnabled(): boolean {
 export function Landing({ navigate }: { navigate: (h: string) => void }) {
   const authed = Boolean(getSellerToken());
   const mallEnabled = useMallEnabled();
-  const c = LANDING_HE;
+  const content = useSiteContent();
+  const c = { ...LANDING_HE, hero: { ...LANDING_HE.hero, title: content.home?.title ?? LANDING_HE.hero.title, sub: content.home?.sub ?? LANDING_HE.hero.sub, note: content.home?.intro ?? LANDING_HE.hero.note }, about: content.about || LANDING_HE.about };
   return (
     <div className="landing">
       <section className="landing-hero">
@@ -79,7 +81,7 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
         <div className="landing-hero-inner">
           <img
             className="landing-logo"
-            src={BRAND_LOGO_URL}
+            src={content.home?.image || BRAND_LOGO_URL}
             alt="C-ton"
             width={340}
             height={227}
@@ -95,8 +97,8 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
               </>
             ) : (
               <>
-                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>התחברות מוכר</button>
-                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller?signup=1")}>פתיחת חשבון מוכר</button>
+                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>{content.home?.login_cta || "התחברות מוכר"}</button>
+                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller?signup=1")}>{content.home?.signup_cta || "פתיחת חשבון מוכר"}</button>
               </>
             )}
           </div>

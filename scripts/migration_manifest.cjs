@@ -62,7 +62,8 @@ const MIGRATIONS = [
   // 063/064 are reserved by the financial candidate branch (not merged yet);
   // 065 takes the next free id. Whichever branch lands second appends AFTER
   // the other so ledger positions stay contiguous.
-  ["065", "065_pilot_readiness.sql"]
+  ["065", "065_pilot_readiness.sql"],
+  ["066", "066_receipt_trust_content.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

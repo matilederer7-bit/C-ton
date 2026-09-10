@@ -1079,8 +1079,11 @@ td.num, th.num { text-align: end; font-variant-numeric: tabular-nums; }
 .chat-msg { background: var(--surface-warm); border: 1px solid var(--line); border-radius: 14px 14px 14px 4px; padding: 8px 12px; font-size: .92rem; max-width: 85%; }
 .chat-msg .chat-author { font-size: .76rem; font-weight: 700; color: var(--brand-hi); }
 .chat-msg .chat-time { font-size: .7rem; color: var(--ink-faint); }
-.chat-form { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-.chat-form input { flex: 1 1 120px; }
+.chat-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.chat-form label { display: grid; gap: 6px; }
+.chat-form input, .chat-form textarea { width: 100%; }
+.chat-form textarea { min-height: 130px; resize: vertical; }
+.chat-form button { align-self: flex-start; }
 
 /* ── responsive ────────────────────────────────────────────────────────── */
 @media (max-width: 860px) {
@@ -1439,3 +1442,10 @@ tr.clickable:hover { background: var(--brand-tint); }
   .pickup-code-xl { font-size: 2.2rem; }
   .handoff-verdict-text { font-size: 1.35rem; }
 }
+
+.receipt-fields { border: 0; padding: 0; margin: 0 0 16px; min-width: 0; }
+.receipt-fields legend { font-weight: 800; margin-bottom: 12px; }
+.receipt-option { display: flex; align-items: center; gap: 12px; padding: 10px 0; }
+.receipt-option input { flex: 0 0 18px; width: 18px; }
+.seller-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
+.receipt-code { overflow-wrap: anywhere; font-size: 1.1rem; font-weight: 700; text-align: center; }

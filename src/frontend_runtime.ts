@@ -1,3 +1,5 @@
+import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
+import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { existsSync } from "fs";
@@ -374,53 +376,24 @@ function renderLegalMarkdown(markdown: string) {
     .join("\n");
 }
 
-function renderLegalHtmlPage(slug: LegalPageSlug) {
-  const page = LEGAL_PAGES[slug];
-  // P0.3-12 — the visible legal nav stays lean (core buyer documents only);
-  // sellers/affiliates pages remain reachable by direct link from their flows.
-  const CORE_LEGAL_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds"];
-  const navSlugs = CORE_LEGAL_NAV.includes(slug) ? CORE_LEGAL_NAV : [...CORE_LEGAL_NAV, slug];
-  const nav = LEGAL_PAGE_ORDER.filter((item) => navSlugs.includes(item)).map((item) => {
-    const target = LEGAL_PAGES[item];
-    return `<a href="/legal/${target.slug}"${target.slug === slug ? ` aria-current="page"` : ""}>${escapeHtml(target.navLabel)}</a>`;
-  }).join("");
-  return `<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>C-ton | ${escapeHtml(page.title)}</title>
-  <style>
-    :root{color-scheme:light;--bg:#2F3237;--card:#fff;--text:#1F2933;--muted:#56616f;--brand:#C65A1E}
-    *{box-sizing:border-box}body{margin:0;font-family:Arial,"Noto Sans Hebrew",sans-serif;background:linear-gradient(135deg,#2F3237 0%,#25282D 100%);color:var(--text);line-height:1.75}
-    .shell{width:min(1060px,calc(100% - 32px));margin:0 auto;padding:32px 0 56px}
-    header{color:#fff;margin-bottom:22px}header a{color:#fff}.brand{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap}.brand strong{font-size:1.5rem}
-    nav{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}nav a{border:1px solid rgba(255,255,255,.28);border-radius:999px;padding:8px 13px;text-decoration:none;background:rgba(255,255,255,.08)}nav a[aria-current=page]{background:var(--brand);border-color:var(--brand)}
-    main{background:var(--card);border-radius:24px;padding:clamp(22px,4vw,42px);box-shadow:0 24px 60px rgba(0,0,0,.24);border:1px solid rgba(255,255,255,.18)}
-    h1{font-size:clamp(1.8rem,4vw,3rem);line-height:1.15;margin:0 0 18px}h2{font-size:1.35rem;margin:34px 0 8px;color:#111827}p{margin:0 0 14px;color:var(--text)}.notice{margin:0 0 24px;padding:14px 16px;border-radius:16px;background:#FFF1E8;border:1px solid rgba(198,90,30,.28);color:#53311f}
-    footer{color:#D1D5DB;margin-top:22px;display:flex;gap:14px;flex-wrap:wrap}footer a{color:#fff}
-    @media(max-width:520px){.shell{width:min(100% - 20px,1060px);padding-top:18px}main{border-radius:18px;padding:18px}nav a{width:calc(50% - 5px);text-align:center}}
-  </style>
-</head>
-<body>
-  <div class="shell">
-    <header>
-      <div class="brand"><strong>C-ton</strong><a href="/preview/">חזרה לאתר</a></div>
-      <nav aria-label="ניווט משפטי">${nav}</nav>
-    </header>
-    <main>
-      <div class="notice">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div>
-      ${renderLegalMarkdown(page.body)}
-    </main>
-    <footer>
-      <a href="/legal/terms">תקנון</a>
-      <a href="/legal/privacy">מדיניות פרטיות</a>
-      <a href="/legal/refunds">ביטולים והחזרים</a>
-      <a href="/preview/#/support">תמיכה</a>
-    </footer>
-  </div>
-</body>
-</html>`;
+async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: string; body: string }) {
+  const page = { ...LEGAL_PAGES[slug], ...override };
+  let stylesheet = "";
+  if (previewDir) {
+    const index = await readFile(join(previewDir, "index.html"), "utf8");
+    stylesheet = index.match(/href="(\/preview\/assets\/[^"<>]+\.css)"/)?.[1] || "";
+  }
+  const nav = (["terms", "privacy", "refunds"] as LegalPageSlug[]).map(key =>
+    `<a class="nav-link" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ''}>${escapeHtml(LEGAL_PAGES[key].navLabel)}</a>`).join("");
+  return `<!doctype html><html lang="he" dir="rtl"><head>
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>C-ton | ${escapeHtml(page.title)}</title>
+    ${stylesheet ? '<link rel="stylesheet" href="' + escapeHtml(stylesheet) + '">' : '<style>body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:24px}a{color:#ff8a25}.container{max-width:1000px;margin:auto}.panel{padding:24px}.nav-links{display:flex;gap:16px;flex-wrap:wrap}</style>'}
+  </head><body><div class="app">
+    <header class="topbar"><div class="topbar-inner"><a class="brand" href="/preview/">C-ton · חזרה לאתר</a><nav class="nav-links" aria-label="ניווט משפטי">${nav}</nav></div></header>
+    <main class="container"><article class="panel"><div class="notice info">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article></main>
+    <footer class="footer"><a href="/legal/terms">תקנון</a><a href="/legal/privacy">מדיניות פרטיות</a><a href="/legal/refunds">ביטולים והחזרים</a><a href="/preview/#/support">תמיכה ויצירת קשר</a></footer>
+  </div></body></html>`;
 }
 
 function mapSellerProfile(profile: any, contextSource: string) {
@@ -1099,6 +1072,7 @@ function dealChatMessageFromRow(row: any) {
     message_id: String(row.message_id),
     deal_id: String(row.deal_id),
     display_name: String(row.display_name),
+    title: String(row.title || ""),
     body: String(row.body),
     created_at: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at)
   };
@@ -1744,6 +1718,15 @@ export function registerFrontendExperience(
     if (opts?.recentMfa) guardOptions.recentMfa = true;
     return deps.withTx(async (c: any) => requireAdminAuthContext(req, reply, c, guardOptions));
   }
+  registerReceiptContentRoutes(app, {
+    withTx: deps.withTx, requireAdminRead, requireAdminMutation,
+    requireSeller: async (req, reply, c) => {
+      reply.header("Cache-Control", "no-store");
+      const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!seller || !(await ensureSellerActionAllowed(c, seller.seller_id, "operate", reply))) return null;
+      return seller;
+    }
+  });
   function adminActorRef(identity: any, fallback = "admin"): string {
     return String(identity?.email || identity?.admin_user_id || fallback).slice(0, 120) || fallback;
   }
@@ -3448,7 +3431,7 @@ export function registerFrontendExperience(
       // viewer's own reaction (keyed by the PII-free tracked visitor id).
       const viewerKey = dealChatActorKey(String(req.query?.visitor_id || ""));
       const messages = await c.query(
-        `SELECT m.message_id, m.deal_id, m.display_name, m.body, m.created_at,
+        `SELECT m.message_id, m.deal_id, m.display_name, m.title, m.body, m.created_at,
                 m.reply_to_message_id,
                 r.display_name AS reply_display_name,
                 CASE WHEN r.message_id IS NULL THEN NULL ELSE left(r.body, 120) END AS reply_body,
@@ -3499,6 +3482,8 @@ export function registerFrontendExperience(
     requireUuid(dealId, "deal_id");
     const rawBody = String(req.body?.body ?? "");
     const bodyText = normalizeDealChatText(rawBody, 500);
+    const title = req.body?.title ?? "";
+    if (typeof title !== "string" || title.length > 80) return reply.code(400).send({ ok: false, error: "invalid_chat_title" });
     const displayName = normalizeDealChatText(req.body?.display_name, 80, "משתתף");
 
     if (!bodyText) {
@@ -3537,10 +3522,10 @@ export function registerFrontendExperience(
       }
 
       const inserted = await c.query(
-        `INSERT INTO siton.deal_chat_messages (deal_id, display_name, body, reply_to_message_id)
-         VALUES ($1,$2,$3,$4)
-         RETURNING message_id, deal_id, display_name, body, created_at, reply_to_message_id`,
-        [dealId, displayName, bodyText, replyTo]
+        `INSERT INTO siton.deal_chat_messages (deal_id, display_name, body, reply_to_message_id, title)
+         VALUES ($1,$2,$3,$4,$5)
+         RETURNING message_id, deal_id, display_name, title, body, created_at, reply_to_message_id`,
+        [dealId, displayName, bodyText, replyTo, title.trim()]
       );
 
       return reply.code(201).send({
@@ -5201,9 +5186,10 @@ export function registerFrontendExperience(
       const lookup = await c.query(
         `SELECT f.fulfillment_unit_id, f.deal_id, f.participant_id, f.status,
                 f.fulfillment_kind, f.deal_type,
-                COALESCE(d.seller_id, '') AS seller_id, d.state AS deal_state
+                COALESCE(d.seller_id, '') AS seller_id, d.state AS deal_state, p.buyer_state, p.money_state
            FROM siton.fulfillment_units f
            JOIN siton.deals d ON d.deal_id = f.deal_id
+           JOIN siton.participants p ON p.participant_id = f.participant_id
           WHERE f.fulfillment_unit_id = $1
           FOR UPDATE`,
         [unitId]
@@ -5226,6 +5212,9 @@ export function registerFrontendExperience(
         err.statusCode = 409;
         err.code = "deal_not_completed";
         throw err;
+      }
+      if (!decideFulfillmentIssuance({ dealState: unit.deal_state, buyerState: unit.buyer_state, moneyState: unit.money_state }).shouldIssue) {
+        throw Object.assign(new Error("fulfillment_unit_not_entitled"), { statusCode: 409, code: "fulfillment_unit_not_entitled" });
       }
       if (String(unit.status) === "Redeemed") {
         return {
@@ -7360,7 +7349,7 @@ export function registerFrontendExperience(
       let dbKeys: string[] = [];
       let dbCount: number | null = null;
       try {
-        const r = await c.query("SELECT storage_key FROM siton.deal_images WHERE storage_key IS NOT NULL ORDER BY created_at DESC LIMIT 2000");
+        const r = await c.query("SELECT storage_key FROM siton.deal_images WHERE storage_key IS NOT NULL UNION SELECT storage_key FROM siton.content_assets");
         dbKeys = r.rows.map((row: any) => String(row.storage_key));
         dbCount = dbKeys.length;
       } catch {
@@ -11916,7 +11905,9 @@ export function registerFrontendExperience(
     if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {
       return reply.code(404).send({ ok: false, error: "legal page not found" });
     }
-    return reply.type("text/html; charset=utf-8").send(renderLegalHtmlPage(slug));
+    const content = await deps.withTx(c => readContent(c));
+    const value = content["legal_" + slug]!.value;
+    return reply.type("text/html; charset=utf-8").send(await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }));
   });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);

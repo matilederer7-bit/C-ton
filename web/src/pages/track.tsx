@@ -1,3 +1,4 @@
+import { BuyerEntitlement } from "../receiptContent";
 import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, copyText, useToast } from "../components";
@@ -160,7 +161,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           {/* LAUNCH SPRINT 3 — physical pickup credential: only when the server
               says the order is canonically eligible; "handed over" afterwards */}
-          <PickupCard pickup={t.pickup} />
+          <BuyerEntitlement participantId={participantId} token={token} pickup={t.pickup} />
 
           {/* LAUNCH POLISH 2 (P4/P7) — how I get back here + how I ask the seller */}
           <div className="panel" data-testid="track-return">
