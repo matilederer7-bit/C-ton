@@ -540,7 +540,7 @@ owner's decision, and real money is forbidden regardless. Recommended: mirror th
 VAT pattern with an `assertProviderAmbiguityPolicyForRealMoney` guard, or flip the
 default to fail-closed.
 
-### F-12 — a dual capture was absorbed as an idempotent replay · P1 observability · PREEXISTING · FIXED ON THE REVIEW BRANCH
+### F-12 — a dual capture was absorbed as an idempotent replay, and its escalation was not durable · P0 · PREEXISTING · FIXED ON THE REVIEW BRANCH (two rounds)
 `recordLateMoneyEffectException` is the mechanism that keeps a refused provider
 effect visible. It decided "is this a contradiction?" from the money STATE alone:
 
@@ -584,6 +584,78 @@ Provenance: the predicate is byte-identical to the reviewed source `3809b32`, so
 it is PREEXISTING in that lineage and NOT introduced by this candidate. Canonical
 master is worse — it has no late-money-effect mechanism at all, so the effect is
 discarded there with no case in every state.
+
+#### Second round: Codex found the first fix was not durable
+
+The independent merge review of the frozen branch found that the first fix
+detected the condition but could still lose the escalation, and it was right.
+Two compounding defects:
+
+1. **The escalation was a suppressed best-effort side effect.** The money
+   evidence committed in one transaction, then `openPaymentOperationalCase`
+   wrote the case in another and swallowed every error. A failing
+   `operational_cases` INSERT therefore produced HTTP 200, a delivery counted as
+   handled, and no case.
+2. **The predicate was self-concealing.** It asked whether EVERY executed
+   capture-side identity differed from the reported one — a replay test, not a
+   dual-capture test. The first delivery committed the reported identity's own
+   success, and that row made the predicate false for ever. Neither a same-id
+   retry nor a fresh-id redelivery could detect the condition again: the first
+   delivery destroyed the evidence a later delivery needed.
+
+Both are fixed:
+
+- **Detection counts distinct executed capture-side identities**, including the
+  effect being reported right now. Two or more means dual capture. The reported
+  effect joining the set is what makes the answer stable across deliveries:
+  committed `{recovery}` plus reported `charge_start` is 2, and committed
+  `{charge_start, recovery}` plus reported `charge_start` is still 2, while an
+  ordinary duplicate of one capture is 1. Identity, never `money_state`.
+- **The money evidence and the escalation are ONE transaction**, through a new
+  in-transaction case writer whose errors propagate. Either both exist or
+  neither does, and a failure reaches the caller, which marks the provider event
+  `failed` and rethrows. Since `claimEvent` re-processes an event left in
+  `failed`, the same event id repairs it on retry, and any fresh delivery id
+  repairs it too because detection is identity-based.
+
+`openPaymentOperationalCase` keeps its best-effort semantics for its 34 other
+call sites, where a case reports a decision that is already persisted. The F-12
+case is different in kind: it *is* the decision, the only record that a double
+capture happened.
+
+The escalation key is derived from the obligation plus the sorted distinct
+executed capture-side identities, so it is identical on the first delivery and
+every redelivery and independent of which event type reported it. Idempotency
+comes from the existing partial unique index `ux_operational_cases_open_auto_key`
+(migration 034), so concurrent writers yield exactly one open case. No migration
+was needed.
+
+Rolling the evidence back loses nothing: the observation stays durable in
+`siton.webhook_events` with its payload, awaiting the retry that commits both
+halves together. Provider truth is never altered to avoid an escalation.
+
+**Why the lost-escalation state is now impossible.** Acknowledgement is
+downstream of the commit that contains the case, so there is no ordering in
+which a delivery is accepted while the case is missing. If the case cannot be
+written, the transaction aborts, the evidence does not commit either, the event
+is left `failed` and is re-processed. And even if a success row were already
+committed by any other path, detection counts identities rather than testing for
+a replay, so every later delivery still sees two and escalates. Removing either
+half turns the regression red: mutants RM-6 and RM-7.
+
+Proof: `tests/review_payment_dual_capture_durable_escalation_validation.ts`, 7/7
+through the real signed webhook seam, injecting the failure both at the database
+and at an in-transaction fault seam.
+
+| Scenario | Measured |
+|---|---|
+| DE-1 escalation unavailable | HTTP **500**, webhook row `failed`, **0** cases, `charge_start` still `permanent_fail` — nothing half-committed |
+| DE-2 same event id retried | HTTP 200, `charge_start` success, exactly **1** case keyed `dual-capture:<digest>` |
+| DE-3 fresh delivery id | HTTP 200, still exactly **1** case, identical key |
+| DE-4 in-transaction seam | HTTP 500, nothing committed; retry commits both |
+| DE-5 control, one capture + 3 duplicates | all 200, 1 provider capture, **0** cases |
+| DE-6 control, 5 concurrent fresh deliveries | all 200, exactly **1** case |
+| DE-7 both identities already recorded, no case | HTTP 200, escalated — the state the old predicate could never escape |
 
 ---
 
