@@ -64,7 +64,7 @@ correction in `src/payment_provider.ts` (§5).
 | Layer | Where it lives | What identifies it |
 |---|---|---|
 | Business identity | `siton.participants` (`participant_id`, `deal_id`) | the obligation |
-| Money truth | `participants.money_state`, enum, 4 write sites, all in `src/app.ts` | `NoFinancial → AuthHeld → AuthLocked → ChargeAttempt → ChargedSuccess \| ChargeFailedRecovery → RecoveredCharge`; `→ AuthReleased`; `→ Refunded` |
+| Money truth | `participants.money_state`, a Postgres enum. Written at 8 sites, every one of them in `src/app.ts` and nowhere else in the tree: `ChargedSuccess`, `ChargeFailedRecovery`, `RecoveredCharge`, `Refunded`, `AuthReleased`, `AuthLocked`, `ChargeAttempt` through the generic transition helper, plus one raw pre-money `NoFinancial → AuthHeld` on join | `NoFinancial → AuthHeld → AuthLocked → ChargeAttempt → ChargedSuccess \| ChargeFailedRecovery → RecoveredCharge`; `→ AuthReleased`; `→ Refunded` |
 | Payment operation identity | `siton.payment_attempts` (`participant_id`, `deal_id`, `attempt_type`, `correlation_id`) unique | one durable row per logical money operation |
 | Attempt/dispatch identity | `dispatch_state` ∈ `recorded \| dispatching \| responded` | whether a request has left the process |
 | Lease owner | `owner_event_uuid` + `owner_lease_generation` → `siton.outbox_events` | which worker job may act |
@@ -94,7 +94,9 @@ truncated body, id-only 2xx — is `UNKNOWN`. The identity is kept; reconcile ow
 it. `anyOperationInFlight` makes every reconciler defer while any operation of
 that participant is in flight.
 
-**After success / failure.** `settleProviderDispatch` writes the outcome, but
+**After success / failure.** The four writes that assert money actually MOVED
+(`ChargedSuccess`, `RecoveredCharge`, `Refunded`) each write the fee-ledger row
+in the very same transaction. `settleProviderDispatch` writes the outcome, but
 only the current owner may write a non-success; a stale owner is told
 `foreign_owner`, which `settleOwnedMoneyOperation` converts into
 `OutboxLeaseLostError` so the stale job stops without acknowledging.
@@ -538,6 +540,51 @@ owner's decision, and real money is forbidden regardless. Recommended: mirror th
 VAT pattern with an `assertProviderAmbiguityPolicyForRealMoney` guard, or flip the
 default to fail-closed.
 
+### F-12 — a dual capture was absorbed as an idempotent replay · P1 observability · PREEXISTING · FIXED ON THE REVIEW BRANCH
+`recordLateMoneyEffectException` is the mechanism that keeps a refused provider
+effect visible. It decided "is this a contradiction?" from the money STATE alone:
+
+    captureEffect && !["ChargedSuccess", "RecoveredCharge", "Refunded"].includes(moneyState)
+
+Right for an idempotent REPLAY, wrong for a DUAL capture. When a recovery has
+succeeded and the ORIGINAL capture then settles late, the money state is
+`RecoveredCharge`, the predicate is false, and the effect is dropped. Measured on
+the unmodified candidate (`tests/review_payment_dual_capture_escalation_validation.ts`,
+DS-1): provider effects `capture=1 recover=1`, `money_state=RecoveredCharge`,
+`cases=[]` — two real captures at the provider, canonical state accounting for
+one, and nobody told. That is precisely what both the recovery contract ("detect
+and escalate rather than silently accept both") and the late-event rule ("do not
+merely discard evidence of real money") forbid.
+
+**Severity, stated honestly.** The rails do not CAUSE this. It needs a provider
+that settles a request after declaring it failed, or after its own declared
+settlement horizon. The lab oracle already fails any scenario in which provider
+captures exceed one (`DUPLICATE_CAPTURE`), and the recorded fuzz and soak runs
+are clean. So this is a production observability gap, not a source of double
+money — but it is exactly the case where the money is real and nobody would ever
+find out.
+
+**Fixed here** by detecting it through IDENTITY instead of state: a capture
+effect arriving while the money state already says captured is a dual capture
+when a DIFFERENT capture-side identity is the one recorded as executed.
+Deliberately conservative — the claim is made only when an executed capture-side
+identity positively exists and is not the one named, so a seeded state or a
+pre-rails row with no identity keeps the old behaviour and no new case traffic
+appears. After the fix the case is opened and the original identity converges to
+provider truth, which makes the double capture visible in `payment_attempts` and
+blocks every further automatic money operation for that participant through the
+067 rules.
+
+Two controls guard against over-firing, both passing: DS-2 (a duplicate delivery
+of the SAME capture stays silent) and DS-3 (a late capture on a released hold
+keeps the pre-existing escalation). Mutant RM-5 turns DS-1 red again when the
+detection is disabled.
+
+Provenance: the predicate is byte-identical to the reviewed source `3809b32`, so
+it is PREEXISTING in that lineage and NOT introduced by this candidate. Canonical
+master is worse — it has no late-money-effect mechanism at all, so the effect is
+discarded there with no case in every state.
+
 ---
 
 ## 8. Test results
@@ -555,10 +602,50 @@ default to fail-closed.
 | P0 foreign-reference A/B, canonical master | 21 assertions FAIL (defect reproduced) |
 | P0 foreign-reference A/B, review branch | 29/29 PASS |
 | Reviewer adversarial identity suite (all rails) | 10/10 PASS |
-| Reviewer mutation proof | 4/4 killed, 0 survived |
+| Reviewer mutation proof | 5/5 killed, 0 survived |
+| No pre-existing test was weakened | verified by reading all 10 modified test diffs |
 
-`FULL_TEST_RESULTS` — see the section appended below after the complete
-`node scripts/run_test_group.cjs all` run on the merged review branch.
+**On the modified tests.** The candidate changes 10 pre-existing test files. Every
+change was read: none weakens an assertion. `full_system_qa` and
+`real_integrations` now assert `ChargeFailedRecovery` instead of `AuthReleased`,
+which is the F-6 fix making them MORE truthful (master claimed a release with
+zero provider releases). `webhook_truth_handling` gains an assertion that the
+late-effect case exists. `payment_release_lifecycle` replaces a weak "temporary
+failure retries" expectation with a much stronger one: post-dispatch 503 is
+UNKNOWN on the same identity, resolved by status proof, with exactly one release
+call ever. `charge_attempt_rate_limit` reseeds its fixtures because the new
+guards refuse a second unresolved identity, leaving the rolling cap itself
+unchanged. `full_e2e_gate` adapts to the new identity scheme.
+`charging_completion_window` gives its stub a truthful status seam, where a 404
+previously let a recovery proceed.
+
+### Full suite
+
+`FULL_TEST_RESULTS` on the merged review branch, 239 files across ten groups,
+fresh isolated database per file:
+
+| Group | Result |
+|---|---|
+| payments | **60/60** |
+| integration | **31/31** |
+| unit, db, api, workers, security, concurrency, failure, e2e | all PASS |
+
+The first `all` pass reported two group failures, both explained and both
+resolved rather than reinterpreted:
+
+- **payments, exit 1** — one file: `review_payment_dual_capture_escalation_validation.ts`,
+  this review's own deliberately-red F-12 counterexample. That is the
+  failing-test-first evidence for F-12, produced by the full run itself. With the
+  fix committed the group is 60/60.
+- **integration, ETIMEDOUT** — the `all` runner caps each group child at 30
+  minutes; the group exceeded it under full-suite load on this workstation. Run
+  standalone the same group passes 31/31 in 72 seconds. A harness cap, not a
+  test failure.
+
+Recorded as genuine environment or load artifacts, not hidden and not rerun until
+green: the group-timeout above, and the known Windows libuv teardown crash
+(`0xC0000409`) that the A/B counterexample hits on the master baseline tree
+*after* printing its verdict.
 
 ---
 
@@ -576,8 +663,20 @@ merge blocker is not a money defect but a migration-id collision created by mast
 advancing during the review; it is fixed on `claude/review-r9c-financial`.
 
 The required fixes are exactly the ones already applied here: the 067/068
-renumbering with its reference updates, and merging rather than fast-forwarding so
-master's newer redemption money gate survives.
+renumbering with its reference updates, the F-12 dual-capture escalation, and
+merging rather than fast-forwarding so master's newer redemption money gate
+survives.
+
+```
+BLOCKERS_FOUND  = 2   B-1 migration id 066 collision; F-12 dual capture absorbed silently
+BLOCKERS_FIXED  = 2   both on claude/review-r9c-financial, each with its own proof
+BLOCKERS_OPEN   = 0
+```
+
+Non-blocking follow-ups stay open by choice, not by omission: F-2, F-5 and F-6
+touch read models and surfaces this review is instructed not to modify, and F-10
+and F-11 are real-money prerequisites whose fixes are owner decisions about
+automation, not review remediation.
 
 | Readiness | Verdict |
 |---|---|
