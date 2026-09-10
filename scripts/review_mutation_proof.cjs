@@ -80,6 +80,42 @@ const MUTANTS = [
     suites: ["review_payment_dual_capture_escalation_validation.ts"]
   },
   {
+    id: "RM-6",
+    invariant: "dual capture is decided by COUNTING distinct executed capture-side identities, not by a replay test that its own evidence defeats",
+    layer: "captureSideExecutedIdentities / dual-capture predicate (Codex blocker, root cause 2)",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
+  const dualCapture = captureIdentities.length >= 2;`,
+        // the pre-fix predicate: "every executed identity differs from the
+        // reported one", which the reported identity's own committed success
+        // permanently defeats
+        to: `  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
+  const reportedIdentity = String(args.event.correlation_id || args.target.correlation_id || "").trim();
+  const dualCapture = captureIdentities.length >= 2
+    && captureIdentities.every((identity) => !identity.endsWith(\`:\${reportedIdentity}\`));`
+      }
+    ],
+    suites: ["review_payment_dual_capture_durable_escalation_validation.ts"]
+  },
+  {
+    id: "RM-7",
+    invariant: "a known double capture is never acknowledged as handled unless its escalation is durably committed with the money evidence",
+    layer: "atomic, error-propagating escalation (Codex blocker, root cause 1)",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `    await openPaymentOperationalCaseInTx(c, escalation);`,
+        // the pre-fix architecture: the case written on its OWN transaction by
+        // the suppressing wrapper, so its failure is invisible and the money
+        // evidence commits alone
+        to: `    await openPaymentOperationalCase(escalation);`
+      }
+    ],
+    suites: ["review_payment_dual_capture_durable_escalation_validation.ts"]
+  },
+  {
     id: "RM-4",
     invariant: "prior-attempt resolution refuses a status answer about another operation before reusing an identity",
     layer: "resolvePriorProviderAttempt reference-mismatch guard",
