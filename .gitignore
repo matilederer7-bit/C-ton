@@ -67,3 +67,6 @@ base44/.app.jsonc
 *.provisionprofile
 GoogleService-Info.plist
 google-services.json
+
+# Independent review artifacts (proof JSON, never source of truth)
+.review-artifacts/
