@@ -135,7 +135,7 @@ await run("LB-5 contrast: a legacy row WITH exact-request evidence (the provider
 // ── LB-6 ───────────────────────────────────────────────────────────────────────
 await run("LB-6 backfill: re-applying migration 064 on a legacy row with a dispatch instant reconstructs horizon = dispatched_at + 24 h and keeps it fenced (authority unproven)", async () => {
   const { d, p } = await seedLegacy();
-  const sql = readFileSync("src/migrations/067_payment_settlement_horizon.sql", "utf8");
+  const sql = readFileSync("src/migrations/068_payment_settlement_horizon.sql", "utf8");
   await lab.pool.query(sql); // idempotent: IF NOT EXISTS / CREATE OR REPLACE / conditional UPDATE
   const row = (await lab.pool.query(`SELECT settlement_horizon_at, dispatched_at, negative_finality_authoritative, (settlement_horizon_at = dispatched_at + interval '24 hours') AS reconstructed FROM siton.payment_attempts WHERE participant_id=$1`, [p.participant_id])).rows[0];
   const fence = (await lab.pool.query(`SELECT siton.payment_capture_settlement_fence($1::uuid,$2::uuid)::text AS f`, [p.participant_id, d.deal_id])).rows[0].f;

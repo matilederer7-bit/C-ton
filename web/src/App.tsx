@@ -1,3 +1,4 @@
+import { PublicSellerPage, ContentPage, useSiteContent } from "./receiptContent";
 import React, { useEffect, useState } from "react";
 import { Mall } from "./pages/mall";
 import { Landing } from "./pages/landing";
@@ -131,6 +132,7 @@ function AdminHotspot({ onActivate }: { onActivate: () => void }) {
 }
 
 export default function App() {
+  const content = useSiteContent();
   const [route, navigate] = useRoute();
   const mallEnabled = useMallEnabled();
   const page = route.page;
@@ -186,8 +188,10 @@ export default function App() {
           {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
           {page === "support" ? <SupportPage /> : null}
+          {page === "public-seller" && route.seg[1] ? <PublicSellerPage id={route.seg[1]} /> : null}
+          {page === "content" && route.seg[1] ? <ContentPage section={route.seg[1]} /> : null}
           {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}
-          {!["", "deals", "deal", "track", "seller", "support", "reset-password"].includes(page) ? <Home navigate={navigate} /> : null}
+          {!["", "deals", "deal", "track", "seller", "support", "reset-password", "public-seller", "content"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 
@@ -195,12 +199,13 @@ export default function App() {
         <footer className="footer">
           <div>
             <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>
-            <a href="/legal/terms">תקנון ותנאי שימוש</a>
-            <a href="/legal/privacy">פרטיות</a>
-            <a href="/legal/refunds">מדיניות ביטולים והחזרים</a>
+            <a href="#/content/about">אודות</a>
+            <a href="#/content/legal_terms">תקנון ותנאי שימוש</a>
+            <a href="#/content/legal_privacy">פרטיות</a>
+            <a href="#/content/legal_refunds">מדיניות ביטולים והחזרים</a>
           </div>
           <div style={{ marginTop: 8 }}>
-            C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)
+            {content.footer?.text ?? "C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)"}
           </div>
         </footer>
       ) : null}

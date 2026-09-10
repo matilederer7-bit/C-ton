@@ -59,6 +59,7 @@ export interface ScannerHandle {
 }
 
 export interface ScannerArgs {
+  decodeCode?: (raw: string) => string | null;
   video: HTMLVideoElement;
   canvas: HTMLCanvasElement;
   onOutcome: (outcome: ScanOutcome, detail?: string) => void;
@@ -118,7 +119,7 @@ export async function startPickupScanner(args: ScannerArgs): Promise<ScannerHand
     try {
       const raw = await decoder(args.video, args.canvas);
       if (raw && !stopped) {
-        const code = pickupCodeFromScan(raw);
+        const code = args.decodeCode ? args.decodeCode(raw) : pickupCodeFromScan(raw);
         if (code) {
           args.onOutcome("decoded", code);
           args.onCode(code, raw);

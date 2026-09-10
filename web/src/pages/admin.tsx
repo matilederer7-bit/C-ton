@@ -1,3 +1,4 @@
+import { ContentAdmin } from "../receiptContent";
 ﻿import React, { useEffect, useMemo, useState } from "react";
 import { api, clearAuthSession, getAdminToken, Json } from "../api";
 import { clearOwnerSession } from "../ownerMode";
@@ -1518,7 +1519,7 @@ const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
   { label: "מסחר", items: [["deals", "עסקאות"], ["sellers", "מוכרים"], ["buyers", "קונים"]] },
   { label: "צמיחה", items: [["growth", "צמיחה וויראליות"]] },
   { label: "תפעול", items: [["operations", "תור ו-Worker"], ["payments", "תשלומים"], ["notifications", "התראות"], ["support", "תמיכה"]] },
-  { label: "מערכת", items: [["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
+  { label: "מערכת", items: [["content", "ניהול תוכן האתר"], ["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
 ];
 
 export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: string) => void }) {
@@ -1572,6 +1573,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
         {screen === "support" ? <SupportScreen /> : null}
         {screen === "audit" ? <AuditScreen /> : null}
         {screen === "system" ? <SystemScreen /> : null}
+        {screen === "content" ? <ContentAdmin /> : null}
       </main>
     </div>
   );

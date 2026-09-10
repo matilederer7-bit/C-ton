@@ -1,3 +1,4 @@
+import { DealReceiptInfo } from "../receiptContent";
 import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
@@ -134,13 +135,14 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
 // P0.3-4: real chat — threaded replies + like/dislike toggles. The backend is
 // the single authority (aggregated counts + viewer_reaction come from the
 // server; the client never invents totals).
-function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: boolean; preview?: boolean }) {
+export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: boolean; preview?: boolean }) {
   const [messages, setMessages] = useState<Json[]>([]);
   const [name, setName] = useState("");
+  const [chatTitle, setChatTitle] = useState("");
   const [body, setBody] = useState("");
   const [busy, setBusy] = useState(false);
   const [replyTo, setReplyTo] = useState<Json | null>(null);
-  const composerRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const load = () => api.chat(dealId, visitorId()).then((r) => setMessages(r.messages || [])).catch(() => undefined);
   // preview: no polling, no writes — the panel is a static placeholder.
   // A closed chat (403) or a vanished deal (404) stops the loop for good.
@@ -159,9 +161,11 @@ function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: bo
       await api.chatPost(dealId, {
         body: body.trim(),
         display_name: name.trim() || "משתתף",
+        title: chatTitle.trim(),
         ...(replyTo ? { reply_to_message_id: replyTo.message_id } : {})
       });
       setBody("");
+      setChatTitle("");
       setReplyTo(null);
       await load();
     } catch { /* keep text for retry */ }
@@ -178,7 +182,7 @@ function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: bo
   };
   return (
     <div className="panel">
-      <div className="panel-title">💬 צ׳אט</div>
+      <div className="panel-title">צ׳אט</div>
       {messages.length === 0 ? (
         <p className="muted small">{preview ? "הצ׳אט ייפתח לקונים אחרי הפרסום." : "עדיין אין הודעות — תהיו הראשונים לכתוב."}</p>
       ) : (
@@ -191,7 +195,8 @@ function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: bo
                 </div>
               ) : null}
               <div className="chat-author">{m.display_name}</div>
-              <div>{m.body}</div>
+              {m.title ? <b>{m.title}</b> : null}
+              <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
               <div className="chat-actions">
                 <button type="button" className={`chat-action${m.viewer_reaction === "like" ? " active" : ""}`}
                   aria-pressed={m.viewer_reaction === "like"} aria-label="אהבתי" onClick={() => react(m, "like")}>
@@ -223,8 +228,10 @@ function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWrite: bo
             </div>
           ) : null}
           <form className="chat-form" onSubmit={send}>
-            <input placeholder="שם (לא חובה)" value={name} onChange={(e) => setName(e.target.value)} style={{ maxWidth: 130 }} />
-            <input ref={composerRef} placeholder={replyTo ? "כתבו תגובה…" : "כתבו הודעה…"} value={body} onChange={(e) => setBody(e.target.value)} maxLength={500} />
+            <label>כותרת (לא חובה)<input aria-label="כותרת ההודעה" value={chatTitle} onChange={e => setChatTitle(e.target.value)} maxLength={80} /></label>
+            <span className="muted small">{chatTitle.length}/80</span>
+            <label>תוכן<textarea ref={composerRef} rows={5} placeholder={replyTo ? "כתבו תגובה…" : "כתבו הודעה…"} value={body} onChange={e => setBody(e.target.value)} maxLength={500} /></label>
+            <label>שם (לא חובה)<input value={name} onChange={e => setName(e.target.value)} maxLength={80} /></label>
             <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()}>שליחה</button>
           </form>
         </>
@@ -874,6 +881,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
   const [payload, setPayload] = useState<Json | null>(null);
   const [activity, setActivity] = useState<Json | null>(null);
   const [error, setError] = useState("");
+  const [receiptReady, setReceiptReady] = useState(false);
   const [errorKind, setErrorKind] = useState<"gone" | "network" | "busy" | "other">("other");
   const [qty, setQty] = useState(1);
   const [deliveryId, setDeliveryId] = useState<string>("");
@@ -999,7 +1007,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     : state === "TargetReached"
       ? "הצטרפו ליחידות האחרונות"
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
-  const startJoin = () => { if (preview) return; sendFunnelEvent(dealId, "join_started"); setJoining(true); };
+  const startJoin = () => { if (preview) return; if (!receiptReady) { showToast("ממתינים לטעינת פרטי המימוש. נסו שוב בעוד רגע."); return; } sendFunnelEvent(dealId, "join_started"); setJoining(true); };
   const startInquiry = () => { if (preview) return; sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); };
   const story = isOpen ? null : closedStory({ state, soldOut, timeUp, deadline: String(deal.deadline), joined, threshold: Number(deal.threshold_units) });
   const pillLabel = story?.key === "awaiting_decision" ? "ההצטרפות הסתיימה — ממתינים להכרעה" : story?.key === "paused" ? "ההצטרפות מושהית זמנית" : buyerStateStory(state, unitsToTarget);
@@ -1046,6 +1054,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
 
         {/* 3-8 — price → saving → why → needed → progress → deadline → qty → delivery → CTA */}
         <div className="deal-area-buy">
+          {!preview ? <DealReceiptInfo dealId={dealId} onReady={setReceiptReady} /> : null}
           <div className="panel">
             {/* LAUNCH POLISH (P6) — say WHICH price this is: the group price, per unit */}
             <div className="deal-price-hero" style={{ marginTop: 0 }} data-testid="deal-price">

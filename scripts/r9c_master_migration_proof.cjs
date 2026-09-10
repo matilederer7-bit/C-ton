@@ -7,7 +7,10 @@ const { Client } = require('pg');
 const { runMigrations, checksum } = require('./run_migrations.cjs');
 const { MIGRATIONS, MIGRATIONS_DIR } = require('./migration_manifest.cjs');
 require('dotenv').config({ quiet: true });
-const BASE = 'd4c7877f9b704734036d69f57f7d98f794f4d034';
+// Landed master at review time. Master advanced past the candidate's original
+// baseline d4c7877 (it landed 066_receipt_trust_content), so the financial SQL
+// appends as 067/068 and this proof pins the ledger it must actually upgrade.
+const BASE = 'c1ce4e4164fd4ee64d124fec29fade97b4557df0';
 const SOURCE = '3809b32c11d82e57d6ed106f88dea7a55b76499a';
 const git = (...args) => execFileSync('git', args);
 const sqlBody = m => fs.readFileSync(path.join(MIGRATIONS_DIR, m.filename), 'utf8');
@@ -38,9 +41,9 @@ async function main() {
   loaded.filename = path.resolve('scripts/.r9c-master-manifest.cjs'); loaded.paths = module.paths; loaded._compile(oldManifest,loaded.filename);
   const old = loaded.exports.MIGRATIONS;
   const added = MIGRATIONS.slice(old.length);
-  assert.equal(old.length,58);assert.deepEqual(MIGRATIONS.slice(0,old.length),old);
-  assert.deepEqual(added.map(m=>[m.id,m.position]),[['066',59],['067',60]]);
-  assert.equal(old.at(-1).id,'065');
+  assert.equal(old.length,59);assert.deepEqual(MIGRATIONS.slice(0,old.length),old);
+  assert.deepEqual(added.map(m=>[m.id,m.position]),[['067',60],['068',61]]);
+  assert.equal(old.at(-1).id,'066');
   for(const m of old)assert.equal(sqlBody(m).replace(/\r\n/g,'\n'),git('show',BASE+':src/migrations/'+m.filename).toString('utf8').replace(/\r\n/g,'\n'),'historical migration changed: '+m.id);
   for(const [oldId,m] of [['063',added[0]],['064',added[1]]]) {
     const reviewed=git('show',SOURCE+':src/migrations/'+m.filename.replace(m.id,oldId));
@@ -56,7 +59,7 @@ async function main() {
     const fresh=await database('fresh');await runMigrations(fresh.url);await assertFinancialSchema(fresh.c);
     const freshLedger=await ledger(fresh.c);await runMigrations(fresh.url);assert.deepEqual(await ledger(fresh.c),freshLedger,'fresh rerun changed ledger');
     const freshSchema=await schema(fresh.c);
-    console.log('FRESH_DB_PROOF PASS migrations=60 rerun=PASS ledger_unchanged=YES');
+    console.log('FRESH_DB_PROOF PASS migrations=61 rerun=PASS ledger_unchanged=YES');
     const upgrade=await database('upgrade');await runMigrations(upgrade.url,{migrations:old});const before=await ledger(upgrade.c);
     // A session-local sentinel survives the upgrade without adding a canonical object.
     await upgrade.c.query('CREATE TEMP TABLE r9c_upgrade_sentinel(value int PRIMARY KEY)');await upgrade.c.query('INSERT INTO r9c_upgrade_sentinel VALUES (42)');
@@ -103,7 +106,7 @@ async function main() {
     await assert.rejects(runMigrations(upgrade.url,{migrations:[first],migrationsDir:scratch}),/migration checksum mismatch: 014/);
     assert.deepEqual(await ledger(upgrade.c),after,'checksum rejection rewrote ledger');
     for(const m of MIGRATIONS)assert.equal(after.find(r=>r.migration_id===m.id).checksum_sha256,checksum(sqlBody(m)));
-    console.log('CURRENT_MASTER_UPGRADE_PROOF PASS base='+BASE+' upgrade=58->60 applied_only=066,067 master_ledger_unchanged=YES master_data_preserved=YES schema_matches_fresh=YES full_rerun=PASS raw_sql_rerun=PASS checksum_mismatch=REJECTED');
+    console.log('CURRENT_MASTER_UPGRADE_PROOF PASS base='+BASE+' upgrade=59->61 applied_only=067,068 master_ledger_unchanged=YES master_data_preserved=YES schema_matches_fresh=YES full_rerun=PASS raw_sql_rerun=PASS checksum_mismatch=REJECTED');
     console.log('MIGRATION_SQL_SEMANTICS_PRESERVED=YES reviewed_blob_bytes_equal=YES migration_065_unchanged=YES hosted_changes=0');
   } finally {
     for(const c of clients)await c.end();for(const name of names)await admin.query('DROP DATABASE "'+name+'" WITH (FORCE)');await admin.end();

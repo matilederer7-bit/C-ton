@@ -1,3 +1,5 @@
+import { ReceiptFields, ReceiptEditor, PublicProfileEditor, SellerReceipts, type ReceiptConfig } from "../receiptContent";
+import { productRequest } from "../api";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearAuthSession, getSellerToken, Json } from "../api";
 import { clearOwnerSession, readSellerBindingHint } from "../ownerMode";
@@ -298,6 +300,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         </div>
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
+          <a className="btn btn-sm btn-ghost" href="#/seller/receipts">מימוש רכישות</a>
           <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>🏢 פרופיל עסקי</button>
           {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
           <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
@@ -566,6 +569,7 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
 }
 
 function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
+  const [receipt, setReceipt] = useState<ReceiptConfig>({ method: "qr", instructions: "", url: "" });
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -652,6 +656,10 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         errs.delivery = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום (או ללחוץ על ״השתמש במיקום שלי״)";
       }
     }
+    if (s === 2 && receipt.method === "instructions" && !receipt.instructions.trim()) errs.receipt = "יש להזין הוראות מימוש";
+    if (s === 2 && receipt.method === "digital_link") {
+      try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = "יש להזין קישור HTTPS תקין"; } catch { errs.receipt = "יש להזין קישור HTTPS תקין"; }
+    }
     if (s === 3 && deadlineCheck.error) errs.deadline = deadlineCheck.error;
     return errs;
   };
@@ -721,6 +729,13 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       });
       const dealId = created?.deal?.deal_id || created?.deal_id;
       if (!dealId) throw new Error("יצירת העסקה נכשלה — נסו שוב");
+      try {
+        await productRequest(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(receipt) }, "seller");
+      } catch {
+        setError("הטיוטה נשמרה, אך אופן המימוש לא נשמר. השלימו אותו במסך העסקה לפני הפרסום.");
+        setTimeout(() => navigate(`#/seller/deal/${dealId}`), 2200);
+        return;
+      }
       // Upload images while still a Draft; a failed upload keeps the Draft
       // and the deal screen's image manager offers a retry.
       for (let i = 0; i < images.length; i += 1) {
@@ -839,6 +854,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
 
         {step === 2 ? (
           <>
+            <ReceiptFields value={receipt} onChange={setReceipt} /><FieldError msg={errors.receipt} />
             {dealType === "physical_product" ? <>
             <div className="notice info" id="f-delivery" tabIndex={-1}>בחרו לפחות אפשרות אספקה אחת למוצר.</div>
             <FieldError msg={errors.delivery} />
@@ -1788,6 +1804,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         showToast={showToast}
       />
       <TypeTermsPanel deal={deal} />
+      <ReceiptEditor dealId={dealId} state={String(deal.state)} />
 
       {isDraft ? (
         <div className="panel">
@@ -2175,7 +2192,8 @@ export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: UR
   if (sub[0] === "pickup") return <SellerPickupPage navigate={navigate} initialCode={query?.get("code") || null} />;
   if (sub[0] === "deal" && sub[1] && sub[2] === "fulfillment") return <SellerFulfillmentPage dealId={sub[1]} navigate={navigate} />;
   if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
-  if (sub[0] === "profile") return <BusinessProfilePage navigate={navigate} />;
+  if (sub[0] === "receipts") return <SellerReceipts initialCode={query?.get("code") || ""} />;
+  if (sub[0] === "profile") return <><PublicProfileEditor /><BusinessProfilePage navigate={navigate} /></>;
   if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;
   // P0.7 polish — seller-authorized buyer preview (Draft included): SAME renderer, read-only mode
   if (sub[0] === "deal" && sub[1] && sub[2] === "preview") return <DealPage dealId={sub[1]} navigate={navigate} preview />;

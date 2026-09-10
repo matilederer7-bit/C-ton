@@ -59,10 +59,16 @@ const MIGRATIONS = [
   ["059", "059_deal_field_change_audit.sql"],
   ["060", "060_support_case_messages.sql"],
   ["061", "061_seller_customer_inquiries.sql"],
-  // Landed master migrations retain their positions; reviewed financial SQL appends.
+  // Landed master migrations retain their ids AND their ledger positions; the
+  // reviewed financial SQL appends after whatever master has already landed.
+  // Master landed 066_receipt_trust_content while this candidate was in review,
+  // so the two financial migrations take the next free ids 067/068. The files
+  // were never applied to any database outside disposable local ones, so this
+  // is an id assignment, not a rewrite of migration history.
   ["065", "065_pilot_readiness.sql"],
-  ["066", "066_payment_operation_lifecycle.sql"],
-  ["067", "067_payment_settlement_horizon.sql"]
+  ["066", "066_receipt_trust_content.sql"],
+  ["067", "067_payment_operation_lifecycle.sql"],
+  ["068", "068_payment_settlement_horizon.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

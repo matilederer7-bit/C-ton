@@ -293,3 +293,5 @@ export async function supabaseRecoverPassword(cfg: SupabaseCfg, email: string): 
     throw new Error(hebrewError({ status: res.status, message: msg }, "בקשת איפוס הסיסמה נכשלה — נסו שוב מאוחר יותר"));
   }
 }
+
+export const productRequest = req;

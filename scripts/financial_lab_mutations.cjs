@@ -97,7 +97,7 @@ const MUTATIONS = [
       { file: "src/payment_attempt_helpers.ts",
         from: `    const row = r.rows[0];\n    if (!row || row.fenced !== true) return null;`,
         to: `    const row = null as any; void r;\n    if (!row || row.fenced !== true) return null;` },
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );\n$$;`,
         to: `      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    ) AND false;\n$$;` }
     ],
@@ -156,10 +156,10 @@ const MUTATIONS = [
   // ── Final financial integration — residuals A / B / C ───────────────────────
   { id: "M32_horizon_expiry_alone_is_proof", invariant: "residual A: horizon expiry by itself never authorises recovery (negative finality must be authoritative)",
     files: [
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `      WHEN pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)\n        THEN 'infinity'::timestamptz`,
         to: `      WHEN pa.settlement_horizon_at IS NULL\n        THEN 'infinity'::timestamptz` },
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `      OR pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );`,
         to: `      OR pa.settlement_horizon_at > clock_timestamp()\n    );` },
       { file: "src/app.ts",
@@ -172,10 +172,10 @@ const MUTATIONS = [
     suites: [["payments", "payment_final_residual_a_unproven"]] },
   { id: "M33_legacy_rows_admitted", invariant: "residual B: a legacy row (NULL horizon / NULL authority) is never treated as elapsed and authoritative",
     files: [
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `      WHEN pa.settlement_horizon_at IS NULL OR NOT COALESCE(pa.negative_finality_authoritative, false)\n        THEN 'infinity'::timestamptz`,
         to: `      WHEN NOT COALESCE(pa.negative_finality_authoritative, true)\n        THEN 'infinity'::timestamptz` },
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `      pa.settlement_horizon_at IS NULL\n      OR pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, false)\n    );`,
         to: `      pa.settlement_horizon_at > clock_timestamp()\n      OR NOT COALESCE(pa.negative_finality_authoritative, true)\n    );` },
       { file: "src/app.ts",
@@ -191,7 +191,7 @@ const MUTATIONS = [
       { file: "src/payment_attempt_helpers.ts",
         from: `      const releaseConflict = (args.attempt_type === "charge_start" || args.attempt_type === "recovery")`,
         to: `      const releaseConflict = false` },
-      { file: "src/migrations/067_payment_settlement_horizon.sql",
+      { file: "src/migrations/068_payment_settlement_horizon.sql",
         from: `  IF NEW.attempt_type IN ('charge_start', 'recovery') THEN\n    release_conflict := siton.payment_release_conflict(NEW.participant_id, NEW.deal_id);`,
         to: `  IF false THEN\n    release_conflict := siton.payment_release_conflict(NEW.participant_id, NEW.deal_id);` }
     ],

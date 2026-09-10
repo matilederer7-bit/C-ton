@@ -113,7 +113,9 @@ await run("buyer copy per state exists, is Hebrew, and never promises what the s
 await run("React source pins — buyer card renders only from tracking.pickup; full-screen mode; no seller contact; hash-only links", () => {
   const card = read("web/src/pickupCard.tsx");
   const track = read("web/src/pages/track.tsx");
-  assert.match(track, /<PickupCard pickup=\{t\.pickup\} \/>/, "the tracking page mounts the card from the server payload");
+  assert.match(track, /<BuyerEntitlement participantId=\{participantId\} token=\{token\} pickup=\{t\.pickup\} \/>/, "the entitlement view receives the authenticated participant and server pickup payload");
+  const receipt = read("web/src/receiptContent.tsx");
+  assert.match(receipt, /!data\.configured && pickup\?\.applicable \? <PickupCard pickup=\{pickup\} \/>/, "legacy physical deals retain the canonical pickup card; configured methods use entitlement details");
   assert.match(card, /if \(!pickup \|\| !pickup\.applicable\) return null;/);
   assert.match(card, /state !== "ready"/, "non-ready states never show a code");
   assert.match(card, /data-testid="pickup-fullscreen-open"/);

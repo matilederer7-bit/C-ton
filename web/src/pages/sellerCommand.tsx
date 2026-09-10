@@ -86,7 +86,7 @@ export function ActionCenterPanel({ items, navigate }: { items: Json[]; navigate
   if (!items?.length) {
     return (
       <div className="panel">
-        <div className="panel-title">🎯 דורש טיפול</div>
+        <div className="panel-title">דורש טיפול</div>
         <p className="muted small" style={{ marginBottom: 0 }}>אין כרגע פעולות שדורשות טיפול — הכול תקין.</p>
       </div>
     );
@@ -98,7 +98,7 @@ export function ActionCenterPanel({ items, navigate }: { items: Json[]; navigate
   };
   return (
     <div className="panel">
-      <div className="panel-title">🎯 דורש טיפול <span className="count">({items.length})</span></div>
+      <div className="panel-title">דורש טיפול <span className="count">({items.length})</span></div>
       <div className="action-center" data-testid="action-center">
         {items.map((item, i) => (
           <button key={`${item.type}-${item.deal_id || i}`} className={`action-item ${item.severity}`} onClick={() => go(item)}>
@@ -120,7 +120,7 @@ export function MoneyPanel({ analytics }: { analytics: Json }) {
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>💰 כספים</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>כספים</div>
         <span className="staging-flag">סביבת הדגמה — אין כסף אמיתי</span>
       </div>
       <div className="money-grid" style={{ marginTop: 12 }}>
@@ -156,7 +156,7 @@ export function ChartsPanel({ analytics }: { analytics: Json }) {
   const traffic: Json[] = series.funnel_daily || [];
   return (
     <div className="panel">
-      <div className="panel-title">📈 מגמות ({num(series.window_days)} ימים אחרונים)</div>
+      <div className="panel-title">מגמות ({num(series.window_days)} ימים אחרונים)</div>
       <div className="charts-grid">
         <div className="chart-box">
           <div className="chart-title">יחידות שהוזמנו ליום</div>
@@ -191,7 +191,7 @@ export function FunnelPanel({ analytics }: { analytics: Json }) {
   const max = Math.max(1, ...steps.map((s) => s.value));
   return (
     <div className="panel">
-      <div className="panel-title">🔻 משפך ({num(f.window_days)} ימים אחרונים)</div>
+      <div className="panel-title">משפך ({num(f.window_days)} ימים אחרונים)</div>
       {!collected ? (
         <p className="muted small" style={{ marginBottom: 0 }}>עדיין אין נתוני חשיפה והצטרפות בתקופה שנבחרה.</p>
       ) : (
@@ -226,7 +226,7 @@ export function ViralPanel({ analytics, dealScope, navigate }: { analytics: Json
   return (
     <div className="panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>🌱 הפצה ויראלית</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>הפצה ויראלית</div>
         {dealScope ? (
           <button className="btn btn-sm btn-primary" data-testid="open-viral-tree" onClick={() => navigate(`#/seller/deal/${dealScope}/viral`)}>
             פתיחת העץ הוויראלי
@@ -291,14 +291,14 @@ export function ActivityPanel({ items }: { items: Json[] }) {
   if (!items?.length) {
     return (
       <div className="panel">
-        <div className="panel-title">🕐 פעילות אחרונה</div>
+        <div className="panel-title">פעילות אחרונה</div>
         <p className="muted small" style={{ marginBottom: 0 }}>עדיין אין פעילות — פרסמו עסקה ושתפו אותה.</p>
       </div>
     );
   }
   return (
     <div className="panel">
-      <div className="panel-title">🕐 פעילות אחרונה</div>
+      <div className="panel-title">פעילות אחרונה</div>
       <div className="activity-list" data-testid="recent-activity">
         {items.map((item, i) => (
           <div className="activity-item" key={i}>

@@ -41,8 +41,8 @@ require("dotenv").config({ quiet: true });
 const { runMigrations, checksum } = require("./run_migrations.cjs");
 const { MIGRATIONS, MIGRATIONS_DIR } = require("./migration_manifest.cjs");
 
-const LANDED_MASTER_COUNT = 58; // through 065_pilot_readiness.sql
-const NEW_MIGRATIONS = ["066", "067"];
+const LANDED_MASTER_COUNT = 59; // through 066_receipt_trust_content.sql (landed master)
+const NEW_MIGRATIONS = ["067", "068"];
 
 const results = [];
 let failures = 0;
@@ -225,16 +225,16 @@ async function main() {
   // ── manifest shape ────────────────────────────────────────────────────────
   const positions = MIGRATIONS.map((m) => m.position);
   check("manifest positions are contiguous 1..N", positions.every((p, i) => p === i + 1), `N=${MIGRATIONS.length}`);
-  check("manifest has 60 entries (58 landed + 066 + 067)", MIGRATIONS.length === 60, `got ${MIGRATIONS.length}`);
-  const m66 = MIGRATIONS.find((m) => m.id === "066");
+  check("manifest has 61 entries (59 landed + 067 + 068)", MIGRATIONS.length === 61, `got ${MIGRATIONS.length}`);
   const m67 = MIGRATIONS.find((m) => m.id === "067");
-  check("066 is at position 59", m66 && m66.position === 59, m66 ? `position ${m66.position}` : "missing");
+  const m68 = MIGRATIONS.find((m) => m.id === "068");
   check("067 is at position 60", m67 && m67.position === 60, m67 ? `position ${m67.position}` : "missing");
+  check("068 is at position 61", m68 && m68.position === 61, m68 ? `position ${m68.position}` : "missing");
   check(
-    "the 58 landed migrations keep their original ids and positions",
+    "the 59 landed migrations keep their original ids and positions",
     MIGRATIONS.slice(0, LANDED_MASTER_COUNT).every((m, i) => m.position === i + 1) &&
-      MIGRATIONS[LANDED_MASTER_COUNT - 1].id === "065",
-    `entry 58 = ${MIGRATIONS[LANDED_MASTER_COUNT - 1].id}`
+      MIGRATIONS[LANDED_MASTER_COUNT - 1].id === "066",
+    `entry 59 = ${MIGRATIONS[LANDED_MASTER_COUNT - 1].id}`
   );
   for (const id of NEW_MIGRATIONS) {
     const entry = MIGRATIONS.find((m) => m.id === id);
@@ -258,7 +258,7 @@ async function main() {
     const upgradeUrl = dbUrl(base, upgradeDb);
     await runMigrations(upgradeUrl, { migrations: MIGRATIONS.slice(0, LANDED_MASTER_COUNT) });
     const landedLedger = await ledgerRows(upgradeUrl);
-    check("landed master ledger is the 58 migrations through 065", landedLedger.length === LANDED_MASTER_COUNT && landedLedger[LANDED_MASTER_COUNT - 1].migration_id === "065", `${landedLedger.length} rows, last=${landedLedger[LANDED_MASTER_COUNT - 1]?.migration_id}`);
+    check("landed master ledger is the 59 migrations through 066", landedLedger.length === LANDED_MASTER_COUNT && landedLedger[LANDED_MASTER_COUNT - 1].migration_id === "066", `${landedLedger.length} rows, last=${landedLedger[LANDED_MASTER_COUNT - 1]?.migration_id}`);
 
     const seeded = await seedLegacyData(upgradeUrl);
     const beforeData = await dataFingerprint(upgradeUrl);
@@ -273,7 +273,7 @@ async function main() {
     await runMigrations(upgradeUrl);
     const upgradedLedger = await ledgerRows(upgradeUrl);
     check("upgrade applied exactly two more migrations", upgradedLedger.length === LANDED_MASTER_COUNT + 2, `${upgradedLedger.length} rows`);
-    check("066 landed at position 59 and 067 at position 60", upgradedLedger[58]?.migration_id === "066" && Number(upgradedLedger[58]?.position) === 59 && upgradedLedger[59]?.migration_id === "067" && Number(upgradedLedger[59]?.position) === 60, `${upgradedLedger[58]?.migration_id}@${upgradedLedger[58]?.position}, ${upgradedLedger[59]?.migration_id}@${upgradedLedger[59]?.position}`);
+    check("067 landed at position 60 and 068 at position 61", upgradedLedger[59]?.migration_id === "067" && Number(upgradedLedger[59]?.position) === 60 && upgradedLedger[60]?.migration_id === "068" && Number(upgradedLedger[60]?.position) === 61, `${upgradedLedger[59]?.migration_id}@${upgradedLedger[59]?.position}, ${upgradedLedger[60]?.migration_id}@${upgradedLedger[60]?.position}`);
 
     // ── 3. historical ledger rows are untouched ─────────────────────────────
     const historicalUnchanged = landedLedger.every((before, i) => {
@@ -282,7 +282,7 @@ async function main() {
         before.filename === after.filename && before.checksum_sha256 === after.checksum_sha256 &&
         before.status === after.status && stable(before.completed_at) === stable(after.completed_at);
     });
-    check("all 58 historical ledger rows are byte-identical after the upgrade", historicalUnchanged);
+    check("all 59 historical ledger rows are byte-identical after the upgrade", historicalUnchanged);
 
     // ── 4. existing rows survive with documented legacy defaults ────────────
     const afterData = await dataFingerprint(upgradeUrl);
