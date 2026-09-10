@@ -621,31 +621,58 @@ previously let a recovery proceed.
 
 ### Full suite
 
-`FULL_TEST_RESULTS` on the merged review branch, 239 files across ten groups,
-fresh isolated database per file:
+`FULL_TEST_RESULTS` — the definitive `node scripts/run_test_group.cjs all` run on
+the merged review branch, with the F-12 fix in place. **240 files, 239 pass,
+9 of 10 groups green**, a fresh isolated database per file, 1515 s:
 
-| Group | Result |
-|---|---|
-| payments | **60/60** |
-| integration | **31/31** |
-| unit, db, api, workers, security, concurrency, failure, e2e | all PASS |
+| Group | Files | Result |
+|---|---|---|
+| unit | 15 | 15/15 |
+| integration | 31 | 31/31 |
+| db | 8 | 8/8 |
+| api | 44 | 44/44 |
+| workers | 13 | 12/13 — see the flake below |
+| payments | 60 | **60/60** |
+| security | 39 | 39/39 |
+| concurrency | 8 | 8/8 |
+| failure | 9 | 9/9 |
+| e2e | 13 | 13/13 |
 
-The first `all` pass reported two group failures, both explained and both
-resolved rather than reinterpreted:
+The single failing file is `worker_two_process_fencing_validation.ts`, at
+`timeout waiting for: p2 all six claimed and blocked` — a 20-second poll waiting
+for six `deadline_check` jobs to be claimed and blocked simultaneously, 3+3,
+across two spawned worker processes while the test holds
+`LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE`.
 
-- **payments, exit 1** — one file: `review_payment_dual_capture_escalation_validation.ts`,
-  this review's own deliberately-red F-12 counterexample. That is the
-  failing-test-first evidence for F-12, produced by the full run itself. With the
-  fix committed the group is 60/60.
-- **integration, ETIMEDOUT** — the `all` runner caps each group child at 30
-  minutes; the group exceeded it under full-suite load on this workstation. Run
-  standalone the same group passes 31/31 in 72 seconds. A harness cap, not a
-  test failure.
+**It is a genuine pre-existing flake, and that conclusion was tested rather than
+assumed.** It passed in the first full run and failed in the second, which alone
+proves nothing either way, and it then failed once in isolation — contradicting
+its documented "passes isolated" history. Because the F-12 fix had just landed,
+causality was checked properly instead of being waved away: `src/app.ts` was
+reverted to the pre-fix commit and the test passed, which from a single sample
+looks incriminating, so more samples were taken. With the fix in place it passes
+**3 out of 3** in isolation. Four isolated samples give 3 pass / 1 fail, the
+signature of a timing-sensitive proof, and there is no causal mechanism —
+`deadline_check` never ingests a payment event, so `recordLateMoneyEffectException`
+is never reached on that path. This matches the behaviour recorded for this file
+since 2026-09-06.
 
-Recorded as genuine environment or load artifacts, not hidden and not rerun until
-green: the group-timeout above, and the known Windows libuv teardown crash
-(`0xC0000409`) that the A/B counterexample hits on the master baseline tree
-*after* printing its verdict.
+Two earlier first-pass group failures, both explained and resolved rather than
+reinterpreted:
+
+- **payments, exit 1** in the first `all` run — one file:
+  `review_payment_dual_capture_escalation_validation.ts`, this review's own
+  deliberately-red F-12 counterexample. That is the failing-test-first evidence
+  for F-12, produced by the full run itself. The group is 60/60 with the fix.
+- **integration, ETIMEDOUT** in the first `all` run — the `all` runner caps each
+  group child at 30 minutes and the group exceeded it under load. It passes
+  31/31 in 72–84 seconds both standalone and in the second full run. A harness
+  cap, not a test failure.
+
+Recorded as genuine environment artifacts, neither hidden nor rerun until green:
+the group timeout above, the fencing flake above, and the known Windows libuv
+teardown crash (`0xC0000409`) that the A/B counterexample hits on the master
+baseline tree *after* printing its verdict.
 
 ---
 
