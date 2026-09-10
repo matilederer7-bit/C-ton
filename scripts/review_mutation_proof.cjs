@@ -65,6 +65,21 @@ const MUTANTS = [
     suites: ["review_payment_reference_identity_rails_validation.ts"]
   },
   {
+    id: "RM-5",
+    invariant: "a SECOND capture for one obligation is escalated, never absorbed as an idempotent replay",
+    layer: "recordLateMoneyEffectException dual-capture detection (F-12, fixed by this review)",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `  const dualCapture =
+    captureEffect && capturedMoneyStates.includes(moneyState) && (await captureSideDualSuccess(args.target, args.event));`,
+        to: `  const dualCapture =
+    captureEffect && capturedMoneyStates.includes(moneyState) && Number(1) === 2 && (await captureSideDualSuccess(args.target, args.event));`
+      }
+    ],
+    suites: ["review_payment_dual_capture_escalation_validation.ts"]
+  },
+  {
     id: "RM-4",
     invariant: "prior-attempt resolution refuses a status answer about another operation before reusing an identity",
     layer: "resolvePriorProviderAttempt reference-mismatch guard",

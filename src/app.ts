@@ -982,6 +982,36 @@ function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
  * migration-063 rules) and a FINANCIAL_OUTCOME_UNRESOLVED case is opened. No
  * canonical state is guessed.
  */
+/**
+ * F-12 (independent financial review) — is this participant's captured money
+ * truth owed to a capture-side identity OTHER than the one this event reports?
+ *
+ * A capture effect arriving while the money state already says captured is
+ * normally the idempotent REPLAY of the very operation that captured, and must
+ * stay silent or every retried callback would page an operator. It is NOT a
+ * replay when a DIFFERENT capture-side identity is the one recorded as
+ * executed: then two captures exist for one obligation, canonical state can
+ * only ever account for one of them, and the second must reach a human because
+ * nothing downstream can infer it later.
+ *
+ * Deliberately conservative: it claims a dual capture only when an executed
+ * capture-side identity positively exists and is not the one named. With no
+ * capture-side identity at all (a seeded state, a pre-rails row) nothing is
+ * claimed and the previous behaviour stands.
+ */
+async function captureSideDualSuccess(
+  target: { participant_id: string; deal_id: string; correlation_id: string | null },
+  event: { correlation_id?: string | null }
+): Promise<boolean> {
+  const named = String(event.correlation_id || target.correlation_id || "").trim();
+  const rows = await listAttemptLifecycle(target.participant_id, target.deal_id).catch(() => []);
+  const executed = rows.filter(
+    (row) => (row.attempt_type === "charge_start" || row.attempt_type === "recovery") && row.result_class === "success"
+  );
+  if (!executed.length) return false;
+  return executed.every((row) => row.correlation_id !== named);
+}
+
 async function recordLateMoneyEffectException(args: {
   event: { provider: string; event_id: string; event_type: string; correlation_id?: string | null; provider_reference?: string | null };
   target: { participant_id: string; deal_id: string; attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund"; correlation_id: string | null; buyer_state: string; money_state: string };
@@ -989,8 +1019,16 @@ async function recordLateMoneyEffectException(args: {
 }) {
   const moneyState = String(args.target.money_state);
   const captureEffect = args.event.event_type === "charge_captured" || args.event.event_type === "recovery_captured";
+  const capturedMoneyStates = ["ChargedSuccess", "RecoveredCharge", "Refunded"];
+  // F-12 — a SECOND capture for one obligation (the classic shape: a recovery
+  // succeeded and the original capture then settled late) leaves the money
+  // state at a captured value, so the state test alone reads it as a replay
+  // and drops economically real money. Detect it by identity, not by state.
+  const dualCapture =
+    captureEffect && capturedMoneyStates.includes(moneyState) && (await captureSideDualSuccess(args.target, args.event));
   const contradiction =
-    (captureEffect && !["ChargedSuccess", "RecoveredCharge", "Refunded"].includes(moneyState)) ||
+    (captureEffect && !capturedMoneyStates.includes(moneyState)) ||
+    dualCapture ||
     (args.event.event_type === "refund_issued" && moneyState !== "Refunded");
   if (!contradiction) return;
   // F-5b (financial torture lab) — the event names the operation it reports; it
@@ -1015,7 +1053,7 @@ async function recordLateMoneyEffectException(args: {
   await openPaymentOperationalCase({
     autoKey: `payment-late-money-effect:${args.target.participant_id}:${args.event.event_type}`,
     subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider reports ${args.event.event_type} but canonical money state is ${moneyState} (participant ${args.target.participant_id})`,
-    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}". The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
+    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? " DUAL CAPTURE: another capture-side operation of this participant is already recorded as executed, so TWO captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator." : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
     correlationId: correlation
   });
 }
