@@ -58,6 +58,27 @@ const workerEnv = {
 type WorkerHandle = { child: ChildProcess; id: string; output: string[] };
 const workers: WorkerHandle[] = [];
 
+/**
+ * Reap worker children on EVERY exit path, not just the success path.
+ *
+ * The happy path kills them at the end of the file, but a failed assertion
+ * throws straight past that. An orphaned worker then keeps polling a database
+ * the harness is about to drop, and orphans accumulate across runs until they
+ * slow down every later suite on the same host — which is exactly how a single
+ * flaky run poisons the numbers of everything after it.
+ */
+process.on("exit", () => {
+  for (const handle of workers) {
+    if (handle.child.exitCode === null && handle.child.signalCode === null) {
+      try {
+        handle.child.kill("SIGKILL");
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+});
+
 let spawnSequence = 0;
 function spawnWorker(): WorkerHandle {
   const workerId = `r4proof-${process.pid}-${spawnSequence++}`;
@@ -161,20 +182,95 @@ const p1Claims = await admin.query(
 console.log(`INFO p1 claim distribution: ${p1Claims.rows.map((row) => row.worker_id).join(", ")}`);
 run("30 competing jobs complete exactly once across two live workers");
 
-// --- P2: both workers blocked mid-handler; hard-kill one; survivor reclaims ---
-const p2Deals = await createSyntheticDeals(6, "p2");
 const locker = new Client({ connectionString: adminUrl });
 await locker.connect();
-await locker.query("BEGIN");
-await locker.query("LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE");
-const p2 = await insertEventsForDeals(p2Deals, "p2");
-await poll("p2 all six claimed and blocked", 20_000, async () => {
-  const r = await admin.query(
-    `SELECT count(*)::int AS n FROM siton.outbox_events
-     WHERE event_uuid = ANY($1::uuid[]) AND status='processing'`,
-    [p2]
-  );
-  return Number(r.rows[0].n) === 6;
+
+/**
+ * ARRANGE a "workers blocked mid-handler" state, retrying the arrangement.
+ *
+ * The blocking device is a real one: holding ACCESS EXCLUSIVE on siton.deals
+ * makes the deadline_check handler's first read block, which is exactly the
+ * slow-handler window these phases need. But ACCESS EXCLUSIVE conflicts with
+ * ACCESS SHARE, so it also blocks any OTHER plain read of siton.deals — and
+ * runWorkerMaintenance() runs on every worker cycle and calls
+ * rescheduleStalledFinalizations(), which scans `FROM siton.deals`. A worker
+ * that happens to be inside maintenance when the lock lands is stalled there
+ * for the whole phase and therefore never reaches its next
+ * claimPendingOutboxBatch, so the jobs it was supposed to claim stay pending
+ * and the arrangement can never complete.
+ *
+ * Measured on this workstation before this change: 6 failures in 44 isolated
+ * runs (~14%), always on one of the two arrangement waits, never on a fencing
+ * assertion. A captured timeline of a failing run shows one worker claiming
+ * its 3 jobs at 271 ms and the other claiming NOTHING for the remaining
+ * 19.6 s while 3 rows stayed pending and both workers kept heartbeating.
+ *
+ * A longer timeout cannot fix that: the stalled worker cannot claim until the
+ * lock is released, which is the end of the phase. Downgrading the lock mode
+ * cannot fix it either, because the handler's own blocking access is a plain
+ * SELECT and only ACCESS EXCLUSIVE blocks that. So the arrangement is retried
+ * instead: on a stall the lock is released, the queue is allowed to drain, and
+ * the phase is set up again with fresh deals. Nothing about the guarantees
+ * under test is relaxed — the arrangement must still reach the exact state the
+ * following assertions require, and this predicate is in fact STRICTER than
+ * the count it replaces (it also requires the ownership split up front).
+ */
+async function arrangeBlockedPhase(args: {
+  label: string;
+  tag: string;
+  deals: number;
+  ready: (rows: Array<{ worker_id: string; n: number }>) => boolean;
+  attempts?: number;
+  timeoutMs?: number;
+}): Promise<string[]> {
+  // Bounded on purpose. One retry takes the ~14% per-attempt stall (measured
+  // under concurrent load on this host) to ~2% while keeping the whole file
+  // inside its 180 s runner budget: worst case is two arrangements plus two
+  // drains for each of P2 and P3.
+  const attempts = args.attempts ?? 2;
+  const timeoutMs = args.timeoutMs ?? 20_000;
+  let lastState = "none";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    // Deals must be created BEFORE the lock: our own ACCESS EXCLUSIVE would
+    // block the insert.
+    const deals = await createSyntheticDeals(args.deals, `${args.tag}-a${attempt}`);
+    await locker.query("BEGIN");
+    await locker.query("LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE");
+    const ids = await insertEventsForDeals(deals, `${args.tag}-a${attempt}`);
+    const deadline = Date.now() + timeoutMs;
+    let ok = false;
+    while (Date.now() < deadline) {
+      const rows = (await admin.query(
+        `SELECT worker_id, count(*)::int AS n FROM siton.outbox_events
+         WHERE event_uuid = ANY($1::uuid[]) AND status='processing' AND worker_id IS NOT NULL
+         GROUP BY worker_id ORDER BY worker_id`,
+        [ids]
+      )).rows as Array<{ worker_id: string; n: number }>;
+      if (args.ready(rows)) { ok = true; break; }
+      lastState = JSON.stringify(rows);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    if (ok) {
+      if (attempt > 1) console.log(`INFO ${args.label} arranged on attempt ${attempt}`);
+      return ids; // the lock is still held: the phase needs it
+    }
+    // Stalled: release the lock so the blocked worker can finish, let this
+    // attempt's jobs drain, then arrange again.
+    console.log(`INFO ${args.label} arrangement attempt ${attempt} stalled (${lastState}); releasing the lock and retrying`);
+    await locker.query("ROLLBACK");
+    await poll(`${args.label} attempt ${attempt} drained`, 25_000, async () => (await sentCount(ids)) === ids.length);
+  }
+  throw new Error(`could not arrange ${args.label} in ${attempts} attempts; last observed ownership ${lastState}`);
+}
+
+// --- P2: both workers blocked mid-handler; hard-kill one; survivor reclaims ---
+const p2 = await arrangeBlockedPhase({
+  label: "p2 all six claimed and blocked",
+  tag: "p2",
+  deals: 6,
+  // exactly the state the next assertion requires: all six owned, 3 + 3 across
+  // two distinct live workers
+  ready: (rows) => rows.length === 2 && rows.every((row) => Number(row.n) === 3)
 });
 const split = await admin.query(
   `SELECT worker_id, count(*)::int AS n FROM siton.outbox_events
@@ -213,17 +309,12 @@ assert.equal(workerA.child.exitCode, null, "survivor must still be alive");
 run("hard-killed owner is fenced out; survivor reclaims and completes exactly once");
 
 // --- P3: SIGTERM during active ownership; restart completes the work ---
-const p3Deals = await createSyntheticDeals(3, "p3");
-await locker.query("BEGIN");
-await locker.query("LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE");
-const p3 = await insertEventsForDeals(p3Deals, "p3");
-await poll("p3 all claimed by survivor", 20_000, async () => {
-  const r = await admin.query(
-    `SELECT count(*)::int AS n FROM siton.outbox_events
-     WHERE event_uuid = ANY($1::uuid[]) AND status='processing' AND worker_id=$2`,
-    [p3, workerA.id]
-  );
-  return Number(r.rows[0].n) === 3;
+const p3 = await arrangeBlockedPhase({
+  label: "p3 all claimed by survivor",
+  tag: "p3",
+  deals: 3,
+  // the survivor is the only live worker and must own all three
+  ready: (rows) => rows.length === 1 && rows[0]!.worker_id === workerA.id && Number(rows[0]!.n) === 3
 });
 workerA.child.kill("SIGTERM");
 await new Promise((resolve) => setTimeout(resolve, 1_500));
