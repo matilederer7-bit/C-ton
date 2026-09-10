@@ -138,13 +138,13 @@ const MUTANTS = [
   },
   {
     id: "RM-9",
-    invariant: "a late claim never overwrites the provider's answer to the exact request",
-    layer: "reportedExactDecline settle gate (fuzz seed 209752203 index 152)",
+    invariant: "a reported real money effect converges the identity, which is what blocks a release of money that really moved",
+    layer: "late-effect identity convergence (the candidate's FR-3 contract)",
     edits: [
       {
         file: "src/app.ts",
-        from: `  const settleReportedIdentity = Boolean(correlation) && !evidence.reportedExactDecline;`,
-        to: `  const settleReportedIdentity = Boolean(correlation);`
+        from: `  const settleReportedIdentity = Boolean(correlation);`,
+        to: `  const settleReportedIdentity = false && Boolean(correlation);`
       }
     ],
     suites: ["review_payment_dual_capture_escalation_validation.ts"]

@@ -184,13 +184,25 @@ await run("DS-3 control: a late capture on a participant whose money never captu
   );
 });
 
-// ── DS-4 — a late claim never overwrites the provider's answer to the exact
-// request. Found while fixing this: recording a fabricated success there both
-// invents money truth and destroys the retry-order evidence, because a second
-// identity that was dispatched LEGALLY while this one was a declared failure
-// then retroactively looks like a repeat over a successful operation. That is
-// exactly what tripped the financial oracle on fuzz seed 209752203 index 152.
-await run("DS-4 a late capture claim contradicting the provider's own exact-request decline is escalated, not written", async () => {
+// ── DS-4 — a late claim that contradicts the provider's own exact-request
+// decline CONVERGES the identity and escalates.
+//
+// This scenario exists because the reviewer first got it wrong. Fuzz seed
+// 209752203 index 152 tripped AUTOMATIC_REPEAT_WHILE_UNKNOWN once round 1 began
+// escalating this shape, and the tempting reading was "do not overwrite the
+// provider's answer to the exact request". FR-3 in
+// payment_review_findings_reconstruction shows why that is wrong: a recovery the
+// provider DECLINED whose effect turns out real must converge to success,
+// because that convergence is what BLOCKS the pending release of money that
+// actually moved (migration 067 refuses a release behind an executed capture).
+// Withholding it to keep an audit trail tidy would risk releasing real money.
+//
+// So the money truth converges, the provider's failure EVIDENCE is still never
+// downgraded (migration 068's UPDATE guard), and an operator is told. The oracle
+// rule was the thing at fault: it compared FINAL states, so a repeat that was
+// legal when dispatched looked illegal after a later convergence. It is now
+// order-aware.
+await run("DS-4 a late capture claim contradicting an exact-request decline converges the identity AND escalates", async () => {
   const deal = await lab.seedDeal({
     state: "CompletionWindow",
     threshold_units: 1,
@@ -227,14 +239,17 @@ await run("DS-4 a late capture claim contradicting the provider's own exact-requ
     cases: cases.map((c) => c.auto_key)
   })}`);
 
-  // The contradiction still reaches an operator.
+  // The contradiction reaches an operator.
   assert.ok(
     cases.some((c) => c.auto_key.includes("late-money-effect")),
-    `DS-4: the contradiction must still be escalated: ${JSON.stringify(cases.map((c) => c.auto_key))}`
+    `DS-4: the contradiction must be escalated: ${JSON.stringify(cases.map((c) => c.auto_key))}`
   );
-  // But the provider's answer to the exact request is left exactly as given.
-  assert.equal(row?.result_class, "permanent_fail", "DS-4: an exact-request decline must not be overwritten with a fabricated success");
-  assert.equal(row?.failure_evidence, "dispatch_response", "DS-4: the exact-request evidence must be preserved");
+  // The identity converges to the reported money truth, which is what blocks any
+  // further automatic money operation for this participant.
+  assert.equal(row?.result_class, "success", "DS-4: a reported real money effect must converge the identity, or a release of real money stays possible");
+  // The provider's failure EVIDENCE is still never downgraded (migration 068).
+  assert.equal(row?.failure_evidence, "dispatch_response", "DS-4: the exact-request evidence must never be downgraded");
+  // Canonical money state is still never guessed.
   assert.equal(participant.money_state, "RecoveredCharge", "DS-4: canonical money truth must not move");
 });
 

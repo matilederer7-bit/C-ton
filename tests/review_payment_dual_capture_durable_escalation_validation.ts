@@ -376,8 +376,8 @@ await run("DE-7 an already-recorded dual capture with no case is still escalated
   assert.ok(cases[0]!.auto_key.includes("dual-capture"), `DE-7: must be keyed as a dual capture: ${cases[0]!.auto_key}`);
 });
 
-// ── DE-8 — exact-request decline: escalate, never overwrite ───────────────
-await run("DE-8 a late claim contradicting an exact-request decline escalates without writing a fabricated success", async () => {
+// ── DE-8 — exact-request decline: converge AND escalate (see DS-4) ────────
+await run("DE-8 a late claim contradicting an exact-request decline converges the identity and escalates once", async () => {
   const deal = await lab.seedDeal({
     state: "Completed",
     threshold_units: 1,
@@ -411,8 +411,8 @@ await run("DE-8 a late claim contradicting an exact-request decline escalates wi
   })}`);
   assert.equal(response.statusCode, 200, "DE-8: the escalated delivery must be acknowledged");
   assert.equal(cases.length, 1, "DE-8: the contradiction must be escalated exactly once");
-  assert.equal(rows[0]!.result_class, "permanent_fail", "DE-8: an exact-request decline must survive a contradicting late claim");
-  assert.equal(rows[0]!.failure_evidence, "dispatch_response", "DE-8: the exact-request evidence must be preserved");
+  assert.equal(rows[0]!.result_class, "success", "DE-8: a reported real money effect must converge the identity (this is what blocks a release of real money)");
+  assert.equal(rows[0]!.failure_evidence, "dispatch_response", "DE-8: the exact-request evidence must never be downgraded");
 });
 
 // ── DE-9 / DE-10 / DE-11 — the IDENTITY READ failure matrix (round 3) ─────

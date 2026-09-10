@@ -1123,18 +1123,15 @@ async function recordLateMoneyEffectException(args: {
     (args.event.event_type === "recovery_captured" && args.target.attempt_type === "recovery") ||
     (args.event.event_type === "refund_issued" && (args.target.attempt_type === "refund" || args.target.attempt_type === "cancel_refund"));
   const correlation = lateEffectFamilyMatches ? (args.event.correlation_id || args.target.correlation_id || null) : null;
-  // A late claim never overwrites the provider's own answer to the exact
-  // request. When the dispatching owner already recorded this identity as
-  // declined by the provider's response (failure_evidence dispatch_response, or
-  // an operator's verified resolution), a later callback claiming it captured
-  // is the provider contradicting itself. Recording a fabricated success would
-  // both invent money truth and destroy the retry-order evidence — a second
-  // identity that was dispatched LEGALLY while this one was a declared failure
-  // would retroactively look like a repeat over a successful operation. So the
-  // contradiction is escalated to an operator and the exact-request evidence is
-  // left exactly as the provider gave it. Migration 068's UPDATE guard refuses
-  // to downgrade this evidence for the same reason.
-  const settleReportedIdentity = Boolean(correlation) && !evidence.reportedExactDecline;
+  // The identity CONVERGES to provider truth even when the provider had
+  // declined this exact request, and that convergence is load-bearing rather
+  // than cosmetic: a recovery the provider declined whose effect turns out real
+  // must become success, because that is what blocks the pending release of
+  // money that actually moved (migration 067 refuses a release behind an
+  // executed capture). FR-3 in payment_review_findings_reconstruction is the
+  // candidate's contract for exactly that, and it is right. A late claim of a
+  // real money effect is therefore always recorded, and always escalated.
+  const settleReportedIdentity = Boolean(correlation);
   // F-12 durable escalation. The escalation key of a dual capture is derived
   // from the obligation and the DISTINCT executed capture-side identities, so
   // it is the same key on the first delivery and on every redelivery, and it is
@@ -1146,7 +1143,7 @@ async function recordLateMoneyEffectException(args: {
   const escalation: PaymentOperationalCaseInput = {
     autoKey: `payment-late-money-effect:${args.target.participant_id}:${escalationKey}`,
     subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider reports ${args.event.event_type} but canonical money state is ${moneyState} (participant ${args.target.participant_id})`,
-    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? ` DUAL CAPTURE: ${captureIdentities.length} distinct capture-side operations of this participant are executed (${captureIdentities.join(", ")}), so that many captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator.` : ""} ${evidence.reportedExactDecline ? ` The provider had already answered this exact request with a decline (failure_evidence ${'\u0060'}dispatch_response${'\u0060'}/${'\u0060'}operator${'\u0060'}), so it is now contradicting itself: that evidence was NOT overwritten with a fabricated success and an operator must establish what actually moved.` : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
+    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? ` DUAL CAPTURE: ${captureIdentities.length} distinct capture-side operations of this participant are executed (${captureIdentities.join(", ")}), so that many captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator.` : ""} ${evidence.reportedExactDecline ? ` NOTE: the provider had already answered this exact request with a decline, so it is now contradicting itself. The identity is converged to the reported money truth (which blocks any further automatic money operation for this participant) and an operator must establish what actually moved.` : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
     correlationId: correlation
   };
 

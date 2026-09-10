@@ -121,7 +121,7 @@ type ParticipantRow = {
   participant_id: string; deal_id: string; buyer_id: string; qty: number; delivery_cost: number; buyer_state: string; money_state: string;
   price_per_unit: number; deal_state: string; threshold_units: number; authorization: string | null;
 };
-type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null };
+type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null; outcome_note: string | null };
 type LedgerRow = { logical_entry_type: string; event_type: string; gross_amount: string; vat_amount: string; fee_base_amount: string; platform_fee_rate: string; platform_fee_base_amount: string; platform_fee_vat_amount: string; platform_fee_total_amount: string; platform_fee_amount: string; seller_net_amount: string };
 type AuditRow = { state_type: string; from_state: string; to_state: string; action_name: string };
 type OutboxRow = { event_uuid: string; event_type: string; aggregate_type: string; aggregate_id: string; status: string; attempt_count: number };
@@ -168,7 +168,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
 
   const participantIds = participants.map((p) => p.participant_id);
   const attemptsAll = participantIds.length ? (await pool.query(
-    `SELECT participant_id, attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid,
+    `SELECT participant_id, attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, outcome_note,
             siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight
      FROM siton.payment_attempts WHERE participant_id = ANY($1::uuid[]) ORDER BY created_at ASC, correlation_id ASC`,
     [participantIds]
@@ -342,7 +342,20 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
       if (op === "capture") counts.distinct_capture_keys += keys.length;
       for (let i = 1; i < keys.length; i += 1) {
         const previous = attempts.find((a) => a.correlation_id === keys[i - 1]);
-        if (!previous || previous.result_class !== "permanent_fail") {
+        // The invariant is about the state of the previous identity AT DISPATCH
+        // TIME: a repeat is legal only after that identity was provider-declared
+        // failed. This check reads the FINAL state, so an identity that was
+        // permanent_fail when the repeat was dispatched and only later converged
+        // to success — because a late provider event proved the money had moved
+        // after all — would look like an illegal repeat over a successful
+        // operation. That convergence is required elsewhere (it is what blocks a
+        // release of money that really moved), so it must not be read as a
+        // violation here. A late-effect convergence is identifiable: it is the
+        // only path that settles an identity to success with a
+        // late_money_effect note, and it always leaves an operator case.
+        const convergedLate = previous?.result_class === "success"
+          && String(previous?.outcome_note || "").startsWith("late_money_effect:");
+        if (!previous || (previous.result_class !== "permanent_fail" && !convergedLate)) {
           v("AUTOMATIC_REPEAT_WHILE_UNKNOWN", pid, `${op}: identity ${keys[i]} reached the provider while ${keys[i - 1]} is ${previous ? previous.result_class : "unknown to the database"}`);
         }
       }

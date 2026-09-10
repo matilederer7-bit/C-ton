@@ -161,7 +161,22 @@ async function execute(sc: Scenario): Promise<{ dealId: string; effects: number 
     const keys = lab.sim.distinctKeys(p.authorization, OP[sc.flow]);
     if (keys.length > 1) {
       const rows = await lab.attempts(p.participant_id);
-      for (let i = 1; i < keys.length; i += 1) { const prev = rows.find((r) => r.correlation_id === keys[i - 1]); assert.equal(prev?.result_class, "permanent_fail", `AUTOMATIC_REPEAT for ${p.participant_id}: ${keys.join("|")}`); }
+      // The invariant is the state of the previous identity AT DISPATCH TIME: a
+      // repeat is legal only after that identity was provider-declared failed.
+      // Reading the FINAL state alone would flag an identity that was
+      // permanent_fail when the repeat was dispatched and only later converged
+      // to success, because a late provider event proved the money had moved
+      // after all. That convergence is required elsewhere — it is what blocks a
+      // release of money that really moved (FR-3) — and it is identifiable by
+      // its late_money_effect note. Same order-awareness as tests/lab/oracle.ts.
+      for (let i = 1; i < keys.length; i += 1) {
+        const prev = rows.find((r) => r.correlation_id === keys[i - 1]);
+        const convergedLate = prev?.result_class === "success" && String(prev?.outcome_note || "").startsWith("late_money_effect:");
+        assert.ok(
+          prev?.result_class === "permanent_fail" || convergedLate,
+          `AUTOMATIC_REPEAT for ${p.participant_id}: ${keys.join("|")} (previous is ${prev?.result_class ?? "absent"} note=${prev?.outcome_note ?? "none"})`
+        );
+      }
     }
   }
   return { dealId: d.deal_id, effects };
