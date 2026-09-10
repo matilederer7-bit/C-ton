@@ -31,7 +31,11 @@ export type FaultPoint =
   // F-12 — inside the transaction that writes the late-effect money evidence
   // AND the durable operator escalation, between the two. Injecting here proves
   // the two halves are atomic: neither may survive alone.
-  | "payment.before_escalation_case";
+  | "payment.before_escalation_case"
+  // F-12 — the durable capture-side identity read that decides whether two
+  // distinct money effects exist. Injecting here proves the path fails CLOSED:
+  // an unreadable evidence set must never be answered as "not a dual capture".
+  | "payment.before_dual_capture_identity_read";
 
 export type FaultAction =
   | { kind: "throw"; code: string }

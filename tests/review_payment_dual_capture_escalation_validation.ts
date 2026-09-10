@@ -44,9 +44,11 @@ await run("DS-1 a late ORIGINAL capture after a successful recovery is escalated
         buyer_state: "Recovered",
         money_state: "RecoveredCharge",
         priorAttempts: [
-          // the provider declared THIS request failed, which is what let a
-          // recovery be minted at all (066 + the 068 fence)
-          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: "charge_start:review-ds1:n1", failure_evidence: "dispatch_response" },
+          // A provider CALLBACK declared this capture failed. That is evidence a
+          // later provider claim may legitimately supersede, so the late effect
+          // may be recorded on the identity. An answer to the exact request
+          // (dispatch_response) may NOT be overwritten — see DS-4.
+          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: "charge_start:review-ds1:n1", failure_evidence: "provider_event" },
           { attempt_type: "recovery", result_class: "success", correlation_id: "recovery:review-ds1:n1" }
         ]
       }
@@ -180,6 +182,60 @@ await run("DS-3 control: a late capture on a participant whose money never captu
     cases.some((c) => c.auto_key.includes("late-money-effect")),
     "DS-3: the pre-existing escalation for a non-captured money state regressed"
   );
+});
+
+// ── DS-4 — a late claim never overwrites the provider's answer to the exact
+// request. Found while fixing this: recording a fabricated success there both
+// invents money truth and destroys the retry-order evidence, because a second
+// identity that was dispatched LEGALLY while this one was a declared failure
+// then retroactively looks like a repeat over a successful operation. That is
+// exactly what tripped the financial oracle on fuzz seed 209752203 index 152.
+await run("DS-4 a late capture claim contradicting the provider's own exact-request decline is escalated, not written", async () => {
+  const deal = await lab.seedDeal({
+    state: "CompletionWindow",
+    threshold_units: 1,
+    completionWindowUntil: new Date(Date.now() + 10 * 60_000),
+    participants: [
+      {
+        buyer_state: "Recovered",
+        money_state: "RecoveredCharge",
+        priorAttempts: [
+          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: "charge_start:review-ds4:n1", failure_evidence: "dispatch_response" },
+          { attempt_type: "recovery", result_class: "success", correlation_id: "recovery:review-ds4:n1" }
+        ]
+      }
+    ]
+  });
+  const p = deal.participants[0]!;
+  lab.sim.forceEffect("recover", p.authorization, p.amount_minor);
+
+  const response = await lab.postWebhook({
+    event_type: "charge_captured",
+    provider_reference: p.authorization,
+    correlation_id: "charge_start:review-ds4:n1",
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const participant = await lab.participant(p.participant_id);
+  const attempts = await lab.attempts(p.participant_id);
+  const cases = await lab.cases(p.participant_id);
+  const row = attempts.find((a) => a.correlation_id === "charge_start:review-ds4:n1");
+  console.log(`  DUAL_CAPTURE_EVIDENCE DS-4 ${JSON.stringify({
+    http: response.statusCode,
+    money_state: participant.money_state,
+    charge_start: `${row?.result_class}/${row?.failure_evidence}`,
+    cases: cases.map((c) => c.auto_key)
+  })}`);
+
+  // The contradiction still reaches an operator.
+  assert.ok(
+    cases.some((c) => c.auto_key.includes("late-money-effect")),
+    `DS-4: the contradiction must still be escalated: ${JSON.stringify(cases.map((c) => c.auto_key))}`
+  );
+  // But the provider's answer to the exact request is left exactly as given.
+  assert.equal(row?.result_class, "permanent_fail", "DS-4: an exact-request decline must not be overwritten with a fabricated success");
+  assert.equal(row?.failure_evidence, "dispatch_response", "DS-4: the exact-request evidence must be preserved");
+  assert.equal(participant.money_state, "RecoveredCharge", "DS-4: canonical money truth must not move");
 });
 
 const failed = summary();

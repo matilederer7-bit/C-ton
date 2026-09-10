@@ -67,7 +67,12 @@ async function seedDualCaptureObligation(tag: string) {
         buyer_state: "Recovered",
         money_state: "RecoveredCharge",
         priorAttempts: [
-          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: `charge_start:${tag}:n1`, failure_evidence: "dispatch_response" },
+          // provider_event, NOT dispatch_response: a callback said this capture
+          // failed, which a later provider claim may legitimately supersede. An
+          // exact-request decline may not be overwritten, and that case has its
+          // own scenario (DE-8), so using it here would hide the atomicity
+          // signal these durability scenarios depend on.
+          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: `charge_start:${tag}:n1`, failure_evidence: "provider_event" },
           { attempt_type: "recovery", result_class: "success", correlation_id: `recovery:${tag}:n1` }
         ]
       }
@@ -78,6 +83,41 @@ async function seedDualCaptureObligation(tag: string) {
   lab.sim.forceEffect("recover", p.authorization, p.amount_minor);
   lab.sim.forceEffect("capture", p.authorization, p.amount_minor);
   return { deal, p, correlation: `charge_start:${tag}:n1` };
+}
+
+/**
+ * Break the durable capture-side identity READ at the database.
+ *
+ * listAttemptLifecycle selects siton.payment_operation_in_flight(...) for every
+ * row, so replacing that function with one that raises makes the identity query
+ * fail exactly as a broken database would — without touching production code.
+ */
+async function blockIdentityRead() {
+  await lab.pool.query(`
+    CREATE OR REPLACE FUNCTION siton.payment_operation_in_flight(
+      p_owner_event_uuid uuid, p_owner_lease_generation integer
+    ) RETURNS boolean LANGUAGE plpgsql SECURITY DEFINER SET search_path = '' AS $$
+    BEGIN
+      RAISE EXCEPTION 'review_injected_identity_read_failure' USING ERRCODE = 'SN500';
+    END $$;`);
+}
+
+async function restoreIdentityRead() {
+  await lab.pool.query(`
+    CREATE OR REPLACE FUNCTION siton.payment_operation_in_flight(
+      p_owner_event_uuid uuid, p_owner_lease_generation integer
+    ) RETURNS boolean LANGUAGE sql VOLATILE SECURITY DEFINER SET search_path = '' AS $$
+      SELECT p_owner_event_uuid IS NOT NULL
+         AND p_owner_lease_generation IS NOT NULL
+         AND EXISTS (
+           SELECT 1 FROM siton.outbox_events o
+           WHERE o.event_uuid = p_owner_event_uuid
+             AND o.lease_generation = p_owner_lease_generation
+             AND o.status = 'processing'
+             AND o.lease_expires_at IS NOT NULL
+             AND o.lease_expires_at > clock_timestamp()
+         );
+    $$;`);
 }
 
 async function lateEffectCases(participantId: string) {
@@ -336,7 +376,152 @@ await run("DE-7 an already-recorded dual capture with no case is still escalated
   assert.ok(cases[0]!.auto_key.includes("dual-capture"), `DE-7: must be keyed as a dual capture: ${cases[0]!.auto_key}`);
 });
 
+// ── DE-8 — exact-request decline: escalate, never overwrite ───────────────
+await run("DE-8 a late claim contradicting an exact-request decline escalates without writing a fabricated success", async () => {
+  const deal = await lab.seedDeal({
+    state: "Completed",
+    threshold_units: 1,
+    participants: [
+      {
+        buyer_state: "Recovered",
+        money_state: "RecoveredCharge",
+        priorAttempts: [
+          { attempt_type: "charge_start", result_class: "permanent_fail", correlation_id: "charge_start:de8:n1", failure_evidence: "dispatch_response" },
+          { attempt_type: "recovery", result_class: "success", correlation_id: "recovery:de8:n1" }
+        ]
+      }
+    ]
+  });
+  const p = deal.participants[0]!;
+  lab.sim.forceEffect("recover", p.authorization, p.amount_minor);
+  const response = await lab.postWebhook({
+    event_type: "charge_captured",
+    event_id: "review-de8-contradiction",
+    provider_reference: p.authorization,
+    correlation_id: "charge_start:de8:n1",
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const rows = await lab.attempts(p.participant_id, "charge_start");
+  const cases = await lateEffectCases(p.participant_id);
+  console.log(`  DURABLE_ESCALATION_EVIDENCE DE-8 ${JSON.stringify({
+    http: response.statusCode,
+    charge_start: rows.map((r) => `${r.result_class}/${r.failure_evidence}`),
+    cases: cases.map((c) => c.auto_key)
+  })}`);
+  assert.equal(response.statusCode, 200, "DE-8: the escalated delivery must be acknowledged");
+  assert.equal(cases.length, 1, "DE-8: the contradiction must be escalated exactly once");
+  assert.equal(rows[0]!.result_class, "permanent_fail", "DE-8: an exact-request decline must survive a contradicting late claim");
+  assert.equal(rows[0]!.failure_evidence, "dispatch_response", "DE-8: the exact-request evidence must be preserved");
+});
+
+// ── DE-9 / DE-10 / DE-11 — the IDENTITY READ failure matrix (round 3) ─────
+// The financial-critical path must read durable capture-side identities to know
+// whether two distinct money effects exist. That read used to swallow its error
+// with `.catch(() => [])`, so a database failure became "no other capture
+// succeeded" -> "not a dual capture" -> HTTP 200 with no escalation. And because
+// the delivery was then marked `ignored` rather than `failed`, the SAME event id
+// was deduplicated and could never repair it. UNKNOWN must never become FALSE.
+await run("DE-9 identity read unavailable: not acknowledged, nothing escalated, and financial truth untouched", async () => {
+  const { deal, p, correlation } = await seedDualCaptureObligation("de9");
+  const eventId = "review-de9-identity-read-down";
+  const before = await chargeStartClass(p.participant_id);
+  // While the read is broken this test's OWN diagnostics cannot run either —
+  // lab.attempts() selects the same function — so the injection is held for
+  // exactly one delivery and every observation is taken after restoring. The
+  // restore is in a finally: leaving it broken would silently poison every
+  // later scenario in this file.
+  let response: { statusCode: number; body: string };
+  try {
+    await blockIdentityRead();
+    response = await lab.postWebhook({
+      event_type: "charge_captured",
+      event_id: eventId,
+      provider_reference: p.authorization,
+      correlation_id: correlation,
+      participant_id: p.participant_id,
+      deal_id: deal.deal_id
+    });
+  } finally {
+    await restoreIdentityRead();
+  }
+  const cases = await lateEffectCases(p.participant_id);
+  const after = await chargeStartClass(p.participant_id);
+  const status = await webhookStatus(eventId);
+  console.log(`  DURABLE_ESCALATION_EVIDENCE DE-9 ${JSON.stringify({ http: response.statusCode, webhook_row: status, charge_start_before: before, charge_start_after: after, cases: cases.length })}`);
+
+  assert.notEqual(response.statusCode, 200, `DE-9: the delivery was acknowledged while it was UNKNOWN whether a double charge exists (HTTP ${response.statusCode})`);
+  assert.equal(cases.length, 0, "DE-9 fixture: the injection must actually prevent the determination");
+  // requirement J: no fabricated success or failure merely to allow a retry
+  assert.equal(after, before, "DE-9: financial truth was mutated while the identity evidence was unreadable");
+  assert.equal(status, "failed", "DE-9: the provider event must be left retryable");
+  (globalThis as any).__de9 = { deal, p, correlation, eventId };
+});
+
+await run("DE-10 identity read restored: the SAME event id is reprocessed and escalates exactly once", async () => {
+  const { deal, p, correlation, eventId } = (globalThis as any).__de9;
+  const response = await lab.postWebhook({
+    event_type: "charge_captured",
+    event_id: eventId,
+    provider_reference: p.authorization,
+    correlation_id: correlation,
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const cases = await lateEffectCases(p.participant_id);
+  console.log(`  DURABLE_ESCALATION_EVIDENCE DE-10 ${JSON.stringify({ http: response.statusCode, webhook_row: await webhookStatus(eventId), charge_start: await chargeStartClass(p.participant_id), cases: cases.map((c) => c.auto_key) })}`);
+  assert.equal(response.statusCode, 200, "DE-10: the repaired delivery must be acknowledged");
+  assert.equal(cases.length, 1, `DE-10: the SAME event id must repair the escalation exactly once, got ${cases.length}`);
+  assert.ok(cases[0]!.auto_key.includes("dual-capture"), `DE-10: must be keyed as a dual capture: ${cases[0]!.auto_key}`);
+});
+
+await run("DE-11 identity read restored: a FRESH delivery id also escalates, and still exactly once", async () => {
+  const { deal, p, correlation } = (globalThis as any).__de9;
+  const response = await lab.postWebhook({
+    event_type: "charge_captured",
+    event_id: "review-de11-fresh-after-identity-read",
+    provider_reference: p.authorization,
+    correlation_id: correlation,
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const cases = await lateEffectCases(p.participant_id);
+  console.log(`  DURABLE_ESCALATION_EVIDENCE DE-11 ${JSON.stringify({ http: response.statusCode, cases: cases.map((c) => c.auto_key) })}`);
+  assert.equal(response.statusCode, 200, "DE-11: the redelivery must be acknowledged");
+  assert.equal(cases.length, 1, `DE-11: exactly one case must exist, got ${cases.length}`);
+});
+
+await run("DE-12 the same fail-closed guarantee at the in-process read seam", async () => {
+  const { deal, p, correlation } = await seedDualCaptureObligation("de12");
+  lab.armTestFault("payment.before_dual_capture_identity_read", { kind: "throw", code: "review_injected_identity_read_seam" }, 1);
+  const blocked = await lab.postWebhook({
+    event_type: "charge_captured",
+    event_id: "review-de12-seam",
+    provider_reference: p.authorization,
+    correlation_id: correlation,
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const midCases = await lateEffectCases(p.participant_id);
+  lab.resetTestFaults();
+  const repaired = await lab.postWebhook({
+    event_type: "charge_captured",
+    event_id: "review-de12-seam",
+    provider_reference: p.authorization,
+    correlation_id: correlation,
+    participant_id: p.participant_id,
+    deal_id: deal.deal_id
+  });
+  const finalCases = await lateEffectCases(p.participant_id);
+  console.log(`  DURABLE_ESCALATION_EVIDENCE DE-12 ${JSON.stringify({ blocked_http: blocked.statusCode, blocked_cases: midCases.length, repaired_http: repaired.statusCode, final_cases: finalCases.length })}`);
+  assert.notEqual(blocked.statusCode, 200, "DE-12: an unreadable identity evidence set must not be acknowledged");
+  assert.equal(midCases.length, 0, "DE-12: nothing may be escalated on an unknown determination");
+  assert.equal(repaired.statusCode, 200, "DE-12: the retry must succeed");
+  assert.equal(finalCases.length, 1, "DE-12: the retry must escalate exactly once");
+});
+
 const failed = summary();
 await restoreCasePersistence().catch(() => undefined);
+await restoreIdentityRead().catch(() => undefined);
 await lab.close();
 process.exit(failed ? 1 : 0);

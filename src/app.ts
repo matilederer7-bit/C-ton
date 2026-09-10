@@ -1009,12 +1009,53 @@ function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
  * identity at all (a seeded fixture, a pre-rails row) yields one and stays
  * silent, exactly as before.
  */
-async function captureSideExecutedIdentities(args: {
-  target: { participant_id: string; deal_id: string; correlation_id: string | null };
+/**
+ * The three — and only three — outcomes of the F-12 identity read.
+ *
+ * `unreadable` is a VALUE so that an evidence-read failure cannot be spelled
+ * the same way as "one identity". The previous shape returned a plain array and
+ * swallowed the query error with `.catch(() => [])`, which made a database
+ * failure indistinguishable from "no other capture succeeded": the read error
+ * silently became "not a dual capture", the delivery was acknowledged 200, no
+ * escalation existed, and because the event was then marked `ignored` rather
+ * than `failed` the same event id was deduplicated and could never repair it.
+ * On a financial-critical path UNKNOWN must never become FALSE.
+ */
+type CaptureSideIdentityEvidence =
+  | { outcome: "confirmed_single"; identities: string[]; reportedExactDecline: boolean }
+  | { outcome: "confirmed_dual"; identities: string[]; reportedExactDecline: boolean }
+  | { outcome: "unreadable"; cause: unknown };
+
+/**
+ * Raised when the durable capture-side identity evidence cannot be read, so
+ * whether two distinct money effects exist is UNKNOWN. Retryable by
+ * construction: the caller marks the provider event `failed` and rethrows, and
+ * webhookIngestion.claimEvent re-processes an event left in `failed`, so the
+ * SAME event id gets another processing opportunity.
+ */
+class PaymentDualCaptureEvidenceUnavailableError extends Error {
+  constructor(participantId: string, cause: unknown) {
+    super(
+      `payment_dual_capture_evidence_unavailable participant ${participantId}: ` +
+      `cannot determine whether two distinct successful capture-side operations exist (${String((cause as Error)?.message || cause)})`
+    );
+    this.name = "PaymentDualCaptureEvidenceUnavailableError";
+  }
+}
+
+async function readCaptureSideIdentityEvidence(args: {
+  target: { participant_id: string; deal_id: string; attempt_type: string; correlation_id: string | null };
   event: { event_type: string; correlation_id?: string | null };
-}): Promise<string[]> {
+}): Promise<CaptureSideIdentityEvidence> {
+  let rows: Awaited<ReturnType<typeof listAttemptLifecycle>>;
+  try {
+    await hitTestFault("payment.before_dual_capture_identity_read");
+    rows = await listAttemptLifecycle(args.target.participant_id, args.target.deal_id);
+  } catch (cause) {
+    // NOT an empty set. The evidence is unknown, and unknown is its own answer.
+    return { outcome: "unreadable", cause };
+  }
   const identities = new Set<string>();
-  const rows = await listAttemptLifecycle(args.target.participant_id, args.target.deal_id).catch(() => []);
   for (const row of rows) {
     if ((row.attempt_type === "charge_start" || row.attempt_type === "recovery") && row.result_class === "success") {
       identities.add(`${row.attempt_type}:${row.correlation_id}`);
@@ -1026,7 +1067,22 @@ async function captureSideExecutedIdentities(args: {
         : null;
   const reported = String(args.event.correlation_id || args.target.correlation_id || "").trim();
   if (reportedFamily && reported) identities.add(`${reportedFamily}:${reported}`);
-  return [...identities].sort();
+  // Did the provider already answer THIS exact request with a decline? That is
+  // the strongest negative evidence the system can hold (migration 068 refuses
+  // to downgrade it), so a later claim to the contrary is a contradiction to
+  // escalate, never a success to write.
+  const reportedRow = reported
+    ? rows.find((row) => row.correlation_id === reported && row.attempt_type === args.target.attempt_type)
+    : undefined;
+  const reportedExactDecline = Boolean(
+    reportedRow
+      && reportedRow.result_class === "permanent_fail"
+      && (reportedRow.failure_evidence === "dispatch_response" || reportedRow.failure_evidence === "operator")
+  );
+  const sorted = [...identities].sort();
+  return sorted.length >= 2
+    ? { outcome: "confirmed_dual", identities: sorted, reportedExactDecline }
+    : { outcome: "confirmed_single", identities: sorted, reportedExactDecline };
 }
 
 async function recordLateMoneyEffectException(args: {
@@ -1042,8 +1098,18 @@ async function recordLateMoneyEffectException(args: {
   // state at a captured value, so a state test alone reads it as a replay and
   // drops economically real money. Decided by durable identity instead, and
   // evaluated on EVERY capture effect so a redelivery still sees it.
-  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
-  const dualCapture = captureIdentities.length >= 2;
+  const evidence: CaptureSideIdentityEvidence = captureEffect
+    ? await readCaptureSideIdentityEvidence({ target: args.target, event: args.event })
+    : { outcome: "confirmed_single", identities: [], reportedExactDecline: false };
+  // FAIL CLOSED. There is no path from "the evidence could not be read" to
+  // "therefore it is not a dual capture". This throws BEFORE any write, so
+  // financial truth is never mutated to make a retry possible, and the delivery
+  // is left retryable instead of acknowledged.
+  if (evidence.outcome === "unreadable") {
+    throw new PaymentDualCaptureEvidenceUnavailableError(args.target.participant_id, evidence.cause);
+  }
+  const captureIdentities = evidence.identities;
+  const dualCapture = evidence.outcome === "confirmed_dual";
   const contradiction =
     (captureEffect && !capturedMoneyStates.includes(moneyState)) ||
     dualCapture ||
@@ -1057,6 +1123,18 @@ async function recordLateMoneyEffectException(args: {
     (args.event.event_type === "recovery_captured" && args.target.attempt_type === "recovery") ||
     (args.event.event_type === "refund_issued" && (args.target.attempt_type === "refund" || args.target.attempt_type === "cancel_refund"));
   const correlation = lateEffectFamilyMatches ? (args.event.correlation_id || args.target.correlation_id || null) : null;
+  // A late claim never overwrites the provider's own answer to the exact
+  // request. When the dispatching owner already recorded this identity as
+  // declined by the provider's response (failure_evidence dispatch_response, or
+  // an operator's verified resolution), a later callback claiming it captured
+  // is the provider contradicting itself. Recording a fabricated success would
+  // both invent money truth and destroy the retry-order evidence — a second
+  // identity that was dispatched LEGALLY while this one was a declared failure
+  // would retroactively look like a repeat over a successful operation. So the
+  // contradiction is escalated to an operator and the exact-request evidence is
+  // left exactly as the provider gave it. Migration 068's UPDATE guard refuses
+  // to downgrade this evidence for the same reason.
+  const settleReportedIdentity = Boolean(correlation) && !evidence.reportedExactDecline;
   // F-12 durable escalation. The escalation key of a dual capture is derived
   // from the obligation and the DISTINCT executed capture-side identities, so
   // it is the same key on the first delivery and on every redelivery, and it is
@@ -1068,7 +1146,7 @@ async function recordLateMoneyEffectException(args: {
   const escalation: PaymentOperationalCaseInput = {
     autoKey: `payment-late-money-effect:${args.target.participant_id}:${escalationKey}`,
     subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider reports ${args.event.event_type} but canonical money state is ${moneyState} (participant ${args.target.participant_id})`,
-    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? ` DUAL CAPTURE: ${captureIdentities.length} distinct capture-side operations of this participant are executed (${captureIdentities.join(", ")}), so that many captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator.` : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
+    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? ` DUAL CAPTURE: ${captureIdentities.length} distinct capture-side operations of this participant are executed (${captureIdentities.join(", ")}), so that many captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator.` : ""} ${evidence.reportedExactDecline ? ` The provider had already answered this exact request with a decline (failure_evidence ${'\u0060'}dispatch_response${'\u0060'}/${'\u0060'}operator${'\u0060'}), so it is now contradicting itself: that evidence was NOT overwritten with a fabricated success and an operator must establish what actually moved.` : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
     correlationId: correlation
   };
 
@@ -1090,7 +1168,7 @@ async function recordLateMoneyEffectException(args: {
   // commits both halves together. Provider truth is never altered to avoid an
   // escalation.
   await withTx(async (c) => {
-    if (correlation) {
+    if (settleReportedIdentity && correlation) {
       await settleAttemptInTx(c, {
         participant_id: args.target.participant_id,
         deal_id: args.target.deal_id,
