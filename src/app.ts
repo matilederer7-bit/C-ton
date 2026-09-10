@@ -983,33 +983,50 @@ function parsePositiveIntegerQuantity(value: unknown, defaultValue?: number) {
  * canonical state is guessed.
  */
 /**
- * F-12 (independent financial review) — is this participant's captured money
- * truth owed to a capture-side identity OTHER than the one this event reports?
+ * F-12 — the DISTINCT capture-side operation identities that are executed for
+ * this obligation, counting the effect being reported right now.
  *
- * A capture effect arriving while the money state already says captured is
- * normally the idempotent REPLAY of the very operation that captured, and must
- * stay silent or every retried callback would page an operator. It is NOT a
- * replay when a DIFFERENT capture-side identity is the one recorded as
- * executed: then two captures exist for one obligation, canonical state can
- * only ever account for one of them, and the second must reach a human because
- * nothing downstream can infer it later.
+ * The invariant is about how many capture-side operations moved money, so it is
+ * decided by durable operation IDENTITY, never by the current money_state and
+ * never by "is the reported identity the one already recorded".
  *
- * Deliberately conservative: it claims a dual capture only when an executed
- * capture-side identity positively exists and is not the one named. With no
- * capture-side identity at all (a seeded state, a pre-rails row) nothing is
- * claimed and the previous behaviour stands.
+ * The reported effect is itself a capture-side execution, so it joins the set.
+ * That is what makes the answer STABLE across deliveries, and it is the whole
+ * reason a redelivery can still repair a missing escalation:
+ *
+ *   first delivery      committed {recovery}            + reported charge_start = 2
+ *   after it committed  committed {charge_start,recovery} + reported charge_start = 2
+ *   ordinary duplicate  committed {charge_start}        + reported charge_start = 1
+ *
+ * The earlier predicate asked instead whether EVERY executed identity differed
+ * from the reported one. That is a replay test, not a dual-capture test: once
+ * the reported identity's own success had committed, its matching row made the
+ * predicate false and the condition became permanently undetectable — the first
+ * delivery destroyed the evidence that a later delivery needed. Counting
+ * distinct identities has no such blind spot.
+ *
+ * Still conservative at the low end: a participant with no capture-side
+ * identity at all (a seeded fixture, a pre-rails row) yields one and stays
+ * silent, exactly as before.
  */
-async function captureSideDualSuccess(
-  target: { participant_id: string; deal_id: string; correlation_id: string | null },
-  event: { correlation_id?: string | null }
-): Promise<boolean> {
-  const named = String(event.correlation_id || target.correlation_id || "").trim();
-  const rows = await listAttemptLifecycle(target.participant_id, target.deal_id).catch(() => []);
-  const executed = rows.filter(
-    (row) => (row.attempt_type === "charge_start" || row.attempt_type === "recovery") && row.result_class === "success"
-  );
-  if (!executed.length) return false;
-  return executed.every((row) => row.correlation_id !== named);
+async function captureSideExecutedIdentities(args: {
+  target: { participant_id: string; deal_id: string; correlation_id: string | null };
+  event: { event_type: string; correlation_id?: string | null };
+}): Promise<string[]> {
+  const identities = new Set<string>();
+  const rows = await listAttemptLifecycle(args.target.participant_id, args.target.deal_id).catch(() => []);
+  for (const row of rows) {
+    if ((row.attempt_type === "charge_start" || row.attempt_type === "recovery") && row.result_class === "success") {
+      identities.add(`${row.attempt_type}:${row.correlation_id}`);
+    }
+  }
+  const reportedFamily =
+    args.event.event_type === "charge_captured" ? "charge_start"
+      : args.event.event_type === "recovery_captured" ? "recovery"
+        : null;
+  const reported = String(args.event.correlation_id || args.target.correlation_id || "").trim();
+  if (reportedFamily && reported) identities.add(`${reportedFamily}:${reported}`);
+  return [...identities].sort();
 }
 
 async function recordLateMoneyEffectException(args: {
@@ -1022,10 +1039,11 @@ async function recordLateMoneyEffectException(args: {
   const capturedMoneyStates = ["ChargedSuccess", "RecoveredCharge", "Refunded"];
   // F-12 — a SECOND capture for one obligation (the classic shape: a recovery
   // succeeded and the original capture then settled late) leaves the money
-  // state at a captured value, so the state test alone reads it as a replay
-  // and drops economically real money. Detect it by identity, not by state.
-  const dualCapture =
-    captureEffect && capturedMoneyStates.includes(moneyState) && (await captureSideDualSuccess(args.target, args.event));
+  // state at a captured value, so a state test alone reads it as a replay and
+  // drops economically real money. Decided by durable identity instead, and
+  // evaluated on EVERY capture effect so a redelivery still sees it.
+  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
+  const dualCapture = captureIdentities.length >= 2;
   const contradiction =
     (captureEffect && !capturedMoneyStates.includes(moneyState)) ||
     dualCapture ||
@@ -1039,22 +1057,52 @@ async function recordLateMoneyEffectException(args: {
     (args.event.event_type === "recovery_captured" && args.target.attempt_type === "recovery") ||
     (args.event.event_type === "refund_issued" && (args.target.attempt_type === "refund" || args.target.attempt_type === "cancel_refund"));
   const correlation = lateEffectFamilyMatches ? (args.event.correlation_id || args.target.correlation_id || null) : null;
-  if (correlation) {
-    await finalizeAttemptResult({
-      participant_id: args.target.participant_id,
-      deal_id: args.target.deal_id,
-      attempt_type: args.target.attempt_type,
-      correlation_id: correlation,
-      result_class: "success",
-      provider_reference: args.event.provider_reference ?? null,
-      note: `late_money_effect:${args.event.event_type}:${args.reason}`
-    }).catch(() => undefined);
-  }
-  await openPaymentOperationalCase({
-    autoKey: `payment-late-money-effect:${args.target.participant_id}:${args.event.event_type}`,
+  // F-12 durable escalation. The escalation key of a dual capture is derived
+  // from the obligation and the DISTINCT executed capture-side identities, so
+  // it is the same key on the first delivery and on every redelivery, and it is
+  // independent of which event type reported it. Two different pairs of
+  // operations would be two different cases; the same pair is always one.
+  const escalationKey = dualCapture
+    ? `dual-capture:${createHash("sha256").update(captureIdentities.join("|")).digest("hex").slice(0, 16)}`
+    : args.event.event_type;
+  const escalation: PaymentOperationalCaseInput = {
+    autoKey: `payment-late-money-effect:${args.target.participant_id}:${escalationKey}`,
     subject: `FINANCIAL_OUTCOME_UNRESOLVED: provider reports ${args.event.event_type} but canonical money state is ${moneyState} (participant ${args.target.participant_id})`,
-    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? " DUAL CAPTURE: another capture-side operation of this participant is already recorded as executed, so TWO captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator." : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
+    description: `Provider ${args.event.provider} event ${args.event.event_id} declares ${args.event.event_type} (reference ${args.event.provider_reference || "n/a"}, correlation ${correlation || "n/a"}) while the participant is ${args.target.buyer_state}/${moneyState}; the canonical guard classified it as "${args.reason}".${dualCapture ? ` DUAL CAPTURE: ${captureIdentities.length} distinct capture-side operations of this participant are executed (${captureIdentities.join(", ")}), so that many captures exist at the provider for ONE obligation and canonical state can account for only one — a refund of the surplus must be decided by an operator.` : ""} The provider effect is economically real and was NOT applied to canonical state. Automatic recovery/refund/release for this participant is blocked until an operator reconciles the money side. No state was guessed.`,
     correlationId: correlation
+  };
+
+  // ONE transaction for the money evidence AND the operator escalation.
+  //
+  // Before this, the evidence was committed first and the case was a suppressed
+  // best-effort write afterwards. If the case INSERT failed, the caller was
+  // told nothing, the webhook was acknowledged, and the committed evidence then
+  // made the condition undetectable on redelivery: a known double capture with
+  // no operator case and no way back. Now either both exist or neither does,
+  // and a failure reaches the caller, which marks the provider event 'failed'
+  // and rethrows. The delivery is never acknowledged as safely handled without
+  // a durable escalation, and because webhookIngestion.claimEvent re-processes
+  // an event left in 'failed', the SAME event id repairs it on retry — as does
+  // any fresh delivery id, because the detection above is identity-based.
+  //
+  // Rolling the evidence back loses nothing: the observation itself stays
+  // durable in siton.webhook_events with its payload, awaiting the retry that
+  // commits both halves together. Provider truth is never altered to avoid an
+  // escalation.
+  await withTx(async (c) => {
+    if (correlation) {
+      await settleAttemptInTx(c, {
+        participant_id: args.target.participant_id,
+        deal_id: args.target.deal_id,
+        attempt_type: args.target.attempt_type,
+        correlation_id: correlation,
+        result_class: "success",
+        provider_reference: args.event.provider_reference ?? null,
+        note: `late_money_effect:${args.event.event_type}:${args.reason}`
+      });
+    }
+    await hitTestFault("payment.before_escalation_case");
+    await openPaymentOperationalCaseInTx(c, escalation);
   });
 }
 
@@ -1933,28 +1981,50 @@ async function scheduleAuthorizationReleasesForDeal(dealId: string, reason: stri
   }
 }
 
-async function openPaymentOperationalCase(args: {
+type PaymentOperationalCaseInput = {
   autoKey: string;
   subject: string;
   description: string;
   correlationId?: string | null;
   requestId?: string | null;
-}) {
+};
+
+/**
+ * The case write itself, on a caller-supplied transaction, with NO error
+ * suppression. Idempotent through the partial unique index
+ * ux_operational_cases_open_auto_key (migration 034): concurrent writers of the
+ * same autoKey produce exactly one open case, the loser taking DO UPDATE.
+ */
+async function openPaymentOperationalCaseInTx(c: PoolClient, args: PaymentOperationalCaseInput) {
+  await c.query(
+    `INSERT INTO siton.operational_cases
+       (case_type, status, priority, source, subject, description, opened_by, auto_key, correlation_id, request_id)
+     VALUES ('PaymentMismatch','Open','High','System',$1,$2,'worker',$3,$4,$5)
+     ON CONFLICT (auto_key) WHERE auto_key IS NOT NULL AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
+     DO UPDATE SET updated_at=now()`,
+    [
+      args.subject.slice(0, 200),
+      args.description.slice(0, 2000),
+      args.autoKey.slice(0, 200),
+      args.correlationId || null,
+      args.requestId || null
+    ]
+  );
+}
+
+/**
+ * Best-effort case opener, unchanged for its 30-odd observability call sites: a
+ * case is a report ABOUT a decision that was already made and persisted, so a
+ * failure here must not turn a correct refusal into an error.
+ *
+ * The F-12 late-money-effect path deliberately does NOT use this. There the
+ * case is not a report about a decision, it IS the decision — the only place a
+ * known double capture is recorded — so it is written inside the same
+ * transaction as the money evidence and its failure propagates.
+ */
+async function openPaymentOperationalCase(args: PaymentOperationalCaseInput) {
   await withTx(async (c) => {
-    await c.query(
-      `INSERT INTO siton.operational_cases
-         (case_type, status, priority, source, subject, description, opened_by, auto_key, correlation_id, request_id)
-       VALUES ('PaymentMismatch','Open','High','System',$1,$2,'worker',$3,$4,$5)
-       ON CONFLICT (auto_key) WHERE auto_key IS NOT NULL AND status IN ('Open','NeedsSeller','NeedsAdmin','WaitingExternal')
-       DO UPDATE SET updated_at=now()`,
-      [
-        args.subject.slice(0, 200),
-        args.description.slice(0, 2000),
-        args.autoKey.slice(0, 200),
-        args.correlationId || null,
-        args.requestId || null
-      ]
-    );
+    await openPaymentOperationalCaseInTx(c, args);
   }).catch(() => undefined);
 }
 

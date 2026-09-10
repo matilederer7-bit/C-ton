@@ -27,7 +27,11 @@ export type FaultPoint =
   // R9C — money rails: the three windows around an external provider call.
   | "payment.before_provider_io"
   | "payment.after_provider_io"
-  | "payment.after_state_before_ledger";
+  | "payment.after_state_before_ledger"
+  // F-12 — inside the transaction that writes the late-effect money evidence
+  // AND the durable operator escalation, between the two. Injecting here proves
+  // the two halves are atomic: neither may survive alone.
+  | "payment.before_escalation_case";
 
 export type FaultAction =
   | { kind: "throw"; code: string }
