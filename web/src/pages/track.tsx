@@ -144,7 +144,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
           </div>
 
           <div className="panel">
-            <div className="panel-title">🧾 פרטי ההצטרפות שלי</div>
+            <div className="panel-title">פרטי ההצטרפות שלי</div>
             <div className="kv">
               <span className="k">כמות יחידות</span><span className="v">{num(t.qty)}</span>
               <span className="k">מחיר ליחידה</span><span className="v">{ils(t.price_per_unit)}</span>
@@ -165,7 +165,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           {/* LAUNCH POLISH 2 (P4/P7) — how I get back here + how I ask the seller */}
           <div className="panel" data-testid="track-return">
-            <div className="panel-title">🔖 לחזור לכאן ולשאול את המוכר</div>
+            <div className="panel-title">לחזור לכאן ולשאול את המוכר</div>
             <p className="small" style={{ marginTop: 0 }} data-testid="track-notif-line">{notifLine}</p>
             <div className="row" style={{ gap: 8 }}>
               <button type="button" className="btn btn-ghost btn-sm" data-testid="track-copy-link" onClick={copyHere}>העתקת קישור המעקב</button>
@@ -179,7 +179,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           {t.fulfillment?.units?.length ? (
             <div className="panel">
-              <div className="panel-title">🎫 המימושים שלי</div>
+              <div className="panel-title">המימושים שלי</div>
               <div className="stack">
                 {t.fulfillment.units.map((u: Json) => (
                   <div key={u.fulfillment_unit_id} className="row" style={{ justifyContent: "space-between", borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
@@ -196,7 +196,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
         <div className="stack">
           {/* LAUNCH POLISH 2 (P5) — the share loop: the deal depends on aggregation */}
           <div className="panel" data-testid="track-share">
-            <div className="panel-title">🌱 {SHARE_LOOP_TITLE}</div>
+            <div className="panel-title">{SHARE_LOOP_TITLE}</div>
             {impact ? (
               <>
                 <div className="impact-stats">
@@ -234,7 +234,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           {Array.isArray(t.activity_feed) && t.activity_feed.length ? (
             <div className="panel">
-              <div className="panel-title">📈 מה קרה בעסקה</div>
+              <div className="panel-title">מה קרה בעסקה</div>
               <div className="ticker">
                 {t.activity_feed.slice(0, 10).map((a: Json, i: number) => (
                   <div className="ticker-item" key={i}>
@@ -248,7 +248,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
           ) : null}
 
           <div className="panel">
-            <div className="panel-title">ℹ️ סטטוס אישי</div>
+            <div className="panel-title">סטטוס אישי</div>
             <p style={{ marginBottom: 4 }}><b>{t.personal_status?.headline || t.headline}</b></p>
             {t.personal_status?.body ? <p className="muted small">{t.personal_status.body}</p> : null}
             <p className="muted small" style={{ marginBottom: 0 }}>עודכן: {fmtDate(t.live?.generated_at)}</p>

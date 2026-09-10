@@ -33,7 +33,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   if (state === "fulfilled") {
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state="fulfilled">
-        <div className="panel-title">📦 המוצר שלי</div>
+        <div className="panel-title">המוצר שלי</div>
         <div className="notice ok pickup-headline" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "ההזמנה נמסרה"}</b>
           {fulfilledAt ? <div className="small" style={{ marginTop: 4 }}>נמסר: {fulfilledAt}</div> : null}
@@ -52,7 +52,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
     const tone = state === "deal_failed" || state === "deal_cancelled" || state === "unavailable" ? "err" : "info";
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state={state}>
-        <div className="panel-title">📦 קבלת המוצר</div>
+        <div className="panel-title">קבלת המוצר</div>
         <div className={`notice ${tone}`} style={{ marginTop: 0 }}>
           <b>{pickup.headline}</b>
           {pickup.subline ? <div className="small" style={{ marginTop: 4 }}>{pickup.subline}</div> : null}
@@ -64,7 +64,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   if (method === "delivery") {
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state="ready-delivery">
-        <div className="panel-title">📦 המשלוח שלי</div>
+        <div className="panel-title">המשלוח שלי</div>
         <div className="notice ok" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "ההזמנה אושרה"}</b>
           <div className="small" style={{ marginTop: 4 }}>{PICKUP_DELIVERY_LINE}</div>
@@ -84,7 +84,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   return (
     <>
       <div className="panel pickup-card" data-testid="track-pickup" data-state="ready">
-        <div className="panel-title">📦 איסוף המוצר</div>
+        <div className="panel-title">איסוף המוצר</div>
         <div className="notice ok pickup-headline" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "מוכן לאיסוף"}</b>
         </div>

@@ -189,17 +189,40 @@ await run("7: pilot metrics aggregate the categories + recent texts (admin only;
   assert.ok(!/ישראל ישראלי|0521234567|pii@example\.com/.test(blob), "no PII in the aggregate");
 });
 
-await run("8: public projection — seller.approved is a boolean only (true for an approved seller, false for pending), no raw status leaks", async () => {
+// ROUND 2 (UX-5): the public seller block now also carries the seller PUBLIC
+// PROFILE identity the owner asked to see on the deal page — `profile_id` (the
+// same public_profile_id /api/public-sellers/:id already answers on, and which
+// appears in public profile URLs) and `image` (the /api/content-assets/<uuid>
+// URL of the logo the seller uploaded, served unauthenticated by design).
+// The allow-list stays STRICT — a future key has to be added here deliberately
+// — and the leak proof below is now explicit about every class of private
+// datum that must never appear: internal seller id, e-mail, phone, address,
+// bank details, raw verification status.
+await run("8: public projection — public identity only (approved is a boolean; no raw status, no PII, no internal ids)", async () => {
   const pub = await app.inject({ method: "GET", url: `/api/deals/${dealId}/public` });
   assert.equal(pub.statusCode, 200, pub.body);
   const s = (pub.json() as any).seller;
-  assert.deepEqual(Object.keys(s).sort(), ["approved", "business_description", "business_name", "contact_channel"], JSON.stringify(s));
+  assert.deepEqual(
+    Object.keys(s).sort(),
+    ["approved", "business_description", "business_name", "contact_channel", "image", "profile_id"],
+    JSON.stringify(s)
+  );
   assert.equal(s.approved, true, "demo seller rows default to approved");
   assert.equal(s.contact_channel, "siton_inquiry");
+  // the public profile id is the PUBLIC one, never the internal seller_id
+  assert.match(String(s.profile_id), /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.notEqual(String(s.profile_id), String(seller), "public_profile_id must not be the internal seller_id");
+  // the logo, when present, is only ever the public content-asset URL
+  const withImage = await pool.query(`SELECT profile_image_id FROM siton.seller_accounts WHERE seller_id=$1`, [seller]);
+  assert.equal(s.image, withImage.rows[0].profile_image_id ? `/api/content-assets/${withImage.rows[0].profile_image_id}` : null);
   await pool.query(`UPDATE siton.seller_accounts SET verification_status='pending' WHERE seller_id=$1`, [seller]);
   const pending = await app.inject({ method: "GET", url: `/api/deals/${dealId}/public` });
-  assert.equal((pending.json() as any).seller.approved, false);
-  assert.ok(!/verification_status|pending/.test(JSON.stringify((pending.json() as any).seller)), "raw status never on the public payload");
+  const p = (pending.json() as any).seller;
+  assert.equal(p.approved, false);
+  const blob = JSON.stringify(p);
+  assert.ok(!/verification_status|pending/.test(blob), "raw status never on the public payload");
+  assert.ok(!blob.includes(String(seller)), "internal seller_id never on the public payload");
+  assert.ok(!/support_email|support_phone|bank_|business_address|@|05\d{8}/.test(blob), `contact/bank detail leaked: ${blob}`);
   await pool.query(`UPDATE siton.seller_accounts SET verification_status='approved' WHERE seller_id=$1`, [seller]);
 });
 

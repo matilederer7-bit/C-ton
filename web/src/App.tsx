@@ -9,6 +9,9 @@ import { AdminArea } from "./pages/admin";
 import { SupportPage } from "./pages/support";
 import { ResetPasswordPage } from "./pages/reset";
 import { getPreviewMeta } from "./previewMeta";
+// ROUND 2 (UX-9, ported from Sprint 4) — Back/Forward restore the exact
+// position of the history entry they return to; a NEW entry starts at the top.
+import { installScrollRestoration } from "./scrollRestoration";
 import { captureAuthRedirect } from "./authRedirect";
 
 // Supabase auth-email redirects (recovery/confirmation) land in the hash —
@@ -61,9 +64,13 @@ function parseHash(): Route {
 function useRoute(): [Route, (hash: string) => void] {
   const [route, setRoute] = useState<Route>(parseHash);
   useEffect(() => {
-    const onChange = () => { setRoute(parseHash()); window.scrollTo(0, 0); };
+    // ROUND 2 (UX-9) — replaces the old unconditional scroll-to-top: the
+    // restoration decides per HISTORY ENTRY whether this is a traversal (put
+    // the buyer back where they were) or a brand-new entry (start at the top).
+    const restoration = installScrollRestoration();
+    const onChange = () => { restoration.onHashChange(); setRoute(parseHash()); };
     window.addEventListener("hashchange", onChange);
-    return () => window.removeEventListener("hashchange", onChange);
+    return () => { window.removeEventListener("hashchange", onChange); restoration.dispose(); };
   }, []);
   const navigate = (hash: string) => { window.location.hash = hash; };
   return [route, navigate];

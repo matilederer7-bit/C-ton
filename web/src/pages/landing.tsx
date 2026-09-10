@@ -1,48 +1,77 @@
 import { useSiteContent } from "../receiptContent";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSellerToken } from "../api";
 import { BRAND_LOGO_URL } from "../config";
 import { LANDING_HE } from "../content/landing.he";
 import { getPreviewMeta } from "../previewMeta";
+// ROUND 2 (UX-7B / UX-7A) — one hero medium, one FAQ source of truth.
+import { readViewerMotionConditions, resolveHeroMedium, type HeroMedium } from "../heroMedium";
+import { resolveFaqItems } from "../faqContent";
 
 // ── C-ton public landing (seller-first root; Mall stays hidden) ─────────────
 // Rich content architecture with presence-gated sections: a section renders
 // only when its canonical Hebrew content exists (content/landing.he.ts).
 // The final About copy is owner-supplied — its slot hides until filled.
 
-// Hero background-video capability (P0.2-Q). Renders ONLY when the runtime
-// flag is on AND an asset URL exists AND the visitor prefers motion AND the
-// connection isn't save-data — otherwise the branded graphite fallback.
-// muted + autoplay + loop + playsInline + poster + dark overlay; loaded
-// lazily after first paint so it never blocks LCP. No audio, ever.
-function HeroVideo() {
-  const [video, setVideo] = useState<{ url: string; poster: string } | null>(null);
-  const ref = useRef<HTMLVideoElement>(null);
+// ── ROUND 2 (UX-7B) — the hero carries EXACTLY ONE primary medium ─────────
+// The decision lives in ../heroMedium (one pure rule, one object out), so an
+// image and a video can no longer both end up on screen: previously a
+// configured background video rendered BEHIND the configured hero image.
+// A video still requires the runtime flag + asset, and is never forced on a
+// viewer who asked for reduced motion or is on save-data/2G; it is muted,
+// looping, playsInline, poster-backed and loaded after first paint so it
+// never blocks LCP. No audio, ever.
+// The CMS cannot yet STORE a video choice (content_assets allows only image
+// MIME types) — that gap is documented, not faked. See
+// docs/UX_PRODUCT_POLISH_ROUND_2.md.
+function useHeroMedium(cmsImage: string, fallbackImage: string): HeroMedium {
+  const [meta, setMeta] = useState<Record<string, unknown> | null>(null);
+  const [deferred, setDeferred] = useState(false);
   useEffect(() => {
     let alive = true;
-    getPreviewMeta().then((meta) => {
-      if (!alive || !meta?.landing_hero_video_enabled || !meta?.landing_hero_video_url) return;
-      try {
-        if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        const conn = (navigator as any).connection;
-        if (conn && (conn.saveData || /(^|-)2g/.test(String(conn.effectiveType || "")))) return;
-      } catch { /* default to showing */ }
-      // defer past first paint
-      const start = () => setVideo({ url: String(meta.landing_hero_video_url), poster: String(meta.landing_hero_video_poster || "") });
-      if ("requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
-      else setTimeout(start, 800);
-    });
+    getPreviewMeta().then((m) => { if (alive) setMeta((m || {}) as Record<string, unknown>); }).catch(() => undefined);
+    // the video only becomes eligible after first paint
+    const start = () => { if (alive) setDeferred(true); };
+    if (typeof window !== "undefined" && "requestIdleCallback" in window) (window as any).requestIdleCallback(start, { timeout: 2500 });
+    else setTimeout(start, 800);
     return () => { alive = false; };
   }, []);
-  if (!video) return null;
+  const conditions = useMemo(() => readViewerMotionConditions(), []);
+  return resolveHeroMedium({
+    imageUrl: cmsImage,
+    fallbackImageUrl: fallbackImage,
+    videoEnabled: deferred && Boolean(meta?.landing_hero_video_enabled),
+    videoUrl: meta?.landing_hero_video_url as string | undefined,
+    videoPoster: meta?.landing_hero_video_poster as string | undefined,
+    ...conditions
+  });
+}
+
+function HeroMediumView({ medium }: { medium: HeroMedium }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  if (medium.kind === "video") {
+    return (
+      <div className="hero-video" data-testid="hero-medium" data-hero-medium="video" aria-hidden="true">
+        <video ref={ref} muted autoPlay loop playsInline preload="metadata" poster={medium.poster || undefined}
+          onCanPlay={() => { try { void ref.current?.play(); } catch { /* noop */ } }}>
+          <source src={medium.url} type="video/mp4" />
+        </video>
+        <div className="hero-video-overlay" />
+      </div>
+    );
+  }
   return (
-    <div className="hero-video" aria-hidden="true">
-      <video ref={ref} muted autoPlay loop playsInline preload="metadata" poster={video.poster || undefined}
-        onCanPlay={() => { try { void ref.current?.play(); } catch { /* noop */ } }}>
-        <source src={video.url} type="video/mp4" />
-      </video>
-      <div className="hero-video-overlay" />
-    </div>
+    <img
+      className="landing-logo"
+      data-testid="hero-medium"
+      data-hero-medium="image"
+      data-hero-from-cms={medium.fromCms ? "1" : "0"}
+      src={medium.url}
+      alt="C-ton"
+      width={340}
+      height={227}
+      draggable={false}
+    />
   );
 }
 
@@ -74,19 +103,17 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
   const mallEnabled = useMallEnabled();
   const content = useSiteContent();
   const c = { ...LANDING_HE, hero: { ...LANDING_HE.hero, title: content.home?.title ?? LANDING_HE.hero.title, sub: content.home?.sub ?? LANDING_HE.hero.sub, note: content.home?.intro ?? LANDING_HE.hero.note }, about: content.about || LANDING_HE.about };
+  // ROUND 2 (UX-7B) — ONE medium for the hero, never both.
+  const heroMedium = useHeroMedium(String(content.home?.image || ""), BRAND_LOGO_URL);
+  // ROUND 2 (UX-7A) — the FAQ already reads through the resolver, so the day
+  // the CMS can store an ordered collection this line is the only wiring.
+  const faqItems = resolveFaqItems(content.faq, LANDING_HE.faq.items);
   return (
     <div className="landing">
       <section className="landing-hero">
-        <HeroVideo />
+        {heroMedium.kind === "video" ? <HeroMediumView medium={heroMedium} /> : null}
         <div className="landing-hero-inner">
-          <img
-            className="landing-logo"
-            src={content.home?.image || BRAND_LOGO_URL}
-            alt="C-ton"
-            width={340}
-            height={227}
-            draggable={false}
-          />
+          {heroMedium.kind === "image" ? <HeroMediumView medium={heroMedium} /> : null}
           <h1 className="landing-title">{c.hero.title}</h1>
           <p className="landing-sub">{c.hero.sub}</p>
           <div className="landing-actions">
@@ -111,7 +138,10 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
               <p className="landing-note" style={{ margin: 0 }}>{c.hero.note}</p>
             )}
           </div>
-          <p className="landing-note landing-pilot" data-testid="landing-pilot-note">🧪 {c.pilot.note}</p>
+          {/* ROUND 2 (UX-1) — the closed-pilot disclosure is TEXT. The decorative
+              glyph that sat beside it is gone and nothing replaces it: the line
+              keeps its own spacing and saffron weight to stay findable. */}
+          <p className="landing-note landing-pilot" data-testid="landing-pilot-note">{c.pilot.note}</p>
         </div>
       </section>
 
@@ -155,11 +185,11 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
       <ContentSection id="trust" title={c.trust.title} body={c.trust.body} />
       <ContentSection id="about" title={c.about.title} body={c.about.body} />
 
-      {c.faq.items.length ? (
+      {faqItems.length ? (
         <section className="landing-section" id="faq">
           <h2>{c.faq.title}</h2>
-          <div className="landing-faq">
-            {c.faq.items.map((item) => (
+          <div className="landing-faq" data-testid="landing-faq" data-faq-count={faqItems.length}>
+            {faqItems.map((item) => (
               <details className="landing-faq-item" key={item.q}>
                 <summary>{item.q}</summary>
                 <p>{item.a}</p>

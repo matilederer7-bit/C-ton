@@ -482,13 +482,8 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .deal-price-hero .price { font-size: 2rem; color: var(--brand-hi); }
 .deal-price-was { color: var(--ink-faint); }
 
-.qty-stepper { display: inline-flex; align-items: center; gap: 0; border: 1.5px solid var(--line-strong); border-radius: 12px; overflow: hidden; background: var(--bg-deep); }
-.qty-stepper button {
-  border: none; background: var(--surface-warm); width: 44px; height: 44px;
-  font-size: 1.3rem; font-weight: 700; cursor: pointer; color: var(--ink);
-}
-.qty-stepper button:disabled { opacity: .4; cursor: not-allowed; }
-.qty-stepper .qty-value { width: 56px; text-align: center; font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+/* ROUND 2 (UX-9): the +/- quantity stepper is gone — quantities are TYPED.
+   See ".qty-input" in the round-2 block near the end of this file. */
 
 .delivery-option { display: flex; align-items: center; gap: 12px; border: 1.5px solid var(--line-strong); border-radius: var(--radius); padding: 12px 14px; cursor: pointer; transition: border-color .12s; min-height: 48px; }
 .delivery-option:hover { border-color: var(--brand); }
@@ -572,13 +567,10 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
   color: var(--ink-soft); cursor: pointer; padding: 0;
   transition: transform .12s ease, border-color .12s ease, color .12s ease;
 }
-.share-ico-btn:hover { transform: translateY(-2px); border-color: currentColor; }
 .share-ico-btn svg { display: block; width: 24px; height: 24px; flex-shrink: 0; }
-.share-ico-btn.net-whatsapp { color: #25d366; }
-.share-ico-btn.net-telegram { color: #26a5e4; }
-.share-ico-btn.net-facebook { color: #1877f2; }
-.share-ico-btn.net-instagram { color: #e4405f; }
-.share-ico-btn.net-x { color: #000; background: #fff; }
+/* ROUND 2 (UX-6): one disc, one glyph colour, one hover/focus behaviour for
+   EVERY network — see "share buttons" near the end of this file. The old
+   per-network coloured discs (and the X special case) lived here. */
 
 /* ── deal chat (P0.3: replies + reactions) ─────────────────────────────── */
 .chat-reply-context {
@@ -1449,3 +1441,112 @@ tr.clickable:hover { background: var(--brand-tint); }
 .receipt-option input { flex: 0 0 18px; width: 18px; }
 .seller-avatar { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; }
 .receipt-code { overflow-wrap: anywhere; font-size: 1.1rem; font-weight: 700; text-align: center; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROUND 2 — owner UX polish
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── (UX-2) required-field attention ────────────────────────────────────────
+   The failing CONTROL asks for attention, not just a sentence somewhere on the
+   page. Restrained motion: a slow two-second breath on the border, three
+   cycles then rest — never a strobe. Reduced-motion users get the same
+   information as a static ring, so nothing is carried by animation alone. */
+@keyframes siton-attention {
+  0%, 100% { border-color: var(--pomegranate); box-shadow: 0 0 0 0 rgba(240, 86, 58, .30); }
+  50%      { border-color: var(--brand-hi);    box-shadow: 0 0 0 5px rgba(240, 86, 58, .12); }
+}
+.needs-attention {
+  border: 1.5px solid var(--pomegranate) !important;
+  border-radius: var(--radius-sm);
+  animation: siton-attention 2s ease-in-out 3;
+  scroll-margin-block: 96px;
+}
+.needs-attention:focus-visible,
+.needs-attention:focus-within { outline: 2px solid var(--brand-hi); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  .needs-attention { animation: none; box-shadow: 0 0 0 3px rgba(240, 86, 58, .22); }
+}
+/* a block-level control (fieldset / option group / notice) wears the ring with
+   its own padding so the border never crops the content inside it */
+.attention-block.needs-attention { padding: 12px 14px; }
+
+/* ── (UX-4) Siton selection controls ────────────────────────────────────────
+   ONE selection card for every "pick an option" surface. Unselected is
+   neutral; selected is unmistakable: orange border, orange tint, and an
+   indicator whose INSIDE fills with the canonical Siton orange.
+   `.choice-box` is the square (multi-select) indicator, `.choice-dot` the
+   round (single-select) one — the same card, the same fill, so the shape
+   alone tells the buyer/seller whether one or many may be chosen. */
+.choice-card {
+  display: flex; align-items: flex-start; gap: 12px;
+  border: 1.5px solid var(--line-strong); border-radius: var(--radius);
+  background: var(--bg-deep); padding: 12px 14px; cursor: pointer;
+  transition: border-color .12s ease, background-color .12s ease;
+  min-height: 48px; min-width: 0;
+}
+.choice-card:hover { border-color: var(--brand); }
+.choice-card:focus-within { outline: 2px solid var(--brand-hi); outline-offset: 2px; }
+.choice-card.selected { border-color: var(--brand); background: var(--brand-tint); }
+/* the native control stays in the accessibility tree, visually replaced */
+.choice-card input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; pointer-events: none; }
+.choice-ind {
+  flex: 0 0 20px; width: 20px; height: 20px; margin-top: 2px;
+  border: 1.5px solid var(--line-strong); background: var(--bg-deep);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background-color .12s ease, border-color .12s ease;
+}
+.choice-box { border-radius: 6px; }
+.choice-dot { border-radius: 50%; }
+.choice-card.selected .choice-ind { border-color: var(--brand); background: var(--brand); }
+.choice-ind svg { width: 13px; height: 13px; display: none; color: #17181b; }
+.choice-card.selected .choice-box svg { display: block; }
+.choice-dot::after { content: ""; width: 8px; height: 8px; border-radius: 50%; background: #17181b; transform: scale(0); transition: transform .12s ease; }
+.choice-card.selected .choice-dot::after { transform: scale(1); }
+.choice-body { min-width: 0; flex: 1 1 auto; display: grid; gap: 2px; }
+.choice-title { font-weight: 700; }
+.choice-help { color: var(--ink-soft); font-size: .85rem; }
+.choice-meta { color: var(--ink-soft); font-weight: 700; white-space: nowrap; margin-inline-start: auto; }
+.choice-group { display: grid; gap: 8px; min-width: 0; }
+
+/* ── (UX-6) share buttons: one white disc, the network mark on top ─────────
+   Every network reads as the SAME control — identical disc, identical touch
+   target, identical hover/focus. The X implementation is the reference. */
+.share-ico-btn {
+  background: #fff; color: #17181b;
+  border: 1px solid rgba(0, 0, 0, .10);
+  box-shadow: var(--shadow-soft);
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+.share-ico-btn:hover { transform: translateY(-2px); box-shadow: var(--shadow); border-color: rgba(0, 0, 0, .10); }
+.share-ico-btn:focus-visible { outline: 2px solid var(--brand-hi); outline-offset: 3px; }
+
+/* ── (UX-5) seller public identity ─────────────────────────────────────────
+   The trust facts the backend can prove, in the product's own language. */
+.seller-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.seller-identity .seller-avatar { flex: 0 0 auto; border: 1px solid var(--line-strong); background: var(--surface-warm); }
+.seller-identity-name { font-weight: 800; font-size: 1.05rem; overflow-wrap: anywhere; }
+.seller-avatar.sm { width: 48px; height: 48px; }
+.seller-about { color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; }
+.seller-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink-soft); font-size: .86rem; margin: 10px 0 0; }
+.seller-stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ── (UX-9) legal / content documents, inside the Siton shell ──────────────── */
+.content-doc { max-width: 860px; margin: 0 auto; line-height: 1.75; padding: clamp(18px, 3.5vw, 30px); overflow-wrap: anywhere; }
+.content-doc h1 { font-size: clamp(1.5rem, 4vw, 2.05rem); margin: 0 0 16px; }
+.content-doc h2 { font-size: 1.12rem; margin: 24px 0 8px; display: flex; align-items: center; gap: 10px; }
+.content-doc h2::before { content: ""; width: 16px; height: 5px; border-radius: 3px; background: var(--brand); flex: none; }
+.content-doc p { margin: 0 0 13px; color: var(--ink); }
+.content-doc ul { margin: 0 0 13px; padding-inline-start: 20px; color: var(--ink); }
+.content-doc li { margin-bottom: 6px; }
+
+/* ── (UX-9) typed quantities — no steppers, no browser spinner ─────────────── */
+.qty-input-wrap { display: inline-flex; flex-direction: column; align-items: flex-end; gap: 4px; max-width: 100%; }
+.qty-input { width: 96px; height: 44px; text-align: center; font-weight: 800; font-size: 1.15rem; font-variant-numeric: tabular-nums; border-radius: 12px; }
+.qty-input-error { font-size: .8rem; color: var(--pomegranate); font-weight: 600; text-align: end; }
+input[type="number"]::-webkit-inner-spin-button, input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+
+/* ── (UX-1) the closed-pilot disclosure: type only, no decorative glyph ───── */
+.landing-pilot { display: block; margin-top: 16px; }
+.legal-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.legal-nav .chip { text-decoration: none; }

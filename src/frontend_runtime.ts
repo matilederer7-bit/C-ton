@@ -2889,7 +2889,12 @@ export function registerFrontendExperience(
       `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.list_price_per_unit, d.min_units, d.max_units,
               d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
               d.created_at, d.seller_id, d.deal_type,
-              sa.business_name, sa.business_description, sa.verification_status
+              sa.business_name, sa.business_description, sa.verification_status,
+              -- ROUND 2 (UX-5): the seller's PUBLIC profile identity, from the ONE
+              -- canonical seller_accounts row (migration 066). No second model,
+              -- no new storage: the same public_profile_id the public profile
+              -- route already answers on, plus the already-uploaded logo asset.
+              sa.public_profile_id, sa.profile_image_id
        FROM siton.deals d
        LEFT JOIN siton.seller_accounts sa ON sa.seller_id = d.seller_id
        WHERE d.deal_id=$1
@@ -3045,6 +3050,13 @@ export function registerFrontendExperience(
         business_name: (deal as any).business_name ?? null,
         business_description: (deal as any).business_description ?? null,
         approved: String((deal as any).verification_status || "") === "approved",
+        // ROUND 2 (UX-5) — the public profile the seller already filled in:
+        // `profile_id` addresses the existing public profile page, `image` is
+        // the existing content-asset URL. Both are public by construction;
+        // e-mail / phone / address / bank / internal ids stay out, exactly as
+        // before, and contact still happens only through the inquiry rail.
+        profile_id: (deal as any).public_profile_id ?? null,
+        image: (deal as any).profile_image_id ? `/api/content-assets/${(deal as any).profile_image_id}` : null,
         contact_channel: "siton_inquiry"
       },
       availability

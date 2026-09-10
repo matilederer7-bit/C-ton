@@ -42,8 +42,7 @@ export function InquiriesPanel({ data, error, navigate }: { data: Json | null; e
   return (
     <div className="panel" data-testid="inquiries-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>
-          💬 פניות מלקוחות
+        <div className="panel-title" style={{ marginBottom: 0 }}>פניות מלקוחות
           {unread > 0 ? <span className="inq-badge" data-testid="inquiries-unread" aria-label={`${num(unread)} פניות שלא נקראו`}>{num(unread)}</span> : null}
         </div>
         <button className="btn btn-sm btn-ghost" data-testid="inquiries-open-all" onClick={() => navigate("#/seller/inquiries")}>לכל הפניות ←</button>
@@ -80,7 +79,7 @@ export function SellerInquiriesPage({ navigate }: { navigate: (h: string) => voi
       <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>→ לדשבורד</a>
       <div className="panel" data-testid="inquiries-page">
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-          <h1 style={{ margin: 0, fontSize: "1.3rem" }}>💬 פניות מלקוחות</h1>
+          <h1 style={{ margin: 0, fontSize: "1.3rem" }}>פניות מלקוחות</h1>
           <div className="row" style={{ gap: 6 }}>
             <button className={`btn btn-sm ${scope === "open" ? "btn-primary" : "btn-ghost"}`} onClick={() => setScope("open")}>פתוחות</button>
             <button className={`btn btn-sm ${scope === "all" ? "btn-primary" : "btn-ghost"}`} onClick={() => setScope("all")}>הכול</button>

@@ -108,6 +108,7 @@
     "test:synthetic-money": "node scripts/run_launch_rehearsal.cjs",
     "test:launch-rehearsal": "node scripts/run_launch_rehearsal.cjs",
     "test:mobile-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mobile_readiness_validation.js",
+    "proof:ux-round2": "node scripts/ux_polish_round2_browser_proof.cjs",
     "mobile:build": "node scripts/build_mobile_bundle.cjs",
     "mobile:normalize": "node scripts/normalize_capacitor_projects.cjs",
     "mobile:sync": "npm run mobile:build && npx cap sync && npm run mobile:normalize",

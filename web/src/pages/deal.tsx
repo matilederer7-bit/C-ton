@@ -2,7 +2,7 @@ import { DealReceiptInfo } from "../receiptContent";
 import React, { useEffect, useRef, useState } from "react";
 import { api, Json } from "../api";
 import {
-  BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyStepper, Toast, copyText, useToast
+  BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyInput, Toast, copyText, useToast
 } from "../components";
 import { LiveCountdown } from "../livecountdown";
 // P0.7C — bounded read polling: immediate, never overlapping, paused when hidden,
@@ -36,7 +36,6 @@ type DeliveryOption = {
   location_text?: string | null; has_location?: boolean; map_url?: string | null;
 };
 
-const DELIVERY_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
 const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
 
 // The option's display name: pickup-type options show the canonical type name
@@ -78,9 +77,11 @@ function FulfillmentSummary({ options }: { options: DeliveryOption[] }) {
   return (
     <div className="stack" style={{ gap: 6, marginTop: 10 }} data-testid="fulfillment-summary">
       <span style={{ fontWeight: 700 }}>אופן קבלה</span>
+      {/* ROUND 2 (UX-3) — the option name carries itself; the decorative type
+          glyph that used to sit before it is gone. */}
       {options.map((o) => (
         <div key={o.option_id} className="delivery-option static">
-          <span>{DELIVERY_ICONS[o.option_type] || "📦"} {deliveryOptionTitle(o)}</span>
+          <span>{deliveryOptionTitle(o)}</span>
           <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
           <PickupLocationLine option={o} showNav />
         </div>
@@ -453,15 +454,30 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
 function SellerContactPanel({ seller, onOpen, dealId, refreshKey, preview }: {
   seller: Json; onOpen: () => void; dealId: string; refreshKey: number; preview: boolean;
 }) {
+  // ROUND 2 (UX-5) — the seller's public identity, rendered from the payload's
+  // OWN seller block: the logo/profile photo they uploaded, the display name,
+  // the About text, the operator-proved approval badge, and a link to the full
+  // public profile (deals + success history). Nothing here is a second model —
+  // it is the canonical seller_accounts public projection. Still no e-mail, no
+  // phone, no address: the inquiry rail remains the only contact channel.
+  const about = seller.business_description ? String(seller.business_description) : "";
   return (
     <div className="panel" data-testid="seller-contact-panel">
-      <div className="panel-title">🏪 המוכר</div>
-      <p style={{ marginBottom: 8 }}>
-        <b>{seller.business_name || "המוכר"}</b>
-        {seller.approved ? <span className="trust-badge" data-testid="seller-approved-panel" style={{ marginInlineStart: 8 }}>✓ מוכר מאושר</span> : null}
-      </p>
-      {seller.business_description ? <p className="muted small">{seller.business_description}</p> : null}
-      <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
+      <div className="panel-title">המוכר</div>
+      <div className="seller-identity" style={{ marginBottom: 8 }}>
+        {seller.image ? <img className="seller-avatar sm" src={String(seller.image)} alt="" data-testid="seller-profile-image" /> : null}
+        <div style={{ minWidth: 0 }}>
+          <div className="seller-identity-name" data-testid="seller-display-name">{seller.business_name || "המוכר"}</div>
+          {seller.approved ? <span className="trust-badge" data-testid="seller-approved-panel">✓ מוכר מאושר</span> : null}
+        </div>
+      </div>
+      {about ? <p className="seller-about small" data-testid="seller-about">{about}</p> : null}
+      {seller.profile_id && !preview ? (
+        <p style={{ margin: "10px 0 0" }}>
+          <a href={`#/public-seller/${seller.profile_id}`} data-testid="seller-profile-link">לפרופיל המוכר ולעסקאות נוספות ←</a>
+        </p>
+      ) : null}
+      <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 12 }}>
         <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen} disabled={preview}
           title={preview ? "מושבת בתצוגה מקדימה" : undefined}>✉️ פנייה למוכר</button>
       </div>
@@ -1095,17 +1111,23 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               <div className="panel-title">ההזמנה שלי</div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <span style={{ fontWeight: 700 }}>כמות יחידות</span>
-                <QtyStepper value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} />
+                <QtyInput value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} testId="join-qty" ariaLabel="כמות יחידות להצטרפות" />
               </div>
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">
                   <span style={{ fontWeight: 700 }}>אופן קבלה</span>
                   {deliveryOptions.map((o) => (
                     <React.Fragment key={o.option_id}>
-                      <label className={`delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type}>
+                      {/* ROUND 2 (UX-4) — ONE canonical Siton selection card.
+                          The buyer receives the goods exactly one way, so the
+                          indicator is the round single-select dot; its inside
+                          fills with the canonical orange when chosen, and the
+                          card itself turns orange-bordered + tinted. */}
+                      <label className={`choice-card delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type} data-selected={o.option_id === deliveryId ? "1" : "0"}>
                         <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
-                        <span>{DELIVERY_ICONS[o.option_type] || "📦"} {deliveryOptionTitle(o)}</span>
-                        <span className="delivery-cost">{o.cost ? ils(o.cost) : "חינם"}</span>
+                        <span className="choice-ind choice-dot" aria-hidden="true" />
+                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span></span>
+                        <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : "חינם"}</span>
                       </label>
                       {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}
                       <PickupLocationLine option={o} showNav={o.option_id === deliveryId} />
@@ -1146,6 +1168,19 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             </div>
           )}
 
+          {/* ROUND 2 (UX-6) — sharing is a HIGH-PRIORITY action, not a footnote:
+              the share card now sits directly under the decision block and
+              ABOVE "איך זה עובד", where a buyer who just understood the group
+              rule is most likely to pass the deal on. */}
+          <div className="panel share-panel" data-testid="share-invite">
+            <div className="panel-title">מכירים מישהו שזה יעניין אותו?</div>
+            {preview ? (
+              <p className="muted small" style={{ margin: 0 }} data-testid="share-preview-note">כפתורי השיתוף יופיעו כאן לקונים אחרי הפרסום (מושבתים בתצוגה מקדימה).</p>
+            ) : (
+              <ShareActions compact dealId={dealId} title={deal.title} price={Number(deal.price_per_unit)} code={currentRef()} onNotify={showToast} />
+            )}
+          </div>
+
           {/* LAUNCH POLISH 2 (P1/P2) — the whole mechanism in three lines, right under the decision */}
           <div className="panel how-panel" data-testid="how-it-works">
             <div className="panel-title">איך זה עובד?</div>
@@ -1158,21 +1193,12 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               ))}
             </ol>
           </div>
-
-          <div className="panel">
-            <div className="panel-title">מכירים מישהו שזה יעניין אותו?</div>
-            {preview ? (
-              <p className="muted small" style={{ margin: 0 }} data-testid="share-preview-note">כפתורי השיתוף יופיעו כאן לקונים אחרי הפרסום (מושבתים בתצוגה מקדימה).</p>
-            ) : (
-              <ShareActions compact dealId={dealId} title={deal.title} price={Number(deal.price_per_unit)} code={currentRef()} onNotify={showToast} />
-            )}
-          </div>
         </div>
 
         {/* secondary content */}
         <div className="deal-area-rest">
           <div className="panel">
-            <div className="panel-title">📦 מידע נוסף</div>
+            <div className="panel-title">מידע נוסף</div>
             <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || deal.description_short || payload.deal?.fulfillment_copy?.what_you_get || "פרטי המוצר יופיעו כאן."}</p>
             {deal.voucher_terms ? (
               <div className="kv" style={{ marginTop: 12 }}>

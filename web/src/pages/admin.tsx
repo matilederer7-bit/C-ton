@@ -117,7 +117,7 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 
       {viral ? (
         <div className="panel">
-          <div className="panel-title">🌱 ויראליות — מבט על <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/growth")}>לדשבורד המלא ←</button></div>
+          <div className="panel-title">ויראליות — מבט על <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/growth")}>לדשבורד המלא ←</button></div>
           <div className="stat-row" style={{ marginBottom: 0 }}>
             <StatTile num={num(viral.attributed_participants || 0)} label="הצטרפויות משיתוף" />
             <StatTile num={pct(viral.viral_share_of_joins || 0)} label="שיעור ויראלי מכלל ההצטרפויות" />
@@ -131,7 +131,7 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 
       {ops.recent_dlq?.length ? (
         <div className="panel">
-          <div className="panel-title">⚠️ כשלים אחרונים (DLQ)</div>
+          <div className="panel-title">כשלים אחרונים (DLQ)</div>
           <div className="table-wrap">
             <table className="data">
               <thead><tr><th>סוג</th><th>ישות</th><th>שגיאה</th><th>מתי</th></tr></thead>
@@ -153,15 +153,14 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
   const [days, setDays] = useState(30);
   const { data, error } = useFetch(() => api.adminPilotMetrics(days), [days], 60_000);
-  if (error) return <div className="panel"><div className="panel-title">📊 מדדי פיילוט</div><Err msg={error} /></div>;
+  if (error) return <div className="panel"><div className="panel-title">מדדי פיילוט</div><Err msg={error} /></div>;
   if (!data) return null;
   const m = data as Json;
   const s = m.sellers || {}, dl = m.deals || {}, b = m.buyers || {}, inq = m.inquiries || {};
   const pctText = (v: unknown) => (v === null || v === undefined ? "—" : `${v}%`);
   return (
     <div className="panel" data-testid="pilot-metrics">
-      <div className="panel-title">
-        📊 מדדי פיילוט — {num(days)} הימים האחרונים
+      <div className="panel-title">מדדי פיילוט — {num(days)} הימים האחרונים
         <span className="row" style={{ marginInlineStart: "auto", gap: 6 }}>
           {[7, 30, 90].map((d) => <button key={d} className={`btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}`} onClick={() => setDays(d)}>{d} ימים</button>)}
         </span>
@@ -635,7 +634,7 @@ function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]
   };
   return (
     <section className="pending-queue" data-testid="pending-sellers-queue" aria-label="מוכרים ממתינים לאישור">
-      <div className="panel-title">⏳ ממתינים לאישור <span className="count">({num(pending.length)})</span></div>
+      <div className="panel-title">ממתינים לאישור <span className="count">({num(pending.length)})</span></div>
       <p className="small muted" style={{ margin: "0 0 4px" }}>מוכר שנרשם עצמאית יכול להכין טיוטות; פרסום נפתח רק אחרי ״אשר מוכר״.</p>
       {pending.map((s) => (
         <div className="pending-row" key={s.seller_id} data-testid="pending-seller-row" data-seller-id={s.seller_id}>
@@ -935,7 +934,7 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
   const last7 = (data as Json).last_7_days || {};
   return (
     <>
-      <h1>צמיחה וויראליות</h1>
+      <h1>ויראליות</h1>
       {!platform ? <p className="muted">עדיין אין נתוני ויראליות מצטברים — הם יחושבו אוטומטית אחרי הצטרפויות.</p> : (
         <>
           <div className="stat-row">
@@ -1306,7 +1305,7 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
       </div>
 
       <div className="panel">
-        <div className="panel-title">💬 שיחה</div>
+        <div className="panel-title">שיחה</div>
         <div className="case-thread" data-testid="case-thread">
           <div className="case-msg customer">
             <div className="case-msg-head">הפונה · {fmtDate(c.created_at)}</div>
@@ -1517,7 +1516,7 @@ function SystemScreen() {
 const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
   { label: "", items: [["overview", "תמונת מצב"]] },
   { label: "מסחר", items: [["deals", "עסקאות"], ["sellers", "מוכרים"], ["buyers", "קונים"]] },
-  { label: "צמיחה", items: [["growth", "צמיחה וויראליות"]] },
+  { label: "צמיחה", items: [["growth", "ויראליות"]] },
   { label: "תפעול", items: [["operations", "תור ו-Worker"], ["payments", "תשלומים"], ["notifications", "התראות"], ["support", "תמיכה"]] },
   { label: "מערכת", items: [["content", "ניהול תוכן האתר"], ["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
 ];

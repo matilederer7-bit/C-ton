@@ -237,7 +237,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
   return (
     <div className="pickup-page" data-testid="seller-pickup-page">
       <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>→ לאזור המוכר</a>
-      <h1 style={{ marginBottom: 4 }}>📷 {SELLER_PICKUP_COPY.title}</h1>
+      <h1 style={{ marginBottom: 4 }}>{SELLER_PICKUP_COPY.title}</h1>
       <p className="muted" style={{ marginTop: 0 }}>{SELLER_PICKUP_COPY.subtitle}</p>
 
       {done ? <HandoffDone result={done} onReset={resetAll} /> : null}
@@ -356,7 +356,7 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
     <div className="pickup-page" data-testid="seller-fulfillment-page">
       <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>
       <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
-        <h1 style={{ margin: 0 }}>📦 הזמנות למסירה</h1>
+        <h1 style={{ margin: 0 }}>הזמנות למסירה</h1>
         <span className="muted">{payload.deal?.title}</span>
       </div>
       <div className="stat-row fulfillment-stats">
