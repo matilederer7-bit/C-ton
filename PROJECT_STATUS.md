@@ -1,3 +1,15 @@
+## STAGING ACTIVATION — DEPLOYED, HOSTED ACCEPTANCE PARTIAL (2026-09-10)
+
+- **COMPLETED:** Supabase staging migration 066 applied exactly once; all 59 canonical ledger entries verified after correcting old ID/line-ending metadata drift. Added the missing least-privilege/RLS staging grants for receipt/content tables. Exact application SHA `c1ce4e4164fd4ee64d124fec29fade97b4557df0` is live on Render deploy `dep-dah8k1p42hec73f921sg`; runtime SHA and hosted asset hashes agree. Existing dirty checkout preserved in place; work performed in `.worktrees/staging-acceptance`.
+- **TESTED:** Hosted health/security smoke 11/11; hosted seller/buyer API acceptance 21/21 plus five CompletionWindow withholding checks; 30 hosted screen visits at 390/430/1440px with RTL and no horizontal overflow (authenticated seller/admin content remains untested). Social icon colors/centering/24px glyphs/46px buttons verified live. Actual staging role write/read/update probes rolled back successfully. Fresh local 59-migration install + repeat passed. Local receipt/content integration 13/13 and local browser camera/QR/fallback checks passed. All 208 test files have passing results across the complete run and a clean 19-file corrective rerun; zero unresolved failures. TypeScript, builds and static/security gates passed. This is not a single uninterrupted 208/208 run.
+- **OPEN:** Five synthetic deals completed mock charging and are in their normal 24-hour CompletionWindow until 2026-09-11 around 18:27 Israel time; hosted eligible issuance and successful/duplicate/concurrent redemption remain pending. Dedicated Supabase seller/admin credentials are needed for authenticated UI/CMS edits and conflict checks. No physical device tested. Existing Supabase advisor findings are listed in the report.
+- **PERCENTAGE:** LOCAL IMPLEMENTATION 100%; STAGING DEPLOYMENT 100%; HOSTED ACCEPTANCE approximately 50% (estimate, not a passed gate); PHYSICAL DEVICE CAMERA ACCEPTANCE 0%/OPEN; REAL MONEY READINESS 0%/NOT COMPLETE. Real money remains 0; Grow and financial-state implementation unchanged; no production deployment.
+- **NEXT STEP:** Finish the hosted redemption cases after the existing window expires and run authenticated seller/admin/CMS browser acceptance. See `docs/STAGING_ACCEPTANCE_2026-09-10.md` for exact fixture IDs, results, limits and operational evidence. Status/operations commit skips Render auto-deploy to preserve the approved live application SHA.
+
+**PHYSICAL DEVICE CAMERA ACCEPTANCE: OPEN**
+
+## RECEIPT / SELLER TRUST / CONTENT — FINAL VERIFICATION (2026-09-10, LOCAL MILESTONE)
+
 ## R9C MASTER INTEGRATION CANDIDATE — INDEPENDENT FINANCIAL REVIEW (2026-09-10)
 
 Reviewed `codex/r9c-master-integration-candidate` @ `356574f` independently of its own report. Review branch `claude/review-r9c-financial`, NOT merged. Report: `docs/R9C_FINANCIAL_INDEPENDENT_REVIEW.md`.
