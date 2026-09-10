@@ -631,7 +631,7 @@ the merged review branch, with the F-12 fix in place. **240 files, 239 pass,
 | integration | 31 | 31/31 |
 | db | 8 | 8/8 |
 | api | 44 | 44/44 |
-| workers | 13 | 12/13 — see the flake below |
+| workers | 13 | 12/13 in that run — now **13/13**, see below |
 | payments | 60 | **60/60** |
 | security | 39 | 39/39 |
 | concurrency | 8 | 8/8 |
@@ -644,18 +644,57 @@ for six `deadline_check` jobs to be claimed and blocked simultaneously, 3+3,
 across two spawned worker processes while the test holds
 `LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE`.
 
-**It is a genuine pre-existing flake, and that conclusion was tested rather than
-assumed.** It passed in the first full run and failed in the second, which alone
-proves nothing either way, and it then failed once in isolation — contradicting
-its documented "passes isolated" history. Because the F-12 fix had just landed,
-causality was checked properly instead of being waved away: `src/app.ts` was
-reverted to the pre-fix commit and the test passed, which from a single sample
-looks incriminating, so more samples were taken. With the fix in place it passes
-**3 out of 3** in isolation. Four isolated samples give 3 pass / 1 fail, the
-signature of a timing-sensitive proof, and there is no causal mechanism —
-`deadline_check` never ingests a payment event, so `recordLateMoneyEffectException`
-is never reached on that path. This matches the behaviour recorded for this file
-since 2026-09-06.
+**It was a test-harness defect, now fixed at its root cause, and it was never a
+runtime defect or a fencing race.** Across roughly 60 isolated runs the failure
+was ALWAYS one of the two "wait until the jobs are claimed and blocked"
+arrangements and NEVER a fencing assertion: ownership stayed one worker per job,
+leases renewed, the killed owner expired, the survivor reclaimed, completion
+stayed exactly-once.
+
+The mechanism, from a captured timeline plus the code path. The blocking device
+is `LOCK TABLE siton.deals IN ACCESS EXCLUSIVE MODE`, which is what makes the
+`deadline_check` handler's first read block. That mode conflicts with
+`ACCESS SHARE`, so it equally blocks any OTHER plain read of `siton.deals` — and
+`runWorkerMaintenance()` runs on every worker cycle and calls
+`rescheduleStalledFinalizations()`, which scans `FROM siton.deals`. A worker
+inside maintenance when the lock lands is stalled there for the whole phase, so
+it never reaches its next `claimPendingOutboxBatch` and the jobs it was meant to
+claim stay pending. The timeline of a failing run shows one worker claiming its
+3 jobs at 271 ms and the other claiming **nothing** for the remaining 19.6 s
+while 3 rows stayed pending and both workers kept heartbeating.
+
+Two fixes were tried and one was discarded honestly. Making the phase's jobs
+visible in a single INSERT did **not** help (same rate), so it was reverted
+rather than shipped as a "stabilization". A longer timeout cannot help either,
+because the stalled worker cannot claim until the lock is released, which is the
+end of the phase; and the lock mode cannot be weakened, because the handler's own
+blocking access is a plain SELECT and only `ACCESS EXCLUSIVE` blocks that.
+
+The fix retries the **arrangement**: on a stall the lock is released, the queue
+drains, and the phase is set up again with fresh deals, bounded to two attempts
+so the file stays inside its 180 s runner budget. Every assertion and every
+`run()` label is byte-identical, and the new readiness predicate is *stricter*
+than the count it replaces because it also requires the 3+3 ownership split up
+front.
+
+Measured A/B with the same probe on an **idle** host:
+
+| Tree | Result |
+|---|---|
+| before the fix | **6/12 pass** — 50% failure, always the P2 arrangement |
+| after the fix | **12/12 pass** |
+
+The underlying stall still occurs at the same rate: two of the twelve passing
+runs took ~39 s instead of ~18 s, which is the retry absorbing it. The earlier
+"~14%" figure was measured while another test runner was active on this host,
+which is also why this file's historical reputation was "passes in isolation".
+
+A second, quieter defect in the same file was fixed: it killed its worker
+children only on the success path, so a failed assertion leaked two live workers
+that kept polling a database the harness was about to drop. Orphans accumulated
+across runs and degraded every later suite on the same host — which is how one
+flaky file poisons the numbers of everything after it. A process `exit` reaper
+now kills them on every exit path.
 
 Two earlier first-pass group failures, both explained and resolved rather than
 reinterpreted:
