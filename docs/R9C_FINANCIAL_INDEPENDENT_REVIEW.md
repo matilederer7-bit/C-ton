@@ -540,7 +540,7 @@ owner's decision, and real money is forbidden regardless. Recommended: mirror th
 VAT pattern with an `assertProviderAmbiguityPolicyForRealMoney` guard, or flip the
 default to fail-closed.
 
-### F-12 — a dual capture was absorbed as an idempotent replay, and its escalation was not durable · P0 · PREEXISTING · FIXED ON THE REVIEW BRANCH (two rounds)
+### F-12 — a dual capture was absorbed as a replay; its escalation was not durable; and its identity read was fail-open · P0 · PREEXISTING · FIXED ON THE REVIEW BRANCH (three rounds)
 `recordLateMoneyEffectException` is the mechanism that keeps a refused provider
 effect visible. It decided "is this a contradiction?" from the money STATE alone:
 
@@ -643,9 +643,76 @@ committed by any other path, detection counts identities rather than testing for
 a replay, so every later delivery still sees two and escalates. Removing either
 half turns the regression red: mutants RM-6 and RM-7.
 
-Proof: `tests/review_payment_dual_capture_durable_escalation_validation.ts`, 7/7
-through the real signed webhook seam, injecting the failure both at the database
-and at an in-transaction fault seam.
+#### Third round: the identity read was still fail-open
+
+Codex's re-review found that the round-2 fix closed the case-WRITE failure but
+left the identity READ fail-open, and was right. Reproduced deterministically on
+the frozen SHA before changing anything.
+
+The read was `listAttemptLifecycle(...).catch(() => [])`, so a database error
+became an empty evidence set — spelled exactly like "no other capture
+succeeded". That collapsed to "not a dual capture", the handler returned early,
+the event was marked `ignored` (a terminal status for `claimEvent`) and the
+delivery was acknowledged 200. A read failure became a silent verdict of safety,
+and the dedupe then made it permanent: the same event id could never repair it.
+
+The fix gives the read three explicit outcomes — `confirmed_single`,
+`confirmed_dual`, `unreadable` — with `unreadable` as a VALUE, so an
+evidence-read failure can no longer be spelled the same way as "one identity"
+and the caller must handle it. On `unreadable` it raises
+`PaymentDualCaptureEvidenceUnavailableError` **before any write**, so financial
+truth is untouched, the delivery is not acknowledged, and the provider event is
+left `failed` for the canonical retry path. UNKNOWN never becomes FALSE.
+
+#### A false start, recorded
+
+The same round reproduced the payments-group failure Codex reported, using the
+exact seed (209752203, index 152). It was a real regression from this review's
+own round-1 change, and it did **not** exist on the candidate: passes on
+`356574f`, fails deterministically 3/3 on `e2f9966` and `812dd56`. The oracle
+rule was `AUTOMATIC_REPEAT_WHILE_UNKNOWN`.
+
+The first remedy was to stop a late claim from overwriting the provider's answer
+to the exact request. Running the payments group showed that was **wrong**: FR-3
+in `payment_review_findings_reconstruction` failed, and FR-3 encodes real
+safety. A recovery the provider DECLINED whose effect turns out real must
+converge to success, because that convergence is what BLOCKS the pending release
+of money that actually moved (migration 067 refuses a release behind an executed
+capture). Withholding it to keep an audit trail tidy would risk releasing real
+money. So the product rule was reverted.
+
+The actual defect was in the test instruments. The oracle and the fuzz suite both
+evaluated "a repeat is legal only after the previous identity is
+provider-declared failed" against the FINAL `result_class`, while the invariant
+is about the state AT DISPATCH TIME. An identity that was `permanent_fail` when
+the repeat was dispatched and only later converged to success looked like an
+illegal repeat. Nothing unsafe happened at any decision point and no money moved
+twice. Both copies are now order-aware, keyed on the one path that produces the
+shape — a success settled with a `late_money_effect` note, which always leaves
+an operator case — so every other repeat over a non-`permanent_fail` identity
+still violates. Codex's full seed now passes 300/300.
+
+#### Why a durably missing double-charge alert plus HTTP 200 is now impossible
+
+Three independent reasons, one per failure point:
+
+1. **Identity-read failure.** The read cannot return "not dual" on error; it
+   returns `unreadable`, and the only handling is to raise before any write.
+2. **Escalation-write failure.** The case and the money evidence are one
+   transaction, so the case cannot be missing while the evidence commits.
+3. **Acknowledgement is downstream of both.** The webhook route returns 200 only
+   after `recordLateMoneyEffectException` returns normally, which requires the
+   commit that contains the case. Any failure is caught, marks the provider
+   event `failed`, and rethrows.
+
+And the state is always recoverable, because `claimEvent` re-processes an event
+left in `failed` (the same event id) and detection counts identities rather than
+testing for a replay (any fresh id). Removing any single one of these turns the
+regression red: RM-6, RM-7, RM-8.
+
+Proof: `tests/review_payment_dual_capture_durable_escalation_validation.ts`,
+12/12 through the real signed webhook seam, injecting failures at the database
+and at two in-transaction fault seams.
 
 | Scenario | Measured |
 |---|---|
@@ -656,6 +723,11 @@ and at an in-transaction fault seam.
 | DE-5 control, one capture + 3 duplicates | all 200, 1 provider capture, **0** cases |
 | DE-6 control, 5 concurrent fresh deliveries | all 200, exactly **1** case |
 | DE-7 both identities already recorded, no case | HTTP 200, escalated — the state the old predicate could never escape |
+| DE-8 exact-request decline contradicted | converges the identity AND escalates; evidence never downgraded |
+| DE-9 identity read unavailable | HTTP **500**, event `failed`, **0** cases, `charge_start` identical before and after |
+| DE-10 restored, **same** event id | HTTP 200, exactly **1** case |
+| DE-11 restored, fresh event id | HTTP 200, still exactly **1** case |
+| DE-12 the in-process read seam | HTTP 500, nothing escalated; retry escalates once |
 
 ---
 
