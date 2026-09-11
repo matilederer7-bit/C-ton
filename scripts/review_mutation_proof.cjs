@@ -262,7 +262,10 @@ function main() {
     try {
       for (const edit of mutant.edits) {
         const current = fs.readFileSync(edit.file, "utf8");
-        originals.set(edit.file, current);
+        // R9C ROUND 4 — a mutant may carry several edits on ONE file: the
+        // original is the bytes seen BEFORE the first edit, never an
+        // intermediate (recording it per edit left the first edit in the tree).
+        if (!originals.has(edit.file)) originals.set(edit.file, current);
         const eol = current.includes("\r\n") ? "\r\n" : "\n";
         const from = normalizeEol(edit.from, eol);
         if (!current.includes(from)) {
@@ -300,7 +303,10 @@ function main() {
       }
       report.push({ id: mutant.id, invariant: mutant.invariant, layer: mutant.layer, killed: suiteResults.some((r) => r.killed), suites: suiteResults });
     } finally {
-      for (const [file, body] of originals) fs.writeFileSync(file, body);
+      for (const [file, body] of originals) {
+        fs.writeFileSync(file, body);
+        if (fs.readFileSync(file, "utf8") !== body) throw new Error(`restore verification failed for ${file}`);
+      }
     }
   }
 

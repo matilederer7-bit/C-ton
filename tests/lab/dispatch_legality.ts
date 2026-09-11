@@ -252,7 +252,7 @@ export function auditDispatchLegality(input: {
     if (armedAt !== null) {
       const row = rowByIdentity.get(target.identity);
       const operatorAt = row && row.failure_evidence === "operator" ? ms(row.updated_at) : null;
-      if (operatorAt !== null) return { kind: "operator", at: new Date(operatorAt).toISOString() };
+      if (operatorAt !== null && operatorAt <= armedAt) return { kind: "operator", at: new Date(operatorAt).toISOString() };
       for (const cb of input.callbacks) {
         const at = ms(cb.received_at);
         if (at === null || at >= armedAt) continue;
