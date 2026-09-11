@@ -16,21 +16,57 @@
 //
 // ORDERING SOURCES (from the actual data model; no invented clocks)
 //
-//   * The provider simulator's own request log carries a monotonic `seq` for
-//     EVERY interaction (money requests, replays, status reads). That log is
-//     the canonical order of everything the provider ever told the app. A
-//     provider-channel fact is "before dispatch D" iff its seq < D.seq. The
-//     log also records `answered` — the provider's answer to that EXACT
-//     request — and, for status reads, the DECLARED state/finality and whether
-//     the answer was even deliverable (not timed out / malformed / mis-referenced).
+//   R9C ROUND 5 — OBSERVED EVIDENCE. Codex (round 4) showed that ordering a
+//   provider STATUS answer by the provider's request-log position leaked time
+//   in the other direction: `seq`/`at` are assigned when the provider RECEIVES
+//   a request and generates its answer, so an answer the provider held for a
+//   second was treated as known to Siton a second before Siton could read it,
+//   and a capture dispatched inside that hold was judged legal.
+//
+//     PROVIDER KNOWLEDGE != SITON KNOWLEDGE.
+//
+//   The causal model therefore distinguishes, per provider interaction:
+//     provider_effect_seq   `seq`            the request ARRIVED / the provider acted
+//     siton_observed_seq    `delivered_seq`  the provider finished WRITING its
+//                                            answer back to the app (same
+//                                            monotonic counter; null = never)
+//   and, per money identity in Siton's ledger:
+//     dispatch_seq / arm    `dispatched_at`  the app ARMED the dispatch (DB
+//                                            instant, committed BEFORE I/O, 067)
+//     db_commit             `resolved_at`    the app RECORDED the identity's
+//                                            terminal verdict (DB instant, set
+//                                            once by the 067 trigger)
+//
+//   * A provider-channel fact (the answer to an exact money request, or a
+//     status read) is evidence for dispatch D only when the provider had
+//     written it back BEFORE D arrived (`delivered_seq < D.seq`) — an answer
+//     that was generated but still held, timed out, truncated, reset or lost
+//     is NOT evidence, whatever the provider knew. Provider positions are
+//     compared with provider positions only.
+//   * When Siton's ledger carries the identity the evidence is about, Siton
+//     must additionally have RECORDED that identity's verdict before it armed
+//     D (`resolved_at <= D.dispatched_at`, database instant against database
+//     instant): a dispatch armed on in-memory knowledge that was persisted
+//     only afterwards is legalised by later DB state, which is temporal
+//     leakage of the DB kind. A ledger row without a recorded verdict is not
+//     evidence. (Rows are consulted only for their timing; result_class and
+//     notes are never read.)
 //   * Evidence that reaches the app OUTSIDE the provider request channel — a
-//     provider callback (siton.webhook_events.received_at) or an operator's
-//     recorded verdict (siton.payment_attempts.failure_evidence='operator',
-//     updated_at) — is ordered against the DB instant at which the app ARMED
-//     the dispatch (payment_attempts.dispatched_at, written before I/O, 067).
-//     Both sides of that comparison are database timestamps; both sides of the
-//     provider comparison are provider sequence numbers. The two clocks are
-//     never compared with each other, so cross-clock skew cannot leak.
+//     provider callback (siton.webhook_events.received_at, written after
+//     authentication) or an operator's recorded verdict
+//     (payment_attempts.failure_evidence='operator', updated_at) — is ordered
+//     against the arm instant of D. The two clocks (provider counter, DB
+//     timestamps) are never compared with each other.
+//   * The provider's own `seq`/`at` still position the DISPATCH itself and
+//     drive the provider-side settlement horizon (that horizon is about when
+//     the PROVIDER may still settle, not about what Siton knows).
+//
+//   Residual, stated rather than hidden: `delivered_seq` is the instant the
+//   provider wrote the answer; the app read it at or after that instant, and
+//   sent D at or before D's arrival. A dispatch sent inside that write→arrival
+//   window is distinguishable only through the DB clause above, which the
+//   real rails always satisfy (they record a verdict before minting the next
+//   identity). The lab cannot and does not claim finer precision.
 //
 // WHAT COUNTS AS AUTHORITATIVE NEGATIVE EVIDENCE for identity K (all before D)
 //
@@ -83,6 +119,9 @@
 export type ProviderRequestLike = {
   seq: number;
   at: string;
+  /** R9C ROUND 5 — position at which the provider wrote its answer back (same counter as seq); null/undefined = never delivered */
+  delivered_seq?: number | null;
+  delivered_at?: string | null;
   op: string;                       // capture | recover | refund | release | status | authorize
   authorization: string;
   idempotency_key: string;
@@ -100,6 +139,8 @@ export type DispatchRowLike = {
   dispatched_at: Date | string | null;
   failure_evidence: string | null;
   updated_at: Date | string | null;
+  /** R9C ROUND 5 — DB instant at which Siton recorded this identity's terminal verdict (067 trigger; null = none recorded) */
+  resolved_at?: Date | string | null;
 };
 
 export type CallbackLike = {
@@ -117,14 +158,14 @@ export type LegalityPolicy = {
 export type Family = "capture" | "refund" | "release";
 
 export type EvidenceRef =
-  | { kind: "exact_decline"; seq: number; answered: string }
-  | { kind: "status_non_executed"; seq: number; state: string; horizon_from: string; horizon_ms: number }
+  | { kind: "exact_decline"; seq: number; delivered_seq: number; recorded_at: string | null; answered: string }
+  | { kind: "status_non_executed"; seq: number; delivered_seq: number; recorded_at: string | null; state: string; horizon_from: string; horizon_ms: number }
   | { kind: "operator"; at: string }
   | { kind: "callback_failed"; event_type: string; at: string };
 
 export type PositiveRef =
-  | { kind: "exact_success"; seq: number; answered: string }
-  | { kind: "status_executed"; seq: number; state: string }
+  | { kind: "exact_success"; seq: number; delivered_seq: number; answered: string }
+  | { kind: "status_executed"; seq: number; delivered_seq: number; state: string }
   | { kind: "callback_executed"; event_type: string; at: string };
 
 export type Judgement = {
@@ -178,6 +219,16 @@ function usableStatus(r: ProviderRequestLike): r is ProviderRequestLike & { decl
     && r.declared!.final === true && typeof r.declared!.state === "string";
 }
 
+/**
+ * R9C ROUND 5 — the provider-channel observation rule: the provider had
+ * WRITTEN this answer back to the app before dispatch D arrived at the
+ * provider. An answer never written (null) or written at/after D's arrival was
+ * not Siton's knowledge when D was sent, whatever the provider knew.
+ */
+function observedBefore(r: ProviderRequestLike, dispatchSeq: number): r is ProviderRequestLike & { delivered_seq: number } {
+  return typeof r.delivered_seq === "number" && Number.isFinite(r.delivered_seq) && r.delivered_seq < dispatchSeq;
+}
+
 export function canonicalReference(reference: string | null | undefined): string | null {
   return reference ? String(reference).replace(/^(cap|rec|ref|rel)-/, "") : null;
 }
@@ -213,17 +264,22 @@ export function auditDispatchLegality(input: {
 
   // ── evidence about ONE identity, restricted to positions before a dispatch ─
   const negativeEvidenceBefore = (target: Dispatch, before: Dispatch): EvidenceRef | null => {
-    // E1 — exact-operation decline, provider order
-    for (const r of requests) {
+    // R9C ROUND 5 — a provider-channel verdict about `target` counts only if
+    // Siton had also RECORDED it before arming `before` (when the ledger can say).
+    const recorded = recordedBeforeArm(target.identity, before);
+    const providerEvidenceUsable = recorded !== false;
+    // E1 — exact-operation decline: the provider's answer to the exact request,
+    // WRITTEN BACK before the dispatch arrived (provider order, delivery position)
+    if (providerEvidenceUsable) for (const r of requests) {
       if (r.seq >= before.seq) break;
-      if (FAMILY_OF[r.op] === target.family && r.idempotency_key === target.identity && isDeclaredFailure(r.answered)) {
-        return { kind: "exact_decline", seq: r.seq, answered: r.answered };
+      if (FAMILY_OF[r.op] === target.family && r.idempotency_key === target.identity && isDeclaredFailure(r.answered) && observedBefore(r, before.seq)) {
+        return { kind: "exact_decline", seq: r.seq, delivered_seq: r.delivered_seq, recorded_at: recorded, answered: r.answered };
       }
     }
     // E2 — final non-executed status read, provider order; capture-side targets
     // additionally wait for the settlement horizon (the contract scopes the
     // horizon to charge_start / recovery identities — see the header).
-    if (input.policy.negativeStatusAuthoritative) {
+    if (input.policy.negativeStatusAuthoritative && providerEvidenceUsable) {
       const operation = STATUS_OPERATION_OF[target.family];
       const horizonMs = target.family === "capture" ? input.policy.settlementHorizonMs : 0;
       let horizonFrom = ms(target.at)!;
@@ -239,10 +295,14 @@ export function auditDispatchLegality(input: {
           horizonFrom = Math.max(horizonFrom, ms(r.at)!);
           continue;
         }
-        if (usableStatus(r) && r.declared.operation === operation && NON_EXECUTED_STATES[target.family].includes(r.declared.state!)) {
+        // the read is evidence only once its answer was WRITTEN BACK before the
+        // dispatch arrived (round 5) — the horizon is judged on the provider's
+        // answer instant (the provider's settlement window), the observation on
+        // the delivery position
+        if (usableStatus(r) && observedBefore(r, before.seq) && r.declared.operation === operation && NON_EXECUTED_STATES[target.family].includes(r.declared.state!)) {
           const readAt = ms(r.at)!;
           if (readAt >= horizonFrom + horizonMs) {
-            return { kind: "status_non_executed", seq: r.seq, state: r.declared.state!, horizon_from: new Date(horizonFrom).toISOString(), horizon_ms: horizonMs };
+            return { kind: "status_non_executed", seq: r.seq, delivered_seq: r.delivered_seq, recorded_at: recorded, state: r.declared.state!, horizon_from: new Date(horizonFrom).toISOString(), horizon_ms: horizonMs };
           }
         }
       }
@@ -265,13 +325,16 @@ export function auditDispatchLegality(input: {
   };
 
   const positiveEvidenceBefore = (target: Dispatch, before: Dispatch): PositiveRef | null => {
-    for (const r of requests) {
+    // round 5: same observation rule — written back before the dispatch arrived,
+    // and recorded by Siton before the arm when the ledger can say
+    if (recordedBeforeArm(target.identity, before) !== false) for (const r of requests) {
       if (r.seq >= before.seq) break;
+      if (!observedBefore(r, before.seq)) continue;
       if (FAMILY_OF[r.op] === target.family && r.idempotency_key === target.identity && isDeclaredSuccess(r.answered)) {
-        return { kind: "exact_success", seq: r.seq, answered: r.answered };
+        return { kind: "exact_success", seq: r.seq, delivered_seq: r.delivered_seq, answered: r.answered };
       }
       if (r.seq > target.seq && usableStatus(r) && r.declared.operation === STATUS_OPERATION_OF[target.family] && EXECUTED_STATES[target.family].includes(r.declared.state!)) {
-        return { kind: "status_executed", seq: r.seq, state: r.declared.state! };
+        return { kind: "status_executed", seq: r.seq, delivered_seq: r.delivered_seq, state: r.declared.state! };
       }
     }
     const armedAt = ms(rowByIdentity.get(before.identity)?.dispatched_at ?? null);
@@ -290,6 +353,21 @@ export function auditDispatchLegality(input: {
   const armInstant = (d: Dispatch) => {
     const t = ms(rowByIdentity.get(d.identity)?.dispatched_at ?? null);
     return t === null ? null : new Date(t).toISOString();
+  };
+
+  // R9C ROUND 5 — the DB observation rule: when Siton's ledger carries the
+  // identity the evidence is about AND the arm instant of D, Siton must have
+  // recorded that identity's terminal verdict before arming D. Returns the
+  // recorded instant, null when the ledger holds no row for the identity (a
+  // synthetic history without rows, or an out-of-band identity), and `false`
+  // when a row exists but its verdict was recorded after the arm or never.
+  const recordedBeforeArm = (targetIdentity: string, before: Dispatch): string | null | false => {
+    const target = rowByIdentity.get(targetIdentity);
+    const armedAt = ms(rowByIdentity.get(before.identity)?.dispatched_at ?? null);
+    if (!target || armedAt === null) return null;
+    const recordedAt = ms(target.resolved_at ?? null);
+    if (recordedAt === null || recordedAt > armedAt) return false;
+    return new Date(recordedAt).toISOString();
   };
 
   // ── rule 1: repeats within a family ───────────────────────────────────────

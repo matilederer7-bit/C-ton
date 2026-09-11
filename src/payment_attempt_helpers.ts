@@ -19,6 +19,25 @@ export type AttemptType =
  *   UNKNOWN            result_class unknown + (dispatch_state responded, or dispatching with a dead owner lease)
  *   SUCCEEDED          result_class success
  *   DEFINITELY_FAILED  result_class permanent_fail
+ *   ABANDONED_BEFORE_DISPATCH (R9C ROUND 5)
+ *                      result_class temporary_fail + dispatch_state recorded +
+ *                      dispatched_at NULL + outcome_note 'never_dispatched:<reason>'
+ *
+ * ROUND 5 — CREATED/ARMED vs ACTUALLY DISPATCHED. A row in `recorded` was
+ * minted but NO request ever left the process: arming (dispatch_state →
+ * dispatching, dispatched_at set) commits BEFORE any provider I/O, and the
+ * only way back to `recorded` is the dispatching owner's pre-dispatch
+ * disarm. Such a row is therefore NOT "money may have moved"; it must never
+ * block a release / refund / recovery of the same hold, and a status read
+ * about it proves nothing (the provider never saw it). When the participant
+ * leaves the state the identity was minted for, or a conflicting rail
+ * supersedes it, the identity is RETIRED in place as
+ * ABANDONED_BEFORE_DISPATCH: the row stays (the ledger keeps every identity
+ * ever minted), keeps dispatch_state 'recorded' and dispatched_at NULL (it
+ * never claims a provider response), and leaves `unknown` so that (a) the
+ * 067 eligibility guard admits the superseding identity and (b) any stale
+ * worker still holding the identity in memory can no longer arm it (the arm
+ * CAS requires result_class = 'unknown').
  */
 export type DispatchState = "recorded" | "dispatching" | "responded";
 
@@ -54,9 +73,14 @@ export type PaymentAttemptLifecycleRow = {
 /** 064 — outcome of the settlement fence: fenced until an instant, or fenced until an operator resolves it (`permanent`) */
 export type SettlementFence = { until: Date | null; permanent: boolean };
 
+/** R9C ROUND 5 — the participant states a rail is admitted to act on; checked under the participant/deal lock BEFORE an identity is minted */
+export type AdmittedParticipantStates = { money_states: string[]; buyer_states?: string[] };
+
 export type BeginProviderAttemptResult =
   /** brand-new identity, recorded before any I/O */
   | { kind: "fresh"; correlation_id: string; logical_attempt: number }
+  /** R9C ROUND 5 — the participant is no longer in a state this rail may act on: NO identity was minted (a stale same-type identity that never left the process was retired) */
+  | { kind: "state_changed"; buyer_state: string | null; money_state: string | null; retired: Array<{ attempt_type: AttemptType; correlation_id: string }> }
   /** identity minted earlier but never armed for I/O — nothing reached the provider, the SAME identity is used */
   | { kind: "reuse_not_dispatched"; correlation_id: string; logical_attempt: number }
   /** identity may have reached the provider (or succeeded without local persistence): resolve through authoritative status FIRST */
@@ -155,6 +179,50 @@ export function buildPaymentAttemptHelpers(deps: {
         `payment_operation_in_flight ${String(row.attempt_type)} ${String(row.correlation_id)} is dispatching under a live lease (${context})`
       );
     }
+  }
+
+  /** R9C ROUND 5 — a minted identity that provably never left the process */
+  function neverDispatched(row: PaymentAttemptLifecycleRow): boolean {
+    return row.result_class === "unknown" && row.dispatch_state === "recorded";
+  }
+
+  /**
+   * R9C ROUND 5 — retire never-dispatched identities in place (see the
+   * lifecycle note at the top). Caller holds the participant/deal advisory
+   * lock. The UPDATE is fenced on the same predicate the lifecycle vocabulary
+   * defines (unknown + recorded + no owner + no dispatch instant), so a row
+   * that was armed meanwhile is never touched.
+   */
+  async function retireNeverDispatchedInTx(c: any, args: {
+    participant_id: string;
+    deal_id: string;
+    attempt_types: ReadonlyArray<AttemptType>;
+    reason: string;
+  }): Promise<Array<{ attempt_type: AttemptType; correlation_id: string }>> {
+    if (!args.attempt_types.length) return [];
+    const r = await c.query(
+      `UPDATE siton.payment_attempts
+       SET result_class='temporary_fail',
+           outcome_note=COALESCE(outcome_note || ' | ', '') || 'never_dispatched:' || $4::text
+       WHERE participant_id=$1 AND deal_id=$2 AND attempt_type = ANY($3::text[])
+         AND result_class='unknown' AND dispatch_state='recorded'
+         AND owner_event_uuid IS NULL AND dispatched_at IS NULL
+       RETURNING attempt_type, correlation_id`,
+      [args.participant_id, args.deal_id, [...args.attempt_types], args.reason]
+    );
+    return (r.rows as any[]).map((row) => ({ attempt_type: String(row.attempt_type) as AttemptType, correlation_id: String(row.correlation_id) }));
+  }
+
+  async function retireNeverDispatched(args: {
+    participant_id: string;
+    deal_id: string;
+    attempt_types: ReadonlyArray<AttemptType>;
+    reason: string;
+  }): Promise<Array<{ attempt_type: AttemptType; correlation_id: string }>> {
+    return deps.withTx(async (c) => {
+      await lockParticipantDeal(c, args.participant_id, args.deal_id);
+      return retireNeverDispatchedInTx(c, args);
+    });
   }
 
   async function anyOperationInFlight(participantId: string, dealId: string): Promise<PaymentAttemptLifecycleRow | null> {
@@ -264,10 +332,49 @@ export function buildPaymentAttemptHelpers(deps: {
     deal_id: string;
     attempt_type: AttemptType;
     identity: (logicalAttempt: number) => string;
+    /**
+     * R9C ROUND 5 — the participant states this rail may act on (the same set
+     * its arm requires). Checked under the lock BEFORE any identity is minted:
+     * a rail whose state snapshot went stale (the finalizer failed the
+     * participant between the rail's read and its mint) gets `state_changed`
+     * and mints nothing, instead of leaving a never-dispatched identity that
+     * would block the hold's release.
+     */
+    admitted?: AdmittedParticipantStates;
   }): Promise<BeginProviderAttemptResult> {
     return deps.withTx(async (c) => {
       await lockParticipantDeal(c, args.participant_id, args.deal_id);
-      const rows = await loadRows(c, args.participant_id, args.deal_id);
+      let rows = await loadRows(c, args.participant_id, args.deal_id);
+
+      if (args.admitted) {
+        const participant = await c.query(
+          `SELECT buyer_state, money_state FROM siton.participants WHERE participant_id=$1 AND deal_id=$2`,
+          [args.participant_id, args.deal_id]
+        );
+        const state = participant.rows[0] as { buyer_state: string; money_state: string } | undefined;
+        const admitted = Boolean(state)
+          && args.admitted.money_states.includes(String(state!.money_state))
+          && (!args.admitted.buyer_states || args.admitted.buyer_states.includes(String(state!.buyer_state)));
+        if (!admitted) {
+          // a same-type identity minted earlier for this very state and never
+          // sent is retired now: it will never be armed (the arm requires the
+          // admitted state) and must not linger as an UNKNOWN capture
+          const retired = await retireNeverDispatchedInTx(c, { participant_id: args.participant_id, deal_id: args.deal_id, attempt_types: [args.attempt_type], reason: `participant_state_changed:${String(state?.buyer_state ?? "missing")}/${String(state?.money_state ?? "missing")}` });
+          return { kind: "state_changed" as const, buyer_state: state ? String(state.buyer_state) : null, money_state: state ? String(state.money_state) : null, retired };
+        }
+      }
+
+      // R9C ROUND 5 — identities of a CONFLICTING operation that never left the
+      // process cannot have moved money and never block this rail: a
+      // never-dispatched capture does not block release / refund / recovery, a
+      // never-dispatched release does not block a capture. They are retired in
+      // this same transaction (the 067/068 INSERT guards test result_class), so
+      // the superseding identity is admitted atomically with their retirement.
+      const conflicting: ReadonlyArray<AttemptType> = args.attempt_type === "charge_start" || args.attempt_type === "recovery"
+        ? ["release"]
+        : ["charge_start", "recovery"];
+      const superseded = await retireNeverDispatchedInTx(c, { participant_id: args.participant_id, deal_id: args.deal_id, attempt_types: conflicting, reason: `superseded_by_${args.attempt_type}` });
+      if (superseded.length) rows = await loadRows(c, args.participant_id, args.deal_id);
 
       const captureSide = rows.filter((row) => row.attempt_type === "charge_start" || row.attempt_type === "recovery");
       let blocking: PaymentAttemptLifecycleRow | undefined;
@@ -614,6 +721,10 @@ export function buildPaymentAttemptHelpers(deps: {
     finalizeAttemptResult,
     settleAttemptInTx,
     beginProviderAttempt,
+    /** R9C ROUND 5 — never-dispatched identity retirement (see the lifecycle note) */
+    retireNeverDispatched,
+    retireNeverDispatchedInTx,
+    neverDispatched,
     armProviderDispatch,
     settleProviderDispatch,
     loadAttemptLifecycle,

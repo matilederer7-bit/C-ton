@@ -107,6 +107,18 @@ export type ProviderRequestRecord = {
    * NOT evidence of anything.
    */
   declared?: { operation: string; state: string | null; final: boolean | null; delivered: boolean; reference_ok: boolean; amount_ok: boolean } | null;
+  /**
+   * R9C ROUND 5 — OBSERVATION position. `seq`/`at` are assigned when the
+   * request ARRIVES (the provider's knowledge). `delivered_seq`/`delivered_at`
+   * are assigned — from the SAME monotonic counter — at the instant the
+   * provider finished WRITING its answer back to the app: the earliest moment
+   * Siton could have observed it. `null` = the answer never left the provider
+   * (socket destroyed, truncated, lost, held past the client's timeout).
+   * PROVIDER KNOWLEDGE != SITON KNOWLEDGE: the dispatch-legality oracle orders
+   * provider evidence by delivered_seq, never by seq.
+   */
+  delivered_seq: number | null;
+  delivered_at: string | null;
 };
 
 export type ProviderLedgerSnapshot = {
@@ -201,11 +213,20 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
     return { kind: "TRUTH" };
   }
 
-  function record(entry: Omit<ProviderRequestRecord, "seq" | "at">) {
+  function record(entry: Omit<ProviderRequestRecord, "seq" | "at" | "delivered_seq" | "delivered_at">) {
     seq += 1;
-    const full = { seq, at: new Date().toISOString(), ...entry };
+    const full: ProviderRequestRecord = { seq, at: new Date().toISOString(), delivered_seq: null, delivered_at: null, ...entry };
     requests.push(full);
     return full;
+  }
+  // R9C ROUND 5 — the answer is being written back to the app NOW: take the
+  // next position of the same counter. A request whose answer is never written
+  // (socket destroyed / truncated / lost) keeps delivered_seq = null.
+  function deliver(entry: ProviderRequestRecord | null | undefined) {
+    if (!entry || entry.delivered_seq !== null) return;
+    seq += 1;
+    entry.delivered_seq = seq;
+    entry.delivered_at = new Date().toISOString();
   }
 
   function successBody(op: MoneyOp, auth: string, reference: string | undefined) {
@@ -298,11 +319,12 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
             reference_ok: Boolean(declaredBody && declaredBody.provider_reference === reference),
             amount_ok: Boolean(declaredBody && (declaredBody.amount_minor === null || declaredBody.amount_minor === undefined || declaredBody.amount_minor === expectedAmount) && (declaredBody.currency === undefined || declaredBody.currency === "ILS"))
           };
-          record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode), declared });
+          const statusEntry = record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode), declared });
           if (answer.hold) await sleep(answer.hold);
           if (res.destroyed || socket.destroyed) return;
           res.statusCode = answer.statusCode;
           res.setHeader("content-type", "application/json");
+          deliver(statusEntry);
           res.end(answer.body ?? "");
           return;
         }
@@ -310,9 +332,10 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
         // ── authorize (join-time; never money) ─────────────────────────────
         if (url.pathname === "/authorize") {
           const reference = `auth-${randomUUID().slice(0, 12)}`;
-          record({ op: "authorize", authorization: reference, idempotency_key: String(req.headers["idempotency-key"] || ""), amount_minor: Number(body.amount_minor) || null, behavior: "SUCCESS", effect_applied: false, replayed: false, answered: "200" });
+          const authorizeEntry = record({ op: "authorize", authorization: reference, idempotency_key: String(req.headers["idempotency-key"] || ""), amount_minor: Number(body.amount_minor) || null, behavior: "SUCCESS", effect_applied: false, replayed: false, answered: "200" });
           res.statusCode = 200;
           res.setHeader("content-type", "application/json");
+          deliver(authorizeEntry);
           res.end(JSON.stringify({ ok: true, authorization_id: reference, provider_reference: reference, reference: body.reference }));
           return;
         }
@@ -329,9 +352,10 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
         // never moves money again (this is the provider-ready contract).
         if (nativeIdempotency && key && idempotency.has(idemKey)) {
           const prior = idempotency.get(idemKey)!;
-          record({ op, authorization: auth, idempotency_key: key, amount_minor: amountMinor, behavior: `REPLAY(${prior.behavior})`, effect_applied: false, replayed: true, answered: String(prior.status) });
+          const replayEntry = record({ op, authorization: auth, idempotency_key: key, amount_minor: amountMinor, behavior: `REPLAY(${prior.behavior})`, effect_applied: false, replayed: true, answered: String(prior.status) });
           res.statusCode = prior.status;
           res.setHeader("content-type", "application/json");
+          deliver(replayEntry);
           res.end(prior.body ?? successBody(op, auth, body.reference));
           return;
         }
@@ -353,15 +377,17 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
         const remember = (status: number, respBody: string | null, effectApplied: boolean) => {
           if (nativeIdempotency && key) idempotency.set(idemKey, { status, body: respBody, behavior: behavior.kind, effect_applied: effectApplied });
         };
+        let logged: ProviderRequestRecord | null = null;
         const answerJson = (status: number, respBody: string) => {
           if (res.destroyed || socket.destroyed) return;
           res.statusCode = status;
           res.setHeader("content-type", "application/json");
+          deliver(logged);
           res.end(respBody);
         };
         const effectNow = () => applyEffect(op, auth, amountMinor);
         const log = (effectApplied: boolean, answered: string) =>
-          record({ op, authorization: auth, idempotency_key: key, amount_minor: amountMinor, behavior: behavior.kind, effect_applied: effectApplied, replayed: false, answered });
+          (logged = record({ op, authorization: auth, idempotency_key: key, amount_minor: amountMinor, behavior: behavior.kind, effect_applied: effectApplied, replayed: false, answered }));
 
         switch (behavior.kind) {
           case "SUCCESS":
@@ -403,7 +429,7 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
             effectNow();
             remember(200, successBody(op, auth, body.reference), true); log(true, "200-malformed");
             if (res.destroyed) return;
-            res.statusCode = 200; res.setHeader("content-type", "application/json"); res.end("<<not json>>"); return;
+            res.statusCode = 200; res.setHeader("content-type", "application/json"); deliver(logged); res.end("<<not json>>"); return;
           }
           case "EFFECT_THEN_TRUNCATED_BODY": {
             effectNow();

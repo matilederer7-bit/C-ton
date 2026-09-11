@@ -660,7 +660,9 @@ const {
   listAttemptLifecycle,
   extendSettlementHorizon,
   captureSettlementFenceUntil,
-  lockParticipantDealInTx
+  lockParticipantDealInTx,
+  // R9C ROUND 5 — never-dispatched identity retirement
+  retireNeverDispatched
 } = buildPaymentAttemptHelpers({
   withTx
 });
@@ -1762,8 +1764,11 @@ async function handleRefundEvent(
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: attemptType,
-      identity: (logicalAttempt) => `${event.event_type}:refund:${eventId}:n${logicalAttempt}:${p.participant_id}`
+      identity: (logicalAttempt) => `${event.event_type}:refund:${eventId}:n${logicalAttempt}:${p.participant_id}`,
+      // R9C ROUND 5 — the mint is admitted only in the states the arm requires
+      admitted: { money_states: ["ChargedSuccess", "RecoveredCharge"] }
     });
+    if (attempt.kind === "state_changed") continue; // the participant left the refundable state before an identity existed: nothing minted, nothing sent
     if (attempt.kind === "blocked") {
       await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: attemptType, reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.capture_reference || p.authorization_id || null, event_id: eventId });
       continue;
@@ -2193,6 +2198,58 @@ async function handlePaymentReconcileEvent(
     : null;
   const rowUnresolved = Boolean(unresolvedRow && unresolvedRow.result_class === "unknown");
   if (!waiting && !rowUnresolved) return;
+  // R9C ROUND 5 — a NEVER-DISPATCHED identity (recorded, never armed) has no
+  // provider truth to reconcile: the provider never saw it, so a status read
+  // says nothing about IT and must never become a failure verdict on its row
+  // (that produced a permanent_fail/status_inference row with no dispatch
+  // instant, which the 068 fence then held for ever — Codex round 4).
+  //   * a LIVE rail job for this operation owns the identity: the rail reuses
+  //     it (reuse_not_dispatched) or retires it (state_changed) — nothing here;
+  //   * the rail's phase is still open but its job is gone (DLQ / acked): the
+  //     identity stays as the truthful marker of the owed operation and an
+  //     operator case names the job to requeue — no automatic money decision;
+  //   * the phase is over or the participant moved on: retire the identity in
+  //     place (ABANDONED_BEFORE_DISPATCH) so the terminal decision / release
+  //     rail is not blocked by it, and queue the release when a hold is left on
+  //     a decided participant.
+  if (unresolvedRow && unresolvedRow.result_class === "unknown" && unresolvedRow.dispatch_state === "recorded") {
+    const railJob = operation === "refund"
+      ? { event_type: attemptType === "cancel_refund" ? "cancel_refund" : "refund_issue", aggregate_type: "deal", aggregate_id: dealId }
+      : operation === "release"
+        ? { event_type: "payment_release", aggregate_type: "participant", aggregate_id: participantId }
+        : attemptType === "recovery"
+          ? { event_type: "recovery_deal", aggregate_type: "deal", aggregate_id: dealId }
+          : { event_type: "charge_deal", aggregate_type: "deal", aggregate_id: dealId };
+    const live = await withTx(async (c) => Number((await c.query(
+      `SELECT count(*) AS n FROM siton.outbox_events
+       WHERE event_type=$1 AND aggregate_type=$2 AND aggregate_id=$3 AND status IN ('pending','processing')`,
+      [railJob.event_type, railJob.aggregate_type, railJob.aggregate_id]
+    )).rows[0]?.n || 0));
+    if (live > 0) return; // the rail owns the identity (reuse or retire under the lock)
+    const phaseOpen = operation === "capture"
+      ? (attemptType === "recovery" ? (String(target.deal_state) === "CompletionWindow" && Boolean(target.within_window)) : String(target.deal_state) === "Charging")
+      : waiting;
+    if (waiting && phaseOpen) {
+      if (operation === "release") {
+        await schedulePaymentRelease({ participant_id: participantId, deal_id: dealId, reason: "reconcile_never_dispatched_release_identity" });
+        return;
+      }
+      await openPaymentOperationalCase({
+        autoKey: `payment-never-dispatched-no-live-job:${participantId}:${attemptType}`,
+        subject: `Owed ${attemptType} of participant ${participantId} has no live worker job`,
+        description: `Identity ${correlationId} (${attemptType}) was minted but never left the process, the participant still waits for it (${String(target.buyer_state)}/${String(target.money_state)}, deal ${String(target.deal_state)}) and no ${railJob.event_type} job is pending or processing for ${railJob.aggregate_type} ${railJob.aggregate_id}. No provider status was read and no verdict was recorded (nothing was sent). Requeue the ${railJob.event_type} job (outbox.requeue) to dispatch the same identity, or resolve the participant manually.`,
+        correlationId
+      });
+      return;
+    }
+    const retired = await retireNeverDispatched({ participant_id: participantId, deal_id: dealId, attempt_types: [attemptType as PaymentAttemptType], reason: `reconcile:${waiting ? "phase_over" : "participant_not_waiting"}:${String(target.buyer_state)}/${String(target.money_state)}/${String(target.deal_state)}` });
+    if (retired.length && operation === "capture"
+      && ["AuthHeld", "AuthLocked", "ChargeFailedRecovery", "ChargeAttempt"].includes(String(target.money_state))
+      && ["DealFailed", "Dropped"].includes(String(target.buyer_state))) {
+      await schedulePaymentRelease({ participant_id: participantId, deal_id: dealId, reason: "reconcile_never_dispatched_capture_retired" });
+    }
+    return;
+  }
   // Exact-operation identity (independent financial review, FR-4): a status
   // answer is per authorization and cannot say WHICH identity of an operation
   // family it describes. A job that carries an identity already resolved
@@ -2887,8 +2944,13 @@ async function handlePaymentReleaseEvent(
     participant_id: participantId,
     deal_id: dealId,
     attempt_type: "release",
-    identity: (logicalAttempt) => `release:${eventId}:n${logicalAttempt}:${participantId}`
+    identity: (logicalAttempt) => `release:${eventId}:n${logicalAttempt}:${participantId}`,
+    // R9C ROUND 5 — the mint is admitted only in the states the arm requires;
+    // a never-dispatched capture identity of this hold is retired here (it
+    // cannot have moved money) instead of blocking the release for ever.
+    admitted: { money_states: ["AuthHeld", "AuthLocked", "ChargeFailedRecovery", "ChargeAttempt"] }
   });
+  if (attempt.kind === "state_changed") return; // already resolved elsewhere between the read and the mint
   if (attempt.kind === "blocked") {
     await handleBlockedMoneyOperation({ participant_id: participantId, deal_id: dealId, attempt_type: "release", reason: attempt.reason, blocking: attempt.blocking, provider_reference: providerReference || null, event_id: eventId });
     return;
@@ -3113,8 +3175,15 @@ async function handleChargeDealEvent(
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
-      identity: (logicalAttempt) => `capture:${eventId}:n${logicalAttempt}:${p.participant_id}`
+      identity: (logicalAttempt) => `capture:${eventId}:n${logicalAttempt}:${p.participant_id}`,
+      // R9C ROUND 5 — the participant snapshot above is NOT what the mint
+      // trusts: the state is re-read under the participant/deal lock (the lock
+      // the finalizer's F-15 guard takes) and an identity is minted only while
+      // the participant is still ChargingAttempt/ChargeAttempt. A finalizer
+      // that failed the participant meanwhile leaves NO orphan identity behind.
+      admitted: { money_states: ["ChargeAttempt"], buyer_states: ["ChargingAttempt"] }
     });
+    if (attempt.kind === "state_changed") continue; // decided elsewhere (finalize) between the read and the mint: nothing minted, nothing sent
     if (attempt.kind === "blocked") {
       if (attempt.reason === "capture_blocked_by_released_authorization") {
         // Residual C — the hold was RELEASED at the provider (release identity
@@ -3607,8 +3676,12 @@ async function handleRecoveryDealEvent(
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "recovery",
-      identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`
+      identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`,
+      // R9C ROUND 5 — state re-read under the lock before minting (F-8 closed
+      // generally: no NOT_DISPATCHED recovery identity can be left behind)
+      admitted: { money_states: ["ChargeFailedRecovery"], buyer_states: ["ChargeFailedCompletion"] }
     });
+    if (attempt.kind === "state_changed") continue; // the participant left the recoverable state before an identity existed
     if (attempt.kind === "blocked") {
       if (attempt.reason === "capture_blocked_by_released_authorization") {
         // Residual C — the hold was released while the participant waited for
@@ -3992,10 +4065,20 @@ async function applyCompletedDealOutcome(dealId: string, eventId: string) {
         // marked failed with no refund path.
         insideTx: async (c) => {
           await lockParticipantDealInTx(c, p.participant_id, dealId);
+          // R9C ROUND 5 — the round-4 contract is kept: a MINTED identity still
+          // defers (its rail, alive between mint and arm, may dispatch it and the
+          // buyer is then completed on truth — RC-5b). What no longer defers is
+          // an identity already RETIRED as ABANDONED_BEFORE_DISPATCH
+          // (temporary_fail + recorded + no dispatch instant): it was retired by
+          // the reconcile rail because no live job owned it once the charging
+          // phase was over, or by a superseding rail, and it can never be armed
+          // (the arm CAS requires result_class = 'unknown').
           const armed = await c.query(
-            `SELECT correlation_id, result_class FROM siton.payment_attempts
+            `SELECT correlation_id, result_class, dispatch_state FROM siton.payment_attempts
              WHERE participant_id=$1 AND deal_id=$2 AND attempt_type IN ('charge_start','recovery')
-               AND result_class <> 'permanent_fail' LIMIT 1`,
+               AND result_class <> 'permanent_fail'
+               AND NOT (result_class = 'temporary_fail' AND dispatch_state = 'recorded' AND dispatched_at IS NULL)
+             LIMIT 1`,
             [p.participant_id, dealId]
           );
           if (armed.rowCount) {

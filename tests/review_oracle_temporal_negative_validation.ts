@@ -41,12 +41,15 @@ type Callback = { event_type: string; correlation_id: string | null; provider_re
 function row(partial: Partial<Row> & { attempt_type: string; correlation_id: string; result_class: string }): Row {
   return { dispatch_state: "responded", in_flight: false, owner_event_uuid: null, outcome_note: null, dispatched_at: null, failure_evidence: null, updated_at: null, resolved_at: null, ...partial };
 }
+// R9C ROUND 5 — synthetic entries are DELIVERED at their own position (the
+// provider wrote its answer back before anything else happened); the
+// observation-specific controls live in review_oracle_observation_negative_validation.ts.
 function money(seq: number, at: string, op: ProviderRequestRecord["op"], key: string, answered: string, effect: boolean, replayed = false): ProviderRequestRecord {
-  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered };
+  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered, delivered_seq: seq, delivered_at: at };
 }
 function status(seq: number, at: string, operation: string, state: string | null, final: boolean | null, extra: Partial<NonNullable<ProviderRequestRecord["declared"]>> = {}): ProviderRequestRecord {
   return { seq, at, op: "status", authorization: AUTH, idempotency_key: `status-${seq}`, amount_minor: null, behavior: `${operation}:control`, effect_applied: false, replayed: false, answered: "200",
-    declared: { operation, state, final, delivered: true, reference_ok: true, amount_ok: true, ...extra } };
+    declared: { operation, state, final, delivered: true, reference_ok: true, amount_ok: true, ...extra }, delivered_seq: seq, delivered_at: at };
 }
 
 type History = {
@@ -170,8 +173,8 @@ const histories: History[] = [
     name: "F1 release-after-capture-declared",
     money_state: "ChargedSuccess", buyer_state: "DealCompleted", deal_state: "Completed", effects: CAPTURED,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", dispatched_at: T(0), updated_at: T(100) }),
-      row({ attempt_type: "release", correlation_id: L1, result_class: "permanent_fail", failure_evidence: "dispatch_response", dispatched_at: T(2000), updated_at: T(2100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", dispatched_at: T(0), resolved_at: T(100), updated_at: T(100) }),
+      row({ attempt_type: "release", correlation_id: L1, result_class: "permanent_fail", failure_evidence: "dispatch_response", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [
       money(1, T(10), "capture", K1, "200", true),                 // captured, declared
@@ -201,8 +204,8 @@ const histories: History[] = [
     name: "G retry-after-exact-decline (later late_money_effect note irrelevant)",
     money_state: "ChargedSuccess", buyer_state: "DealCompleted", deal_state: "Completed", effects: CAPTURED, cases: 1,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", outcome_note: "late_money_effect:charge_captured:already_captured", failure_evidence: "dispatch_response", dispatched_at: T(0), updated_at: T(9000) }),
-      row({ attempt_type: "charge_start", correlation_id: K2, result_class: "success", dispatched_at: T(1000), updated_at: T(1100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", outcome_note: "late_money_effect:charge_captured:already_captured", failure_evidence: "dispatch_response", dispatched_at: T(0), resolved_at: T(20), updated_at: T(9000) }),
+      row({ attempt_type: "charge_start", correlation_id: K2, result_class: "success", dispatched_at: T(1000), resolved_at: T(1100), updated_at: T(1100) })
     ],
     requests: [
       money(1, T(10), "capture", K1, "402", false),                // exact decline BEFORE the retry
@@ -229,8 +232,8 @@ const histories: History[] = [
     name: "I1 recovery-after-exact-decline",
     money_state: "RecoveredCharge", buyer_state: "DealCompleted", deal_state: "Completed", effects: RECOVERED,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "dispatch_response", dispatched_at: T(0), updated_at: T(100) }),
-      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), updated_at: T(2100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "dispatch_response", dispatched_at: T(0), resolved_at: T(100), updated_at: T(100) }),
+      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [money(1, T(10), "capture", K1, "402", false), money(2, T(2010), "recover", R1, "200", true)],
     expect: { verdict: "accept", forbid: REPEAT_CODES },
@@ -241,8 +244,8 @@ const histories: History[] = [
     name: "I2 recovery-after-post-horizon-status",
     money_state: "RecoveredCharge", buyer_state: "DealCompleted", deal_state: "Completed", effects: RECOVERED,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "status_inference", dispatched_at: T(0), updated_at: T(1600) }),
-      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(1700), updated_at: T(1800) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "status_inference", dispatched_at: T(0), resolved_at: T(1600), updated_at: T(1600) }),
+      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(1700), resolved_at: T(1800), updated_at: T(1800) })
     ],
     requests: [
       money(1, T(10), "capture", K1, "503", false),                // unknown
@@ -273,8 +276,8 @@ const histories: History[] = [
     name: "I4 recovery-after-operator-evidence",
     money_state: "RecoveredCharge", buyer_state: "DealCompleted", deal_state: "Completed", effects: RECOVERED,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "operator", dispatched_at: T(0), updated_at: T(1000) }),
-      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), updated_at: T(2100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "operator", dispatched_at: T(0), resolved_at: T(1000), updated_at: T(1000) }),
+      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [money(1, T(10), "capture", K1, "503", false), money(2, T(2010), "recover", R1, "200", true)],
     expect: { verdict: "accept", forbid: REPEAT_CODES },
@@ -297,8 +300,8 @@ const histories: History[] = [
     name: "I6 recovery-after-callback-failed",
     money_state: "RecoveredCharge", buyer_state: "DealCompleted", deal_state: "Completed", effects: RECOVERED,
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "provider_event", dispatched_at: T(0), updated_at: T(800) }),
-      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), updated_at: T(2100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "permanent_fail", failure_evidence: "provider_event", dispatched_at: T(0), resolved_at: T(800), updated_at: T(800) }),
+      row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [money(1, T(10), "capture", K1, "503", false), money(2, T(2010), "recover", R1, "200", true)],
     callbacks: [{ event_type: "charge_failed", correlation_id: K1, provider_reference: AUTH, received_at: T(800) }],
@@ -340,8 +343,8 @@ const histories: History[] = [
     money_state: "Refunded", buyer_state: "DealFailed", deal_state: "Failed",
     effects: { capture: 1, recover: 0, refund: 1, release: 0, capture_amount_minor: 4200, recover_amount_minor: 0, refund_amount_minor: 4200 },
     rows: [
-      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", dispatched_at: T(0), updated_at: T(100) }),
-      row({ attempt_type: "refund", correlation_id: F1, result_class: "success", dispatched_at: T(2000), updated_at: T(2100) })
+      row({ attempt_type: "charge_start", correlation_id: K1, result_class: "success", dispatched_at: T(0), resolved_at: T(100), updated_at: T(100) }),
+      row({ attempt_type: "refund", correlation_id: F1, result_class: "success", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [money(1, T(10), "capture", K1, "200", true), money(2, T(2010), "refund", F1, "200", true)],
     expect: { verdict: "accept", forbid: ["REFUND_WITHOUT_CAPTURE_EVIDENCE", ...REPEAT_CODES] },

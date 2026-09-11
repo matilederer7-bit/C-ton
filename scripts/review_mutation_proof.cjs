@@ -165,24 +165,65 @@ const MUTANTS = [
     ],
     suites: ["review_payment_reference_identity_rails_validation.ts"]
   },
-  // ── R9C ROUND 4 — oracle soundness mutants (test source) ──────────────────
+  // ── R9C ROUND 5 — never-dispatched identity lifecycle (production source) ─
   {
-    id: "OM-1a",
-    invariant: "M1: a status read positioned AFTER a dispatch never counts as evidence for that dispatch",
-    layer: "dispatch_legality E2 provider-order guard",
+    id: "RM-10",
+    invariant: "an identity is minted only while the participant is in the rail's admitted state, re-read under the participant/deal lock (Codex round-4 race: a stale snapshot minted an orphan)",
+    layer: "beginProviderAttempt admitted-state check",
     edits: [
       {
-        file: "tests/lab/dispatch_legality.ts",
-        from: `      for (const r of requests) {
-        if (r.seq >= before.seq) break;
-        if (r.seq <= target.seq) continue;`,
-        // hindsight: the E2 scan no longer stops at the dispatch position
-        to: `      for (const r of requests) {
-        if (r.seq <= target.seq) continue;`
+        file: "src/payment_attempt_helpers.ts",
+        from: `      if (args.admitted) {`,
+        to: `      if (false && args.admitted) {`
       }
     ],
-    suites: ["review_oracle_temporal_negative_validation.ts"]
+    suites: ["review_arm_race_orphan_hold_validation.ts"]
   },
+  {
+    id: "RM-11",
+    invariant: "a never-dispatched identity of a conflicting operation never blocks a rail: the superseding rail retires it (a release is not held for ever behind a capture that never left the process)",
+    layer: "beginProviderAttempt conflicting-identity retirement",
+    edits: [
+      {
+        file: "src/payment_attempt_helpers.ts",
+        from: `attempt_types: conflicting, reason: `,
+        to: `attempt_types: [], reason: `
+      }
+    ],
+    suites: ["review_attempt_lifecycle_crash_race_matrix_validation.ts"]
+  },
+  {
+    id: "RM-12",
+    invariant: "reconcile never turns a status read into a verdict on an identity the provider never saw (never-dispatched → live job owns it / operator case / retire; never permanent_fail)",
+    layer: "handlePaymentReconcileEvent never-dispatched branch",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `  if (unresolvedRow && unresolvedRow.result_class === "unknown" && unresolvedRow.dispatch_state === "recorded") {`,
+        to: `  if (false) {`
+      }
+    ],
+    suites: ["review_attempt_lifecycle_crash_race_matrix_validation.ts"]
+  },
+  {
+    id: "RM-13",
+    invariant: "the terminal decision does not defer for ever on an identity already retired as ABANDONED_BEFORE_DISPATCH",
+    layer: "applyCompletedDealOutcome F-15 guard predicate",
+    edits: [
+      {
+        file: "src/app.ts",
+        from: `               AND NOT (result_class = 'temporary_fail' AND dispatch_state = 'recorded' AND dispatched_at IS NULL)`,
+        to: `               AND TRUE`
+      }
+    ],
+    suites: ["review_attempt_lifecycle_crash_race_matrix_validation.ts"]
+  },
+  // ── R9C ROUND 4 — oracle soundness mutants (test source) ──────────────────
+  // OM-1a (round 4: "a status read positioned AFTER a dispatch never counts")
+  // is RETIRED in round 5: the E2 scan's provider-order break is subsumed by the
+  // observation rule (observedBefore: delivered_seq < D.seq, and an answer is
+  // always delivered after it arrives), so removing the break no longer changes
+  // any verdict — OM-4 mutates the rule that now carries that invariant.
   {
     id: "OM-1b",
     invariant: "M1: an operator verdict or provider callback recorded AFTER the arm instant never counts as evidence for that dispatch",
@@ -228,7 +269,70 @@ const MUTANTS = [
         to: `  if (answered === "200-ok-false" || answered === "503" || answered === "200-pending" || answered === "lost") return true;`
       }
     ],
-    suites: ["review_oracle_temporal_negative_validation.ts"]
+    // round 5: the DB observation clause would mask this mutant in the round-4
+    // controls (their rows record the verdict after the arm), so the
+    // layer-isolating control L1 (ledger claims an early verdict) kills it.
+    suites: ["review_oracle_observation_negative_validation.ts", "review_oracle_temporal_negative_validation.ts"]
+  },
+  // ── R9C ROUND 5 — observed-evidence mutants (test source) ─────────────────
+  {
+    id: "OM-4",
+    invariant: "M1: provider-generated == Siton-observed — a provider answer counts from the provider's arrival position instead of its delivery position",
+    layer: "dispatch_legality observedBefore (delivery position)",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `  return typeof r.delivered_seq === "number" && Number.isFinite(r.delivered_seq) && r.delivered_seq < dispatchSeq;`,
+        // hindsight: the provider's knowledge (arrival seq) is treated as Siton's knowledge
+        to: `  return r.seq < dispatchSeq;`
+      }
+    ],
+    suites: ["review_oracle_observation_negative_validation.ts"]
+  },
+  {
+    id: "OM-5",
+    invariant: "M2: a status/decline answer is usable before (or without) its delivery — an answer the provider never wrote back still counts",
+    layer: "dispatch_legality observedBefore (undelivered answers)",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `  return typeof r.delivered_seq === "number" && Number.isFinite(r.delivered_seq) && r.delivered_seq < dispatchSeq;`,
+        to: `  return r.delivered_seq === null || r.delivered_seq === undefined || r.delivered_seq < dispatchSeq;`
+      }
+    ],
+    suites: ["review_oracle_observation_negative_validation.ts"]
+  },
+  {
+    id: "OM-6",
+    invariant: "M3: final DB history used retroactively — a verdict Siton recorded AFTER arming the dispatch still legalises it",
+    layer: "dispatch_legality recordedBeforeArm (DB observation)",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `    if (recordedAt === null || recordedAt > armedAt) return false;`,
+        to: `    if (recordedAt === null) return false;`
+      }
+    ],
+    suites: ["review_oracle_observation_negative_validation.ts"]
+  },
+  {
+    id: "OM-7",
+    invariant: "M4: UNKNOWN treated as failed — a non-final (pending / unknown) status answer is read as declared non-execution",
+    layer: "dispatch_legality usableStatus finality + E2 non-final re-open guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `    && r.declared!.final === true && typeof r.declared!.state === "string";`,
+        to: `    && typeof r.declared!.state === "string";`
+      },
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        // hindsight: a non-final answer no longer re-opens the settlement window and skips the evidence test
+        from: `        if (r.op === "status" && r.declared && r.declared.operation === operation && r.declared.delivered && r.declared.final === false) {`,
+        to: `        if (false) {`
+      }
+    ],
+    suites: ["review_oracle_observation_negative_validation.ts", "review_oracle_temporal_negative_validation.ts"]
   }
 ];
 

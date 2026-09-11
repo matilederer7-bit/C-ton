@@ -139,7 +139,7 @@ type ParticipantRow = {
   participant_id: string; deal_id: string; buyer_id: string; qty: number; delivery_cost: number; buyer_state: string; money_state: string;
   price_per_unit: number; deal_state: string; threshold_units: number; authorization: string | null;
 };
-type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null; outcome_note: string | null; dispatched_at: Date | string | null; failure_evidence: string | null; updated_at: Date | string | null };
+type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null; outcome_note: string | null; dispatched_at: Date | string | null; failure_evidence: string | null; updated_at: Date | string | null; resolved_at?: Date | string | null };
 type LedgerRow = { logical_entry_type: string; event_type: string; gross_amount: string; vat_amount: string; fee_base_amount: string; platform_fee_rate: string; platform_fee_base_amount: string; platform_fee_vat_amount: string; platform_fee_total_amount: string; platform_fee_amount: string; seller_net_amount: string };
 type AuditRow = { state_type: string; from_state: string; to_state: string; action_name: string };
 type OutboxRow = { event_uuid: string; event_type: string; aggregate_type: string; aggregate_id: string; status: string; attempt_count: number };
@@ -187,7 +187,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
   const participantIds = participants.map((p) => p.participant_id);
   const attemptsAll = participantIds.length ? (await pool.query(
     `SELECT participant_id, attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, outcome_note,
-            dispatched_at, failure_evidence, updated_at,
+            dispatched_at, failure_evidence, updated_at, resolved_at,
             siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight
      FROM siton.payment_attempts WHERE participant_id = ANY($1::uuid[]) ORDER BY created_at ASC, correlation_id ASC`,
     [participantIds]
@@ -382,7 +382,8 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
       const legality = auditDispatchLegality({
         authorization: auth,
         requests: providerLedger.requests,
-        rows: attempts.map((a) => ({ attempt_type: a.attempt_type, correlation_id: a.correlation_id, dispatched_at: a.dispatched_at, failure_evidence: a.failure_evidence, updated_at: a.updated_at })),
+        // round 5: resolved_at = the DB instant Siton recorded the identity's verdict (observation rule)
+        rows: attempts.map((a) => ({ attempt_type: a.attempt_type, correlation_id: a.correlation_id, dispatched_at: a.dispatched_at, failure_evidence: a.failure_evidence, updated_at: a.updated_at, resolved_at: a.resolved_at ?? null })),
         callbacks: callbacksAll.filter((c) => c.participant_id === pid && c.event_type).map((c) => ({ event_type: String(c.event_type), correlation_id: c.correlation_id, provider_reference: c.provider_reference, received_at: c.received_at })),
         policy: legalityPolicy
       });
