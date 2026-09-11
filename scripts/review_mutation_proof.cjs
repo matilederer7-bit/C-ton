@@ -83,15 +83,17 @@ const MUTANTS = [
     edits: [
       {
         file: "src/app.ts",
-        from: `  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
-  const dualCapture = captureIdentities.length >= 2;`,
-        // the pre-fix predicate: "every executed identity differs from the
-        // reported one", which the reported identity's own committed success
-        // permanently defeats
-        to: `  const captureIdentities = captureEffect ? await captureSideExecutedIdentities({ target: args.target, event: args.event }) : [];
-  const reportedIdentity = String(args.event.correlation_id || args.target.correlation_id || "").trim();
-  const dualCapture = captureIdentities.length >= 2
-    && captureIdentities.every((identity) => !identity.endsWith(\`:\${reportedIdentity}\`));`
+        // ROUND 4: re-anchored on the round-3 structure (readCaptureSideIdentityEvidence
+        // decides confirmed_dual); the mutation is the same self-defeating replay
+        // test — "every executed identity differs from the reported one" — which
+        // the reported identity's own committed success permanently defeats.
+        from: `  const sorted = [...identities].sort();
+  return sorted.length >= 2
+    ? { outcome: "confirmed_dual", identities: sorted, reportedExactDecline }`,
+        to: `  const sorted = [...identities].sort();
+  const reportedKey = reportedFamily && reported ? \`\${reportedFamily}:\${reported}\` : "";
+  return sorted.length >= 2 && sorted.every((identity) => identity !== reportedKey)
+    ? { outcome: "confirmed_dual", identities: sorted, reportedExactDecline }`
       }
     ],
     suites: ["review_payment_dual_capture_durable_escalation_validation.ts"]
