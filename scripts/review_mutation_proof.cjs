@@ -173,8 +173,11 @@ const MUTANTS = [
     edits: [
       {
         file: "src/payment_attempt_helpers.ts",
-        from: `      if (args.admitted) {`,
-        to: `      if (false && args.admitted) {`
+        // hindsight: any existing participant counts as admitted — the state re-read under the lock decides nothing
+        from: `        const admitted = Boolean(state)
+          && args.admitted.money_states.includes(String(state!.money_state))
+          && (!args.admitted.buyer_states || args.admitted.buyer_states.includes(String(state!.buyer_state)));`,
+        to: `        const admitted = Boolean(state);`
       }
     ],
     suites: ["review_arm_race_orphan_hold_validation.ts"]
