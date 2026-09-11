@@ -228,7 +228,7 @@ and the release rail's entry/arm admitted only `AuthHeld/AuthLocked/ChargeFailed
 `scripts/review_flake_probe.cjs payment_lab_concurrency_matrix_validation.ts 20` on the fixed code, with
 the test instrumented to print the finalize job rows, the participant's audit chronology and the
 worker output tails whenever a `Completed` deal has a non-final participant at audit time
-(`TRANSIENT_NON_FINAL …`). Result: see PROJECT_STATUS (filled from `r4-matrix-probe-20.log`).
+(`TRANSIENT_NON_FINAL …`). Result: **20/20 PASS, 0 transient non-final observations** (each run 80/80 converged, 0 duplicates, 0 deadlocks; median 62.8 s). The natural race needs the loaded-host conditions Codex ran under (full-group runs with other suites' children); the deterministic reconstruction covers the mechanism itself.
 
 The test premise is corrected as well (`payment_lab_concurrency_matrix_validation.ts`): after the
 workers stop, the remaining `finalize_deal` work is drained in-process and it is asserted that this
@@ -244,6 +244,7 @@ oracle — quiescence now includes the terminal decision, and the deal-level inv
 | oracle temporal leakage | test-oracle unsoundness | **FIXED** (dispatch_legality.ts; 18 controls; 4/4 mutants) |
 | concurrency final-state failure | B+E: audit timing on a benign, self-healing CAS conflict | **EXPLAINED + reproduced**; test premise corrected |
 | F-14 | retry path strands unpaid siblings (stuck non-terminal, hold unreleased) | **FIXED** (production) |
+| production mutants | RM-5 retired (predicate replaced in round 2), RM-6 re-anchored on the round-3 structure | 8/8 killed; 12/12 with OM-* |
 | F-15 | DealFailed committed between arm and ingest → charged buyer marked failed | **FIXED** (production) |
 | F-16 | never-attempted `ChargeAttempt` hold never released on a decided deal | **FIXED** (production) |
 | F-13 | refund identity rotation trusts a final status read with no settlement horizon (contract-consistent; a lying/lagging provider could produce a double refund) | **OPEN — owner decision** (out of scope here; the simulator is honest, so the lab cannot manifest it) |
