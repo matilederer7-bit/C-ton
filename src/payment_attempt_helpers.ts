@@ -622,6 +622,14 @@ export function buildPaymentAttemptHelpers(deps: {
     assertNoInFlightOperationInTx,
     captureSettlementFenceUntil,
     extendSettlementHorizon,
+    /**
+     * R9C ROUND 4 (F-15) — the participant/deal advisory lock every identity
+     * mint / arm / settle takes. A caller that must decide "no capture-side
+     * identity of this participant is armed or executed" and act on it in the
+     * same transaction takes this lock FIRST, so the decision serializes with
+     * the rails instead of racing their commits.
+     */
+    lockParticipantDealInTx: lockParticipantDeal,
     isTerminal: (resultClass: string) => TERMINAL.includes(resultClass)
   };
 }

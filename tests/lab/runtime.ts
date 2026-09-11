@@ -352,6 +352,10 @@ export async function bootLab(options: LabOptions) {
       ...(opts.expectLateEffects ? { expectLateEffects: opts.expectLateEffects } : {})
     });
     if (opts.print !== false) console.log(`  oracle ${describeOracle(report)}`);
+    // R9C ROUND 4 — LAB_ORACLE_TRACE=1 prints every dispatch judgement BEFORE the
+    // verdict is asserted, so a rejected scenario still shows the exact evidence
+    // (or its absence) the dispatch-time rule relied on.
+    if (process.env.LAB_ORACLE_TRACE) console.log(`ORACLE_JUDGEMENTS ${label} ${JSON.stringify(report.dispatch_judgements)}`);
     assertOracleClean(report, opts.allowedCodes || []);
     return report;
   }

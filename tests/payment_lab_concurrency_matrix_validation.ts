@@ -243,6 +243,48 @@ await run("TWO_WORKERS: two real worker processes drain 40 deals (80 participant
   assert.equal(duplicates, 0);
   assert.equal(converged + truthfulNonCharge, 80, "every participant is either captured exactly once or a visible, money-safe non-charge");
   assert.ok(truthfulNonCharge <= 2, `too many participants missed the completion window: ${truthfulNonCharge}`);
+  // R9C ROUND 4 — explain, do not merely assert. A Completed deal with a
+  // participant that is not yet DealCompleted / DealFailed at this instant is
+  // the state Codex's rounds 2 and 3 hit (COMPLETED_DEAL_PARTICIPANT_NOT_FINAL):
+  // a finalize whose participant CAS raced a capture that landed between its
+  // read and its write, failed on the conflict, and is waiting for its
+  // deferred retry while the workers that would run it have just been stopped.
+  // Dump the finalize job, the participant's chronology and the worker
+  // outputs BEFORE the oracle, so a recurrence carries its own explanation.
+  const transient = (await lab.pool.query(
+    `SELECT p.participant_id, p.deal_id, p.buyer_state, p.money_state FROM siton.participants p JOIN siton.deals d ON d.deal_id = p.deal_id
+     WHERE d.deal_id = ANY($1::uuid[]) AND d.state = 'Completed' AND p.buyer_state NOT IN ('DealCompleted','DealFailed')`,
+    [dealIds]
+  )).rows as Array<{ participant_id: string; deal_id: string; buyer_state: string; money_state: string }>;
+  for (const t of transient) {
+    const jobs = (await lab.pool.query(
+      `SELECT event_uuid, status, attempt_count, last_error, (available_at > clock_timestamp()) AS deferred, worker_id, lease_generation FROM siton.outbox_events WHERE event_type='finalize_deal' AND aggregate_id=$1
+       UNION ALL SELECT event_uuid, 'dlq', attempt_count, last_error, false, worker_id, lease_generation FROM siton.outbox_dlq WHERE event_type='finalize_deal' AND aggregate_id=$1`,
+      [t.deal_id]
+    )).rows;
+    const chronology = (await lab.pool.query(
+      `SELECT created_at::text AS at, entity_type, state_type, from_state, to_state, action_name, request_id FROM siton.audit_log
+       WHERE (entity_type='participant' AND entity_id=$1) OR (entity_type='deal' AND entity_id=$2) ORDER BY created_at ASC, audit_id ASC`,
+      [t.participant_id, t.deal_id]
+    )).rows.map((r: any) => `${String(r.at).slice(11, 23)} ${r.entity_type}.${r.state_type} ${r.from_state}->${r.to_state} (${r.action_name} ${r.request_id})`);
+    console.log(`  TRANSIENT_NON_FINAL deal=${t.deal_id} participant=${t.participant_id} buyer=${t.buyer_state} money=${t.money_state} effects=${JSON.stringify(lab.sim.effectsOf((deals.flatMap((d) => d.participants).find((p) => p.participant_id === t.participant_id) || { authorization: "" }).authorization))}`);
+    console.log(`    finalize_jobs=${JSON.stringify(jobs)}`);
+    console.log(`    chronology=${JSON.stringify(chronology)}`);
+    console.log(`    attempts=${JSON.stringify(await lab.attempts(t.participant_id))}`);
+    for (const h of [a, b]) console.log(`    worker ${h.id} tail: ${h.output.join("").split(/\r?\n/).filter((l) => /finalize|State mismatch|STATE_CONFLICT|complete_participant|lease|reclaim/i.test(l)).slice(-12).join(" | ").slice(0, 1500)}`);
+  }
+  // R9C ROUND 4 — quiescence includes the terminal decision. The drain above
+  // waited for money jobs only; a finalize that is due, or that failed on the
+  // benign conflict and is deferred, and the releases a finalize schedules for
+  // unrecovered holds, are still in scope once the workers are stopped. Drain
+  // them IN-PROCESS (deterministic, one at a time) and prove the drain captured
+  // nothing: no new capture / recovery effect anywhere, no duplicate. Only then
+  // is the strict deal-level oracle a statement about the terminal state.
+  const captureSideBefore = deals.flatMap((d) => d.participants).map((p) => { const e = lab.sim.effectsOf(p.authorization); return e.capture + e.recover; });
+  const finalizeDrain = await lab.drain({ dealIds, advanceDeferred: true, maxRounds: 80 });
+  const captureSideAfter = deals.flatMap((d) => d.participants).map((p) => { const e = lab.sim.effectsOf(p.authorization); return e.capture + e.recover; });
+  assert.deepEqual(captureSideAfter, captureSideBefore, "finalizing and releasing move no capture-side money");
+  console.log(`  terminal drain: processed=${finalizeDrain.processed} transient_non_final_before=${transient.length} remaining_pending=${finalizeDrain.remaining_pending} remaining_processing=${finalizeDrain.remaining_processing}`);
   await lab.oracle("two-workers:40x2", dealIds);
 });
 

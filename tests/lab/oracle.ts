@@ -19,9 +19,17 @@
 //   NO canonical success without provider  NO provider success invisible to truth
 //   NO ledger mismatch                     NO unresolved ambiguity without a case
 //   NO automatic fresh money attempt while the prior exact operation is UNKNOWN
+//     — judged AT DISPATCH TIME from evidence positioned before the dispatch
+//       (provider sequence for provider answers, DB arm instant for callbacks
+//       and operator verdicts); never from a final row or a later note
+//   NO release racing or contradicting a capture; NO refund of money never
+//     declared to have moved
 //   Siton fee = exactly 8 % of (gross incl. delivery − buyer VAT); distributor 0.
 
 import type { ProviderLedgerSnapshot, EffectCounters } from "./provider_simulator.js";
+// R9C ROUND 4 — dispatch-time legality (temporal oracle). See dispatch_legality.ts
+// for the invariant, the ordering sources and every evidence class.
+import { auditDispatchLegality, type Judgement, type LegalityPolicy } from "./dispatch_legality.js";
 
 export type OracleVatPolicy = { product_rate: number; delivery_rate: number; platform_fee_vat_rate: number };
 
@@ -45,6 +53,14 @@ export type OracleOptions = {
   participantAuthorizations?: Record<string, string>;
   /** participants may have been SEEDED directly in captured / refunded states (no in-scenario capture, no ledger entry of their own) */
   seededStates?: boolean;
+  /**
+   * R9C ROUND 4 — the provider contract the dispatch-time legality rule needs:
+   * the settlement horizon (how long the provider may still settle after its
+   * last non-final answer) and whether a final negative status read is
+   * authoritative for this provider. Defaults come from the lab runtime env
+   * (PAYMENT_SETTLEMENT_HORIZON_MS, PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE).
+   */
+  dispatchLegality?: Partial<LegalityPolicy>;
 };
 
 export type OracleViolation = { code: string; participant_id: string | null; detail: string };
@@ -53,6 +69,8 @@ export type OracleReport = {
   label: string;
   participants: number;
   violations: OracleViolation[];
+  /** R9C ROUND 4 — one judgement per money dispatch, naming the pre-dispatch evidence relied on */
+  dispatch_judgements: Array<Judgement & { participant_id: string }>;
   counts: {
     capture_effects: number;
     recovery_effects: number;
@@ -121,7 +139,7 @@ type ParticipantRow = {
   participant_id: string; deal_id: string; buyer_id: string; qty: number; delivery_cost: number; buyer_state: string; money_state: string;
   price_per_unit: number; deal_state: string; threshold_units: number; authorization: string | null;
 };
-type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null; outcome_note: string | null };
+type AttemptRow = { attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null; outcome_note: string | null; dispatched_at: Date | string | null; failure_evidence: string | null; updated_at: Date | string | null };
 type LedgerRow = { logical_entry_type: string; event_type: string; gross_amount: string; vat_amount: string; fee_base_amount: string; platform_fee_rate: string; platform_fee_base_amount: string; platform_fee_vat_amount: string; platform_fee_total_amount: string; platform_fee_amount: string; seller_net_amount: string };
 type AuditRow = { state_type: string; from_state: string; to_state: string; action_name: string };
 type OutboxRow = { event_uuid: string; event_type: string; aggregate_type: string; aggregate_id: string; status: string; attempt_count: number };
@@ -169,10 +187,19 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
   const participantIds = participants.map((p) => p.participant_id);
   const attemptsAll = participantIds.length ? (await pool.query(
     `SELECT participant_id, attempt_type, correlation_id, result_class, dispatch_state, owner_event_uuid, outcome_note,
+            dispatched_at, failure_evidence, updated_at,
             siton.payment_operation_in_flight(owner_event_uuid, owner_lease_generation) AS in_flight
      FROM siton.payment_attempts WHERE participant_id = ANY($1::uuid[]) ORDER BY created_at ASC, correlation_id ASC`,
     [participantIds]
   )).rows as Array<AttemptRow & { participant_id: string }> : [];
+  // R9C ROUND 4 — provider callbacks as the app RECEIVED them (DB instant), for
+  // out-of-channel evidence ordered against the arm instant of a dispatch.
+  const callbacksAll = participantIds.length ? (await pool.query(
+    `SELECT participant_id, received_at, payload_jsonb->>'event_type' AS event_type,
+            payload_jsonb->>'correlation_id' AS correlation_id, payload_jsonb->>'provider_reference' AS provider_reference
+     FROM siton.webhook_events WHERE participant_id = ANY($1::uuid[]) ORDER BY received_at ASC`,
+    [participantIds]
+  )).rows as Array<{ participant_id: string; received_at: Date | string; event_type: string | null; correlation_id: string | null; provider_reference: string | null }> : [];
   const ledgerAll = participantIds.length ? (await pool.query(
     `SELECT participant_id, logical_entry_type, event_type, gross_amount, vat_amount, fee_base_amount, platform_fee_rate,
             platform_fee_base_amount, platform_fee_vat_amount, platform_fee_total_amount, platform_fee_amount, seller_net_amount
@@ -225,6 +252,12 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     TOTAL_CAPTURED_MINOR: 0, TOTAL_RECOVERED_MINOR: 0, TOTAL_REFUNDED_MINOR: 0, TOTAL_RELEASED_COUNT: 0,
     TOTAL_PLATFORM_FEES_MINOR: 0, TOTAL_NET_MINOR: 0, LEDGER_GROSS_MINOR: 0, LEDGER_FEES_MINOR: 0, LEDGER_NET_MINOR: 0
   };
+  // R9C ROUND 4 — the provider contract the dispatch-time rule is judged under.
+  const legalityPolicy: LegalityPolicy = {
+    settlementHorizonMs: options.dispatchLegality?.settlementHorizonMs ?? Number(process.env.PAYMENT_SETTLEMENT_HORIZON_MS || 1500),
+    negativeStatusAuthoritative: options.dispatchLegality?.negativeStatusAuthoritative ?? (String(process.env.PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE ?? "true").toLowerCase() !== "false")
+  };
+  const dispatchJudgements: OracleReport["dispatch_judgements"] = [];
 
   // ── H: outbox hygiene (index backstop re-checked by the oracle) ───────────
   const liveKey = new Map<string, number>();
@@ -334,35 +367,31 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
       if (!backed) v("ATTEMPT_SUCCESS_WITHOUT_PROVIDER_EFFECT", pid, `${row.attempt_type} ${row.correlation_id} is success but the provider ledger shows no such effect`);
     }
 
-    // identity discipline from the PROVIDER's point of view: a second distinct
-    // idempotency key for the same operation is legal only after the previous
-    // identity is provider-declared failed (permanent_fail) — never while UNKNOWN.
-    for (const op of ["capture", "recover", "refund", "release"] as const) {
-      const keys = auth ? [...new Set(providerLedger.requests.filter((r) => r.authorization === auth && r.op === op && !r.replayed).map((r) => r.idempotency_key))] : [];
-      if (op === "capture") counts.distinct_capture_keys += keys.length;
-      for (let i = 1; i < keys.length; i += 1) {
-        const previous = attempts.find((a) => a.correlation_id === keys[i - 1]);
-        // The invariant is about the state of the previous identity AT DISPATCH
-        // TIME: a repeat is legal only after that identity was provider-declared
-        // failed. This check reads the FINAL state, so an identity that was
-        // permanent_fail when the repeat was dispatched and only later converged
-        // to success — because a late provider event proved the money had moved
-        // after all — would look like an illegal repeat over a successful
-        // operation. That convergence is required elsewhere (it is what blocks a
-        // release of money that really moved), so it must not be read as a
-        // violation here. A late-effect convergence is identifiable: it is the
-        // only path that settles an identity to success with a
-        // late_money_effect note, and it always leaves an operator case.
-        const convergedLate = previous?.result_class === "success"
-          && String(previous?.outcome_note || "").startsWith("late_money_effect:");
-        if (!previous || (previous.result_class !== "permanent_fail" && !convergedLate)) {
-          v("AUTOMATIC_REPEAT_WHILE_UNKNOWN", pid, `${op}: identity ${keys[i]} reached the provider while ${keys[i - 1]} is ${previous ? previous.result_class : "unknown to the database"}`);
-        }
-      }
-      if (keys.length > 1 && op === "capture") {
-        // even after a declared failure, a fresh capture identity must not make money move twice
-        if (captured > 1) v("DUPLICATE_CAPTURE_ACROSS_IDENTITIES", pid, `keys=${keys.join("|")}`);
-      }
+    // identity discipline from the PROVIDER's point of view, judged AT DISPATCH
+    // TIME (R9C ROUND 4). The round-3 rule read the FINAL result_class and then
+    // exempted rows carrying a late_money_effect note — temporal leakage: a
+    // note written after a dispatch legalised that dispatch retroactively.
+    // The rule now lives in dispatch_legality.ts: for every money identity it
+    // considers only evidence positioned BEFORE the dispatch (provider sequence
+    // for provider answers and status reads, the DB arm instant for callbacks
+    // and operator verdicts), decides whether the previous identity of the
+    // same obligation was authoritatively failed at that point, and rejects
+    // when the evidence was absent, ambiguous, or arrived later. The final
+    // row, its result_class and its outcome_note play NO part in the verdict.
+    if (auth) {
+      const legality = auditDispatchLegality({
+        authorization: auth,
+        requests: providerLedger.requests,
+        rows: attempts.map((a) => ({ attempt_type: a.attempt_type, correlation_id: a.correlation_id, dispatched_at: a.dispatched_at, failure_evidence: a.failure_evidence, updated_at: a.updated_at })),
+        callbacks: callbacksAll.filter((c) => c.participant_id === pid && c.event_type).map((c) => ({ event_type: String(c.event_type), correlation_id: c.correlation_id, provider_reference: c.provider_reference, received_at: c.received_at })),
+        policy: legalityPolicy
+      });
+      for (const j of legality.judgements) dispatchJudgements.push({ ...j, participant_id: pid });
+      for (const x of legality.violations) v(x.code, pid, x.detail);
+      const captureKeys = [...new Set(providerLedger.requests.filter((r) => r.authorization === auth && r.op === "capture" && !r.replayed).map((r) => r.idempotency_key))];
+      counts.distinct_capture_keys += captureKeys.length;
+      // even after a declared failure, a fresh capture identity must not make money move twice
+      if (captureKeys.length > 1 && captured > 1) v("DUPLICATE_CAPTURE_ACROSS_IDENTITIES", pid, `keys=${captureKeys.join("|")}`);
     }
 
     // F — ledger truth vs independent economics
@@ -452,7 +481,7 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
     }
   }
 
-  return { label: options.label, participants: participants.length, violations, counts, totals };
+  return { label: options.label, participants: participants.length, violations, dispatch_judgements: dispatchJudgements, counts, totals };
 }
 
 export function assertOracleClean(report: OracleReport, allowedCodes: string[] = []) {

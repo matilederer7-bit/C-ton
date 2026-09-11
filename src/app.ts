@@ -659,7 +659,8 @@ const {
   loadAttemptLifecycle,
   listAttemptLifecycle,
   extendSettlementHorizon,
-  captureSettlementFenceUntil
+  captureSettlementFenceUntil,
+  lockParticipantDealInTx
 } = buildPaymentAttemptHelpers({
   withTx
 });
@@ -2043,10 +2044,16 @@ async function schedulePaymentRelease(args: { participant_id: string; deal_id: s
 async function scheduleAuthorizationReleasesForDeal(dealId: string, reason: string) {
   const held = await withTx(async (c) => {
     const r = await c.query(
+      // R9C ROUND 4 (F-16) — ChargeAttempt too: a participant the deal decision
+      // failed before any capture was attempted (never armed, or armed and
+      // declined pre-dispatch) still holds its authorization. The release
+      // identity is refused by beginProviderAttempt while any capture-side
+      // identity is unresolved or executed, and applyAuthorizationRelease
+      // re-checks that belt before ChargeAttempt -> AuthReleased.
       `SELECT participant_id
        FROM siton.participants
        WHERE deal_id=$1
-         AND money_state IN ('AuthHeld','AuthLocked','ChargeFailedRecovery')`,
+         AND money_state IN ('AuthHeld','AuthLocked','ChargeFailedRecovery','ChargeAttempt')`,
       [dealId]
     );
     return r.rows as Array<{ participant_id: string }>;
@@ -2871,7 +2878,8 @@ async function handlePaymentReleaseEvent(
 
   const target = await loadReconcileParticipant(participantId, dealId);
   if (!target) throw new PermanentFailError(`payment_release participant not found ${participantId}`);
-  if (!["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state))) return; // already resolved
+  // R9C ROUND 4 (F-16) — ChargeAttempt admitted (Residual C release of a hold whose capture never ran)
+  if (!["AuthHeld", "AuthLocked", "ChargeFailedRecovery", "ChargeAttempt"].includes(String(target.money_state))) return; // already resolved
 
   const providerReference = String(target.binding_reference || "").trim();
   // R9C — durable identity + reconcile-before-new-operation (see charge rail).
@@ -2966,7 +2974,7 @@ async function handlePaymentReleaseEvent(
     deal_id: dealId,
     attempt_type: "release",
     correlation_id: correlation,
-    expected_money_states: ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"],
+    expected_money_states: ["AuthHeld", "AuthLocked", "ChargeFailedRecovery", "ChargeAttempt"],
     provider_reference: providerReference || null
   });
   if (!armed) return;
@@ -3917,40 +3925,126 @@ async function enqueueRefundReceiptForParticipant(participantId: string, dealId:
 }
 
 /**
- * R-11 — every participant whose money is canonically captured on a Completed
- * deal must be DealCompleted (receipt + fulfillment). Runs when finalize is
- * retried on a deal that is already Completed; every step is idempotent.
+ * R-11 (independent financial review) — every participant whose money is
+ * canonically captured on a Completed deal must be DealCompleted (receipt +
+ * fulfillment) even when finalize is retried on a deal that is already
+ * Completed.
+ *
+ * R9C ROUND 4 (F-14 / F-15) — everything a Completed deal owes its
+ * participants, in ONE idempotent routine used by the fresh finalize and by
+ * every retry of it: paid participants → DealCompleted, unpaid ones →
+ * DealFailed (guarded against an armed capture, F-15), held authorizations
+ * released, notifications, receipts, fulfillment and payout enqueued. Each
+ * step is idempotent (idempotency keys, ON CONFLICT, one-pending indexes), so
+ * a finalize that aborted mid-loop — its participant CAS raced a capture that
+ * landed between the read and the write — converges on retry without leaving
+ * the siblings after the conflict non-terminal on a Completed deal with their
+ * holds never released (the R-11 retry path used to complete PAID participants
+ * only).
  */
-async function completeParticipantsOfCompletedDeal(dealId: string, eventId: string) {
-  const late = await withTx(async (c) => {
+async function applyCompletedDealOutcome(dealId: string, eventId: string) {
+  const participants = await withTx(async (c) => {
     const r = await c.query(
-      `SELECT participant_id, buyer_state FROM siton.participants
-       WHERE deal_id=$1 AND buyer_state IN ('ChargedSuccess','Recovered') AND money_state IN ('ChargedSuccess','RecoveredCharge')`,
+      `SELECT participant_id, buyer_state
+       FROM siton.participants
+       WHERE deal_id=$1`,
       [dealId]
     );
     return r.rows as Array<{ participant_id: string; buyer_state: BuyerState }>;
   });
-  for (const p of late) {
-    await atomicTransition({
-      entityType: "participant",
-      entityId: p.participant_id,
-      dealId,
-      stateType: "buyer_state",
-      fromState: p.buyer_state,
-      toState: "DealCompleted",
-      actionName: "deal.complete_participant",
-      requestId: `worker:${eventId}`,
-      idempotencyKey: `p-dealcompleted:${dealId}:${p.participant_id}`,
-      outbox: null
-    });
+
+  for (const p of participants) {
+    if (p.buyer_state === "ChargedSuccess" || p.buyer_state === "Recovered") {
+      await atomicTransition({
+        entityType: "participant",
+        entityId: p.participant_id,
+        dealId,
+        stateType: "buyer_state",
+        fromState: p.buyer_state,
+        toState: "DealCompleted",
+        actionName: "deal.complete_participant",
+        requestId: `worker:${eventId}`,
+        idempotencyKey: `p-dealcompleted:${dealId}:${p.participant_id}`,
+        outbox: null
+      });
+    } else if (BUYER_TRANSITIONS[p.buyer_state]?.includes("DealFailed")) {
+      await atomicTransition({
+        entityType: "participant",
+        entityId: p.participant_id,
+        dealId,
+        stateType: "buyer_state",
+        fromState: p.buyer_state,
+        toState: "DealFailed",
+        actionName: "deal.fail_participant_after_completed",
+        requestId: `worker:${eventId}`,
+        idempotencyKey: `p-fail-after-completed:${dealId}:${p.participant_id}:${p.buyer_state}`,
+        outbox: null,
+        // R9C ROUND 4 (F-15) — a participant is failed ONLY if no capture-side
+        // identity of theirs is minted, armed or executed. The capture rail
+        // mints and arms an identity under the participant/deal advisory lock
+        // and its arm requires buyer_state ChargingAttempt; taking the SAME
+        // lock here, before the check and the CAS, serializes the two: either
+        // the rail committed first (its row is visible here → abort, the job
+        // retries, the F-2 gate then defers on the identity) or this
+        // DealFailed commits first (the arm reads it and refuses). A plain
+        // read without the lock is NOT enough — an arm landing between the
+        // read and the CAS still slipped through, which left a charged buyer
+        // marked failed with no refund path.
+        insideTx: async (c) => {
+          await lockParticipantDealInTx(c, p.participant_id, dealId);
+          const armed = await c.query(
+            `SELECT correlation_id, result_class FROM siton.payment_attempts
+             WHERE participant_id=$1 AND deal_id=$2 AND attempt_type IN ('charge_start','recovery')
+               AND result_class <> 'permanent_fail' LIMIT 1`,
+            [p.participant_id, dealId]
+          );
+          if (armed.rowCount) {
+            // deferred, not failed: a deferral burns no outbox attempt (the
+            // identity resolves through its own rail / the reconcile sweeper,
+            // then this retry completes or fails the participant on truth)
+            throw new DeferredEventError(
+              `finalize_participant_capture_in_flight participant ${p.participant_id} identity ${armed.rows[0].correlation_id} is ${armed.rows[0].result_class}`,
+              new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)
+            );
+          }
+        }
+      });
+    }
+  }
+
+  await cleanupObsoleteDealOutboxEvents(dealId);
+  // Unrecovered participants on a completed deal still hold an uncaptured
+  // authorization — release it (Worker-owned, provider-proofed).
+  await scheduleAuthorizationReleasesForDeal(dealId, "deal_completed_unrecovered");
+
+  // Notify participants: deal_completed for DealCompleted, deal_failed for DealFailed
+  const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
+  const dealTitle = String(dealTitleRow.rows[0]?.title || "");
+  const allParticipants = await withTx(async (c) => {
+    const r = await c.query(
+      `SELECT participant_id, buyer_id, buyer_state FROM siton.participants WHERE deal_id=$1`,
+      [dealId]
+    );
+    return r.rows as Array<{ participant_id: string; buyer_id: string; buyer_state: string }>;
+  });
+  const completedParticipants = allParticipants.filter(p => p.buyer_state === "DealCompleted");
+  const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
+  await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
+  await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
+  await enqueueSellerNotification("seller_deal_completed", dealId, dealTitle, console);
+  await enqueueSellerNotification("seller_excel_ready", dealId, dealTitle, console);
+  // Issue charge receipts for every DealCompleted participant (money settled, deal succeeded)
+  for (const p of completedParticipants) {
     await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
   }
-  if (late.length > 0) {
-    await issueFulfillmentForCompletedDeal(dealId).catch((error) => {
-      console.error("[fulfillment] late issuance failed for deal", dealId, error);
-    });
-  }
-  return late.length;
+  // Issue fulfillment units (vouchers / tickets / physical placeholders).
+  // Strict rule: this only runs after deal_state=Completed and only for
+  // participants whose money_state ∈ {ChargedSuccess,RecoveredCharge}.
+  // Idempotent — safe under retry. Failure here does not roll back the deal.
+  await issueFulfillmentForCompletedDeal(dealId).catch((error) => {
+    console.error("[fulfillment] issuance failed for deal", dealId, error);
+  });
+  await payoutRail.enqueuePrepareForDeal(dealId).catch(() => undefined);
 }
 
 async function handleFinalizeDealEvent(
@@ -3982,8 +4076,11 @@ async function handleFinalizeDealEvent(
     // R-11 (independent financial review): a finalize job retried after the deal
     // was completed (its participant transition raced a capture that became
     // canonical between the participant read and the CAS) must still leave every
-    // paid participant DealCompleted — with receipt and fulfillment. Idempotent.
-    await completeParticipantsOfCompletedDeal(dealId, eventId);
+    // paid participant DealCompleted — with receipt and fulfillment.
+    // R9C ROUND 4 (F-14): and every UNPAID sibling DealFailed with its hold
+    // released — the whole completed-deal outcome, idempotently, not only the
+    // paid half (a retry after a mid-loop abort used to strand the rest).
+    await applyCompletedDealOutcome(dealId, eventId);
     return;
   }
   if (dealRow.state !== "CompletionWindow") return;
@@ -4175,79 +4272,7 @@ async function handleFinalizeDealEvent(
       payload: { decision }
     });
 
-    const participants = await withTx(async (c) => {
-      const r = await c.query(
-        `SELECT participant_id, buyer_state
-         FROM siton.participants
-         WHERE deal_id=$1`,
-        [dealId]
-      );
-      return r.rows as Array<{ participant_id: string; buyer_state: BuyerState }>;
-    });
-
-    for (const p of participants) {
-      if (p.buyer_state === "ChargedSuccess" || p.buyer_state === "Recovered") {
-        await atomicTransition({
-          entityType: "participant",
-          entityId: p.participant_id,
-          dealId,
-          stateType: "buyer_state",
-          fromState: p.buyer_state,
-          toState: "DealCompleted",
-          actionName: "deal.complete_participant",
-          requestId: `worker:${eventId}`,
-          idempotencyKey: `p-dealcompleted:${dealId}:${p.participant_id}`,
-          outbox: null
-        });
-      } else if (BUYER_TRANSITIONS[p.buyer_state]?.includes("DealFailed")) {
-        await atomicTransition({
-          entityType: "participant",
-          entityId: p.participant_id,
-          dealId,
-          stateType: "buyer_state",
-          fromState: p.buyer_state,
-          toState: "DealFailed",
-          actionName: "deal.fail_participant_after_completed",
-          requestId: `worker:${eventId}`,
-          idempotencyKey: `p-fail-after-completed:${dealId}:${p.participant_id}:${p.buyer_state}`,
-          outbox: null
-        });
-      }
-    }
-
-    await cleanupObsoleteDealOutboxEvents(dealId);
-    // Unrecovered participants on a completed deal still hold an uncaptured
-    // authorization — release it (Worker-owned, provider-proofed).
-    await scheduleAuthorizationReleasesForDeal(dealId, "deal_completed_unrecovered");
-
-    // Notify participants: deal_completed for DealCompleted, deal_failed for DealFailed
-    const dealTitleRow = await pool.query(`SELECT title FROM siton.deals WHERE deal_id=$1`, [dealId]);
-    const dealTitle = String(dealTitleRow.rows[0]?.title || "");
-    const allParticipants = await withTx(async (c) => {
-      const r = await c.query(
-        `SELECT participant_id, buyer_id, buyer_state FROM siton.participants WHERE deal_id=$1`,
-        [dealId]
-      );
-      return r.rows as Array<{ participant_id: string; buyer_id: string; buyer_state: string }>;
-    });
-    const completedParticipants = allParticipants.filter(p => p.buyer_state === "DealCompleted");
-    const failedParticipants = allParticipants.filter(p => p.buyer_state === "DealFailed");
-    await enqueueParticipantNotifications("deal_completed", completedParticipants, dealId, dealTitle, console);
-    await enqueueParticipantNotifications("deal_failed", failedParticipants, dealId, dealTitle, console);
-    await enqueueSellerNotification("seller_deal_completed", dealId, dealTitle, console);
-    await enqueueSellerNotification("seller_excel_ready", dealId, dealTitle, console);
-    // Issue charge receipts for every DealCompleted participant (money settled, deal succeeded)
-    for (const p of completedParticipants) {
-      await enqueueChargeReceiptForParticipant(p.participant_id, dealId).catch(() => undefined);
-    }
-    // Issue fulfillment units (vouchers / tickets / physical placeholders).
-    // Strict rule: this only runs after deal_state=Completed and only for
-    // participants whose money_state ∈ {ChargedSuccess,RecoveredCharge}.
-    // Idempotent — safe under retry. Failure here does not roll back the deal.
-    await issueFulfillmentForCompletedDeal(dealId).catch((error) => {
-      console.error("[fulfillment] issuance failed for deal", dealId, error);
-    });
-    await payoutRail.enqueuePrepareForDeal(dealId).catch(() => undefined);
+    await applyCompletedDealOutcome(dealId, eventId);
     return;
   }
 

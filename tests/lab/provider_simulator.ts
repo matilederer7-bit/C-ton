@@ -95,6 +95,18 @@ export type ProviderRequestRecord = {
   effect_applied: boolean;
   replayed: boolean;
   answered: string;
+  /**
+   * R9C ROUND 4 — status reads only: what the provider DECLARED in that answer,
+   * recorded at answer time so the dispatch-legality oracle can order evidence
+   * by provider position without inferring anything from the app's rows.
+   *   state / final     the declared settled state and its finality
+   *   delivered         false when the answer was held past the client timeout
+   *   reference_ok      false when the body names another (or no) reference
+   *   amount_ok         false when the body carries a foreign amount / currency
+   * A read that is not delivered, not final, mis-referenced or mis-amounted is
+   * NOT evidence of anything.
+   */
+  declared?: { operation: string; state: string | null; final: boolean | null; delivered: boolean; reference_ok: boolean; amount_ok: boolean } | null;
 };
 
 export type ProviderLedgerSnapshot = {
@@ -271,7 +283,22 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
           const reference = decodeURIComponent(url.pathname.slice("/status/".length)).replace(/^(cap|rec|ref|rel)-/, "");
           const operation = url.searchParams.get("operation") || "capture";
           const answer = statusFor(reference, operation);
-          record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode) });
+          // R9C ROUND 4 — record what this answer DECLARES (state, finality) and
+          // whether the app could even use it, so the oracle orders status
+          // evidence by provider position instead of trusting app rows.
+          let declaredBody: any = null;
+          try { declaredBody = answer.body ? JSON.parse(answer.body) : null; } catch { declaredBody = null; }
+          const truthAmount = (effects.get(reference) || emptyCounters());
+          const expectedAmount = operation === "refund" ? (truthAmount.refund_amount_minor || truthAmount.capture_amount_minor) : truthAmount.capture_amount_minor + truthAmount.recover_amount_minor;
+          const declared = {
+            operation,
+            state: declaredBody && typeof declaredBody.state === "string" ? declaredBody.state : null,
+            final: declaredBody && typeof declaredBody.final === "boolean" ? declaredBody.final : null,
+            delivered: answer.statusCode === 200 && declaredBody !== null && !(answer.hold && answer.hold > clientTimeoutMs),
+            reference_ok: Boolean(declaredBody && declaredBody.provider_reference === reference),
+            amount_ok: Boolean(declaredBody && (declaredBody.amount_minor === null || declaredBody.amount_minor === undefined || declaredBody.amount_minor === expectedAmount) && (declaredBody.currency === undefined || declaredBody.currency === "ILS"))
+          };
+          record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode), declared });
           if (answer.hold) await sleep(answer.hold);
           if (res.destroyed || socket.destroyed) return;
           res.statusCode = answer.statusCode;

@@ -150,7 +150,11 @@ async function execute(sc: Scenario): Promise<{ dealId: string; effects: number 
   const allowed = ["PROVIDER_SUCCESS_INVISIBLE", "LOST_PROVIDER_EFFECT", "UNRESOLVED_AT_QUIESCENCE", "FALSE_CANONICAL_REFUND"];
   // A capture that a lying/late provider first declared failed may legitimately end as
   // ChargeFailedRecovery with a case and a captured effect (F-1 keeps it at one effect).
-  await lab.oracle(`fuzz:${sc.index}`, [d.deal_id], { allowUnresolved: true, allowedCodes: allowed, print: false });
+  // LAB_FUZZ_TRACE=1 — the provider's own request log per participant (seq order), printed BEFORE the verdict
+  if (process.env.LAB_FUZZ_TRACE) for (const p of d.participants) console.log(`FUZZ_PROVIDER_LOG index=${sc.index} participant=${p.participant_id} ${JSON.stringify(lab.sim.requestsOf(p.authorization))} rows=${JSON.stringify(await lab.attempts(p.participant_id))}`);
+  const report = await lab.oracle(`fuzz:${sc.index}`, [d.deal_id], { allowUnresolved: true, allowedCodes: allowed, print: false });
+  // LAB_FUZZ_TRACE=1 prints every dispatch judgement (identity, provider position, the pre-dispatch evidence relied on, verdict)
+  if (process.env.LAB_FUZZ_TRACE) console.log(`FUZZ_JUDGEMENTS index=${sc.index} ${JSON.stringify(report.dispatch_judgements)}`);
   // Hard invariants regardless of allowances: never more than one capture-side, one refund, one release per participant.
   for (const p of d.participants) {
     const e = lab.sim.effectsOf(p.authorization);
@@ -158,24 +162,21 @@ async function execute(sc: Scenario): Promise<{ dealId: string; effects: number 
     assert.ok(e.refund <= 1, `DUPLICATE_REFUND for ${p.participant_id}`);
     assert.ok(e.release <= 1, `DUPLICATE_RELEASE for ${p.participant_id}`);
     assert.ok(!(e.release > 0 && e.capture + e.recover > 0), `RELEASE_AND_CAPTURE for ${p.participant_id}`);
+    // R9C ROUND 4 — repeat legality is judged AT DISPATCH TIME by the oracle
+    // (tests/lab/dispatch_legality.ts) from evidence positioned before each
+    // dispatch. The former assertion here read the FINAL row and exempted a
+    // late_money_effect note — future evidence deciding a past dispatch — and
+    // was the temporal leak Codex rejected. What remains is a hard check that
+    // the oracle actually judged every repeat of this participant and that
+    // every non-first dispatch names the pre-dispatch evidence it relied on.
+    const judgements = report.dispatch_judgements.filter((j) => j.participant_id === p.participant_id);
     const keys = lab.sim.distinctKeys(p.authorization, OP[sc.flow]);
     if (keys.length > 1) {
-      const rows = await lab.attempts(p.participant_id);
-      // The invariant is the state of the previous identity AT DISPATCH TIME: a
-      // repeat is legal only after that identity was provider-declared failed.
-      // Reading the FINAL state alone would flag an identity that was
-      // permanent_fail when the repeat was dispatched and only later converged
-      // to success, because a late provider event proved the money had moved
-      // after all. That convergence is required elsewhere — it is what blocks a
-      // release of money that really moved (FR-3) — and it is identifiable by
-      // its late_money_effect note. Same order-awareness as tests/lab/oracle.ts.
-      for (let i = 1; i < keys.length; i += 1) {
-        const prev = rows.find((r) => r.correlation_id === keys[i - 1]);
-        const convergedLate = prev?.result_class === "success" && String(prev?.outcome_note || "").startsWith("late_money_effect:");
-        assert.ok(
-          prev?.result_class === "permanent_fail" || convergedLate,
-          `AUTOMATIC_REPEAT for ${p.participant_id}: ${keys.join("|")} (previous is ${prev?.result_class ?? "absent"} note=${prev?.outcome_note ?? "none"})`
-        );
+      const repeats = judgements.filter((j) => j.verdict !== "first");
+      assert.ok(repeats.length >= keys.length - 1, `oracle judged ${repeats.length} repeat(s) for ${p.participant_id} but the provider saw ${keys.length} identities: ${keys.join("|")}`);
+      for (const j of repeats) {
+        assert.equal(j.verdict, "legal", `AUTOMATIC_REPEAT for ${p.participant_id}: ${j.detail}`);
+        assert.ok(j.evidence, `repeat ${j.identity} judged legal without named pre-dispatch evidence`);
       }
     }
   }

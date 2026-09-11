@@ -13,7 +13,15 @@
  * correction (RM-1 restores the `/^[a-z]{3}-/i` alias that made a foreign
  * `xyz-` reference look like the queried authorization).
  *
- * Usage:  node scripts/review_mutation_proof.cjs [RM-1 RM-2 ...]
+ * R9C ROUND 4 — ORACLE mutants (OM-*). The dispatch-time legality oracle
+ * (tests/lab/dispatch_legality.ts + tests/lab/oracle.ts) is itself a defence
+ * that must be proven non-vacuous: each OM mutant re-introduces one way an
+ * oracle can be fooled by hindsight — evidence from after the dispatch, the
+ * round-3 late_money_effect exemption, UNKNOWN read as failed — and the
+ * temporal negative controls MUST go red. These mutate TEST source only; the
+ * src/ clean-tree guard still applies and the exact bytes are restored.
+ *
+ * Usage:  node scripts/review_mutation_proof.cjs [RM-1 RM-2 ... OM-1a ...]
  */
 
 const fs = require("node:fs");
@@ -165,6 +173,71 @@ const MUTANTS = [
       }
     ],
     suites: ["review_payment_reference_identity_rails_validation.ts"]
+  },
+  // ── R9C ROUND 4 — oracle soundness mutants (test source) ──────────────────
+  {
+    id: "OM-1a",
+    invariant: "M1: a status read positioned AFTER a dispatch never counts as evidence for that dispatch",
+    layer: "dispatch_legality E2 provider-order guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `      for (const r of requests) {
+        if (r.seq >= before.seq) break;
+        if (r.seq <= target.seq) continue;`,
+        // hindsight: the E2 scan no longer stops at the dispatch position
+        to: `      for (const r of requests) {
+        if (r.seq <= target.seq) continue;`
+      }
+    ],
+    suites: ["review_oracle_temporal_negative_validation.ts"]
+  },
+  {
+    id: "OM-1b",
+    invariant: "M1: an operator verdict or provider callback recorded AFTER the arm instant never counts as evidence for that dispatch",
+    layer: "dispatch_legality E3/E4 arm-instant guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `      if (operatorAt !== null && operatorAt <= armedAt) return { kind: "operator", at: new Date(operatorAt).toISOString() };`,
+        to: `      if (operatorAt !== null) return { kind: "operator", at: new Date(operatorAt).toISOString() };`
+      },
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `        if (at === null || at >= armedAt) continue;
+        if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`,
+        to: `        if (at === null) continue;
+        if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`
+      }
+    ],
+    suites: ["review_oracle_temporal_negative_validation.ts"]
+  },
+  {
+    id: "OM-2",
+    invariant: "M2: a late_money_effect note on the previous identity is NOT pre-dispatch failure evidence (the round-3 exemption Codex rejected)",
+    layer: "oracle.ts final-note exemption re-introduced",
+    edits: [
+      {
+        file: "tests/lab/oracle.ts",
+        from: `      for (const x of legality.violations) v(x.code, pid, x.detail);`,
+        to: `      const convergedLate = attempts.some((a) => a.result_class === "success" && String(a.outcome_note || "").startsWith("late_money_effect:"));
+      for (const x of legality.violations) if (!(convergedLate && x.code === "AUTOMATIC_REPEAT_WHILE_UNKNOWN")) v(x.code, pid, x.detail);`
+      }
+    ],
+    suites: ["review_oracle_temporal_negative_validation.ts"]
+  },
+  {
+    id: "OM-3",
+    invariant: "M3: an UNKNOWN / ambiguous provider answer (5xx, pending) is never read as a declared failure",
+    layer: "dispatch_legality isDeclaredFailure",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `  if (answered === "200-ok-false") return true;`,
+        to: `  if (answered === "200-ok-false" || answered === "503" || answered === "200-pending" || answered === "lost") return true;`
+      }
+    ],
+    suites: ["review_oracle_temporal_negative_validation.ts"]
   }
 ];
 
