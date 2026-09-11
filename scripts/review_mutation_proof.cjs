@@ -72,21 +72,10 @@ const MUTANTS = [
     ],
     suites: ["review_payment_reference_identity_rails_validation.ts"]
   },
-  {
-    id: "RM-5",
-    invariant: "a SECOND capture for one obligation is escalated, never absorbed as an idempotent replay",
-    layer: "recordLateMoneyEffectException dual-capture detection (F-12, fixed by this review)",
-    edits: [
-      {
-        file: "src/app.ts",
-        from: `  const dualCapture =
-    captureEffect && capturedMoneyStates.includes(moneyState) && (await captureSideDualSuccess(args.target, args.event));`,
-        to: `  const dualCapture =
-    captureEffect && capturedMoneyStates.includes(moneyState) && Number(1) === 2 && (await captureSideDualSuccess(args.target, args.event));`
-      }
-    ],
-    suites: ["review_payment_dual_capture_escalation_validation.ts"]
-  },
+  // RM-5 (round 1: "a SECOND capture is escalated, never absorbed as a replay")
+  // is RETIRED: the predicate it mutated (captureSideDualSuccess) was replaced in
+  // round 2 by the identity-COUNTING predicate, which RM-6 mutates. Keeping a
+  // mutant whose anchor no longer exists would abort the whole run (ANCHOR_MISSING).
   {
     id: "RM-6",
     invariant: "dual capture is decided by COUNTING distinct executed capture-side identities, not by a replay test that its own evidence defeats",

@@ -117,7 +117,14 @@ K refund after declared capture. Every control asserts its chronology and its ve
 | OM-2 | M2 — the round-3 `late_money_effect` exemption | control B |
 | OM-3 | M3 — 5xx / pending / lost read as declared failure | control A |
 
-**4/4 killed.** Exact bytes restored after each mutant; compile/setup errors would count as INVALID, never as a kill.
+**4/4 killed.** Compile/setup errors would count as INVALID, never as a kill.
+
+A slip the gate itself caught, recorded rather than hidden: the first round-4 commit (`44b89f4`) still
+carried the first edit of OM-1b, because the harness recorded a file's "original" once **per edit** and a
+mutant with two edits on one file therefore saved the once-mutated bytes and restored those. Control I5
+(operator verdict after the dispatch) went red in the final gate — exactly what it exists for. The guard
+is restored, the harness records each file's original once and verifies the restore byte-exactly
+(`git log`: the correction commit follows `44b89f4`).
 
 ### 1.6 The exact seed and trace 152
 
