@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "description": "Gate catalogue for scripts/release_preflight.cjs. Each gate runs an EXISTING command (no logic duplicated), captures its log, and is classified from its exit code and output markers. `needs`: none | db (local DATABASE_URL) | pgtools | docker | network. `profiles`: which preflight profiles include the gate (static | standard | full). Markers: `skip_markers` map exit 0 + marker to SKIPPED_ENVIRONMENT; `warn_markers` map exit 0 + marker to WARNING.",
+  "profiles": {
+    "static": "no database, no Docker: static scanners, policies, builds",
+    "standard": "static + local database gates (migrations, backup/restore, health, HTTP, route authorization behavioural suites) + Docker lab when available",
+    "full": "standard + the payment and security test groups"
+  },
+  "gates": [
+    { "id": "typescript", "category": "CODE", "command": ["node", "node_modules/typescript/bin/tsc", "--noEmit"], "needs": "none", "profiles": ["static", "standard", "full"], "timeout_ms": 600000 },
+    { "id": "lint-backend-enforcement", "category": "CODE", "command": ["node", "scripts/backend_enforcement_scan.cjs"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "architecture-gate", "category": "CODE", "command": ["node", "scripts/architecture_truth_gate.cjs"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "payment-compliance-scan", "category": "SECURITY", "command": ["node", "scripts/compliance_payment_scan.cjs"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "runtime-ddl-scan", "category": "MIGRATIONS", "command": ["node", "scripts/runtime_ddl_scan.cjs"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "money-tax-canon", "category": "PAYMENTS", "command": ["node", "scripts/money_tax_invoice_gate.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "note": "manual checks listed in the log are inherent (provider template, allocation number)" },
+    { "id": "legal-compliance", "category": "SECURITY", "command": ["node", "scripts/legal_compliance_gate.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["PASS_WITH_WARNINGS"] },
+    { "id": "base44-canonical-integrity", "category": "CODE", "command": ["node", "scripts/base44_canonical_integrity_gate.cjs", "--snapshot", "tests/fixtures/base44_integrity_clean_snapshot.json"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "secret-pii-scan", "category": "SECURITY", "command": ["node", "scripts/secret_pii_scan.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["SECRET_PII_SCAN_SUMMARY scanned=\\d+ fail=0 warning=[1-9]"] },
+    { "id": "logging-hygiene", "category": "SECURITY", "command": ["node", "scripts/logging_hygiene_gate.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "runtime-environment-policy", "category": "INFRA", "command": ["node", "scripts/runtime_environment_gate.cjs", "--all-targets"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "startup-config-matrix", "category": "INFRA", "command": ["node", "scripts/startup_config_matrix.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "no-real-money-proof", "category": "PAYMENTS", "command": ["node", "scripts/proof_no_real_money.cjs"], "needs": "none", "profiles": ["static", "standard", "full"] },
+    { "id": "route-inventory", "category": "SECURITY", "command": ["node", "scripts/route_inventory_report.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "migration-preflight-static", "category": "MIGRATIONS", "command": ["node", "scripts/migration_preflight.cjs", "--skip-db"], "needs": "none", "profiles": ["static"], "warn_markers": ["overall=WARNING"] },
+    { "id": "migration-preflight", "category": "MIGRATIONS", "command": ["node", "scripts/migration_preflight.cjs"], "needs": "db", "profiles": ["standard", "full"], "warn_markers": ["overall=WARNING"], "skip_markers": ["overall=SKIPPED_ENVIRONMENT"], "timeout_ms": 900000 },
+    { "id": "backup-restore-rehearsal", "category": "DATA", "command": ["node", "scripts/db_backup_restore_rehearsal.cjs"], "needs": "pgtools", "profiles": ["standard", "full"], "skip_markers": ["REHEARSAL_SKIPPED_ENVIRONMENT"], "timeout_ms": 600000 },
+    { "id": "route-authorization-behavioural", "category": "SECURITY", "command": ["node", "scripts/ci_route_authorization_gate.cjs"], "needs": "db", "profiles": ["standard", "full"], "timeout_ms": 1200000 },
+    { "id": "health-contract", "category": "INFRA", "command": ["node", "scripts/health_contract_check.cjs"], "needs": "db", "profiles": ["standard", "full"], "skip_markers": ["HEALTH_CONTRACT_SKIPPED_ENVIRONMENT"], "timeout_ms": 300000 },
+    { "id": "http-security-smoke", "category": "SECURITY", "command": ["node", "scripts/http_security_smoke.cjs"], "needs": "db", "profiles": ["standard", "full"], "skip_markers": ["HTTP_SECURITY_SMOKE_SKIPPED_ENVIRONMENT"], "warn_markers": ["overall=WARNING"], "timeout_ms": 300000 },
+    { "id": "build-demo", "category": "CODE", "command": ["node", "scripts/build_demo_bundle.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "timeout_ms": 600000 },
+    { "id": "mobile-pwa-gate", "category": "MOBILE", "command": ["npm", "run", "mobile:verify"], "needs": "none", "profiles": ["static", "standard", "full"], "timeout_ms": 600000 },
+    { "id": "reproducible-build", "category": "CODE", "command": ["node", "scripts/reproducible_build_check.cjs"], "needs": "none", "profiles": ["standard", "full"], "warn_markers": ["overall=WARNING"], "timeout_ms": 900000 },
+    { "id": "repository-hygiene", "category": "CODE", "command": ["node", "scripts/repository_hygiene_check.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "supply-chain", "category": "INFRA", "command": ["node", "scripts/supply_chain_check.cjs"], "needs": "network", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"], "skip_markers": ["overall=SKIPPED_ENVIRONMENT"], "timeout_ms": 600000 },
+    { "id": "docker-readiness-static", "category": "INFRA", "command": ["node", "scripts/docker_readiness_static.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
+    { "id": "release-local-lab", "category": "INFRA", "command": ["node", "scripts/release_local_lab.cjs"], "needs": "docker", "profiles": ["standard", "full"], "skip_markers": ["RELEASE_LOCAL_LAB_SKIPPED_ENVIRONMENT"], "timeout_ms": 1500000 },
+    { "id": "release-tools-tests", "category": "TESTS", "command": ["node", "--test", "tests/release_tools/"], "needs": "db", "profiles": ["standard", "full"], "timeout_ms": 1200000 },
+    { "id": "payment-tests", "category": "PAYMENTS", "command": ["node", "scripts/run_test_group.cjs", "payments"], "needs": "db", "profiles": ["full"], "timeout_ms": 2400000 },
+    { "id": "security-tests", "category": "SECURITY", "command": ["node", "scripts/run_test_group.cjs", "security"], "needs": "db", "profiles": ["full"], "timeout_ms": 2400000 }
+  ]
+}

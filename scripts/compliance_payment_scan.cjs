@@ -20,7 +20,15 @@ const rawCard = require("./lib/raw_card_terms.cjs");
 
 const root = process.cwd();
 const OUT_OF_SCOPE_TOP_LEVEL = new Set(["docs", "tests"]);
-const SELF = new Set(["scripts/compliance_payment_scan.cjs", "scripts/legal_compliance_gate.cjs", "scripts/lib/raw_card_terms.cjs"]);
+// Scanner infrastructure legitimately names the forbidden terms (detector
+// ids, the shared term module). Nothing else is exempt.
+const SELF = new Set([
+  "scripts/compliance_payment_scan.cjs",
+  "scripts/legal_compliance_gate.cjs",
+  "scripts/lib/raw_card_terms.cjs",
+  "scripts/logging_hygiene_gate.cjs",
+  "scripts/secret_pii_scan.cjs"
+]);
 
 function run(options = {}) {
   const scanRoot = options.root || root;
