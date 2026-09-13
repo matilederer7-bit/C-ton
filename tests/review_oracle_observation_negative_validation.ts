@@ -44,7 +44,8 @@
 import { strict as assert } from "node:assert";
 import { auditFinancialTruth } from "./lab/oracle.js";
 import { auditDispatchLegality } from "./lab/dispatch_legality.js";
-import { startProviderSimulator, type ProviderLedgerSnapshot, type ProviderRequestRecord } from "./lab/provider_simulator.js";
+import { startProviderSimulator, type ObservationRecord, type ProviderLedgerSnapshot, type ProviderRequestRecord } from "./lab/provider_simulator.js";
+import { installSitonObserver } from "./lab/siton_observer.js";
 
 const PID = "11111111-1111-4111-8111-111111111111";
 const DID = "22222222-2222-4222-8222-222222222222";
@@ -53,7 +54,7 @@ const T0 = Date.parse("2026-09-11T12:00:00.000Z");
 const T = (msOffset: number) => new Date(T0 + msOffset).toISOString();
 const HORIZON_MS = 1500;
 
-type ObservedRequest = ProviderRequestRecord & { delivered_seq?: number | null; delivered_at?: string | null };
+type ObservedRequest = ProviderRequestRecord & { delivered_seq?: number | null; delivered_at?: string | null; query_id?: string | null };
 type Row = {
   attempt_type: string; correlation_id: string; result_class: string; dispatch_state: string; in_flight: boolean; owner_event_uuid: string | null;
   outcome_note: string | null; dispatched_at: string | null; failure_evidence: string | null; updated_at: string | null; resolved_at: string | null;
@@ -65,18 +66,42 @@ function row(partial: Partial<Row> & { attempt_type: string; correlation_id: str
 }
 /** a money request that ARRIVED at position `seq`; `delivered` = the position at which the provider wrote its answer back (null: never) */
 function money(seq: number, at: string, op: ProviderRequestRecord["op"], key: string, answered: string, effect: boolean, delivered: number | null, deliveredAt?: string, replayed = false): ObservedRequest {
-  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered, delivered_seq: delivered, delivered_at: delivered === null ? null : (deliveredAt ?? at) };
+  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered, delivered_seq: delivered, delivered_at: delivered === null ? null : (deliveredAt ?? at), query_id: null };
 }
 /** a status read that ARRIVED at `seq` (the provider generated its answer then) and was written back at position `delivered` (null: never) */
 function status(seq: number, at: string, operation: string, state: string | null, final: boolean | null, delivered: number | null, deliveredAt?: string): ObservedRequest {
   return { seq, at, op: "status", authorization: AUTH, idempotency_key: `status-${seq}`, amount_minor: null, behavior: `${operation}:control`, effect_applied: false, replayed: false, answered: "200",
-    declared: { operation, state, final, delivered: delivered !== null, reference_ok: true, amount_ok: true }, delivered_seq: delivered, delivered_at: delivered === null ? null : (deliveredAt ?? at) };
+    declared: { operation, state, final, delivered: delivered !== null, reference_ok: true, amount_ok: true }, delivered_seq: delivered, delivered_at: delivered === null ? null : (deliveredAt ?? at), query_id: `q${seq}` };
+}
+// R9C ROUND 6 — synthetic observations derived from the story's positions, on
+// a ×10 scale so that Siton-side events sit BETWEEN the provider's positions:
+//   dispatch_sent      = seq×10 − 1   (the app sent D just before the provider received it)
+//   status/dispatch_received = delivered×10 + 1   (the app parsed the answer right after the provider wrote it — instantaneous transport)
+//   verdict_recorded   = after×10 + 5 (the app committed the verdict after the position `after`, before the next provider position)
+// A story that needs a Siton-side verdict lists it in `verdicts` explicitly;
+// nothing is derived from resolved_at any more.
+type Verdict = { identity: string; after: number; result_class?: "permanent_fail" | "success" };
+function observationsFor(requests: ProviderRequestRecord[], verdicts: Verdict[] | undefined): ObservationRecord[] {
+  const out: ObservationRecord[] = [];
+  for (const r of requests) {
+    const at = r.at;
+    if (r.op === "status") { if (r.delivered_seq !== null && r.delivered_seq !== undefined) out.push({ seq: r.delivered_seq * 10 + 1, at, kind: "status_received", process: "lab", query_id: `q${r.seq}` }); }
+    else if (["capture", "recover", "refund", "release"].includes(r.op)) {
+      out.push({ seq: r.seq * 10 - 1, at, kind: "dispatch_sent", process: "lab", op: r.op, key: r.idempotency_key });
+      if (r.delivered_seq !== null && r.delivered_seq !== undefined) out.push({ seq: r.delivered_seq * 10 + 1, at, kind: "dispatch_received", process: "lab", op: r.op, key: r.idempotency_key });
+    }
+  }
+  for (const v of verdicts || []) out.push({ seq: v.after * 10 + 5, at: "", kind: "verdict_recorded", process: "lab", identities: [v.identity], result_class: v.result_class || "permanent_fail" });
+  return out;
+}
+function scaledRequests(requests: ProviderRequestRecord[]): ProviderRequestRecord[] {
+  return requests.map((r) => ({ ...r, seq: r.seq * 10, delivered_seq: r.delivered_seq === null || r.delivered_seq === undefined ? null : r.delivered_seq * 10, query_id: r.op === "status" ? `q${r.seq}` : null }));
 }
 
 type History = {
   name: string;
   money_state: string; buyer_state: string; deal_state: string;
-  rows: Row[]; requests: ObservedRequest[]; callbacks?: Callback[]; cases?: number;
+  rows: Row[]; requests: ObservedRequest[]; verdicts?: Verdict[]; callbacks?: Callback[]; cases?: number;
   effects: { capture: number; recover: number; refund: number; release: number; capture_amount_minor: number; recover_amount_minor: number; refund_amount_minor: number };
   expect: { verdict: "reject" | "accept"; codes?: string[]; forbid?: string[] };
   chronology: () => void;
@@ -92,7 +117,7 @@ async function judge(h: History) {
     if (["platform_fee_money_events", "audit_log", "outbox_events", "outbox_dlq"].some((t) => sql.includes(`FROM siton.${t}`))) return { rows: [] };
     throw new Error(`Unexpected oracle query: ${sql.slice(0, 80)}`);
   } };
-  const provider: ProviderLedgerSnapshot = { effects: { [AUTH]: h.effects }, totals: h.effects, requests: h.requests as ProviderRequestRecord[] };
+  const provider: ProviderLedgerSnapshot = { effects: { [AUTH]: h.effects }, totals: h.effects, requests: scaledRequests(h.requests as ProviderRequestRecord[]), observations: observationsFor(h.requests as ProviderRequestRecord[], h.verdicts) };
   return auditFinancialTruth(pool, {
     label: `observation:${h.name}`, dealIds: [DID], provider, vat: { product_rate: 0, delivery_rate: 0, platform_fee_vat_rate: 0.18 }, seededStates: true, allowUnresolved: true,
     dispatchLegality: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true }
@@ -139,6 +164,7 @@ const histories: History[] = [
       status(3, T(2000), "capture", "authorized", true, 4, T(2050)),          // written back at position 4, before K2
       money(5, T(3000), "capture", K2, "200", true, 6)
     ],
+    verdicts: [{ identity: K1, after: 4 }],                                   // round 6: Siton committed the verdict it drew from that answer before K2
     expect: { verdict: "accept", forbid: REPEAT },
     chronology() { assert.ok(4 < 5, "status delivered (4) before K2 arrived (5)"); assert.ok(Date.parse(T(2100)) <= Date.parse(T(2990)), "verdict recorded before K2 was armed"); }
   },
@@ -250,6 +276,7 @@ const histories: History[] = [
       status(3, T(1600), "capture", "failed", true, 4, T(1620)),
       money(5, T(1710), "recover", R1, "200", true, 6)
     ],
+    verdicts: [{ identity: K1, after: 4 }],
     expect: { verdict: "accept", forbid: REPEAT },
     chronology() { assert.ok(4 < 5 && Date.parse(T(1650)) <= Date.parse(T(1700)), "observed and recorded before the recovery"); }
   },
@@ -265,6 +292,7 @@ const histories: History[] = [
       money(1, T(10), "capture", K1, "402", false, 2, T(30)),
       money(3, T(1010), "capture", K2, "200", true, 4)
     ],
+    verdicts: [{ identity: K1, after: 2 }],
     expect: { verdict: "accept", forbid: REPEAT },
     chronology() { assert.ok(2 < 3 && Date.parse(T(40)) <= Date.parse(T(1000)), "decline returned and recorded before K2"); }
   },
@@ -328,6 +356,7 @@ const histories: History[] = [
       money(1, T(10), "capture", K1, "503", false, 2),                        // ambiguous answer, delivered
       money(3, T(1010), "capture", K2, "200", true, 4)
     ],
+    verdicts: [{ identity: K1, after: 2 }],                                    // Siton even committed a verdict — only the 503's ambiguity can reject
     expect: { verdict: "reject", codes: REPEAT },
     chronology() { assert.ok(2 < 3, "delivered before K2 — only its ambiguity can reject it"); }
   },
@@ -344,6 +373,7 @@ const histories: History[] = [
       status(3, T(2000), "capture", "authorized", false, 4, T(2050)),         // delivered, post-horizon, a non-executed STATE — but NOT final → unknown
       money(5, T(3000), "capture", K2, "200", true, 6)
     ],
+    verdicts: [{ identity: K1, after: 4 }],                                    // received and recorded — only its non-finality can reject
     expect: { verdict: "reject", codes: REPEAT },
     chronology() { assert.ok(4 < 5, "delivered before K2 — only its non-finality can reject it"); }
   },
@@ -365,6 +395,8 @@ const histories: History[] = [
 async function realSimulatorHeldStatus(): Promise<{ reject: boolean; accept: boolean; detail: Record<string, unknown> }> {
   const sim = startProviderSimulator({ clientTimeoutMs: 2000 });
   const base = await sim.ready;
+  // round 6: the Siton-side observer records what THIS process received / sent, on the simulator's sequencer
+  const observer = installSitonObserver({ providerBaseUrl: base, observe: (e) => sim.observe(e), process: "lab" });
   const auth = "auth-observation-real";
   const send = async (key: string) => {
     const response = await fetch(`${base}/capture`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ authorization_id: auth, amount_minor: 4200 }) });
@@ -377,7 +409,7 @@ async function realSimulatorHeldStatus(): Promise<{ reject: boolean; accept: boo
       row({ attempt_type: "charge_start", correlation_id: "second", result_class: "success", dispatched_at: new Date(Date.parse(captures[1]!.at) - 1).toISOString(), updated_at: new Date(Date.parse(captures[1]!.at) + 5).toISOString() })
     ];
   };
-  const legalityOf = (requests: ObservedRequest[], rows: Row[]) => auditDispatchLegality({ authorization: auth, requests: requests as any, rows: rows as any, callbacks: [], policy: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true } });
+  const legalityOf = (requests: ObservedRequest[], rows: Row[]) => auditDispatchLegality({ authorization: auth, requests: requests as any, observations: sim.snapshot().observations, rows: rows as any, callbacks: [], policy: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true } });
   try {
     // ── unsafe chronology: T1 pending capture · T2 status query · T3 provider generated authorized/final · T4 second capture · T5 delivery ──
     sim.script(auth, "capture", [{ kind: "PENDING_NO_EFFECT" }, { kind: "SUCCESS" }]);
@@ -403,18 +435,19 @@ async function realSimulatorHeldStatus(): Promise<{ reject: boolean; accept: boo
     const auth2 = "auth-observation-real-control";
     sim.script(auth2, "capture", [{ kind: "PENDING_NO_EFFECT" }, { kind: "SUCCESS" }]);
     const send2 = async (key: string) => (await fetch(`${base}/capture`, { method: "POST", headers: { "content-type": "application/json", "idempotency-key": key }, body: JSON.stringify({ authorization_id: auth2, amount_minor: 4200 }) })).json();
-    await send2("first");
+    await send2("control-first");                                                       // identities are globally unique: the observer keys on them
     await new Promise((r) => setTimeout(r, HORIZON_MS + 50));
     sim.scriptStatus(auth2, [{ kind: "TIMEOUT", holdMs: 300 }]);
-    await fetch(`${base}/status/${auth2}?operation=capture`).then((r) => r.json());       // delivered (awaited)
+    await fetch(`${base}/status/${auth2}?operation=capture`).then((r) => r.json());       // delivered AND received (awaited, parsed)
     const recordedAt = new Date().toISOString();
+    sim.observe({ kind: "verdict_recorded", process: "lab", identities: ["control-first"], result_class: "permanent_fail" });   // Siton committed the verdict it drew from it
     await new Promise((r) => setTimeout(r, 20));
-    await send2("second");
+    await send2("control-second");
     const controlRequests = sim.snapshot().requests.filter((r) => r.authorization === auth2) as ObservedRequest[];
-    const control = auditDispatchLegality({ authorization: auth2, requests: controlRequests as any, rows: rowsFor(controlRequests, recordedAt) as any, callbacks: [], policy: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true } });
+    const control = auditDispatchLegality({ authorization: auth2, requests: controlRequests as any, observations: sim.snapshot().observations, rows: rowsFor(controlRequests, recordedAt) as any, callbacks: [], policy: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true } });
     const accept = !control.violations.some((v) => v.code === "AUTOMATIC_REPEAT_WHILE_UNKNOWN");
     return { reject, accept, detail: { status_delivered_when_second_dispatched: false, status_body_state: statusBody?.state, requests_at_dispatch: atDispatch, final_requests: finalRequests, unsafe_judgements: unsafe.judgements, unsafe_violations: unsafe.violations, control_violations: control.violations, effects: sim.effectsOf(auth) } };
-  } finally { await sim.close(); }
+  } finally { observer.uninstall(); await sim.close(); }
 }
 
 // ── run ──────────────────────────────────────────────────────────────────────

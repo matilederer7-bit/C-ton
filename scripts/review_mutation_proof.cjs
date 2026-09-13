@@ -234,15 +234,15 @@ const MUTANTS = [
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `      if (operatorAt !== null && operatorAt <= armedAt) return { kind: "operator", at: new Date(operatorAt).toISOString() };`,
-        to: `      if (operatorAt !== null) return { kind: "operator", at: new Date(operatorAt).toISOString() };`
+        from: `        if (operatorAt !== null && operatorAt <= armedAt) return { kind: "operator", at: new Date(operatorAt).toISOString() };`,
+        to: `        if (operatorAt !== null) return { kind: "operator", at: new Date(operatorAt).toISOString() };`
       },
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `        if (at === null || at >= armedAt) continue;
-        if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`,
-        to: `        if (at === null) continue;
-        if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`
+        from: `          if (at === null || at >= armedAt) continue;
+          if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`,
+        to: `          if (at === null) continue;
+          if (!CALLBACK_FAILED[target.family].includes(cb.event_type)) continue;`
       }
     ],
     suites: ["review_oracle_temporal_negative_validation.ts"]
@@ -278,45 +278,102 @@ const MUTANTS = [
     suites: ["review_oracle_observation_negative_validation.ts", "review_oracle_temporal_negative_validation.ts"]
   },
   // ── R9C ROUND 5 — observed-evidence mutants (test source) ─────────────────
+  // ── R9C ROUND 6 — causal-binding mutants (test source). Each re-introduces one
+  // round-5 shortcut; Codex's transport-hold control (T1) and the N-controls
+  // kill them. OM-4/5/6 of round 5 are RE-ANCHORED on the round-6 rules (their
+  // former anchors — observedBefore / recordedBeforeArm — no longer exist).
   {
     id: "OM-4",
-    invariant: "M1: provider-generated == Siton-observed — a provider answer counts from the provider's arrival position instead of its delivery position",
-    layer: "dispatch_legality observedBefore (delivery position)",
+    invariant: "M2: provider creation / write treated as delivery — a status answer counts from the provider's positions instead of Siton's receipt",
+    layer: "dispatch_legality receivedSeqOfStatus (Siton receipt vs provider write)",
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `  return typeof r.delivered_seq === "number" && Number.isFinite(r.delivered_seq) && r.delivered_seq < dispatchSeq;`,
-        // hindsight: the provider's knowledge (arrival seq) is treated as Siton's knowledge
-        to: `  return r.seq < dispatchSeq;`
+        from: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? null : null);`,
+        to: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (typeof r.delivered_seq === "number" ? r.delivered_seq : r.seq);`
       }
     ],
-    suites: ["review_oracle_observation_negative_validation.ts"]
+    suites: ["review_oracle_causal_binding_validation.ts", "review_oracle_observation_negative_validation.ts"]
   },
   {
     id: "OM-5",
-    invariant: "M2: a status/decline answer is usable before (or without) its delivery — an answer the provider never wrote back still counts",
-    layer: "dispatch_legality observedBefore (undelivered answers)",
+    invariant: "M2': an answer Siton never received is usable (a missing receipt reads as received at the start of time)",
+    layer: "dispatch_legality receivedSeqOfStatus (unreceived answers)",
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `  return typeof r.delivered_seq === "number" && Number.isFinite(r.delivered_seq) && r.delivered_seq < dispatchSeq;`,
-        to: `  return r.delivered_seq === null || r.delivered_seq === undefined || r.delivered_seq < dispatchSeq;`
+        from: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? null : null);`,
+        to: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? 0 : 0);`
       }
     ],
-    suites: ["review_oracle_observation_negative_validation.ts"]
+    suites: ["review_oracle_causal_binding_validation.ts"]
   },
   {
     id: "OM-6",
-    invariant: "M3: final DB history used retroactively — a verdict Siton recorded AFTER arming the dispatch still legalises it",
-    layer: "dispatch_legality recordedBeforeArm (DB observation)",
+    invariant: "M1: the response/query causal binding is dropped and the oracle falls back to the identity-level row timestamp (round-5 DB clause) plus the provider's write",
+    layer: "dispatch_legality E2 (binding removed → row updated_at <= arm + delivered_seq)",
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `    if (recordedAt === null || recordedAt > armedAt) return false;`,
-        to: `    if (recordedAt === null) return false;`
+        from: `        const received = receivedSeqOfStatus(r);
+        if (received === null || received >= sent) continue;             // generated / written, but not observed by Siton before D`,
+        to: `        const received = typeof r.delivered_seq === "number" ? r.delivered_seq : null;
+        if (received === null || received >= before.seq) continue;`
+      },
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `        const verdict = durableNegativeVerdict(target, sent);
+        if (!verdict) continue;                                           // observed, but Siton never durably recorded a sourced verdict before D`,
+        to: `        const rowAt = ms(rowByIdentity.get(target.identity)?.updated_at ?? null); const armAt = ms(rowByIdentity.get(before.identity)?.dispatched_at ?? null);
+        const verdict = (rowAt !== null && armAt !== null && rowAt <= armAt) ? { verdict_seq: 0, source: "row-timestamp" } : durableNegativeVerdict(target, sent);
+        if (!verdict) continue;`
       }
     ],
-    suites: ["review_oracle_observation_negative_validation.ts"]
+    suites: ["review_oracle_causal_binding_validation.ts"]
+  },
+  {
+    id: "OM-8",
+    invariant: "M3: delivery treated as durable recording — a received answer counts without any committed verdict",
+    layer: "dispatch_legality E2 durable-verdict requirement",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `        const verdict = durableNegativeVerdict(target, sent);
+        if (!verdict) continue;                                           // observed, but Siton never durably recorded a sourced verdict before D`,
+        to: `        const verdict = durableNegativeVerdict(target, sent) ?? { verdict_seq: received, source: "delivery-counts-as-record" };`
+      }
+    ],
+    suites: ["review_oracle_causal_binding_validation.ts"]
+  },
+  {
+    id: "OM-9",
+    invariant: "M4: any prior verdict on the same identity authorises the repeat by itself — the post-horizon answer no longer has to be received",
+    layer: "dispatch_legality E2 (prior verdict short-circuits the receipt requirement)",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `        const received = receivedSeqOfStatus(r);
+        if (received === null || received >= sent) continue;             // generated / written, but not observed by Siton before D`,
+        to: `        const priorVerdict = obs.verdicts.some((v) => v.result_class === "permanent_fail" && v.identities.includes(target.identity) && v.seq < sent);
+        const received = priorVerdict ? 0 : receivedSeqOfStatus(r);
+        if (received === null || received >= sent) continue;`
+      }
+    ],
+    suites: ["review_oracle_causal_binding_validation.ts"]
+  },
+  {
+    id: "OM-10",
+    invariant: "M4': a verdict counts regardless of what Siton received before committing it (source binding removed)",
+    layer: "dispatch_legality durableNegativeVerdict source binding",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: `    for (const v of candidates) {`,
+        to: `    for (const v of candidates) {
+      if (v.seq >= 0) return { verdict_seq: v.seq, source: "unbound" };`
+      }
+    ],
+    suites: ["review_oracle_causal_binding_validation.ts"]
   },
   {
     id: "OM-7",
@@ -367,7 +424,10 @@ function main() {
         const eol = current.includes("\r\n") ? "\r\n" : "\n";
         const from = normalizeEol(edit.from, eol);
         if (!current.includes(from)) {
-          console.error(`  ANCHOR_MISSING ${mutant.id} in ${edit.file}`);
+          // R9C ROUND 6 — a missing anchor on the SECOND edit of a mutant used to
+          // abort with the first edit still in the tree; restore every original first.
+          for (const [file, original] of originals) fs.writeFileSync(file, original);
+          console.error(`  ANCHOR_MISSING ${mutant.id} in ${edit.file} (tree restored)`);
           process.exit(3);
         }
         fs.writeFileSync(edit.file, current.replace(from, () => normalizeEol(edit.to, eol)));

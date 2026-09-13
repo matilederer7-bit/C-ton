@@ -13,6 +13,7 @@
 import { strict as assert } from "node:assert";
 import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { bootLab, makeRunner, timeout, sleep } from "./lab/runtime.js";
 
 const lab = await bootLab({ tag: "concurrency", port: 3156, simulator: { nativeIdempotency: false }, env: { COMPLETION_WINDOW_MINUTES: "0.2" }, outboxMaxAttempts: 4 });
@@ -177,6 +178,11 @@ function spawnWorker(id: string): WorkerHandle {
   for (const [k, v] of Object.entries(process.env)) if (v !== undefined) env[k] = v;
   delete env.DISABLE_OUTBOX_WORKER;
   Object.assign(env, { WORKER_ID: id, RUNTIME_ROLE: "worker", OUTBOX_POLL_MS: "100", WORKER_CONCURRENCY: "4", WORKER_MONEY_CONCURRENCY: "2", WORKER_HEARTBEAT_MS: "1000", WORKER_LEASE_MS: "5000", WORKER_STUCK_TIMEOUT_MS: "5000", WORKER_RECLAIM_EVERY_POLLS: "2", LOG_LEVEL: "warn" });
+  // R9C ROUND 6 — real worker processes carry the Siton-side observer too, so
+  // what they received / sent / committed is positioned on the simulator's
+  // sequencer exactly like the in-process lab (positions over HTTP).
+  env.LAB_OBSERVER_SIM_URL = String(process.env.PAYMENT_PROVIDER_BASE_URL || "");
+  env.NODE_OPTIONS = `${env.NODE_OPTIONS || ""} --import=${pathToFileURL(path.resolve(".tmp_test_dist", "tests", "lab", "siton_observer_preload.js")).href}`.trim();
   const child = spawn(process.execPath, [path.join(".tmp_test_dist", "src", "worker.js")], { env, stdio: ["ignore", "pipe", "pipe"] });
   const handle: WorkerHandle = { child, id, output: [] };
   child.stdout?.on("data", (c) => handle.output.push(String(c)));

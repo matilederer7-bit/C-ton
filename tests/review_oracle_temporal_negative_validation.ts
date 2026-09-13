@@ -23,7 +23,7 @@
 
 import { strict as assert } from "node:assert";
 import { auditFinancialTruth } from "./lab/oracle.js";
-import type { ProviderLedgerSnapshot, ProviderRequestRecord } from "./lab/provider_simulator.js";
+import type { ObservationRecord, ProviderLedgerSnapshot, ProviderRequestRecord } from "./lab/provider_simulator.js";
 
 const PID = "11111111-1111-4111-8111-111111111111";
 const DID = "22222222-2222-4222-8222-222222222222";
@@ -45,17 +45,41 @@ function row(partial: Partial<Row> & { attempt_type: string; correlation_id: str
 // provider wrote its answer back before anything else happened); the
 // observation-specific controls live in review_oracle_observation_negative_validation.ts.
 function money(seq: number, at: string, op: ProviderRequestRecord["op"], key: string, answered: string, effect: boolean, replayed = false): ProviderRequestRecord {
-  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered, delivered_seq: seq, delivered_at: at };
+  return { seq, at, op, authorization: AUTH, idempotency_key: key, amount_minor: 4200, behavior: answered, effect_applied: effect, replayed, answered, delivered_seq: seq, delivered_at: at, query_id: null };
 }
 function status(seq: number, at: string, operation: string, state: string | null, final: boolean | null, extra: Partial<NonNullable<ProviderRequestRecord["declared"]>> = {}): ProviderRequestRecord {
   return { seq, at, op: "status", authorization: AUTH, idempotency_key: `status-${seq}`, amount_minor: null, behavior: `${operation}:control`, effect_applied: false, replayed: false, answered: "200",
-    declared: { operation, state, final, delivered: true, reference_ok: true, amount_ok: true, ...extra }, delivered_seq: seq, delivered_at: at };
+    declared: { operation, state, final, delivered: true, reference_ok: true, amount_ok: true, ...extra }, delivered_seq: seq, delivered_at: at, query_id: `q${seq}` };
+}
+// R9C ROUND 6 — synthetic observations derived from the story's positions, on
+// a ×10 scale so that Siton-side events sit BETWEEN the provider's positions:
+//   dispatch_sent      = seq×10 − 1   (the app sent D just before the provider received it)
+//   status/dispatch_received = delivered×10 + 1   (the app parsed the answer right after the provider wrote it — instantaneous transport)
+//   verdict_recorded   = after×10 + 5 (the app committed the verdict after the position `after`, before the next provider position)
+// A story that needs a Siton-side verdict lists it in `verdicts` explicitly;
+// nothing is derived from resolved_at any more.
+type Verdict = { identity: string; after: number; result_class?: "permanent_fail" | "success" };
+function observationsFor(requests: ProviderRequestRecord[], verdicts: Verdict[] | undefined): ObservationRecord[] {
+  const out: ObservationRecord[] = [];
+  for (const r of requests) {
+    const at = r.at;
+    if (r.op === "status") { if (r.delivered_seq !== null && r.delivered_seq !== undefined) out.push({ seq: r.delivered_seq * 10 + 1, at, kind: "status_received", process: "lab", query_id: `q${r.seq}` }); }
+    else if (["capture", "recover", "refund", "release"].includes(r.op)) {
+      out.push({ seq: r.seq * 10 - 1, at, kind: "dispatch_sent", process: "lab", op: r.op, key: r.idempotency_key });
+      if (r.delivered_seq !== null && r.delivered_seq !== undefined) out.push({ seq: r.delivered_seq * 10 + 1, at, kind: "dispatch_received", process: "lab", op: r.op, key: r.idempotency_key });
+    }
+  }
+  for (const v of verdicts || []) out.push({ seq: v.after * 10 + 5, at: "", kind: "verdict_recorded", process: "lab", identities: [v.identity], result_class: v.result_class || "permanent_fail" });
+  return out;
+}
+function scaledRequests(requests: ProviderRequestRecord[]): ProviderRequestRecord[] {
+  return requests.map((r) => ({ ...r, seq: r.seq * 10, delivered_seq: r.delivered_seq === null || r.delivered_seq === undefined ? null : r.delivered_seq * 10, query_id: r.op === "status" ? `q${r.seq}` : null }));
 }
 
 type History = {
   name: string;
   money_state: string; buyer_state: string; deal_state: string;
-  rows: Row[]; requests: ProviderRequestRecord[]; callbacks?: Callback[]; cases?: number;
+  rows: Row[]; requests: ProviderRequestRecord[]; verdicts?: Verdict[]; callbacks?: Callback[]; cases?: number;
   effects: { capture: number; recover: number; refund: number; release: number; capture_amount_minor: number; recover_amount_minor: number; refund_amount_minor: number };
   expect: { verdict: "reject" | "accept"; codes?: string[]; forbid?: string[] };
   chronology: () => void; // asserts the constructed ordering, independent of the oracle
@@ -71,7 +95,7 @@ async function judge(h: History) {
     if (["platform_fee_money_events", "audit_log", "outbox_events", "outbox_dlq"].some((t) => sql.includes(`FROM siton.${t}`))) return { rows: [] };
     throw new Error(`Unexpected oracle query: ${sql.slice(0, 80)}`);
   } };
-  const provider: ProviderLedgerSnapshot = { effects: { [AUTH]: h.effects }, totals: h.effects, requests: h.requests };
+  const provider: ProviderLedgerSnapshot = { effects: { [AUTH]: h.effects }, totals: h.effects, requests: scaledRequests(h.requests), observations: observationsFor(h.requests, h.verdicts) };
   const report = await auditFinancialTruth(pool, {
     label: `temporal:${h.name}`, dealIds: [DID], provider, vat: { product_rate: 0, delivery_rate: 0, platform_fee_vat_rate: 0.18 }, seededStates: true, allowUnresolved: true,
     dispatchLegality: { settlementHorizonMs: HORIZON_MS, negativeStatusAuthoritative: true }
@@ -212,6 +236,7 @@ const histories: History[] = [
       money(2, T(1010), "capture", K2, "200", true)                // legal retry
     ],
     callbacks: [{ event_type: "charge_captured", correlation_id: K1, provider_reference: AUTH, received_at: T(9000) }],
+    verdicts: [{ identity: K1, after: 1 }],                       // round 6: Siton committed the decline's verdict before K2 was sent
     expect: { verdict: "accept", forbid: [...REPEAT_CODES, "RELEASE_AFTER_CAPTURE_DECLARED", "RELEASE_WHILE_CAPTURE_UNRESOLVED", "REFUND_WITHOUT_CAPTURE_EVIDENCE"] },
     chronology() { assert.ok(10 < 1010, "decline (seq 1) precedes the retry (seq 2)"); }
   },
@@ -236,6 +261,7 @@ const histories: History[] = [
       row({ attempt_type: "recovery", correlation_id: R1, result_class: "success", dispatched_at: T(2000), resolved_at: T(2100), updated_at: T(2100) })
     ],
     requests: [money(1, T(10), "capture", K1, "402", false), money(2, T(2010), "recover", R1, "200", true)],
+    verdicts: [{ identity: K1, after: 1 }],
     expect: { verdict: "accept", forbid: REPEAT_CODES },
     chronology() { assert.ok(10 < 2010); }
   },
@@ -252,6 +278,7 @@ const histories: History[] = [
       status(2, T(1600), "capture", "authorized", true),           // final non-executed, 1590 ms after dispatch ≥ 1500 ms horizon
       money(3, T(1710), "recover", R1, "200", true)
     ],
+    verdicts: [{ identity: K1, after: 2 }],                       // round 6: the read's verdict was committed before the recovery was sent
     expect: { verdict: "accept", forbid: REPEAT_CODES },
     chronology() { assert.ok(1600 - 10 >= HORIZON_MS, "status read is at/after the horizon"); assert.ok(1600 < 1710); }
   },

@@ -382,8 +382,9 @@ export async function auditFinancialTruth(pool: { query: (sql: string, params?: 
       const legality = auditDispatchLegality({
         authorization: auth,
         requests: providerLedger.requests,
-        // round 5: resolved_at = the DB instant Siton recorded the identity's verdict (observation rule)
-        rows: attempts.map((a) => ({ attempt_type: a.attempt_type, correlation_id: a.correlation_id, dispatched_at: a.dispatched_at, failure_evidence: a.failure_evidence, updated_at: a.updated_at, resolved_at: a.resolved_at ?? null })),
+        rows: attempts.map((a) => ({ attempt_type: a.attempt_type, correlation_id: a.correlation_id, dispatched_at: a.dispatched_at, failure_evidence: a.failure_evidence, updated_at: a.updated_at })),
+        // round 6: what SITON observed (received / sent / committed), on the provider's sequencer — resolved_at plays no part
+        observations: providerLedger.observations || [],
         callbacks: callbacksAll.filter((c) => c.participant_id === pid && c.event_type).map((c) => ({ event_type: String(c.event_type), correlation_id: c.correlation_id, provider_reference: c.provider_reference, received_at: c.received_at })),
         policy: legalityPolicy
       });

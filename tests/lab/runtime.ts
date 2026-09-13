@@ -11,6 +11,7 @@ import { strict as assert } from "node:assert";
 import { createHmac, randomUUID } from "node:crypto";
 import pg from "pg";
 import { startProviderSimulator, type SimulatorOptions } from "./provider_simulator.js";
+import { installSitonObserver, runInJob } from "./siton_observer.js";
 import { auditFinancialTruth, assertOracleClean, describeOracle, oracleGrossMinor, type OracleReport, type OracleVatPolicy } from "./oracle.js";
 
 export type LabParticipantSpec = {
@@ -101,11 +102,20 @@ export async function bootLab(options: LabOptions) {
   process.env.RATE_LIMIT_SENSITIVE_MAX = "1000000";
   for (const [key, value] of Object.entries(options.env || {})) process.env[key] = value;
 
+  // R9C ROUND 6 — the Siton-side observer must be in place BEFORE the app loads:
+  // it records what the APP received / sent / committed, positioned on the
+  // simulator's sequencer (see siton_observer.ts). The lab's own pool below is
+  // a pg client too, but it never writes payment_attempts verdicts.
+  installSitonObserver({ providerBaseUrl: baseUrl, observe: (entry) => sim.observe(entry), process: "lab" });
+
   const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
   assert.match(String((await pool.query(`SELECT current_database() AS name`)).rows[0]?.name || ""), /^siton_test_/, "the financial lab may run only in a disposable isolated test database");
 
   const appModule: any = await import(`../../src/app.js?lab-${options.tag}-${Date.now()}`);
-  const { app, processOutboxEventById, reclaimWorkerJobs, closeWorkerDatabase } = appModule;
+  const { app, reclaimWorkerJobs, closeWorkerDatabase } = appModule;
+  // every job the lab drives in-process runs inside its job context, so the
+  // observer can bind the verdict a job commits to the answers that job received
+  const processOutboxEventById = (eventId: string): Promise<any> => runInJob<any>(eventId, () => appModule.processOutboxEventById(eventId));
   const faults: any = await import("../../src/fault_injection.js");
   const dbModule: any = await import("../../src/db.js");
   await app.ready();

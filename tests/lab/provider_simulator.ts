@@ -119,11 +119,46 @@ export type ProviderRequestRecord = {
    */
   delivered_seq: number | null;
   delivered_at: string | null;
+  /**
+   * R9C ROUND 6 — CAUSAL IDENTITY of a status query. The lab's Siton-side
+   * observer stamps every outgoing status request with a unique
+   * `x-siton-lab-query-id`; the provider records it here so that the ONE
+   * response R to query Q can be named by the oracle and matched against the
+   * observer's `status_received` record for the same query (null: money
+   * requests, or a caller without the observer).
+   */
+  query_id: string | null;
+};
+
+/**
+ * R9C ROUND 6 — what SITON observed, positioned on the SAME sequencer as the
+ * provider's own log (the simulator mints every position). Recorded by the
+ * lab's Siton-side observer at Siton's process boundary:
+ *   status_received     the app has PARSED the body of the answer to query_id
+ *   dispatch_sent       the app is about to send money request `key` (before the bytes leave)
+ *   dispatch_received   the app has parsed the answer to money request `key`
+ *   verdict_recorded    the app COMMITTED a terminal verdict (result_class) on identity/identities
+ * `process` names the observing process (lab / worker id); `job` the outbox job
+ * when the observer knows it (in-process runs).
+ */
+export type ObservationKind = "status_received" | "dispatch_sent" | "dispatch_received" | "verdict_recorded";
+export type ObservationRecord = {
+  seq: number;
+  at: string;
+  kind: ObservationKind;
+  process: string;
+  query_id?: string | null;
+  op?: string | null;
+  key?: string | null;
+  identities?: string[];
+  result_class?: string | null;
+  job?: string | null;
 };
 
 export type ProviderLedgerSnapshot = {
   effects: Record<string, EffectCounters>;
   requests: ProviderRequestRecord[];
+  observations: ObservationRecord[];
   totals: { capture: number; recover: number; refund: number; release: number; capture_amount_minor: number; recover_amount_minor: number; refund_amount_minor: number };
 };
 
@@ -213,10 +248,21 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
     return { kind: "TRUTH" };
   }
 
-  function record(entry: Omit<ProviderRequestRecord, "seq" | "at" | "delivered_seq" | "delivered_at">) {
+  const observations: ObservationRecord[] = [];
+  function record(entry: Omit<ProviderRequestRecord, "seq" | "at" | "delivered_seq" | "delivered_at" | "query_id"> & { query_id?: string | null }) {
     seq += 1;
-    const full: ProviderRequestRecord = { seq, at: new Date().toISOString(), delivered_seq: null, delivered_at: null, ...entry };
+    const full: ProviderRequestRecord = { seq, at: new Date().toISOString(), delivered_seq: null, delivered_at: null, query_id: null, ...entry };
     requests.push(full);
+    return full;
+  }
+  // R9C ROUND 6 — Siton-side observation: mint the next position of the same
+  // counter for something the APP did (received a body, sent a request,
+  // committed a verdict). Called in-process by the lab observer, or over HTTP
+  // (POST /lab/observe) by observers inside worker processes.
+  function observe(entry: Omit<ObservationRecord, "seq" | "at">): ObservationRecord {
+    seq += 1;
+    const full: ObservationRecord = { seq, at: new Date().toISOString(), ...entry };
+    observations.push(full);
     return full;
   }
   // R9C ROUND 5 — the answer is being written back to the app NOW: take the
@@ -299,6 +345,16 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
         let body: any = {};
         try { body = raw ? JSON.parse(raw) : {}; } catch { body = {}; }
 
+        // ── R9C ROUND 6: observation seam for observers in OTHER processes ──
+        if (url.pathname === "/lab/observe" && req.method === "POST") {
+          const entry = body && typeof body === "object" ? body : {};
+          const kinds: ObservationKind[] = ["status_received", "dispatch_sent", "dispatch_received", "verdict_recorded"];
+          if (!kinds.includes(entry.kind)) { res.statusCode = 400; res.end(JSON.stringify({ error: "invalid_observation" })); return; }
+          const full = observe({ kind: entry.kind, process: String(entry.process || "unknown"), query_id: entry.query_id ?? null, op: entry.op ?? null, key: entry.key ?? null,
+            identities: Array.isArray(entry.identities) ? entry.identities.map(String) : undefined, result_class: entry.result_class ?? null, job: entry.job ?? null });
+          res.statusCode = 200; res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ seq: full.seq })); return;
+        }
+
         // ── status seam ────────────────────────────────────────────────────
         if (url.pathname.startsWith("/status/")) {
           const reference = decodeURIComponent(url.pathname.slice("/status/".length)).replace(/^(cap|rec|ref|rel)-/, "");
@@ -319,7 +375,8 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
             reference_ok: Boolean(declaredBody && declaredBody.provider_reference === reference),
             amount_ok: Boolean(declaredBody && (declaredBody.amount_minor === null || declaredBody.amount_minor === undefined || declaredBody.amount_minor === expectedAmount) && (declaredBody.currency === undefined || declaredBody.currency === "ILS"))
           };
-          const statusEntry = record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode), declared });
+          const statusEntry = record({ op: "status", authorization: reference, idempotency_key: String(req.headers["x-request-id"] || ""), amount_minor: null, behavior: `${operation}:${answer.behavior}`, effect_applied: false, replayed: false, answered: String(answer.statusCode), declared,
+            query_id: req.headers["x-siton-lab-query-id"] ? String(req.headers["x-siton-lab-query-id"]) : null });
           if (answer.hold) await sleep(answer.hold);
           if (res.destroyed || socket.destroyed) return;
           res.statusCode = answer.statusCode;
@@ -499,6 +556,8 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
 
   return {
     ready,
+    /** R9C ROUND 6 — mint a Siton-side observation position (in-process observers) */
+    observe,
     /** Script the next answers of one operation for one authorization. */
     script(auth: string, op: MoneyOp, behaviors: Behavior[]) {
       const key = `${op}:${auth}`;
@@ -526,7 +585,7 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
         totals.capture += row.capture; totals.recover += row.recover; totals.refund += row.refund; totals.release += row.release;
         totals.capture_amount_minor += row.capture_amount_minor; totals.recover_amount_minor += row.recover_amount_minor; totals.refund_amount_minor += row.refund_amount_minor;
       }
-      return { effects: out, requests: requests.map((r) => ({ ...r })), totals };
+      return { effects: out, requests: requests.map((r) => ({ ...r })), observations: observations.map((o) => ({ ...o })), totals };
     },
     async close() {
       closed = true;
