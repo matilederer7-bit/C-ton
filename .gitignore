@@ -67,3 +67,7 @@ base44/.app.jsonc
 *.provisionprofile
 GoogleService-Info.plist
 google-services.json
+
+# Git worktrees (parallel agent checkouts live here; never source)
+.worktrees/
+.release-artifacts/
