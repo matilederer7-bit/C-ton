@@ -105,7 +105,8 @@ class ReleaseReport {
     return lines.join("\n") + "\n";
   }
 
-  printSummary() {
+  printSummary(options = {}) {
+    const detailLines = Number(options.detailLines || 12);
     const json = this.toJSON();
     console.log("");
     console.log(this.name.toUpperCase().replace(/[^A-Z0-9]+/g, "_") + "_SUMMARY overall=" + json.overall + " pass=" + json.counts.PASS + " fail=" + json.counts.FAIL + " warning=" + json.counts.WARNING + " skipped_environment=" + json.counts.SKIPPED_ENVIRONMENT);
@@ -113,6 +114,9 @@ class ReleaseReport {
       if (status === STATUS.PASS) continue;
       for (const item of this.items.filter((entry) => entry.status === status)) {
         console.log("  " + status.padEnd(20) + " " + item.id + ": " + item.summary);
+        if (item.detail && typeof item.detail === "string") {
+          for (const line of item.detail.split(/\r?\n/).slice(0, detailLines)) console.log("      " + line);
+        }
       }
     }
   }

@@ -1,0 +1,374 @@
+{
+  "version": 1,
+  "description": "Unsafe / missing environment combinations that must FAIL CLOSED with a clear diagnostic. Each case is evaluated twice: (1) by the REAL boot guard src/production_guards.ts through scripts/probes/production_guards_probe.ts and (2) by the release policy gate config/runtime-environment-policy.json. `runtime_expect` says what the runtime guard must do today; `policy_expect` says what the release gate must do. `runtime_gap: true` marks a case the runtime does NOT refuse yet (documented, not silently accepted): the release gate is the only line of defence there and the case is listed in docs/RUNTIME_ENVIRONMENT_POLICY.md as a future runtime hardening item. The production baseline is a fully LIVE Grow configuration: it is what the runtime guard accepts; the release policy then fails it on exactly one rule (REAL_MONEY_BLOCKED), which is the intended state until the owner clears config/real-money-release-policy.json.",
+  "base_production_web": {
+    "APP_DEPLOYMENT_MODE": "production",
+    "NODE_ENV": "production",
+    "RUNTIME_ROLE": "web",
+    "CANONICAL_POSTGRES_RUNTIME": "1",
+    "DATABASE_URL": "postgresql://siton_web_login:redacted-real-secret-value@aws-0-eu-central-1.pooler.supabase.com:5432/postgres",
+    "ADMIN_API_KEY": "8f3c1d2e9a7b4c6d8e0f1a2b3c4d5e6f7a8b9c0d",
+    "SELLER_SESSION_SECRET": "0123456789abcdef0123456789abcdef0123456789",
+    "BUYER_SESSION_SECRET": "fedcba9876543210fedcba9876543210fedcba98",
+    "DISTRIBUTOR_SESSION_SECRET": "abcdef0123456789abcdef0123456789abcdef01",
+    "OTP_HASH_SALT": "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b",
+    "PAYMENT_WEBHOOK_SECRET": "whsec_real_looking_but_synthetic_value_1234567890",
+    "DISABLE_OUTBOX_WORKER": "1",
+    "STORAGE_ADAPTER": "supabase",
+    "SUPABASE_URL": "https://example-project.supabase.co",
+    "SITON_STORAGE_BROKER_KEY": "broker-key-synthetic-1234567890abcdef",
+    "PAYMENT_PROVIDER": "grow",
+    "PAYMENT_PROVIDER_MODE": "grow",
+    "PAYMENT_ENVIRONMENT": "live",
+    "PAYMENT_PROVIDER_BASE_URL": "https://secure.meshulam.co.il/api/light/server/1.0",
+    "GROW_USER_ID": "synthetic-user-id",
+    "GROW_PAGE_CODE": "synthetic-page-code",
+    "GROW_REFERENCE_ENCRYPTION_KEY": "0123456789abcdef0123456789abcdef",
+    "GROW_SUCCESS_URL": "https://example.invalid/pay/success",
+    "GROW_CANCEL_URL": "https://example.invalid/pay/cancel",
+    "GROW_NOTIFY_URL": "https://example.invalid/webhooks/payments",
+    "SITON_VAT_MODE": "explicit",
+    "SITON_VAT_RATE_PRODUCT": "0.18",
+    "SITON_VAT_RATE_DELIVERY": "0.18",
+    "PUBLIC_BASE_URL": "https://example.invalid",
+    "NOTIFICATION_PROVIDER": "log-only",
+    "PAYOUT_PROVIDER": "internal-ledger",
+    "PAYOUT_PROVIDER_MODE": "internal-truth-only",
+    "EXPECTED_COMMIT_SHA": "0000000000000000000000000000000000000000"
+  },
+  "cases": [
+    {
+      "id": "production_sandbox_payment_environment",
+      "title": "production + PAYMENT_ENVIRONMENT=sandbox",
+      "role": "web",
+      "override": {
+        "PAYMENT_ENVIRONMENT": "sandbox",
+        "PAYMENT_PROVIDER_BASE_URL": "https://sandbox.meshulam.co.il/api/light/server/1.0"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production cannot use PAYMENT_ENVIRONMENT=sandbox",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_ENVIRONMENT must not be"
+    },
+    {
+      "id": "production_live_money_while_blocked",
+      "title": "production + PAYMENT_ENVIRONMENT=live while real money is BLOCKED by release policy",
+      "role": "web",
+      "override": {},
+      "runtime_expect": "accept",
+      "runtime_note": "The runtime guard legitimately accepts a fully configured live production env; release governance (real-money-release-policy) is what blocks it today.",
+      "policy_expect": "fail",
+      "policy_message": "REAL_MONEY_BLOCKED"
+    },
+    {
+      "id": "production_mock_provider",
+      "title": "production + mock payment provider",
+      "role": "web",
+      "override": {
+        "PAYMENT_PROVIDER": "mockpay",
+        "PAYMENT_PROVIDER_MODE": "mock-backed",
+        "PAYMENT_ENVIRONMENT": "demo"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production cannot use a mock PAYMENT_PROVIDER",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_PROVIDER must not be"
+    },
+    {
+      "id": "production_demo_deployment_mode_bypass",
+      "title": "production host running APP_DEPLOYMENT_MODE=demo-preview (demo seller context + mock routes on a production host)",
+      "role": "web",
+      "override": {
+        "APP_DEPLOYMENT_MODE": "demo-preview",
+        "PAYMENT_PROVIDER": "mockpay",
+        "PAYMENT_PROVIDER_MODE": "mock-backed",
+        "PAYMENT_ENVIRONMENT": "demo"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "runtime_note": "A production host mislabelled demo-preview with mock money boots as a demo: demo seller context, mock payment routes and the demo webhook secret become reachable on the production hostname. The boot guard keys on APP_DEPLOYMENT_MODE itself, so only the release gate (target=production) catches it. (With PAYMENT_ENVIRONMENT=live the runtime does reject: live is only legal in production mode.)",
+      "policy_target": "production",
+      "policy_expect": "fail",
+      "policy_message": "APP_DEPLOYMENT_MODE must be one of"
+    },
+    {
+      "id": "production_legacy_tracking_links",
+      "title": "production + TRACKING_LEGACY_COMPAT=1",
+      "role": "web",
+      "override": {
+        "TRACKING_LEGACY_COMPAT": "1"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "policy_expect": "fail",
+      "policy_message": "TRACKING_LEGACY_COMPAT must be absent or"
+    },
+    {
+      "id": "production_local_storage",
+      "title": "production + STORAGE_ADAPTER=local",
+      "role": "web",
+      "override": {
+        "STORAGE_ADAPTER": "local"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production requires STORAGE_ADAPTER=object or STORAGE_ADAPTER=supabase",
+      "policy_expect": "fail",
+      "policy_message": "STORAGE_ADAPTER must be one of"
+    },
+    {
+      "id": "production_missing_database",
+      "title": "production + missing DATABASE_URL",
+      "role": "web",
+      "override": {
+        "DATABASE_URL": ""
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "DATABASE_URL is required in production",
+      "policy_expect": "fail",
+      "policy_message": "DATABASE_URL must be present"
+    },
+    {
+      "id": "production_placeholder_broker_key",
+      "title": "production + placeholder storage broker key",
+      "role": "web",
+      "override": {
+        "SITON_STORAGE_BROKER_KEY": "placeholder"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "SITON_STORAGE_BROKER_KEY cannot use a placeholder value",
+      "policy_expect": "pass_or_fail",
+      "policy_note": "The release policy checks SITON_STORAGE_BROKER_KEY only for staging; production storage placeholder is covered by the runtime guard."
+    },
+    {
+      "id": "production_placeholder_webhook_secret",
+      "title": "production + placeholder PAYMENT_WEBHOOK_SECRET",
+      "role": "web",
+      "override": {
+        "PAYMENT_WEBHOOK_SECRET": "changeme"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "non-placeholder PAYMENT_WEBHOOK_SECRET is required",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_WEBHOOK_SECRET is a placeholder"
+    },
+    {
+      "id": "production_unsafe_admin_key",
+      "title": "production + demo admin key",
+      "role": "web",
+      "override": {
+        "ADMIN_API_KEY": "demo-admin-key-do-not-use-in-production"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "runtime_note": "The boot guard only requires ADMIN_API_KEY to be present; the demo compose value passes. The release gate refuses it as a placeholder.",
+      "policy_expect": "fail",
+      "policy_message": "ADMIN_API_KEY is a placeholder"
+    },
+    {
+      "id": "production_missing_admin_key",
+      "title": "production + missing ADMIN_API_KEY",
+      "role": "web",
+      "override": {
+        "ADMIN_API_KEY": ""
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "ADMIN_API_KEY is required in production",
+      "policy_expect": "fail",
+      "policy_message": "ADMIN_API_KEY must be present"
+    },
+    {
+      "id": "production_stripe_test_credentials",
+      "title": "production + Stripe test credentials",
+      "role": "web",
+      "override": {
+        "PAYMENT_PROVIDER": "stripe",
+        "PAYMENT_PROVIDER_MODE": "stripe",
+        "PAYMENT_ENVIRONMENT": "live",
+        "PAYMENT_PROVIDER_API_KEY": "sk_test_synthetic",
+        "PAYMENT_PROVIDER_PUBLIC_KEY": "pk_test_synthetic"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production cannot use Stripe test credentials",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_PROVIDER_API_KEY must not match"
+    },
+    {
+      "id": "production_grow_sandbox_host_with_live",
+      "title": "production + Grow live pointing at the sandbox host (live-money ambiguity)",
+      "role": "web",
+      "override": {
+        "PAYMENT_PROVIDER_BASE_URL": "https://sandbox.meshulam.co.il/api/light/server/1.0"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "cannot use the sandbox.meshulam.co.il base URL",
+      "policy_expect": "fail",
+      "policy_message": "REAL_MONEY_BLOCKED"
+    },
+    {
+      "id": "production_web_with_outbox_worker",
+      "title": "production web process running the outbox worker",
+      "role": "web",
+      "override": {
+        "DISABLE_OUTBOX_WORKER": ""
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production web requires DISABLE_OUTBOX_WORKER=1",
+      "policy_expect": "fail",
+      "policy_message": "DISABLE_OUTBOX_WORKER must equal"
+    },
+    {
+      "id": "production_role_mismatch",
+      "title": "worker process started with RUNTIME_ROLE=web",
+      "role": "worker",
+      "override": {
+        "RUNTIME_ROLE": "web"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "RUNTIME_ROLE=web cannot start the worker process",
+      "policy_expect": "pass_or_fail",
+      "policy_note": "role mismatch is a process-level property the static policy cannot see; the runtime guard owns it"
+    },
+    {
+      "id": "production_synthetic_vat",
+      "title": "production + synthetic VAT mode",
+      "role": "web",
+      "override": {
+        "SITON_VAT_MODE": "synthetic_zero"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "production requires SITON_VAT_MODE=explicit",
+      "policy_expect": "fail",
+      "policy_message": "SITON_VAT_MODE must equal"
+    },
+    {
+      "id": "production_debug_surfaces",
+      "title": "production + DEBUG_SURFACES_ENABLED=1",
+      "role": "web",
+      "override": {
+        "DEBUG_SURFACES_ENABLED": "1",
+        "DEBUG_SURFACES_ACCESS_KEY": "synthetic-debug-key-1234567890"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "policy_expect": "fail",
+      "policy_message": "DEBUG_SURFACES_ENABLED must be absent or"
+    },
+    {
+      "id": "production_otp_bypass",
+      "title": "production + OTP_TEST_BYPASS_CODE",
+      "role": "web",
+      "override": {
+        "OTP_TEST_BYPASS_CODE": "000000"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "runtime_note": "src/otp_rail.ts ignores the bypass when production-like, so the seam is inert at runtime; the release gate still refuses the variable so it cannot linger in a console.",
+      "policy_expect": "fail",
+      "policy_message": "OTP_TEST_BYPASS_CODE must be absent"
+    },
+    {
+      "id": "production_service_role_key_present",
+      "title": "production runtime carrying SUPABASE_SERVICE_ROLE_KEY",
+      "role": "web",
+      "override": {
+        "SUPABASE_SERVICE_ROLE_KEY": "synthetic-service-role-jwt"
+      },
+      "runtime_expect": "accept",
+      "runtime_gap": true,
+      "runtime_note": "No application code reads the service-role key, so the runtime cannot detect it; the release gate refuses its presence.",
+      "policy_expect": "fail",
+      "policy_message": "SUPABASE_SERVICE_ROLE_KEY must be absent"
+    },
+    {
+      "id": "production_real_notifications_without_adapter",
+      "title": "production + NOTIFICATION_DELIVERY_ENABLED=1 without a real adapter",
+      "role": "web",
+      "override": {
+        "NOTIFICATION_DELIVERY_ENABLED": "1"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "NOTIFICATION_DELIVERY_ENABLED=1 requires NOTIFICATION_PROVIDER_MODE=real",
+      "policy_expect": "pass_or_fail",
+      "policy_note": "warning-level in policy; runtime owns the hard refusal"
+    },
+    {
+      "id": "staging_live_payment_environment",
+      "title": "staging + PAYMENT_ENVIRONMENT=live",
+      "role": "web",
+      "base": "staging",
+      "override": {
+        "PAYMENT_ENVIRONMENT": "live"
+      },
+      "runtime_expect": "reject",
+      "runtime_message": "PAYMENT_ENVIRONMENT=live is only legal in production deployment mode",
+      "policy_target": "staging",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_ENVIRONMENT must be one of"
+    },
+    {
+      "id": "staging_grow_provider_without_authorisation",
+      "title": "staging + PAYMENT_PROVIDER=grow (not yet authorised)",
+      "role": "web",
+      "base": "staging",
+      "override": {
+        "PAYMENT_PROVIDER": "grow",
+        "PAYMENT_PROVIDER_MODE": "grow",
+        "PAYMENT_ENVIRONMENT": "sandbox",
+        "PAYMENT_PROVIDER_BASE_URL": "https://sandbox.meshulam.co.il/api/light/server/1.0",
+        "GROW_USER_ID": "u",
+        "GROW_PAGE_CODE": "p",
+        "GROW_REFERENCE_ENCRYPTION_KEY": "0123456789abcdef0123456789abcdef",
+        "GROW_SUCCESS_URL": "https://example.invalid/s",
+        "GROW_CANCEL_URL": "https://example.invalid/c",
+        "GROW_NOTIFY_URL": "https://example.invalid/n"
+      },
+      "runtime_expect": "accept",
+      "runtime_note": "A correctly configured Grow sandbox is legal for the runtime; the staging release policy still pins mockpay until the owner authorises the Grow stage.",
+      "policy_target": "staging",
+      "policy_expect": "fail",
+      "policy_message": "PAYMENT_PROVIDER must equal"
+    },
+    {
+      "id": "test_pointing_at_hosted_database",
+      "title": "NODE_ENV=test with a hosted Supabase DATABASE_URL",
+      "role": "web",
+      "base": "test",
+      "override": {
+        "DATABASE_URL": "postgresql://postgres.project:secret@aws-0-eu-central-1.pooler.supabase.com:5432/postgres"
+      },
+      "runtime_expect": "accept",
+      "runtime_note": "The runtime cannot know a test is about to CREATE/DROP databases on the hosted authority; the release policy and scripts/lib/test_db_isolation.cjs refuse non-local hosts.",
+      "policy_target": "test",
+      "policy_expect": "fail",
+      "policy_message": "DATABASE_URL must match"
+    }
+  ],
+  "base_staging_web": {
+    "APP_DEPLOYMENT_MODE": "staging",
+    "NODE_ENV": "production",
+    "RUNTIME_ROLE": "web",
+    "CANONICAL_POSTGRES_RUNTIME": "1",
+    "DATABASE_URL": "postgresql://siton_web_login:redacted-real-secret-value@aws-0-eu-central-1.pooler.supabase.com:5432/postgres",
+    "ADMIN_API_KEY": "8f3c1d2e9a7b4c6d8e0f1a2b3c4d5e6f7a8b9c0d",
+    "SELLER_SESSION_SECRET": "0123456789abcdef0123456789abcdef0123456789",
+    "OTP_HASH_SALT": "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b",
+    "DISABLE_OUTBOX_WORKER": "1",
+    "STORAGE_ADAPTER": "supabase",
+    "SUPABASE_URL": "https://example-project.supabase.co",
+    "SUPABASE_STORAGE_BUCKET": "deal-images",
+    "OBJECT_STORAGE_PREFIX": "staging",
+    "SITON_STORAGE_BROKER_KEY": "broker-key-synthetic-1234567890abcdef",
+    "PAYMENT_PROVIDER": "mockpay",
+    "PAYMENT_PROVIDER_MODE": "mock-backed",
+    "PAYMENT_ENVIRONMENT": "demo",
+    "NOTIFICATION_PROVIDER": "log-only",
+    "PAYOUT_PROVIDER": "internal-ledger"
+  },
+  "base_test_web": {
+    "NODE_ENV": "test",
+    "DISABLE_OUTBOX_WORKER": "1",
+    "DATABASE_URL": "postgresql://postgres:postgres@127.0.0.1:5432/siton_ci",
+    "PAYMENT_PROVIDER": "mockpay",
+    "PAYMENT_PROVIDER_MODE": "mock-backed"
+  }
+}
