@@ -5,8 +5,28 @@ const { Client } = require("pg");
 require("dotenv").config({ quiet: true });
 const { MIGRATIONS_DIR, MIGRATIONS } = require("./migration_manifest.cjs");
 
+// Canonical checksum: BOM stripped, line endings normalised to LF. The git
+// index stores every migration with LF; a Windows checkout (core.autocrlf)
+// materialises CRLF. Without normalisation the same file hashes differently
+// on Windows and Linux, and a ledger written from one platform rejects the
+// other with a false "checksum mismatch". Normalising to LF keeps every
+// ledger written from Linux/CI valid unchanged.
+function canonicalBody(body) {
+  return String(body).replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
+}
 function checksum(body) {
-  return createHash("sha256").update(body.replace(/^\uFEFF/, ""), "utf8").digest("hex");
+  return createHash("sha256").update(canonicalBody(body), "utf8").digest("hex");
+}
+// Legacy variant: the digest a CRLF working tree produced before
+// normalisation. Accepted on READ so a ledger row written from a Windows
+// checkout is recognised as the same file (never written any more).
+function checksumCrlfVariant(body) {
+  return createHash("sha256").update(canonicalBody(body).replace(/\n/g, "\r\n"), "utf8").digest("hex");
+}
+function classifyChecksum(storedDigest, body) {
+  if (storedDigest === checksum(body)) return "match";
+  if (storedDigest === checksumCrlfVariant(body)) return "eol-variant";
+  return "mismatch";
 }
 
 async function ensureLedger(client) {
@@ -39,10 +59,14 @@ async function runMigrations(connectionString = process.env.DATABASE_URL, option
 
     const migrations = options.migrations || MIGRATIONS;
     const migrationsDir = options.migrationsDir || MIGRATIONS_DIR;
+    let eolVariants = 0;
+    let newlyApplied = 0;
     for (const migration of migrations) {
-      const filePath = path.join(migrationsDir, migration.filename);
+      // options.resolveDir lets the preflight mix the real migrations with a
+      // probe file from a temporary directory.
+      const filePath = path.join(options.resolveDir ? options.resolveDir(migration.filename) : migrationsDir, migration.filename);
       if (!fs.existsSync(filePath)) throw new Error(`missing migration file: ${migration.filename}`);
-      const sql = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+      const sql = canonicalBody(fs.readFileSync(filePath, "utf8"));
       const digest = checksum(sql);
       const applied = await client.query(
         `SELECT position, filename, checksum_sha256, status
@@ -55,8 +79,16 @@ async function runMigrations(connectionString = process.env.DATABASE_URL, option
         if (row.filename !== migration.filename || Number(row.position) !== migration.position) {
           throw new Error(`migration manifest mismatch for ${migration.id}`);
         }
-        if (row.checksum_sha256 !== digest) {
+        const classification = classifyChecksum(row.checksum_sha256, sql);
+        if (classification === "mismatch") {
           throw new Error(`migration checksum mismatch: ${migration.id} ${migration.filename}`);
+        }
+        if (classification === "eol-variant") {
+          // Same file, hashed from a CRLF checkout before normalisation.
+          // Accepted; `npm run migrations:doctor` reports it and
+          // `migrations:repair --fix-eol-checksums` can rewrite it explicitly.
+          console.log(`MIGRATION_LEDGER_EOL_VARIANT ${migration.id} ${migration.filename} (line-ending-only checksum difference accepted)`);
+          eolVariants += 1;
         }
         continue;
       }
@@ -76,6 +108,7 @@ async function runMigrations(connectionString = process.env.DATABASE_URL, option
           [migration.id]
         );
         console.log(`MIGRATION_OK ${migration.id} ${migration.filename}`);
+        newlyApplied += 1;
       } catch (error) {
         await client.query("ROLLBACK").catch(() => undefined);
         await client.query(
@@ -87,7 +120,7 @@ async function runMigrations(connectionString = process.env.DATABASE_URL, option
         throw new Error(`migration failed: ${migration.id} ${migration.filename}: ${error?.message || error}`);
       }
     }
-    return { applied: migrations.length };
+    return { applied: migrations.length, newly_applied: newlyApplied, eol_variants: eolVariants };
   } finally {
     await client.end();
   }
@@ -102,4 +135,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { runMigrations, checksum, ensureLedger };
+module.exports = { runMigrations, checksum, checksumCrlfVariant, classifyChecksum, canonicalBody, ensureLedger };
