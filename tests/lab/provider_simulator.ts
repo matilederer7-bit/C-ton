@@ -147,11 +147,16 @@ export type ObservationRecord = {
   at: string;
   kind: ObservationKind;
   process: string;
+  /** R9C ROUND 7 — the observer incarnation (UUID minted at install) that recorded the event */
+  instance?: string | null;
   query_id?: string | null;
   op?: string | null;
   key?: string | null;
   identities?: string[];
   result_class?: string | null;
+  /** R9C ROUND 7 — verdict_recorded: rows the committed statement matched, and where its class came from */
+  row_count?: number | null;
+  class_source?: string | null;
   job?: string | null;
 };
 
@@ -350,8 +355,9 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
           const entry = body && typeof body === "object" ? body : {};
           const kinds: ObservationKind[] = ["status_received", "dispatch_sent", "dispatch_received", "verdict_recorded"];
           if (!kinds.includes(entry.kind)) { res.statusCode = 400; res.end(JSON.stringify({ error: "invalid_observation" })); return; }
-          const full = observe({ kind: entry.kind, process: String(entry.process || "unknown"), query_id: entry.query_id ?? null, op: entry.op ?? null, key: entry.key ?? null,
-            identities: Array.isArray(entry.identities) ? entry.identities.map(String) : undefined, result_class: entry.result_class ?? null, job: entry.job ?? null });
+          const full = observe({ kind: entry.kind, process: String(entry.process || "unknown"), instance: entry.instance ?? null, query_id: entry.query_id ?? null, op: entry.op ?? null, key: entry.key ?? null,
+            identities: Array.isArray(entry.identities) ? entry.identities.map(String) : undefined, result_class: entry.result_class ?? null,
+            row_count: Number.isInteger(entry.row_count) ? Number(entry.row_count) : null, class_source: entry.class_source ?? null, job: entry.job ?? null });
           res.statusCode = 200; res.setHeader("content-type", "application/json"); res.end(JSON.stringify({ seq: full.seq })); return;
         }
 
@@ -381,6 +387,9 @@ export function startProviderSimulator(options: SimulatorOptions = {}) {
           if (res.destroyed || socket.destroyed) return;
           res.statusCode = answer.statusCode;
           res.setHeader("content-type", "application/json");
+          // R9C ROUND 7 — the answer NAMES the query it answers: the observer
+          // records a receipt only for an answer that echoes its own query id.
+          if (statusEntry.query_id) res.setHeader("x-siton-lab-query-id", statusEntry.query_id);
           deliver(statusEntry);
           res.end(answer.body ?? "");
           return;

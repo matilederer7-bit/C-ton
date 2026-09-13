@@ -289,8 +289,11 @@ const MUTANTS = [
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? null : null);`,
-        to: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (typeof r.delivered_seq === "number" ? r.delivered_seq : r.seq);`
+        // R9C ROUND 7 — re-anchored on the hardened receivedSeqOfStatus (uniqueness / written / position guards stay; the receipt itself becomes the provider write)
+        from: `    const received = obs.statusReceived.get(r.query_id);
+    if (typeof received !== "number" || received <= r.seq) return null;
+    return received;`,
+        to: `    return r.delivered_seq;`
       }
     ],
     suites: ["review_oracle_causal_binding_validation.ts", "review_oracle_observation_negative_validation.ts"]
@@ -302,8 +305,11 @@ const MUTANTS = [
     edits: [
       {
         file: "tests/lab/dispatch_legality.ts",
-        from: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? null : null);`,
-        to: `  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? 0 : 0);`
+        // R9C ROUND 7 — re-anchored on the hardened receivedSeqOfStatus (a missing receipt reads as position 0)
+        from: `    const received = obs.statusReceived.get(r.query_id);
+    if (typeof received !== "number" || received <= r.seq) return null;
+    return received;`,
+        to: `    return obs.statusReceived.get(r.query_id) ?? 0;`
       }
     ],
     suites: ["review_oracle_causal_binding_validation.ts"]
@@ -393,6 +399,152 @@ const MUTANTS = [
       }
     ],
     suites: ["review_oracle_observation_negative_validation.ts", "review_oracle_temporal_negative_validation.ts"]
+  },
+  // ── R9C ROUND 7 — OBSERVER INTEGRITY mutants (Codex round-6 findings A/B/C).
+  // Each re-introduces one round-6 observer defect, or removes one round-7
+  // guard; all must be killed by the observer integrity suite alone.
+  {
+    id: "OM-A",
+    invariant: "R7-A: query ids are unique across process restarts — a restarted worker with the same WORKER_ID never mints an id it minted before",
+    layer: "siton_observer query id (instance UUID dropped: label + counter, as in round 6)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "      const query_id = `${proc}:${instance}:q${++queryCounter}`;",
+        to: "      const query_id = `${proc}:q${++queryCounter}`;"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-B",
+    invariant: "R7-B: a verdict is published only when its COMMIT succeeded — never at the UPDATE itself",
+    layer: "siton_observer pg wrapper (publish inside the transaction instead of staging)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "          if (inTx) for (const v of verdicts) state.staged.push({ ...v, depth });\n          else for (const v of verdicts) await publish(v, job);              // autocommit: durable as soon as it returned",
+        to: "          for (const v of verdicts) await publish(v, job);"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-C",
+    invariant: "R7-B: a statement that matched no row records no verdict (rowCount is not ignored)",
+    layer: "siton_observer settle() row-count guard",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "    if (rowCount === 0) { stats.verdicts_discarded.zero_row += 1; return []; }\n    if (rowCount !== 1) { stats.verdicts_discarded.multi_row += 1; return []; }",
+        to: "    if (rowCount > 1) { stats.verdicts_discarded.multi_row += 1; return []; }"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-D",
+    invariant: "R7-B: a ROLLBACK discards the staged verdicts — nothing is published after a rollback",
+    layer: "siton_observer pg wrapper ROLLBACK branch (publishes the stage)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "    } else if (/^(ROLLBACK|ABORT)\\b/i.test(text)) {\n      stats.verdicts_discarded.rollback += state.staged.length;\n      state.tx = false; state.staged = []; state.savepoints = [];",
+        to: "    } else if (/^(ROLLBACK|ABORT)\\b/i.test(text)) {\n      const rolled = state.staged;\n      state.tx = false; state.staged = []; state.savepoints = [];\n      onResolved = async (r: any) => { for (const v of rolled) await publish(v, job); return r; };"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-D2",
+    invariant: "R7-B: a COMMIT of an aborted transaction (command tag ROLLBACK) publishes nothing — the command tag is checked",
+    layer: "siton_observer pg wrapper COMMIT branch (command tag ignored)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "          if (command !== \"COMMIT\") { stats.verdicts_discarded.aborted_commit += staged.length; return r; }   // an aborted transaction answers ROLLBACK",
+        to: "          if (command !== \"COMMIT\" && command !== \"ROLLBACK\") { stats.verdicts_discarded.aborted_commit += staged.length; return r; }"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-E",
+    invariant: "R7-B: the identity of a verdict is the WHERE-bound correlation_id parameter — never every string parameter (a note is not an identity)",
+    layer: "siton_observer settle() identity binding (round-6 parameter guessing)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "      return [{ identities: [identity], result_class: cls, row_count: 1, class_source: \"statement\" }];",
+        to: "      return [{ identities: params.filter((p): p is string => typeof p === \"string\" && p !== cls), result_class: cls, row_count: 1, class_source: \"statement\" }];"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-F",
+    invariant: "R7-C: a status answer is received only when the app PARSED it — never when the bytes of text() arrived",
+    layer: "siton_observer hookBody (receipt at text(), before JSON.parse)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "      const body = await originalText();\n      registerBody(body, onParsed);\n      return body;",
+        to: "      const body = await originalText();\n      if (alive) onParsed({ state: \"unknown\" });\n      return body;"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-G",
+    invariant: "R7-C: an answer that does not echo THIS query id is not a receipt of it (query_id match enforced)",
+    layer: "siton_observer status fetch (echo mismatch ignored)",
+    edits: [
+      {
+        file: "tests/lab/siton_observer.ts",
+        from: "      if (res.headers.get(QUERY_ID_HEADER) !== query_id) { stats.receipts_dropped.echo_mismatch += 1; return res; }",
+        to: "      if (false) { stats.receipts_dropped.echo_mismatch += 1; return res; }"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-I",
+    invariant: "R7-A (oracle): a query id shared by two provider requests binds no receipt (defence in depth against id reuse)",
+    layer: "dispatch_legality receivedSeqOfStatus uniqueness guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: "    if (!r.query_id || requestsOfQuery.get(r.query_id) !== 1) return null;",
+        to: "    if (!r.query_id) return null;"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-J",
+    invariant: "R7-A (oracle): a receipt positioned before its query reached the provider binds nothing",
+    layer: "dispatch_legality receivedSeqOfStatus position guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: "    if (typeof received !== \"number\" || received <= r.seq) return null;",
+        to: "    if (typeof received !== \"number\") return null;"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
+  },
+  {
+    id: "OM-K",
+    invariant: "R7-A (oracle): an answer the provider never wrote can have no receipt",
+    layer: "dispatch_legality receivedSeqOfStatus written guard",
+    edits: [
+      {
+        file: "tests/lab/dispatch_legality.ts",
+        from: "    if (typeof r.delivered_seq !== \"number\") return null;\n    const received = obs.statusReceived.get(r.query_id);",
+        to: "    const received = obs.statusReceived.get(r.query_id);"
+      }
+    ],
+    suites: ["review_observer_integrity_validation.ts"]
   }
 ];
 

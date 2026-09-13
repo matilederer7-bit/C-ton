@@ -308,7 +308,21 @@ export function auditDispatchLegality(input: {
   // Unknown (no observer saw the send) means the dispatch cannot be ordered
   // against anything Siton observed: no evidence can be proven prior to it.
   const sentSeq = (d: Dispatch): number | null => obs.dispatchSent.get(d.identity) ?? null;
-  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => (r.query_id ? obs.statusReceived.get(r.query_id) ?? null : null);
+  // R9C ROUND 7 — a receipt binds to ONE answer: the query id must name exactly
+  // one provider request in the whole ledger (a reused id — e.g. a restarted
+  // observer counter — is ambiguous and fails closed); the answer must have
+  // been WRITTEN by the provider at all; and the receipt must be positioned
+  // after the query reached the provider (a receipt recorded before this
+  // query even existed is the receipt of some other response, never of this one).
+  const requestsOfQuery = new Map<string, number>();
+  for (const r of input.requests) if (r.op === "status" && r.query_id) requestsOfQuery.set(r.query_id, (requestsOfQuery.get(r.query_id) || 0) + 1);
+  const receivedSeqOfStatus = (r: ProviderRequestLike): number | null => {
+    if (!r.query_id || requestsOfQuery.get(r.query_id) !== 1) return null;
+    if (typeof r.delivered_seq !== "number") return null;
+    const received = obs.statusReceived.get(r.query_id);
+    if (typeof received !== "number" || received <= r.seq) return null;
+    return received;
+  };
   const receivedSeqOfMoney = (identity: string, afterSeq: number): number | null => {
     const at = obs.dispatchReceived.get(identity);
     return typeof at === "number" && at > afterSeq ? at : null;

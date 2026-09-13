@@ -282,7 +282,10 @@ async function realTransportHold(): Promise<{ unsafeRejected: boolean; controlAc
       const upstream = await fetch(`${base}${req.url}`, init);
       const body = await upstream.text();                                   // the provider has WRITTEN its answer (delivered_seq assigned)
       if (holdAnswers && String(req.url).startsWith("/status/")) await held;   // …but the transport holds it
-      res.statusCode = upstream.status; res.setHeader("content-type", "application/json"); res.end(body);
+      res.statusCode = upstream.status; res.setHeader("content-type", "application/json");
+      const echo = upstream.headers.get("x-siton-lab-query-id");             // round 7: the hop forwards the answer's own query id (an honest transport)
+      if (echo) res.setHeader("x-siton-lab-query-id", echo);
+      res.end(body);
     });
   });
   await new Promise<void>((r) => { proxy.listen(0, "127.0.0.1", () => r()); });
