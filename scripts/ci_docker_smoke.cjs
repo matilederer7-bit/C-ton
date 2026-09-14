@@ -8,8 +8,14 @@ const artifacts = path.join(process.cwd(), ".ci-artifacts");
 fs.mkdirSync(artifacts, { recursive: true });
 function docker(args, options = {}) {
   const result = spawnSync("docker", [...compose, ...args], { encoding: "utf8", ...options });
-  if (options.allowFailure !== true && result.status !== 0) throw new Error(result.stderr || result.stdout || `docker ${args.join(" ")} failed`);
+  if (options.allowFailure !== true && result.status !== 0) throw new Error(`docker ${args.join(" ")} failed (status ${result.status}): ${result.stderr || result.stdout || (result.error && result.error.message) || "no output"}`);
   return result;
+}
+// GitHub Actions workflow command — the message becomes a check-run annotation, which is
+// readable without log access (job logs and artifacts need a login on this repository).
+function annotate(level, title, message) {
+  if (!process.env.GITHUB_ACTIONS) return;
+  console.log(`::${level} title=${title}::${String(message).replace(/\r?\n/g, "%0A").slice(0, 4000)}`);
 }
 function publishedPort(service, targetPort) {
   const result = docker(["port", service, String(targetPort)]);
@@ -89,7 +95,13 @@ async function proveTwoWebLastUnitHttp(db, origins) {
   return report;
 }
 async function main() {
-  if (spawnSync("docker", ["version"], { stdio: "ignore" }).status !== 0) throw new Error("Docker is required for ci:docker-smoke");
+  const dockerVersion = spawnSync("docker", ["version"], { encoding: "utf8" });
+  if (dockerVersion.status !== 0) throw new Error(`Docker is required for ci:docker-smoke: ${dockerVersion.stderr || dockerVersion.stdout || (dockerVersion.error && dockerVersion.error.message) || "docker version failed"}`);
+  const composeVersion = spawnSync("docker", ["compose", "version"], { encoding: "utf8" });
+  if (composeVersion.status !== 0) throw new Error(`docker compose is required for ci:docker-smoke: ${composeVersion.stderr || composeVersion.stdout || (composeVersion.error && composeVersion.error.message) || "docker compose version failed"}`);
+  const preflight = `${String(dockerVersion.stdout).split(/\r?\n/).filter((line) => /Version:/.test(line)).map((line) => line.trim()).join(" / ")} | ${String(composeVersion.stdout).trim()}`;
+  console.log(`CI_DOCKER_SMOKE_PREFLIGHT ${preflight}`);
+  annotate("notice", "ci:docker-smoke preflight", preflight);
   docker(["down", "-v", "--remove-orphans"], { allowFailure: true });
   try {
     docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web", "web-secondary"]);
@@ -208,4 +220,4 @@ async function main() {
     docker(["down", "-v", "--remove-orphans"], { allowFailure: true });
   }
 }
-main().catch((error) => { console.error(error); process.exit(1); });
+main().catch((error) => { console.error(error); annotate("error", "ci:docker-smoke", error && error.stack ? error.stack : String(error)); process.exit(1); });
