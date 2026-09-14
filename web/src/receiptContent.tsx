@@ -6,6 +6,7 @@ import { optimizeImageFile } from "./images";
 import { ChoiceCard, StatusPill } from "./components";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "./pickupScan";
 import { BRAND_LOGO_URL } from "./config";
+import { attention as fieldAttention, focusField } from "./fieldAttention";
 
 export type ReceiptConfig = { method: string; instructions: string; url: string };
 const OPTIONS = [
@@ -22,7 +23,11 @@ const OPTIONS = [
 // "method", so a square multi-select would promise something the canonical
 // contract cannot store. See docs/UX_PRODUCT_POLISH_ROUND_2.md (BACKEND GAP 1).
 export function ReceiptFields({ value, onChange, disabled = false, attention }: { value: ReceiptConfig; onChange: (v: ReceiptConfig) => void; disabled?: boolean; attention?: boolean }) {
-  return <fieldset className={`receipt-fields${attention ? " attention-block needs-attention" : ""}`} disabled={disabled} id="f-receipt" tabIndex={-1} aria-invalid={attention ? "true" : undefined}>
+  const invalidUrl = attention && value.method === "digital_link";
+  const invalidInstructions = attention && value.method === "instructions" && !value.instructions.trim();
+  const exactField = value.method === "digital_link" || value.method === "instructions";
+  const fieldErrors: Record<string, string> = invalidUrl || invalidInstructions ? { receipt: "required" } : {};
+  return <fieldset className={`receipt-fields${attention && !exactField ? " attention-block needs-attention" : ""}`} disabled={disabled} id={exactField ? undefined : "f-receipt"} tabIndex={-1} aria-invalid={attention && !exactField ? "true" : undefined}>
     <legend>איך הקונה יקבל את מה ששילם עליו?</legend>
     <div className="choice-group" data-testid="receipt-methods">
       {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="one" name="receipt-method" value={key}
@@ -30,11 +35,11 @@ export function ReceiptFields({ value, onChange, disabled = false, attention }: 
         onSelect={() => onChange({ ...value, method: key! })} />)}
     </div>
     {value.method === "digital_link" ? <label className="field">קישור מאובטח
-      <input type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
+      <input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
       <span className="muted small">לכתובת אישית לכל קונה אפשר להוסיף {'{code}'} לקישור.</span>
     </label> : null}
     {value.method === "instructions" || value.method === "code" || value.method === "qr" ? <label className="field">הוראות מימוש {value.method === "instructions" ? "" : "(לא חובה)"}
-      <textarea rows={3} required={value.method === "instructions"} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
+      <textarea {...(value.method === "instructions" ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={value.method === "instructions"} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
     </label> : null}
   </fieldset>;
 }
@@ -81,8 +86,8 @@ export function DealReceiptInfo({ dealId, onReady }: { dealId: string; onReady: 
 export function PublicSellerPage({ id }: { id: string }) {
   const [page, setPage] = useState(0);
   const [seller, setSeller] = useState<Json | null>(null), [error, setError] = useState("");
-  useEffect(() => { let alive = true; setSeller(null); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(e => { if (alive) setError(e.message); }); return () => { alive = false; }; }, [id, page]);
-  if (!seller) return <p role="status">{error || "טוענים פרופיל…"}</p>;
+  useEffect(() => { let alive = true; setSeller(null); setError(""); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(() => { if (alive) setError("לא ניתן לטעון את פרופיל המוכר כרגע. נסו לרענן את העמוד."); }); return () => { alive = false; }; }, [id, page]);
+  if (!seller) return <section className="panel"><h1>פרופיל המוכר</h1><p role="status">{error || "טוענים פרופיל…"}</p></section>;
   return <>
     <section className="panel">
       <SellerIdentity seller={seller} />
@@ -106,14 +111,21 @@ export function PublicSellerPage({ id }: { id: string }) {
   </>;
 }
 export function BuyerEntitlement({ participantId, token, pickup }: { participantId: string; token: string; pickup?: Json }) {
-  const [data, setData] = useState<Json | null>(null), [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{ participantId: string; token: string; value: Json } | null>(null), [error, setError] = useState("");
+  const data = loaded?.participantId === participantId && loaded.token === token ? loaded.value : null;
+  const setData = (value: Json | null) => setLoaded(value ? { participantId, token, value } : null);
   useEffect(() => { let active = true;
+    setError("");
     const load = () => request(`/api/participants/${participantId}/entitlement`, { headers: { authorization: `Bearer ${token}` } }).then(r => { if (active) { setData(r); setError(""); } }).catch(e => { if (active) { setData(null); setError(e.message); } });
     void load(); const timer = window.setInterval(load, 20000); return () => { active = false; clearInterval(timer); };
   }, [participantId, token]);
   const receipt = data?.entitlement;
+  // A non-ready pickup is a status, not an entitlement. Render the server's
+  // status even when no receipt exists; PickupCard never renders credentials
+  // in these states. Ready pickup remains behind the existing entitlement gate.
+  const pickupStatus = pickup?.applicable && pickup.state !== "ready" && pickup.state !== "fulfilled";
   return <section className="panel"><h2>המימוש שלי</h2>
-    {error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
+    {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
       {!data.configured && pickup?.applicable ? <PickupCard pickup={pickup} /> : <>
         <h3>{receipt.title} · {receipt.quantity} יחידות</h3><p>{receipt.status === "redeemed" ? "כבר מומש" : "זכאי למימוש"}</p>
         {receipt.method === "name_phone" ? <p>הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
@@ -155,20 +167,23 @@ async function upload(file: File, scope: "seller" | "admin") {
 }
 export function PublicProfileEditor() {
   const [value, setValue] = useState<Json | null>(null), [message, setMessage] = useState("");
+  const [nameInvalid, setNameInvalid] = useState(false);
   useEffect(() => { request("/api/seller/public-profile", {}, "seller").then(r => setValue({ name: r.profile.name, about: r.profile.about, image_id: r.image_id, image: r.profile.image })).catch(e => setMessage(e.message)); }, []);
-  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" onSubmit={async e => { e.preventDefault(); try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
-    <label>שם לתצוגה<input required maxLength={120} value={value.name} onChange={e => setValue({ ...value, name: e.target.value })} /></label>
+  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" noValidate onSubmit={async e => { e.preventDefault(); if (!String(value.name || "").trim()) { setNameInvalid(true); setMessage("יש להזין שם לתצוגה"); focusField("public-name"); return; } try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
+    <label>שם לתצוגה<input {...fieldAttention(nameInvalid ? { "public-name": "required" } : {}, "public-name")} required maxLength={120} value={value.name} onChange={e => { setValue({ ...value, name: e.target.value }); if (e.target.value.trim()) { setNameInvalid(false); setMessage(""); } }} /></label>
     <label>אודות<textarea rows={4} maxLength={1000} value={value.about} onChange={e => setValue({ ...value, about: e.target.value })} /></label>
     {value.image ? <img className="seller-avatar" src={value.image} alt="תמונת הפרופיל" /> : null}
     <label>לוגו העסק או תמונה אישית<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { if (!e.target.files?.[0]) return; try { const img = await upload(e.target.files[0], "seller"); setValue({ ...value, image_id: img.asset_id, image: img.url }); } catch (err: any) { setMessage(err.message); } }} /></label>
     <button className="btn btn-primary">שמירת הפרופיל</button>
   </form> : null}<p role="status">{message}</p></section>;
 }
-export function useSiteContent() {
+function useSiteContentState() {
   const [content, setContent] = useState<Json>({});
-  useEffect(() => { let alive = true; const load = () => request("/api/site-content").then(r => { if (alive) setContent(r.content); }).catch(() => undefined); void load(); window.addEventListener("site-content-updated", load); return () => { alive = false; window.removeEventListener("site-content-updated", load); }; }, []);
-  return content;
+  const [loading, setLoading] = useState(true), [error, setError] = useState(false);
+  useEffect(() => { let alive = true; const load = () => request("/api/site-content").then(r => { if (alive) { setContent(r.content || {}); setError(false); } }).catch(() => { if (alive) setError(true); }).finally(() => { if (alive) setLoading(false); }); void load(); window.addEventListener("site-content-updated", load); return () => { alive = false; window.removeEventListener("site-content-updated", load); }; }, []);
+  return { content, loading, error };
 }
+export function useSiteContent() { return useSiteContentState().content; }
 // ROUND 2 (UX-9) — the legal / content documents read as part of C-ton instead
 // of as a bare dump: the Siton document shell (orange section markers, a
 // measured line length, RTL-safe wrapping) plus a chip strip so a reader can
@@ -182,7 +197,7 @@ const LEGAL_NAV: [string, string][] = [
   ["legal_payments", "מדיניות תשלומים"]
 ];
 export function ContentPage({ section }: { section: string }) {
-  const all = useSiteContent();
+  const { content: all, loading, error } = useSiteContentState();
   const content = all[section];
   const blocks = String(content?.body || "").replace(/^# [^\n]+\r?\n/, "").trim().split(/\n\s*\n/);
   const isLegal = section.startsWith("legal_");
@@ -193,7 +208,8 @@ export function ContentPage({ section }: { section: string }) {
       ))}
     </nav> : null}
     <article className="panel content-doc" data-testid="content-doc" data-section={section}>
-      <h1>{content?.title || "טוענים…"}</h1>
+      <h1>{content?.title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
+      {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
       {blocks.map((block, i) => {
         if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;
         if (block.split("\n").every(line => line.startsWith("- "))) return <ul key={i}>{block.split("\n").map((line, j) => <li key={j}>{line.slice(2)}</li>)}</ul>;
@@ -205,7 +221,7 @@ export function ContentPage({ section }: { section: string }) {
 export function ContentAdmin() {
   const [sections, setSections] = useState<Json>({}), [key, setKey] = useState("home"), [value, setValue] = useState<Json>({}), [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => { setSections(r.sections); setValue(r.sections.home.value); }).catch(e => setMessage(e.message)); }, []);
+  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => { const next = r.sections || {}; const first = next.home ? "home" : Object.keys(next)[0]; setSections(next); if (first) { setKey(first); setValue(next[first].value); } else setMessage("אין כרגע אזורי תוכן לעריכה."); }).catch(() => setMessage("לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד.")); }, []);
   const section = sections[key];
   return <><h1>ניהול תוכן האתר</h1><p>עדכון התוכן בתוך מבנה העמודים הקיים.</p>
     <label>עמוד או אזור<select value={key} disabled={busy} onChange={e => { setKey(e.target.value); setValue(sections[e.target.value].value); setMessage(""); }}>{Object.entries(sections).map(([k, s]) => <option value={k} key={k}>{s.label}</option>)}</select></label>

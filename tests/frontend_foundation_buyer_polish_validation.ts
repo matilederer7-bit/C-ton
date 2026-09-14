@@ -56,7 +56,10 @@ run("P1: the phone CTA bar exists only for an open deal outside preview, mirrors
   assert.match(dealPage, /\{isOpen && !preview \? \(\s*<StickyJoinBar anchor=\{ctaEl\} enabled=\{!joining && !joinResult && !inquiryOpen\}/);
   assert.match(dealPage, /data-testid="join-open-sticky"[^>]*onClick=\{onJoin\}/);
   assert.match(dealPage, /onJoin=\{startJoin\}/, "the sticky bar fires the SAME join start (funnel event + sheet)");
-  assert.match(dealPage, /const startJoin = \(\) => \{ if \(preview\) return; if \(!receiptReady\) \{ showToast\("[^"]+"\); return; \} sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\); \};/, "both join entry points require receipt information before opening the sheet");
+  const startJoin = dealPage.slice(dealPage.indexOf("const startJoin ="), dealPage.indexOf("const startInquiry ="));
+  assert.match(startJoin, /if \(!quantityValid\)/, "invalid quantity cannot use the previous value");
+  assert.match(startJoin, /if \(!receiptReady\) \{ showToast\("[^"]+"\); return; \} sendFunnelEvent\(dealId, "join_started"\); setJoining\(true\)/, "all join entry points require receipt information before opening the sheet");
+  assert.match(dealPage, /data-testid="join-open-summary" onClick=\{startJoin\}/, "early summary calls the canonical join flow");
   assert.match(dealPage, /<DealReceiptInfo dealId=\{dealId\} onReady=\{setReceiptReady\} \/>/);
   assert.match(styles, /\.sticky-cta \{ display: none; \}/);
   assert.match(styles, /@media \(max-width: 860px\) \{\s*\n\s*\.sticky-cta \{\s*\n\s*position: fixed; bottom: 0;/);
@@ -82,8 +85,8 @@ run("P2: trust = facts the backend proves — approved boolean on the projection
 run("P2/P3: the pilot mock-money disclosure is explicit on the deal, the sheet, the success moment and the tracking page — and describes the present only", () => {
   assert.match(buyerCopy, /PILOT_MOCK_MONEY_LINE = "פיילוט: בשלב זה לא מתבצע חיוב אמיתי ולא נדרש להזין כרטיס\."/);
   assert.doesNotMatch(buyerCopy, /בקרוב|לעולם|תמיד/, "no promise about the future");
-  assert.match(dealPage, /data-testid="pilot-line">🧪 \{PILOT_MOCK_MONEY_LINE\}/);
-  assert.match(dealPage, /data-testid="pay-pilot-note">🧪 \{PILOT_MOCK_MONEY_LINE\}/);
+  assert.match(dealPage, /data-testid="pilot-line">\{PILOT_MOCK_MONEY_LINE\}/);
+  assert.match(dealPage, /data-testid="pay-pilot-note">\{PILOT_MOCK_MONEY_LINE\}/);
   assert.match(dealPage, /data-testid="join-foot-line">[\s\S]{0,80}\{PILOT_MOCK_MONEY_LINE\}/);
   assert.match(dealPage, /data-testid="join-success-facts"[\s\S]{0,400}\{PILOT_MOCK_MONEY_LINE\}/);
   assert.match(trackPage, /\{PILOT_MOCK_MONEY_LINE\}/);

@@ -48,7 +48,8 @@ const BROWSER = [
 if (!BROWSER) { console.error('A Chromium browser is required for the visual proof'); process.exit(1); }
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-const WIDTHS = [390, 430, 1280, 1440];
+const WIDTHS = args.only === 'history' ? [] : [320, 390, 430, 768, 1280, 1440];
+const HEIGHTS = { 320: 844, 390: 844, 430: 932, 768: 1024, 1280: 800, 1440: 900 };
 let passed = 0, failed = 0;
 const failures = [];
 async function check(name, fn) {
@@ -72,10 +73,14 @@ import { createRoot } from 'react-dom/client';
 import App from './src/App';
 import { DealPage } from './src/pages/deal';
 import { SellerArea } from './src/pages/seller';
-import { BuyerEntitlement, ContentPage, PublicSellerPage, ReceiptFields } from './src/receiptContent';
+import { BuyerEntitlement, ContentPage, PublicSellerPage, ReceiptFields, PublicProfileEditor, ContentAdmin, SellerReceipts } from './src/receiptContent';
+import { Mall } from './src/pages/mall';
+import { TrackPage } from './src/pages/track';
+import { AdminArea } from './src/pages/admin';
 
 // a seller surface renders authenticated through the legacy token slot
 try { localStorage.setItem('siton_preview_seller_token', 'fixture-seller-token'); } catch {}
+try { localStorage.setItem('siton_preview_admin_token', 'fixture-admin-token'); } catch {}
 try { localStorage.removeItem('siton_guest_mode_v1'); } catch {}
 
 window.__consoleErrors = [];
@@ -124,26 +129,39 @@ const DEAL_PAYLOAD = {
   availability: { can_join: true, reason_code: null }
 };
 
-const SELLER_DEALS = { ok: true, deals: [] };
+const SELLER_DEALS = { ok: true, deals: [], seller_surface: {deals:[],seller_profile:{business_name:'מוכר בדיקה'},totals:{}} };
+window.fixtureState = { pickup: null, entitlement: undefined, seller: null, failure: false, empty: false };
+window.fixtureDeal = DEAL_PAYLOAD;
+window.fixtureSeller = SELLER_PUBLIC;
 
 window.__requests = [];
 window.fetch = async (url, init = {}) => {
   const p = String(url).split('?')[0];
   window.__requests.push(p);
+  if (window.fixtureState.failure && !p.includes('site-content') && !p.includes('auth-config')) return new Response(JSON.stringify({error:'temporarily_unavailable'}), {status:503});
   let data = { ok: true };
-  if (p === '/api/preview/meta') data = { ok: true, public_mall_enabled: false, landing_hero_video_enabled: false, landing_hero_video_url: '', landing_hero_video_poster: '' };
+  if (p === '/api/preview/meta') data = { ok: true, public_mall_enabled: location.search.includes('mall=1'), landing_hero_video_enabled: false, landing_hero_video_url: '', landing_hero_video_poster: '' };
   else if (p === '/api/site-content') data = { ok: true, content: { legal_terms: { title: 'תקנון ותנאי שימוש', body: '# תקנון ותנאי שימוש\\n\\n## מידע לקונים\\n\\nההצטרפות לעסקה תופסת מסגרת אשראי בלבד.\\n\\n- לא מתבצע חיוב עד סגירת העסקה\\n- אם היעד לא הושג המסגרת משתחררת\\n\\n## מידע למוכרים\\n\\nהמוכר קובע מחיר, יעד ומועד סיום.' }, legal_privacy: { title: 'מדיניות פרטיות', body: '# מדיניות פרטיות\\n\\nתוכן.' }, legal_refunds: { title: 'ביטולים והחזרים', body: '# ביטולים והחזרים\\n\\nתוכן.' } } };
   else if (p === '/api/deals/${DEAL_ID}/public') data = DEAL_PAYLOAD;
   else if (p === '/api/deals/${DEAL_ID}/activity') data = { ok: true, state: 'PendingTarget', joined_units: 11, participants: 6, remaining_units: 39, activity: [] };
   else if (p === '/api/deals/${DEAL_ID}/receipt-info') data = { ok: true, method: 'qr', label: 'קוד QR אישי למימוש אצל המוכר', seller: SELLER_PUBLIC };
   else if (p === '/api/deals/${DEAL_ID}/public-names') data = { ok: true, names: ['נועה', 'איתי'] };
-  else if (p.startsWith('/api/public-sellers/')) data = { ok: true, seller: SELLER_PUBLIC };
+  else if (p.startsWith('/api/public-sellers/')) data = { ok: true, seller: window.fixtureState.seller || SELLER_PUBLIC };
   else if (p.endsWith('/chat')) data = { ok: true, messages: [] };
   else if (p.endsWith('/inquiries')) data = { ok: true, threads: [] };
   else if (p === '/api/seller/deals') data = SELLER_DEALS;
   else if (p === '/api/seller/capabilities') data = { ok: true, seller: { seller_id: 'fixture-seller', business_name: 'מטעמי הגליל' } };
   else if (p === '/api/seller/public-profile') data = { ok: true, profile: SELLER_PUBLIC, image_id: '33333333-3333-4333-8333-333333333333' };
   else if (p === '/api/preview/auth-config') data = { ok: true, supabase_url: '', supabase_anon_key: '', configured: false };
+  else if (p === '/api/mall/deals') data = {ok:true, deals:window.fixtureState.empty ? [] : Array.from({length:12}, (_,i)=>({...DEAL_PAYLOAD.deal, ...DEAL_PAYLOAD.metrics, availability:DEAL_PAYLOAD.availability, title:DEAL_PAYLOAD.deal.title+' '+i, primary_image:null}))};
+  else if (p === '/api/seller/business-profile') data = {ok:true, business_profile:{business_name:SELLER_PUBLIC.name}, statuses:{}};
+  else if (p === '/api/seller/analytics') data = {ok:true};
+  else if (p === '/api/seller/receipts') data = {ok:true, orders:[]};
+  else if (p === '/api/seller/deals/${DEAL_ID}') data = {ok:true, deal:{...DEAL_PAYLOAD.deal,state:'Draft'}, participants:[], delivery_options:DEAL_PAYLOAD.deal.delivery_options, seller_actions:{delivery_editable:true}};
+  else if (p.endsWith('/fulfillment')) data = {ok:true, orders:[], totals:{}};
+  else if (p === '/api/admin/site-content') data = {ok:true, sections:window.fixtureState.empty ? {} : {home:{label:'דף הבית',value:{title:'C-ton'},fields:{title:{label:'כותרת',max:120}},revision:1}}};
+  else if (p.endsWith('/tracking')) data = {ok:true, tracking:{...DEAL_PAYLOAD.deal, deal_title:DEAL_PAYLOAD.deal.title,deal_state:'Completed',qty:2,headline:'העסקה הושלמה',progress:{},pickup:window.fixtureState.pickup}};
+  else if (p.endsWith('/entitlement') && window.fixtureState.entitlement !== undefined) data = window.fixtureState.entitlement;
   else if (p.endsWith('/entitlement')) data = { ok: true, configured: true, public_name_opt_in: false, entitlement: { entitlement_id: 'fixture', method: 'code', title: 'מארז זיתי סורי 5 ק״ג', quantity: 2, remaining_quantity: 2, status: 'valid', code: 'ABCD-1234-ABCD-1234', instructions: 'הציגו למוכר את הקוד' } };
   return new Response(JSON.stringify(data), { status: 200, headers: { 'content-type': 'application/json' } });
 };
@@ -158,6 +176,7 @@ function ReceiptChoices() {
 
 const root = createRoot(document.getElementById('root'));
 window.show = (view) => {
+  if (view.startsWith('#/')) { window.location.hash = view; root.render(<App />); return; }
   if (view === 'app') { window.location.hash = '#/'; root.render(<App />); return; }
   root.render(
     <div className="app">
@@ -167,7 +186,18 @@ window.show = (view) => {
         {view === 'legal' ? <ContentPage section="legal_terms" /> : null}
         {view === 'profile' ? <PublicSellerPage id="${PROFILE_ID}" /> : null}
         {view === 'receipt' ? <ReceiptChoices /> : null}
-        {view === 'entitlement' ? <BuyerEntitlement participantId="44444444-4444-4444-8444-444444444444" token="fixture-token" /> : null}
+        {view === 'entitlement' ? <BuyerEntitlement participantId="44444444-4444-4444-8444-444444444444" token="fixture-token" pickup={window.fixtureState.pickup} /> : null}
+        {view === 'mall' ? <Mall navigate={h=>window.show(h)} /> : null}
+        {view === 'track' ? <TrackPage participantId="44444444-4444-4444-8444-444444444444" token="fixture-token" /> : null}
+        {view === 'seller' ? <SellerArea sub={[]} navigate={h=>window.show(h)} /> : null}
+        {view === 'edit' ? <SellerArea sub={['deal','${DEAL_ID}']} navigate={h=>window.show(h)} /> : null}
+        {view === 'onboarding' ? <SellerArea sub={['profile']} navigate={h=>window.show(h)} /> : null}
+        {view === 'pickup' ? <SellerArea sub={['pickup']} navigate={h=>window.show(h)} /> : null}
+        {view === 'handoff' ? <SellerArea sub={['deal','${DEAL_ID}','fulfillment']} navigate={h=>window.show(h)} /> : null}
+        {view === 'receipts' ? <SellerReceipts /> : null}
+        {view === 'profile-edit' ? <PublicProfileEditor /> : null}
+        {view === 'cms' ? <ContentAdmin /> : null}
+        {view === 'admin' ? <AdminArea sub={[]} navigate={h=>window.show(h)} /> : null}
       </main>
     </div>
   );
@@ -261,7 +291,7 @@ async function main() {
 
     // ═════════ per-width structural acceptance ═════════
     for (const width of WIDTHS) {
-      await viewport(width, width < 500 ? 900 : 1000);
+      await viewport(width, HEIGHTS[width]);
 
       // ── UX-1 guest / pilot screen ──
       await show('app');
@@ -680,6 +710,8 @@ async function main() {
       if (width === 390) await shot(`choices-${width}`);
 
     }
+
+    await require('./ux_premerge_browser_checks.cjs')({ ev, send, show, wait, waitFor, viewport, shot, check, assert, eq, WIDTHS, HEIGHTS, DEAL_ID, PROFILE_ID });
 
     // ── UX-10 console cleanliness across everything just exercised ──
     await check('UX-10: no console errors introduced across every surface and width', async () => {

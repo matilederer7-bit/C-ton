@@ -20,6 +20,7 @@ import {
 import { absoluteShareUrl } from "../viral";
 // ROUND 2 (UX-2) — the ONE required-field attention rule (pulsing border on the
 // exact control, aria-invalid, scroll/focus anchor, clears when it becomes valid)
+import { QUANTITY_INPUT_ATTRS, isPositiveIntegerText } from "../quantityInput";
 import { attention, attentionBlock, focusField, sameErrors, settleErrors } from "../fieldAttention";
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
@@ -627,8 +628,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       if (images.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
     }
     if (s === 1) {
-      if (!(minNum >= 1)) errs.min = "יש להזין כמות מינימום";
-      if (!(maxNum >= minNum)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+      if (!isPositiveIntegerText(minUnits)) errs.min = "יש להזין כמות מינימום";
+      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
     }
     if (s === 2) {
       if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = "יש להוסיף לפחות אפשרות אספקה אחת";
@@ -787,8 +788,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
         {step === 0 ? (
           <>
             <div className="field">
-              <label>סוג העסקה</label>
-              <select data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
+              <label htmlFor="deal-type">סוג העסקה</label>
+              <select id="deal-type" data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
                 <option value="physical_product">מוצר פיזי</option>
                 <option value="voucher">שובר</option>
                 <option value="ticket">כרטיס לאירוע</option>
@@ -796,31 +797,31 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
               <span className="hint">השלב הבא יבקש רק את פרטי האספקה או המימוש שמתאימים לסוג שנבחר.</span>
             </div>
             <div className="field">
-              <label>שם העסקה <span className="req">*</span></label>
+              <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
               <input {...attention(errors, "title")} data-testid="deal-title" value={title}
                 onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="למשל: מארז זיתי סורי 5 ק״ג" />
               <FieldError msg={errors.title} />
             </div>
             <div className="field">
-              <label>תיאור קצר <span className="req">*</span> <span className="hint">(המשפט שמוכר — מופיע בראש העסקה ובשיתופים, עד 200 תווים)</span></label>
+              <label htmlFor="f-short">תיאור קצר <span className="req">*</span> <span className="hint">(המשפט שמוכר — מופיע בראש העסקה ובשיתופים, עד 200 תווים)</span></label>
               <input {...attention(errors, "short")} data-testid="deal-short" value={shortDesc}
                 onChange={(e) => setShortDesc(e.target.value)} maxLength={200} placeholder="למשל: זיתים חצי במחיר — רק כשנסגרים 20 מארזים" />
               <FieldError msg={errors.short} />
             </div>
             <div className="field">
-              <label>תיאור מלא <span className="hint">(לא חובה — כל מה שחשוב לקונים, מופיע בהמשך דף העסקה)</span></label>
+              <label htmlFor="f-long">תיאור מלא <span className="hint">(לא חובה — כל מה שחשוב לקונים, מופיע בהמשך דף העסקה)</span></label>
               <textarea {...attention(errors, "long")} data-testid="deal-long" rows={6} value={longDesc} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000}
                 placeholder="מה בדיוק מקבלים, איך זה מגיע, למה זה משתלם…" />
             </div>
             <div className="field">
-              <label>מחיר ליחידה (₪) <span className="req">*</span></label>
+              <label htmlFor="f-price">מחיר ליחידה (₪) <span className="req">*</span></label>
               <input {...attention(errors, "price")} data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5"
                 value={price} onChange={(e) => setPrice(e.target.value)} />
               <FieldError msg={errors.price} />
               <span className="hint">המחיר ננעל לאחר הפרסום</span>
             </div>
             <div className="field">
-              <label>מחיר רגיל ליחידה (₪) <span className="hint">(לא חובה — המחיר ״הרגיל״ מחוץ לקבוצה; הקונים יראו את החיסכון באחוזים)</span></label>
+              <label htmlFor="f-listPrice">מחיר רגיל ליחידה (₪) <span className="hint">(לא חובה — המחיר ״הרגיל״ מחוץ לקבוצה; הקונים יראו את החיסכון באחוזים)</span></label>
               <input {...attention(errors, "listPrice")} data-testid="deal-list-price" dir="ltr" type="number" min={1} step="0.5"
                 value={listPrice} onChange={(e) => setListPrice(e.target.value)} placeholder={priceNum > 0 ? String(Math.round(priceNum * 1.3)) : ""} />
               <FieldError msg={errors.listPrice} />
@@ -840,15 +841,15 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
           <>
             <div className="field-row">
               <div className="field">
-                <label>כמות מינימום <span className="req">*</span></label>
-                <input {...attention(errors, "min")} data-testid="deal-min" dir="ltr" type="number" min={1}
+                <label htmlFor="f-min">כמות מינימום <span className="req">*</span></label>
+                <input {...attention(errors, "min")} data-testid="deal-min" {...QUANTITY_INPUT_ATTRS}
                   value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
                 <FieldError msg={errors.min} />
                 <span className="hint">היעד שהקבוצה צריכה להגיע אליו</span>
               </div>
               <div className="field">
-                <label>כמות מקסימלית (מלאי) <span className="req">*</span></label>
-                <input {...attention(errors, "max")} data-testid="deal-max" dir="ltr" type="number" min={minNum}
+                <label htmlFor="f-max">כמות מקסימלית (מלאי) <span className="req">*</span></label>
+                <input {...attention(errors, "max")} data-testid="deal-max" {...QUANTITY_INPUT_ATTRS}
                   value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
                 <FieldError msg={errors.max} />
                 <span className="hint">כשמגיעים — המכירה נסגרת</span>
@@ -900,28 +901,28 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
             {dealType === "voucher" ? <>
               <div className="field-row">
                 <div className="field">
-                  <label>שווי נקוב של השובר (₪) <span className="req">*</span></label>
+                  <label htmlFor="f-voucherFace">שווי נקוב של השובר (₪) <span className="req">*</span></label>
                   <input {...attention(errors, "voucherFace")} data-testid="voucher-face-value" dir="ltr" type="number" min={1} step="0.5" value={voucherFaceValue} onChange={(e) => setVoucherFaceValue(e.target.value)} />
                   <FieldError msg={errors.voucherFace} />
                 </div>
                 <div className="field">
-                  <label>בתוקף עד <span className="req">*</span></label>
+                  <label htmlFor="f-voucherValid">בתוקף עד <span className="req">*</span></label>
                   <input {...attention(errors, "voucherValid")} data-testid="voucher-valid-until" dir="ltr" type="date" value={voucherValidUntil} onChange={(e) => setVoucherValidUntil(e.target.value)} />
                   <FieldError msg={errors.voucherValid} />
                 </div>
               </div>
               <div className="field">
-                <label>מקום מימוש <span className="req">*</span></label>
+                <label htmlFor="f-voucherLocation">מקום מימוש <span className="req">*</span></label>
                 <input {...attention(errors, "voucherLocation")} data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder="בסניפי העסק או באתר" />
                 <FieldError msg={errors.voucherLocation} />
               </div>
               <div className="field">
-                <label>הוראות מימוש <span className="req">*</span></label>
+                <label htmlFor="f-voucherInstructions">הוראות מימוש <span className="req">*</span></label>
                 <textarea {...attention(errors, "voucherInstructions")} data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder="איך מציגים את הקוד וממשים" />
                 <FieldError msg={errors.voucherInstructions} />
               </div>
               <div className="field">
-                <label>תנאי השובר <span className="req">*</span></label>
+                <label htmlFor="f-voucherTerms">תנאי השובר <span className="req">*</span></label>
                 <textarea {...attention(errors, "voucherTerms")} data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder="הגבלות, כפל מבצעים ומדיניות מימוש" />
                 <FieldError msg={errors.voucherTerms} />
               </div>
@@ -930,37 +931,37 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
 
             {dealType === "ticket" ? <>
               <div className="field">
-                <label>שם האירוע <span className="req">*</span></label>
+                <label htmlFor="f-eventName">שם האירוע <span className="req">*</span></label>
                 <input {...attention(errors, "eventName")} data-testid="ticket-event-name" value={eventName} onChange={(e) => setEventName(e.target.value)} maxLength={200} />
                 <FieldError msg={errors.eventName} />
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label>מתי מתחיל <span className="req">*</span></label>
+                  <label htmlFor="f-eventStart">מתי מתחיל <span className="req">*</span></label>
                   <input {...attention(errors, "eventStart")} data-testid="ticket-start" dir="ltr" type="datetime-local" value={eventStartsAt} onChange={(e) => setEventStartsAt(e.target.value)} />
                   <FieldError msg={errors.eventStart} />
                 </div>
                 <div className="field">
-                  <label>מתי מסתיים <span className="hint">(לא חובה)</span></label>
+                  <label htmlFor="f-eventEnd">מתי מסתיים <span className="hint">(לא חובה)</span></label>
                   <input {...attention(errors, "eventEnd")} dir="ltr" type="datetime-local" value={eventEndsAt} onChange={(e) => setEventEndsAt(e.target.value)} />
                   <FieldError msg={errors.eventEnd} />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label>מקום האירוע <span className="req">*</span></label>
+                  <label htmlFor="f-venueName">מקום האירוע <span className="req">*</span></label>
                   <input {...attention(errors, "venueName")} data-testid="ticket-venue" value={venueName} onChange={(e) => setVenueName(e.target.value)} maxLength={200} />
                   <FieldError msg={errors.venueName} />
                 </div>
                 <div className="field">
-                  <label>עיר <span className="req">*</span></label>
+                  <label htmlFor="f-venueCity">עיר <span className="req">*</span></label>
                   <input {...attention(errors, "venueCity")} data-testid="ticket-city" value={venueCity} onChange={(e) => setVenueCity(e.target.value)} maxLength={100} />
                   <FieldError msg={errors.venueCity} />
                 </div>
               </div>
               <div className="field"><label>כתובת</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
               <div className="field">
-                <label>הוראות כניסה <span className="req">*</span></label>
+                <label htmlFor="f-entry">הוראות כניסה <span className="req">*</span></label>
                 <textarea {...attention(errors, "entry")} data-testid="ticket-entry" rows={3} value={entryInstructions} onChange={(e) => setEntryInstructions(e.target.value)} maxLength={1000} />
                 <FieldError msg={errors.entry} />
               </div>
@@ -1106,8 +1107,8 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     if (!title.trim()) errs.title = "יש להזין שם לעסקה";
     if (!(Number(price) > 0)) errs.price = "יש להזין מחיר ליחידה";
     if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
-    if (!(Number(minUnits) >= 1)) errs.min = "יש להזין כמות מינימום";
-    if (!(Number(maxUnits) >= Number(minUnits))) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
+    if (!isPositiveIntegerText(minUnits)) errs.min = "יש להזין כמות מינימום";
+    if (!isPositiveIntegerText(maxUnits) || !(Number(maxUnits) >= Number(minUnits))) errs.max = "כמות המקסימום חייבת להיות לפחות כמו המינימום";
     const dl = validateDeadline(deadlineDate, deadlineTime);
     if (dl.error) errs.editDeadline = dl.error;
     if (dealType === "voucher") {
@@ -1194,7 +1195,7 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     <div className="panel">
       <div className="panel-title">עריכת פרטי העסקה</div>
       <div className="field">
-        <label>שם העסקה <span className="req">*</span></label>
+        <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
         <input {...attention(errors, "title")} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
         <FieldError msg={errors.title} />
       </div>
@@ -1208,23 +1209,23 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
       </div>
       <div className="field-row">
         <div className="field">
-          <label>מחיר ליחידה (₪) <span className="req">*</span></label>
+          <label htmlFor="f-price">מחיר ליחידה (₪) <span className="req">*</span></label>
           <input {...attention(errors, "price")} dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} />
           <FieldError msg={errors.price} />
         </div>
         <div className="field">
-          <label>מחיר רגיל (₪) <span className="hint">(לא חובה)</span></label>
+          <label htmlFor="f-listPrice">מחיר רגיל (₪) <span className="hint">(לא חובה)</span></label>
           <input {...attention(errors, "listPrice")} dir="ltr" type="number" min={1} step="0.5" value={listPrice} onChange={(e) => setListPrice(e.target.value)} />
           <FieldError msg={errors.listPrice} />
         </div>
         <div className="field">
-          <label>כמות מינימום <span className="req">*</span></label>
-          <input {...attention(errors, "min")} dir="ltr" type="number" min={1} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
+          <label htmlFor="f-min">כמות מינימום <span className="req">*</span></label>
+          <input {...attention(errors, "min")} {...QUANTITY_INPUT_ATTRS} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
           <FieldError msg={errors.min} />
         </div>
         <div className="field">
-          <label>מקסימום (מלאי) <span className="req">*</span></label>
-          <input {...attention(errors, "max")} dir="ltr" type="number" min={1} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
+          <label htmlFor="f-max">מקסימום (מלאי) <span className="req">*</span></label>
+          <input {...attention(errors, "max")} {...QUANTITY_INPUT_ATTRS} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
           <FieldError msg={errors.max} />
         </div>
       </div>
@@ -1234,12 +1235,12 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
           <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי השובר</div>
           <div className="field-row">
             <div className="field">
-              <label>שווי נקוב (₪) <span className="req">*</span></label>
+              <label htmlFor="f-vFace">שווי נקוב (₪) <span className="req">*</span></label>
               <input {...attention(errors, "vFace")} dir="ltr" type="number" min={1} value={vFace} onChange={(e) => setVFace(e.target.value)} />
               <FieldError msg={errors.vFace} />
             </div>
             <div className="field">
-              <label>בתוקף עד <span className="req">*</span></label>
+              <label htmlFor="f-vValid">בתוקף עד <span className="req">*</span></label>
               <input {...attention(errors, "vValid")} dir="ltr" type="date" value={vValid} onChange={(e) => setVValid(e.target.value)} />
               <FieldError msg={errors.vValid} />
             </div>
@@ -1254,12 +1255,12 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
           <div className="section-title" style={{ margin: "12px 0 8px" }}>פרטי האירוע</div>
           <div className="field-row">
             <div className="field">
-              <label>שם האירוע <span className="req">*</span></label>
+              <label htmlFor="f-tEventName">שם האירוע <span className="req">*</span></label>
               <input {...attention(errors, "tEventName")} value={tEventName} onChange={(e) => setTEventName(e.target.value)} maxLength={200} />
               <FieldError msg={errors.tEventName} />
             </div>
             <div className="field">
-              <label>מתי מתחיל <span className="req">*</span></label>
+              <label htmlFor="f-tStart">מתי מתחיל <span className="req">*</span></label>
               <input {...attention(errors, "tStart")} dir="ltr" type="datetime-local" value={tStart} onChange={(e) => setTStart(e.target.value)} />
               <FieldError msg={errors.tStart} />
             </div>
@@ -1303,7 +1304,20 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   const [rows, setRows] = useState<DeliveryDraft[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const dealType = String(deal.deal_type || "physical_product");
+  const validateDelivery = () => {
+    const errors: Record<string, string> = {};
+    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = "יש להשאיר לפחות אפשרות אספקה אחת";
+    else if (String(deal.state) !== "Draft") rows.forEach((row, index) => {
+      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום";
+    });
+    return errors;
+  };
+  useEffect(() => {
+    const next = settleErrors(fieldErrors, validateDelivery());
+    if (!sameErrors(fieldErrors, next)) setFieldErrors(next);
+  });
 
   if (dealType !== "physical_product") {
     return (
@@ -1317,6 +1331,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   }
 
   const beginEdit = () => {
+    setFieldErrors({});
     setRows((options || []).map((o) => ({
       option_type: String(o.option_type || "pickup"),
       label: String(o.label || ""),
@@ -1331,10 +1346,10 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   const save = async () => {
     if (busy) return;
     const clean = rows.filter((r) => r.label.trim());
-    if (!clean.length) { setError("יש להשאיר לפחות אפשרות אספקה אחת"); return; }
-    if (String(deal.state) !== "Draft" && clean.some((r) => !hasUsablePickupLocation(r))) {
-      setError("לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום"); return;
-    }
+    const errors = validateDelivery();
+    setFieldErrors(errors);
+    const first = Object.keys(errors)[0];
+    if (first) { focusField(first); return; }
     setBusy(true); setError("");
     try {
       await api.updateDealDelivery(String(deal.deal_id), {
@@ -1414,7 +1429,8 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                 </div>
                 <div className="field grow" style={{ marginBottom: 0, flex: "2 1 160px" }}>
                   <label>{isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור"}</label>
-                  <input value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
+                  <input {...attention(fieldErrors, `delivery-label-${i}`)} aria-label={isPickupOptionType(d.option_type) ? "כתובת / מיקום האיסוף" : "תיאור האספקה"} value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? "למשל: רח׳ הרצל 12, תל אביב — חנות הקפה" : "למשל: משלוח שליח עד הבית"} />
+                  <FieldError msg={fieldErrors[`delivery-label-${i}`]} />
                 </div>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
                   <label>עלות (₪)</label>
@@ -1426,11 +1442,12 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
             </React.Fragment>
           ))}
           {rows.length < 5 ? (
-            <button className="btn btn-sm btn-ghost" style={{ alignSelf: "flex-start" }}
+            <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} style={{ alignSelf: "flex-start" }}
               onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null }])}>
               + הוספת אפשרות
             </button>
           ) : null}
+          <FieldError msg={fieldErrors["delivery-options"]} />
           {error ? <div className="notice err">{error}</div> : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>ביטול</button>
@@ -1516,6 +1533,10 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
   const { deal } = props;
   const [ack1, setAck1] = useState(false);
   const [ack2, setAck2] = useState(false);
+  const [attentionRequested, setAttentionRequested] = useState(false);
+  const consentErrors: Record<string, string> = {};
+  if (attentionRequested && !ack1) consentErrors["publish-terms"] = "required";
+  if (attentionRequested && !ack2) consentErrors["publish-threshold"] = "required";
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const images: Json[] = deal.images || [];
@@ -1544,7 +1565,7 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
 
   const publish = async () => {
     if (busy) return;
-    if (!ack1 || !ack2) { setError("יש לאשר את שני התנאים לפני הפרסום"); return; }
+    if (!ack1 || !ack2) { setAttentionRequested(true); setError("יש לאשר את שני התנאים לפני הפרסום"); focusField(!ack1 ? "publish-terms" : "publish-threshold"); return; }
     setBusy(true); setError("");
     try {
       await api.publishDeal(String(deal.deal_id));
@@ -1597,11 +1618,11 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
       </div>
       <div className="publish-warning">
         <label className="check">
-          <input data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => setAck1(e.target.checked)} />
+          <input {...attention(consentErrors, "publish-terms")} data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => { setAck1(e.target.checked); setError(""); }} />
           <span>קראתי והבנתי כי לאחר הפרסום <b>לא ניתן לשנות</b> מחיר, כמויות, מועד סיום או עמלות.</span>
         </label>
         <label className="check" style={{ marginBottom: 0 }}>
-          <input data-testid="publish-lock-threshold" type="checkbox" checked={ack2} onChange={(e) => setAck2(e.target.checked)} />
+          <input {...attention(consentErrors, "publish-threshold")} data-testid="publish-lock-threshold" type="checkbox" checked={ack2} onChange={(e) => { setAck2(e.target.checked); setError(""); }} />
           <span>אני מאשר/ת שהתנאים סופיים, כולל כלל ה-90%: העסקה תושלם רק אם יחויבו בפועל לפחות {num(threshold)} יחידות.</span>
         </label>
       </div>

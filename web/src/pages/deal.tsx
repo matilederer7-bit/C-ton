@@ -617,11 +617,11 @@ function JoinModal(props: {
 
   const field = (key: string, label: string, input: React.ReactNode, opts: { required?: boolean; hint?: string } = {}) => (
     <div className={`field${fieldErrors[key] ? " invalid" : ""}`} id={`join-field-${key}`}>
-      <label>
+      <label htmlFor={`join-control-${key}`}>
         {label}{opts.required ? <span className="req" aria-hidden="true"> *</span> : null}
         {opts.hint ? <span className="hint"> {opts.hint}</span> : null}
       </label>
-      {input}
+      {React.isValidElement(input) ? React.cloneElement(input as React.ReactElement<{ id?: string }>, { id: `join-control-${key}` }) : input}
       {fieldErrors[key] ? <span className="field-error" data-testid={`join-error-${key}`} role="alert">{fieldErrors[key]}</span> : null}
     </div>
   );
@@ -705,7 +705,7 @@ function JoinModal(props: {
             <span className="pay-bit-logo">bit</span> תשלום ב-bit
           </button>
         </div>
-        <div className="pay-pilot-note" data-testid="pay-pilot-note">🧪 {PILOT_MOCK_MONEY_LINE} השדות למטה מוצגים להמחשה בלבד.</div>
+        <div className="pay-pilot-note" data-testid="pay-pilot-note">{PILOT_MOCK_MONEY_LINE} השדות למטה מוצגים להמחשה בלבד.</div>
         {payMethod === "credit_card" ? (
           <div className="pay-secure-slot" data-testid="pay-slot-credit">
             <div className="field" style={{ marginBottom: 0 }}>
@@ -821,20 +821,28 @@ function StickyJoinBar({ anchor, enabled, price, label, onJoin }: {
   anchor: HTMLElement | null; enabled: boolean; price: number; label: string; onJoin: () => void;
 }) {
   const [offscreen, setOffscreen] = useState(false);
+  const [summaryPassed, setSummaryPassed] = useState(false);
   useEffect(() => {
     if (!anchor || typeof IntersectionObserver === "undefined") { setOffscreen(false); return; }
     const io = new IntersectionObserver(([entry]) => setOffscreen(!entry.isIntersecting), { threshold: 0.15 });
     io.observe(anchor);
     return () => io.disconnect();
   }, [anchor]);
-  const show = enabled && offscreen;
+  useEffect(() => {
+    const summary = document.querySelector('[data-testid="deal-early-action"]');
+    if (!summary || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(([entry]) => setSummaryPassed(entry.boundingClientRect.bottom <= 0));
+    observer.observe(summary);
+    return () => observer.disconnect();
+  }, [anchor]);
+  const show = enabled && offscreen && summaryPassed;
   return (
     <>
       <div className={`sticky-cta${show ? " show" : ""}`} data-testid="sticky-cta" data-show={show ? "1" : "0"} aria-hidden={!show}>
         <div className="sticky-cta-price"><b>{ils(price)}</b><span>ליחידה · מסגרת בלבד</span></div>
         <button type="button" className="btn btn-join" data-testid="join-open-sticky" tabIndex={show ? 0 : -1} onClick={onJoin}>{label}</button>
       </div>
-      {show ? <div className="sticky-cta-spacer" aria-hidden="true" /> : null}
+      <div className="sticky-cta-spacer" aria-hidden="true" />
     </>
   );
 }
@@ -900,6 +908,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
   const [receiptReady, setReceiptReady] = useState(false);
   const [errorKind, setErrorKind] = useState<"gone" | "network" | "busy" | "other">("other");
   const [qty, setQty] = useState(1);
+  const [quantityValid, setQuantityValid] = useState(true);
   const [deliveryId, setDeliveryId] = useState<string>("");
   const [joining, setJoining] = useState(false);
   const [joinResult, setJoinResult] = useState<Json | null>(null);
@@ -1023,7 +1032,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     : state === "TargetReached"
       ? "הצטרפו ליחידות האחרונות"
       : unitsToTarget > 0 ? `הצטרפו עכשיו — עוד ${num(unitsToTarget)} ליעד` : "הצטרפו לעסקה";
-  const startJoin = () => { if (preview) return; if (!receiptReady) { showToast("ממתינים לטעינת פרטי המימוש. נסו שוב בעוד רגע."); return; } sendFunnelEvent(dealId, "join_started"); setJoining(true); };
+  const startJoin = () => { if (preview) return; if (!quantityValid) { const input = document.querySelector<HTMLInputElement>('[data-testid="join-qty"]'); input?.scrollIntoView({ block: "center" }); input?.focus({ preventScroll: true }); showToast("יש להזין כמות תקינה לפני ההצטרפות."); return; } if (!receiptReady) { showToast("ממתינים לטעינת פרטי המימוש. נסו שוב בעוד רגע."); return; } sendFunnelEvent(dealId, "join_started"); setJoining(true); };
   const startInquiry = () => { if (preview) return; sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); };
   const story = isOpen ? null : closedStory({ state, soldOut, timeUp, deadline: String(deal.deadline), joined, threshold: Number(deal.threshold_units) });
   const pillLabel = story?.key === "awaiting_decision" ? "ההצטרפות הסתיימה — ממתינים להכרעה" : story?.key === "paused" ? "ההצטרפות מושהית זמנית" : buyerStateStory(state, unitsToTarget);
@@ -1060,6 +1069,11 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 {preview ? null : <button type="button" className="linklike" data-testid="inquiry-open-top" onClick={startInquiry}>שאלה למוכר</button>}
               </div>
             ) : null}
+            {isOpen && !preview ? <div className="deal-early-action" data-testid="deal-early-action">
+              <p><b>{ils(deal.price_per_unit)} ליחידה</b> · יעד הקבוצה: {num(deal.threshold_units)} יחידות</p>
+              <button type="button" className="btn btn-join btn-block" data-testid="join-open-summary" onClick={startJoin}>{ctaText}</button>
+              <p className="muted small">{AFTER_TAP_LINE}</p>
+            </div> : null}
           </div>
         </div>
 
@@ -1111,7 +1125,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               <div className="panel-title">ההזמנה שלי</div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
                 <span style={{ fontWeight: 700 }}>כמות יחידות</span>
-                <QtyInput value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} testId="join-qty" ariaLabel="כמות יחידות להצטרפות" />
+                <QtyInput value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} onValidityChange={setQuantityValid} testId="join-qty" ariaLabel="כמות יחידות להצטרפות" />
               </div>
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">
@@ -1151,7 +1165,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 {preview ? "הצטרפות (מושבת בתצוגה מקדימה)" : ctaText}
               </button>
               <p className="after-tap muted small" data-testid="after-tap">{AFTER_TAP_LINE}</p>
-              <p className="pilot-line" data-testid="pilot-line">🧪 {PILOT_MOCK_MONEY_LINE}</p>
+              <p className="pilot-line" data-testid="pilot-line">{PILOT_MOCK_MONEY_LINE}</p>
               {preview ? null : (
                 <button type="button" className="btn btn-ghost btn-sm btn-block" data-testid="inquiry-open-cta" onClick={startInquiry}>יש שאלה לפני שמצטרפים? שאלה למוכר</button>
               )}

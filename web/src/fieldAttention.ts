@@ -59,6 +59,7 @@ export function sameErrors(a: Record<string, string>, b: Record<string, string>)
 export function focusField(key: string): void {
   const el = document.getElementById(`f-${key}`) || document.querySelector<HTMLElement>(`[data-field="${key}"]`);
   if (!el) return;
-  try { el.scrollIntoView({ behavior: "smooth", block: "center" }); } catch { el.scrollIntoView(); }
+  const reduced = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  try { el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "center" }); } catch { el.scrollIntoView(); }
   (el as HTMLElement).focus?.({ preventScroll: true } as FocusOptions);
 }

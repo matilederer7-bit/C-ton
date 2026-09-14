@@ -126,6 +126,12 @@ export class ScrollMemory {
     this.set(this.currentKey, this.deps.scrollY());
   }
 
+  /** Explicit user input owns scrolling; async layout shifts do not. */
+  cancelRestore(): void {
+    this.restoreToken += 1;
+    this.pending = null;
+  }
+
   /**
    * The URL just changed (hashchange). Decide whether this is a traversal to a
    * known entry (restore) or a brand-new entry (top), and act on it.
@@ -202,7 +208,13 @@ export class ScrollMemory {
         this.deps.requestFrame(attempt);
         return;
       }
-      if (Math.abs(y - target) > 2) return; // the user took over
+      // Browser scroll anchoring can shift an otherwise reachable position as
+      // async panels arrive. Keep the saved entry stable during this bounded
+      // settle phase; explicit wheel/touch/keyboard input cancels it below.
+      if (Math.abs(y - target) > 2) {
+        this.deps.scrollTo(target);
+        settledFrames = 0;
+      }
       settledFrames += 1;
       if (settledFrames >= SCROLL_SETTLE_FRAMES) return;
       this.deps.requestFrame(attempt);
@@ -279,7 +291,15 @@ export function installScrollRestoration(deps: ScrollDeps = browserScrollDeps())
     frame = window.requestAnimationFrame(() => { frame = 0; memory.remember(); });
   };
   const onHide = () => { memory.remember(); memory.persist(); };
+  const onUserScroll = () => memory.cancelRestore();
+  const onScrollKey = (event: KeyboardEvent) => {
+    if (["ArrowUp", "ArrowDown", "PageUp", "PageDown", "Home", "End", " ", "Tab"].includes(event.key)) memory.cancelRestore();
+  };
   window.addEventListener("scroll", onScroll, { passive: true });
+  window.addEventListener("wheel", onUserScroll, { passive: true });
+  window.addEventListener("touchstart", onUserScroll, { passive: true });
+  window.addEventListener("pointerdown", onUserScroll, { passive: true });
+  window.addEventListener("keydown", onScrollKey);
   window.addEventListener("pagehide", onHide);
   window.addEventListener("visibilitychange", onHide);
   installed = {
@@ -287,6 +307,12 @@ export function installScrollRestoration(deps: ScrollDeps = browserScrollDeps())
     onHashChange: () => { const plan = memory.navigated(); memory.persist(); return plan; },
     dispose: () => {
       window.removeEventListener("scroll", onScroll);
+      window.removeEventListener("wheel", onUserScroll);
+      window.removeEventListener("touchstart", onUserScroll);
+      window.removeEventListener("pointerdown", onUserScroll);
+      window.removeEventListener("keydown", onScrollKey);
+      if (frame) window.cancelAnimationFrame(frame);
+      memory.cancelRestore();
       window.removeEventListener("pagehide", onHide);
       window.removeEventListener("visibilitychange", onHide);
       installed = null;

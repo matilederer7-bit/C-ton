@@ -517,6 +517,9 @@ input.invalid, textarea.invalid, select.invalid { border-color: var(--pomegranat
 .share-primary-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .share-primary-row.single { grid-template-columns: 1fr; }
 .share-networks { display: flex; gap: 8px; flex-wrap: wrap; }
+.share-actions.compact { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 8px; }
+.share-actions.compact .share-primary-row { display: flex; gap: 8px; }
+.share-actions.compact .share-networks { flex: 1; min-width: 0; }
 .share-net {
   display: inline-flex; align-items: center; gap: 6px;
   border: 1.5px solid var(--line); background: transparent; border-radius: 999px;
@@ -1303,7 +1306,8 @@ tr.clickable:hover { background: var(--brand-tint); }
   .sticky-cta-price b { font-size: 1.15rem; color: var(--brand-hi); }
   .sticky-cta-price span { font-size: .7rem; color: var(--ink-faint); white-space: nowrap; }
   .sticky-cta .btn { flex: 1; min-height: 46px; font-size: .95rem; padding: 10px 12px; }
-  .sticky-cta-spacer { display: block; height: 78px; }
+  .sticky-cta-spacer { display: block; height: calc(78px + env(safe-area-inset-bottom, 0px)); }
+  .app:has(.sticky-cta) { padding-bottom: calc(78px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* join sheet — required markers, per-field errors, refusal guidance */
@@ -1524,7 +1528,11 @@ tr.clickable:hover { background: var(--brand-tint); }
    The trust facts the backend can prove, in the product's own language. */
 .seller-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .seller-identity .seller-avatar { flex: 0 0 auto; border: 1px solid var(--line-strong); background: var(--surface-warm); }
-.seller-identity-name { font-weight: 800; font-size: 1.05rem; overflow-wrap: anywhere; }
+.seller-identity-name { min-width: 0; font-weight: 800; font-size: 1.05rem; overflow-wrap: anywhere; }
+
+.deal-early-action { margin-top: 16px; }
+.deal-early-action p { margin: 8px 0; }
+.choice-card:has(input:disabled) { opacity: .65; cursor: default; }
 .seller-avatar.sm { width: 48px; height: 48px; }
 .seller-about { color: var(--ink-soft); white-space: pre-wrap; overflow-wrap: anywhere; margin: 10px 0 0; }
 .seller-stats { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--ink-soft); font-size: .86rem; margin: 10px 0 0; }

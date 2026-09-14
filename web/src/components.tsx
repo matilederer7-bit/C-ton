@@ -4,6 +4,7 @@ import { absoluteShareUrl, sendFunnelEvent } from "./viral";
 import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
 import { QUANTITY_INPUT_ATTRS, parseQuantityInput } from "./quantityInput";
+import { containDialogFocus } from "./dialogFocus";
 
 export { BrandLoader } from "./brand";
 
@@ -107,11 +108,12 @@ export function Countdown(props: { until: string | null | undefined; label?: str
 // field owns the in-progress text, so an empty or out-of-window entry is shown
 // with its Hebrew reason instead of being silently clamped, rounded, or turned
 // into a zero order. The [min, max] window is the caller's business rule.
-export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; id?: string; testId?: string; ariaLabel?: string }) {
+export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; onValidityChange?: (valid: boolean) => void; id?: string; testId?: string; ariaLabel?: string }) {
   const min = props.min ?? 1;
   const [text, setText] = useState(String(props.value));
   const [touched, setTouched] = useState(false);
   const parsed = parseQuantityInput(text, min, props.max);
+  useEffect(() => { props.onValidityChange?.(parsed.value !== null); }, [parsed.value, props.onValidityChange]);
   // keep the field in step with an external correction (e.g. stock shrank under the buyer)
   useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
   const testId = props.testId || "qty-input";
@@ -155,8 +157,9 @@ export function Modal(props: {
     // lock body scroll while the sheet is open (prevents trapped-scroll fights)
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("input, button:not(.x), select, textarea")?.focus();
+    const releaseFocus = ref.current ? containDialogFocus(ref.current) : undefined;
     return () => {
+      releaseFocus?.();
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
@@ -253,7 +256,7 @@ export function ShareActions(props: {
   ];
 
   return (
-    <div className={`share-actions${loop ? " share-loop" : ""}`} data-share-layout={loop ? "loop" : "default"}>
+    <div className={`share-actions${loop ? " share-loop" : ""}${props.compact ? " compact" : ""}`} data-share-layout={loop ? "loop" : "default"}>
       {loop ? (
         <a className="btn btn-share-lead btn-block" data-testid="share-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"
           onClick={() => track("whatsapp")}>
@@ -262,15 +265,15 @@ export function ShareActions(props: {
       ) : null}
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className={`btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" data-testid="share-native" onClick={async () => {
+          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" title="שיתוף" data-testid="share-native" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, text: messageText, url }); } catch { /* user cancelled */ }
           }}>
-            <NativeShareIcon /> שיתוף
+            <NativeShareIcon />{props.compact ? null : " שיתוף"}
           </button>
         ) : null}
-        <button className="btn btn-ghost" onClick={copy} data-testid="share-copy" aria-label="העתקת קישור">
-          <CopyLinkIcon /> העתקת קישור
+        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label="העתקת קישור" title="העתקת קישור">
+          <CopyLinkIcon />{props.compact ? null : " העתקת קישור"}
         </button>
       </div>
       <div className="share-networks share-icons" role="group" aria-label="שיתוף ברשתות">

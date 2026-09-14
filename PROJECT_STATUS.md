@@ -1,3 +1,15 @@
+## UX PRE-MERGE HARDENING (2026-09-14) — `codex/ux-premerge-hardening-night`, NOT merged
+
+**COMPLETED:** Separate worktree from exact UX `9ce6df986c7c8d230dbce1c36e4138b3a5210331`. Fixed unpaid pickup status without issuing credentials, early canonical join CTA, quantity input/coercion defects, exact field attention in additional seller flows, dialog focus, form labels, compact share consistency, CMS/profile empty/error states, and asynchronous history scroll shifts. Fourteen additional concrete defects are recorded in `docs/UX_PREMERGE_HARDENING.md`. No new backend/runtime, payment, Grow, migration or deployment edits; the financial and original UX branches were not modified.
+
+**TESTED:** Baseline browser 85/85; expanded real-component browser proof **324/324** at 390×844, 430×932, 768×1024, 1280×800, 1440×900 and 320×844; zero horizontal overflow. Final unit **16/16**, integration **31/31**; database 8/8, API 44/44, workers 13/13, payments 29/29, security 40/40, concurrency 7/7, failure 9/9, E2E 13/13. All 210 distinct test files passed across the full run and corrective/final reruns. The first full run had two failures: an obsolete CTA function-shape assertion and a missing local mobile-build artifact; both were corrected and rerun, not ignored. TypeScript, web TypeScript, lint, architecture, runtime-DDL, payment compliance, isolated migration and route-authorization gates passed. Production tracking adds 90 real anonymous requests across supported production-signal/default-config combinations, all denied without buyer PII.
+
+**OPEN:** Post-financial integration and its gates; multi-method receipt persistence; structured FAQ persistence; hero-video storage/migration; backend windowed virality. Existing explicit legacy compatibility override retains its live-readiness blocker. Browser evidence uses local fixtures, not production data or real-device certification.
+
+**PERCENTAGE:** 100% of this scoped pre-merge frontend hardening milestone; post-financial integration remains pending. This branch is not claimed merge-ready against future master.
+
+**NEXT STEP — AFTER R9C FINANCIAL MERGE:** integrate the resulting master into the UX branch, resolve conflicts, rerun UX/browser/security gates, then merge UX.
+
 ## UX / PRODUCT POLISH ROUND 2 — OWNER FINDINGS (2026-09-11) — branch `claude/ux-product-polish-round2` from exact master `82c91d62fd092350748405c8aec15a23d0e2af5e`, NOT merged
 
 **FULLY IMPLEMENTED (new work).** Frontend-first pass on nine owner findings. **No migration, no payment rail, no Grow, no money, no deploy**; the frozen financial review branch `claude/review-r9c-financial` was not touched. Details, rationale and the exact backend gaps: `docs/UX_PRODUCT_POLISH_ROUND_2.md`.
