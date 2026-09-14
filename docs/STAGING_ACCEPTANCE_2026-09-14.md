@@ -93,3 +93,7 @@ Real money 0 (mock provider; `payment_is_real:false` re-checked at the start of 
 - Real-money readiness: **0 % / NOT COMPLETE** — unchanged and separate.
 
 Local evidence (scratchpad, ignored): `hosted_redemption_acceptance.log/.json`, `hosted_browser_acceptance.log/.json` + `hosted_shots/` (33 screenshots), `hosted_seller_api_acceptance.log/.json`, `hosted_admin_boundary.log/.json`, `hosted_like_wildcard_observation.log`, `track_stale_repro_hosted.log`, `buyer_polish_proof_fixed.log` / `buyer_polish_proof_control.log`, `unit_group.log`, `route_auth_gate.log`.
+
+## 9. PR #8 CI closure (same day)
+
+The PR's backend workflow failed only at the extended Docker smoke, within one second: `docker compose up` could not pull `minio/mc` — the Docker Hub repositories `minio/mc` and `minio/minio` no longer exist (404 from the Hub API; the smoke last passed on master at `2950e18`, 2026-09-09). Deterministic, registry-side, unrelated to the TrackPage change. Fixed by pulling the same releases from MinIO's quay.io registry pinned by tag + manifest digest. The same failure exposed that the "Web runtime depth gates" workflow had no `pipefail` (a failing Docker runtime reported success) and that `scripts/ci_web_runtime.cjs` still assumed the fixed host ports removed by `396c421` — both fixed; the gate now really runs (core 52 s, resilience 70 s). Both CI scripts now emit failures as public `::error` annotations. Details in PROJECT_STATUS.md ("PR #8 CI CLOSURE").
