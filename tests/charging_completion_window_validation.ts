@@ -73,6 +73,19 @@ async function startProviderStub() {
     req.on("end", async () => {
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
 
+      if (req.url && req.url.startsWith("/status/")) {
+        // Independent financial review: the recovery pre-flight verifies the
+        // original capture through the status seam and HOLDS on an unverifiable
+        // answer (a 404 here used to let the recovery proceed). This stub models
+        // a truthful provider: a hold nobody captured is merely authorized (final).
+        // The scenarios below are about UNKNOWN recovery truth, not a broken seam.
+        const reference = decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!).replace(/^(cap|rec)-/, "");
+        res.setHeader("content-type", "application/json");
+        res.statusCode = 200;
+        res.end(JSON.stringify({ state: "authorized", final: true, provider_reference: reference }));
+        return;
+      }
+
       if (req.url === "/capture") {
         captureCalls.push(body);
         const authorizationId = String(body.authorization_id || "");

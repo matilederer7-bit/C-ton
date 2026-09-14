@@ -72,8 +72,16 @@ async function insertAttempt(
   correlationId: string
 ) {
   await client.query(
-    `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id)
-     VALUES ($1,$2,$3,'unknown',$4)
+    // R9C (migration 063): a NEW identity may only be minted once the prior one is
+    // resolved, so synthetic rows are seeded as provider-declared failures — the
+    // rolling cap counts real attempts regardless of their outcome.
+    // Migration 064: "provider-declared" is exact-request evidence
+    // (failure_evidence = 'dispatch_response'). A status-inferred or legacy failure
+    // (NULL evidence / no authority) fences the next recovery identity until an
+    // operator records exact evidence — that fence is proven elsewhere; here the
+    // rolling cap is the only constraint under test.
+    `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id,failure_evidence)
+     VALUES ($1,$2,$3,'permanent_fail',$4,'dispatch_response')
      ON CONFLICT (participant_id,deal_id,attempt_type,correlation_id) DO NOTHING`,
     [participantId, dealId, attemptType, correlationId]
   );
@@ -243,7 +251,7 @@ await runTest("refund/deadline_check attempts are not constrained by the charge 
   try {
     await pool.query(
       `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id)
-       VALUES ($1,$2,'refund','unknown','g-refund1'),($1,$2,'deadline_check','unknown','g-deadline1')`,
+       VALUES ($1,$2,'refund','permanent_fail','g-refund1'),($1,$2,'deadline_check','unknown','g-deadline1')`,
       [p, dealId]
     );
   } catch {

@@ -221,6 +221,28 @@ async function driveDealToFinalState(dealId: string, sellerId: string, suffix: s
   });
   assert.equal(start.statusCode, 200, start.body);
 
+  // Pin first draws with undispatched identities; the real mock and worker execute.
+  // A fixed seed alone is insufficient because normal identities contain random UUIDs.
+  const fixtureBuyers = await pool.query(
+    `SELECT participant_id, qty FROM siton.participants WHERE deal_id=$1 ORDER BY created_at ASC`, [dealId]
+  );
+  for (const [index, buyer] of fixtureBuyers.rows.entries()) {
+    const decline = suffix === "voucher" && index === 3;
+    let correlation = "";
+    for (let nonce = 0; nonce < 10000; nonce += 1) {
+      const key = `dt-e2e:${buyer.participant_id}:${nonce}`;
+      let hash = 2166136261 >>> 0;
+      for (let i = 0; i < key.length; i += 1) hash = Math.imul(hash ^ key.charCodeAt(i), 16777619) >>> 0;
+      const draw = ((Math.imul(1664525, (1 ^ hash) >>> 0) + 1013904223) >>> 0) / 0x100000000;
+      if (decline ? draw >= 0.9 : draw < 0.75) { correlation = key; break; }
+    }
+    assert.ok(correlation, "must find a deterministic mock outcome");
+    await pool.query(
+      `INSERT INTO siton.payment_attempts(participant_id,deal_id,attempt_type,result_class,correlation_id,dispatch_state)
+       VALUES ($1,$2,'charge_start','unknown',$3,'recorded')`, [buyer.participant_id,dealId,correlation]
+    );
+  }
+
   // Process the charge_deal outbox event. The worker (a) hits the mock
   // provider per participant in ChargingAttempt/ChargeAttempt and (b) on
   // success transitions deal_state Charging ג†’ CompletionWindow and enqueues
@@ -451,10 +473,7 @@ try {
   });
 
   await run("B2: voucher buyer flow ג€” no code before Completed, fulfillment issued only for eligible, qty=N ג†’ N units, no plaintext code in DB", async () => {
-    // Four buyers with mixed qty so we can verify qty=N ג†’ N units across
-    // varied N. min_units=2 ג†’ threshold=2, max_units=12. Total 4ֳ—2=8 unit
-    // attempts at 75% mock success ג€” probability all fail is ~0.001%, so
-    // we can rely on at least one Completed eligible buyer.
+    // Three successes (3+2+2 units) and one decline (1 unit) exercise both eligibility paths.
     const buyerA = await joinDeal({ dealId: voucherDealId, suffix: "voucher-A", qty: 3 });
     assert.equal(buyerA.response.statusCode, 200, buyerA.response.body);
     voucherEligibleParticipantId = buyerA.body.participant_id;
@@ -487,7 +506,8 @@ try {
       (p) => p.buyer_state === "DealCompleted" &&
              ["ChargedSuccess", "RecoveredCharge"].includes(p.money_state)
     );
-    assert.ok(eligible.length >= 1, "expected at least one eligible participant");
+    assert.equal(eligible.length, 3, "scripted successful buyers must be eligible");
+    assert.equal(final.participants.filter(p => p.money_state === "ChargeFailedRecovery").length, 1, "scripted decline must remain ineligible");
 
     // Re-issue (idempotency check) ג€” must not duplicate units.
     await issueFulfillmentForCompletedDeal(voucherDealId);
@@ -714,7 +734,7 @@ try {
   });
 
   await run("C2: ticket buyer flow ג€” no code before Completed, qty=N ג†’ N tickets, eligibility-gated", async () => {
-    // Multiple buyers to dampen mock variance (see B2 reasoning).
+    // Captures are deterministic in driveDealToFinalState, as in B2.
     const buyer = await joinDeal({ dealId: ticketDealId, suffix: "ticket-buyer", qty: 2 });
     assert.equal(buyer.response.statusCode, 200, buyer.response.body);
     ticketEligibleParticipantId = buyer.body.participant_id;

@@ -425,6 +425,10 @@ const CANONICAL_ACTION_TRANSITIONS = new Set([
   canonicalTransitionKey("charging.recovery_success", "participant", "buyer_state", "ChargeFailedCompletion", "Recovered"),
   canonicalTransitionKey("charging.recovery_success", "participant", "money_state", "ChargeFailedRecovery", "RecoveredCharge"),
   canonicalTransitionKey("charging.recovery_failed", "participant", "buyer_state", "ChargeFailedCompletion", "Dropped"),
+  // Legacy audit rows only (before the independent financial review, F-6): a failed
+  // recovery no longer sets AuthReleased directly — the money state stays
+  // ChargeFailedRecovery and the provider-proofed release rail (authorization.release)
+  // establishes AuthReleased. Kept so historical evidence still classifies as canonical.
   canonicalTransitionKey("charging.recovery_failed", "participant", "money_state", "ChargeFailedRecovery", "AuthReleased"),
   canonicalTransitionKey("charging.to_completion_window", "deal", "deal_state", "Charging", "CompletionWindow"),
   canonicalTransitionKey("charging.finalize_completed", "deal", "deal_state", "CompletionWindow", "Completed"),
