@@ -80,7 +80,7 @@ function runGate(gate, logDir) {
   else if (has(gate.warn_markers) || /overall=WARNING/.test(output)) { verdict = "WARNING"; summary = "passed with warnings"; }
   else { verdict = "PASS"; summary = "ok"; }
   const tail = output.trim().split(/\r?\n/).filter((line) => /_PASS|_FAIL|SUMMARY|WARNING|SKIPPED|overall=|REAL_MONEY|MIGRATION_PREFLIGHT|BLOCKED|ALLOWED/.test(line)).slice(-6).join("\n");
-  return { verdict, summary, duration_ms, detail: (verdict === "PASS" ? "" : tail || output.trim().split(/\r?\n/).slice(-15).join("\n")), log: path.join(".release-artifacts", "preflight", gate.id + ".log") };
+  return { verdict, summary, duration_ms, detail: (verdict === "PASS" ? "" : tail || output.trim().split(/\r?\n/).slice(-15).join("\n")), log: path.join(path.relative(root, logDir), gate.id + ".log") };
 }
 
 function main() {
@@ -127,7 +127,7 @@ function main() {
   report.printSummary({ detailLines: 8 });
   const written = report.writeArtifacts(artifactsDir(root), "release-preflight");
   console.log("");
-  console.log("RELEASE_PREFLIGHT_RESULT overall=" + report.overall() + " report=" + path.relative(root, written.mdPath).split(path.sep).join("/") + " logs=.release-artifacts/preflight/");
+  console.log("RELEASE_PREFLIGHT_RESULT overall=" + report.overall() + " report=" + path.relative(root, written.mdPath).split(path.sep).join("/") + " logs=" + path.relative(root, logDir).split(path.sep).join("/") + "/");
   console.log(report.exitCode() ? "RELEASE_PREFLIGHT_FAIL" : "RELEASE_PREFLIGHT_PASS");
   process.exit(report.exitCode());
 }

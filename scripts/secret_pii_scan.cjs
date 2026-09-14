@@ -162,8 +162,7 @@ if (require.main === module) {
   for (const finding of result.findings) console.log("[" + finding.severity + "] " + finding.rel + ":" + finding.line + " " + finding.detector + " " + finding.match + (finding.note ? " (" + finding.note + ")" : ""));
   for (const entry of result.staleAllowListEntries) { console.log("[FAIL] stale allow-list entry " + entry.file + " " + entry.detector); fails.push(entry); }
   console.log("SECRET_PII_SCAN_SUMMARY scanned=" + result.scanned + " fail=" + fails.length + " warning=" + warns.length);
-  fs.mkdirSync(path.join(process.cwd(), ".release-artifacts"), { recursive: true });
-  fs.writeFileSync(path.join(process.cwd(), ".release-artifacts", "secret-pii-scan.json"), JSON.stringify(result, null, 2) + "\n");
+  fs.writeFileSync(path.join(require("./lib/release_report.cjs").artifactsDir(process.cwd()), "secret-pii-scan.json"), JSON.stringify(result, null, 2) + "\n");
   console.log(fails.length ? "SECRET_PII_SCAN_FAIL" : "SECRET_PII_SCAN_PASS");
   process.exit(fails.length ? 1 : 0);
 }

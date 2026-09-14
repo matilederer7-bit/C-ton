@@ -18,13 +18,14 @@ const path = require("node:path");
 const { runSync } = require("./lib/run_command.cjs");
 const { describeGit } = require("./lib/git_info.cjs");
 const policyLib = require("./lib/runtime_environment_policy.cjs");
+const { artifactsDir } = require("./lib/release_report.cjs");
 
 const root = process.cwd();
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const index = args.indexOf(name); return index >= 0 ? args[index + 1] : fallback; };
 const reuse = args.includes("--reuse");
 
-function readJson(rel) { const file = path.join(root, rel); if (!fs.existsSync(file)) return null; try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
+function readJson(rel) { const file = path.join(artifactsDir(root), path.basename(rel)); if (!fs.existsSync(file)) return null; try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
 
 function rollup(items, ids) {
   const picked = items.filter((item) => ids.includes(item.id));
@@ -77,7 +78,7 @@ function main() {
     "READY FOR CODE DEPLOY: " + (readyForCodeDeploy ? "YES (preflight " + preflight.overall + ", profile " + preflight.meta.profile + ")" : "NO" + (!preflight ? " (no preflight report)" : failures.length ? " (" + failures.length + " failing gates: " + failures.map((f) => f.id).join(", ") + ")" : git.dirty ? " (working tree is dirty; commit or stash first)" : "")),
     "READY FOR REAL MONEY:  " + (realMoney.real_money_allowed ? "YES (governance ALLOWED - verify evidence)" : "NO"),
     "",
-    "Reports: .release-artifacts/release-preflight.md, release-manifest.md, release-checklist.md; per-gate logs in .release-artifacts/preflight/",
+    "Reports: " + path.relative(root, artifactsDir(root)).split(path.sep).join("/") + "/release-preflight.md, release-manifest.md, release-checklist.md; per-gate logs in the preflight/ subfolder",
     ""
   ];
   console.log(lines.join("\n"));

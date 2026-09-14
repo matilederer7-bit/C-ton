@@ -76,6 +76,12 @@ async function main() {
 
   const baseUrl = process.env.DATABASE_URL;
   if (!baseUrl) throw new Error("DATABASE_URL is required for isolated database tests");
+  // This runner CREATEs and DROPs databases on the server named by
+  // DATABASE_URL. It must never point at the hosted staging/production
+  // authority: refuse non-local hosts (CI service hosts can be allowed
+  // explicitly through SITON_TEST_DB_ALLOWED_HOSTS, same rule as
+  // scripts/lib/test_db_isolation.cjs).
+  require("./lib/test_db_isolation.cjs").assertLocalBase(baseUrl);
   const admin = new Client({ connectionString: databaseUrl(baseUrl, "postgres"), connectionTimeoutMillis: 10_000, query_timeout: 30_000 });
   await admin.connect();
   const suffix = `${process.pid}_${Date.now()}`;

@@ -53,7 +53,6 @@ if (first.status !== 0 && rerun && first.classification && first.classification.
   records.push(second);
   final = second;
 }
-const dir = path.join(process.cwd(), ".release-artifacts");
-fs.mkdirSync(dir, { recursive: true });
+const dir = require("./lib/release_report.cjs").artifactsDir(process.cwd());
 fs.writeFileSync(path.join(dir, "qa-classified-" + process.pid + ".json"), JSON.stringify({ command: command.join(" "), records, final_status: final.status }, null, 2));
 process.exit(final.status);

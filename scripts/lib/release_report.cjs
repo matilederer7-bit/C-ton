@@ -171,8 +171,10 @@ class SkippedEnvironmentError extends Error {
   }
 }
 
+// SITON_RELEASE_ARTIFACTS_DIR redirects every report (tests run nested
+// preflights without clobbering the real .release-artifacts).
 function artifactsDir(root = process.cwd()) {
-  const dir = path.join(root, ".release-artifacts");
+  const dir = process.env.SITON_RELEASE_ARTIFACTS_DIR ? path.resolve(process.env.SITON_RELEASE_ARTIFACTS_DIR) : path.join(root, ".release-artifacts");
   fs.mkdirSync(dir, { recursive: true });
   return dir;
 }

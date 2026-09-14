@@ -61,7 +61,7 @@ the Supabase SQL editor / MCP channel as the `postgres` owner (hosted action).
 | 3.3 | Snapshot evidence (hosted SQL, read-only, as the `postgres` owner): `SELECT count(*), max(created_at) FROM siton.audit_log;` `SELECT admin_session_id, admin_user_id, created_at, expires_at, revoked_at, last_seen_at FROM siton.admin_sessions ORDER BY created_at DESC LIMIT 50;` same shape for `siton.seller_sessions`, `siton.distributor_sessions`, `siton.buyer_sessions`; `SELECT * FROM siton.seller_security_events ORDER BY 1 DESC LIMIT 100;` `SELECT * FROM siton.payment_webhook_security_events ORDER BY 1 DESC LIMIT 100;` `SELECT * FROM siton.infrastructure_change_audit ORDER BY 1 DESC LIMIT 50;` | IMPLEMENTED (tables exist: `supabase/staging/006_canonical_postgres_runtime_boundary.sql:97-135`; writers at `src/frontend_runtime.ts:1474`, `:2013`, `:7513`, `:7783`) |
 | 3.4 | Export Render logs for both services for the window (hosted action - document only). Logs never carry env values (`docs/ENVIRONMENT_CONTRACT.md` "Anti-patterns"), but they carry request ids and redacted URLs (`src/app.ts:3187-3228`). | EXPECTED |
 | 3.5 | Confirm nothing in Git: `npm run scan:secrets` on the current checkout and on the suspected commit (`git checkout <sha> -- . ` in a scratch worktree, then run the scan). | IMPLEMENTED |
-| 3.6 | Decide the scenario (sections 5-11) and whether an emergency pause is needed: `pause_joining_emergency` / `pause_charging_emergency` are admin actions requiring `emergency.pause` (SuperAdmin only, `src/admin_identity.ts:58-72`, `:88-94`), created via `POST /api/admin/actions` and released via `POST /api/admin/control-flags/:flagId/release` (`src/frontend_runtime.ts:7155`, `:7313`). | IMPLEMENTED |
+| 3.6 | Decide the scenario (sections 5-11) and whether an emergency pause is needed: `pause_joining_emergency` / `pause_charging_emergency` are admin actions requiring `emergency.pause` (SuperAdmin only, `src/admin_identity.ts:58-72`, `:89-95`), created via `POST /api/admin/actions` and released via `POST /api/admin/control-flags/:flagId/release` (`src/frontend_runtime.ts:7155`, `:7313`). | IMPLEMENTED |
 
 ## 4. Rotation implications table
 
@@ -121,7 +121,7 @@ rule `SUPABASE_SERVICE_ROLE_KEY must absent` in every target).
 | Contain | The shared key grants read-only bootstrap identity (`src/admin_identity.ts:303-317`): mission control, admin-action reads, security reads. It cannot create/approve/execute actions, freeze payouts, pause, or manage users (`docs/ADMIN_IDENTITY_RBAC_MFA.md:81-96`). Data exposure (buyer/seller details visible to mission control) is the real blast radius. If a **session cookie** leaked, revoke it: hosted SQL `UPDATE siton.admin_sessions SET revoked_at=now() WHERE revoked_at IS NULL;` (all sessions; there is no admin route for bulk revocation - only own logout at `src/frontend_runtime.ts:2653-2664`). | IMPLEMENTED (SQL path), OPEN (no bulk-revoke route) |
 | Rotate | Regenerate `ADMIN_API_KEY` on both Render services (hosted action - document only, not executed; `render.yaml:35-36`, `:89-90`). Restart. Rotation does not touch admin sessions (section 4). If a named admin's password is suspect: `POST /api/admin/auth/mfa/disable` needs `admin_users.manage` (`:2631-2635`); password reset for cookie-login admins has no route (OPEN) - re-provision via `scripts/create_admin_user.cjs` semantics (env-driven, `:14-16`) as a hosted SQL update. | IMPLEMENTED / OPEN as marked |
 | Verify | `curl -H "x-admin-key: <old>" https://<web>/api/admin/mission-control` -> 401; `npm run smoke:http-security` (anonymous admin refused); `npm run ci:route-authorization` (127 protected routes refuse anonymous callers, `.ci-artifacts/web-route-inventory.json`). | IMPLEMENTED |
-| Audit | `siton.admin_actions` created/approved/executed in the window; `siton.admin_sessions` rows with `ip_hash`/`user_agent_hash` (hashed at issue, `src/admin_identity.ts:170-183`); `siton.audit_log` actor fields. | IMPLEMENTED |
+| Audit | `siton.admin_actions` created/approved/executed in the window; `siton.admin_sessions` rows with `ip_hash`/`user_agent_hash` (hashed at issue, `src/admin_identity.ts:175-183`); `siton.audit_log` actor fields. | IMPLEMENTED |
 | Restore | Named admins re-login (Supabase Auth or cookie login), MFA re-verify for high-trust actions (15 min window, `src/admin_identity.ts:19`). | IMPLEMENTED |
 | Postmortem | Decide whether the shared key stays enabled for pilot ("disable or tightly restrict" is a listed live-pilot requirement, `docs/ADMIN_IDENTITY_RBAC_MFA.md:98-104`). | OPEN |
 
@@ -151,7 +151,7 @@ Three different tokens with three different kill switches.
 | Contain | Identify the route: `npm run report:routes` writes `.release-artifacts/` + `.ci-artifacts/web-route-inventory.json` (last committed artifact: 213 routes, 127 protected, 10 anonymous-by-design, 0 unguarded). A route matching no rule is UNCLASSIFIED and fails; a protected-namespace route with no guard call is flagged `NO GUARD CALL`. There is no per-route kill switch (`docs/RELEASE_READINESS_CHECKLIST.md` "Kill Switch"); options are an emergency pause flag (3.6) for join/charge paths, or rollback of the Render deploy (hosted action - document only). | IMPLEMENTED (detection), OPEN (per-route kill) |
 | Rotate | Not a secret event unless the route returned one; if it did, jump to section 5 for that secret. | n/a |
 | Verify | Fix on a branch; `npm run ci:route-authorization` (behavioural, fresh DB); `npm run smoke:http-security`; the anonymous-by-design allowlist in `scripts/protected_route_policy.cjs` is the only hand-maintained exception list and every entry must carry an executed behavioural expectation. | IMPLEMENTED |
-| Audit | Render request logs for the path (URL query redacted, method/path kept, `src/app.ts:3209-3228`); `x-request-id` correlates with `siton.audit_log` rows (`src/app.ts` `genReqId`). Quantify: distinct IPs are hashed in sessions but raw in Fastify request logs (`remoteAddress`) - handle as personal data. | IMPLEMENTED |
+| Audit | Render request logs for the path (URL query redacted, method/path kept, `src/app.ts:3209-3228`); `x-request-id` correlates with `siton.audit_log` rows (`src/app.ts:3239`). Quantify: distinct IPs are hashed in sessions but raw in Fastify request logs (`remoteAddress`) - handle as personal data. | IMPLEMENTED |
 | Restore | Merge the fix; Render auto-deploys from `master`; confirm `/readiness` 200. | IMPLEMENTED |
 | Postmortem | Add the route to `config/route-classification.json` deliberately (class + note) and, if it must refuse anonymous callers, register it with `config.authority` metadata so the policy derives membership from the live router. | IMPLEMENTED (mechanism) |
 
@@ -176,6 +176,23 @@ Three different tokens with three different kill switches.
 | Audit | Hosted action - document only: Supabase Postgres logs / `pg_stat_activity` history for the login role in the window; unexpected `application_name` values (anything other than `siton-web-runtime` / `siton-worker-runtime` under those users is foreign). Diff `siton.audit_log`, money tables (`payment_attempts`, `platform_fee_money_events`) against the 3.3 snapshot; money invariants per `docs/OPERATIONS_MONEY_INCIDENT_RUNBOOK.md`. | EXPECTED |
 | Restore | If data was altered: point-in-time restore is a Supabase platform capability (hosted action - document only); the repository proves restorability only on local databases (`npm run db:backup-restore-rehearsal`, `scripts/dr_backup_restore_drill.cjs`). Re-run `npm run db:migrate` semantics are NOT for hosted (migrations reach staging through the management channel, `docs/ARCHITECTURE_REBASE_R2_CANONICAL_POSTGRES.md:64-76`). | EXPECTED (hosted PITR), IMPLEMENTED (local rehearsal) |
 | Postmortem | Confirm where the URL leaked (Render dashboard access, operator shell history, `R3_WEB_DATABASE_URL` left in an environment). Verify `.env` never enters images (`Dockerfile:15`, `.dockerignore`). | IMPLEMENTED (image hygiene) |
+
+## 11a. Severity and notification assessment
+
+`docs/INFORMATION_SECURITY_POLICY.md` requires detection, containment,
+evidence preservation, a user/vendor notification assessment and corrective
+action. Use this grid to decide the assessment; the decision itself is an
+owner call (EXPECTED), the inputs are repository facts.
+
+| Severity | Trigger (any) | Notification assessment | Marker |
+|---|---|---|---|
+| S1 | `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `postgres` password, or a Grow/Stripe live credential exposed; unauthorised writes to money tables | buyers/sellers whose rows were read or altered; payment provider (Grow support / Stripe) if provider credentials moved; Supabase/Render support if platform accounts are involved | EXPECTED |
+| S2 | `ADMIN_API_KEY`, an admin session, `SELLER_SESSION_SECRET`, or `SITON_STORAGE_BROKER_KEY` exposed; PII field in hosted logs | affected sellers/admins (forced re-login is itself the signal); buyers only if PII left the platform boundary | EXPECTED |
+| S3 | a single buyer token, an unexpected public **read** route returning already-public data, a secret-shaped string in Git that scans as placeholder/test | the affected buyer where a tracking link was misdelivered; otherwise internal note only | EXPECTED |
+
+Money impact is expected to be zero while staging runs `mockpay` /
+`mock-backed` (`render.yaml:54-59`, `:107-112`); verify with
+`npm run proof:no-real-money` before writing that in the postmortem.
 
 ## 12. Postmortem template (all scenarios)
 

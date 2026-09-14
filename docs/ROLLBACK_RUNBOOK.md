@@ -46,7 +46,7 @@ Frontend-specific note: the React bundle is built inside the image (`RUN cd web 
 | Where | Action | Effect on outbox | Status |
 |---|---|---|---|
 | Hosted | Render → `siton-staging-worker` → **Suspend** (or scale to 0). Hosted action — document only. | rows stay `pending` (or expire their lease and stay `processing` until reclaimed); nothing is lost, nothing is delivered | EXPECTED |
-| Local / compose | stop the worker process; SIGTERM drains (`stopWorker`, `src/worker.ts:120-…`, `WORKER_SHUTDOWN_TIMEOUT_MS` 30 s) and writes `status='draining'` then `'stopped'` | same | IMPLEMENTED |
+| Local / compose | stop the worker process; SIGTERM drains (`stopWorker`, `src/worker.ts:128`, `WORKER_SHUTDOWN_TIMEOUT_MS` 30 s) and writes `status='draining'` then `'stopped'` | same | IMPLEMENTED |
 | Web process | `DISABLE_OUTBOX_WORKER=1` | **not a switch inside the web process** — `src/app.ts` runs no outbox loop at all (`getWorkerRunning: () => false`, `src/app.ts:5780`) and never reads the variable. It is (a) a boot guard: production web **must** have it set (`src/production_guards.ts:137`), (b) a policy rule for staging/test/production (`config/runtime-environment-policy.json`), (c) a Mission Control display flag (`src/admin_mission_control.ts:2081-2092`). Setting it on the *worker* service does nothing to `src/worker.ts` either — freeze the worker by stopping the process. | — | IMPLEMENTED |
 
 Outbox rows simply wait. Deal state transitions that are driven by the outbox (deadline checks, charging, notifications, finalize) pause with it; deal deadlines in the database do not move. Unfreeze = resume the service; the first cycle reclaims stale leases.
@@ -55,7 +55,7 @@ Outbox rows simply wait. Deal state transitions that are driven by the outbox (d
 
 Facts (IMPLEMENTED, `scripts/run_migrations.cjs`):
 
-- Each migration runs as one `client.query(sql)`; on error the runner issues `ROLLBACK`, marks the ledger row `status='failed'` with the error message, and exits `MIGRATIONS_FAILED …` (`:96-120`). Files with explicit `BEGIN … COMMIT` exist (`src/migrations/007…015`); the migration preflight scenario "failing migration" proves a mid-file failure leaves **no partial objects** (`scripts/migration_preflight.cjs:22-24`).
+- Each migration runs as one `client.query(sql)`; on error the runner issues `ROLLBACK`, marks the ledger row `status='failed'` with the error message, and exits `MIGRATIONS_FAILED …` (`:96-120`). Files with explicit `BEGIN … COMMIT` exist (`src/migrations/007…015`); the migration preflight scenario "failing migration" proves a mid-file failure leaves **no partial objects** (`scripts/migration_preflight.cjs:22-23`).
 - Any row with `status <> 'succeeded'` makes every later run refuse: `migration ledger is dirty at NNN (failed)` (`:53-58`), and `/readiness` answers 503 because `assertDatabaseSchema` requires every ledger row to be `succeeded` (`src/schema_contract.ts:66-67`).
 - An applied file is never edited: a changed checksum is `mismatch` → `migration checksum mismatch` (`:82-85`); only a line-ending-only difference (`eol-variant`) is tolerated (`:86-92`).
 
@@ -106,11 +106,56 @@ Three independent layers (all IMPLEMENTED), each sufficient alone:
 
 1. **Governance file** — `config/real-money-release-policy.json` `real_money_allowed:false`, `status:BLOCKED`, four uncleared reasons. `npm run proof:no-real-money` (`NO_REAL_MONEY_PROOF_PASS` + `REAL_MONEY: BLOCKED`) scans render.yaml, compose files, Dockerfile, `.env` examples and workflows for `PAYMENT_ENVIRONMENT=live`, live Grow hosts (`secure.meshulam.co.il`, `api.meshulam.co.il`) and live credentials (`scripts/proof_no_real_money.cjs:12-20,29`). A rollback to any earlier SHA carries the same or an older policy — never a more permissive one, because ALLOWED has never been committed.
 2. **Mock provider in every checked-in target** — `PAYMENT_PROVIDER=mockpay`, `PAYMENT_PROVIDER_MODE=mock-backed`, `PAYMENT_ENVIRONMENT=demo` in both Render services (`render.yaml:54-59,107-112`) and in the release lab (`docker-compose.release-lab.yml`). Console-set env vars are not in git, so after ANY hosted change re-check `GET /health/integrations` → `integrations.payment.provider` must read `mockpay`.
-3. **Runtime guard at boot** — `assertProductionRuntimeGuards` (`src/production_guards.ts`): `PAYMENT_ENVIRONMENT=live` is refused outside production mode (`:40-42`); Grow requires sandbox/live plus non-placeholder `GROW_USER_ID`, `GROW_PAGE_CODE`, `GROW_REFERENCE_ENCRYPTION_KEY` and matching host rules (`:43-73`); production refuses mock providers, sandbox/test/demo environments and synthetic VAT (`:110-138`). The staging policy also forbids `PAYMENT_PROVIDER` ≠ `mockpay` outright (`config/runtime-environment-policy.json` staging rules).
+3. **Runtime guard at boot** — `assertProductionRuntimeGuards` (`src/production_guards.ts`): `PAYMENT_ENVIRONMENT=live` is refused outside production mode (`:41-43`); Grow requires sandbox/live plus non-placeholder `GROW_USER_ID`, `GROW_PAGE_CODE`, `GROW_REFERENCE_ENCRYPTION_KEY` and matching host rules (`:44-76`); production refuses mock providers, sandbox/test/demo environments and synthetic VAT (`:110-138`). The staging policy also forbids `PAYMENT_PROVIDER` ≠ `mockpay` outright (`config/runtime-environment-policy.json` staging rules).
 
 Rollback checklist for money: after every hosted change run `curl -s <host>/health/integrations` and confirm `payment.provider=mockpay`, `payout.provider=internal-ledger`, `notifications.provider=log-only`; locally run `npm run gate:runtime-env -- --render-service siton-staging-web` (`RUNTIME_ENVIRONMENT_GATE_PASS`). If anything else appears, this is a money incident, not a rollback: stop the worker (§4), then follow `docs/OPERATIONS_MONEY_INCIDENT_RUNBOOK.md`.
 
-## 9. Post-rollback record
+## 9. Rehearse the rollback locally before touching hosted
+
+Every hosted step above has a disposable local twin; run the twin first so the hosted action is a repeat, not an experiment.
+
+| Hosted step | Local rehearsal | Marker |
+|---|---|---|
+| previous-deploy code rollback | `git worktree add ../rollback-<sha> <sha>` then `npm run release:local-lab` in it: builds the image at that SHA, migrates a fresh Postgres, boots web + worker, smokes, stops gracefully | `RELEASE_LOCAL_LAB_PASS` |
+| older code against newer schema (§6) | `npm run migrations:preflight -- --base=<older sha>` — the "upstream upgrade" scenario applies the older manifest first, then this checkout's on top, and the "schema drift" scenario compares fresh-install vs upgrade-path schemas | report `overall=PASS` |
+| dirty ledger handling (§5.1) | the preflight's "dirty ledger" and "failing migration" scenarios (`scripts/migration_preflight.cjs:20-23`) prove the refusal and the atomicity on disposable DBs | same report |
+| restore from backup (§5.3) | `npm run db:backup-restore-rehearsal` — init, migrate, fixtures, pg_dump (custom + plain), drop/recreate, pg_restore, integrity checks; secret-shape scan of the dump | `overall=PASS` (or `SKIPPED_ENVIRONMENT` without pg tools — never PASS) |
+| worker freeze/resume (§4) | start `npm run start:worker` against an isolated DB, insert a synthetic outbox row, SIGTERM the worker, confirm the row is still `pending`/leased, restart, confirm it completes | heartbeat row `stopped` → `ready` |
+| health semantics (§1) | `npm run check:health-contract` boots web + worker on an isolated DB, then drops the DB and shows `/health` stays 200 while `/readiness` goes 503 | `HEALTH_CONTRACT_PASS` |
+
+All of these use `scripts/lib/test_db_isolation.cjs` (one disposable `siton_<purpose>_<agent>_<pid>_<time>_<rand>` database per run, auto-dropped) and `allocateFreePort()`; they refuse a non-local `DATABASE_URL` host (`assertLocalBase`, `:41-50`), so a rehearsal can never touch staging.
+
+## 10. Verification queries and probes (copy/paste)
+
+HTTP (replace host; all read-only, no secrets in responses):
+```
+curl -s -o /dev/null -w "%{http_code}\n" https://<host>/health           # 200 = listener alive only
+curl -s https://<host>/readiness                                        # 200 {ok:true,database:"connected",...} or 503 {code:"not_ready"}
+curl -s https://<host>/health/integrations                              # integrations.payment.provider must be "mockpay"
+curl -s https://<host>/api/preview/meta                                 # preview.deployment.runtime_commit_sha = SHA now live
+```
+
+Database (hosted: through the admin read path or Supabase MCP, document only; local: `psql $DATABASE_URL`):
+```sql
+-- ledger health (the doctor prints the same in one line: npm run migrations:doctor -- --allow-hosted)
+SELECT migration_id, position, status, completed_at FROM siton.migration_ledger ORDER BY position DESC LIMIT 5;
+SELECT migration_id, status, error_message FROM siton.migration_ledger WHERE status <> 'succeeded';
+-- worker liveness
+SELECT worker_id, status, heartbeat_at, now()-heartbeat_at AS age FROM siton.worker_heartbeats ORDER BY heartbeat_at DESC;
+-- outbox pressure (mirrors src/worker.ts queueMetrics)
+SELECT COUNT(*) FILTER (WHERE status='pending') AS queue_depth,
+       COUNT(*) FILTER (WHERE status='processing') AS jobs_processing,
+       COUNT(*) FILTER (WHERE status='processing' AND lease_expires_at <= now()) AS stale_leases,
+       (SELECT COUNT(*) FROM siton.outbox_dlq) AS dlq_count
+FROM siton.outbox_events;
+-- grants for a table a new migration created (42501 in /readiness or 500s on routes point here)
+SELECT has_table_privilege('siton_web_runtime','siton.<table>','SELECT') AS web_select,
+       has_table_privilege('siton_worker_runtime','siton.<table>','SELECT') AS worker_select;
+```
+
+Pass criteria after any rollback: `/readiness` 200; `runtime_commit_sha` equals the intended SHA; no ledger row outside `succeeded`; one `ready` heartbeat younger than 30 s; `stale_leases = 0` within two reclaim cycles; `dlq_count` unchanged since the incident began; `payment.provider = mockpay`.
+
+## 11. Post-rollback record
 
 Append to `PROJECT_STATUS.md` (your branch's own section — see `docs/PARALLEL_AGENT_DEVELOPMENT.md`): incident time, symptom row from §1, deploy ids before/after, SHAs before/after, `MIGRATIONS_DOCTOR` verdict, worker heartbeat age, `/health/integrations` provider line, and whether a forward migration or revert PR is still owed. Then re-run `npm run release:owner-check -- --reuse` on the SHA that is live and file the report path.
 

@@ -7,8 +7,12 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { REPO_ROOT, createFixtureRepo } = require("./support/fixture_repo.cjs");
 
+// Every run in this file writes to a private artifacts dir so a nested
+// preflight never clobbers the real .release-artifacts of an outer run.
+const ARTIFACTS = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "siton-orchestration-artifacts-"));
+test.after(() => fs.rmSync(ARTIFACTS, { recursive: true, force: true }));
 function run(script, args = [], options = {}) {
-  return spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", script), ...args], { cwd: options.cwd || REPO_ROOT, encoding: "utf8", timeout: options.timeout || 600000, env: { ...process.env, DOTENV_CONFIG_QUIET: "true", ...(options.env || {}) } });
+  return spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", script), ...args], { cwd: options.cwd || REPO_ROOT, encoding: "utf8", timeout: options.timeout || 600000, env: { ...process.env, DOTENV_CONFIG_QUIET: "true", SITON_RELEASE_ARTIFACTS_DIR: ARTIFACTS, ...(options.env || {}) } });
 }
 
 test("preflight: a subset of static gates passes, writes reports and per-gate logs, prints REAL_MONEY: BLOCKED", () => {
@@ -17,11 +21,11 @@ test("preflight: a subset of static gates passes, writes reports and per-gate lo
   assert.match(result.stdout, /RELEASE_PREFLIGHT_PASS/);
   assert.match(result.stdout, /REAL_MONEY: BLOCKED/);
   assert.match(result.stdout, /F13_PROVIDER_CONTRACT_UNRESOLVED/);
-  const report = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ".release-artifacts", "release-preflight.json"), "utf8"));
+  const report = JSON.parse(fs.readFileSync(path.join(ARTIFACTS, "release-preflight.json"), "utf8"));
   assert.equal(report.items.length, 4);
   assert.ok(report.items.every((item) => ["PASS", "WARNING", "SKIPPED_ENVIRONMENT"].includes(item.status)), JSON.stringify(report.items));
-  assert.ok(fs.existsSync(path.join(REPO_ROOT, ".release-artifacts", "preflight", "typescript.log")));
-  assert.match(fs.readFileSync(path.join(REPO_ROOT, ".release-artifacts", "release-preflight.md"), "utf8"), /# release preflight/);
+  assert.ok(fs.existsSync(path.join(ARTIFACTS, "preflight", "typescript.log")));
+  assert.match(fs.readFileSync(path.join(ARTIFACTS, "release-preflight.md"), "utf8"), /# release preflight/);
 });
 
 test("preflight: a failing gate yields FAIL and exit 1; an environment failure yields SKIPPED_ENVIRONMENT and exit 0", () => {
@@ -65,13 +69,13 @@ test("manifest and checklist generate for this checkout and mark a stale preflig
   const manifest = run("release_manifest.cjs", ["--target", "test-target", "--image", "example/siton:test"]);
   assert.equal(manifest.status, 0, manifest.stdout + manifest.stderr);
   assert.match(manifest.stdout, /RELEASE_MANIFEST sha=/);
-  const json = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, ".release-artifacts", "release-manifest.json"), "utf8"));
+  const json = JSON.parse(fs.readFileSync(path.join(ARTIFACTS, "release-manifest.json"), "utf8"));
   assert.equal(json.environment_target, "test-target");
   assert.equal(json.build.docker_image, "example/siton:test");
   assert.equal(json.real_money.allowed, false);
   assert.ok(json.migrations.count >= 59);
   assert.ok(json.migrations.checksums.every((row) => /^[0-9a-f]{64}$/.test(row.sha256_lf)));
-  assert.match(fs.readFileSync(path.join(REPO_ROOT, ".release-artifacts", "release-manifest.md"), "utf8"), /Real money \| BLOCKED/);
+  assert.match(fs.readFileSync(path.join(ARTIFACTS, "release-manifest.md"), "utf8"), /Real money \| BLOCKED/);
 
   const checklist = run("release_checklist.cjs");
   assert.equal(checklist.status, 0, checklist.stdout + checklist.stderr);
@@ -80,7 +84,7 @@ test("manifest and checklist generate for this checkout and mark a stale preflig
   assert.match(checklist.stdout, /RELEASE_CHECKLIST proven=\d+ warning=\d+ fail=\d+ skipped=\d+ open=\d+/);
 
   // Stale detection: rewrite the preflight report's sha and regenerate.
-  const reportPath = path.join(REPO_ROOT, ".release-artifacts", "release-preflight.json");
+  const reportPath = path.join(ARTIFACTS, "release-preflight.json");
   const original = fs.readFileSync(reportPath, "utf8");
   try {
     const tampered = JSON.parse(original);

@@ -113,8 +113,7 @@ function print(out, analysis, compared) {
 }
 
 function finish(out, code) {
-  const dir = path.join(root, ".release-artifacts");
-  fs.mkdirSync(dir, { recursive: true });
+  const dir = require("./lib/release_report.cjs").artifactsDir(root);
   fs.writeFileSync(path.join(dir, "migrations-doctor.json"), JSON.stringify(out, null, 2) + "\n");
   process.exit(code);
 }

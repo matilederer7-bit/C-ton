@@ -40,7 +40,7 @@ function treeHash(dir) {
 }
 
 function readJsonIfExists(rel) {
-  const file = path.join(root, rel);
+  const file = path.join(artifactsDir(root), path.basename(rel));
   if (!fs.existsSync(file)) return null;
   try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; }
 }

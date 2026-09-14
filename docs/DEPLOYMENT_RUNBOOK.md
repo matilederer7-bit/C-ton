@@ -83,7 +83,7 @@ Why the guard cannot be bypassed by a deploy: `config/runtime-environment-policy
 |---|---|---|---|
 | `.github/workflows/backend-quality-gates.yml` | PR + push to master | tsc, enforcement scans, payment/raw-card scan, runtime-DDL scan, architecture gate, mobile/PWA gate, `ci:migrations` (`CI_MIGRATION_REPORT_PASS`), test groups unit → e2e, route-authorization gate, fault report; `test:all` and `ci:docker-smoke` only on push / same-repo PR (`:139-145`) | IMPLEMENTED |
 | `.github/workflows/web-runtime-depth.yml` | PR + push to master | `web:routes` contract, `ci:web-runtime` (real HTTP auth, core E2E, Docker runtime), `ci:web-runtime:extended` (load, outage, restart, multi-instance) | IMPLEMENTED |
-| `.github/workflows/release-readiness.yml` | PR + push to master + dispatch | `preflight-static` (`npm run release:preflight:static`), `preflight-database` (standard profile on a Postgres service, skipping `route-authorization-behavioural,release-local-lab`), `docker-release-lab` (`npm run release:local-lab`, same-repo PRs only) | EXPECTED — file is present in this worktree but untracked at the time of writing; treat as merged only when it appears in `git ls-files` |
+| `.github/workflows/release-readiness.yml` | PR + push to master + dispatch | `preflight-static` (`npm run release:preflight:static`), `preflight-database` (standard profile on a Postgres service, skipping `route-authorization-behavioural,release-local-lab`), `docker-release-lab` (`npm run release:local-lab`, same-repo PRs only) | IMPLEMENTED on this branch (committed in `bf0ef55`); EXPECTED on `master` until the branch is merged |
 
 Merge rule: all three green on the PR head SHA. A red `Security tests` or `API tests` step has been a real bug both times it happened (PROJECT_STATUS.md history) — never merge on "CI-only flake".
 
@@ -132,7 +132,7 @@ Steps:
 
 ## 7. Stage: health
 
-What each signal proves (`scripts/health_contract_check.cjs:1-23`, proven locally by `npm run check:health-contract` → `HEALTH_CONTRACT_PASS`):
+What each signal proves (`scripts/health_contract_check.cjs:1-23`, `docs/HEALTH_CHECK_CONTRACT.md`, proven locally by `npm run check:health-contract` → `HEALTH_CONTRACT_PASS`):
 
 | Probe | Code | Proves | Does NOT prove |
 |---|---|---|---|
@@ -221,5 +221,4 @@ Record the decision, SHA, deploy id and timestamps in `PROJECT_STATUS.md` under 
 - `EXPECTED_COMMIT_SHA` not set on staging → `is_stale` detection is `unknown`.
 - Render Starter plan for the web service and Supabase Site URL (`docs/PILOT_LAUNCH_RUNBOOK.md` 0.3-0.4).
 - `docs/DATABASE_INCIDENT_RUNBOOK.md` is referenced by `scripts/migrations_repair.cjs:17` but does not exist; `docs/ROLLBACK_RUNBOOK.md` §5 carries the procedure until it is written.
-- `.github/workflows/release-readiness.yml` untracked at the time of writing (EXPECTED, see §2).
 - Real money: 4 blocking reasons in `config/real-money-release-policy.json`; no gate in this repository can clear them.

@@ -20,7 +20,7 @@ const { artifactsDir } = require("./lib/release_report.cjs");
 
 const root = process.cwd();
 
-function readJson(rel) { const file = path.join(root, rel); if (!fs.existsSync(file)) return null; try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
+function readJson(rel) { const file = path.join(artifactsDir(root), path.basename(rel)); if (!fs.existsSync(file)) return null; try { return JSON.parse(fs.readFileSync(file, "utf8")); } catch { return null; } }
 
 const OPEN_ITEMS = [
   { category: "PAYMENTS", owner: "owner + reviewer", text: "F-13 provider-contract issue resolved and the financial branch (claude/review-r9c-financial) integrated to master", ref: "config/real-money-release-policy.json F13_PROVIDER_CONTRACT_UNRESOLVED" },
