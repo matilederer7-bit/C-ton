@@ -11,6 +11,8 @@ import {
   PAYMENT_PROVIDER_RELEASE_PATH,
   PAYMENT_PROVIDER_STATUS_PATH,
   PAYMENT_PROVIDER_CURRENCY,
+  PAYMENT_SETTLEMENT_HORIZON_MS,
+  PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE,
   PAYMENT_ENVIRONMENT,
   PAYMENT_PROVIDER_MODE,
   PAYMENT_PROVIDER_PUBLIC_KEY,
@@ -31,6 +33,46 @@ export type PaymentResultClass = "success" | "permanent_fail" | "temporary_fail"
 // blind-retried by the Worker — it is resolved by the payment_reconcile rail
 // through an authoritative provider status lookup.
 export type PaymentExecutionResultClass = PaymentResultClass | "unknown";
+
+/**
+ * R9C — what the rails may assume about a provider when a money operation
+ * ends ambiguously (5xx/429/408, transport loss, timeout, malformed response,
+ * or a status read racing a request).
+ *
+ *   same_identity_repeat_safe     re-sending the SAME durable identity cannot
+ *                                 execute twice (provider honours a per-request
+ *                                 idempotency key that Siton actually sends)
+ *   negative_status_authoritative a status read that shows the operation NOT
+ *                                 executed proves non-execution for the exact
+ *                                 operation (provider processes requests
+ *                                 synchronously; status reflects all received)
+ *
+ * Both false = fail closed: an ambiguous outcome is resolved ONLY by a
+ * positive status proof; otherwise it becomes an operational case and no
+ * automatic repeat, retry or negative declaration happens.
+ */
+export type ProviderAmbiguityPolicy = {
+  same_identity_repeat_safe: boolean;
+  negative_status_authoritative: boolean;
+  /**
+   * Independent financial review — SETTLEMENT HORIZON (migration 064): how
+   * long after a capture-side request was dispatched the provider may still
+   * settle it. A failure that was only INFERRED from status reads fences
+   * automatic recovery, release and the terminal deal decision until
+   * dispatched_at + this horizon; a failure the provider declared in its
+   * answer to the exact request is not fenced. 0 = the provider settles
+   * synchronously (no asynchronous settlement exists — in-process mock only).
+   */
+  settlement_horizon_ms: number;
+  basis: string;
+};
+
+export const FAIL_CLOSED_AMBIGUITY_POLICY: ProviderAmbiguityPolicy = {
+  same_identity_repeat_safe: false,
+  negative_status_authoritative: false,
+  settlement_horizon_ms: 24 * 60 * 60 * 1000,
+  basis: "no documented, sandbox-proven provider contract for repeat or exact-operation status semantics"
+};
 
 export type PaymentTokenizationResult =
   | {
@@ -78,6 +120,15 @@ export type PaymentExecutionResult = {
   result_class: PaymentExecutionResultClass;
   retryable: boolean;
   mock: boolean;
+  /**
+   * R9C — dispatch honesty. `false` = the failure is PROVEN to have happened
+   * before any request left the process (validation, configuration, a sealed
+   * reference that could not be opened): nothing reached the provider and the
+   * SAME identity may be retried. Missing or `true` = the request may have
+   * reached the provider; a non-success without a provider-declared outcome
+   * is then UNKNOWN, never a retryable failure.
+   */
+  dispatched?: boolean;
   provider_reference?: string | null;
   correlation_id?: string | null;
   reconciliation_event_type?:
@@ -167,6 +218,14 @@ export type PaymentStatusResult = {
   provider_time: string | null;
   final: boolean;
   error_code: string | null;
+  /**
+   * Residual A (final financial integration) — whether the answer names the
+   * reference that was queried, as judged by the adapter that knows the
+   * provider's reference discipline (operation-scoped prefixes, re-sealed
+   * tokens). `false` means the answer is evidence about ANOTHER operation and
+   * may not become a verdict; undefined means the adapter makes no claim.
+   */
+  reference_matches_query?: boolean;
 };
 
 export interface PaymentProvider {
@@ -174,6 +233,8 @@ export interface PaymentProvider {
   readonly mode: "mock-backed" | "provider-ready" | "stripe" | "grow";
   readonly webhookProvider: string;
   readonly configured: boolean;
+  /** R9C — see ProviderAmbiguityPolicy; absent = fail closed. */
+  readonly ambiguityPolicy?: ProviderAmbiguityPolicy;
   tokenize?(input: TokenizePaymentInput): Promise<PaymentTokenizationResult>;
   authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult>;
   capture(input: CapturePaymentInput): Promise<PaymentExecutionResult>;
@@ -196,6 +257,30 @@ export interface PaymentProvider {
   configurationDetail?(): Record<string, unknown>;
 }
 
+export function providerAmbiguityPolicy(provider: Pick<PaymentProvider, "ambiguityPolicy">): ProviderAmbiguityPolicy {
+  return provider.ambiguityPolicy ?? FAIL_CLOSED_AMBIGUITY_POLICY;
+}
+
+/**
+ * R9C C2 — post-dispatch classification for the provider-ready HTTP contract.
+ * Once a money request has been dispatched, a response is a DECLARED outcome
+ * only when the provider itself answered with a definite client-side
+ * rejection (a 4xx that is not 408/425/429) or an explicit ok:false in a
+ * parseable JSON body. Server errors, 408/425/429, gateway pages, truncated
+ * or malformed bodies mean "the provider may have executed": UNKNOWN.
+ */
+function classifyPostDispatchHttpFailure(status: number, payload: any): "declared_failure" | "unknown" {
+  const parseable = payload !== null && typeof payload === "object" && !("raw_body" in payload);
+  if (!parseable) return "unknown";
+  if (status >= 200 && status < 300) return "declared_failure"; // 2xx + ok:false
+  if (status === 408 || status === 425 || status === 429 || status >= 500 || status < 400) return "unknown";
+  return "declared_failure";
+}
+
+function responseBodyMalformed(payload: any) {
+  return payload === null || typeof payload !== "object" || "raw_body" in payload;
+}
+
 function hashToUint32(value: string): number {
   let h = 2166136261 >>> 0;
   for (let i = 0; i < value.length; i += 1) {
@@ -214,6 +299,43 @@ function rand01Deterministic(key: string) {
   let x = (MOCK_SEED ^ hashToUint32(key)) >>> 0;
   x = lcgNext(x);
   return (x >>> 0) / 0x100000000;
+}
+
+// R9C/SR-2 — a proven PRE-dispatch failure is retried with the SAME durable
+// identity (nothing reached the provider, so a fresh identity would be a lie).
+// A simulated transient failure must therefore be transient across retries of
+// one identity instead of a pure function of it: the FIRST call for a key keeps
+// the seeded, reproducible draw; each retry of that key re-draws.
+const mockOutcomeDraws = new Map<string, number>();
+function mockOutcomeDraw(key: string) {
+  const attempt = (mockOutcomeDraws.get(key) || 0) + 1;
+  if (mockOutcomeDraws.size > 10_000) mockOutcomeDraws.clear();
+  mockOutcomeDraws.set(key, attempt);
+  return rand01Deterministic(attempt === 1 ? key : `${key}#retry${attempt}`);
+}
+
+// Independent financial review — the in-process mock used to answer EVERY
+// capture status lookup with "captured / final" regardless of whether a mock
+// capture ever happened (R9C INFO F9). With the recovery pre-flight in place
+// that fabricated status flipped every declined mock capture to "already
+// captured" (identity SUCCESS, false late-money case, recovery blocked for
+// ever on mock-backed deployments). The mock now remembers what it executed
+// and answers status from that memory only — a truthful provider.
+const mockExecutedOperations = new Map<string, { captured: boolean; refunded: boolean; released: boolean }>();
+function mockRemember(reference: string | null | undefined, op: "captured" | "refunded" | "released") {
+  const key = String(reference || "").trim();
+  if (!key) return;
+  if (mockExecutedOperations.size > 10_000) mockExecutedOperations.clear();
+  const row = mockExecutedOperations.get(key) || { captured: false, refunded: false, released: false };
+  row[op] = true;
+  mockExecutedOperations.set(key, row);
+}
+function mockExecutedState(reference: string | null | undefined, operation: "capture" | "refund" | "release" | string): "authorized" | "captured" | "refunded" | "released" {
+  const row = mockExecutedOperations.get(String(reference || "").trim());
+  if (!row) return "authorized";
+  if (operation === "refund") return row.refunded ? "refunded" : row.captured ? "captured" : "authorized";
+  if (operation === "release") return row.released ? "released" : row.captured ? "captured" : "authorized";
+  return row.refunded ? "refunded" : row.captured ? "captured" : row.released ? "released" : "authorized";
 }
 
 function paymentAuthorizationId(paymentMethodId: string) {
@@ -300,6 +422,30 @@ function stripeErrorMessage(payload: any, fallback: string) {
   return String(payload?.error?.message || payload?.message || fallback);
 }
 
+// F-7 (financial torture lab) — a 2xx body is a DECLARED outcome only when it
+// says so. A refund or release answered `{ ok: true, status: "pending" }` has not
+// executed yet (or not at all); reporting it as success made canonical truth
+// (Refunded / AuthReleased, fee-ledger adjustment) run ahead of the provider.
+// Unknown or missing status → UNKNOWN (reconcile decides), never success.
+function classifyRefundOutcome(payload: any): "success" | "permanent_fail" | "unknown" {
+  const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.refund_status || "").trim().toLowerCase();
+  if (["refund_issued", "refunded", "succeeded", "success", "approved", "completed", "issued"].includes(value)) return "success";
+  if (["refund_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
+  // Independent financial review: a 2xx body that carries an id but NO declared
+  // outcome is not provider success — it is UNKNOWN and the reconcile rail
+  // proves the refund through status before anything becomes canonical.
+  return "unknown";
+}
+
+function classifyReleaseOutcome(payload: any): "success" | "permanent_fail" | "unknown" {
+  const value = String(payload?.event_type || payload?.status || payload?.state || payload?.result || payload?.release_status || "").trim().toLowerCase();
+  if (["authorization_released", "payment_released", "released", "voided", "void", "canceled", "cancelled", "succeeded", "success", "approved", "completed"].includes(value)) return "success";
+  if (["release_failed", "failed", "declined", "rejected", "permanent_fail", "error"].includes(value)) return "permanent_fail";
+  // Independent financial review: an id-only 2xx body declares nothing — UNKNOWN,
+  // never AuthReleased on an undeclared outcome (the reconcile rail decides).
+  return "unknown";
+}
+
 function classifyCaptureEventType(payload: any): "charge_captured" | "charge_failed" | null {
   const value = String(
     payload?.event_type || payload?.status || payload?.result || payload?.capture_status || ""
@@ -381,6 +527,12 @@ function buildMockPaymentProvider(): PaymentProvider {
     mode: "mock-backed",
     webhookProvider: PAYMENT_WEBHOOK_PROVIDER,
     configured: true,
+    ambiguityPolicy: {
+      same_identity_repeat_safe: true,
+      negative_status_authoritative: true,
+      settlement_horizon_ms: 0,
+      basis: "in-process deterministic mock: no external side effects exist"
+    },
     async authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult> {
       const payerName = String(input.payer_name || "").trim();
       const paymentMethodId = String(input.payment_method_id || "").trim();
@@ -422,8 +574,9 @@ function buildMockPaymentProvider(): PaymentProvider {
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const correlationKey = String(input.correlation_id || "").trim() || buildCaptureCorrelationId();
-      const r = rand01Deterministic(correlationKey);
+      const r = mockOutcomeDraw(correlationKey);
       if (r < 0.75) {
+        mockRemember(input.authorization_id, "captured");
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
@@ -435,11 +588,14 @@ function buildMockPaymentProvider(): PaymentProvider {
         };
       }
       if (r < 0.9) {
+        // Simulated transient failure: nothing external happened (dispatched: false),
+        // so the rail retries the SAME identity instead of minting a new one.
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "temporary_fail",
           retryable: true,
           mock: true,
+          dispatched: false,
           provider_reference: String(input.authorization_id || "").trim() || null,
           correlation_id: correlationKey,
           reconciliation_event_type: null
@@ -469,8 +625,9 @@ function buildMockPaymentProvider(): PaymentProvider {
           reconciliation_event_type: "recovery_failed"
         };
       }
-      const r = rand01Deterministic(correlationKey);
+      const r = mockOutcomeDraw(correlationKey);
       if (r < 0.5) {
+        mockRemember(authorizationId, "captured");
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
@@ -487,6 +644,7 @@ function buildMockPaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: true,
+          dispatched: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationKey
         };
@@ -503,16 +661,20 @@ function buildMockPaymentProvider(): PaymentProvider {
     },
     async refund(input: RefundPaymentInput): Promise<PaymentExecutionResult> {
       const correlationKey = String(input.correlation_id || "").trim() || "mock-refund";
-      const r = rand01Deterministic(correlationKey);
-      if (r < 0.8) return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" };
-      if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true };
+      const r = mockOutcomeDraw(correlationKey);
+      if (r < 0.8) { mockRemember((input as any).capture_reference || (input as any).authorization_id, "refunded"); return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, reconciliation_event_type: "refund_issued" }; }
+      if (r < 0.95) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: true, dispatched: false };
       return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: true };
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
+      mockRemember(input.authorization_id, "released");
       return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: true, provider_reference: input.authorization_id, correlation_id: input.correlation_id };
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
-      return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: input.operation === "release" ? "released" : input.operation === "refund" ? "refunded" : input.operation === "capture" ? "captured" : "authorized", amount_minor: null, currency: null, provider_time: null, final: true, error_code: null };
+      // Truthful: the state the mock itself executed for this reference (see
+      // mockExecutedOperations); a reference the mock never captured is still
+      // merely authorized — never a fabricated "captured".
+      return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: mockExecutedState(input.provider_reference, input.operation), amount_minor: null, currency: null, provider_time: null, final: true, error_code: null };
     }
   };
 }
@@ -634,6 +796,19 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         });
       }
     },
+    // R9C — provider-ready HTTP contract: Siton sends the durable operation
+    // identity as `idempotency-key` on every money request and the status seam
+    // reports a `final` settled state, so a same-identity repeat is deduplicated
+    // and a final negative status proves non-execution. Any REAL provider wired
+    // through this adapter must have these two facts verified in R10.
+    ambiguityPolicy: {
+      same_identity_repeat_safe: true,
+      negative_status_authoritative: PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE,
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
+      basis: PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE
+        ? "provider-ready HTTP contract: idempotency-key per operation; status final=true declares the settled state (R9A); settlement horizon PAYMENT_SETTLEMENT_HORIZON_MS per provider contract (review remediation)"
+        : "provider-ready HTTP contract with PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE=false: negative finality of a status read is NOT proven for this deployment — fail closed (residual A)"
+    },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const authorizationId = String(input.authorization_id || "").trim();
       const amountMinor = Number(input.amount_minor);
@@ -647,6 +822,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: false,
+          dispatched: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId,
           reconciliation_event_type: null
@@ -659,6 +835,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: false,
+          dispatched: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId,
           reconciliation_event_type: null
@@ -687,16 +864,48 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         });
 
         const payload = await parseJsonSafely(response);
+        const providerReference = String(payload?.provider_reference || payload?.capture_id || payload?.authorization_id || authorizationId || "").trim() || null;
+        const echoedCorrelation = String(payload?.correlation_id || payload?.reference || correlationId);
         if (!response.ok || payload?.ok === false) {
+          // R9C C2 — the request was dispatched. 5xx / 429 / 408 / gateway or
+          // malformed answers are NOT evidence that no money moved: UNKNOWN.
           const eventType = classifyCaptureEventType(payload);
+          if (classifyPostDispatchHttpFailure(response.status, payload) === "unknown" || eventType === "charge_captured") {
+            return {
+              provider: PAYMENT_PROVIDER,
+              result_class: "unknown",
+              retryable: false,
+              mock: false,
+              dispatched: true,
+              provider_reference: providerReference,
+              correlation_id: echoedCorrelation,
+              reconciliation_event_type: null
+            };
+          }
           return {
             provider: PAYMENT_PROVIDER,
-            result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail",
-            retryable: response.status >= 500 || response.status === 429,
+            result_class: "permanent_fail",
+            retryable: false,
             mock: false,
-            provider_reference: String(payload?.provider_reference || payload?.capture_id || authorizationId || "").trim() || null,
-            correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
-            reconciliation_event_type: eventType
+            dispatched: true,
+            provider_reference: providerReference,
+            correlation_id: echoedCorrelation,
+            reconciliation_event_type: eventType ?? "charge_failed"
+          };
+        }
+
+        if (responseBodyMalformed(payload)) {
+          // 2xx with an unparseable/truncated body: the provider answered but
+          // the outcome cannot be read — UNKNOWN, reconcile decides.
+          return {
+            provider: PAYMENT_PROVIDER,
+            result_class: "unknown",
+            retryable: false,
+            mock: false,
+            dispatched: true,
+            provider_reference: authorizationId || null,
+            correlation_id: correlationId,
+            reconciliation_event_type: null
           };
         }
 
@@ -705,9 +914,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "success",
           retryable: false,
           mock: false,
-          provider_reference:
-            String(payload?.provider_reference || payload?.capture_id || payload?.authorization_id || authorizationId || "").trim() || null,
-          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          dispatched: true,
+          provider_reference: providerReference,
+          correlation_id: echoedCorrelation,
           reconciliation_event_type: classifyCaptureEventType(payload)
         };
       } catch {
@@ -719,6 +928,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "unknown",
           retryable: false,
           mock: false,
+          dispatched: true,
           provider_reference: authorizationId || null,
           correlation_id: correlationId,
           reconciliation_event_type: null
@@ -750,6 +960,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: false,
+          dispatched: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId
         };
@@ -761,6 +972,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: false,
+          dispatched: false,
           provider_reference: authorizationId || null,
           correlation_id: correlationId
         };
@@ -790,17 +1002,44 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
 
         const payload = await parseJsonSafely(response);
         const reconciliationEventType = classifyRecoveryEventType(payload);
+        const providerReference = String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null;
+        const echoedCorrelation = String(payload?.correlation_id || payload?.reference || correlationId);
         if (!response.ok || payload?.ok === false) {
-          const retryable = response.status >= 500 || response.status === 429;
+          // R9C C2 — dispatched; only a declared rejection is a definite failure.
+          if (classifyPostDispatchHttpFailure(response.status, payload) === "unknown" || reconciliationEventType === "recovery_captured") {
+            return {
+              provider: PAYMENT_PROVIDER,
+              result_class: "unknown",
+              retryable: false,
+              mock: false,
+              dispatched: true,
+              provider_reference: providerReference,
+              correlation_id: echoedCorrelation,
+              reconciliation_event_type: null
+            };
+          }
           return {
             provider: PAYMENT_PROVIDER,
-            result_class: retryable ? "temporary_fail" : "permanent_fail",
-            retryable,
+            result_class: "permanent_fail",
+            retryable: false,
             mock: false,
-            provider_reference:
-              String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
-            correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
-            reconciliation_event_type: retryable ? null : reconciliationEventType
+            dispatched: true,
+            provider_reference: providerReference,
+            correlation_id: echoedCorrelation,
+            reconciliation_event_type: reconciliationEventType ?? "recovery_failed"
+          };
+        }
+
+        if (responseBodyMalformed(payload)) {
+          return {
+            provider: PAYMENT_PROVIDER,
+            result_class: "unknown",
+            retryable: false,
+            mock: false,
+            dispatched: true,
+            provider_reference: authorizationId || null,
+            correlation_id: correlationId,
+            reconciliation_event_type: null
           };
         }
 
@@ -809,9 +1048,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "success",
           retryable: false,
           mock: false,
-          provider_reference:
-            String(payload?.provider_reference || payload?.recovery_id || payload?.capture_id || authorizationId || "").trim() || null,
-          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          dispatched: true,
+          provider_reference: providerReference,
+          correlation_id: echoedCorrelation,
           reconciliation_event_type: reconciliationEventType
         };
       } catch {
@@ -822,6 +1061,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           result_class: "unknown",
           retryable: false,
           mock: false,
+          dispatched: true,
           provider_reference: authorizationId || null,
           correlation_id: correlationId
         };
@@ -837,7 +1077,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
       const refundUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_REFUND_PATH)}`;
 
       if (!configured) {
-        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: false, correlation_id: correlationId };
+        return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, correlation_id: correlationId };
       }
 
       try {
@@ -864,43 +1104,69 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
 
         const payload = await parseJsonSafely(response);
         if (!response.ok || payload?.ok === false) {
+          // R9C C2 — dispatched; 5xx/429/408/malformed answers are UNKNOWN.
+          const declared = classifyPostDispatchHttpFailure(response.status, payload) === "declared_failure";
           return {
             provider: PAYMENT_PROVIDER,
-            result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail",
-            retryable: response.status >= 500 || response.status === 429,
+            result_class: declared ? "permanent_fail" : "unknown",
+            retryable: false,
             mock: false,
+            dispatched: true,
             provider_reference: String(payload?.provider_reference || captureReference || authorizationId || "").trim() || null,
             correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
             reconciliation_event_type: null
           };
         }
 
+        if (responseBodyMalformed(payload)) {
+          return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: captureReference || authorizationId || null, correlation_id: correlationId, reconciliation_event_type: null };
+        }
+
+        const refundOutcome = classifyRefundOutcome(payload);
+        const refundReference = String(payload?.provider_reference || payload?.refund_id || captureReference || authorizationId || "").trim() || null;
+        const refundCorrelation = String(payload?.correlation_id || payload?.reference || correlationId);
+        if (refundOutcome === "unknown") {
+          // F-7 — a 2xx that does not declare the refund issued (e.g. pending):
+          // UNKNOWN on the same identity, the reconcile rail decides.
+          return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: refundReference, correlation_id: refundCorrelation, reconciliation_event_type: null };
+        }
+        if (refundOutcome === "permanent_fail") {
+          return { provider: PAYMENT_PROVIDER, result_class: "permanent_fail", retryable: false, mock: false, dispatched: true, provider_reference: refundReference, correlation_id: refundCorrelation, reconciliation_event_type: null };
+        }
         return {
           provider: PAYMENT_PROVIDER,
           result_class: "success",
           retryable: false,
           mock: false,
-          provider_reference: String(payload?.provider_reference || payload?.refund_id || captureReference || authorizationId || "").trim() || null,
-          correlation_id: String(payload?.correlation_id || payload?.reference || correlationId),
+          dispatched: true,
+          provider_reference: refundReference,
+          correlation_id: refundCorrelation,
           reconciliation_event_type: "refund_issued"
         };
       } catch {
         // Transport loss after dispatch — the refund may have been issued.
-        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, provider_reference: captureReference || authorizationId || null, correlation_id: correlationId };
+        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: captureReference || authorizationId || null, correlation_id: correlationId };
       }
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
       const correlationId = input.correlation_id;
       const url = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_RELEASE_PATH)}`;
-      if (!configured || !input.authorization_id) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId };
+      if (!configured || !input.authorization_id) return { provider: PAYMENT_PROVIDER, result_class: "temporary_fail", retryable: false, mock: false, dispatched: false, provider_reference: input.authorization_id || null, correlation_id: correlationId };
       try {
         const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`, "idempotency-key": correlationId, "x-request-id": input.request_id || correlationId }, body: JSON.stringify({ authorization_id: input.authorization_id, reference: correlationId, amount_minor: input.amount_minor, currency: input.currency, participant_id: input.participant_id, deal_id: input.deal_id, buyer_id: input.buyer_id }), signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS) });
         const payload = await parseJsonSafely(response);
-        if (!response.ok || payload?.ok === false) return { provider: PAYMENT_PROVIDER, result_class: response.status >= 500 || response.status === 429 ? "temporary_fail" : "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
-        return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
+        // R9C C2 — dispatched; only a declared rejection is a definite failure.
+        if (!response.ok || payload?.ok === false) return { provider: PAYMENT_PROVIDER, result_class: classifyPostDispatchHttpFailure(response.status, payload) === "declared_failure" ? "permanent_fail" : "unknown", retryable: false, mock: false, dispatched: true, provider_reference: input.authorization_id, correlation_id: correlationId };
+        if (responseBodyMalformed(payload)) return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: input.authorization_id, correlation_id: correlationId };
+        const releaseOutcome = classifyReleaseOutcome(payload);
+        if (releaseOutcome !== "success") {
+          // F-7 — pending / undeclared → UNKNOWN (reconcile); declared failure → permanent_fail.
+          return { provider: PAYMENT_PROVIDER, result_class: releaseOutcome === "permanent_fail" ? "permanent_fail" : "unknown", retryable: false, mock: false, dispatched: true, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
+        }
+        return { provider: PAYMENT_PROVIDER, result_class: "success", retryable: false, mock: false, dispatched: true, provider_reference: String(payload?.provider_reference || payload?.authorization_id || input.authorization_id), correlation_id: String(payload?.correlation_id || correlationId) };
       } catch {
         // Transport loss after dispatch — the release may have happened.
-        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, provider_reference: input.authorization_id, correlation_id: correlationId };
+        return { provider: PAYMENT_PROVIDER, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: input.authorization_id, correlation_id: correlationId };
       }
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
@@ -912,7 +1178,15 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         const state = String(payload?.state || payload?.status || "unknown").toLowerCase();
         const allowed = ["authorized", "captured", "released", "refunded", "failed", "pending", "unknown"] as const;
         const canonicalState = (allowed as readonly string[]).includes(state) ? state as PaymentStatusResult["state"] : "unknown";
-        return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed") };
+        // Provider-ready reference discipline: an answer may carry an
+        // operation-scoped form of the queried reference (`cap-<auth>`,
+        // `rec-<auth>`, ...); anything that does not reduce to the queried
+        // reference names ANOTHER operation (residual A). Only the defined
+        // operation prefixes are aliases; arbitrary prefixes are distinct IDs.
+        const bareReference = (value: unknown) => String(value || "").trim().replace(/^(cap|rec|ref|rel)-/, "");
+        const echoedReference = String(payload?.provider_reference || "").trim();
+        const referenceMatchesQuery = !echoedReference || bareReference(echoedReference) === bareReference(input.provider_reference) || echoedReference === input.provider_reference;
+        return { provider: PAYMENT_PROVIDER, provider_reference: String(payload?.provider_reference || input.provider_reference), correlation_id: String(payload?.correlation_id || input.correlation_id), state: canonicalState, amount_minor: Number.isInteger(payload?.amount_minor) ? Number(payload.amount_minor) : null, currency: String(payload?.currency || "").toUpperCase() || null, provider_time: String(payload?.provider_time || payload?.created_at || "") || null, final: Boolean(response.ok && payload?.final === true && !["pending", "unknown"].includes(canonicalState)), error_code: response.ok ? null : String(payload?.error_code || payload?.error || "provider_status_failed"), reference_matches_query: referenceMatchesQuery };
       } catch {
         return { provider: PAYMENT_PROVIDER, provider_reference: input.provider_reference, correlation_id: input.correlation_id, state: "unknown", amount_minor: null, currency: null, provider_time: null, final: false, error_code: "provider_status_unreachable" };
       }
@@ -945,11 +1219,27 @@ function buildStripePaymentProvider(): PaymentProvider {
     failureEvent?: "charge_failed" | "recovery_failed" | null;
   }): PaymentExecutionResult {
     const resultClass = stripeResultClass(args.statusCode, args.payload);
+    // R9C C2 — a 5xx/429/lock/idempotency conflict AFTER dispatch is not proof
+    // that Stripe did not execute: UNKNOWN (same-identity repeat via the
+    // documented Idempotency-Key, or status proof), never a fresh retry.
+    if (resultClass === "temporary_fail") {
+      return {
+        provider: providerCode,
+        result_class: "unknown",
+        retryable: false,
+        mock: false,
+        dispatched: true,
+        provider_reference: args.providerReference ?? null,
+        correlation_id: args.correlationId,
+        reconciliation_event_type: null
+      };
+    }
     return {
       provider: providerCode,
       result_class: resultClass,
-      retryable: resultClass === "temporary_fail",
+      retryable: false,
       mock: false,
+      dispatched: true,
       provider_reference: args.providerReference ?? null,
       correlation_id: args.correlationId,
       reconciliation_event_type: resultClass === "permanent_fail" ? args.failureEvent ?? null : null
@@ -1107,6 +1397,12 @@ function buildStripePaymentProvider(): PaymentProvider {
         });
       }
     },
+    ambiguityPolicy: {
+      same_identity_repeat_safe: true,
+      negative_status_authoritative: true,
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
+      basis: "Stripe documents Idempotency-Key replay for 24h and synchronous PaymentIntent status; authorization-only proof exists, capture/refund not exercised against Stripe in this repository"
+    },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
       const paymentIntentId = String(input.authorization_id || "").trim();
       const amountMinor = Number(input.amount_minor);
@@ -1117,6 +1413,7 @@ function buildStripePaymentProvider(): PaymentProvider {
           result_class: "temporary_fail",
           retryable: true,
           mock: false,
+          dispatched: false,
           provider_reference: paymentIntentId || null,
           correlation_id: correlationId,
           reconciliation_event_type: null
@@ -1144,13 +1441,14 @@ function buildStripePaymentProvider(): PaymentProvider {
           result_class: "success",
           retryable: false,
           mock: false,
+          dispatched: true,
           provider_reference: String(payload?.id || paymentIntentId),
           correlation_id: String(payload?.metadata?.correlation_id || correlationId),
           reconciliation_event_type: "charge_captured"
         };
       } catch {
         // Transport loss after dispatch — Stripe may have captured. UNKNOWN.
-        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult> {
@@ -1192,7 +1490,7 @@ function buildStripePaymentProvider(): PaymentProvider {
       const amountMinor = Number(input.amount_minor);
       const correlationId = String(input.correlation_id || "").trim() || `stripe_refund_${randomUUID().replace(/-/g, "")}`;
       if (!configured || !paymentIntentId) {
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: paymentIntentId || null, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, provider_reference: paymentIntentId || null, correlation_id: correlationId };
       }
       try {
         const { response, payload } = await stripePost("/v1/refunds", {
@@ -1217,28 +1515,30 @@ function buildStripePaymentProvider(): PaymentProvider {
           result_class: "success",
           retryable: false,
           mock: false,
+          dispatched: true,
           provider_reference: String(payload?.id || paymentIntentId),
           correlation_id: String(payload?.metadata?.correlation_id || correlationId),
           reconciliation_event_type: "refund_issued"
         };
       } catch {
         // Transport loss after dispatch — the refund may have been issued.
-        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async release(input: ReleasePaymentInput): Promise<PaymentExecutionResult> {
       const paymentIntentId = String(input.authorization_id || "").trim();
       const correlationId = String(input.correlation_id || "").trim();
-      if (!configured || !paymentIntentId || !correlationId) return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId || null, correlation_id: correlationId || null };
+      if (!configured || !paymentIntentId || !correlationId) return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, dispatched: false, provider_reference: paymentIntentId || null, correlation_id: correlationId || null };
       try {
         const { response, payload } = await stripePost(`/v1/payment_intents/${encodeURIComponent(paymentIntentId)}/cancel`, { cancellation_reason: "abandoned" }, correlationId);
         if (!response.ok || payload?.error) return executionFromStripeFailure({ statusCode: response.status, payload, providerReference: paymentIntentId, correlationId, failureEvent: null });
         const state = String(payload?.status || "");
-        if (state !== "canceled") return { provider: providerCode, result_class: "temporary_fail", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
-        return { provider: providerCode, result_class: "success", retryable: false, mock: false, provider_reference: String(payload?.id || paymentIntentId), correlation_id: correlationId };
+        // A 2xx whose status is not `canceled` is an ambiguous post-dispatch answer: UNKNOWN.
+        if (state !== "canceled") return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "success", retryable: false, mock: false, dispatched: true, provider_reference: String(payload?.id || paymentIntentId), correlation_id: correlationId };
       } catch {
         // Transport loss after dispatch — the cancellation may have happened.
-        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, provider_reference: paymentIntentId, correlation_id: correlationId };
+        return { provider: providerCode, result_class: "unknown", retryable: false, mock: false, dispatched: true, provider_reference: paymentIntentId, correlation_id: correlationId };
       }
     },
     async status(input: PaymentStatusInput): Promise<PaymentStatusResult> {
@@ -1326,6 +1626,10 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
       result_class: resultClass,
       retryable: resultClass === "temporary_fail",
       mock: false,
+      // R9C — the adapter says whether the money request left the process;
+      // a temporary failure that is NOT proven pre-dispatch is treated as
+      // UNKNOWN by the rails (never a fresh settle/refund).
+      ...(typeof result.dispatched === "boolean" ? { dispatched: result.dispatched } : {}),
       provider_reference: result.provider_reference || null,
       correlation_id: correlationId,
       // A provider-declared outcome maps to exactly one canonical
@@ -1340,6 +1644,20 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
     mode: "grow",
     webhookProvider: "grow",
     configured: adapter.configured,
+    // R9C H1 — FAIL CLOSED. The official settleSuspendedTransaction /
+    // refundTransaction contract carries no Siton operation key (no
+    // Idempotency-Key header, no cField1), so a repeated settle/refund is NOT
+    // proven idempotent; getTransactionInfo reports the transaction's state,
+    // not the outcome of one specific Siton invocation. An ambiguous Grow
+    // money operation is resolved only by a POSITIVE status proof; otherwise
+    // it becomes a FINANCIAL_OUTCOME_UNRESOLVED operational case — never an
+    // automatic second settle/refund and never an automatic failure verdict.
+    ambiguityPolicy: {
+      same_identity_repeat_safe: false,
+      negative_status_authoritative: false,
+      settlement_horizon_ms: PAYMENT_SETTLEMENT_HORIZON_MS,
+      basis: "Grow J4/J5 contract: no per-operation idempotency key transmitted; status reflects transaction state, not the exact Siton settle/refund invocation (R9C H1, unproven in sandbox)"
+    },
     async authorize(input) {
       const correlationId = correlation(input.correlation_id || input.request_id);
       const result = await adapter.startSuspendedAuthorization({
@@ -1391,12 +1709,12 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
         // configuration): no money moved, so a bounded retry is safe and the
         // outbox attempt cap + DLQ bound it. It is NOT a provider-declared
         // failure and must not fabricate a charge_failed event.
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async recover(input, withinWindow) {
       const correlationId = correlation(input.correlation_id || input.request_id);
-      if (!withinWindow) return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
+      if (!withinWindow) return { provider: providerCode, result_class: "permanent_fail", retryable: false, mock: false, dispatched: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: "recovery_failed" };
       try {
         return executionResult(
           await adapter.capture(String(input.authorization_id || ""), Number(input.amount_minor || 0)),
@@ -1405,7 +1723,7 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
         );
       } catch {
         // Pre-I/O throw: no provider call happened. See capture().
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async refund(input) {
@@ -1418,7 +1736,7 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
         );
       } catch {
         // Pre-I/O throw: no provider call happened. See capture().
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.capture_reference || input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, provider_reference: input.capture_reference || input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     async status(input) {
@@ -1471,7 +1789,7 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
       } catch {
         // Pre-I/O throw (invalid sealed reference / configuration): no
         // provider call happened; bounded retry is safe.
-        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
+        return { provider: providerCode, result_class: "temporary_fail", retryable: true, mock: false, dispatched: false, provider_reference: input.authorization_id || null, correlation_id: correlationId, reconciliation_event_type: null };
       }
     },
     /**
@@ -1668,6 +1986,15 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
       outbound_headers: ["idempotency-key", "x-request-id"],
       correlation_field: "correlation_id",
       provider_event_identity: "provider_code + provider_event_id"
+    },
+    // R9C — how ambiguous money outcomes are allowed to resolve for THIS provider.
+    ambiguity_policy: providerAmbiguityPolicy(provider),
+    operation_lifecycle: {
+      durable_states: ["recorded", "dispatching", "responded"],
+      post_dispatch_non_success_without_declared_outcome: "unknown",
+      unknown_resolution: "authoritative status lookup; negative inference only when negative_status_authoritative; otherwise FINANCIAL_OUTCOME_UNRESOLVED operational case",
+      reconcile_in_flight_rule: "reconciliation defers while the exact operation is dispatching under a live worker lease",
+      recovery_eligibility: "recovery/refund/release blocked while any capture-side operation is unresolved"
     },
     replacement_path: provider.mode === "grow"
       ? "Enter externally provisioned Grow credentials, then run the no-network contract gate and controlled Sandbox verification runbook."

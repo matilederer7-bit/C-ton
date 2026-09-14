@@ -63,16 +63,31 @@ async function startProviderStub() {
       });
 
       if (req.url && req.url.startsWith("/status/")) {
-        // Authoritative status lookup seam used by the payment_reconcile rail.
+        // Authoritative status lookup seam used by the payment_reconcile rail AND by
+        // the F-1 recovery pre-flight. A truthful provider reports "captured" only
+        // once a recovery for this authorization actually executed; before that the
+        // failed original capture leaves the hold merely authorized (final).
+        const reference = decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!).replace(/^rec-/, "");
+        const recovered = recoveryCalls.some((call) => call.url === "/recover" && String(call.body?.authorization_id || "") === reference && !reference.includes("fail"));
         res.setHeader("content-type", "application/json");
         res.statusCode = 200;
         res.end(
           JSON.stringify({
-            state: "captured",
+            state: recovered ? "captured" : "authorized",
             final: true,
-            provider_reference: decodeURIComponent(req.url.split("/status/")[1]!.split("?")[0]!)
+            provider_reference: recovered ? `rec-${reference}` : reference
           })
         );
+        return;
+      }
+
+      if (req.url === "/release") {
+        // F-6 (independent financial review): after a declined recovery the hold
+        // is released through the provider-proofed release rail — the provider
+        // answers a DECLARED release, never a promise.
+        res.setHeader("content-type", "application/json");
+        res.statusCode = 200;
+        res.end(JSON.stringify({ ok: true, status: "released", provider_reference: String(body.authorization_id || ""), reference: body.reference }));
         return;
       }
 
@@ -319,7 +334,7 @@ await runTest("recovery success flows through the real provider path and late/du
   assert.equal((duplicateWebhook.json() as any).duplicate, true);
 });
 
-await runTest("recovery decline flows through webhook truth into the dropped/auth-released state", async () => {
+await runTest("recovery decline flows through webhook truth into Dropped; the hold is released ONLY through the provider-proofed release rail (F-6)", async () => {
   const recovering = await createRecoveryParticipant({
     suffix: "fail",
     authorizationId: "auth-recovery-fail-1",
@@ -328,8 +343,28 @@ await runTest("recovery decline flows through webhook truth into the dropped/aut
   await ensureOutboxStatus(recovering.outboxEventId, "sent");
   const tracked = await readTracking(recovering.participantId);
 
+  // Business truth moves (Dropped); money truth does NOT: AuthReleased requires
+  // authoritative release proof, so the hold is still represented as held and a
+  // payment_release job is pending for it.
   assert.equal(tracked.tracking.buyer_state, "Dropped");
-  assert.equal(tracked.tracking.money_state, "AuthReleased");
+  assert.equal(tracked.tracking.money_state, "ChargeFailedRecovery");
+  assert.equal(provider.recoveryCalls.filter((call: any) => call.url === "/release").length, 0, "no release request was sent by the recovery rail itself");
+  const releaseJob = await pool.query(
+    `SELECT event_uuid FROM siton.outbox_events WHERE event_type='payment_release' AND aggregate_id=$1 AND status='pending'`,
+    [recovering.participantId]
+  );
+  assert.equal(releaseJob.rowCount, 1, "exactly one provider-proofed release job is scheduled for the dropped participant");
+
+  await ensureOutboxStatus(String(releaseJob.rows[0].event_uuid), "sent");
+  assert.equal(provider.recoveryCalls.filter((call: any) => call.url === "/release").length, 1, "exactly one release request reached the provider");
+  const released = await readTracking(recovering.participantId);
+  assert.equal(released.tracking.buyer_state, "Dropped");
+  assert.equal(released.tracking.money_state, "AuthReleased");
+  const releaseAttempt = await pool.query(
+    `SELECT result_class FROM siton.payment_attempts WHERE participant_id=$1 AND attempt_type='release'`,
+    [recovering.participantId]
+  );
+  assert.deepEqual(releaseAttempt.rows.map((row) => row.result_class), ["success"], "AuthReleased is backed by a provider-declared release");
 });
 
 await runTest("recovery timeout becomes durable UNKNOWN + reconcile (no blind provider retry), then resolves to exactly one recovery", async () => {
