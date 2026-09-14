@@ -516,7 +516,17 @@ await runTest("conflicting events are recorded but the logical state wins", asyn
   assert.equal(lateSuccess.reason, "not_waiting_for_charge_capture");
   assert.equal(failedParticipant?.buyer_state, "ChargeFailedCompletion");
   assert.equal(failedParticipant?.money_state, "ChargeFailedRecovery");
-  assert.equal(failedAttempt?.result_class, "permanent_fail");
+  // R9C / F-3: the logical STATE still wins (no flip on a late event), but an
+  // economically real provider effect is never discarded silently - the identity
+  // converges to provider truth (monotonic success) and an operational case
+  // records the contradiction, on the HTTP webhook path exactly as on the
+  // worker path. Recovery / refund / release stay blocked for this participant.
+  assert.equal(failedAttempt?.result_class, "success");
+  const lateEffectCase = await fetchOne<{ auto_key: string }>(
+    `SELECT auto_key FROM siton.operational_cases WHERE auto_key = $1`,
+    [`payment-late-money-effect:${failedThenLateSuccess.participantId}:charge_captured`]
+  );
+  assert.ok(lateEffectCase, "a late-money-effect case must record the provider/local contradiction");
 
   const recovered = await seedRecoveryAwaitingWebhook("conflict-recovery");
   const recoverySuccess = await postWebhook({

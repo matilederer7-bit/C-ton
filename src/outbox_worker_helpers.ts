@@ -662,6 +662,31 @@ export function buildOutboxWorkerHelpers(deps: {
     });
   }
 
+  /**
+   * R9C — pre-I/O fence for external money calls. True only when THIS worker
+   * still owns the lease with at least minRemainingMs left (renewing it when
+   * it is short). A stale worker that resumes after its job was reclaimed gets
+   * false and must abort BEFORE touching the provider.
+   */
+  async function assertLeaseForProviderIo(eventId: string, leaseGeneration: number, minRemainingMs: number): Promise<boolean> {
+    const generation = requireLeaseGeneration(leaseGeneration);
+    const state = await deps.withTx(async (c) => {
+      await c.query(`SELECT set_config('siton.is_worker','true',true)`);
+      const result = await c.query(
+        `SELECT (lease_expires_at > clock_timestamp() + ($4::text || ' milliseconds')::interval) AS enough
+         FROM siton.outbox_events
+         WHERE event_uuid=$1 AND status='processing' AND worker_id=$2
+           AND lease_generation=$3 AND lease_expires_at > clock_timestamp()`,
+        [eventId, workerId, generation, String(Math.max(0, Math.floor(minRemainingMs)))]
+      );
+      if (Number(result.rowCount || 0) !== 1) return "lost" as const;
+      return result.rows[0]?.enough ? "ok" as const : "short" as const;
+    });
+    if (state === "lost") return false;
+    if (state === "ok") return true;
+    return heartbeatOutboxLease(eventId, generation);
+  }
+
   return {
     claimOutboxBatch,
     claimOutboxEventById,
@@ -669,6 +694,7 @@ export function buildOutboxWorkerHelpers(deps: {
     markOutboxSent,
     markOutboxFailed,
     heartbeatOutboxLease,
+    assertLeaseForProviderIo,
     workerId,
     leaseMs
   };

@@ -23,7 +23,19 @@ export type FaultPoint =
   | "http.upload.after_commit_before_response"
   | "http.delete.after_commit_before_response"
   | "http.join.after_commit_before_response"
-  | "http.otp.after_commit_before_response";
+  | "http.otp.after_commit_before_response"
+  // R9C — money rails: the three windows around an external provider call.
+  | "payment.before_provider_io"
+  | "payment.after_provider_io"
+  | "payment.after_state_before_ledger"
+  // F-12 — inside the transaction that writes the late-effect money evidence
+  // AND the durable operator escalation, between the two. Injecting here proves
+  // the two halves are atomic: neither may survive alone.
+  | "payment.before_escalation_case"
+  // F-12 — the durable capture-side identity read that decides whether two
+  // distinct money effects exist. Injecting here proves the path fails CLOSED:
+  // an unreadable evidence set must never be answered as "not a dual capture".
+  | "payment.before_dual_capture_identity_read";
 
 export type FaultAction =
   | { kind: "throw"; code: string }
