@@ -185,7 +185,10 @@ export default function App() {
               exists while the Mall is enabled, otherwise it is the landing */}
           {page === "deals" ? (mallEnabled ? <Mall navigate={navigate} /> : <Landing navigate={navigate} />) : null}
           {page === "deal" && route.seg[1] ? <DealPage dealId={route.seg[1]} navigate={navigate} openInquiry={route.query.get("inquiry") === "1"} /> : null}
-          {page === "track" && route.seg[1] ? <TrackPage participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
+          {/* A different tracking link is a different page: key the page on participant + token so an
+              in-document link change never keeps the previous buyer's payload or swallows the new link's
+              refusal (the load guard is per mounted page). */}
+          {page === "track" && route.seg[1] ? <TrackPage key={`${route.seg[1]}:${route.query.get("t") || ""}`} participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
           {page === "support" ? <SupportPage /> : null}
           {page === "public-seller" && route.seg[1] ? <PublicSellerPage id={route.seg[1]} /> : null}

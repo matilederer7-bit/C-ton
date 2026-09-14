@@ -223,6 +223,13 @@ run("P8: every non-joinable state has a what-happened / what-next story; expiry 
   for (const src of [dealPage, trackPage]) assert.doesNotMatch(src, />[^<{]*\b(STATE_CONFLICT|max_units_exceeded|deal_not_open_for_joining|tracking_token_required)\b[^<{]*</, "no raw code rendered as copy");
 });
 
+run("P8b: a tracking link is a page identity — TrackPage is keyed on participant + token, so an in-document link change never keeps the previous buyer's payload or swallows the new link's refusal (found on hosted staging 2026-09-14)", () => {
+  assert.match(appTsx, /<TrackPage key=\{`\$\{route\.seg\[1\]\}:\$\{route\.query\.get\("t"\) \|\| ""\}`\} participantId=\{route\.seg\[1\]\} token=\{route\.query\.get\("t"\) \|\| ""\} \/>/);
+  // the load guard inside the page is per mounted page: it must not be turned into a cross-link cache
+  assert.match(trackPage, /\.catch\(\(e\) => \{\s*\n\s*if \(!alive \|\| payload\) return;/);
+  assert.match(trackPage, /\}, \[participantId, token\]\);/);
+});
+
 run("P9: landing — one-sentence explanation, buyer entry (deals list only while the Mall is enabled), seller CTA, pilot disclosure, no legacy reference, no production-payment claim", () => {
   assert.match(landingHe, /sub: "C-ton \(סיטון\) היא פלטפורמה לקנייה קבוצתית: /);
   assert.match(landingHe, /buyerEntry: \{/);

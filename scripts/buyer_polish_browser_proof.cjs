@@ -516,6 +516,23 @@ async function forceDealState(db, dealId, target) {
       return check("track-invalid@390");
     });
 
+    // STAGING ACCEPTANCE (2026-09-14) — found on hosted staging: the page kept the previous
+    // buyer's payload when the hash changed to another participant whose fetch was refused
+    // (the load guard captured the old payload), so the URL said B while the screen showed A.
+    await run("in-document link change @390: from a valid tracking page, switching the hash to another participant with a bogus token shows the refusal — never the previous buyer's page", async () => {
+      expectedFailures = [/\/tracking/, /\/impact/, /\/entitlement/];
+      await cdp.navigate(`${BASE}/preview/${deals.track_390}`);
+      await waitFor(cdp, exists('[data-testid="track-next"]'), 30000, "valid tracking page");
+      const before = await cdp.evaluate(`document.querySelector('h1') ? document.querySelector('h1').innerText : ''`);
+      await cdp.evaluate(`location.hash = '#/track/${randomUUID()}?t=bogus-token'; true`);
+      await waitFor(cdp, exists('[data-testid="track-support"]'), 15000, "refusal after in-document link change");
+      const snap = await cdp.evaluate(`({ text: document.body.innerText, stale: Boolean(document.querySelector('[data-testid="track-next"], [data-testid="track-status"]')) })`);
+      assert(!snap.stale && /אין גישה למסך המעקב/.test(snap.text) && !(before && snap.text.includes(before)), `previous buyer's page must not survive a link change: ${snap.text.slice(0, 160)}`);
+      expectedFailures = [];
+      await cdp.shot("0390_15b_track_link_change.png");
+      return check("track-link-change@390");
+    });
+
     await run("invalid inquiry token @390: a stale stored token is forgotten and explained, never a silent hole", async () => {
       expectedFailures = [/\/api\/inquiries\//];
       await cdp.evaluate(`localStorage.setItem('siton_inquiries_v1', JSON.stringify({ [${JSON.stringify(deals.open)}]: [{ thread_id: ${JSON.stringify(randomUUID())}, token: 'stale-token', created_at: new Date().toISOString() }] })); true`);
