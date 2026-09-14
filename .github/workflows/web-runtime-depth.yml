@@ -19,6 +19,11 @@ jobs:
     name: web-runtime-core
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # pipefail: every gate here is "npm run … | tee"; without it the tee exit code
+    # masked a failing Docker runtime as success (observed 2026-09-14, PR #8).
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,6 +54,9 @@ jobs:
     needs: web-runtime-core
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash --noprofile --norc -eo pipefail {0}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
