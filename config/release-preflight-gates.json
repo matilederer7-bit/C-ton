@@ -34,7 +34,7 @@
     { "id": "supply-chain", "category": "INFRA", "command": ["node", "scripts/supply_chain_check.cjs"], "needs": "network", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"], "skip_markers": ["overall=SKIPPED_ENVIRONMENT"], "timeout_ms": 600000 },
     { "id": "docker-readiness-static", "category": "INFRA", "command": ["node", "scripts/docker_readiness_static.cjs"], "needs": "none", "profiles": ["static", "standard", "full"], "warn_markers": ["overall=WARNING"] },
     { "id": "release-local-lab", "category": "INFRA", "command": ["node", "scripts/release_local_lab.cjs"], "needs": "docker", "profiles": ["standard", "full"], "skip_markers": ["RELEASE_LOCAL_LAB_SKIPPED_ENVIRONMENT"], "timeout_ms": 1500000 },
-    { "id": "release-tools-tests", "category": "TESTS", "command": ["node", "--test", "tests/release_tools/"], "needs": "db", "profiles": ["standard", "full"], "timeout_ms": 1200000 },
+    { "id": "release-tools-tests", "category": "TESTS", "command": ["node", "--test", "tests/release_tools/**/*.test.cjs"], "needs": "db", "profiles": ["standard", "full"], "timeout_ms": 1200000 },
     { "id": "payment-tests", "category": "PAYMENTS", "command": ["node", "scripts/run_test_group.cjs", "payments"], "needs": "db", "profiles": ["full"], "timeout_ms": 2400000 },
     { "id": "security-tests", "category": "SECURITY", "command": ["node", "scripts/run_test_group.cjs", "security"], "needs": "db", "profiles": ["full"], "timeout_ms": 2400000 }
   ]

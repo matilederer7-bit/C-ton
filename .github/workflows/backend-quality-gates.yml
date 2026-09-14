@@ -132,7 +132,12 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e 2>&1 | tee .ci-artifacts/test-e2e.log
 
-      - name: Complete repository suite
+      # Every group above already ran once on this commit. The full-suite
+      # re-run is kept as a POST-MERGE deep check (order/isolation regression
+      # signal) and no longer doubles the PR wall-clock. See
+      # docs/CI_TEST_STRATEGY.md.
+      - name: Complete repository suite (post-merge deep check)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
         run: npm run test:all 2>&1 | tee .ci-artifacts/test-all.log
 
       - name: Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
