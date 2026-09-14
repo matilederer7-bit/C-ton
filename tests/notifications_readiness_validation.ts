@@ -42,6 +42,18 @@ await run("notification_no_premature_charge_language_validation", async () => {
   assert.match(templates, /תשוחרר בהתאם למדיניות ספק האשראי/);
 });
 
+await run("notification_charge_success_copy_validation", async () => {
+  // Spec event "חיוב בוצע": the capture-success message (legacy event type
+  // buyer_payment_recovered, enqueued as charge_succeeded on charge_captured)
+  // must tell the buyer the charge was performed — hosted proof 2026-09-14
+  // found it claiming a payment-method update the buyer never made.
+  const block = templates.slice(templates.indexOf("buyer_payment_recovered_he: {"), templates.indexOf("buyer_voucher_issued_he: {"));
+  assert.ok(block.length > 0, "buyer_payment_recovered_he template block missing");
+  assert.match(block, /החיוב עבור העסקה .*בוצע בהצלחה/);
+  assert.doesNotMatch(block, /אמצעי התשלום .*עודכן/);
+  assert.match(dispatch, /charge_succeeded: "buyer_payment_recovered"/);
+});
+
 await run("notification_recovery_uses_secure_token_validation", async () => {
   assert.match(doc, /tokenized/);
   assert.match(doc, /participant tracking token/);

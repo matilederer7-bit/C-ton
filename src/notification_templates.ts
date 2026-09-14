@@ -121,14 +121,19 @@ const TEMPLATE_DEFINITIONS: Record<NotificationTemplateKey, TemplateDefinition> 
       body: `החיוב עבור העסקה "${dealTitle(p)}" לא עבר.\nיש להשלים אמצעי תשלום בזמן חלון ההשלמה.`
     })
   },
+  // Spec event "חיוב בוצע" (CHARGE_SUCCESS): emitted when the buyer's capture
+  // actually executed (money_state ChargedSuccess) — on the ordinary first
+  // capture as well as after a recovery. The legacy event-type name is kept
+  // (DB CHECK, mission-control inventory); the copy must describe a performed
+  // charge, never a "payment method update" the buyer never made.
   buyer_payment_recovered_he: {
     eventType: "buyer_payment_recovered",
     templateKey: "buyer_payment_recovered_he",
     compatibleChannels: ["sms", "email", "whatsapp_link", "internal"],
     requiredPayloadFields: ["deal_title"],
     render: (p) => ({
-      subject: `התשלום עודכן: ${dealTitle(p)}`,
-      body: `אמצעי התשלום עבור העסקה "${dealTitle(p)}" עודכן בהצלחה. פרטי ההמשך מופיעים במסך המעקב.`
+      subject: `החיוב בוצע: ${dealTitle(p)}`,
+      body: `החיוב עבור העסקה "${dealTitle(p)}" בוצע בהצלחה.\nפרטי ההמשך מופיעים במסך המעקב.`
     })
   },
   buyer_voucher_issued_he: {
