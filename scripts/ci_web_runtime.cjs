@@ -20,6 +20,19 @@ function run(command, args, options = {}) {
 function docker(args, options = {}) {
   return run("docker", [...compose, ...args], options);
 }
+// docker-compose.ci.yml publishes ephemeral host ports (396c421 isolated the smoke ports);
+// resolve them exactly like ci_docker_smoke.cjs instead of assuming 3001/55432.
+function publishedPort(service, targetPort) {
+  const result = docker(["port", service, String(targetPort)]);
+  const match = String(result.stdout || "").match(/:(\d+)\s*$/m);
+  if (!match) throw new Error(`published port not found for ${service}:${targetPort}`);
+  return Number(match[1]);
+}
+// GitHub Actions workflow command → check-run annotation, readable without log access.
+function annotate(level, title, message) {
+  if (!process.env.GITHUB_ACTIONS) return;
+  console.log(`::${level} title=${title}::${String(message).replace(/\r?\n/g, "%0A").slice(0, 4000)}`);
+}
 function record(name, passed, details = {}) {
   report.scenarios.push({ name, passed, ...details });
   if (!passed) report.product_findings.push({ name, ...details });
@@ -52,9 +65,12 @@ async function main() {
   docker(["down", "-v", "--remove-orphans"], { allowFailure: true });
   try {
     docker(["up", "--build", "-d", "--wait", "postgres", "migrate", "web", "worker"], { timeout: 900000 });
-    await waitFor(async () => (await request("http://127.0.0.1:3001/health")).status === 200);
+    let webOrigin = `http://127.0.0.1:${publishedPort("web", 3000)}`;
+    const databaseUrl = `postgresql://siton_ci:siton_ci_password@127.0.0.1:${publishedPort("postgres", 5432)}/siton_ci`;
+    report.web_origin = webOrigin;
+    await waitFor(async () => (await request(`${webOrigin}/health`)).status === 200);
 
-    const probe = run(process.execPath, ["scripts/web_runtime_http_probe.cjs"], { allowFailure: true, timeout: 600000 });
+    const probe = run(process.execPath, ["scripts/web_runtime_http_probe.cjs"], { allowFailure: true, timeout: 600000, env: { ...process.env, WEB_BASE_URL: webOrigin, WEB_RUNTIME_DATABASE_URL: databaseUrl } });
     fs.writeFileSync(path.join(artifacts, `web-runtime-probe-${mode}.log`), `${probe.stdout || ""}\n${probe.stderr || ""}`);
     if (probe.status !== 0) throw new Error(`HTTP probe infrastructure failed\n${probe.stdout}\n${probe.stderr}`);
     const probeReport = JSON.parse(fs.readFileSync(path.join(artifacts, "web-runtime-http-report.json"), "utf8"));
@@ -73,28 +89,32 @@ async function main() {
       if (!dealId) throw new Error("extended probe could not locate deal id");
 
       docker(["stop", "worker"]);
-      const webWithoutWorker = await request("http://127.0.0.1:3001/health");
+      const webWithoutWorker = await request(`${webOrigin}/health`);
       record("web remains available while worker is down", webWithoutWorker.status === 200, webWithoutWorker);
       docker(["start", "worker"]);
       docker(["up", "-d", "--wait", "worker"]);
       record("worker recovers after restart", true);
 
       docker(["stop", "postgres"]);
-      const duringOutage = await request(`http://127.0.0.1:3001/api/deals/${dealId}/public`, { timeout: 15000 });
+      const duringOutage = await request(`${webOrigin}/api/deals/${dealId}/public`, { timeout: 15000 });
       record("DB outage returns failure without false success or stack", duringOutage.status >= 500 && duringOutage.status < 600 && !/stack|at\s+\w+/i.test(duringOutage.text || ""), duringOutage);
       docker(["start", "postgres"]);
-      await waitFor(async () => (await request(`http://127.0.0.1:3001/api/deals/${dealId}/public`)).status === 200, 120000);
+      await waitFor(async () => (await request(`${webOrigin}/api/deals/${dealId}/public`)).status === 200, 120000);
       record("web recovers after DB returns", true);
 
       const traffic = Promise.all(Array.from({ length: 120 }, async (_, index) => {
         await delay(index * 15);
-        return request(`http://127.0.0.1:3001/api/deals/${dealId}/public`, { timeout: 10000 });
+        return request(`${webOrigin}/api/deals/${dealId}/public`, { timeout: 10000 });
       }));
       await delay(300);
       docker(["restart", "web"]);
-      await waitFor(async () => (await request("http://127.0.0.1:3001/health")).status === 200);
+      // the ephemeral published port is re-allocated on restart — re-resolve inside the retry
+      await waitFor(async () => {
+        webOrigin = `http://127.0.0.1:${publishedPort("web", 3000)}`;
+        return (await request(`${webOrigin}/health`)).status === 200;
+      });
       const restartResults = await traffic;
-      record("container restart during traffic recovers", restartResults.some((item) => item.status === 200) && (await request(`http://127.0.0.1:3001/api/deals/${dealId}/public`)).status === 200, {
+      record("container restart during traffic recovers", restartResults.some((item) => item.status === 200) && (await request(`${webOrigin}/api/deals/${dealId}/public`)).status === 200, {
         statuses: restartResults.reduce((map, item) => { map[item.status] = (map[item.status] || 0) + 1; return map; }, {})
       });
 
@@ -110,7 +130,7 @@ async function main() {
       if (second.status === 0) {
         await waitFor(async () => (await request("http://127.0.0.1:3002/health")).status === 200);
         const both = await Promise.all(Array.from({ length: 100 }, (_, index) =>
-          request(`http://127.0.0.1:${index % 2 ? 3001 : 3002}/api/deals/${dealId}/public`, { headers: { "x-forwarded-for": `10.40.0.${index + 1}` } })
+          request(`${index % 2 ? webOrigin : "http://127.0.0.1:3002"}/api/deals/${dealId}/public`, { headers: { "x-forwarded-for": `10.40.0.${index + 1}` } })
         ));
         record("two web instances serve shared state", both.every((item) => item.status === 200), {
           statuses: both.reduce((map, item) => { map[item.status] = (map[item.status] || 0) + 1; return map; }, {})
@@ -142,6 +162,7 @@ async function main() {
 
 main().catch((error) => {
   report.infrastructure_error = String(error?.stack || error);
+  annotate("error", `ci:web-runtime ${mode}`, report.infrastructure_error);
   fs.writeFileSync(path.join(artifacts, `web-runtime-${mode}-report.json`), JSON.stringify(report, null, 2));
   console.error(error);
   process.exit(1);
