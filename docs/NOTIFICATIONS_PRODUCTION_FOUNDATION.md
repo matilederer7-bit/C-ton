@@ -37,7 +37,8 @@ Each event has a Hebrew template and is constrained to compatible channels (`sms
 
 ## Copy Contract
 
-- No `חויבת` / "you were charged" language before the actual completed deal.
+- No `חויבת` / "you were charged" language before a capture actually executed: join and target-reached copy describe a held authorization only.
+- `buyer_payment_recovered` is the spec's "חיוב בוצע" (`CHARGE_SUCCESS`) message: it is enqueued (legacy key `charge_succeeded`) when a capture executed and its copy says the charge was performed — never that a payment method was updated. The event-type name is legacy and kept for the `notification_events` CHECK constraint and mission-control inventory. Today it is emitted on the ordinary first capture (`charge_captured`); `recovery_captured` enqueues no buyer message yet.
 - Recovery copy says the payment did not go through and asks for an updated method, not a charge.
 - Failed deals say no charge was performed and any held credit will be released by the issuing card provider.
 - KYC rejection includes the rejection reason and does not promise appeal timelines.
