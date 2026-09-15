@@ -1,0 +1,38 @@
+name: Hosted staging smoke
+
+on:
+  workflow_run:
+    workflows: ["Release readiness"]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hosted-staging-smoke
+  cancel-in-progress: true
+
+jobs:
+  hosted-staging-smoke:
+    name: hosted-staging-smoke
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Allow Render auto-deploy to replace the previous release
+        if: github.event_name == 'workflow_run'
+        run: sleep 45
+      - name: Verify hosted staging read-only surfaces
+        env:
+          SITON_STAGING_URL: https://siton-staging-web.onrender.com
+          SITON_STAGING_SMOKE_ATTEMPTS: "48"
+          SITON_STAGING_SMOKE_INTERVAL_MS: "10000"
+        run: node scripts/hosted_staging_smoke.cjs
