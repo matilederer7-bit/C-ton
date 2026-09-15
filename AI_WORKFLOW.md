@@ -1,6 +1,6 @@
 # Siton AI Development Workflow
 
-Version: 1.0
+Version: 1.1
 Date: 2026-09-15
 Status: canonical operating workflow for coding agents
 
@@ -154,28 +154,47 @@ This reduces collisions between agents and makes review reliable.
 
 ## 10. Test strategy
 
-The repository currently has many dedicated scripts and gates. There is not yet one canonical all-in verification command beyond the grouped `npm test` path.
+The canonical full repository completion command is:
+
+`npm run siton:verify`
+
+It is an orchestration layer over existing trusted gates. It does not duplicate their business logic.
+
+The canonical sequence is:
+
+1. `release:preflight:static` for TypeScript, backend enforcement, architecture, payment/security scans, money/legal canon, secret/PII scan, runtime policy, no-real-money proof, builds, mobile/PWA checks and repository hygiene
+2. `test:migrations-isolated` for a fresh isolated migration install and replay proof
+3. `ci:route-authorization` for the protected-route authorization gate
+4. `npm test` for the complete grouped repository suite
+
+Safety boundary:
+
+- Node 22 or newer is required
+- DB-backed verification requires a disposable local PostgreSQL `DATABASE_URL`
+- hosted staging or production PostgreSQL is deliberately refused through the repository isolation guard
+- Docker labs are not part of `siton:verify`
+- external payment/provider calls are not part of `siton:verify`
+- real money and production mutation are not part of `siton:verify`
+
+This separation is intentional. `siton:verify` answers whether repository code is coherently verified in a safe local test boundary. Release/Docker/provider activation remains a separate readiness layer.
 
 For each task choose tests based on risk:
 
-### Minimum
+### During implementation
 
-- focused regression test for the changed behavior
-- relevant type/build/static check
+Run the focused regression test and nearby checks needed for fast feedback. Do not rerun the full repository suite after every small edit.
 
-### Medium-risk change
+### Before completion of meaningful code work
 
-Also run:
+Run `npm run siton:verify` unless the task is documentation-only or the environment cannot provide its local prerequisites.
 
-- nearby integration tests
-- dedicated package script/gate for the touched subsystem
+A valid final result is one of:
 
-### High-risk or cross-cutting change
+- PASS
+- FAIL
+- BLOCKED because the required safe local environment is unavailable
 
-Also run:
-
-- `npm test`
-- relevant security, DB, payment, concurrency, failure, architecture, migration, or E2E gates
+BLOCKED is not PASS.
 
 Do not claim complete repository verification if only focused tests were run.
 
@@ -254,6 +273,7 @@ Before committing:
 - remove accidental generated/temp files
 - verify no secret material is present
 - confirm tests were actually run
+- run `npm run siton:verify` when full verification applies
 - update status if required
 
 Then:
@@ -272,6 +292,7 @@ A Pull Request should state:
 - implementation summary
 - files/areas changed
 - exact tests and outcomes
+- canonical verification result when applicable
 - known limitations or remaining work
 - whether external rails or hosted environments were touched
 
@@ -287,6 +308,8 @@ Changed
 
 Tested
 
+Canonical verification
+
 Commit
 
 Branch / PR
@@ -299,14 +322,17 @@ Do not narrate every terminal command.
 
 The workflow itself will be hardened in stages. Agents should not pretend later stages already exist.
 
-Current stage:
+Completed:
 
 - Stage 1: canonical agent rules and workflow documentation
+- Stage 2: one canonical Siton verification command, `npm run siton:verify`
 
-Planned next stages:
+Current next stage:
 
-- Stage 2: one canonical Siton verification command
 - Stage 3: dedicated Git worktrees for Codex and Claude Code
+
+Planned after that:
+
 - Stage 4: Pull Request as the normal integration path
 - Stage 5: mandatory CI gates before merge
 - Stage 6: automated staging deployment
