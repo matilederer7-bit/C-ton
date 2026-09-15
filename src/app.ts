@@ -4901,6 +4901,12 @@ function isDynamicNoStoreRoute(url: string) {
     path.startsWith("/webhooks/") ||
     path === "/health" ||
     path === "/health/integrations" ||
+    // GAP-HTTP-1 - /readiness is the Render health-check path and a live
+    // verdict about THIS instance. Cached by any intermediary it becomes a
+    // stale verdict, which is exactly the answer a readiness probe must never
+    // give: a failing instance keeps receiving traffic, or a recovered one
+    // keeps being drained.
+    path === "/readiness" ||
     path.startsWith("/deals") ||
     path.startsWith("/participants") ||
     path.startsWith("/admin") ||

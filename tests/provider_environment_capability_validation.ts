@@ -37,8 +37,10 @@ function productionEnv(overrides: Record<string, string | undefined> = {}): Node
     OBJECT_STORAGE_ACCESS_KEY_ID: "AKIAREALVALUE",
     OBJECT_STORAGE_SECRET_ACCESS_KEY: "realsecretvalue",
     DATABASE_URL: "postgresql://cap-check",
-    ADMIN_API_KEY: "admin-key-value",
-    SELLER_SESSION_SECRET: "seller-secret-value",
+    // Non-placeholder, policy-length synthetic secrets (see production_guards).
+    ADMIN_API_KEY: "admin-key-value-0123456789abcdef",
+    SELLER_SESSION_SECRET: "seller-secret-value-0123456789abcdef",
+    OTP_HASH_SALT: "capability-otp-salt-0123456789ab",
     RUNTIME_ROLE: "web",
     DISABLE_OUTBOX_WORKER: "1",
     SITON_VAT_MODE: "explicit",

@@ -6,6 +6,26 @@ function productionMode(env: NodeJS.ProcessEnv) {
   );
 }
 
+// A hosted platform deployment, as opposed to a local container/lab stack.
+// Render sets all three of these on every service it runs; nothing in
+// docker-compose.yml / .ci.yml / .release-lab.yml does.
+function hostedPlatformDeployment(env: NodeJS.ProcessEnv) {
+  return (
+    String(env.RENDER || "").trim().length > 0 ||
+    String(env.RENDER_EXTERNAL_URL || "").trim().length > 0 ||
+    String(env.RENDER_SERVICE_ID || "").trim().length > 0
+  );
+}
+
+// Deployment modes that switch on demo/preview behaviour: demo seller context,
+// mock payment routes, the demo webhook secret. Legal locally, never on a
+// hosted host.
+const DEMO_DEPLOYMENT_MODES = ["demo-preview", "demo", "preview", "local", "development", "dev", "test"];
+
+// The literal fallbacks the runtime uses when a secret is absent. They are in
+// the public repository, so a production runtime must never end up on one.
+const PUBLIC_DEFAULT_SECRETS = new Set(["siton-otp-salt-default", "siton-otp-token-secret-default", "siton-buyer-session-local-only"]);
+
 export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.ProcessEnv = process.env) {
   const failures: string[] = [];
   const storageMode = String(env.STORAGE_ADAPTER || "local").trim().toLowerCase();
@@ -102,6 +122,23 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   const configuredRole = String(env.RUNTIME_ROLE || "").toLowerCase();
   if (configuredRole && configuredRole !== role) failures.push(`RUNTIME_ROLE=${configuredRole} cannot start the ${role} process`);
 
+  // RUNTIME GAP CLOSED - production_demo_deployment_mode_bypass.
+  // Every production control below hangs off productionMode(), which reads one
+  // variable. The Docker image defaults APP_DEPLOYMENT_MODE to demo-preview, so
+  // a hosted service whose console never declared it boots as a demo - demo
+  // seller context and mock payment routes on the real hostname - with every
+  // guard below silently switched off and nothing at runtime to say so. On a
+  // hosted platform the mode must therefore be declared explicitly and must not
+  // be a demo/preview mode. Local compose stacks carry no hosted marker.
+  const deploymentMode = String(env.APP_DEPLOYMENT_MODE || env.APP_ENV || "").trim().toLowerCase();
+  if (hostedPlatformDeployment(env)) {
+    if (!deploymentMode) {
+      failures.push("APP_DEPLOYMENT_MODE must be declared explicitly on a hosted deployment (the image default is demo-preview)");
+    } else if (DEMO_DEPLOYMENT_MODES.includes(deploymentMode)) {
+      failures.push(`APP_DEPLOYMENT_MODE=${deploymentMode} is a demo/preview mode and cannot run on a hosted deployment`);
+    }
+  }
+
   if (!productionMode(env)) {
     if (failures.length) throw new Error(`external storage runtime guard failed: ${failures.join("; ")}`);
     return;
@@ -135,6 +172,51 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
   if (!env.SELLER_SESSION_SECRET) failures.push("SELLER_SESSION_SECRET is required in production");
   if (role === "web" && (!webhookSecret || placeholder.test(webhookSecret))) failures.push("a non-placeholder PAYMENT_WEBHOOK_SECRET is required for the production web role");
   if (role === "web" && env.DISABLE_OUTBOX_WORKER !== "1") failures.push("production web requires DISABLE_OUTBOX_WORKER=1");
+
+  // RUNTIME GAPS CLOSED - the five remaining startup-config gaps that until now
+  // only the PRE-DEPLOY release gate refused. A hosting console can change any
+  // of these long after that gate last ran, so the boot guard has to be the one
+  // that fails closed.
+  const adminApiKey = String(env.ADMIN_API_KEY || "").trim();
+  // production_unsafe_admin_key: presence alone let the published demo key
+  // through and it is the admin bootstrap credential.
+  if (adminApiKey && (placeholder.test(adminApiKey) || /^demo-admin-key/i.test(adminApiKey) || adminApiKey.length < 24)) {
+    failures.push("ADMIN_API_KEY must be a non-placeholder secret of at least 24 characters in production");
+  }
+  // Same defect class, same consequence: SELLER_SESSION_SECRET signs seller
+  // sessions, so a placeholder value means forgeable seller authority. The
+  // guard previously checked only that it was present.
+  const sellerSessionSecret = String(env.SELLER_SESSION_SECRET || "").trim();
+  if (sellerSessionSecret && (placeholder.test(sellerSessionSecret) || PUBLIC_DEFAULT_SECRETS.has(sellerSessionSecret) || sellerSessionSecret.length < 32)) {
+    failures.push("SELLER_SESSION_SECRET must be a non-placeholder secret of at least 32 characters in production");
+  }
+  // production_legacy_tracking_links: re-enables anonymous participant tracking
+  // links (buyer PII behind a guessable-by-leak participant id) in production.
+  if (String(env.TRACKING_LEGACY_COMPAT || "").trim() === "1") {
+    failures.push("TRACKING_LEGACY_COMPAT=1 cannot run in production: it re-enables anonymous participant tracking links");
+  }
+  // production_debug_surfaces: exposes /debug/* on the production hostname.
+  if (String(env.DEBUG_SURFACES_ENABLED || "").trim() === "1") {
+    failures.push("DEBUG_SURFACES_ENABLED=1 cannot run in production");
+  }
+  // production_otp_bypass: src/otp_rail.ts already ignores the bypass when
+  // production-like, but "production mode" and "production-like" are two
+  // different predicates - a configuration can satisfy one and not the other -
+  // and the variable must not linger in a production console regardless.
+  if (String(env.OTP_TEST_BYPASS_CODE || "").trim()) {
+    failures.push("OTP_TEST_BYPASS_CODE cannot be present in production");
+  }
+  // production_service_role_key_present: the full-RLS-bypass Supabase key. No
+  // application code reads it, so its presence is pure custody risk.
+  if (String(env.SUPABASE_SERVICE_ROLE_KEY || "").trim()) {
+    failures.push("SUPABASE_SERVICE_ROLE_KEY must not be present in the production runtime environment");
+  }
+  // OTP_HASH_SALT_DEFAULT_IN_PRODUCTION: src/otp_rail.ts falls back to a literal
+  // that is published in this repository. A six-digit OTP hashed with a public
+  // salt is recoverable from any read of the challenge table in ~10^6 HMACs.
+  const otpHashSalt = String(env.OTP_HASH_SALT || "").trim();
+  if (!otpHashSalt) failures.push("OTP_HASH_SALT is required in production (the runtime otherwise hashes OTP codes with a public default salt)");
+  else if (PUBLIC_DEFAULT_SECRETS.has(otpHashSalt) || placeholder.test(otpHashSalt)) failures.push("OTP_HASH_SALT must not be a placeholder or the public default salt");
 
   if (failures.length) throw new Error(`production runtime guard failed: ${failures.join("; ")}`);
 }

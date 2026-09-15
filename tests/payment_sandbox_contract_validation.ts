@@ -17,8 +17,10 @@ function base(role: "web" | "worker") {
     OBJECT_STORAGE_ACCESS_KEY_ID: "contract-access",
     OBJECT_STORAGE_SECRET_ACCESS_KEY: "contract-secret",
     DATABASE_URL: "postgresql://contract.invalid/siton",
-    ADMIN_API_KEY: "contract-admin",
-    SELLER_SESSION_SECRET: "contract-session",
+    // Non-placeholder, policy-length synthetic secrets (see production_guards).
+    ADMIN_API_KEY: "contract-admin-0123456789abcdef",
+    SELLER_SESSION_SECRET: "contract-session-0123456789abcdef0123",
+    OTP_HASH_SALT: "contract-otp-salt-0123456789abcd",
     RUNTIME_ROLE: role,
     DISABLE_OUTBOX_WORKER: role === "web" ? "1" : undefined,
     // R9A: production charging requires the explicit VAT authority.

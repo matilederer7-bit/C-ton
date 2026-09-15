@@ -22,12 +22,18 @@ assert(!/postgres(?:ql)?:\/\/\S*@/.test(renderBlueprint), "Render blueprint must
 assert(/CANONICAL_POSTGRES_RUNTIME/.test(renderBlueprint), "Render blueprint must enable the canonical Postgres runtime");
 assert(!/base44/i.test(renderBlueprint), "Render blueprint must not reference Base44");
 // R4: the canonical staging blueprint now declares exactly one continuous
-// Background Worker. It starts via npm run start:worker:prod, runs the worker
-// runtime role, and (like the Web service) carries no embedded credential —
-// its DATABASE_URL is the external siton_worker_login pooler secret.
+// Background Worker. It starts the BUILT WORKER ENTRYPOINT DIRECTLY so the Node
+// process is PID 1 and Render's deploy SIGTERM reaches stopWorker()'s drain;
+// it runs the worker runtime role, and (like the Web service) carries no
+// embedded credential — its DATABASE_URL is the external siton_worker_login
+// pooler secret.
 const workerDeclarations = (renderBlueprint.match(/type:\s*worker/gi) || []).length;
 assert(workerDeclarations === 1, `the staging blueprint must declare exactly one Background Worker (found ${workerDeclarations})`);
-assert(/dockerCommand:\s*npm run start:worker:prod/.test(renderBlueprint), "the Background Worker must start via npm run start:worker:prod");
+assert(/dockerCommand:\s*node \.demo_dist\/src\/worker\.js/.test(renderBlueprint), "the Background Worker must start `node .demo_dist/src/worker.js` directly");
+// Match DIRECTIVES only: a full-line YAML comment explaining the rule must not
+// itself trip the rule.
+const renderDirectives = renderBlueprint.split(/\r?\n/).filter((line) => !/^\s*#/.test(line)).join("\n");
+assert(!/npm\s+run\s+start:(?:web|worker):prod/.test(renderDirectives), "the hosted blueprint must never start a runtime through npm: npm as PID 1 swallows the platform stop signal and the Node drain handler never runs");
 assert(/value:\s*worker\b/.test(renderBlueprint), "the Background Worker must declare RUNTIME_ROLE=worker");
 const requiredClosureDocs = [
   "docs/CANONICAL_ARCHITECTURE_V1.md",

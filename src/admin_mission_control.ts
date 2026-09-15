@@ -8,6 +8,7 @@ import { getPaymentProviderSummary } from "./payment_provider.js";
 import type { PayoutProvider } from "./payout_provider.js";
 import { getPayoutProviderSummary } from "./payout_provider.js";
 import { calculatePlatformFeeMoney } from "./platform_fee_money.js";
+import { trackingMode } from "./participant_tracking_security.js";
 
 type Severity = "info" | "warning" | "critical";
 type Verdict = "green" | "yellow" | "red";
@@ -1138,17 +1139,36 @@ function buildSecurityHardeningGate(input?: { tables?: Set<string> }) {
       permissions_closed_set: true,
       high_trust_permissions_super_admin_only: true
     },
-    participant_tracking_security: {
-      mode: trackingReady ? "mixed" : "legacy",
-      token_table_present: trackingReady,
-      token_format: "random_high_entropy_hash_only",
-      production_requires_tracking_tokens: true,
-      legacy_links_allowed: !process.env.RENDER && process.env.NODE_ENV !== "production",
-      expired_tokens_count: null,
-      revoked_tokens_count: null,
-      warnings: ["legacy links remain for local/demo compatibility"],
-      blockers: []
-    },
+    // The enforcement decision lives in ONE place - trackingMode() in
+    // src/participant_tracking_security.ts, which is what the tracking routes
+    // actually consult. This panel used to recompute it from a second,
+    // DIFFERENT expression (`!process.env.RENDER && NODE_ENV !== "production"`).
+    // The two disagreed, and in the dangerous direction: with
+    // TRACKING_LEGACY_COMPAT=1 the runtime allows anonymous legacy tracking
+    // links while this panel reported legacy_links_allowed: false - an operator
+    // reading mission control would have seen tokens enforced while buyer PII
+    // was reachable from a bare participant id. It now reports the value the
+    // runtime enforces, so the dashboard cannot contradict the guard.
+    participant_tracking_security: (() => {
+      const enforced = trackingMode();
+      return {
+        mode: trackingReady ? enforced.mode : "legacy",
+        token_table_present: trackingReady,
+        token_format: enforced.token_format,
+        production_requires_tracking_tokens: enforced.production_requires_tracking_tokens,
+        legacy_links_allowed: enforced.legacy_links_allowed,
+        expired_tokens_count: null,
+        revoked_tokens_count: null,
+        warnings: enforced.live_blocked_without_tracking_tokens
+          ? ["TRACKING_LEGACY_COMPAT=1 re-enables anonymous legacy tracking links on a production-like runtime"]
+          : enforced.legacy_links_allowed
+            ? ["legacy links remain for local/demo compatibility"]
+            : [],
+        blockers: enforced.live_blocked_without_tracking_tokens
+          ? ["anonymous participant tracking links are reachable on a production-like runtime"]
+          : []
+      };
+    })(),
     checks: [
       { id: "security_headers_validation", status: "pass" },
       { id: "security_admin_auth_validation", status: "pass_with_demo_limitations" },

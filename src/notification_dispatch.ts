@@ -16,7 +16,23 @@ import {
 const { Pool } = pg;
 
 import { evaluateNotificationRecipientSafety } from "./notification_safety.js";
+import { maskDestination } from "./otp_rail.js";
 import { NOTIFICATION_MAX_ATTEMPTS } from "./runtime_config.js";
+
+// LOG-1 - recipient_ref is a real buyer phone number or seller support email.
+// NOTIFICATION_PROVIDER=log-only is what staging runs, so every unmasked value
+// here lands verbatim in the hosted platform's log store, which has a different
+// retention and access boundary from the database the value came from. Logs
+// exist to correlate an incident, and a masked tail plus the notification_id
+// does that just as well.
+// Deliberately takes no channel: a phone number is routinely stored against
+// whatsapp_link and an "internal" ref can be either, so masking keys off the
+// SHAPE of the value. A channel parameter here would be decorative.
+export function maskRecipientRef(recipientRef: unknown): string {
+  const raw = String(recipientRef ?? "").trim();
+  if (!raw) return "";
+  return maskDestination(raw.includes("@") ? "email" : "sms", raw);
+}
 
 export type NotificationProviderMode = "dev" | "real" | "disabled" | "log-only";
 export type NotificationResultStatus = "success" | "temporary_fail" | "permanent_fail" | "skipped";
@@ -94,7 +110,7 @@ class LogNotificationProvider implements NotificationProvider {
       event_type: notification.event_type,
       channel: notification.channel,
       recipient_type: notification.recipient_type,
-      recipient_ref: notification.recipient_ref,
+      recipient_ref: maskRecipientRef(notification.recipient_ref),
       provider_message_id: providerMessageId
     });
 

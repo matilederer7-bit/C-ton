@@ -66,10 +66,13 @@ async function main() {
         if (response.status !== 200) problems.push(route + " status " + response.status);
         expectJson(response, route, problems);
         expectSecurityHeaders(response, route, problems);
-        if (route !== "/readiness") expectNoStore(response, route, problems);
-        else if (!/no-store/.test(String(response.headers["cache-control"] || ""))) gaps.push("GAP-HTTP-1 /readiness is not in the dynamic no-store route list (cache-control=" + (response.headers["cache-control"] || "absent") + "); an intermediary could cache a stale readiness verdict");
+        // GAP-HTTP-1 closed: /readiness is now in the dynamic no-store route
+        // list, so it is asserted like the others instead of being recorded as
+        // a non-failing documented gap. A cached readiness verdict is a stale
+        // verdict, which is the one answer a readiness probe must never give.
+        expectNoStore(response, route, problems);
       }
-      return { status: problems.length ? "FAIL" : "PASS", summary: problems.length ? problems.join("; ") : "JSON, no-store, security headers on /health and /health/integrations", detail: gaps.join("\n") || undefined };
+      return { status: problems.length ? "FAIL" : "PASS", summary: problems.length ? problems.join("; ") : "JSON, no-store, security headers on /health, /readiness and /health/integrations" };
     });
 
     await runStep(report, "public API 404 is JSON, no-store, no stack", async () => {

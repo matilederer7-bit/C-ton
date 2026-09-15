@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Unsafe / missing environment combinations that must FAIL CLOSED with a clear diagnostic. Each case is evaluated twice: (1) by the REAL boot guard src/production_guards.ts through scripts/probes/production_guards_probe.ts and (2) by the release policy gate config/runtime-environment-policy.json. `runtime_expect` says what the runtime guard must do today; `policy_expect` says what the release gate must do. `runtime_gap: true` marks a case the runtime does NOT refuse yet (documented, not silently accepted): the release gate is the only line of defence there and the case is listed in docs/RUNTIME_ENVIRONMENT_POLICY.md as a future runtime hardening item. The production baseline is a fully LIVE Grow configuration: it is what the runtime guard accepts; the release policy then fails it on exactly one rule (REAL_MONEY_BLOCKED), which is the intended state until the owner clears config/real-money-release-policy.json.",
+  "description": "Unsafe / missing environment combinations that must FAIL CLOSED with a clear diagnostic. Each case is evaluated twice: (1) by the REAL boot guard src/production_guards.ts through scripts/probes/production_guards_probe.ts and (2) by the release policy gate config/runtime-environment-policy.json. `runtime_expect` says what the runtime guard must do today; `policy_expect` says what the release gate must do. `runtime_gap: true` marks a case the runtime does NOT refuse yet (documented, not silently accepted): the release gate is the only line of defence there. The six such gaps are now CLOSED in src/production_guards.ts - the boot guard, not only the pre-deploy release gate, fails closed on them, which matters because an environment variable can be changed in the hosting console long after the release gate last ran. The production baseline is a fully LIVE Grow configuration: it is what the runtime guard accepts; the release policy then fails it on exactly one rule (REAL_MONEY_BLOCKED), which is the intended state until the owner clears config/real-money-release-policy.json.",
   "base_production_web": {
     "APP_DEPLOYMENT_MODE": "production",
     "NODE_ENV": "production",
@@ -82,11 +82,12 @@
         "APP_DEPLOYMENT_MODE": "demo-preview",
         "PAYMENT_PROVIDER": "mockpay",
         "PAYMENT_PROVIDER_MODE": "mock-backed",
-        "PAYMENT_ENVIRONMENT": "demo"
+        "PAYMENT_ENVIRONMENT": "demo",
+        "RENDER": "true",
+        "RENDER_EXTERNAL_URL": "https://siton-staging-web.onrender.com"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
-      "runtime_note": "A production host mislabelled demo-preview with mock money boots as a demo: demo seller context, mock payment routes and the demo webhook secret become reachable on the production hostname. The boot guard keys on APP_DEPLOYMENT_MODE itself, so only the release gate (target=production) catches it. (With PAYMENT_ENVIRONMENT=live the runtime does reject: live is only legal in production mode.)",
+      "runtime_expect": "reject",
+      "runtime_note": "A hosted production host that never declared APP_DEPLOYMENT_MODE inherits the image default (demo-preview) and every production guard below productionMode() silently switches off. The boot guard now refuses a demo/preview deployment mode on a hosted platform (RENDER/RENDER_EXTERNAL_URL/RENDER_SERVICE_ID), so the mode must be declared explicitly. Local compose stacks carry no hosted marker and are unaffected.",
       "policy_target": "production",
       "policy_expect": "fail",
       "policy_message": "APP_DEPLOYMENT_MODE must be one of"
@@ -98,10 +99,10 @@
       "override": {
         "TRACKING_LEGACY_COMPAT": "1"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
+      "runtime_expect": "reject",
       "policy_expect": "fail",
-      "policy_message": "TRACKING_LEGACY_COMPAT must be absent or"
+      "policy_message": "TRACKING_LEGACY_COMPAT must be absent or",
+      "runtime_note": "The boot guard now refuses TRACKING_LEGACY_COMPAT=1 in production mode, so anonymous participant tracking links cannot be re-enabled on a production runtime."
     },
     {
       "id": "production_local_storage",
@@ -158,9 +159,8 @@
       "override": {
         "ADMIN_API_KEY": "demo-admin-key-do-not-use-in-production"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
-      "runtime_note": "The boot guard only requires ADMIN_API_KEY to be present; the demo compose value passes. The release gate refuses it as a placeholder.",
+      "runtime_expect": "reject",
+      "runtime_note": "The boot guard now refuses a placeholder/demo ADMIN_API_KEY in production mode, not merely a missing one.",
       "policy_expect": "fail",
       "policy_message": "ADMIN_API_KEY is a placeholder"
     },
@@ -248,10 +248,10 @@
         "DEBUG_SURFACES_ENABLED": "1",
         "DEBUG_SURFACES_ACCESS_KEY": "synthetic-debug-key-1234567890"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
+      "runtime_expect": "reject",
       "policy_expect": "fail",
-      "policy_message": "DEBUG_SURFACES_ENABLED must be absent or"
+      "policy_message": "DEBUG_SURFACES_ENABLED must be absent or",
+      "runtime_note": "The boot guard now refuses DEBUG_SURFACES_ENABLED=1 in production mode."
     },
     {
       "id": "production_otp_bypass",
@@ -260,9 +260,8 @@
       "override": {
         "OTP_TEST_BYPASS_CODE": "000000"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
-      "runtime_note": "src/otp_rail.ts ignores the bypass when production-like, so the seam is inert at runtime; the release gate still refuses the variable so it cannot linger in a console.",
+      "runtime_expect": "reject",
+      "runtime_note": "The boot guard now refuses OTP_TEST_BYPASS_CODE in production mode, so the bypass seam cannot linger in a production console even though src/otp_rail.ts also ignores it when production-like.",
       "policy_expect": "fail",
       "policy_message": "OTP_TEST_BYPASS_CODE must be absent"
     },
@@ -273,9 +272,8 @@
       "override": {
         "SUPABASE_SERVICE_ROLE_KEY": "synthetic-service-role-jwt"
       },
-      "runtime_expect": "accept",
-      "runtime_gap": true,
-      "runtime_note": "No application code reads the service-role key, so the runtime cannot detect it; the release gate refuses its presence.",
+      "runtime_expect": "reject",
+      "runtime_note": "The boot guard now refuses SUPABASE_SERVICE_ROLE_KEY in the production runtime environment: the app never needs the full-bypass key, so its presence is a custody failure the runtime can and must detect.",
       "policy_expect": "fail",
       "policy_message": "SUPABASE_SERVICE_ROLE_KEY must be absent"
     },

@@ -46,21 +46,21 @@
   "runtime_gaps": [
     {
       "id": "OTP_HASH_SALT_DEFAULT_IN_PRODUCTION",
-      "status": "OPEN",
+      "status": "CLOSED",
       "where": "src/otp_rail.ts getOtpHashSalt()",
-      "detail": "Falls back to the literal 'siton-otp-salt-default' in every mode; src/production_guards.ts does not require OTP_HASH_SALT. This release gate requires it in staging/production; the runtime should also fail closed. Runtime change deferred to the owner (not implemented on this branch)."
+      "detail": "CLOSED: src/production_guards.ts now requires a non-placeholder OTP_HASH_SALT in production mode and refuses the public default literal 'siton-otp-salt-default'. Staging still runs on the fallback until OTP_HASH_SALT is added to both Render services (owner console action)."
     },
     {
       "id": "NO_RUNTIME_CHECK_FOR_TRACKING_LEGACY_COMPAT",
-      "status": "OPEN",
+      "status": "CLOSED",
       "where": "src/participant_tracking_security.ts",
-      "detail": "TRACKING_LEGACY_COMPAT=1 re-enables legacy tracking links even in production-like mode. The runtime accepts it; only this gate refuses it for staging/production."
+      "detail": "CLOSED: src/production_guards.ts now refuses TRACKING_LEGACY_COMPAT=1 in production mode, so the boot guard - not only this release gate - fails closed on it."
     },
     {
       "id": "DEBUG_SURFACES_ALLOWED_IN_PRODUCTION_WITH_KEY",
-      "status": "OPEN",
+      "status": "CLOSED",
       "where": "src/runtime_config.ts DEBUG_SURFACES_ACTIVE",
-      "detail": "DEBUG_SURFACES_ENABLED=1 with an access key activates /debug/* in any mode. This gate forbids it for staging/production; the runtime does not."
+      "detail": "CLOSED: src/production_guards.ts now refuses DEBUG_SURFACES_ENABLED=1 in production mode."
     }
   ],
   "environments": {

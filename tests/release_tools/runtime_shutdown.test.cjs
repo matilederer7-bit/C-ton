@@ -184,3 +184,39 @@ test("image and lab start the Node runtime itself as PID 1, never a wrapper", ()
   assert.equal(pkg.scripts["start:web:prod"], "node .demo_dist/src/app.js");
   assert.equal(pkg.scripts["start:worker:prod"], "node .demo_dist/src/worker.js");
 });
+
+// The test above proved the PID-1 contract only for the image and the LAB.
+// The lab is not what Render runs: the hosted Worker is started by
+// `dockerCommand` in render.yaml, and the hosted/dev compose files start their
+// own containers. Every one of those launched `npm run start:*:prod`, so npm
+// was PID 1 exactly where the lab proved it must not be - the drain handler in
+// src/worker.ts never ran on a Render deploy, and an in-flight money or
+// fulfilment job was SIGKILLed between its side effect and its outbox
+// acknowledgement. This pins the same contract on EVERY runtime surface that
+// actually starts a container, so the proof can no longer pass while the
+// deployed path violates it.
+test("every deployable runtime surface starts Node as PID 1, never npm", () => {
+  const surfaces = [
+    ["render.yaml", "the hosted Render Worker (dockerCommand)"],
+    ["docker-compose.yml", "the demo compose stack"],
+    ["docker-compose.ci.yml", "the CI compose stack"],
+    ["docker-compose.release-lab.yml", "the release lab"]
+  ];
+  for (const [file, label] of surfaces) {
+    // Directives only: a full-line YAML comment explaining this rule must not trip it.
+    const text = fs.readFileSync(path.join(REPO_ROOT, file), "utf8")
+      .split(/\r?\n/).filter((line) => !/^\s*#/.test(line)).join("\n");
+    assert.doesNotMatch(
+      text,
+      /npm\s+run\s+start:(web|worker):prod/,
+      `${label} (${file}) starts the runtime through npm, so npm becomes PID 1 and the platform's SIGTERM never reaches the Node drain handler`
+    );
+  }
+  // ...and the hosted Worker specifically must invoke the built worker entrypoint.
+  const blueprint = fs.readFileSync(path.join(REPO_ROOT, "render.yaml"), "utf8");
+  assert.match(
+    blueprint,
+    /dockerCommand:\s*node \.demo_dist\/src\/worker\.js/,
+    "the hosted Render Worker must start `node .demo_dist/src/worker.js` directly"
+  );
+});

@@ -16,8 +16,13 @@ function production(overrides: Record<string, string> = {}): NodeJS.ProcessEnv {
     OBJECT_STORAGE_ACCESS_KEY_ID: "production-access-key",
     OBJECT_STORAGE_SECRET_ACCESS_KEY: "production-secret-key",
     DATABASE_URL: "postgresql://placeholder.invalid/siton",
-    ADMIN_API_KEY: "placeholder",
-    SELLER_SESSION_SECRET: "placeholder",
+    // A VALID production fixture must satisfy the production secret policy:
+    // non-placeholder ADMIN_API_KEY (>=24) and SELLER_SESSION_SECRET (>=32),
+    // and an OTP_HASH_SALT so OTP codes are not hashed with the public
+    // default salt. Synthetic values, never real secrets.
+    ADMIN_API_KEY: "8f3c1d2e9a7b4c6d8e0f1a2b3c4d5e6f",
+    SELLER_SESSION_SECRET: "0123456789abcdef0123456789abcdef0123",
+    OTP_HASH_SALT: "9c8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f",
     PAYMENT_WEBHOOK_SECRET: "whsec_contract_fixture",
     DISABLE_OUTBOX_WORKER: "1",
     // R9A: production charging requires the explicit VAT authority.
