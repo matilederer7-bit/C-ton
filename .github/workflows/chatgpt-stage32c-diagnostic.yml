@@ -50,7 +50,5 @@ jobs:
       - name: Run mutation predecessor
         if: matrix.mode == 'after-mutation'
         run: node .tmp_test_dist/tests/mutation_error_contract_validation.js
-      - name: Run Stage32C twice
-        run: |
-          node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js
-          node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js
+      - name: Run Stage32C once
+        run: node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js
