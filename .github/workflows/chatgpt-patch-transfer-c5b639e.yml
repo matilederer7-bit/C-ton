@@ -1,4 +1,4 @@
-name: ChatGPT patch transfer c5b639e
+name: ChatGPT finalize adversarial review status
 
 on:
   push:
@@ -10,41 +10,46 @@ permissions:
   contents: write
 
 jobs:
-  apply-verified-patch:
+  record-project-status:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout transfer branch
+      - name: Checkout helper branch
         uses: actions/checkout@v4
         with:
           ref: chatgpt/patch-transfer-c5b639e
           fetch-depth: 0
 
-      - name: Reconstruct and verify patch
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat .chatgpt-transfer/c5b639e/part-*.b64 > /tmp/siton.patch.xz.b64
-          base64 -d /tmp/siton.patch.xz.b64 > /tmp/siton.patch.xz
-          xz -dc /tmp/siton.patch.xz > /tmp/siton.patch
-          echo 'eb6ff3c3ce34e203f147f8c5ef3421e148daa5841738fb375251adcc9e618153  /tmp/siton.patch' | sha256sum -c -
-          test "$(wc -c < /tmp/siton.patch)" = "145178"
-
-      - name: Apply exact patch to target branch and verify tree
+      - name: Update PROJECT_STATUS on target branch
         shell: bash
         env:
           TARGET_BRANCH: claude/senior-adversarial-production-review-cwupc5
-          EXPECTED_BASE: f2121f60cc37d742e2bf32d0ca48fe2ec83a807d
-          EXPECTED_TREE: 25476f2c4ae8d5c798e5889180aca2c2fc787e95
+          EXPECTED_HEAD: 56120ab8440a1d037dd8aa3c8143215b63879403
         run: |
           set -euo pipefail
-          git config user.name 'ChatGPT Patch Transfer'
+          git config user.name 'ChatGPT Project Status'
           git config user.email 'actions@users.noreply.github.com'
           git fetch origin "$TARGET_BRANCH"
           git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
-          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
-          git am /tmp/siton.patch
-          test "$(git rev-list --count "$EXPECTED_BASE"..HEAD)" = "2"
-          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('PROJECT_STATUS.md')
+          old = p.read_text(encoding='utf-8')
+          marker = '## GITHUB PATCH TRANSFER + PR #18 — O-7 DELIVERY BLOCKER CLOSED (2026-09-15)'
+          if old.startswith(marker):
+              raise SystemExit('status block already present')
+          block = '''## GITHUB PATCH TRANSFER + PR #18 — O-7 DELIVERY BLOCKER CLOSED (2026-09-15)
+
+- **COMPLETED:** The adversarial-review handoff was transferred from the owner-supplied `git am` patch to GitHub without reconstructing repository code by hand. The source patch was applied to exact base `f2121f60cc37d742e2bf32d0ca48fe2ec83a807d`; GitHub now contains the two review commits as `0953b8bee45a493dbe419bd525776da5928f0aaa` and `56120ab8440a1d037dd8aa3c8143215b63879403`. PR **#18** is open against `master`. O-7 is therefore closed as a delivery blocker for this branch. This does not claim that Claude's own GitHub App permission changed; the transfer used the owner's write-enabled ChatGPT/GitHub Actions path.
+- **TESTED:** Original patch size **145,178 bytes** and SHA256 `eb6ff3c3ce34e203f147f8c5ef3421e148daa5841738fb375251adcc9e618153` were verified before application. GitHub Actions reconstructed the transferred patch and re-verified that SHA before `git am`. The first applied commit produced tree `3de0db48b3405f2524bd68fd1c6685ffbabb117c`; the second produced final tree **`25476f2c4ae8d5c798e5889180aca2c2fc787e95`**, exactly matching the independently supplied expected tree. At PR creation, `master` was still exact base `f2121f6`; the branch was 2 commits ahead and 0 behind. PR #18 contained **25 changed files, 860 additions, 109 deletions**.
+- **OPEN:** GitHub CI must still be evaluated on the final PR head before any merge decision. **O-1 remains open:** the live Render worker was independently observed still configured as `npm run start:worker:prod`, so the hosted graceful-drain fix is not yet applied. **O-2, O-3, O-4, O-5 and O-6 remain open. F13 remains external and unresolved. LONG_HORIZON_DEALS remains unsolved and blocked on proven provider semantics. REAL MONEY remains 0 and Grow must remain unactivated.**
+- **PERCENTAGE:** Technical production readiness **88%**, closed-pilot readiness **92%**, real-money readiness **35%** — unchanged by a Git transport operation. GitHub delivery of the adversarial patch itself is **100% complete**.
+- **NEXT STEP:** Inspect every required GitHub workflow on the final PR head. `SAFE_TO_MERGE` may become YES only if the required CI is green. Do not merge from an agent session. After owner merge, perform O-1 Render Blueprint/live-command sync and O-2 `OTP_HASH_SALT` before the next pilot deploy; then verify hosted behaviour. F13 and LONG_HORIZON_DEALS remain blocked until provider semantics are proven.
+
+'''
+          p.write_text(block + old, encoding='utf-8')
+          PY
+          git add PROJECT_STATUS.md
+          git diff --cached --check
+          git commit -m 'docs(status): record GitHub patch transfer and PR #18'
           git push origin HEAD:"$TARGET_BRANCH"
-          echo "PATCH_TRANSFER_HEAD=$(git rev-parse HEAD)"
-          echo "PATCH_TRANSFER_TREE=$(git rev-parse HEAD^{tree})"
