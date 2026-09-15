@@ -25,3 +25,5 @@ jobs:
           node-version: 22
       - name: Validate Siton PR contract
         run: node scripts/pr_governance_gate.cjs
+      - name: Validate required master checks contract
+        run: node scripts/required_merge_checks_contract.cjs
