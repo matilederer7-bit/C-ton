@@ -1,0 +1,50 @@
+name: ChatGPT patch transfer c5b639e
+
+on:
+  push:
+    branches:
+      - chatgpt/patch-transfer-c5b639e
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apply-verified-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout transfer branch
+        uses: actions/checkout@v4
+        with:
+          ref: chatgpt/patch-transfer-c5b639e
+          fetch-depth: 0
+
+      - name: Reconstruct and verify patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .chatgpt-transfer/c5b639e/part-*.b64 > /tmp/siton.patch.xz.b64
+          base64 -d /tmp/siton.patch.xz.b64 > /tmp/siton.patch.xz
+          xz -dc /tmp/siton.patch.xz > /tmp/siton.patch
+          echo 'eb6ff3c3ce34e203f147f8c5ef3421e148daa5841738fb375251adcc9e618153  /tmp/siton.patch' | sha256sum -c -
+          test "$(wc -c < /tmp/siton.patch)" = "145178"
+
+      - name: Apply exact patch to target branch and verify tree
+        shell: bash
+        env:
+          TARGET_BRANCH: claude/senior-adversarial-production-review-cwupc5
+          EXPECTED_BASE: f2121f60cc37d742e2bf32d0ca48fe2ec83a807d
+          EXPECTED_TREE: 25476f2c4ae8d5c798e5889180aca2c2fc787e95
+        run: |
+          set -euo pipefail
+          git config user.name 'ChatGPT Patch Transfer'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin "$TARGET_BRANCH"
+          git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_BASE"
+          git am /tmp/siton.patch
+          test "$(git rev-list --count "$EXPECTED_BASE"..HEAD)" = "2"
+          test "$(git rev-parse HEAD^{tree})" = "$EXPECTED_TREE"
+          git push origin HEAD:"$TARGET_BRANCH"
+          echo "PATCH_TRANSFER_HEAD=$(git rev-parse HEAD)"
+          echo "PATCH_TRANSFER_TREE=$(git rev-parse HEAD^{tree})"
