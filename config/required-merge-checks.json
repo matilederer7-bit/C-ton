@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "branch": "master",
+  "description": "Canonical GitHub status checks that must be required by the master branch ruleset. The repository proves these checks exist; GitHub account administration must require them before merge.",
+  "checks": [
+    { "context": "pr-governance", "workflow": ".github/workflows/pr-governance.yml", "job": "pr-governance" },
+    { "context": "backend-gates", "workflow": ".github/workflows/backend-quality-gates.yml", "job": "backend-gates" },
+    { "context": "preflight-static", "workflow": ".github/workflows/release-readiness.yml", "job": "preflight-static" },
+    { "context": "preflight-database", "workflow": ".github/workflows/release-readiness.yml", "job": "preflight-database" },
+    { "context": "docker-release-lab", "workflow": ".github/workflows/release-readiness.yml", "job": "docker-release-lab" },
+    { "context": "web-runtime-core", "workflow": ".github/workflows/web-runtime-depth.yml", "job": "web-runtime-core" },
+    { "context": "web-runtime-resilience", "workflow": ".github/workflows/web-runtime-depth.yml", "job": "web-runtime-resilience" }
+  ],
+  "ruleset": {
+    "require_pull_request": true,
+    "required_approvals": 0,
+    "require_status_checks": true,
+    "require_branch_up_to_date": true,
+    "block_force_push": true,
+    "block_deletion": true,
+    "allow_direct_push_to_master": false
+  }
+}
