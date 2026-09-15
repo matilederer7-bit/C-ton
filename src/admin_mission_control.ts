@@ -2305,7 +2305,7 @@ export async function buildMissionDealTrace(c: Queryable, dealId: string) {
     safeQuery(c, "SELECT * FROM siton.deals WHERE deal_id=$1", [dealId]),
     safeQuery(c, "SELECT participant_id, buyer_id, qty, buyer_state, money_state, created_at, updated_at FROM siton.participants WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 200", [dealId]),
     safeQuery(c, "SELECT audit_id, entity_type, entity_id, action_name, state_type, from_state, to_state, correlation_id, request_id, created_at FROM siton.audit_log WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
-    safeQuery(c, "SELECT event_id, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_events WHERE aggregate_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
+    safeQuery(c, "SELECT event_uuid AS event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_events WHERE aggregate_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT provider, event_id, NULL::text AS event_type, status, request_id AS correlation_id, participant_id, deal_id, received_at AS created_at, processed_at FROM siton.webhook_events WHERE deal_id=$1 ORDER BY received_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT attempt_id, participant_id, attempt_type, result_class, provider_reference, correlation_id, created_at FROM siton.payment_attempts WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
     safeQuery(c, "SELECT document_id, participant_id, document_type, status, provider_document_id, correlation_id, created_at, issued_at FROM siton.invoice_documents WHERE deal_id=$1 ORDER BY created_at DESC LIMIT 100", [dealId]),
@@ -2359,7 +2359,7 @@ export async function buildMissionParticipantTrace(c: Queryable, participantId: 
 export async function buildMissionCorrelationTrace(c: Queryable, correlationId: string) {
   const [audit, outbox, webhooks, payments, invoices, payouts, notifications, supportCases, adminActions] = await Promise.all([
     safeQuery(c, "SELECT audit_id, entity_type, entity_id, deal_id, action_name, created_at FROM siton.audit_log WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
-    safeQuery(c, "SELECT event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, request_id, created_at FROM siton.outbox_events WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
+    safeQuery(c, "SELECT event_uuid AS event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, request_id, created_at FROM siton.outbox_events WHERE correlation_id=$1 OR request_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT provider, event_id, NULL::text AS event_type, status, participant_id, deal_id, received_at AS created_at FROM siton.webhook_events WHERE request_id=$1 OR event_id=$1 ORDER BY received_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT attempt_id, deal_id, participant_id, attempt_type, result_class, provider_reference, created_at FROM siton.payment_attempts WHERE correlation_id=$1 OR provider_reference=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
     safeQuery(c, "SELECT document_id, deal_id, participant_id, document_type, status, provider_document_id, created_at FROM siton.invoice_documents WHERE correlation_id=$1 OR provider_document_id=$1 ORDER BY created_at DESC LIMIT 100", [correlationId]),
@@ -2400,8 +2400,8 @@ export async function buildMissionCorrelationTrace(c: Queryable, correlationId: 
 
 export async function buildMissionOutboxTrace(c: Queryable, eventId: string) {
   const [event, dlq] = await Promise.all([
-    safeQuery(c, "SELECT event_id, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_events WHERE event_id=$1", [eventId]),
-    safeQuery(c, "SELECT * FROM siton.outbox_dlq WHERE event_id=$1", [eventId])
+    safeQuery(c, "SELECT event_uuid AS event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_events WHERE event_uuid=$1", [eventId]),
+    safeQuery(c, "SELECT event_uuid AS event_id, event_uuid, event_type, aggregate_type, aggregate_id, status, attempt_count, last_error, correlation_id, created_at, updated_at FROM siton.outbox_dlq WHERE event_uuid=$1", [eventId])
   ]);
   return {
     ok: true,

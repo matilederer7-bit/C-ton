@@ -6827,12 +6827,12 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
       `UPDATE siton.participants SET buyer_state='JoinedAuthorized' WHERE participant_id=$1 AND buyer_state='NotJoined'`,
       [pid]
     );
-    if (bsUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NotJoined`);
+    if (bsUpd.rowCount !== 1) throw stateConflict("participant", pid, "NotJoined");
     const msUpd = await c.query(
       `UPDATE siton.participants SET money_state='AuthHeld' WHERE participant_id=$1 AND money_state='NoFinancial'`,
       [pid]
     );
-    if (msUpd.rowCount !== 1) throw new Error(`State mismatch participant ${pid} expected NoFinancial`);
+    if (msUpd.rowCount !== 1) throw stateConflict("participant", pid, "NoFinancial");
 
     if (inventoryCommit?.target_transitioned === true && dealState === "PendingTarget") {
       await c.query(`SELECT set_config('siton.action_name', 'deal.target_reached', true)`);
@@ -6859,7 +6859,7 @@ app.post("/deals/:id/join", async (req: any, reply: any) => {
         [dealId]
       );
       if (targetUpdate.rowCount !== 1) {
-        throw new Error(`State mismatch deal ${dealId} expected PendingTarget`);
+        throw stateConflict("deal", dealId, "PendingTarget");
       }
     }
 

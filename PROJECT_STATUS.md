@@ -73,6 +73,115 @@ review touched it, and no repository work can close it.
 - **STATUS: OPEN — blocked externally, not scheduled, not estimated.**
   **NEXT STEP:** resolve the provider's future-charge/mandate contract with Grow
   (owner + provider), then design. No repository work until then.
+## OVERNIGHT PRODUCT INTEGRATION HARDENING (2026-09-15) — branch `claude/blissful-planck-l94ke3` from exact master `f2121f6`
+
+- **BASELINE SHA:** `f2121f60cc37d742e2bf32d0ca48fe2ec83a807d` (origin/master, "Stage 1: canonicalize AI agent workflow"). **FINAL SHA:** `805bef3 (code + tests; this status commit is its immediate child on the same branch)`.
+- **Goal of the pass:** shrink the gap between the constitution / DB contract / product+UX spec and what actually works end to end, on ONE central product path, with server-side proof — not a new feature and not a generic review. Money operations performed: **0**. Grow operations performed: **0**. No secrets, no production migration, no provider call (mockpay / mock-backed, in-process, throughout).
+- **Local environment for this pass:** Linux, Node 22.22.2, PostgreSQL 16.13 local cluster, Chromium via Playwright at `/opt/pw-browsers` (symlinked to `/usr/bin/chromium` for the browser proofs), **no Docker daemon** (Docker-dependent gates are environment-blocked here, see TEST RESULTS).
+
+### 1. Inventory — what actually exists (implementation vs. the canonical documents)
+
+Canonical sources compared: `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` + the four binding foundation artefacts, `docs/SITON_V1_1_MALL_PRODUCT_DIRECTION.md`, `docs/CANONICAL_ARCHITECTURE_V1.md` + `ARCHITECTURE_REBASE_R0..R4`, the migration manifest (`scripts/migration_manifest.cjs`, 61 migrations, high-water 068), `docs/ENVIRONMENT_CONTRACT.md`, `docs/CI_TEST_STRATEGY.md`, and this file.
+
+| Component | Status | Evidence / note |
+|---|---|---|
+| HTTP API (191 routes: 19 in `src/app.ts`, ~155 in `src/frontend_runtime.ts`, 17 in `src/receipt_content_routes.ts`) | IMPLEMENTED | single Fastify root; `/api/deals/:id/<lifecycle>` rewritten pre-routing onto the bare `/deals` handlers (`src/api_route_aliases.ts`) — one implementation, zero duplicate handlers |
+| Seller authentication (Supabase bearer bound by `auth_user_id`; cookie session `siton_seller_session`, scrypt access code) | IMPLEMENTED | server-session mode now proven end to end by `tests/seller_buyer_product_path_e2e_validation.ts`; forged `x-seller-id` on a real session ignored |
+| Demo-preview header identity (`APP_DEPLOYMENT_MODE=demo-preview`, the image default) | IMPLEMENTED as a synthetic mode | production-config risk, not a product gap: `render.yaml` pins `staging`; PR #18 hardens the boot guard |
+| Seller bootstrap / self-service binding | IMPLEMENTED (pending row, admin approval opens publish) | `claimSelfServiceSellerBinding`; admin provisioning route for credential sellers |
+| Deals: create Draft → read → edit (optimistic `expected_updated_at`) → images (≤12, data-URL jpeg/png/webp) → preview → publish | IMPLEMENTED | preview and public page share `buildPublicDealPayload` (one projection) |
+| Participants / join / inventory | IMPLEMENTED, DB-enforced | deal row `FOR UPDATE` + `public.siton_inventory_rpc` (CHECK `reserved_units <= max_units`, conditional UPDATE, idempotency PK) when `CANONICAL_POSTGRES_RUNTIME=1`; legacy `SUM(qty)` under the same row lock otherwise |
+| Transition layer (`atomicMultiTransition` + CAS + `siton.*_before_update_enforce` triggers + append-only audit) | IMPLEMENTED | join handler re-implements the protocol by hand (audit + CAS + `set_config` flags) — correct, now answers 409 `STATE_CONFLICT` instead of 500 on a lost race |
+| Closed lists `DealState` / `BuyerState` / `MoneyState` | IMPLEMENTED, declared 3× (`src/app.ts`, `src/frontend_runtime.ts`, SQL `is_valid_*_transition`) | in lockstep today; no new state introduced by this pass |
+| Database layer (`db.ts`, `runtime_database_boundary.ts`, 61 ledgered migrations, no runtime DDL) | IMPLEMENTED | `scan:runtime-ddl` PASS |
+| Workers / outbox (fenced leases, DLQ, lanes, heartbeats) | IMPLEMENTED | web never runs the outbox (`DISABLE_OUTBOX_WORKER=1` enforced for web in production) |
+| Payment abstraction: mock (default) / provider-ready http / Stripe / Grow | IMPLEMENTED; Grow + Stripe BLOCKED_EXTERNALLY | `production_guards.ts` refuses `live` outside production, refuses mock in production; `proof:no-real-money` |
+| `src/synthetic_payment_provider.ts` | DEAD at runtime (tests only) | pinned by `tests/legacy_runtime_isolation_validation.ts` |
+| Notifications | PARTIAL / BLOCKED_EXTERNALLY | full queue/template/retry rail, **no delivery adapter** (`log-only`) |
+| Error contract (`setErrorHandler` → always JSON, 5xx flattened to `internal_error`, request-scoped log with request id) | IMPLEMENTED | write side now proven with 434 hostile probes (`tests/mutation_error_contract_validation.ts`) |
+| Request / correlation id (`genReqId`, echoed headers, audit/outbox/idempotency columns) | IMPLEMENTED | mission-control correlation trace now actually finds outbox rows (was silently empty) |
+| Legal pages (`src/legal_pages.ts` → CMS `site_content` → in-app `#/content/legal_*` and server `/legal/:slug`) | IMPLEMENTED; server render was DIVERGENT chrome → aligned | `tests/legal_html_shell_alignment_validation.ts` |
+| Canonical frontend `web/` (React 18 + Vite, served at `/preview/`, bare `/` → `/preview/`) | IMPLEMENTED | seller wizard, edit, images, preview, publish, post-publish screen, buyer deal page, tracking, admin console — all API-driven, **no mock/demo data in `web/`** |
+| Legacy frontend `frontend/` (vanilla, `/app/*`) + PWA + Capacitor shell | IMPLEMENTED but LEGACY (duplicate seller/buyer/admin flows; the only OTP + hosted-payment-return + distributor + recovery UI; manifest still branded "Siton") | still live and still the mobile bundle — documented, not removed |
+| Buyer OTP step in the canonical frontend | NOT_IMPLEMENTED (by policy: `buyer_verification_policy` join/payment = off) | turning verification on would break the React join; the legacy app implements it |
+| Buyer payment step in the canonical frontend | STUB by design (disabled illustrative card fields, `payment_method` preference only; join records `mock_success` / consumes a mock binding) | payment-safe boundary; no fake "money moved" |
+| Distributor UI | NOT_IMPLEMENTED in `web/` (attribution only); legacy `/app/affiliate` exists | consistent with the no-commission invariant |
+| Mall / discovery | IMPLEMENTED, flag-off (`PUBLIC_MALL_ENABLED`) | DEAD in the launch configuration |
+| Admin UI (`web/src/pages/admin.tsx`, 13 screens) | IMPLEMENTED | reads open without `ADMIN_API_KEY` only in non-production-like envs |
+| Base44 / `legacy/render` / `external-tests` | DEAD from the Node runtime | zero imports from `src/` — now a regression test, not only a gate |
+| Tests (232 files, 10 groups) / CI (4 workflows) / release preflight (30 gates) | IMPLEMENTED | see TEST RESULTS |
+| Staging (Render web+worker, Supabase Postgres, mockpay, log-only notifications) | IMPLEMENTED, mock-backed by design | not touched by this pass |
+
+### 2. Findings and what was done about them
+
+**Fixed in this pass (all with tests):**
+1. **Mission-control traces silently empty for the outbox** — `src/admin_mission_control.ts` selected a nonexistent `outbox_events.event_id` (the key is `event_uuid`) in the deal trace, the correlation trace and the outbox drill-down; the savepoint-guarded `safeQuery` swallowed the SQL error, so the admin saw "no outbox events" for deals that had live pending events, and `/api/admin/mission-control/outbox/:uuid` answered `event: null, status: "unknown"` for every real event. Fixed (`event_uuid AS event_id`, also the DLQ lookup). Regression: `tests/admin_mission_control_outbox_trace_validation.ts` (5/5).
+2. **Webhook concurrent-duplicate race (adversarial review F-18, was open)** — `claimEvent` was check-then-insert; two simultaneous deliveries of one `(provider, event_id)` raised `webhook_events_pk` → 5xx to the provider. Now `INSERT … ON CONFLICT DO NOTHING` + re-read: exactly one delivery processes, the rest get the idempotent duplicate answer. Regression: `tests/webhook_claim_concurrency_validation.ts` (2/8/25-way fan-out, post-processed duplicates, failed-event re-claim exactly once) — **observed failing on the unmodified code** (3 FAIL, `duplicate key value violates unique constraint "webhook_events_pk"`), passing after.
+3. **Join lost-race answered 500** — the hand-rolled CAS in `POST /deals/:id/join` threw plain `Error("State mismatch …")`; now `stateConflict()` → 409 `STATE_CONFLICT`, the same contract as the transition layer. Covered by the error-contract proof; no new state, no bypass.
+4. **Buyer never saw the payment-recovery instruction** — the server tracking payload emits `personal_status { title, detail, cta }` while the React tracking page read `headline` / `body` (keys that never existed), so "נדרש עדכון אמצעי תשלום" and its CTA were never rendered to a buyer whose charge failed. `web/src/pages/track.tsx` now renders the server keys and the CTA (`data-testid="track-personal-cta"`). Drift guard: `tests/frontend_tracking_status_contract_validation.ts`.
+5. **Malformed deal link** — a broken/truncated `#/deal/<not-a-uuid>` link answered 400 and the React page showed the generic failure copy; it now shows the same "העסקה אינה זמינה" story as a missing deal (`web/src/pages/deal.tsx`).
+6. **Server-rendered legal pages were a different site** — `/legal/:slug` (the target of the join consent link) had a text-only brand, a 3-item nav, no `.content-doc` typography, dash-lists rendered as `<br>` paragraphs, no theme-color/viewport-fit. It now uses the exact React shell (emblem + wordmark + tagline + primary nav, the same 4-document chip strip as in-app, `.panel.content-doc`, the same footer, the same hashed stylesheet when the build exists). Legal **content** untouched. Proof: `tests/legal_html_shell_alignment_validation.ts`.
+
+**Proven (new tests over gaps that had no direct proof):**
+- `tests/seller_buyer_product_path_e2e_validation.ts` (17/17) — the central product path in **server-session mode**: provision → cookie login → business profile → Draft → read back → edit → image upload (+ owner-only image read) → buyer preview == public projection → publish (Draft→PendingTarget, 1 audit row, 1 `deadline_check` outbox event) → own-deals list → post-publish edit 409 `DEAL_NOT_EDITABLE` → public page from the runtime (title/description/images/price/min/max/current/deadline/state/delivery+cost/seller identity/share URL `/d/:id` with OG meta) → server-side amount `qty×price+delivery` in a mock binding → join consumes the binding, `hold_total` == binding amount, retry with the same idempotency key returns the same participant, same key + different payload 409, exactly one participant, **zero payment attempts** → tracking payload → close_joining / cancelled draft / malformed id / unknown id → bounded JSON → logout revokes. IDOR block: seller B with a valid session against seller A's deal on 17 seller routes (read, draft, preview, exports, fulfillment, handoff, edit, delivery, images, order, delete image, duplicate, delete, publish, close, cancel) — every answer identical to a nonexistent deal; forged `x-seller-id`/`seller_id` ignored; manual context switch 403; anonymous caller gets `SELLER_AUTH_REQUIRED` with no validation hint.
+- `tests/mutation_error_contract_validation.ts` (434 probes) — every mutation the React product calls (15 buyer-facing, 16 seller) × 14 hostile bodies (arrays, strings, null, huge/negative numbers, wrong types, 200 KB strings, 60-deep nesting, prototype keys, NUL/ESC/RLO characters, path/SQL-looking ids, text/plain, broken JSON): never a 5xx, every refusal JSON `ok:false` + stable `error`, no stack/SQL/path/secret, nothing durable changed.
+- `tests/legacy_runtime_isolation_validation.ts` — `src/` imports nothing from `base44/`, `legacy/`, `external-tests/`, `supabase/functions`; no Base44 SDK/entity references; the scripted lab provider is tests-only; the runtime constructs only the four providers the production guards reason about; no legacy/Base44 HTTP path is registered.
+- Inventory concurrency: **not duplicated** — `tests/concurrency_proof.ts` already proves S1–S7 (70/200 concurrent joins, mixed quantities, 100 buyers racing for the last unit ×10 runs, 5×5 on max 10), I1–I6 (key replay, payload mismatch 409, 100 concurrent retries across two web instances → one side effect, crash/recovery replay) and M1–M3; it PASSED on baseline and after. The new E2E adds the retry / mismatch angles on the server-session path.
+
+**Documented, deliberately NOT changed (out of safe scope tonight):**
+- Server payloads still emit legacy `/app/...` URLs (`tracking_url` in the join response, recovery CTA `/app/recovery/:id`, affiliate `share_link`, admin `link_target`, seller-auth `returnTo`) while the canonical product lives at `/preview/#/...`; the React client builds its own tracking URL. The recovery CTA works because the legacy app is live. Unifying this touches many tests and the legacy app — a dedicated task.
+- The canonical React buyer flow has no OTP step and a stub payment step (policy: verification off; payments mock-backed). Turning `buyer_verification_policy` on would break the React join.
+- `/preview` hard-fails ("Preview not built") when `web/dist` is absent: `npm start` / `start:demo:prod` do not build the React app (the Dockerfile does).
+- Legacy PWA manifest is still branded "Siton"/teal; the Capacitor shell ships the legacy bundle.
+- `deals.seller_id` is nullable and seller read surfaces `COALESCE` it to `seller-default`; creation always sets it, so no NULL-owner rows exist through the product path.
+- `LONG_HORIZON_DEALS` (7-day deadline cap) remains the standing product issue (see PR #18 block).
+- Mission-control security panel hardcoded rows (F-09), Docker image dev toolchain (F-12) — PR #18 scope.
+
+### 3. TEST RESULTS (exact)
+
+All runs local (PG16, Node 22), env `CI=true NODE_ENV=test DISABLE_OUTBOX_WORKER=1 PAYMENT_PROVIDER=mockpay PAYMENT_PROVIDER_MODE=mock-backed`, disposable per-file databases via `scripts/run_test_group.cjs`.
+
+| Check | Baseline `f2121f6` | After `805bef3` |
+|---|---|---|
+| `npx tsc --noEmit` | PASS | PASS |
+| `npm run lint` (backend enforcement + secret + control-byte scan) | PASS | PASS |
+| `scan:payment`, `scan:runtime-ddl`, `gate:architecture`, `gate:base44-canonical-integrity`, `gate:legal`, `gate:logging-hygiene`, `scan:secrets`, `check:repo-hygiene` | PASS | PASS (legal: 1 pre-existing OWNER_DECISION warning) |
+| `npm run build:demo`, `npm run mobile:verify` | PASS | PASS |
+| `cd web && npm run build` (canonical React product, `tsc -b && vite build`) | PASS | PASS |
+| `npm run test:all` — files | 225 | **232** (+7 new) |
+| unit | 16/16 | 15/16 in the full run (the static pin on the old 400-mapping line in `frontend_foundation_buyer_polish_validation.ts` — updated to the new line), **16/16 on re-run** |
+| integration | 30/31 (`mobile_readiness` needs `.mobile_dist`, built by `mobile:verify` which CI runs first — passed once built) | **33/33** |
+| db | 8/8 | **8/8** |
+| api | 44/44 | **45/45** |
+| workers | 13/13 | **14/14** |
+| payments | 43/43 | **43/43** |
+| security | 40/40 | **41/41** |
+| concurrency | 8/8 | **9/9** |
+| failure | 9/9 | **9/9** |
+| e2e | 10/13 (`docker_readiness`: no Docker daemon; two browser proofs: no Chrome at the hard-coded paths) | 11/14 in the full run for the same environmental reasons; **browser smoke 14/14 and browser V1.1 7/7 PASS on re-run** after wrapping the Playwright Chromium with `--no-sandbox` (this container runs as root); `docker_readiness_validation` remains **BLOCKED_ENVIRONMENT (no Docker daemon)** |
+| Net | 221 pass / 4 environmental | **231 pass / 1 environmental (docker)** — no test skipped, weakened or deleted |
+| `npm run ci:route-authorization` (static + behavioural) | not run | **PASS** — 109 protected routes, 635 anonymous probes, `UNGUARDED_PROTECTED_ROUTES=0`, `PROTECTED_PARAMETRIC_ROUTE_AUTH_ORDERING_GAPS=0` |
+| `npm run release:preflight -- --profile standard --skip release-local-lab,route-authorization-behavioural` (the CI `preflight-database` job) | not run | **RELEASE_PREFLIGHT_PASS** — technical=WARNING (the known owner warnings: OTP_HASH_SALT on Render, startup-matrix runtime gaps, 8 anonymous mutation routes, supply-chain advisories, dirty tree at run time), **real_money_activation=BLOCKED (unchanged, correct)**, 0 FAIL |
+| New `webhook_claim_concurrency_validation` on the UNMODIFIED `src/webhook_ingestion.ts` | **3 FAIL** (`duplicate key value violates unique constraint "webhook_events_pk"`) | 6/6 PASS |
+| New `seller_buyer_product_path_e2e_validation` | n/a | 17/17 PASS |
+| New `mutation_error_contract_validation` | n/a | 434 probes, 4/4 PASS |
+| New `admin_mission_control_outbox_trace_validation` | n/a | 5/5 PASS |
+| New `legacy_runtime_isolation_validation`, `legal_html_shell_alignment_validation`, `frontend_tracking_status_contract_validation` | n/a | 5/5, 4/4, 3/3 PASS |
+
+Money operations performed: **0**. Grow operations performed: **0**. **Push / PR: BLOCKED EXTERNALLY** — `git push` and the GitHub API both answer 403 (`Resource not accessible by integration`: the Claude GitHub App has no write access to `matilederer7-bit/C-ton`, the same O-7 condition recorded for PR #18). The two commits are delivered as `git format-patch` files + a `git bundle` (sha256 manifest alongside) for the owner's out-of-band transfer path; GitHub CI has therefore not run on this branch yet.
+
+### 4. Files / modules materially changed
+
+`src/admin_mission_control.ts` (outbox trace queries), `src/webhook_ingestion.ts` (insert-or-read claim), `src/app.ts` (join lost-race → 409 `STATE_CONFLICT`, 3 lines), `src/frontend_runtime.ts` (legal HTML shell + markdown lists), `web/src/pages/track.tsx` (personal status contract + CTA), `web/src/pages/deal.tsx` (400 → "gone"). New tests: `tests/seller_buyer_product_path_e2e_validation.ts`, `tests/mutation_error_contract_validation.ts`, `tests/webhook_claim_concurrency_validation.ts`, `tests/admin_mission_control_outbox_trace_validation.ts`, `tests/legacy_runtime_isolation_validation.ts`, `tests/legal_html_shell_alignment_validation.ts`, `tests/frontend_tracking_status_contract_validation.ts`. No migration, no dependency change, no config/secret change, no `render.yaml`/workflow change.
+
+### 5. Status summary
+
+- **COMPLETED:** inventory matrix; one central seller→buyer path proven end to end in server-session mode; buyer public page proven runtime-backed with all required fields and every state; IDOR sweep over the seller surface (17 routes) plus existing cross-principal suite; inventory concurrency re-verified; webhook idempotency race fixed; join race contract fixed; admin outbox observability fixed; tracking recovery instruction fixed; legal pages aligned; legacy reachability pinned by test; error contract on the write side proven.
+- **CHECKED:** typecheck, all static gates, the full 10-group suite, browser smoke where the environment allowed (see §3).
+- **OPEN:** the documented-not-changed list in §2; Docker-dependent gates not runnable in this container; push + PR blocked by the GitHub App's read-only access (patches delivered out of band); CI on GitHub not yet run for this branch.
+- **EXTERNAL BLOCKERS:** Grow/provider contract (unchanged), real-money activation policy `BLOCKED` (unchanged), hosted staging credentials for authenticated hosted UI acceptance (unchanged).
+- **Estimated completion:** technical readiness of the closed-pilot product path **~90%** (up from the recorded 88% — the seller and buyer paths now have a direct server-session proof and four silent failures are gone); real-money readiness unchanged (**35%**, governed, deliberately not inflated).
+- **NEXT STEP:** unify the runtime's URL emission on the canonical `/preview/#/...` surface (join `tracking_url`, recovery CTA, affiliate share links, admin `link_target`, seller-auth `returnTo`) and give the React product a real recovery screen, so no server payload leads a user into the legacy `/app` frontend.
 
 ## RELEASE READINESS REINTEGRATED ONTO CURRENT MASTER — CONTROLLED PORT, NOT A MERGE (2026-09-15, CI repair 2026-09-15) — PR #14 open, branch `claude/release-readiness-reintegration` from exact master `0e53998`, NOT merged
 

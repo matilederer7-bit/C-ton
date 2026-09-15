@@ -934,7 +934,9 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
       .catch((e) => {
         if (!alive) return;
         const status = Number(e?.status || 0);
-        const kind = status === 404 ? "gone" : !status ? "network" : status === 429 || status >= 500 ? "busy" : "other";
+        // 404 = unpublished / missing; 400 = a malformed deal id (a broken or truncated
+        // link). Both mean "this link does not lead to a deal", never a server fault.
+        const kind = status === 404 || status === 400 ? "gone" : !status ? "network" : status === 429 || status >= 500 ? "busy" : "other";
         setErrorKind(kind);
         setError(kind === "gone" ? "העסקה אינה זמינה" : String(e?.message || hebrewError(e)));
       });
