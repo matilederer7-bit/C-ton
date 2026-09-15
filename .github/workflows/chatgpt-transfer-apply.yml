@@ -4,6 +4,8 @@ on:
   push:
     branches:
       - chatgpt/transfer-bootstrap-f620072
+    paths-ignore:
+      - .transfer-report/**
 
 permissions:
   contents: write
@@ -28,6 +30,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee /tmp/transfer-report.txt) 2>&1
           BASE=f2121f60cc37d742e2bf32d0ca48fe2ec83a807d
           TREE1=0b4cec17cc40c31491d5df059e9ab6c349585a37
           TREE2=73c8f83821c3112fc74da9d9117317dbf57b497a
@@ -38,15 +41,38 @@ jobs:
           git checkout -B "$TARGET" "$BASE"
           git am /tmp/combined.mbox
 
-          test "$(git rev-parse HEAD~1^{tree})" = "$TREE1"
-          test "$(git rev-parse HEAD^{tree})" = "$TREE2"
-          test "$(git rev-parse HEAD~2)" = "$BASE"
+          ACTUAL_TREE1="$(git rev-parse HEAD~1^{tree})"
+          ACTUAL_TREE2="$(git rev-parse HEAD^{tree})"
+          ACTUAL_BASE="$(git rev-parse HEAD~2)"
+          echo "ACTUAL_TREE1=$ACTUAL_TREE1 EXPECTED_TREE1=$TREE1"
+          echo "ACTUAL_TREE2=$ACTUAL_TREE2 EXPECTED_TREE2=$TREE2"
+          echo "ACTUAL_BASE=$ACTUAL_BASE EXPECTED_BASE=$BASE"
+          test "$ACTUAL_TREE1" = "$TREE1"
+          test "$ACTUAL_TREE2" = "$TREE2"
+          test "$ACTUAL_BASE" = "$BASE"
 
           echo "TRANSFER_TREE_1_OK=$TREE1"
           echo "TRANSFER_TREE_2_OK=$TREE2"
           git log --oneline --decorate -3
 
+      - name: Persist failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git am --abort || true
+          git reset --hard || true
+          git checkout -B chatgpt/transfer-bootstrap-f620072 origin/chatgpt/transfer-bootstrap-f620072
+          mkdir -p .transfer-report
+          cp /tmp/transfer-report.txt .transfer-report/latest.txt
+          git add .transfer-report/latest.txt
+          git config user.name "ChatGPT Transfer"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "chore(transfer): capture apply diagnostics" || true
+          git push origin HEAD:refs/heads/chatgpt/transfer-bootstrap-f620072
+
       - name: Push verified transfer branch
+        if: success()
         shell: bash
         run: |
           set -euo pipefail
