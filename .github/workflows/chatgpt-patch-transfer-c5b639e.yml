@@ -24,6 +24,7 @@ jobs:
         env:
           TARGET_BRANCH: claude/senior-adversarial-production-review-cwupc5
           EXPECTED_HEAD: 56120ab8440a1d037dd8aa3c8143215b63879403
+          STATUS_B64: IyMgR0lUSFVCIFBBVENIIFRSQU5TRkVSICsgUFIgIzE4IOKAlCBPLTcgREVMSVZFUlkgQkxPQ0tFUiBDTE9TRUQgKDIwMjYtMDktMTUpCgotICoqQ09NUExFVEVEOioqIFRoZSBhZHZlcnNhcmlhbC1yZXZpZXcgaGFuZG9mZiB3YXMgdHJhbnNmZXJyZWQgZnJvbSB0aGUgb3duZXItc3VwcGxpZWQgYGdpdCBhbWAgcGF0Y2ggdG8gR2l0SHViIHdpdGhvdXQgcmVjb25zdHJ1Y3RpbmcgcmVwb3NpdG9yeSBjb2RlIGJ5IGhhbmQuIFRoZSBzb3VyY2UgcGF0Y2ggd2FzIGFwcGxpZWQgdG8gZXhhY3QgYmFzZSBgZjIxMjFmNjBjYzM3ZDc0MmUyYmYzMmQwY2E0OGZlMmVjODNhODA3ZGA7IEdpdEh1YiBub3cgY29udGFpbnMgdGhlIHR3byByZXZpZXcgY29tbWl0cyBhcyBgMDk1M2I4YmVlNDVhNDkzZGJlNDE5YmQ1MjU3NzZkYTU5MjhmMGFhYWAgYW5kIGA1NjEyMGFiODQ0MGExZDAzN2RkOGFhM2M4MTQzMjE1YjYzODc5NDAzYC4gUFIgKiojMTgqKiBpcyBvcGVuIGFnYWluc3QgYG1hc3RlcmAuIE8tNyBpcyB0aGVyZWZvcmUgY2xvc2VkIGFzIGEgZGVsaXZlcnkgYmxvY2tlciBmb3IgdGhpcyBicmFuY2guIFRoaXMgZG9lcyBub3QgY2xhaW0gdGhhdCBDbGF1ZGUncyBvd24gR2l0SHViIEFwcCBwZXJtaXNzaW9uIGNoYW5nZWQ7IHRoZSB0cmFuc2ZlciB1c2VkIHRoZSBvd25lcidzIHdyaXRlLWVuYWJsZWQgQ2hhdEdQVC9HaXRIdWIgQWN0aW9ucyBwYXRoLgotICoqVEVTVEVEOioqIE9yaWdpbmFsIHBhdGNoIHNpemUgKioxNDUsMTc4IGJ5dGVzKiogYW5kIFNIQTI1NiBgZWI2ZmYzYzNjZTM0ZTIwM2YxNDdmOGM1ZWYzNDIxZTE0OGRhYTU4NDE3MzhmYjM3NTI1MWFkY2M5ZTYxODE1M2Agd2VyZSB2ZXJpZmllZCBiZWZvcmUgYXBwbGljYXRpb24uIEdpdEh1YiBBY3Rpb25zIHJlY29uc3RydWN0ZWQgdGhlIHRyYW5zZmVycmVkIHBhdGNoIGFuZCByZS12ZXJpZmllZCB0aGF0IFNIQSBiZWZvcmUgYGdpdCBhbWAuIFRoZSBmaXJzdCBhcHBsaWVkIGNvbW1pdCBwcm9kdWNlZCB0cmVlIGAzZGUwZGI0OGIzNDA1ZjI1MjRiZDY4ZmQxYzY2ODVmZmJhYmIxMTdjYDsgdGhlIHNlY29uZCBwcm9kdWNlZCBmaW5hbCB0cmVlICoqYDI1NDc2ZjJjNGFlOGQ1Yzc5OGU1ODg5MTgwYWNhMmMyZmM3ODdlOTVgKiosIGV4YWN0bHkgbWF0Y2hpbmcgdGhlIGluZGVwZW5kZW50bHkgc3VwcGxpZWQgZXhwZWN0ZWQgdHJlZS4gQXQgUFIgY3JlYXRpb24sIGBtYXN0ZXJgIHdhcyBzdGlsbCBleGFjdCBiYXNlIGBmMjEyMWY2YDsgdGhlIGJyYW5jaCB3YXMgMiBjb21taXRzIGFoZWFkIGFuZCAwIGJlaGluZC4gUFIgIzE4IGNvbnRhaW5lZCAqKjI1IGNoYW5nZWQgZmlsZXMsIDg2MCBhZGRpdGlvbnMsIDEwOSBkZWxldGlvbnMqKi4KLSAqKk9QRU46KiogR2l0SHViIENJIG11c3Qgc3RpbGwgYmUgZXZhbHVhdGVkIG9uIHRoZSBmaW5hbCBQUiBoZWFkIGJlZm9yZSBhbnkgbWVyZ2UgZGVjaXNpb24uICoqTy0xIHJlbWFpbnMgb3BlbjoqKiB0aGUgbGl2ZSBSZW5kZXIgd29ya2VyIHdhcyBpbmRlcGVuZGVudGx5IG9ic2VydmVkIHN0aWxsIGNvbmZpZ3VyZWQgYXMgYG5wbSBydW4gc3RhcnQ6d29ya2VyOnByb2RgLCBzbyB0aGUgaG9zdGVkIGdyYWNlZnVsLWRyYWluIGZpeCBpcyBub3QgeWV0IGFwcGxpZWQuICoqTy0yLCBPLTMsIE8tNCwgTy01IGFuZCBPLTYgcmVtYWluIG9wZW4uIEYxMyByZW1haW5zIGV4dGVybmFsIGFuZCB1bnJlc29sdmVkLiBMT05HX0hPUklaT05fREVBTFMgcmVtYWlucyB1bnNvbHZlZCBhbmQgYmxvY2tlZCBvbiBwcm92ZW4gcHJvdmlkZXIgc2VtYW50aWNzLiBSRUFMIE1PTkVZIHJlbWFpbnMgMCBhbmQgR3JvdyBtdXN0IHJlbWFpbiB1bmFjdGl2YXRlZC4qKgotICoqUEVSQ0VOVEFHRToqKiBUZWNobmljYWwgcHJvZHVjdGlvbiByZWFkaW5lc3MgKio4OCUqKiwgY2xvc2VkLXBpbG90IHJlYWRpbmVzcyAqKjkyJSoqLCByZWFsLW1vbmV5IHJlYWRpbmVzcyAqKjM1JSoqIOKAlCB1bmNoYW5nZWQgYnkgYSBHaXQgdHJhbnNwb3J0IG9wZXJhdGlvbi4gR2l0SHViIGRlbGl2ZXJ5IG9mIHRoZSBhZHZlcnNhcmlhbCBwYXRjaCBpdHNlbGYgaXMgKioxMDAlIGNvbXBsZXRlKiouCi0gKipORVhUIFNURVA6KiogSW5zcGVjdCBldmVyeSByZXF1aXJlZCBHaXRIdWIgd29ya2Zsb3cgb24gdGhlIGZpbmFsIFBSIGhlYWQuIGBTQUZFX1RPX01FUkdFYCBtYXkgYmVjb21lIFlFUyBvbmx5IGlmIHRoZSByZXF1aXJlZCBDSSBpcyBncmVlbi4gRG8gbm90IG1lcmdlIGZyb20gYW4gYWdlbnQgc2Vzc2lvbi4gQWZ0ZXIgb3duZXIgbWVyZ2UsIHBlcmZvcm0gTy0xIFJlbmRlciBCbHVlcHJpbnQvbGl2ZS1jb21tYW5kIHN5bmMgYW5kIE8tMiBgT1RQX0hBU0hfU0FMVGAgYmVmb3JlIHRoZSBuZXh0IHBpbG90IGRlcGxveTsgdGhlbiB2ZXJpZnkgaG9zdGVkIGJlaGF2aW91ci4gRjEzIGFuZCBMT05HX0hPUklaT05fREVBTFMgcmVtYWluIGJsb2NrZWQgdW50aWwgcHJvdmlkZXIgc2VtYW50aWNzIGFyZSBwcm92ZW4uCgo=
         run: |
           set -euo pipefail
           git config user.name 'ChatGPT Project Status'
@@ -31,24 +32,9 @@ jobs:
           git fetch origin "$TARGET_BRANCH"
           git checkout -B "$TARGET_BRANCH" "origin/$TARGET_BRANCH"
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('PROJECT_STATUS.md')
-          old = p.read_text(encoding='utf-8')
-          marker = '## GITHUB PATCH TRANSFER + PR #18 — O-7 DELIVERY BLOCKER CLOSED (2026-09-15)'
-          if old.startswith(marker):
-              raise SystemExit('status block already present')
-          block = '''## GITHUB PATCH TRANSFER + PR #18 — O-7 DELIVERY BLOCKER CLOSED (2026-09-15)
-
-- **COMPLETED:** The adversarial-review handoff was transferred from the owner-supplied `git am` patch to GitHub without reconstructing repository code by hand. The source patch was applied to exact base `f2121f60cc37d742e2bf32d0ca48fe2ec83a807d`; GitHub now contains the two review commits as `0953b8bee45a493dbe419bd525776da5928f0aaa` and `56120ab8440a1d037dd8aa3c8143215b63879403`. PR **#18** is open against `master`. O-7 is therefore closed as a delivery blocker for this branch. This does not claim that Claude's own GitHub App permission changed; the transfer used the owner's write-enabled ChatGPT/GitHub Actions path.
-- **TESTED:** Original patch size **145,178 bytes** and SHA256 `eb6ff3c3ce34e203f147f8c5ef3421e148daa5841738fb375251adcc9e618153` were verified before application. GitHub Actions reconstructed the transferred patch and re-verified that SHA before `git am`. The first applied commit produced tree `3de0db48b3405f2524bd68fd1c6685ffbabb117c`; the second produced final tree **`25476f2c4ae8d5c798e5889180aca2c2fc787e95`**, exactly matching the independently supplied expected tree. At PR creation, `master` was still exact base `f2121f6`; the branch was 2 commits ahead and 0 behind. PR #18 contained **25 changed files, 860 additions, 109 deletions**.
-- **OPEN:** GitHub CI must still be evaluated on the final PR head before any merge decision. **O-1 remains open:** the live Render worker was independently observed still configured as `npm run start:worker:prod`, so the hosted graceful-drain fix is not yet applied. **O-2, O-3, O-4, O-5 and O-6 remain open. F13 remains external and unresolved. LONG_HORIZON_DEALS remains unsolved and blocked on proven provider semantics. REAL MONEY remains 0 and Grow must remain unactivated.**
-- **PERCENTAGE:** Technical production readiness **88%**, closed-pilot readiness **92%**, real-money readiness **35%** — unchanged by a Git transport operation. GitHub delivery of the adversarial patch itself is **100% complete**.
-- **NEXT STEP:** Inspect every required GitHub workflow on the final PR head. `SAFE_TO_MERGE` may become YES only if the required CI is green. Do not merge from an agent session. After owner merge, perform O-1 Render Blueprint/live-command sync and O-2 `OTP_HASH_SALT` before the next pilot deploy; then verify hosted behaviour. F13 and LONG_HORIZON_DEALS remain blocked until provider semantics are proven.
-
-'''
-          p.write_text(block + old, encoding='utf-8')
-          PY
+          printf '%s' "$STATUS_B64" | base64 -d > /tmp/status.md
+          cat /tmp/status.md PROJECT_STATUS.md > /tmp/PROJECT_STATUS.md
+          mv /tmp/PROJECT_STATUS.md PROJECT_STATUS.md
           git add PROJECT_STATUS.md
           git diff --cached --check
           git commit -m 'docs(status): record GitHub patch transfer and PR #18'
