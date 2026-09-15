@@ -3,9 +3,10 @@ import { productRequest as request, type Json } from "./api";
 import { QrCode } from "./qrcode";
 import { PickupCard } from "./pickupCard";
 import { optimizeImageFile } from "./images";
-import { StatusPill } from "./components";
+import { ChoiceCard, StatusPill } from "./components";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "./pickupScan";
 import { BRAND_LOGO_URL } from "./config";
+import { attention as fieldAttention, focusField } from "./fieldAttention";
 
 export type ReceiptConfig = { method: string; instructions: string; url: string };
 const OPTIONS = [
@@ -15,19 +16,30 @@ const OPTIONS = [
   ["digital_link", "קישור דיגיטלי", "הקונה יקבל קישור לאחר השלמת העסקה"],
   ["instructions", "הוראות מהמוכר", "הקונה יקבל את הוראות המימוש שתגדירו"]
 ];
-export function ReceiptFields({ value, onChange, disabled = false }: { value: ReceiptConfig; onChange: (v: ReceiptConfig) => void; disabled?: boolean }) {
-  return <fieldset className="receipt-fields" disabled={disabled}>
+// ROUND 2 (UX-4) — the receipt method now uses THE Siton selection card, so a
+// chosen option is unmistakable (orange border + tint, orange-filled
+// indicator) instead of a bare native radio. The indicator is the ROUND
+// single-select dot on purpose: siton.deals.receipt_config carries exactly ONE
+// "method", so a square multi-select would promise something the canonical
+// contract cannot store. See docs/UX_NIGHT_REINTEGRATION.md (Open backend contracts).
+export function ReceiptFields({ value, onChange, disabled = false, attention }: { value: ReceiptConfig; onChange: (v: ReceiptConfig) => void; disabled?: boolean; attention?: boolean }) {
+  const invalidUrl = attention && value.method === "digital_link";
+  const invalidInstructions = attention && value.method === "instructions" && !value.instructions.trim();
+  const exactField = value.method === "digital_link" || value.method === "instructions";
+  const fieldErrors: Record<string, string> = invalidUrl || invalidInstructions ? { receipt: "required" } : {};
+  return <fieldset className={`receipt-fields${attention && !exactField ? " attention-block needs-attention" : ""}`} disabled={disabled} id={exactField ? undefined : "f-receipt"} tabIndex={-1} aria-invalid={attention && !exactField ? "true" : undefined}>
     <legend>איך הקונה יקבל את מה ששילם עליו?</legend>
-    {OPTIONS.map(([key, title, help]) => <label key={key} className="receipt-option">
-      <input type="radio" name="receipt-method" checked={value.method === key} onChange={() => onChange({ ...value, method: key! })} />
-      <span><b>{title}</b><span className="muted small" style={{ display: "block" }}>{help}</span></span>
-    </label>)}
+    <div className="choice-group" data-testid="receipt-methods">
+      {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="one" name="receipt-method" value={key}
+        testId="receipt-method-option" checked={value.method === key} title={title!} help={help}
+        onSelect={() => onChange({ ...value, method: key! })} />)}
+    </div>
     {value.method === "digital_link" ? <label className="field">קישור מאובטח
-      <input type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
+      <input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
       <span className="muted small">לכתובת אישית לכל קונה אפשר להוסיף {'{code}'} לקישור.</span>
     </label> : null}
     {value.method === "instructions" || value.method === "code" || value.method === "qr" ? <label className="field">הוראות מימוש {value.method === "instructions" ? "" : "(לא חובה)"}
-      <textarea rows={3} required={value.method === "instructions"} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
+      <textarea {...(value.method === "instructions" ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={value.method === "instructions"} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
     </label> : null}
   </fieldset>;
 }
@@ -39,40 +51,81 @@ export function ReceiptEditor({ dealId, state }: { dealId: string; state: string
     {editable ? <button className="btn btn-primary">שמירת אופן המימוש</button> : <p className="muted small">אופן המימוש נקבע בפרסום העסקה.</p>}
   </form> : null}<p role="status">{message}</p></div>;
 }
+// ROUND 2 (UX-5) — the seller's public identity in the product's own visual
+// language: the logo/photo they uploaded, the display name, the About text and
+// the safe public history the backend already computes. Public facts only —
+// no e-mail, no phone, no address, no internal identifiers.
 function SellerIdentity({ seller, compact = false }: { seller: Json; compact?: boolean }) {
-  return <><div className="row">{seller.image ? <img className="seller-avatar" src={seller.image} alt={seller.name} /> : null}<h2>{seller.name}</h2></div>
-    {seller.about ? <p style={{ whiteSpace: "pre-wrap" }}>{compact && seller.about.length > 140 ? `${seller.about.slice(0, 140)}…` : seller.about}</p> : null}
-    <p>{seller.stats.published} עסקאות שפורסמו · {seller.stats.completed} הושלמו בהצלחה{seller.stats.success_rate !== null ? ` · ${seller.stats.success_rate}% הצלחה` : ""}</p>
+  const about = String(seller.about || "");
+  return <>
+    <div className="seller-identity">
+      {seller.image ? <img className={`seller-avatar${compact ? " sm" : ""}`} src={seller.image} alt="" data-testid="seller-profile-image" /> : null}
+      <div className="seller-identity-name" data-testid="seller-display-name">{seller.name}</div>
+    </div>
+    {about ? <p className="seller-about" data-testid="seller-about">{compact && about.length > 140 ? `${about.slice(0, 140)}…` : about}</p> : null}
+    <p className="seller-stats" data-testid="seller-stats">
+      <span><b>{seller.stats.published}</b> עסקאות שפורסמו</span>
+      <span><b>{seller.stats.completed}</b> הושלמו בהצלחה</span>
+      {seller.stats.success_rate !== null ? <span><b>{seller.stats.success_rate}%</b> הצלחה</span> : null}
+    </p>
   </>;
 }
 export function DealReceiptInfo({ dealId, onReady }: { dealId: string; onReady: (ready: boolean) => void }) {
   const [data, setData] = useState<Json | null>(null), [names, setNames] = useState<string[]>([]), [error, setError] = useState("");
   useEffect(() => { let alive = true; setData(null); onReady(false); request(`/api/deals/${dealId}/receipt-info`).then(r => { if (alive) { setData(r); onReady(true); } }).catch(() => { if (alive) setError("פרטי המימוש אינם זמינים כרגע. נסו לרענן לפני ההצטרפות."); }); request(`/api/deals/${dealId}/public-names`).then(r => { if (alive) setNames(r.names); }).catch(() => undefined); return () => { alive = false; }; }, [dealId]);
-  return <section className="panel" data-testid="receipt-before-join"><h3>אם העסקה תושלם, תקבלו…</h3>
+  return <section className="panel" data-testid="receipt-before-join">
+    <div className="panel-title">אם העסקה תושלם, תקבלו…</div>
     <p>{data?.label || error || "טוענים את פרטי המימוש…"}</p>
-    {data?.seller ? <><SellerIdentity seller={data.seller} compact /><a href={`#/public-seller/${data.seller.id}`}>צפו בפרופיל המוכר</a></> : null}
-    {names.length ? <p className="muted small">בחרו לשתף שהצטרפו: {names.join(" · ")}</p> : null}
+    {data?.seller ? <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+      <SellerIdentity seller={data.seller} compact />
+      <p style={{ margin: "10px 0 0" }}><a href={`#/public-seller/${data.seller.id}`} data-testid="seller-profile-link">לפרופיל המוכר ולעסקאות נוספות ←</a></p>
+    </div> : null}
+    {names.length ? <p className="muted small" style={{ marginTop: 10 }}>בחרו לשתף שהצטרפו: {names.join(" · ")}</p> : null}
   </section>;
 }
 export function PublicSellerPage({ id }: { id: string }) {
   const [page, setPage] = useState(0);
   const [seller, setSeller] = useState<Json | null>(null), [error, setError] = useState("");
-  useEffect(() => { let alive = true; setSeller(null); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(e => { if (alive) setError(e.message); }); return () => { alive = false; }; }, [id, page]);
-  if (!seller) return <p role="status">{error || "טוענים פרופיל…"}</p>;
-  return <><section className="panel"><SellerIdentity seller={seller} /><p className="muted small">שיעור ההצלחה: עסקאות שהושלמו מתוך העסקאות שפורסמו והסתיימו, כולל כישלונות וביטולים.</p></section>
-    <h2>עסקאות המוכר</h2><div className="grid">{seller.deals.map((d: Json) => <a className="panel" key={d.deal_id} href={`#/deal/${d.deal_id}`}><h3>{d.title}</h3><StatusPill state={d.state} /><p>₪{Number(d.price_per_unit).toLocaleString("he-IL")}</p></a>)}</div>
-    <div className="row">{page > 0 ? <button className="btn btn-ghost" onClick={() => setPage(page - 1)}>לעסקאות הקודמות</button> : null}{seller.has_more ? <button className="btn btn-ghost" onClick={() => setPage(page + 1)}>לעסקאות נוספות</button> : null}</div>
+  useEffect(() => { let alive = true; setSeller(null); setError(""); request(`/api/public-sellers/${id}?page=${page}`).then(r => { if (alive) setSeller(r.seller); }).catch(() => { if (alive) setError("לא ניתן לטעון את פרופיל המוכר כרגע. נסו לרענן את העמוד."); }); return () => { alive = false; }; }, [id, page]);
+  if (!seller) return <section className="panel"><h1>פרופיל המוכר</h1><p role="status">{error || "טוענים פרופיל…"}</p></section>;
+  return <>
+    <section className="panel">
+      <SellerIdentity seller={seller} />
+      <p className="muted small" style={{ margin: "12px 0 0" }}>שיעור ההצלחה: עסקאות שהושלמו מתוך העסקאות שפורסמו והסתיימו, כולל כישלונות וביטולים.</p>
+    </section>
+    <div className="panel">
+      <div className="panel-title">עסקאות המוכר</div>
+      {seller.deals.length ? <div className="grid">{seller.deals.map((d: Json) => (
+        <a className="card" key={d.deal_id} href={`#/deal/${d.deal_id}`} aria-label={String(d.title)}>
+          <div className="card-body">
+            <div className="card-head"><div className="card-title">{d.title}</div><StatusPill state={d.state} /></div>
+            <div className="card-price-row"><span className="price">₪{Number(d.price_per_unit).toLocaleString("he-IL")}</span><span className="price-unit">ליחידה</span></div>
+          </div>
+        </a>
+      ))}</div> : <p className="muted small">למוכר הזה עוד אין עסקאות שפורסמו.</p>}
+      <div className="row" style={{ marginTop: 12, gap: 8 }}>
+        {page > 0 ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page - 1)}>לעסקאות הקודמות</button> : null}
+        {seller.has_more ? <button className="btn btn-ghost btn-sm" onClick={() => setPage(page + 1)}>לעסקאות נוספות</button> : null}
+      </div>
+    </div>
   </>;
 }
 export function BuyerEntitlement({ participantId, token, pickup }: { participantId: string; token: string; pickup?: Json }) {
-  const [data, setData] = useState<Json | null>(null), [error, setError] = useState("");
+  const [loaded, setLoaded] = useState<{ participantId: string; token: string; value: Json } | null>(null), [error, setError] = useState("");
+  const data = loaded?.participantId === participantId && loaded.token === token ? loaded.value : null;
+  const setData = (value: Json | null) => setLoaded(value ? { participantId, token, value } : null);
   useEffect(() => { let active = true;
+    setError("");
     const load = () => request(`/api/participants/${participantId}/entitlement`, { headers: { authorization: `Bearer ${token}` } }).then(r => { if (active) { setData(r); setError(""); } }).catch(e => { if (active) { setData(null); setError(e.message); } });
     void load(); const timer = window.setInterval(load, 20000); return () => { active = false; clearInterval(timer); };
   }, [participantId, token]);
   const receipt = data?.entitlement;
+  // A non-ready pickup is a status, not an entitlement. Render the server's
+  // status even when no receipt exists; PickupCard never renders credentials
+  // in these states. Ready pickup remains behind the existing entitlement gate.
+  const pickupStatus = pickup?.applicable && pickup.state !== "ready" && pickup.state !== "fulfilled";
   return <section className="panel"><h2>המימוש שלי</h2>
-    {error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
+    {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
       {!data.configured && pickup?.applicable ? <PickupCard pickup={pickup} /> : <>
         <h3>{receipt.title} · {receipt.quantity} יחידות</h3><p>{receipt.status === "redeemed" ? "כבר מומש" : "זכאי למימוש"}</p>
         {receipt.method === "name_phone" ? <p>הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
@@ -82,7 +135,11 @@ export function BuyerEntitlement({ participantId, token, pickup }: { participant
         <p style={{ whiteSpace: "pre-wrap" }}>{receipt.instructions}</p>
       </>}
     </>}
-    {data ? <label className="receipt-option"><input type="checkbox" checked={!!data.public_name_opt_in} onChange={async e => { const checked = e.target.checked; try { await request(`/api/participants/${participantId}/public-name`, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ opt_in: checked }) }); setData({ ...data, public_name_opt_in: checked }); } catch (err: any) { setError(err.message); } }} />הציגו את שמי בין המצטרפים לעסקה (שם פרטי בלבד)</label> : null}
+    {/* ROUND 2 (UX-4) — a genuine opt-in: the SQUARE indicator says "this one
+        is independent", and its inside fills with the canonical orange. */}
+    {data ? <ChoiceCard mode="many" testId="public-name-opt-in" checked={!!data.public_name_opt_in}
+      title="הציגו את שמי בין המצטרפים לעסקה (שם פרטי בלבד)"
+      onSelect={async checked => { try { await request(`/api/participants/${participantId}/public-name`, { method: "PUT", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ opt_in: checked }) }); setData({ ...data, public_name_opt_in: checked }); } catch (err: any) { setError(err.message); } }} /> : null}
   </section>;
 }
 export function SellerReceipts({ initialCode = "" }: { initialCode?: string }) {
@@ -110,33 +167,61 @@ async function upload(file: File, scope: "seller" | "admin") {
 }
 export function PublicProfileEditor() {
   const [value, setValue] = useState<Json | null>(null), [message, setMessage] = useState("");
+  const [nameInvalid, setNameInvalid] = useState(false);
   useEffect(() => { request("/api/seller/public-profile", {}, "seller").then(r => setValue({ name: r.profile.name, about: r.profile.about, image_id: r.image_id, image: r.profile.image })).catch(e => setMessage(e.message)); }, []);
-  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" onSubmit={async e => { e.preventDefault(); try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
-    <label>שם לתצוגה<input required maxLength={120} value={value.name} onChange={e => setValue({ ...value, name: e.target.value })} /></label>
+  return <section className="panel"><h2>הפרופיל הציבורי שלי</h2>{value ? <form className="stack" noValidate onSubmit={async e => { e.preventDefault(); if (!String(value.name || "").trim()) { setNameInvalid(true); setMessage("יש להזין שם לתצוגה"); focusField("public-name"); return; } try { await request("/api/seller/public-profile", { method: "PUT", body: JSON.stringify(value) }, "seller"); setMessage("הפרופיל נשמר"); } catch (e: any) { setMessage(e.message); } }}>
+    <label>שם לתצוגה<input {...fieldAttention(nameInvalid ? { "public-name": "required" } : {}, "public-name")} required maxLength={120} value={value.name} onChange={e => { setValue({ ...value, name: e.target.value }); if (e.target.value.trim()) { setNameInvalid(false); setMessage(""); } }} /></label>
     <label>אודות<textarea rows={4} maxLength={1000} value={value.about} onChange={e => setValue({ ...value, about: e.target.value })} /></label>
     {value.image ? <img className="seller-avatar" src={value.image} alt="תמונת הפרופיל" /> : null}
     <label>לוגו העסק או תמונה אישית<input type="file" accept="image/png,image/jpeg,image/webp" onChange={async e => { if (!e.target.files?.[0]) return; try { const img = await upload(e.target.files[0], "seller"); setValue({ ...value, image_id: img.asset_id, image: img.url }); } catch (err: any) { setMessage(err.message); } }} /></label>
     <button className="btn btn-primary">שמירת הפרופיל</button>
   </form> : null}<p role="status">{message}</p></section>;
 }
-export function useSiteContent() {
+function useSiteContentState() {
   const [content, setContent] = useState<Json>({});
-  useEffect(() => { let alive = true; const load = () => request("/api/site-content").then(r => { if (alive) setContent(r.content); }).catch(() => undefined); void load(); window.addEventListener("site-content-updated", load); return () => { alive = false; window.removeEventListener("site-content-updated", load); }; }, []);
-  return content;
+  const [loading, setLoading] = useState(true), [error, setError] = useState(false);
+  useEffect(() => { let alive = true; const load = () => request("/api/site-content").then(r => { if (alive) { setContent(r.content || {}); setError(false); } }).catch(() => { if (alive) setError(true); }).finally(() => { if (alive) setLoading(false); }); void load(); window.addEventListener("site-content-updated", load); return () => { alive = false; window.removeEventListener("site-content-updated", load); }; }, []);
+  return { content, loading, error };
 }
+export function useSiteContent() { return useSiteContentState().content; }
+// ROUND 2 (UX-9) — the legal / content documents read as part of C-ton instead
+// of as a bare dump: the Siton document shell (orange section markers, a
+// measured line length, RTL-safe wrapping) plus a chip strip so a reader can
+// move between the legal documents without returning to the footer. The ONE
+// canonical source is unchanged — the CMS-backed /api/site-content projection
+// of src/legal_pages.ts.
+const LEGAL_NAV: [string, string][] = [
+  ["legal_terms", "תקנון"],
+  ["legal_privacy", "מדיניות פרטיות"],
+  ["legal_refunds", "ביטולים והחזרים"],
+  ["legal_payments", "מדיניות תשלומים"]
+];
 export function ContentPage({ section }: { section: string }) {
-  const content = useSiteContent()[section];
+  const { content: all, loading, error } = useSiteContentState();
+  const content = all[section];
   const blocks = String(content?.body || "").replace(/^# [^\n]+\r?\n/, "").trim().split(/\n\s*\n/);
-  return <article className="panel"><h1>{content?.title || "טוענים…"}</h1>{blocks.map((block, i) => {
-    if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;
-    if (block.split("\n").every(line => line.startsWith("- "))) return <ul key={i}>{block.split("\n").map((line, j) => <li key={j}>{line.slice(2)}</li>)}</ul>;
-    return <p key={i} style={{ whiteSpace: "pre-wrap" }}>{block}</p>;
-  })}</article>;
+  const isLegal = section.startsWith("legal_");
+  return <>
+    {isLegal ? <nav className="legal-nav" aria-label="מסמכים משפטיים">
+      {LEGAL_NAV.filter(([key]) => all[key]).map(([key, label]) => (
+        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{label}</a>
+      ))}
+    </nav> : null}
+    <article className="panel content-doc" data-testid="content-doc" data-section={section}>
+      <h1>{content?.title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
+      {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
+      {blocks.map((block, i) => {
+        if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;
+        if (block.split("\n").every(line => line.startsWith("- "))) return <ul key={i}>{block.split("\n").map((line, j) => <li key={j}>{line.slice(2)}</li>)}</ul>;
+        return <p key={i} style={{ whiteSpace: "pre-wrap" }}>{block}</p>;
+      })}
+    </article>
+  </>;
 }
 export function ContentAdmin() {
   const [sections, setSections] = useState<Json>({}), [key, setKey] = useState("home"), [value, setValue] = useState<Json>({}), [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => { setSections(r.sections); setValue(r.sections.home.value); }).catch(e => setMessage(e.message)); }, []);
+  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => { const next = r.sections || {}; const first = next.home ? "home" : Object.keys(next)[0]; setSections(next); if (first) { setKey(first); setValue(next[first].value); } else setMessage("אין כרגע אזורי תוכן לעריכה."); }).catch(() => setMessage("לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד.")); }, []);
   const section = sections[key];
   return <><h1>ניהול תוכן האתר</h1><p>עדכון התוכן בתוך מבנה העמודים הקיים.</p>
     <label>עמוד או אזור<select value={key} disabled={busy} onChange={e => { setKey(e.target.value); setValue(sections[e.target.value].value); setMessage(""); }}>{Object.entries(sections).map(([k, s]) => <option value={k} key={k}>{s.label}</option>)}</select></label>

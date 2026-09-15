@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { containDialogFocus } from "./dialogFocus";
 import { Json } from "./api";
 import { QrCode } from "./qrcode";
 import { formatIsraelDateTime, num } from "./util";
@@ -14,13 +15,15 @@ import { PICKUP_SHOW_TO_SELLER_LINE, PICKUP_SCREENSHOT_LINE, PICKUP_DELIVERY_LIN
 
 export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   const [fullscreen, setFullscreen] = useState(false);
+  const dialog = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!fullscreen) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setFullscreen(false); };
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    return () => { document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
+    const releaseFocus = dialog.current ? containDialogFocus(dialog.current) : undefined;
+    return () => { releaseFocus?.(); document.removeEventListener("keydown", onKey); document.body.style.overflow = prev; };
   }, [fullscreen]);
 
   if (!pickup || !pickup.applicable) return null;
@@ -33,7 +36,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   if (state === "fulfilled") {
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state="fulfilled">
-        <div className="panel-title">📦 המוצר שלי</div>
+        <div className="panel-title">המוצר שלי</div>
         <div className="notice ok pickup-headline" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "ההזמנה נמסרה"}</b>
           {fulfilledAt ? <div className="small" style={{ marginTop: 4 }}>נמסר: {fulfilledAt}</div> : null}
@@ -52,7 +55,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
     const tone = state === "deal_failed" || state === "deal_cancelled" || state === "unavailable" ? "err" : "info";
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state={state}>
-        <div className="panel-title">📦 קבלת המוצר</div>
+        <div className="panel-title">קבלת המוצר</div>
         <div className={`notice ${tone}`} style={{ marginTop: 0 }}>
           <b>{pickup.headline}</b>
           {pickup.subline ? <div className="small" style={{ marginTop: 4 }}>{pickup.subline}</div> : null}
@@ -64,7 +67,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   if (method === "delivery") {
     return (
       <div className="panel pickup-card" data-testid="track-pickup" data-state="ready-delivery">
-        <div className="panel-title">📦 המשלוח שלי</div>
+        <div className="panel-title">המשלוח שלי</div>
         <div className="notice ok" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "ההזמנה אושרה"}</b>
           <div className="small" style={{ marginTop: 4 }}>{PICKUP_DELIVERY_LINE}</div>
@@ -84,7 +87,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
   return (
     <>
       <div className="panel pickup-card" data-testid="track-pickup" data-state="ready">
-        <div className="panel-title">📦 איסוף המוצר</div>
+        <div className="panel-title">איסוף המוצר</div>
         <div className="notice ok pickup-headline" style={{ marginTop: 0 }}>
           <b>✓ {pickup.headline || "מוכן לאיסוף"}</b>
         </div>
@@ -118,7 +121,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
       </div>
 
       {fullscreen ? (
-        <div className="pickup-fullscreen" role="dialog" aria-modal="true" aria-label="קוד איסוף במסך מלא" data-testid="pickup-fullscreen">
+        <div className="pickup-fullscreen" ref={dialog} role="dialog" aria-modal="true" aria-label="קוד איסוף במסך מלא" data-testid="pickup-fullscreen">
           <div className="pickup-fullscreen-head">
             <span className="pickup-fullscreen-title">{pickup.product_title}</span>
             <button type="button" className="pickup-fullscreen-close" data-testid="pickup-fullscreen-close" aria-label="סגירה" onClick={() => setFullscreen(false)}>✕</button>
