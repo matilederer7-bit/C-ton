@@ -24,11 +24,19 @@ The setup is idempotent and refuses to overwrite an existing directory that is n
 
 Codex:
 
-`node scripts/agent_workspace.cjs start codex <task-slug>`
+`node scripts/agent_workspace.cjs start codex <task name>`
 
 Claude Code:
 
-`node scripts/agent_workspace.cjs start claude <task-slug>`
+`node scripts/agent_workspace.cjs start claude <task name>`
+
+`<task name>` may be a normal multi-word Hebrew or English description. The helper safely normalizes it into a Git branch component, so the owner does not need to invent an English slug.
+
+Example:
+
+`node scripts/agent_workspace.cjs start codex תיקון תמונות מוכר`
+
+creates a branch under `agent/codex/תיקון-תמונות-מוכר`.
 
 The command:
 
@@ -41,8 +49,8 @@ The command:
 
 Branches are named:
 
-- `agent/codex/<task-slug>`
-- `agent/claude/<task-slug>`
+- `agent/codex/<normalized-task-name>`
+- `agent/claude/<normalized-task-name>`
 
 ## Status / dry plan
 
