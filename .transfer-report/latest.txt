@@ -1,0 +1,6 @@
+Switched to a new branch 'claude/blissful-planck-l94ke3-transfer'
+Applying: fix(product-path): close silent integration gaps on the seller→buyer path; prove it end to end
+Applying: docs(status): overnight product integration hardening — inventory matrix, fixes, exact test results on 805bef3
+ACTUAL_TREE1=6fac2d10260344c154b6f79646223f8d5e1cea42 EXPECTED_TREE1=0b4cec17cc40c31491d5df059e9ab6c349585a37
+ACTUAL_TREE2=73c8f83821c3112fc74da9d9117317dbf57b497a EXPECTED_TREE2=73c8f83821c3112fc74da9d9117317dbf57b497a
+ACTUAL_BASE=f2121f60cc37d742e2bf32d0ca48fe2ec83a807d EXPECTED_BASE=f2121f60cc37d742e2bf32d0ca48fe2ec83a807d
