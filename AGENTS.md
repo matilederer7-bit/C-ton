@@ -75,14 +75,29 @@ Classify results as PASS, FAIL introduced by this change, pre-existing FAIL, NOT
 
 ## Two-agent coordination
 
-Codex and Claude Code may work in parallel, but must not edit the same working tree concurrently.
+Codex and Claude Code use separate Git worktrees as the canonical parallel-work model.
 
-Until dedicated Git worktrees are configured:
+The expected sibling workspaces are:
 
-- use separate branches and separate working directories/process contexts for parallel work
-- never reset, clean, stash, checkout over, amend, or force-push another agent's work
-- inspect `git status`, current branch, and recent commits before editing
-- if another agent has active uncommitted work in the same tree, do not touch it
+- `C-ton-codex`
+- `C-ton-claude`
+
+If they are not configured on the current machine, run:
+
+`node scripts/agent_workspace.cjs setup`
+
+Start each new task from current `origin/master` with:
+
+- Codex: `node scripts/agent_workspace.cjs start codex <task-slug>`
+- Claude Code: `node scripts/agent_workspace.cjs start claude <task-slug>`
+
+See `AGENT_WORKSPACES.md` for the complete operating contract.
+
+Parallel writing is allowed only when the tasks have separate coherent scopes. Separate worktrees prevent filesystem collisions but do not make overlapping product changes safe.
+
+Never reset, clean, stash, checkout over, amend, or force-push another agent's work.
+
+When scopes overlap materially, one agent is the writer and the other is reviewer/read-only for that task.
 
 When reviewing another agent, review the actual diff and tests rather than trusting the summary.
 
