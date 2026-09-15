@@ -34,12 +34,16 @@ function taskBranch(agent, slug) {
 
 function normalizeSlug(value) {
   const slug = String(value || "")
+    .normalize("NFKC")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9._-]+/g, "-")
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
     .replace(/^-+|-+$/g, "")
-    .slice(0, 80);
-  if (!slug) throw new Error("task slug is required and must contain letters or digits");
+    .replace(/\.{2,}/g, ".")
+    .slice(0, 80)
+    .replace(/[.-]+$/g, "");
+  if (!slug) throw new Error("task name is required and must contain letters or digits");
+  if (slug.endsWith(".lock")) throw new Error("task name must not end with .lock");
   return slug;
 }
 
@@ -137,10 +141,10 @@ function status(repoRoot = root()) {
   }
 }
 
-function startTask(agent, rawSlug) {
+function startTask(agent, rawName) {
   ensureGitAvailable();
   ensureAgent(agent);
-  const slug = normalizeSlug(rawSlug);
+  const slug = normalizeSlug(rawName);
   const repoRoot = root();
   const target = workspacePath(repoRoot, agent);
   const worktree = parseWorktrees(repoRoot).find((entry) => path.resolve(entry.path) === path.resolve(target));
@@ -164,16 +168,20 @@ function printPlan() {
   for (const agent of ["codex", "claude"]) {
     console.log(`AGENT_WORKTREE_TARGET agent=${agent} path=${workspacePath(repoRoot, agent)} standby_branch=${standbyBranch(agent)} task_prefix=agent/${agent}/`);
   }
-  console.log("AGENT_WORKTREE_BOUNDARY overwrite_existing_path=false discard_uncommitted=false force_push=false remote_branch_collision=false");
+  console.log("AGENT_WORKTREE_BOUNDARY overwrite_existing_path=false discard_uncommitted=false force_push=false remote_branch_collision=false unicode_task_names=true");
 }
 
 function main() {
-  const [command = "status", agent, slug] = process.argv.slice(2);
+  const [command = "status", ...args] = process.argv.slice(2);
   if (command === "setup") return setup();
   if (command === "status") return status();
-  if (command === "start") return startTask(agent, slug);
+  if (command === "start") return startTask(args[0], args.slice(1).join(" "));
+  if (command === "slug") {
+    console.log(`AGENT_TASK_SLUG ${normalizeSlug(args.join(" "))}`);
+    return;
+  }
   if (command === "--plan" || command === "plan") return printPlan();
-  throw new Error("usage: agent_workspace.cjs setup | status | start <codex|claude> <task-slug> | plan");
+  throw new Error("usage: agent_workspace.cjs setup | status | start <codex|claude> <task name> | slug <task name> | plan");
 }
 
 try {
