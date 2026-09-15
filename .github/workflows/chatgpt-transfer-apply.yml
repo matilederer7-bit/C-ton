@@ -32,7 +32,7 @@ jobs:
           set -euo pipefail
           exec > >(tee /tmp/transfer-report.txt) 2>&1
           BASE=f2121f60cc37d742e2bf32d0ca48fe2ec83a807d
-          TREE1=0b4cec17cc40c31491d5df059e9ab6c349585a37
+          TREE1=6fac2d10260344c154b6f79646223f8d5e1cea42
           TREE2=73c8f83821c3112fc74da9d9117317dbf57b497a
           TARGET=claude/blissful-planck-l94ke3-transfer
 
