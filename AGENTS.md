@@ -59,14 +59,15 @@ The normal flow is that ChatGPT performs external research and gives the coding 
 
 ## Testing
 
-Until a single canonical `siton:verify` command is introduced, use the existing repository scripts truthfully.
+The canonical repository completion command is:
 
-At minimum:
+`npm run siton:verify`
 
-- run focused tests for the changed area
-- run relevant TypeScript, build, lint, scan, or architecture checks
-- run `npm test` when scope or risk justifies the full grouped suite
-- run additional named gates when the touched area has a dedicated script in `package.json`
+It runs the current static release preflight, isolated migration proof, protected-route authorization gate, and complete grouped repository test suite. It deliberately excludes Docker labs, external provider calls, real-money actions, and production mutation.
+
+The command requires Node 22 or newer and a disposable local PostgreSQL `DATABASE_URL`. It refuses hosted staging or production databases. If the required local database is unavailable, the result is BLOCKED, not PASS.
+
+During implementation, run focused tests for fast feedback. Before completing meaningful code work, run `npm run siton:verify` unless the task is documentation-only or the environment cannot provide its prerequisites. If it cannot run, report that explicitly and do not claim full verification.
 
 Never claim a test passed if it was not run.
 
@@ -94,7 +95,7 @@ Before commit:
 1. inspect `git status`
 2. inspect the full diff
 3. verify no secrets or generated junk were added
-4. run appropriate tests
+4. run appropriate focused tests and the canonical verification gate when applicable
 5. update `PROJECT_STATUS.md` for meaningful milestones
 
 Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
@@ -117,7 +118,8 @@ A meaningful task is done only when the applicable items are true:
 
 - requested behavior is implemented
 - relevant tests were added or updated
-- relevant tests pass, or failures are classified honestly
+- focused tests pass, or failures are classified honestly
+- `npm run siton:verify` passes when the task and environment require full repository verification, or its inability to run is reported as BLOCKED
 - the diff was reviewed
 - `PROJECT_STATUS.md` was updated when required
 - changes were committed clearly
@@ -132,6 +134,7 @@ Report only useful evidence:
 - result
 - changed files
 - tests and exact outcomes
+- canonical verification result when applicable
 - commit SHA
 - branch or Pull Request
 - remaining blocker, if any
