@@ -11,6 +11,8 @@ Read:
 3. `AI_WORKFLOW.md`
 4. the task-relevant architecture, product, UX, migration, runbook, and test files
 
+`PROJECT_STATUS.md` is deliberately compact and current. Do not load `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` unless the task actually needs historical milestone detail.
+
 Do not rely on memory of an older Siton phase when newer repository decisions exist.
 
 ## Source of truth
@@ -21,7 +23,7 @@ When sources disagree, use this order:
 2. current canonical repository decisions and amendments
 3. current architecture/runtime contracts and `PROJECT_STATUS.md`
 4. current implementation plus passing tests as evidence of what is implemented
-5. older foundation, delivery, and historical documents
+5. older foundation, delivery, and historical documents including the archived project status
 
 Never revive deprecated behavior only because an old file still exists.
 
@@ -117,13 +119,15 @@ Use a clear commit message. Push the completed branch. Open a Pull Request when 
 
 ## PROJECT_STATUS.md
 
-At the end of every meaningful task, append a concise status block with:
+At the end of every meaningful task, update the compact `PROJECT_STATUS.md` with:
 
 - What was completed
 - What was checked
 - What is open
 - Progress percentage for the task or track
 - Next step
+
+Keep it current and concise. Do not append unlimited historical detail. Older milestone history belongs in the archive when a future rotation is needed.
 
 Do not mark a track 100% while known required work remains inside that track.
 
