@@ -341,6 +341,19 @@ Co-blockers, all external or owner-owned: `GROW_LIVE_VERIFICATION_NOT_PERFORMED`
 
 `npm run proof:no-real-money` → **`REAL_MONEY: BLOCKED`**, `NO_REAL_MONEY_PROOF_PASS 16/16`. `git diff` against `src/grow_payment_adapter.ts`, `src/payment_provider.ts`, `src/payout_rail.ts`, `src/platform_fee_money.ts`, `src/vat_authority.ts`, `config/real-money-release-policy.json`: **empty**.
 
+### LONG_HORIZON_DEALS — a second, separate provider-blocked item (not a review finding)
+
+Recorded here so it is not mistaken for closed by this review or by any green suite. It is owner-stated and outside the review's scope; no fix was attempted and none may be attempted in repository code.
+
+- The runtime **7-day limitation is NOT solved**. It is *enforced* (`src/app.ts:133` `DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000`; an 8-day deadline is rejected 400), which is a product boundary, not a solution.
+- Previous long-horizon design work exists but was **never merged**. It is not on master and must not be treated as available or partially in effect.
+- **A long-lived authorization cannot survive for months or years.** A card authorization is a short-lived hold, not a durable claim on funds. Any artefact implying otherwise is wrong and must be corrected, not carried forward.
+- A future architecture needs a **proven future-charge mechanism** — a stored provider-side payment instrument or a mandate — where "proven" means demonstrated against the provider's real contract, not inferred from documentation or from sandbox transport.
+- **Blocked on F13 / provider semantics and must not be guessed in repository code.** Encoding an assumed future-charge, mandate or token-reuse behaviour would create precisely the defect class this review exists to catch: something that looks implemented and passes its own tests while resting on an unverified external fact.
+- Migration `068`'s settlement horizon is a **different** problem (finality for money already in flight) and does **not** extend how long an authorization can be held.
+
+---
+
 **Canonical fee invariant independently re-verified** (not merely trusted from the existing suite):
 
 | Case | gross | VAT | fee base | 8% fee | |

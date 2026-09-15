@@ -1,4 +1,4 @@
-## SENIOR SKEPTICAL ENGINEER ADVERSARIAL REVIEW — HOSTILE AUDIT + HARDENING (2026-09-15) — branch `claude/senior-adversarial-production-review-cwupc5` from master `f2121f6`, PR open, NOT merged
+## SENIOR SKEPTICAL ENGINEER ADVERSARIAL REVIEW — HOSTILE AUDIT + HARDENING (2026-09-15) — branch `claude/senior-adversarial-production-review-cwupc5` from master `f2121f6`, committed locally as `8aebfd8`, **NOT PUSHED — GitHub write access denied (HTTP 403)**, no PR, NOT merged
 
 - **COMPLETED:** A deliberately hostile production-grade review of master `f2121f60cc37d742e2bf32d0ca48fe2ec83a807d` (master had moved on from the briefed `903175c4`; the later SHA was used and recorded). Full report: **`docs/SENIOR_ADVERSARIAL_REVIEW.md`**. **18 findings: 0 P0, 4 P1, 8 P2, 4 P3, 2 INFO.** All 4 P1s that are repository-owned are FIXED; the 4th (F13) is external by definition. Fixes, each minimal and evidence-led:
   - **F-01/F-02 (P1) — the hosted worker never drained on deploy.** `render.yaml` started the Worker with `dockerCommand: npm run start:worker:prod`, putting **npm at PID 1**, so Render's deploy SIGTERM never reached `src/worker.ts`'s `stopWorker()` and the worker was SIGKILLed mid-cycle — possibly between an external side effect and its outbox acknowledgement. The Dockerfile's own comment documents this exact failure (`exits 1`), and the release lab was fixed for it — but the hosted blueprint was not, `docker-compose.yml` / `docker-compose.ci.yml` were not, and `scripts/architecture_truth_gate.cjs` **actively asserted the broken pattern**, so correcting the blueprint would have failed the architecture gate. The test named *"image and lab start the Node runtime itself as PID 1, never a wrapper"* passed throughout because it read only the Dockerfile and the lab compose file — **never `render.yaml`**. Fixed on all four surfaces; the gate now forbids `npm run start:*:prod` in blueprint directives; a new regression test **"every deployable runtime surface starts Node as PID 1, never npm"** covers `render.yaml` + all three compose files. Written first, **observed failing** on unmodified master, passing after.
@@ -9,7 +9,7 @@
   - **F-11 (P2) — dependency advisories, classified not mass-upgraded.** `fastify` 5.7.4 → 5.12.4 (same major); in-major pins for `fast-uri ^3.1.8` (SSRF/host-confusion, reachable via ajv/fastify), `brace-expansion @1/@2` and `tmp ^0.2.7`. **20 advisories → 15; production-tree HIGH 4 → 0.** `exceljs` deliberately NOT taken (its only "fix" is a major *downgrade* to 3.4.0); `uuid` unreachable; every remaining critical/high is dev/build-only (mobile toolchain, frontend build, vitest).
   - **Test-quality fix:** `tests/docker_readiness_validation.ts` probed `docker --version` (the CLI binary) instead of `docker info` (engine reachability), so an environment with the CLI and no daemon produced a hard FAIL instead of the `SKIPPED_ENVIRONMENT` this suite uses everywhere else.
 - **TESTED:** Real Postgres 16, not mocks. `tsc --noEmit` clean · `BACKEND_ENFORCEMENT_SCAN_PASS` (165 files) · `PAYMENT_COMPLIANCE_SCAN_PASS` (318) · `RUNTIME_DDL_SCAN_PASS` (66) · `ARCHITECTURE_GATE_PASS` · `MIGRATIONS_COMPLETE count=61` from clean + idempotent rerun · `ISOLATED_MIGRATION_PROOF_PASS fresh_install=pass repeat=pass checksum_ledger=pass drift=0` · `CI_MIGRATION_REPORT_PASS` (75 tables, 376 constraints, 73 FKs) · `STARTUP_CONFIG_MATRIX_PASS runtime_gaps=0` · `RUNTIME_ENVIRONMENT_GATE_PASS` · `LOGGING_HYGIENE_GATE_PASS` · `HTTP_SECURITY_SMOKE_PASS` · `ROUTE_AUTHORIZATION_GATE_PASS` (incl. **"a forged seller header is not authority"**) · `ROUTE_INVENTORY_REPORT_PASS` 213 routes, **0 unclassified** · `NO_REAL_MONEY_PROOF_PASS 16/16` → **`REAL_MONEY: BLOCKED`** · full repository suite green. The canonical **8% fee invariant was independently re-derived**, not merely trusted: shipping included, authoritative VAT excluded, correct under awkward rounding and under refund reversal — **FEE_INVARIANT_HOLDS**.
-- **OPEN:**
+- **OPEN:** (see also the standing item **LONG_HORIZON_DEALS** recorded immediately below — the runtime 7-day limitation is NOT solved and is blocked on F13/provider semantics)
   - **F-07 (P2) — reported, deliberately NOT fixed.** `architecture_truth_gate` asserts `production_runtime === "base44"` and prints `production=base44` on every CI run, while the same manifest carries **`publish_performed: false`** and labels Render `legacy_runtime` — i.e. the declared production runtime has never been published, and the runtime that *is* serving is labelled legacy. The claim is enforced in three places including an explicit negative control asserting that `production_runtime = "render"` **must** fail. That is a maintained invariant, not an oversight; correcting it on inference would be exactly the speculative rewrite this review exists to catch. **Owner decision.**
   - **F-09 (P2)** — the mission-control security panel returns hardcoded findings and literal `status: "pass"` rows. It is a design document rendered as a dashboard. Do not treat it as incident evidence; use the gates, which measure.
   - **F-12 (P2, owner/CI)** — the Dockerfile runs `npm ci` without pruning, so the production image ships the dev toolchain including both criticals (`tar`, `vitest`). Not a one-liner: `run_migrations.cjs` and `bootstrap_demo_db.cjs` `require("dotenv")`, a devDependency. Exact patch: move `dotenv` to `dependencies`, then `RUN npm prune --omit=dev` after `npm run build:demo`. Left unapplied because Docker is unavailable in this environment and an unverified image change is the wrong kind of fix.
@@ -19,7 +19,52 @@
   - **Owner/infra:** **O-1** Render Blueprint sync (a `render.yaml` change is not auto-applied — until synced the hosted worker still does not drain) · **O-2** add `OTP_HASH_SALT` to both Render services (staging still uses the public default) · **O-3** the F-12 image patch · **O-4** the F-07 architecture decision · **O-5** Docker release lab + hosted staging proof (Docker unavailable here) · **O-6** the owner's call on the `ADVERSARIAL_REVIEW_NOT_PERFORMED` real-money blocker — **deliberately not cleared by this branch; an agent must not mark its own homework.**
   - **Environment-skipped here, covered by CI:** Docker release lab / `ci:docker-smoke` (no daemon) and the two browser proofs (Chromium refuses to run as root without `--no-sandbox`, and weakening a security flag to suit a sandbox was refused). **Verified pre-existing, not a regression:** `frontend_browser_smoke_validation` fails on **pristine master** in this environment too, confirmed by stashing all changes and re-running.
 - **PERCENTAGE:** **Technical production readiness 88%** (suite green; startup gaps 6→0; production-tree highs 4→0; PID-1 closed; held back by F-07, F-09, F-12 and by O-1/O-3 being hosted actions). **Closed pilot readiness 92%** (authorization, concurrency, recovery and fulfillment confidentiality all hold under attack; rate limiting is single-instance, acceptable at pilot scale; land O-1 and O-2 first). **Real-money readiness 35% — deliberately NOT inflated.** The rails are built and the fee invariant is exact, but **F13 is unresolved provider-side**, Grow live verification has not happened, and the owner has not approved activation. No repository work can move this number.
-- **NEXT STEP:** Merge the PR after CI is green (do not merge from this session). Then **O-1 (Blueprint sync) and O-2 (`OTP_HASH_SALT`) before the next pilot deploy** — O-1 is what makes the worker drain fix real in production. Then the owner decisions O-3/O-4/O-6. **REAL MONEY stays 0, Grow stays uncalled, F13 stays a blocker** — this review neither weakened nor cleared any real-money constraint, and `src/grow_payment_adapter.ts`, `src/payment_provider.ts`, `src/payout_rail.ts`, `src/platform_fee_money.ts`, `src/vat_authority.ts` and `config/real-money-release-policy.json` have a **zero-byte diff**.
+- **PUSH/PR BLOCKED — OWNER ACTION O-7 (new).** The branch is committed locally as `8aebfd8` but **cannot be pushed**: `git push` and the GitHub API `create_branch` both return **403** ("Claude doesn't have GitHub access to matilederer7-bit/C-ton for your organization" / "Resource not accessible by integration"), while READS succeed — the Claude GitHub App has **read-only** access to this repository. Verified across two sessions and three attempts; it is a permission grant, not a transient error. Remedy: an org admin installs/grants write at https://github.com/apps/claude/installations/select_target, or the owner reconnects GitHub at https://claude.ai/customize/connectors?auth_start=github&auth_start_force=1 . The commit was delivered out-of-band as a `git am`-able patch; its reconstruction was **verified byte-identical** to the local commit (tree `3de0db48b3405f2524bd68fd1c6685ffbabb117c`) by fetching base `f2121f6` into a scratch repo and applying it. **GitHub CI has therefore never run on this branch** — the 223/225 local result is the only evidence, and the 2 failures are the browser proofs, proven environment-only and pre-existing on pristine master.
+- **NEXT STEP:** Grant write access (O-7), push, open the PR, then merge after CI is green (do not merge from an agent session). Then **O-1 (Blueprint sync) and O-2 (`OTP_HASH_SALT`) before the next pilot deploy** — O-1 is what makes the worker drain fix real in production. Then the owner decisions O-3/O-4/O-6. **REAL MONEY stays 0, Grow stays uncalled, F13 stays a blocker** — this review neither weakened nor cleared any real-money constraint, and `src/grow_payment_adapter.ts`, `src/payment_provider.ts`, `src/payout_rail.ts`, `src/platform_fee_money.ts`, `src/vat_authority.ts` and `config/real-money-release-policy.json` have a **zero-byte diff**.
+
+## OPEN PRODUCT/PAYMENT ISSUE — LONG_HORIZON_DEALS (runtime 7-day limitation NOT solved) — standing item, owner-stated, carried forward until resolved
+
+This is a **separate open issue**, recorded deliberately so it is not mistaken for
+closed by any green suite, green gate or merged branch. Nothing in the adversarial
+review touched it, and no repository work can close it.
+
+- **LONG_HORIZON_DEALS — NOT SOLVED.** The runtime **7-day limitation is not
+  considered solved**. It is enforced today, not designed around:
+  `src/app.ts:133` `DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000`, with
+  `DEADLINE_MIN_MS` 2 hours, and the deal-creation surface rejects a deadline
+  beyond that window (an 8-day payload answers 400). That constraint is the
+  current product boundary; it is **not** evidence that long-horizon deals work.
+- **Previous long-horizon design work exists but was NEVER MERGED.** It is not on
+  master and must not be treated as available, proven, or partially in effect.
+  Do not cite it as prior art for a decision; do not assume any part of it landed.
+- **Do NOT pretend a long-lived authorization can survive for months or years.**
+  A card authorization is a short-lived hold, not a durable claim on funds. Any
+  design, document, status line, estimate or code comment that implies an
+  authorization taken today can be captured months or years later is wrong and
+  must be corrected rather than carried forward. The existing rails do not do
+  this and must not be described as if they do.
+- **A future architecture requires a PROVEN future-charge mechanism** — a
+  stored provider-side payment instrument or a mandate — not a stretched
+  authorization. "Proven" means demonstrated against the provider's real
+  contract, not inferred from documentation, not inferred from sandbox transport,
+  and not inferred from how another provider behaves.
+- **BLOCKED ON F13 / provider semantics, and MUST NOT BE GUESSED in repository
+  code.** The same provider-contract uncertainty that keeps F13 a real-money
+  blocker also governs this. Until those semantics are established with the
+  provider, no repository change may encode an assumed future-charge, mandate,
+  token-reuse or re-authorization behaviour — not in code, not in a migration,
+  not in a gate, and not as a default. Encoding a guess here would create exactly
+  the class of defect the adversarial review exists to catch: something that
+  looks implemented and passes its own tests while resting on an unverified
+  external fact.
+- **Relationship to the R9C settlement horizon.** Migration `068` gives the
+  system a durable, provider-specific SETTLEMENT HORIZON for money already in
+  flight (capture/recovery/release finality). That is a different problem and
+  does **not** extend how long an authorization can be held. Do not read 068 as
+  long-horizon support.
+- **STATUS: OPEN — blocked externally, not scheduled, not estimated.**
+  **NEXT STEP:** resolve the provider's future-charge/mandate contract with Grow
+  (owner + provider), then design. No repository work until then.
 
 ## RELEASE READINESS REINTEGRATED ONTO CURRENT MASTER — CONTROLLED PORT, NOT A MERGE (2026-09-15, CI repair 2026-09-15) — PR #14 open, branch `claude/release-readiness-reintegration` from exact master `0e53998`, NOT merged
 
