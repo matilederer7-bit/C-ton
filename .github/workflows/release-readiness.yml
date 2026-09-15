@@ -1,0 +1,155 @@
+name: Release readiness
+
+# Answers "can this exact commit safely go to staging/production?" with the
+# canonical release preflight (scripts/release_preflight.cjs) and proves the
+# Docker-only risks (image build, container start, migration boot, health,
+# HTTP smoke, worker heartbeat, clean shutdown) on every same-repository PR
+# and on master. No secrets are required; money stays mock; nothing deploys.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Fast static gates: no database, no Docker. TypeScript, enforcement scans,
+  # semantic raw-card scan, money/legal canon, secrets, logging hygiene,
+  # runtime environment policy, startup failure matrix, no-real-money proof,
+  # route inventory, migration manifest analysis, builds, mobile/PWA contract,
+  # repository hygiene, supply chain, Docker static readiness.
+  # ---------------------------------------------------------------------------
+  preflight-static:
+    name: preflight-static
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Clean dependency install
+        run: npm ci
+      - name: Release preflight (static profile)
+        run: npm run release:preflight:static
+      - name: Release manifest and checklist
+        if: always()
+        run: |
+          npm run release:manifest
+          npm run release:checklist
+      - name: Upload release reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preflight-static-${{ github.run_id }}
+          path: .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # Database-backed release gates on a disposable Postgres service: migration
+  # preflight (fresh, upgrade from master, partial ledger, CRLF ledger,
+  # tampered checksum, dirty ledger, failing-migration atomicity, schema
+  # drift), backup/restore rehearsal, health-check contract, HTTP security
+  # smoke, reproducible build, and the release-tool test suite. The route
+  # authorization behavioural suites and the payment/security groups are NOT
+  # repeated here: the backend quality gates workflow already runs them.
+  # ---------------------------------------------------------------------------
+  preflight-database:
+    name: preflight-database
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_release
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_release"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_release
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+      SITON_AGENT: ci
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: PostgreSQL client tools (pg_dump / pg_restore for the rehearsal)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client
+          pg_dump --version
+      - name: Clean dependency install
+        run: npm ci
+      - name: Release preflight (standard profile, database gates)
+        run: npm run release:preflight -- --profile standard --skip route-authorization-behavioural,release-local-lab
+      - name: Upload release reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-preflight-database-${{ github.run_id }}
+          path: .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true
+
+  # ---------------------------------------------------------------------------
+  # Docker-only risks, proven before merge for same-repository PRs (fork PRs
+  # cannot run compose with published ports safely): image build, container
+  # start, migration boot + seed, /health + /readiness, seller deal create,
+  # admin refusal, worker heartbeat, graceful stop with exit code 0, down -v.
+  # ---------------------------------------------------------------------------
+  docker-release-lab:
+    name: docker-release-lab
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Clean dependency install
+        run: npm ci
+      - name: Docker engine
+        run: docker version && docker compose version
+      - name: Local release lab (build, start, migrate, smoke, worker, graceful stop)
+        run: npm run release:local-lab
+      - name: Upload lab reports and compose logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-release-lab-${{ github.run_id }}
+          path: .release-artifacts/
+          if-no-files-found: error
+          retention-days: 14
+          include-hidden-files: true

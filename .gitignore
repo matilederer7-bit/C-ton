@@ -70,3 +70,7 @@ google-services.json
 
 # Independent review artifacts (proof JSON, never source of truth)
 .review-artifacts/
+
+# Git worktrees (parallel agent checkouts live here; never source) and release reports
+.worktrees/
+.release-artifacts/

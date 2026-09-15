@@ -1,0 +1,20 @@
+{
+  "$schema_note": "Deliberate identifier exceptions for scripts/lib/raw_card_terms.cjs. Each entry must name ONE file and ONE identifier and explain why the identifier is compliance posture/evidence, not raw cardholder data handling. Wildcards are refused. A stale entry (identifier no longer present) fails the scan so this list cannot rot.",
+  "allow": [
+    {
+      "file": "src/admin_mission_control.ts",
+      "identifier": "raw_pan_in_json",
+      "reason": "Mission Control JSON-boundary evidence field. Its value is the literal string \"no\"; it reports that no PAN is persisted in JSONB and never carries card data."
+    },
+    {
+      "file": "src/admin_mission_control.ts",
+      "identifier": "JSON-BOUND-NO-RAW-CARD",
+      "reason": "Mission Control compliance finding id (P0 'No raw card data persisted in JSON'). A label for the invariant, not a data field."
+    },
+    {
+      "file": "src/payment_provider.ts",
+      "identifier": "stripeServerSideRawCardAllowed",
+      "reason": "Compliance posture predicate: returns whether the deprecated Stripe server-side tokenization flag is permitted (never in production). It gates behaviour; it does not receive, store or transmit cardholder data. Financial runtime file - allow-listed, not modified."
+    }
+  ]
+}

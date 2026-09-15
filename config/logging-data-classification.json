@@ -1,0 +1,278 @@
+{
+  "version": 1,
+  "description": "Field classification used by scripts/logging_hygiene_gate.cjs and documented in docs/LOGGING_DATA_CLASSIFICATION.md. Matching is by identifier segment (camelCase/snake_case normalised) inside the ARGUMENTS of a log call. NEVER_LOG fields fail the gate; SENSITIVE fields warn unless the value expression is visibly masked/redacted/hashed.",
+  "never_log": [
+    {
+      "name": "cvv",
+      "why": "cardholder authentication data"
+    },
+    {
+      "name": "cvc",
+      "why": "cardholder authentication data"
+    },
+    {
+      "name": "card_number",
+      "why": "PAN"
+    },
+    {
+      "name": "pan",
+      "why": "PAN"
+    },
+    {
+      "name": "expiry_month",
+      "why": "card data"
+    },
+    {
+      "name": "expiry_year",
+      "why": "card data"
+    },
+    {
+      "name": "otp_code",
+      "why": "one-time secret"
+    },
+    {
+      "name": "development_code",
+      "why": "OTP in dev/demo mode; leaks into CI logs"
+    },
+    {
+      "name": "otp_token",
+      "why": "bearer token for the buyer flow"
+    },
+    {
+      "name": "tracking_access_token",
+      "why": "bearer token for tracking/recovery"
+    },
+    {
+      "name": "session_token",
+      "why": "session credential"
+    },
+    {
+      "name": "cookie",
+      "why": "session credential carrier"
+    },
+    {
+      "name": "set_cookie",
+      "why": "session credential carrier"
+    },
+    {
+      "name": "authorization",
+      "why": "credential header"
+    },
+    {
+      "name": "x_admin_key",
+      "why": "admin credential header"
+    },
+    {
+      "name": "admin_api_key",
+      "why": "admin credential"
+    },
+    {
+      "name": "password",
+      "why": "credential"
+    },
+    {
+      "name": "password_hash",
+      "why": "credential derivative (offline attack surface)"
+    },
+    {
+      "name": "seller_session_secret",
+      "why": "HMAC secret"
+    },
+    {
+      "name": "buyer_session_secret",
+      "why": "HMAC secret"
+    },
+    {
+      "name": "distributor_session_secret",
+      "why": "HMAC secret"
+    },
+    {
+      "name": "payment_webhook_secret",
+      "why": "webhook HMAC secret"
+    },
+    {
+      "name": "payment_provider_api_key",
+      "why": "provider credential"
+    },
+    {
+      "name": "grow_api_key",
+      "why": "provider credential"
+    },
+    {
+      "name": "grow_reference_encryption_key",
+      "why": "encryption key"
+    },
+    {
+      "name": "siton_storage_broker_key",
+      "why": "storage credential"
+    },
+    {
+      "name": "supabase_service_role_key",
+      "why": "service-role credential"
+    },
+    {
+      "name": "database_url",
+      "why": "connection string with credential"
+    },
+    {
+      "name": "connection_string",
+      "why": "connection string with credential"
+    },
+    {
+      "name": "iban",
+      "why": "seller banking data"
+    },
+    {
+      "name": "bank_account",
+      "why": "seller banking data"
+    },
+    {
+      "name": "account_number",
+      "why": "seller banking data"
+    },
+    {
+      "name": "payout_account",
+      "why": "seller banking data"
+    },
+    {
+      "name": "raw_body",
+      "why": "webhook/provider payloads may embed card or credential data"
+    }
+  ],
+  "sensitive": [
+    {
+      "name": "buyer_phone",
+      "why": "buyer PII; log only masked/display form"
+    },
+    {
+      "name": "buyer_email",
+      "why": "buyer PII"
+    },
+    {
+      "name": "buyer_name",
+      "why": "buyer PII"
+    },
+    {
+      "name": "buyer_id",
+      "why": "in this system the buyer id is derived from the phone number"
+    },
+    {
+      "name": "phone",
+      "why": "PII"
+    },
+    {
+      "name": "email",
+      "why": "PII"
+    },
+    {
+      "name": "delivery_address",
+      "why": "buyer PII"
+    },
+    {
+      "name": "delivery_city",
+      "why": "buyer PII (low)"
+    },
+    {
+      "name": "recipient_ref",
+      "why": "notification recipient: seller email or buyer phone"
+    },
+    {
+      "name": "destination",
+      "why": "OTP destination (phone/email); destination_display is the masked form"
+    },
+    {
+      "name": "support_phone",
+      "why": "seller contact PII"
+    },
+    {
+      "name": "support_email",
+      "why": "seller contact PII"
+    },
+    {
+      "name": "login_email",
+      "why": "seller credential identifier"
+    },
+    {
+      "name": "payer_name",
+      "why": "cardholder name"
+    },
+    {
+      "name": "payment_method_id",
+      "why": "provider token; opaque but correlatable"
+    },
+    {
+      "name": "provider_reference",
+      "why": "provider transaction reference; opaque but correlatable"
+    },
+    {
+      "name": "ip",
+      "why": "network identifier (retained for abuse control only)"
+    },
+    {
+      "name": "remote_address",
+      "why": "network identifier"
+    },
+    {
+      "name": "user_agent",
+      "why": "device fingerprint"
+    }
+  ],
+  "safe": [
+    "deal_id",
+    "participant_id",
+    "seller_id",
+    "affiliate_id",
+    "event_id",
+    "event_uuid",
+    "correlation_id",
+    "request_id",
+    "req_id",
+    "idempotency_key",
+    "challenge_id",
+    "notification_id",
+    "document_id",
+    "case_id",
+    "worker_id",
+    "attempt",
+    "attempt_count",
+    "duration_ms",
+    "code",
+    "error_code",
+    "status",
+    "state",
+    "buyer_state",
+    "money_state",
+    "deal_state",
+    "event_type",
+    "channel",
+    "purpose",
+    "provider",
+    "provider_code",
+    "kind",
+    "signal",
+    "concurrency",
+    "destination_display",
+    "reclaimed",
+    "transition_result",
+    "window_until",
+    "cleanup_error_code",
+    "enqueue_error_code",
+    "err",
+    "error",
+    "message",
+    "url"
+  ],
+  "masking_markers": [
+    "mask",
+    "redact",
+    "redacted",
+    "hash",
+    "digest",
+    "display",
+    "fingerprint",
+    "last4",
+    "obfusc",
+    "anonymi",
+    "safe"
+  ]
+}

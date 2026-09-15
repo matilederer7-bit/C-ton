@@ -1,59 +1,63 @@
-const fs = require("fs");
-const path = require("path");
+// Payment / raw-card compliance scan (npm run scan:payment).
+//
+// Invariant: no canonical runtime source HANDLES raw cardholder data. The
+// check is semantic (identifiers, keys, columns, form fields) through
+// scripts/lib/raw_card_terms.cjs, so a legal sentence stating that CVV is NOT
+// stored is not a finding, while `body.cvv`, `cvv: string`, a `card_number`
+// column or `<input name="cvv">` is.
+//
+// File selection goes through the canonical repository-scan policy
+// (scripts/lib/repo_scan_policy.cjs): .git, .worktrees, node_modules, build
+// output, temporary review directories and generated artefacts are never
+// inspected; every real source directory is.
+//
+// docs/ and tests/ are out of scope by design: documentation describes the
+// posture and tests carry hostile fixtures that PROVE rejection. Their own
+// controls live in tests/release_tools/raw_card_terms.test.cjs.
+const fs = require("node:fs");
+const policy = require("./lib/repo_scan_policy.cjs");
+const rawCard = require("./lib/raw_card_terms.cjs");
 
 const root = process.cwd();
-const forbidden = [
-  "card_number",
-  "credit_card_number",
-  "cvv",
-  "cvc",
-  "raw_card",
-  "pan",
-  "expiry_month",
-  "expiry_year",
-  "full_card",
-  "cardholder_data"
-];
-
-const allowedDirs = new Set(["docs", "tests"]);
-const ignoredDirs = new Set([".git", "node_modules", ".tmp_test_dist", ".demo_dist", ".tmp_gate_logs"]);
-const ignoredFiles = new Set([
-  path.normalize("scripts/compliance_payment_scan.cjs"),
-  path.normalize("scripts/legal_compliance_gate.cjs"),
-  path.normalize("src/legal_pages.ts")
+const OUT_OF_SCOPE_TOP_LEVEL = new Set(["docs", "tests"]);
+// Scanner infrastructure legitimately names the forbidden terms (detector
+// ids, the shared term module). Nothing else is exempt.
+const SELF = new Set([
+  "scripts/compliance_payment_scan.cjs",
+  "scripts/legal_compliance_gate.cjs",
+  "scripts/lib/raw_card_terms.cjs",
+  "scripts/logging_hygiene_gate.cjs",
+  "scripts/secret_pii_scan.cjs"
 ]);
 
-function walk(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (ignoredDirs.has(entry.name)) continue;
-    if (entry.name.startsWith(".tmp")) continue;
-    const full = path.join(dir, entry.name);
-    const rel = path.relative(root, full);
-    if (entry.isDirectory()) walk(full, out);
-    else if (/\.(ts|tsx|js|cjs|mjs|sql|html|css)$/.test(entry.name)) out.push(rel);
+function run(options = {}) {
+  const scanRoot = options.root || root;
+  const files = policy.walkRepository(scanRoot, {
+    extensions: policy.CODE_EXTENSIONS,
+    includeFile: (rel) => !OUT_OF_SCOPE_TOP_LEVEL.has(rel.split("/")[0]) && !SELF.has(rel)
+  });
+  const findings = [];
+  for (const file of files) {
+    const source = fs.readFileSync(file.abs, "utf8");
+    findings.push(...rawCard.scanFile(file.rel, source));
   }
-  return out;
+  const allowList = options.allowList || rawCard.loadAllowList(scanRoot);
+  const applied = rawCard.applyAllowList(findings, allowList);
+  return { scanned: files.length, findings: applied.findings, unusedAllowListEntries: applied.unusedAllowListEntries };
 }
 
-function isAllowed(rel) {
-  const first = rel.split(path.sep)[0];
-  return allowedDirs.has(first) || ignoredFiles.has(path.normalize(rel));
-}
-
-const failures = [];
-for (const rel of walk(root)) {
-  if (isAllowed(rel)) continue;
-  const text = fs.readFileSync(path.join(root, rel), "utf8");
-  for (const term of forbidden) {
-    const re = new RegExp(`\\b${term}\\b`, "i");
-    if (re.test(text)) failures.push(`${rel}: forbidden raw payment term "${term}"`);
+if (require.main === module) {
+  const result = run();
+  const failures = result.findings.map((hit) => hit.rel + ":" + hit.line + ": " + hit.kind + " \"" + hit.identifier + "\" matches forbidden raw payment term \"" + hit.term + "\"");
+  for (const entry of result.unusedAllowListEntries) failures.push("stale raw-card allow-list entry: " + entry.file + " " + entry.identifier + " (remove it)");
+  if (failures.length) {
+    console.error("PAYMENT_COMPLIANCE_SCAN_FAIL");
+    for (const failure of failures) console.error("- " + failure);
+    process.exit(1);
   }
+  console.log("PAYMENT_COMPLIANCE_SCAN_PASS");
+  console.log("SCANNED_FILES=" + result.scanned);
+  console.log("SCAN_POLICY=scripts/lib/repo_scan_policy.cjs");
 }
 
-if (failures.length) {
-  console.error("PAYMENT_COMPLIANCE_SCAN_FAIL");
-  for (const failure of failures) console.error(`- ${failure}`);
-  process.exit(1);
-}
-
-console.log("PAYMENT_COMPLIANCE_SCAN_PASS");
+module.exports = { run };
