@@ -19,7 +19,7 @@
 // admin RBAC (admin_*).
 
 import assert from "node:assert/strict";
-import { createHmac, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -65,6 +65,244 @@ function hmacHeaders(payload: Record<string, unknown>, secret = "mock-webhook-se
     "x-webhook-signature": `sha256=${digest}`,
     "x-webhook-timestamp": String(timestamp)
   };
+}
+
+// ── Credential confidentiality proof helpers (deterministic) ────────────────
+// Contract under test (src/deal_types.ts): a voucher/ticket credential is 16
+// chars from CODE_ALPHABET (no I/O/0/1); only its SHA-256 hex digest
+// (code_hash, 64 lowercase hex) and its last 4 chars (code_display_last4) are
+// ever persisted or displayed.
+//
+// The former proof scanned the CONCATENATED row text (code_hash included) with
+// /[A-HJ-NP-Z2-9]{16}/. That is probabilistic: digits 2-9 are in both the
+// generator alphabet and the hex alphabet, so a legitimate hash that happens
+// to contain 16 consecutive digits from 2-9 matched (p ≈ 3.8e-4 per hash,
+// i.e. roughly 0.5 % per run of this file). Everything below is structural:
+//   • exact shapes for code_hash / code_display_last4;
+//   • preimage check — no persisted or exposed string hashes to code_hash
+//     (the only way the plaintext could be present in any form);
+//   • credential-SHAPED strings are checked per whole value (anchored), never
+//     inside a hash or a concatenation;
+//   • no credential-shaped column on siton.fulfillment_units and no
+//     credential-shaped metadata key beyond the documented non-secret locators.
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+const CODE_LAST4_RE = /^[A-HJ-NP-Z2-9]{4}$/;
+const CODE_SHAPED_RE = /^[A-HJ-NP-Z2-9]{16}$/;
+// Any column / JSON key / CSV header that names a credential.
+const CREDENTIAL_NAME_RE = /plaintext|raw_code|code_text|voucher_code|ticket_code|secret|credential|(^|_)code$/i;
+// Documented NON-secret locators persisted in metadata_jsonb (authority is
+// always the authenticated seller + live DB state, never the value itself):
+//   order_code   — physical pickup locator "CT-NNNN-NNNN" (src/physical_fulfillment.ts)
+//   receipt_code — receipt-trust locator, 8×4 uppercase hex (src/receipt_trust.ts)
+const ALLOWED_METADATA_LOCATORS: Record<string, { kinds: string[]; shape: RegExp }> = {
+  order_code: { kinds: ["physical_delivery"], shape: /^CT-\d{4}-\d{4}$/ },
+  receipt_code: { kinds: ["physical_delivery", "voucher_code", "event_ticket"], shape: /^[0-9A-F]{4}(-[0-9A-F]{4}){7}$/ }
+};
+
+function sha256Hex(value: string): string {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+// Every string reachable from a value: JSON keys, string leaves, and the
+// members of arrays/objects at any depth. Dates, numbers, booleans are skipped.
+function collectStrings(value: unknown, out: string[] = [], path = "$"): string[] {
+  if (typeof value === "string") {
+    out.push(value);
+  } else if (Array.isArray(value)) {
+    value.forEach((item, i) => collectStrings(item, out, `${path}[${i}]`));
+  } else if (value && typeof value === "object" && !(value instanceof Date)) {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out.push(k);
+      collectStrings(v, out, `${path}.${k}`);
+    }
+  }
+  return out;
+}
+
+// Keys (with their JSON path) reachable from an object at any depth.
+function collectKeyPaths(value: unknown, out: Array<{ path: string; key: string; value: unknown }> = [], path = "$") {
+  if (Array.isArray(value)) {
+    value.forEach((item, i) => collectKeyPaths(item, out, `${path}[${i}]`));
+  } else if (value && typeof value === "object" && !(value instanceof Date)) {
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      out.push({ path: `${path}.${k}`, key: k, value: v });
+      collectKeyPaths(v, out, `${path}.${k}`);
+    }
+  }
+  return out;
+}
+
+// Normalised form of a string as a candidate credential: only generator
+// alphabet chars, upper-cased. Catches a plaintext persisted with separators
+// or in lower case ("abcd-efgh-…").
+function asCodeCandidate(value: string): string {
+  return value.toUpperCase().replace(/[^A-HJ-NP-Z2-9]/g, "");
+}
+
+// The core check: `value` must be neither a credential, nor a credential in
+// disguise (its raw or normalised form hashes to a known code_hash), nor the
+// hash itself (when `hashes` are secrets of the surface under test), nor
+// credential-shaped.
+function assertStringIsNotCredential(value: string, hashes: Set<string>, where: string) {
+  assert.ok(!CODE_SHAPED_RE.test(value), `${where}: credential-shaped 16-char value exposed`);
+  assert.ok(!hashes.has(value.toLowerCase()), `${where}: code_hash exposed`);
+  assert.ok(!hashes.has(sha256Hex(value)), `${where}: plaintext credential exposed (hashes to code_hash)`);
+  const candidate = asCodeCandidate(value);
+  if (candidate.length === 16) {
+    assert.ok(!hashes.has(sha256Hex(candidate)), `${where}: plaintext credential exposed in disguised form`);
+  }
+}
+
+// One siton.fulfillment_units row (SELECT *): structural confidentiality.
+function assertUnitRowHoldsNoPlaintextCredential(row: Record<string, unknown>) {
+  const unitId = String(row.fulfillment_unit_id);
+  const kind = String(row.fulfillment_kind);
+  const where = `fulfillment_units[${unitId}]`;
+  const hashes = new Set<string>();
+  if (kind === "voucher_code" || kind === "event_ticket") {
+    assert.match(String(row.code_hash ?? ""), SHA256_HEX_RE, `${where}: code_hash must be SHA-256 lowercase hex (64 chars)`);
+    assert.match(String(row.code_display_last4 ?? ""), CODE_LAST4_RE, `${where}: code_display_last4 must be exactly 4 generator-alphabet chars`);
+  }
+  if (row.code_hash !== null && row.code_hash !== undefined) hashes.add(String(row.code_hash).toLowerCase());
+
+  // No credential-shaped metadata key beyond the documented non-secret locators.
+  const metadata = row.metadata_jsonb && typeof row.metadata_jsonb === "object" ? row.metadata_jsonb : {};
+  for (const entry of collectKeyPaths(metadata)) {
+    if (!CREDENTIAL_NAME_RE.test(entry.key)) continue;
+    const allowed = ALLOWED_METADATA_LOCATORS[entry.key];
+    assert.ok(allowed, `${where}: metadata key ${entry.path} names a credential`);
+    assert.ok(allowed.kinds.includes(kind), `${where}: metadata locator ${entry.path} is not allowed for ${kind}`);
+    assert.match(String(entry.value), allowed.shape, `${where}: metadata locator ${entry.path} has an unexpected shape`);
+  }
+
+  // Every string persisted on the row (all columns except the hash itself,
+  // metadata keys + values at any depth) is neither the credential nor
+  // credential-shaped.
+  for (const [column, value] of Object.entries(row)) {
+    if (column === "code_hash") continue;
+    for (const s of collectStrings(value)) {
+      assertStringIsNotCredential(s, hashes, `${where}.${column}`);
+    }
+  }
+}
+
+// siton.fulfillment_units has no dedicated plaintext / raw-code column: the only
+// credential-bearing columns are code_hash and code_display_last4.
+async function assertNoPlaintextCredentialColumn() {
+  const columns = await pool.query(
+    `SELECT column_name FROM information_schema.columns
+      WHERE table_schema='siton' AND table_name='fulfillment_units'
+      ORDER BY ordinal_position`
+  );
+  const names = (columns.rows as Array<{ column_name: string }>).map((r) => String(r.column_name));
+  assert.ok(names.includes("code_hash"), "fulfillment_units.code_hash must exist");
+  assert.ok(names.includes("code_display_last4"), "fulfillment_units.code_display_last4 must exist");
+  for (const name of names) {
+    if (name === "code_hash" || name === "code_display_last4") continue;
+    assert.doesNotMatch(name, CREDENTIAL_NAME_RE, `fulfillment_units.${name}: unexpected credential-shaped column`);
+  }
+  return names;
+}
+
+async function unitSecretsFor(where: "deal_id" | "participant_id", id: string) {
+  const r = await pool.query(
+    `SELECT fulfillment_unit_id, code_hash, code_display_last4
+       FROM siton.fulfillment_units
+      WHERE ${where}=$1`,
+    [id]
+  );
+  const byUnit = new Map<string, { code_hash: string | null; last4: string | null }>();
+  const hashes = new Set<string>();
+  for (const row of r.rows as any[]) {
+    byUnit.set(String(row.fulfillment_unit_id), {
+      code_hash: row.code_hash ? String(row.code_hash).toLowerCase() : null,
+      last4: row.code_display_last4 ? String(row.code_display_last4) : null
+    });
+    if (row.code_hash) hashes.add(String(row.code_hash).toLowerCase());
+  }
+  return { byUnit, hashes };
+}
+
+// Buyer tracking view for one participant: units carry code_display_last4
+// (matching the DB) and nothing anywhere in the payload is the credential,
+// its hash, or credential-shaped.
+async function assertTrackingExposesLast4Only(tracking: any, participantId: string) {
+  const { byUnit, hashes } = await unitSecretsFor("participant_id", participantId);
+  assert.ok(byUnit.size >= 1, `participant ${participantId} must have issued units`);
+  const units = tracking?.fulfillment?.units;
+  assert.ok(Array.isArray(units) && units.length === byUnit.size, "tracking must list every issued unit");
+  for (const unit of units as Array<Record<string, unknown>>) {
+    for (const key of Object.keys(unit)) {
+      if (key === "code_display_last4") continue;
+      assert.doesNotMatch(key, CREDENTIAL_NAME_RE, `tracking unit key ${key} names a credential`);
+    }
+    const persisted = byUnit.get(String(unit.fulfillment_unit_id));
+    assert.ok(persisted, `tracking unit ${String(unit.fulfillment_unit_id)} is not a persisted unit of this participant`);
+    assert.match(String(unit.code_display_last4 ?? ""), CODE_LAST4_RE, "tracking code_display_last4 must be exactly 4 generator-alphabet chars");
+    assert.equal(unit.code_display_last4, persisted.last4, "tracking code_display_last4 must equal the persisted last4");
+  }
+  for (const s of collectStrings(tracking)) assertStringIsNotCredential(s, hashes, "tracking payload");
+}
+
+// Minimal RFC-4180 reader for the seller exports (cells quoted with " and
+// doubled inner quotes; rows separated by CRLF; optional leading BOM).
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  const src = text.replace(/^﻿/, "");
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src.charAt(i);
+    if (quoted) {
+      if (ch === '"') {
+        if (src.charAt(i + 1) === '"') { cell += '"'; i += 1; } else { quoted = false; }
+      } else {
+        cell += ch;
+      }
+    } else if (ch === '"') {
+      quoted = true;
+    } else if (ch === ",") {
+      row.push(cell); cell = "";
+    } else if (ch === "\r" && src.charAt(i + 1) === "\n") {
+      row.push(cell); cell = ""; rows.push(row); row = []; i += 1;
+    } else if (ch === "\n") {
+      row.push(cell); cell = ""; rows.push(row); row = [];
+    } else {
+      cell += ch;
+    }
+  }
+  if (cell.length || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.length > 1 || (r[0] ?? "").length > 0);
+}
+
+// Seller voucher/ticket export: header exposes exactly one credential column
+// (`last4Column`), every data row's last4 matches the persisted unit, and no
+// cell is the credential, its hash, or credential-shaped.
+async function assertExportExposesLast4Only(csv: string, dealId: string, last4Column: string) {
+  const rows = parseCsv(csv);
+  const header = rows[0];
+  assert.ok(header && header.length > 1, "export must have a header row");
+  assert.ok(header.includes(last4Column), `export header must include ${last4Column}`);
+  assert.ok(!header.includes("code_hash"), "export must not carry code_hash");
+  for (const name of header) {
+    if (name === last4Column) continue;
+    assert.doesNotMatch(name, CREDENTIAL_NAME_RE, `export header ${name} names a credential`);
+  }
+  const unitIdIdx = header.indexOf("fulfillment_unit_id");
+  const last4Idx = header.indexOf(last4Column);
+  assert.ok(unitIdIdx >= 0, "export header must include fulfillment_unit_id");
+  const { byUnit, hashes } = await unitSecretsFor("deal_id", dealId);
+  const dataRows = rows.slice(1);
+  assert.ok(dataRows.length >= 1, "export must list the eligible units");
+  for (const cells of dataRows) {
+    assert.equal(cells.length, header.length, `export row has ${cells.length} cells, header has ${header.length}`);
+    const persisted = byUnit.get(String(cells[unitIdIdx]));
+    assert.ok(persisted, `export row references unknown unit ${String(cells[unitIdIdx])}`);
+    assert.match(String(cells[last4Idx] ?? ""), CODE_LAST4_RE, `${last4Column} must be exactly 4 generator-alphabet chars`);
+    assert.equal(cells[last4Idx], persisted.last4, `${last4Column} must equal the persisted last4`);
+    for (const cell of cells) assertStringIsNotCredential(cell, hashes, "export cell");
+  }
 }
 
 async function run(name: string, fn: () => Promise<void>) {
@@ -343,6 +581,7 @@ let ticketSellerId = "";
 let voucherDealId = "";
 let ticketDealId = "";
 let voucherEligibleParticipantId = "";
+let voucherTrackingToken = "";
 let ticketEligibleParticipantId = "";
 
 try {
@@ -478,6 +717,7 @@ try {
     assert.equal(buyerA.response.statusCode, 200, buyerA.response.body);
     voucherEligibleParticipantId = buyerA.body.participant_id;
     const trackingTokenA = buyerA.body.tracking_access_token;
+    voucherTrackingToken = String(trackingTokenA);
     const buyerB = await joinDeal({ dealId: voucherDealId, suffix: "voucher-B", qty: 2 });
     assert.equal(buyerB.response.statusCode, 200, buyerB.response.body);
     const buyerC = await joinDeal({ dealId: voucherDealId, suffix: "voucher-C", qty: 2 });
@@ -531,8 +771,8 @@ try {
         assert.deepEqual(indexes, Array.from({ length: Number(p.qty) }, (_, i) => i + 1));
         for (const row of units.rows as any[]) {
           assert.equal(String(row.status), "Issued");
-          assert.ok(row.code_hash && String(row.code_hash).length >= 64, "code_hash must be SHA-256 hex");
-          assert.ok(row.code_display_last4 && String(row.code_display_last4).length === 4, "code_display_last4 must be 4 chars");
+          assert.match(String(row.code_hash ?? ""), SHA256_HEX_RE, "code_hash must be SHA-256 lowercase hex (64 chars)");
+          assert.match(String(row.code_display_last4 ?? ""), CODE_LAST4_RE, "code_display_last4 must be exactly 4 generator-alphabet chars");
         }
       } else {
         assert.equal(units.rowCount, 0, `ineligible participant ${p.participant_id} must NOT have units`);
@@ -554,6 +794,20 @@ try {
   });
 
   await run("B3: voucher tracking ג€” eligible buyer sees last4, ineligible buyer sees nothing", async () => {
+    // Deterministic: the eligible buyer's own tokened view (same token B2 used
+    // pre-completion) lists every issued unit with last4 only ג€” never the
+    // credential, never its hash.
+    const tokened = await app.inject({
+      method: "GET",
+      url: `/api/participants/${voucherEligibleParticipantId}/tracking?t=${encodeURIComponent(voucherTrackingToken)}`
+    });
+    assert.equal(tokened.statusCode, 200, tokened.body);
+    const tokenedTracking = (tokened.json() as any).tracking;
+    assert.equal(tokenedTracking.fulfillment.eligible, true);
+    assert.equal(tokenedTracking.fulfillment.units.length, 3, "buyer A joined with qty=3");
+    await assertTrackingExposesLast4Only(tokenedTracking, voucherEligibleParticipantId);
+
+    // Legacy (untokened) probe: demo-preview may allow it; shape must hold either way.
     const tracking = await app.inject({
       method: "GET",
       url: `/api/participants/${voucherEligibleParticipantId}/tracking`
@@ -588,8 +842,9 @@ try {
     const csv = exportRes.body as string;
     // Header row contains voucher_code_last4 (not plaintext).
     assert.match(csv, /voucher_code_last4/);
-    // No 16-character system-generated code body (alphabet) appears.
-    assert.doesNotMatch(csv, /[A-HJ-NP-Z2-9]{16}/);
+    // Deterministic: last4 only (equal to the persisted last4 per unit); no cell
+    // is the credential, its hash, or credential-shaped.
+    await assertExportExposesLast4Only(csv, voucherDealId, "voucher_code_last4");
     // CSV-injection: any leading =, +, -, @ in a cell must have been quoted/prefixed.
     const lines = csv.split(/\r?\n/);
     for (const line of lines) {
@@ -778,13 +1033,24 @@ try {
         assert.equal(units.rowCount, Number(p.qty), `eligible ticket participant ${p.participant_id} should have qty=${p.qty} units`);
         for (const row of units.rows as any[]) {
           assert.equal(String(row.fulfillment_kind), "event_ticket");
-          assert.ok(row.code_hash);
-          assert.equal(String(row.code_display_last4).length, 4);
+          assert.match(String(row.code_hash ?? ""), SHA256_HEX_RE, "code_hash must be SHA-256 lowercase hex (64 chars)");
+          assert.match(String(row.code_display_last4 ?? ""), CODE_LAST4_RE, "code_display_last4 must be exactly 4 generator-alphabet chars");
         }
       } else {
         assert.equal(units.rowCount, 0);
       }
     }
+
+    // Post-completion tracking for the eligible ticket buyer: last4 only.
+    const post = await app.inject({
+      method: "GET",
+      url: `/api/participants/${ticketEligibleParticipantId}/tracking?t=${encodeURIComponent(trackingToken)}`
+    });
+    assert.equal(post.statusCode, 200, post.body);
+    const postTracking = (post.json() as any).tracking;
+    assert.equal(postTracking.fulfillment.eligible, true);
+    assert.equal(postTracking.fulfillment.units.length, 2, "ticket buyer joined with qty=2");
+    await assertTrackingExposesLast4Only(postTracking, ticketEligibleParticipantId);
   });
 
   await run("C3: ticket-export + ticket check-in ג€” ownership + idempotency + no money mutation", async () => {
@@ -797,7 +1063,7 @@ try {
     const csv = exp.body as string;
     assert.match(csv, /event_name/);
     assert.match(csv, /ticket_code_last4/);
-    assert.doesNotMatch(csv, /[A-HJ-NP-Z2-9]{16}/);
+    await assertExportExposesLast4Only(csv, ticketDealId, "ticket_code_last4");
 
     const wrongType = await app.inject({
       method: "GET",
@@ -978,20 +1244,25 @@ try {
   });
 
   await run("F4: no plaintext voucher/ticket code anywhere in DB across all fulfillment_units", async () => {
-    // If any 16-char alphanumeric code (matching the generator alphabet)
-    // showed up in any TEXT column on fulfillment_units, that would be a
-    // catastrophic leak. We scan all text columns of the row.
-    const rows = await pool.query(
-      `SELECT fulfillment_unit_id, code_hash, code_display_last4, status, metadata_jsonb::text AS meta_text
-         FROM siton.fulfillment_units`
-    );
-    for (const row of rows.rows as any[]) {
-      const blob = `${row.code_hash || ""}|${row.code_display_last4 || ""}|${row.status || ""}|${row.meta_text || ""}`;
-      // 16 chars from the generator alphabet (A-HJ-NP-Z, 2-9). code_hash is hex
-      // (length 64, only [0-9a-f]); last4 is 4 chars only. Neither is 16 chars
-      // from the generator alphabet, so any match is a leak.
-      assert.doesNotMatch(blob, /[A-HJ-NP-Z2-9]{16}/);
+    // Deterministic structural proof (see the helper block at the top of the
+    // file for why the previous blob regex was probabilistic):
+    //   1. the table has no plaintext / raw-code column;
+    //   2. every voucher/ticket row: code_hash is SHA-256 lowercase hex, last4
+    //      is 4 generator-alphabet chars, and NO string persisted on the row
+    //      (any column, metadata keys + values at any depth) is the credential
+    //      (preimage of code_hash), its disguised form, or credential-shaped;
+    //   3. metadata carries no credential-named key beyond the documented
+    //      non-secret locators (order_code for physical pickup, receipt_code).
+    const columns = await assertNoPlaintextCredentialColumn();
+    assert.ok(columns.includes("metadata_jsonb"), "metadata_jsonb must be scanned");
+    const rows = await pool.query(`SELECT * FROM siton.fulfillment_units ORDER BY created_at ASC, unit_index ASC`);
+    assert.ok(rows.rowCount && rows.rowCount >= 1, "expected issued fulfillment_units to scan");
+    let hashedRows = 0;
+    for (const row of rows.rows as Array<Record<string, unknown>>) {
+      assertUnitRowHoldsNoPlaintextCredential(row);
+      if (row.code_hash) hashedRows += 1;
     }
+    assert.ok(hashedRows >= 1, "expected at least one voucher/ticket row with a code_hash");
   });
 
   // ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€ג”€
