@@ -1,0 +1,43 @@
+{
+  "version": 1,
+  "description": "Release GOVERNANCE for real money. This is not a runtime flag and is not read by the application. It tells the release tooling (release:preflight, proof:no-real-money, runtime_environment_gate, release:owner-check) whether a build may ever be described as 'production ready for money'. The financial runtime keeps its own fail-closed guards; this file cannot enable money by itself and cannot weaken those guards.",
+  "real_money_allowed": false,
+  "status": "BLOCKED",
+  "decided_by": "owner",
+  "decided_on": "2026-09-15",
+  "blocking_reasons": [
+    {
+      "id": "F13_PROVIDER_CONTRACT_UNRESOLVED",
+      "summary": "F-13 REAL_MONEY_BLOCKER: the Grow provider contract for real money is unresolved. The R9C financial rails (durable operation lifecycle, settlement horizon, dispatch legality) are on master, but the provider-side contract facts they depend on (settle/status semantics against the live Grow API, provider-side idempotency) are UNPROVEN outside the sandbox transport proof.",
+      "cleared": false
+    },
+    {
+      "id": "GROW_LIVE_VERIFICATION_NOT_PERFORMED",
+      "summary": "Grow live-mode verification has not been performed; only sandbox transport proof exists (docs/R9B_GROW_SANDBOX_PROOF_RUNBOOK.md) and the sandbox userId/pageCode blocker is still with Grow support. Grow is disabled on every checked-in target (staging is pinned to mockpay).",
+      "cleared": false
+    },
+    {
+      "id": "PRODUCTION_PAYMENT_ACTIVATION_NOT_APPROVED",
+      "summary": "The owner has not approved production payment activation. Code deploy, database migration and real-money activation are three separate decisions (docs/DEPLOYMENT_RUNBOOK.md).",
+      "cleared": false
+    },
+    {
+      "id": "ADVERSARIAL_REVIEW_NOT_PERFORMED",
+      "summary": "The senior skeptical engineer adversarial review of the integrated master (R9C financial rails + hardened UX + release-readiness tooling) has not been performed. It is the next step after this reintegration merges with green CI.",
+      "cleared": false
+    },
+    {
+      "id": "FINANCIAL_BRANCH_NOT_INTEGRATED",
+      "summary": "CLOSED: the financial candidate is on master. PR #9 (merge 4aaaa73, candidate 2cdc89a) carries migrations 067_payment_operation_lifecycle and 068_payment_settlement_horizon, the durable dispatch lifecycle and the settlement-horizon protection; staging ledger 61/61 (067@60, 068@61) verified and a hosted synthetic lifecycle proven on 2026-09-14. The remaining money blockers are the provider contract (F-13), Grow live verification, owner activation and the adversarial review.",
+      "cleared": true,
+      "evidence": "PR #9 merged 2026-09-14 (master 4aaaa73); PROJECT_STATUS.md milestones 'R9C production candidate' and 'Hosted R9C proof'; docs/R9C_PRODUCTION_EXTRACTION_AUDIT.md"
+    }
+  ],
+  "how_to_change": [
+    "1. Every entry in blocking_reasons must be set to cleared: true with a dated evidence link (review report, Grow live proof, signed owner decision).",
+    "2. Set real_money_allowed to true and status to ALLOWED in the same commit, with decided_by/decided_on updated.",
+    "3. The commit must be reviewed by a second person; the runtime_environment_gate production rule governed_by=real-money-release-policy then permits PAYMENT_ENVIRONMENT=live.",
+    "4. Runtime activation is STILL a separate action: production env vars (PAYMENT_PROVIDER=grow, PAYMENT_ENVIRONMENT=live, credentials) are set in the hosting console after this file allows it, never before.",
+    "5. proof:no-real-money continues to run on every release; when this file is ALLOWED it switches from 'assert blocked' to 'assert every reason cleared with evidence'."
+  ]
+}

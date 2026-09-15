@@ -1,0 +1,50 @@
+{
+  "version": 1,
+  "description": "Intentional classification of every HTTP route for the release route inventory (scripts/route_inventory_report.cjs). Protected routes (admin / seller / distributor) and anonymous-by-design routes come from scripts/protected_route_policy.cjs and the live router metadata; the rules below classify everything else by ordered pattern. A route matching no rule is UNCLASSIFIED and fails the release gate: classify it here deliberately (and, if it needs a guard, in the policy) before it ships.",
+  "classes": {
+    "health": "liveness / readiness probes; no data",
+    "admin": "requires admin key or admin session (policy: protected)",
+    "seller": "requires seller session/authority (policy: protected)",
+    "distributor": "requires distributor session (policy: protected)",
+    "anonymous-by-design": "reviewed anonymous entry points inside protected namespaces (policy allowlist)",
+    "buyer-token": "buyer flow endpoints that act on a deal-bound token (OTP token, tracking/recovery token, buyer resume cookie, authorization id)",
+    "webhook": "provider ingestion; authenticated by provider signature / shared secret",
+    "public-read": "anonymous read of published/public data",
+    "public-write": "anonymous mutation endpoints (rate-limited, validated); every entry is a deliberate product decision",
+    "app-shell": "HTML shell, static assets, legal pages, share landing",
+    "legacy-alias": "route aliases kept for compatibility; same handler as the canonical route",
+    "demo-only": "answers only in demo-preview or with DEBUG_SURFACES; must 404 elsewhere"
+  },
+  "rules": [
+    { "class": "health", "pattern": "^/(health|readiness)(/integrations)?$" },
+    { "class": "webhook", "pattern": "^/webhooks/payments/mock$", "override_class": "legacy-alias", "note": "alias of /webhooks/payments (same handler, same signature verification)" },
+    { "class": "webhook", "pattern": "^/webhooks/" },
+    { "class": "legacy-alias", "pattern": "^/api/payments/authorize-mock$", "note": "alias of /api/payments/authorize (same handler; the configured provider decides mock vs real)" },
+    { "class": "legacy-alias", "pattern": "^/api/otp/request$", "note": "alias of /api/otp/start" },
+    { "class": "demo-only", "pattern": "^/debug/" },
+    { "class": "demo-only", "pattern": "^/api/preview/(auth-config|meta)$" },
+    { "class": "buyer-token", "pattern": "^/deals/:id/join$" },
+    { "class": "buyer-token", "pattern": "^/api/participants/:[A-Za-z]+/(tracking|recovery|impact|entitlement|public-name)$" },
+    { "class": "buyer-token", "pattern": "^/api/buyer/(resume/:[A-Za-z]+|session/logout)$" },
+    { "class": "buyer-token", "pattern": "^/api/otp/(start|verify)$" },
+    { "class": "buyer-token", "pattern": "^/api/payments/(authorize|status|tokenize)$" },
+    { "class": "buyer-token", "pattern": "^/app/(track|recovery)/:[A-Za-z]+$" },
+    { "class": "public-write", "pattern": "^/api/mall/events$" },
+    { "class": "public-write", "pattern": "^/api/viral/events$" },
+    { "class": "public-write", "pattern": "^/api/support/contact$" },
+    { "class": "public-write", "pattern": "^/api/deals/:[A-Za-z]+/(inquiries|chat|feedback)$", "methods": ["POST"] },
+    { "class": "public-write", "pattern": "^/api/deals/:[A-Za-z]+/chat/:[A-Za-z]+/reaction$" },
+    { "class": "public-write", "pattern": "^/api/inquiries/:[A-Za-z]+/messages$" },
+    { "class": "public-read", "pattern": "^/api/deals/:[A-Za-z]+/(public|public-names|receipt-info|activity|chat)$", "methods": ["GET"] },
+    { "class": "public-read", "pattern": "^/api/inquiries/:[A-Za-z]+$", "methods": ["GET"] },
+    { "class": "public-read", "pattern": "^/api/(mall/deals|site/home|site-content|auth/capabilities)$", "methods": ["GET"] },
+    { "class": "public-read", "pattern": "^/api/(public-sellers|content-assets|deal-images)/:[A-Za-z]+$", "methods": ["GET"] },
+    { "class": "app-shell", "pattern": "^/d/:[A-Za-z]+$" },
+    { "class": "app-shell", "pattern": "^/(preview(/\\*)?|app(/.*)?|legal/:slug)$", "methods": ["GET"] },
+    { "class": "app-shell", "pattern": "^/$", "methods": ["GET"] }
+  ],
+  "sensitive_if_unclassified": {
+    "description": "Any unclassified route is a release blocker; these prefixes additionally mark the route as SENSITIVE in the report (mutations or data namespaces).",
+    "prefixes": ["/api/", "/webhooks/", "/deals", "/participants", "/payments", "/admin", "/seller", "/debug"]
+  }
+}

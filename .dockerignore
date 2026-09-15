@@ -59,3 +59,7 @@ desktop.ini
 *_DELIVERY_REPORT.md
 PROJECT_STATUS.md
 .ci-artifacts/
+
+# Parallel agent checkouts and release reports never enter the build context
+.worktrees
+.release-artifacts

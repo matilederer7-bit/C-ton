@@ -1,0 +1,93 @@
+# Local release lab: the production image (Dockerfile) + Postgres + the
+# continuous worker, mock money only, no hosted dependency, ephemeral ports.
+# Driven by scripts/release_local_lab.cjs (npm run release:local-lab):
+#   up --build --wait -> migrate -> web + worker healthy -> HTTP smoke ->
+#   worker heartbeat -> graceful stop (exit code 0) -> down -v.
+# No Grow, no Supabase project, no external provider, no persistent volume.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: siton_lab
+      POSTGRES_PASSWORD: siton_lab_password
+      POSTGRES_DB: siton_lab
+    ports:
+      - target: 5432
+        host_ip: 127.0.0.1
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U siton_lab -d siton_lab"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  migrate:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment: &lab-env
+      APP_DEPLOYMENT_MODE: demo-preview
+      NODE_ENV: production
+      DATABASE_URL: postgresql://siton_lab:siton_lab_password@postgres:5432/siton_lab
+      DB_SCHEMA: siton
+      ADMIN_API_KEY: release-lab-admin-key-not-a-real-value-1234
+      SELLER_SESSION_SECRET: release-lab-seller-session-secret-not-real-1234567890
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+      PAYMENT_ENVIRONMENT: demo
+      PAYMENT_WEBHOOK_PROVIDER: mockpay
+      PAYMENT_WEBHOOK_SECRET: release-lab-webhook-secret-not-a-real-value-1234
+      PAYOUT_PROVIDER: internal-ledger
+      PAYOUT_PROVIDER_MODE: internal-truth-only
+      NOTIFICATION_PROVIDER: log-only
+      DISABLE_OUTBOX_WORKER: "1"
+      RATE_LIMIT_MAX: "100000"
+      RATE_LIMIT_SENSITIVE_MAX: "100000"
+    command: ["sh", "-c", "npm run db:migrate && node scripts/seed_test_prerequisites.cjs"]
+
+  web:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *lab-env
+      RUNTIME_ROLE: web
+      HOST: 0.0.0.0
+      PORT: "3000"
+    # No command override: the lab proves the image's OWN entrypoint
+    # (Dockerfile CMD = `node .demo_dist/src/app.js`), which is what Render
+    # runs. With `npm run` as PID 1 the stop signal never reached Node and
+    # npm exited 1 (first CI run); Node as PID 1 handles SIGTERM and exits 0.
+    ports:
+      - target: 3000
+        host_ip: 127.0.0.1
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/readiness',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 35s
+
+  worker:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    environment:
+      <<: *lab-env
+      RUNTIME_ROLE: worker
+      DISABLE_OUTBOX_WORKER: ""
+      WORKER_ID: release-lab-worker
+      OUTBOX_POLL_MS: "200"
+      WORKER_HEARTBEAT_MS: "1000"
+      WORKER_CONCURRENCY: "2"
+    # Node itself as PID 1 (the program `npm run start:worker:prod` runs), so
+    # SIGTERM reaches src/worker.ts's drain handler and the process exits 0.
+    command: ["node", ".demo_dist/src/worker.js"]
+    healthcheck:
+      test: ["CMD", "node", "-e", "const{Client}=require('pg');const c=new Client({connectionString:process.env.DATABASE_URL});c.connect().then(()=>c.query(\"select 1 from siton.worker_heartbeats where worker_id='release-lab-worker' and status='ready' and heartbeat_at>now()-interval '10 seconds'\")).then(r=>c.end().then(()=>process.exit(r.rowCount===1?0:1))).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 4s
+      retries: 30
+    stop_grace_period: 35s

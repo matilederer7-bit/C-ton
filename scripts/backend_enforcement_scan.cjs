@@ -1,24 +1,14 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const ts = require("typescript");
+// File selection follows the canonical repository-scan policy so this scanner
+// can never wander into .worktrees, temporary review directories or build
+// output (scripts/lib/repo_scan_policy.cjs).
+const policy = require("./lib/repo_scan_policy.cjs");
 
 const root = process.cwd();
-const ignored = new Set([".git", "node_modules", ".tmp_test_dist", ".demo_dist", ".tmp_gate_logs"]);
-const files = [];
-
-function walk(dir) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (ignored.has(entry.name) || entry.name.startsWith(".tmp")) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) walk(full);
-    else if (/\.(ts|tsx|js|cjs|mjs)$/.test(entry.name)) files.push(full);
-  }
-}
-
-for (const scope of ["src", "frontend", "scripts"]) {
-  const dir = path.join(root, scope);
-  if (fs.existsSync(dir)) walk(dir);
-}
+const SCRIPT_EXTENSIONS = /\.(ts|tsx|js|cjs|mjs)$/;
+const files = policy.walkRepository(root, { roots: ["src", "frontend", "scripts"], extensions: SCRIPT_EXTENSIONS }).map((file) => file.abs);
 
 const failures = [];
 for (const file of files) {
@@ -77,20 +67,10 @@ for (const file of files) {
 // src/frontend/scripts because tests legitimately carry synthetic secrets and
 // direct state mutations. A raw control byte, by contrast, is never legitimate
 // anywhere - and tests/ is exactly where one landed.
-const controlByteFiles = [...files];
-{
-  const testsDir = path.join(root, "tests");
-  if (fs.existsSync(testsDir)) {
-    const walkTests = (dir) => {
-      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-        const full = path.join(dir, entry.name);
-        if (entry.isDirectory()) walkTests(full);
-        else if (/\.(ts|js|cjs|mjs)$/.test(entry.name)) controlByteFiles.push(full);
-      }
-    };
-    walkTests(testsDir);
-  }
-}
+const controlByteFiles = [
+  ...files,
+  ...policy.walkRepository(root, { roots: ["tests"], extensions: /\.(ts|js|cjs|mjs)$/ }).map((file) => file.abs)
+];
 const CONTROL_BYTE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/;
 for (const file of controlByteFiles) {
   const rel = path.relative(root, file);

@@ -40,4 +40,13 @@ EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
   CMD node -e "require('http').get('http://localhost:3000/health', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"
 
-CMD ["npm", "run", "start:web:prod"]
+# The container entrypoint is the Node runtime ITSELF (exec form), so the
+# platform's stop signal (docker stop / compose stop / Render deploy) reaches
+# src/app.ts's SIGTERM handler directly and the process exits 0 after
+# app.close() + pool.end(). It is the same program `npm run start:web:prod`
+# runs, without npm as PID 1: npm forwards the signal to its child shell, then
+# re-sends it to itself, and as PID 1 with no handler left it cannot die from
+# it and exits 1 instead - the release lab measured web=1 / worker=1 on a
+# normal stop. The worker is started the same way in
+# docker-compose.release-lab.yml (`node .demo_dist/src/worker.js`).
+CMD ["node", ".demo_dist/src/app.js"]

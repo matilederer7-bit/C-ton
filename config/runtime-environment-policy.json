@@ -1,0 +1,733 @@
+{
+  "version": 1,
+  "description": "Machine-readable runtime configuration contract per deployment target. Validated by scripts/runtime_environment_gate.cjs WITHOUT calling any provider. Each rule names a variable, an operator, an optional value, a severity (FAIL blocks a release, WARNING needs a human decision) and the reason. Operators: present, absent, equal, not_equal, one_of, not_one_of, matches, not_matches, not_placeholder, min_length, absent_or_equal, https_url. The `roles` field restricts a rule to the web or worker runtime; omitted means both.",
+  "placeholder_pattern": "^(placeholder|changeme|change-me|example|dummy|xxx+|ci-placeholder|ci-placeholder-only|test|secret|password|sk_test_or_live|pk_test_or_live|mock-webhook-secret|demo-admin-key-do-not-use-in-production|siton-otp-salt-default|siton-otp-token-secret-default|siton-buyer-session-local-only)$",
+  "identity": {
+    "description": "How a target is recognised from the environment when --target is not given. APP_DEPLOYMENT_MODE is the primary identity; NODE_ENV=test selects test.",
+    "detection_order": [
+      "production",
+      "staging",
+      "test",
+      "demo-preview",
+      "development"
+    ],
+    "production": {
+      "APP_DEPLOYMENT_MODE": [
+        "production",
+        "prod",
+        "commercial-live"
+      ]
+    },
+    "staging": {
+      "APP_DEPLOYMENT_MODE": [
+        "staging"
+      ]
+    },
+    "test": {
+      "NODE_ENV": [
+        "test"
+      ]
+    },
+    "demo-preview": {
+      "APP_DEPLOYMENT_MODE": [
+        "demo-preview"
+      ]
+    },
+    "development": {
+      "APP_DEPLOYMENT_MODE": [
+        ""
+      ],
+      "NODE_ENV": [
+        "",
+        "development"
+      ]
+    }
+  },
+  "runtime_gaps": [
+    {
+      "id": "OTP_HASH_SALT_DEFAULT_IN_PRODUCTION",
+      "status": "OPEN",
+      "where": "src/otp_rail.ts getOtpHashSalt()",
+      "detail": "Falls back to the literal 'siton-otp-salt-default' in every mode; src/production_guards.ts does not require OTP_HASH_SALT. This release gate requires it in staging/production; the runtime should also fail closed. Runtime change deferred to the owner (not implemented on this branch)."
+    },
+    {
+      "id": "NO_RUNTIME_CHECK_FOR_TRACKING_LEGACY_COMPAT",
+      "status": "OPEN",
+      "where": "src/participant_tracking_security.ts",
+      "detail": "TRACKING_LEGACY_COMPAT=1 re-enables legacy tracking links even in production-like mode. The runtime accepts it; only this gate refuses it for staging/production."
+    },
+    {
+      "id": "DEBUG_SURFACES_ALLOWED_IN_PRODUCTION_WITH_KEY",
+      "status": "OPEN",
+      "where": "src/runtime_config.ts DEBUG_SURFACES_ACTIVE",
+      "detail": "DEBUG_SURFACES_ENABLED=1 with an access key activates /debug/* in any mode. This gate forbids it for staging/production; the runtime does not."
+    }
+  ],
+  "environments": {
+    "development": {
+      "description": "Local developer machine. Mock money, local Postgres, no secrets required. Real money impossible.",
+      "rules": [
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "not_equal",
+          "value": "live",
+          "severity": "FAIL",
+          "reason": "real money is never legal outside production"
+        },
+        {
+          "var": "PAYMENT_PROVIDER",
+          "must": "not_equal",
+          "value": "grow",
+          "severity": "WARNING",
+          "reason": "Grow adapter locally means sandbox rehearsal; confirm PAYMENT_ENVIRONMENT=sandbox"
+        },
+        {
+          "var": "SUPABASE_SERVICE_ROLE_KEY",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "the service-role key belongs to the storage-broker Edge Function only; no application runtime reads it"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "not_matches",
+          "value": "supabase\\.co|pooler\\.supabase\\.com",
+          "severity": "WARNING",
+          "reason": "local development should not point at the hosted staging authority"
+        }
+      ]
+    },
+    "demo-preview": {
+      "description": "Demo/preview deployment (APP_DEPLOYMENT_MODE=demo-preview). Mock providers, demo admin key allowed, demo seller context. Real money impossible.",
+      "rules": [
+        {
+          "var": "APP_DEPLOYMENT_MODE",
+          "must": "equal",
+          "value": "demo-preview",
+          "severity": "FAIL",
+          "reason": "identity"
+        },
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "not_equal",
+          "value": "live",
+          "severity": "FAIL",
+          "reason": "real money is never legal outside production"
+        },
+        {
+          "var": "PAYMENT_PROVIDER",
+          "must": "one_of",
+          "value": [
+            "mockpay",
+            "mock",
+            ""
+          ],
+          "severity": "FAIL",
+          "reason": "demo preview runs on the mock provider"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_MODE",
+          "must": "one_of",
+          "value": [
+            "mock-backed",
+            "mock",
+            ""
+          ],
+          "severity": "FAIL",
+          "reason": "demo preview runs mock-backed"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_API_KEY",
+          "must": "not_matches",
+          "value": "^sk_live_",
+          "severity": "FAIL",
+          "reason": "live provider credentials never enter a demo runtime"
+        },
+        {
+          "var": "SUPABASE_SERVICE_ROLE_KEY",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "service-role key never enters an application runtime"
+        },
+        {
+          "var": "NOTIFICATION_DELIVERY_ENABLED",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "no real communications from a demo runtime"
+        }
+      ]
+    },
+    "test": {
+      "description": "Automated test runs (NODE_ENV=test). Isolated disposable databases, mock provider, outbox worker disabled inside the web process.",
+      "rules": [
+        {
+          "var": "NODE_ENV",
+          "must": "equal",
+          "value": "test",
+          "severity": "FAIL",
+          "reason": "identity"
+        },
+        {
+          "var": "DISABLE_OUTBOX_WORKER",
+          "must": "equal",
+          "value": "1",
+          "severity": "FAIL",
+          "reason": "tests drive the outbox explicitly; a background worker inside the web process makes them non-deterministic"
+        },
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "not_equal",
+          "value": "live",
+          "severity": "FAIL",
+          "reason": "real money is never legal in tests"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_API_KEY",
+          "must": "not_matches",
+          "value": "^sk_live_",
+          "severity": "FAIL",
+          "reason": "live provider credentials never enter a test runtime"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "matches",
+          "value": "^postgres(ql)?://[^/]*@(localhost|127\\.0\\.0\\.1|\\[::1\\]|postgres|db)(:\\d+)?/",
+          "severity": "FAIL",
+          "reason": "tests create and drop databases; they must run against a local or CI-service Postgres, never the hosted authority"
+        },
+        {
+          "var": "SUPABASE_SERVICE_ROLE_KEY",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "service-role key never enters an application runtime"
+        },
+        {
+          "var": "RENDER",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "RENDER=true flips production-like detection and changes guard behaviour mid-test"
+        }
+      ]
+    },
+    "staging": {
+      "description": "Hosted staging (Render web + worker, Supabase Postgres via Supavisor session pooler, Supabase Storage via broker). Synthetic money only: mock provider, PAYMENT_ENVIRONMENT=demo. Grow activation is a separate, explicitly authorised stage.",
+      "rules": [
+        {
+          "var": "APP_DEPLOYMENT_MODE",
+          "must": "equal",
+          "value": "staging",
+          "severity": "FAIL",
+          "reason": "identity"
+        },
+        {
+          "var": "RUNTIME_ROLE",
+          "must": "one_of",
+          "value": [
+            "web",
+            "worker"
+          ],
+          "severity": "FAIL",
+          "reason": "each hosted process declares its role; a mismatch fails closed at boot"
+        },
+        {
+          "var": "CANONICAL_POSTGRES_RUNTIME",
+          "must": "equal",
+          "value": "1",
+          "severity": "FAIL",
+          "reason": "hosted runtimes must adopt the least-privilege NOLOGIN runtime role and the inventory RPC boundary"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "present",
+          "severity": "FAIL",
+          "reason": "hosted database credential (Render secret, sync: false)"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "not_matches",
+          "value": "^postgres(ql)?://postgres:",
+          "severity": "FAIL",
+          "reason": "the web/worker never connect as the postgres superuser"
+        },
+        {
+          "var": "ADMIN_API_KEY",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "admin routes fail closed without a real key"
+        },
+        {
+          "var": "ADMIN_API_KEY",
+          "must": "min_length",
+          "value": 24,
+          "severity": "FAIL",
+          "reason": "generated by Render; short keys are guessable"
+        },
+        {
+          "var": "SELLER_SESSION_SECRET",
+          "must": "min_length",
+          "value": 32,
+          "severity": "FAIL",
+          "reason": "HMAC secret for seller sessions and the OTP token fallback"
+        },
+        {
+          "var": "OTP_HASH_SALT",
+          "must": "not_placeholder",
+          "severity": "WARNING",
+          "reason": "runtime gap OTP_HASH_SALT_DEFAULT_IN_PRODUCTION: render.yaml does not declare OTP_HASH_SALT so staging hashes OTP codes with the public default salt (synthetic staging: warning; production: FAIL). Owner action: add OTP_HASH_SALT (generateValue) to both Render services."
+        },
+        {
+          "var": "DISABLE_OUTBOX_WORKER",
+          "must": "equal",
+          "value": "1",
+          "roles": [
+            "web"
+          ],
+          "severity": "FAIL",
+          "reason": "only the dedicated worker runs the outbox"
+        },
+        {
+          "var": "DISABLE_OUTBOX_WORKER",
+          "must": "absent_or_equal",
+          "value": "0",
+          "roles": [
+            "worker"
+          ],
+          "severity": "FAIL",
+          "reason": "the worker must actually run the outbox"
+        },
+        {
+          "var": "STORAGE_ADAPTER",
+          "must": "equal",
+          "value": "supabase",
+          "severity": "FAIL",
+          "reason": "canonical media authority is Supabase Storage through the broker; local disk is not durable on Render"
+        },
+        {
+          "var": "SUPABASE_URL",
+          "must": "https_url",
+          "severity": "FAIL",
+          "reason": "broker base"
+        },
+        {
+          "var": "SITON_STORAGE_BROKER_KEY",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "bucket-scoped broker credential"
+        },
+        {
+          "var": "SUPABASE_SERVICE_ROLE_KEY",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "the service-role key lives only inside the Edge Function runtime"
+        },
+        {
+          "var": "PAYMENT_PROVIDER",
+          "must": "equal",
+          "value": "mockpay",
+          "severity": "FAIL",
+          "reason": "staging money stays synthetic until Grow sandbox activation is explicitly authorised"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_MODE",
+          "must": "equal",
+          "value": "mock-backed",
+          "severity": "FAIL",
+          "reason": "synthetic money"
+        },
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "one_of",
+          "value": [
+            "demo",
+            "sandbox"
+          ],
+          "severity": "FAIL",
+          "reason": "never live in staging"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_API_KEY",
+          "must": "not_matches",
+          "value": "^sk_live_",
+          "severity": "FAIL",
+          "reason": "live credentials never enter staging"
+        },
+        {
+          "var": "NOTIFICATION_PROVIDER",
+          "must": "one_of",
+          "value": [
+            "log-only",
+            "log",
+            "dry-run",
+            ""
+          ],
+          "severity": "FAIL",
+          "reason": "no real communications from staging"
+        },
+        {
+          "var": "NOTIFICATION_DELIVERY_ENABLED",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "no real communications from staging"
+        },
+        {
+          "var": "PAYOUT_PROVIDER",
+          "must": "equal",
+          "value": "internal-ledger",
+          "severity": "FAIL",
+          "reason": "no external payouts"
+        },
+        {
+          "var": "DEBUG_SURFACES_ENABLED",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "/debug/* surfaces are demo-only"
+        },
+        {
+          "var": "OTP_TEST_BYPASS_CODE",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "OTP bypass is a local test seam"
+        },
+        {
+          "var": "TRACKING_LEGACY_COMPAT",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "legacy tracking links are demo-only; tokenised links are required"
+        },
+        {
+          "var": "MOCK_SEED",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "deterministic mock seeding is a test seam"
+        },
+        {
+          "var": "DEBUG_SQL_LOGGING",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "SQL logging can echo parameters into hosted logs"
+        },
+        {
+          "var": "LOG_LEVEL",
+          "must": "not_one_of",
+          "value": [
+            "debug",
+            "trace"
+          ],
+          "severity": "WARNING",
+          "reason": "verbose levels leak request detail into hosted logs"
+        },
+        {
+          "var": "RATE_LIMIT_MAX",
+          "must": "not_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "0 disables rate limiting on a public host"
+        },
+        {
+          "var": "RATE_LIMIT_SENSITIVE_MAX",
+          "must": "not_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "0 disables sensitive-route rate limiting"
+        }
+      ]
+    },
+    "production": {
+      "description": "Real production (APP_DEPLOYMENT_MODE=production). NOT ACTIVATED. Every secret real, every debug/demo seam absent. Real money additionally requires the separate real-money release policy (config/real-money-release-policy.json) to be ALLOWED; until then PAYMENT_ENVIRONMENT=live is refused by this gate regardless of provider configuration.",
+      "rules": [
+        {
+          "var": "APP_DEPLOYMENT_MODE",
+          "must": "one_of",
+          "value": [
+            "production",
+            "prod",
+            "commercial-live"
+          ],
+          "severity": "FAIL",
+          "reason": "identity"
+        },
+        {
+          "var": "NODE_ENV",
+          "must": "equal",
+          "value": "production",
+          "severity": "FAIL",
+          "reason": "identity"
+        },
+        {
+          "var": "RUNTIME_ROLE",
+          "must": "one_of",
+          "value": [
+            "web",
+            "worker"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "CANONICAL_POSTGRES_RUNTIME",
+          "must": "equal",
+          "value": "1",
+          "severity": "FAIL",
+          "reason": "least-privilege runtime role boundary"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "present",
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "DATABASE_URL",
+          "must": "not_matches",
+          "value": "^postgres(ql)?://postgres:|localhost|127\\.0\\.0\\.1",
+          "severity": "FAIL",
+          "reason": "production never runs as superuser or against a local database"
+        },
+        {
+          "var": "ADMIN_API_KEY",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "ADMIN_API_KEY",
+          "must": "min_length",
+          "value": 24,
+          "severity": "FAIL",
+          "reason": "guessable keys"
+        },
+        {
+          "var": "SELLER_SESSION_SECRET",
+          "must": "min_length",
+          "value": 32,
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts; HMAC strength"
+        },
+        {
+          "var": "BUYER_SESSION_SECRET",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "buyer resume cookies; the runtime falls back to empty (disabled) in production-like mode"
+        },
+        {
+          "var": "DISTRIBUTOR_SESSION_SECRET",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "distributor sessions fail closed without it"
+        },
+        {
+          "var": "OTP_HASH_SALT",
+          "must": "not_placeholder",
+          "severity": "FAIL",
+          "reason": "runtime gap OTP_HASH_SALT_DEFAULT_IN_PRODUCTION"
+        },
+        {
+          "var": "PAYMENT_WEBHOOK_SECRET",
+          "must": "not_placeholder",
+          "roles": [
+            "web"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts for the web role"
+        },
+        {
+          "var": "DISABLE_OUTBOX_WORKER",
+          "must": "equal",
+          "value": "1",
+          "roles": [
+            "web"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "DISABLE_OUTBOX_WORKER",
+          "must": "absent_or_equal",
+          "value": "0",
+          "roles": [
+            "worker"
+          ],
+          "severity": "FAIL",
+          "reason": "the worker must run the outbox"
+        },
+        {
+          "var": "STORAGE_ADAPTER",
+          "must": "one_of",
+          "value": [
+            "object",
+            "supabase"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts; local storage is refused"
+        },
+        {
+          "var": "SUPABASE_SERVICE_ROLE_KEY",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "service-role key never enters an application runtime"
+        },
+        {
+          "var": "PAYMENT_PROVIDER",
+          "must": "not_one_of",
+          "value": [
+            "",
+            "mock",
+            "mockpay"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_MODE",
+          "must": "not_one_of",
+          "value": [
+            "",
+            "mock",
+            "mock-backed"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "not_one_of",
+          "value": [
+            "sandbox",
+            "test",
+            "demo"
+          ],
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "PAYMENT_ENVIRONMENT",
+          "must": "not_equal",
+          "value": "live",
+          "severity": "FAIL",
+          "reason": "REAL_MONEY_BLOCKED: config/real-money-release-policy.json is not ALLOWED (F-13 provider contract, Grow live verification, owner activation). This rule is lifted only through that policy.",
+          "governed_by": "real-money-release-policy"
+        },
+        {
+          "var": "PAYMENT_PROVIDER_API_KEY",
+          "must": "not_matches",
+          "value": "^(sk_test_|pk_test_)",
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts"
+        },
+        {
+          "var": "SITON_VAT_MODE",
+          "must": "equal",
+          "value": "explicit",
+          "severity": "FAIL",
+          "reason": "required by src/production_guards.ts; production charging never runs on synthetic VAT"
+        },
+        {
+          "var": "SITON_VAT_RATE_PRODUCT",
+          "must": "present",
+          "severity": "FAIL",
+          "reason": "authoritative VAT rate input for explicit mode"
+        },
+        {
+          "var": "SITON_VAT_RATE_DELIVERY",
+          "must": "present",
+          "severity": "FAIL",
+          "reason": "authoritative VAT rate input for explicit mode"
+        },
+        {
+          "var": "PUBLIC_BASE_URL",
+          "must": "https_url",
+          "severity": "FAIL",
+          "reason": "share links, OG previews and inquiry links must be absolute https"
+        },
+        {
+          "var": "DEBUG_SURFACES_ENABLED",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "runtime gap DEBUG_SURFACES_ALLOWED_IN_PRODUCTION_WITH_KEY"
+        },
+        {
+          "var": "OTP_TEST_BYPASS_CODE",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "test seam"
+        },
+        {
+          "var": "TRACKING_LEGACY_COMPAT",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "runtime gap NO_RUNTIME_CHECK_FOR_TRACKING_LEGACY_COMPAT"
+        },
+        {
+          "var": "MOCK_SEED",
+          "must": "absent",
+          "severity": "FAIL",
+          "reason": "test seam"
+        },
+        {
+          "var": "DEBUG_SQL_LOGGING",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "parameter echo into logs"
+        },
+        {
+          "var": "DEBUG_JOIN_LOGGING",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "buyer detail echo into logs"
+        },
+        {
+          "var": "LOG_LEVEL",
+          "must": "not_one_of",
+          "value": [
+            "debug",
+            "trace"
+          ],
+          "severity": "FAIL",
+          "reason": "verbose levels leak request detail"
+        },
+        {
+          "var": "RATE_LIMIT_MAX",
+          "must": "not_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "0 disables rate limiting"
+        },
+        {
+          "var": "RATE_LIMIT_SENSITIVE_MAX",
+          "must": "not_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "0 disables sensitive-route rate limiting"
+        },
+        {
+          "var": "STRIPE_ALLOW_SERVER_SIDE_CARD_TOKENIZATION",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "FAIL",
+          "reason": "PCI posture: hosted fields only"
+        },
+        {
+          "var": "NOTIFICATION_DELIVERY_ENABLED",
+          "must": "absent_or_equal",
+          "value": "0",
+          "severity": "WARNING",
+          "reason": "no verified real notification adapter exists; the runtime fails closed if enabled without NOTIFICATION_PROVIDER_MODE=real"
+        },
+        {
+          "var": "EXPECTED_COMMIT_SHA",
+          "must": "present",
+          "severity": "WARNING",
+          "reason": "Mission Control drift detection needs the deployed SHA"
+        }
+      ]
+    }
+  }
+}
