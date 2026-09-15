@@ -3,6 +3,8 @@ import { clamp, countdownView, ils, num, progressColor, stateLabel } from "./uti
 import { absoluteShareUrl, sendFunnelEvent } from "./viral";
 import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
+import { QUANTITY_INPUT_ATTRS, parseQuantityInput } from "./quantityInput";
+import { containDialogFocus } from "./dialogFocus";
 
 export { BrandLoader } from "./brand";
 
@@ -99,13 +101,41 @@ export function Countdown(props: { until: string | null | undefined; label?: str
   );
 }
 
-export function QtyStepper(props: { value: number; min?: number; max: number; onChange: (v: number) => void }) {
+// ── ROUND 2 (UX-9, ported from Sprint 4) — quantities are TYPED ────────────
+// Owner rule: "in quantities I do not want arrows, I want pure number typing".
+// A plain digits-only field with a numeric keyboard, no +/- steppers and no
+// browser spinner. The parent's `value` is the last ACCEPTED quantity; the
+// field owns the in-progress text, so an empty or out-of-window entry is shown
+// with its Hebrew reason instead of being silently clamped, rounded, or turned
+// into a zero order. The [min, max] window is the caller's business rule.
+export function QtyInput(props: { value: number; min?: number; max: number; onChange: (v: number) => void; onValidityChange?: (valid: boolean) => void; id?: string; testId?: string; ariaLabel?: string }) {
   const min = props.min ?? 1;
+  const [text, setText] = useState(String(props.value));
+  const [touched, setTouched] = useState(false);
+  const parsed = parseQuantityInput(text, min, props.max);
+  useEffect(() => { props.onValidityChange?.(parsed.value !== null); }, [parsed.value, props.onValidityChange]);
+  // keep the field in step with an external correction (e.g. stock shrank under the buyer)
+  useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
+  const testId = props.testId || "qty-input";
+  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? "יש להזין כמות" : null);
   return (
-    <div className="qty-stepper" role="group" aria-label="בחירת כמות">
-      <button type="button" aria-label="הוסף יחידה" disabled={props.value >= props.max} onClick={() => props.onChange(clamp(props.value + 1, min, props.max))}>+</button>
-      <span className="qty-value" aria-live="polite">{num(props.value)}</span>
-      <button type="button" aria-label="הפחת יחידה" disabled={props.value <= min} onClick={() => props.onChange(clamp(props.value - 1, min, props.max))}>−</button>
+    <div className="qty-input-wrap">
+      <input
+        {...QUANTITY_INPUT_ATTRS}
+        id={props.id}
+        className={problem ? "qty-input invalid needs-attention" : "qty-input"}
+        data-testid={testId}
+        aria-label={props.ariaLabel || "כמות יחידות"}
+        aria-invalid={problem ? "true" : undefined}
+        value={text}
+        onChange={(e) => {
+          const next = parseQuantityInput(e.target.value, min, props.max);
+          setText(next.digits);
+          if (next.value !== null) props.onChange(next.value);
+        }}
+        onBlur={() => setTouched(true)}
+      />
+      {problem ? <span className="qty-input-error" data-testid={testId + "-error"} role="alert">{problem}</span> : null}
     </div>
   );
 }
@@ -127,8 +157,9 @@ export function Modal(props: {
     // lock body scroll while the sheet is open (prevents trapped-scroll fights)
     const prevOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
-    ref.current?.querySelector<HTMLElement>("input, button:not(.x), select, textarea")?.focus();
+    const releaseFocus = ref.current ? containDialogFocus(ref.current) : undefined;
     return () => {
+      releaseFocus?.();
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prevOverflow;
     };
@@ -225,7 +256,7 @@ export function ShareActions(props: {
   ];
 
   return (
-    <div className={`share-actions${loop ? " share-loop" : ""}`} data-share-layout={loop ? "loop" : "default"}>
+    <div className={`share-actions${loop ? " share-loop" : ""}${props.compact ? " compact" : ""}`} data-share-layout={loop ? "loop" : "default"}>
       {loop ? (
         <a className="btn btn-share-lead btn-block" data-testid="share-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"
           onClick={() => track("whatsapp")}>
@@ -234,15 +265,15 @@ export function ShareActions(props: {
       ) : null}
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className={`btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" data-testid="share-native" onClick={async () => {
+          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label="שיתוף" title="שיתוף" data-testid="share-native" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, text: messageText, url }); } catch { /* user cancelled */ }
           }}>
-            <NativeShareIcon /> שיתוף
+            <NativeShareIcon />{props.compact ? null : " שיתוף"}
           </button>
         ) : null}
-        <button className="btn btn-ghost" onClick={copy} data-testid="share-copy" aria-label="העתקת קישור">
-          <CopyLinkIcon /> העתקת קישור
+        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label="העתקת קישור" title="העתקת קישור">
+          <CopyLinkIcon />{props.compact ? null : " העתקת קישור"}
         </button>
       </div>
       <div className="share-networks share-icons" role="group" aria-label="שיתוף ברשתות">
@@ -260,6 +291,56 @@ export function ShareActions(props: {
         ))}
       </div>
     </div>
+  );
+}
+
+// ── ROUND 2 (UX-4) — THE Siton selection card ──────────────────────────────
+// One control for every "pick an option" surface, so a chosen option looks
+// the same everywhere: neutral when unselected; orange border + orange tint +
+// an indicator whose INSIDE fills with the canonical Siton orange when
+// selected. The indicator SHAPE carries the arity — a round dot when exactly
+// one option may be active (mode="one", a radio), a square check when
+// several may be (mode="many", a checkbox). The native input stays in the
+// accessibility tree; only its pixels are replaced.
+//
+// NOTE (backend gap, deliberate): the receipt/fulfillment method the seller
+// picks is a SINGLE value in the canonical contract (siton.deals.receipt_config
+// .method, validated by validateReceiptConfig), so mode="many" exists here
+// only as ready groundwork — it is deliberately NOT wired to that field,
+// because a multi-select UI over a single-value column would lie to the
+// seller. See docs/UX_NIGHT_REINTEGRATION.md (Open backend contracts).
+export function ChoiceCard(props: {
+  mode: "one" | "many";
+  name?: string;
+  checked: boolean;
+  onSelect: (checked: boolean) => void;
+  title: React.ReactNode;
+  help?: React.ReactNode;
+  meta?: React.ReactNode;
+  disabled?: boolean;
+  testId?: string;
+  value?: string;
+}) {
+  const many = props.mode === "many";
+  return (
+    <label className={`choice-card${props.checked ? " selected" : ""}`} data-testid={props.testId} data-choice-mode={props.mode} data-selected={props.checked ? "1" : "0"}>
+      <input
+        type={many ? "checkbox" : "radio"}
+        name={props.name}
+        value={props.value}
+        checked={props.checked}
+        disabled={props.disabled}
+        onChange={(e) => props.onSelect(e.target.checked)}
+      />
+      <span className={`choice-ind ${many ? "choice-box" : "choice-dot"}`} aria-hidden="true">
+        {many ? <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3.4} strokeLinecap="round" strokeLinejoin="round"><path d="M5 12.5l4.5 4.5L19 7" /></svg> : null}
+      </span>
+      <span className="choice-body">
+        <span className="choice-title">{props.title}</span>
+        {props.help ? <span className="choice-help">{props.help}</span> : null}
+      </span>
+      {props.meta ? <span className="choice-meta">{props.meta}</span> : null}
+    </label>
   );
 }
 
