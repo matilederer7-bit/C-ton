@@ -1,4 +1,4 @@
-# Siton current project status
+# PROJECT STATUS — Siton current project status
 
 Updated: 2026-09-15
 Purpose: compact current-state source for coding agents. Historical milestone detail before this reset is preserved byte-for-byte in `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` and is read only when needed.
@@ -38,19 +38,20 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 - Repository-side contract test added for the worktree helper.
 - Static inspection confirms no destructive reset or force-push path in the helper.
 - Historical status archive reuses the exact prior Git blob, so no historical bytes were rewritten during rotation.
+- PR #17 Release Readiness and Web Runtime gates passed. Backend gates passed through unit, integration, DB, API, workers, payments, authorization, security, concurrency, and failure/fault checks. The only E2E failure was `mvp_completion_project_status_optional_validation`, caused by the compact status heading no longer containing the compatibility marker `PROJECT STATUS`; that marker is restored by this commit.
 
 ### Open
 
 - The actual sibling worktrees must be instantiated once on the development machine with `node scripts/agent_workspace.cjs setup` after this branch is integrated. GitHub cannot create local filesystem worktrees on the owner's PC by itself.
-- Focused contract tests and final diff review still need to complete on this branch before merge.
+- Confirm the CI rerun after the one-line status-heading compatibility fix, then merge PR #17.
 - The next efficiency layer after worktrees is operational orchestration: make task assignment/review from phone require only a short brief plus PR/commit references, without re-sending repository context.
 
 ### Progress
 
-- Agent-efficiency foundation: 85%.
-- Repository implementation for isolated two-agent work: 95%.
+- Agent-efficiency foundation: 95%.
+- Repository implementation for isolated two-agent work: 99%; only CI confirmation and merge remain.
 - Local machine activation of both worktrees: 0% until the one-time setup command is run on that machine.
 
 ### Next step
 
-Finish focused verification and diff review for `chore/agent-efficiency-2026-09-15`, open the consolidated PR, then run the one-time worktree setup on the development machine and verify both agents can start independent task branches concurrently.
+Confirm PR #17 CI after the compatibility-marker fix, merge it, then run the one-time worktree setup on the development machine and verify both agents can start independent task branches concurrently.
