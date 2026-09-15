@@ -213,7 +213,8 @@ run("P8: every non-joinable state has a what-happened / what-next story; expiry 
   assert.match(dealPage, /data-testid="closed-story" data-story=\{story\?\.key \|\| "closed"\}/);
   assert.match(dealPage, /data-testid="closed-refresh"/);
   // load failures: network vs gone, with a retry / support way out
-  assert.match(dealPage, /const kind = status === 404 \? "gone" : !status \? "network" : status === 429 \|\| status >= 500 \? "busy" : "other";/);
+  // OVERNIGHT HARDENING — a malformed deal id (400) is a broken link, told the same "gone" story as a missing deal.
+  assert.match(dealPage, /const kind = status === 404 \|\| status === 400 \? "gone" : !status \? "network" : status === 429 \|\| status >= 500 \? "busy" : "other";/);
   assert.match(dealPage, /data-testid="deal-retry"/);
   assert.match(trackPage, /else if \(status === 429 \|\| status >= 500\) setError\(\{ kind: "busy"/);
   assert.match(trackPage, /if \(status === 401 \|\| status === 403\) setError\(\{ kind: "link"/);

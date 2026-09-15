@@ -30,23 +30,39 @@ export function buildWebhookIngestion(deps: { withTx: WithTx }) {
       );
 
       if (!existing.rowCount) {
+        // Two deliveries of the same (provider, event_id) can pass the SELECT
+        // above at the same time. The primary key makes the second INSERT lose;
+        // that is the ordinary duplicate answer, not a server fault, so the
+        // loser re-reads the winner's row instead of surfacing a 23505 as 5xx.
         const inserted = await c.query(
           `INSERT INTO siton.webhook_events(provider, event_id, payload_jsonb, deal_id, participant_id, status)
            VALUES ($1,$2,$3,$4,$5,'processing')
+           ON CONFLICT (provider, event_id) DO NOTHING
            RETURNING provider, event_id, status, received_at, processed_at`,
           [input.provider, input.event_id, JSON.stringify(input.payload ?? {}), input.deal_id ?? null, input.participant_id ?? null]
         );
 
-        return {
-          accepted: true,
-          duplicate: false,
-          should_process: true,
-          provider: input.provider,
-          event_id: input.event_id,
-          status: inserted.rows[0].status as WebhookEventStatus,
-          received_at: inserted.rows[0].received_at,
-          processed_at: inserted.rows[0].processed_at
-        };
+        if (inserted.rowCount) {
+          return {
+            accepted: true,
+            duplicate: false,
+            should_process: true,
+            provider: input.provider,
+            event_id: input.event_id,
+            status: inserted.rows[0].status as WebhookEventStatus,
+            received_at: inserted.rows[0].received_at,
+            processed_at: inserted.rows[0].processed_at
+          };
+        }
+
+        const raced = await c.query(
+          `SELECT provider, event_id, status, received_at, processed_at
+           FROM siton.webhook_events
+           WHERE provider=$1 AND event_id=$2`,
+          [input.provider, input.event_id]
+        );
+        existing.rows = raced.rows;
+        existing.rowCount = raced.rowCount;
       }
 
       const existingRow = existing.rows[0];
