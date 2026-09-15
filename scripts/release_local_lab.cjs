@@ -101,13 +101,34 @@ async function main() {
     });
 
     await runStep(report, "graceful shutdown (exit code 0)", async () => {
+      // PID 1 of each container must be the Node runtime itself (Dockerfile
+      // CMD / compose command are exec-form `node ...`); the stop signal then
+      // reaches the SIGTERM handlers in src/app.ts and src/worker.ts. The
+      // proof is twofold and both halves are required: the container exit
+      // code is 0 AND the handler logged its shutdown, so a signal that was
+      // swallowed by a wrapper (npm, a shell) can never pass as "clean".
+      const pidOne = spawnSync("docker", ["inspect", "--format", "{{.Name}} {{index .Config.Cmd 0}} {{index .Config.Cmd 1}}", project + "-web-1", project + "-worker-1"], { encoding: "utf8" });
+      const entrypoints = String(pidOne.stdout || "").trim().split(/\r?\n/);
+      const wrapped = entrypoints.filter((line) => !/ node \S+$/.test(line));
+      if (wrapped.length) throw new Error("container command is not the Node runtime itself (a wrapper as PID 1 swallows the stop signal): " + wrapped.join(", "));
+      const stoppedAt = Date.now();
       docker(["stop", "-t", "35", "web", "worker"], { timeout: 120000 });
+      const stopMs = Date.now() - stoppedAt;
       const inspect = spawnSync("docker", ["inspect", "--format", "{{.Name}} {{.State.ExitCode}}", project + "-web-1", project + "-worker-1"], { encoding: "utf8" });
       const codes = String(inspect.stdout || "").trim().split(/\r?\n/);
       const bad = codes.filter((line) => !/ 0$/.test(line));
+      const tailOf = (service) => { const logs = docker(["logs", "--no-color", "--tail", "40", service], { allowFailure: true }); return String(logs.stdout || "") + String(logs.stderr || ""); };
+      const webLog = tailOf("web");
+      const workerLog = tailOf("worker");
+      const evidence = "\n--- web log tail ---\n" + webLog.slice(-1500) + "\n--- worker log tail ---\n" + workerLog.slice(-1500);
       if (inspect.status !== 0) throw new Error("inspect failed: " + inspect.stderr);
-      if (bad.length) throw new Error("non-zero exit on stop: " + bad.join(", "));
-      return { status: "PASS", summary: codes.join("; ") };
+      if (bad.length) throw new Error("non-zero exit on stop: " + bad.join(", ") + evidence);
+      const missing = [];
+      if (!/graceful shutdown initiated/.test(webLog)) missing.push("web never logged 'graceful shutdown initiated' (SIGTERM did not reach src/app.ts)");
+      if (!/worker_draining/.test(workerLog) || !/worker_stopped/.test(workerLog)) missing.push("worker never logged worker_draining/worker_stopped (SIGTERM did not reach src/worker.ts)");
+      if (missing.length) throw new Error(missing.join("; ") + evidence);
+      if (stopMs > 30000) throw new Error("stop took " + stopMs + " ms: the runtime only exited on the 30 s force-exit timer, not through the handlers" + evidence);
+      return { status: "PASS", summary: codes.join("; ") + "; stop " + stopMs + " ms; web logged 'graceful shutdown initiated', worker logged worker_draining -> worker_stopped; PID 1 = " + entrypoints.map((line) => line.split(" ").slice(1).join(" ")).join(" / ") };
     });
   } catch (error) {
     report.fail("lab", String(error.message || error).slice(0, 800));

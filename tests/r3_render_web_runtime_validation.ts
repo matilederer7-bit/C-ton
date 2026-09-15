@@ -37,7 +37,15 @@ assert.match(blueprint, /value:\s*worker\b/);
 
 const dockerfile = await readFile("Dockerfile", "utf8");
 assert.match(dockerfile, /^FROM node:22/m);
-assert.match(dockerfile, /start:web:prod/);
+// The image entrypoint is the SAME program `start:web:prod` runs, but as the
+// Node runtime itself in exec form: with `npm run` as PID 1 the platform's
+// SIGTERM never reached src/app.ts and the container exited 1 on a normal
+// stop (release lab, first CI run). The package script and the CMD must keep
+// naming the same entry file.
+const startWebProd = JSON.parse(await readFile("package.json", "utf8")).scripts["start:web:prod"];
+assert.equal(startWebProd, "node .demo_dist/src/app.js");
+assert.match(dockerfile, /^CMD \["node", "\.demo_dist\/src\/app\.js"\]\s*$/m);
+assert.doesNotMatch(dockerfile, /^CMD \["npm"/m, "npm must not be PID 1 in the image (it swallows the stop signal)");
 
 const loginSql = await readFile("supabase/staging/010_r3_web_login_provisioning.sql", "utf8");
 assert.doesNotMatch(loginSql, /password\s+'/i);

@@ -15,8 +15,9 @@ Grounding baseline: originally worktree `claude/release-readiness-night` on top 
 |  1. CODE DEPLOY        push to master -> Render builds the image -> new process.   |
 |                        Money stays PAYMENT_PROVIDER=mockpay (render.yaml:54-59).   |
 |  2. DATABASE MIGRATION separate, manual, forward-only. Render runs NO migration    |
-|                        step: Dockerfile CMD is `npm run start:web:prod` =          |
-|                        `node .demo_dist/src/app.js` (Dockerfile:43, package.json)   |
+|                        step: Dockerfile CMD is `node .demo_dist/src/app.js`        |
+|                        (exec form = the program `start:web:prod` runs; npm is NOT |
+|                        PID 1 so SIGTERM reaches src/app.ts and the process exits 0)|
 |                        and render.yaml has no preDeployCommand / buildCommand.     |
 |  3. REAL-MONEY         requires ALL THREE, in order, none implied by 1 or 2:        |
 |     ACTIVATION         (a) config/real-money-release-policy.json flipped to        |
@@ -111,7 +112,7 @@ Facts that shape this stage (all IMPLEMENTED unless marked):
 
 - Runner: `npm run db:migrate` = `scripts/run_migrations.cjs`. Ledger `siton.migration_ledger` (`:33-44`); refuses a dirty ledger (`:53-58`); checksum classes `match` / `eol-variant` (accepted, `MIGRATION_LEDGER_EOL_VARIANT`) / `mismatch` (refused, `:82-92`); each file runs inside one `client.query(sql)`, the row is marked `failed` on error (`:112-120`). Forward-only: no `down` mechanism exists (`grep -rniE "\bdown\b|rollback" scripts/run_migrations.cjs scripts/migrations_*.cjs` finds only the error-path `ROLLBACK`).
 - Manifest: `scripts/migration_manifest.cjs` is an append-only ordered list; position = array index + 1. Master holds 061 migrations with high-water 068: ids 062-064 were reserved by parallel branches and never landed, 065/066 landed first, and the R9C financial migrations 067/068 (PR #9) append after them (manifest comment). Ledger positions stay contiguous (067 @ 60, 068 @ 61).
-- Nothing on Render runs migrations: web CMD is `start:web:prod`, worker `dockerCommand: npm run start:worker:prod`; the worker waits (bounded) for a migrated schema (`src/worker.ts:95-104`, `worker_waiting_for_migrated_database`).
+- Nothing on Render runs migrations: web CMD is `node .demo_dist/src/app.js` (the Node runtime itself as PID 1 so the platform's SIGTERM reaches `gracefulShutdown` and the container exits 0 - proven by `docker-release-lab` and `tests/release_tools/runtime_shutdown.test.cjs`), worker `dockerCommand: npm run start:worker:prod` (hosted blueprint, owner-reviewed change: with npm as PID 1 the worker does not drain on a Render deploy, the outbox lease reclaim covers correctness - OPEN item); the worker waits (bounded) for a migrated schema (`src/worker.ts:95-104`, `worker_waiting_for_migrated_database`).
 - Order of operations is **schema first, then code**: readiness requires every `REQUIRED_TABLES` entry (`src/schema_contract.ts:21-35,72-76`). On 2026-09-10 the automatic deploy `dep-dah89onavr4c73e6skng` failed its health check because `content_assets`/`site_content` (066) were missing, and the old build stayed live (`docs/STAGING_ACCEPTANCE_2026-09-10.md:44`). That is the safe failure, not an accident to avoid.
 - How staging migrations were actually applied: no direct staging DB credential is held locally; 065, 066 and later 067/068 (2026-09-14, ledger 61/61 verified, paired grants `supabase/staging/024`) were applied by the owner as the unmodified SQL plus the ledger `INSERT` (canonical LF checksum) transported through Supabase MCP `apply_migration`, DDL and ledger row in one transaction (`docs/PILOT_LAUNCH_RUNBOOK.md:22-42`, `docs/STAGING_ACCEPTANCE_2026-09-10.md:22-28`). Hosted tables also need the separate least-privilege grants in `supabase/staging/NNN_*.sql` (`023_receipt_content_grants.sql` repaired a deploy that migrated but could not read its own tables, `:31-38`).
 

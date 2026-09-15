@@ -5,7 +5,10 @@ Three words, deliberately distinct. Helper: `scripts/lib/flake_classifier.cjs`; 
 | Word | Meaning | What happens |
 |---|---|---|
 | REAL_FAILURE | the code under test is wrong. Default for every failure. | exit code preserved; nobody reruns |
-| ENVIRONMENT_FAILURE | the run could not be executed as intended on this machine (documented signal present, no assertion failure) | exit code preserved; the preflight reports the gate as `SKIPPED_ENVIRONMENT`, never `PASS` |
+| ENVIRONMENT_FAILURE | the run could not be executed as intended on this machine (documented signal present in the child's output, no test-failure marker) | exit code preserved; the preflight reports the gate as `SKIPPED_ENVIRONMENT`, never `PASS` |
+| SPAWN_REFUSED | the harness's OWN spawn of the gate program was refused by the OS (`error.code` `EPERM` / `EACCES`, no exit status) - a sandbox, antivirus or permission policy | environmental: `SKIPPED_ENVIRONMENT`, the refused command is named |
+| EXECUTABLE_MISSING | the harness's own spawn found no program (`ENOENT`, `EFTYPE`, `ENOEXEC`) - every catalogue command names a checked-in tool dependency, so this is a repository/catalogue defect | `FAIL`, never skipped |
+| TIMEOUT | the child did not finish inside the harness timeout (`ETIMEDOUT`) | `FAIL` (a hang is real until proven otherwise) |
 | CORRECTIVE_RERUN | a second run explicitly requested by an operator with `--rerun-once-on-environment-failure` after an ENVIRONMENT_FAILURE; recorded as such in `.release-artifacts/qa-classified-*.json` | the SECOND run's exit code is final; a REAL_FAILURE is never rerun |
 
 No test is ever silently converted into a retry. Classification is advisory and never changes an exit code by itself.
@@ -27,7 +30,11 @@ No test is ever silently converted into a retry. Classification is advisory and 
 | playwright-browser-missing | `Executable doesn't exist`, CDP `ECONNREFUSED` | browser binary not installed / CDP port | install browsers; hosted browser proofs run on staging |
 | clock-jump | clock moved backwards | laptop sleep | rerun |
 
-An assertion failure (`AssertionError`, `TEST_FAIL`, `FAILED_GROUP`, `_FAIL`) next to an environment signal stays REAL_FAILURE: the environment noise may be cleanup after the real failure.
+## Order of evaluation (structural first, text second)
+
+`classifySpawnResult()` looks at the harness's own `spawnSync` result before reading any output: a timeout, a refused spawn (`EPERM`/`EACCES`) and a missing program (`ENOENT`/`EFTYPE`) are decided from `error.code` and the absence of an exit status. Only a child that actually RAN is judged by its text, and there a test-failure marker always dominates: `AssertionError`, `ERR_ASSERTION`, `TEST_FAIL`, `FAILED_GROUP`, `_FAIL`, TAP `not ok` and a node:test summary `ℹ fail N` (N > 0) make the failure REAL even when an environment signal appears in the same output. The signals are then reported as `ignored_signals=` rather than `signals=`, so the summary line never reads like an environment verdict.
+
+Why: the first GitHub run of `release-readiness.yml` reported the `release-tools-tests` gate as `FAILURE_CLASS=REAL_FAILURE signals=spawn-eperm assertion_seen=true`. The `spawn-eperm` text came from a NESTED preflight fixture (`tests/release_tools/release_orchestration.test.cjs` deliberately prints `spawnSync docker EPERM` to prove the SKIPPED_ENVIRONMENT path); the real failure was an assertion in that test - its `needs: docker` fixture gate expected SKIPPED_ENVIRONMENT, which holds on a laptop without Docker but not on a GitHub runner, where the gate ran and passed (`skipped_environment=1`, expected 2). The test now forces the capability absent through `SITON_PREFLIGHT_ASSUME_UNAVAILABLE=docker` (a control seam that can only remove capabilities), and the same file carries adversarial gates for exit 1, nested-noise assertion failure, a genuine environment signal, a hang, a missing executable and (POSIX) a refused spawn - each classified distinctly.
 
 ## Sources of environmental flakiness and the helper that removes each
 
@@ -42,4 +49,4 @@ An assertion failure (`AssertionError`, `TEST_FAIL`, `FAILED_GROUP`, `_FAIL`) ne
 | CRLF/LF | migration checksums are LF-canonical; `.gitattributes` pins `*.sql`; test fixtures normalise anchors |
 | parallel worker collisions | agent-tagged names + the one-runner rule (`docs/PARALLEL_AGENT_DEVELOPMENT.md`) |
 
-Controls: `tests/release_tools/process_and_flake.test.cjs` (classifier positives/negatives, runner exit codes and rerun semantics, owned-child-only kill, diagnose CLI).
+Controls: `tests/release_tools/process_and_flake.test.cjs` (classifier positives/negatives incl. the structural `classifySpawnResult` cases - EPERM/EACCES refused, ENOENT/EFTYPE missing, ETIMEDOUT, exit 1, nested-noise; runner exit codes and rerun semantics, owned-child-only kill, diagnose CLI) and `tests/release_tools/release_orchestration.test.cjs` (the same categories end-to-end through the real preflight).

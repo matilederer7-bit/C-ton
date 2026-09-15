@@ -7,7 +7,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { REPO_ROOT } = require("./support/fixture_repo.cjs");
-const { classifyFailure } = require("../../scripts/lib/flake_classifier.cjs");
+const { classifyFailure, classifySpawnResult, isEnvironmental, formatClassification } = require("../../scripts/lib/flake_classifier.cjs");
 const guardLib = require("../../scripts/lib/process_cleanup_guard.cjs");
 
 test("classifier: environment signals vs real failures", () => {
@@ -24,6 +24,68 @@ test("classifier: environment signals vs real failures", () => {
   // An assertion next to an environment signal stays real.
   assert.equal(classifyFailure("AssertionError: boom\nError: listen EADDRINUSE").kind, "REAL_FAILURE");
   assert.equal(classifyFailure("").kind, "REAL_FAILURE");
+  // node:test / TAP failure summaries are test-failure markers too: a nested
+  // run that PRINTS an EPERM fixture line while reporting a failed test is real.
+  assert.equal(classifyFailure("[SKIPPED_ENVIRONMENT] env: could not run here: spawn-eperm\nError: spawnSync docker EPERM\nℹ tests 5\nℹ pass 4\nℹ fail 1").kind, "REAL_FAILURE");
+  assert.equal(classifyFailure("not ok 3 - preflight yields FAIL\nError: spawnSync docker EPERM").kind, "REAL_FAILURE");
+  // ...and a clean nested run stays environmental when the only diagnosis is the signal.
+  assert.equal(classifyFailure("Error: spawnSync docker EPERM\nℹ tests 5\nℹ pass 5\nℹ fail 0").kind, "ENVIRONMENT_FAILURE");
+});
+
+test("classifier: structural spawn results are distinguished before any text is read", () => {
+  const eperm = classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("spawnSync x EPERM"), { code: "EPERM" }), output: "" });
+  assert.equal(eperm.kind, "SPAWN_REFUSED");
+  assert.equal(isEnvironmental(eperm), true);
+  assert.deepEqual(eperm.signals.map((s) => s.id), ["spawn-eperm"]);
+  const eacces = classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("spawn x EACCES"), { code: "EACCES" }), output: "" });
+  assert.equal(eacces.kind, "SPAWN_REFUSED");
+
+  const enoent = classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("spawn nope ENOENT"), { code: "ENOENT" }), output: "" });
+  assert.equal(enoent.kind, "EXECUTABLE_MISSING");
+  assert.equal(isEnvironmental(enoent), false, "a missing catalogue executable is a repository defect, never skipped");
+  assert.deepEqual(enoent.signals.map((s) => s.id), ["executable-not-found"]);
+  assert.equal(classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("EFTYPE"), { code: "EFTYPE" }), output: "" }).kind, "EXECUTABLE_MISSING");
+
+  const timeout = classifySpawnResult({ status: null, signal: "SIGTERM", error: Object.assign(new Error("spawnSync node ETIMEDOUT"), { code: "ETIMEDOUT" }), output: "partial output" });
+  assert.equal(timeout.kind, "TIMEOUT");
+  assert.equal(isEnvironmental(timeout), false, "a hang is real until proven otherwise");
+  assert.equal(classifySpawnResult({ status: null, signal: "SIGTERM", error: null, output: "", timedOut: true }).kind, "TIMEOUT");
+
+  const exit1 = classifySpawnResult({ status: 1, signal: null, error: null, output: "nothing diagnostic" });
+  assert.equal(exit1.kind, "REAL_FAILURE");
+  assert.deepEqual(exit1.signals, []);
+  assert.equal(exit1.exit_status, 1);
+
+  const realAssertion = classifySpawnResult({ status: 1, signal: null, error: null, output: "AssertionError [ERR_ASSERTION]: expected 1 to equal 2" });
+  assert.equal(realAssertion.kind, "REAL_FAILURE");
+  assert.equal(realAssertion.assertion_seen, true);
+
+  // A child that RAN and printed an EPERM line without any test-failure marker: environmental (text rule).
+  const textualEperm = classifySpawnResult({ status: 1, signal: null, error: null, output: "Error: spawnSync docker EPERM" });
+  assert.equal(textualEperm.kind, "ENVIRONMENT_FAILURE");
+  assert.equal(isEnvironmental(textualEperm), true);
+
+  // A child that RAN, printed the same EPERM line AND a failed-test summary: real, and the signal is reported as ignored.
+  const nested = classifySpawnResult({ status: 1, signal: null, error: null, output: "[SKIPPED_ENVIRONMENT] env: could not run here: spawn-eperm\nError: spawnSync docker EPERM\nℹ fail 1" });
+  assert.equal(nested.kind, "REAL_FAILURE");
+  assert.equal(nested.assertion_seen, true);
+  assert.equal(formatClassification(nested), "FAILURE_CLASS=REAL_FAILURE ignored_signals=spawn-eperm assertion_seen=true");
+  assert.doesNotMatch(formatClassification(nested), /(^|\s)signals=/);
+
+  // A structured spawn error is never overridden by output text: EPERM on the harness's own spawn
+  // stays SPAWN_REFUSED even if some captured text looked like an assertion.
+  const structuredWins = classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("EPERM"), { code: "EPERM" }), output: "AssertionError: stale" });
+  assert.equal(structuredWins.kind, "SPAWN_REFUSED");
+  // ...but a process that actually ran (status set) with an EPERM-coded error object is judged by its output.
+  const ranWithErrorObject = classifySpawnResult({ status: 1, signal: null, error: Object.assign(new Error("EPERM"), { code: "EPERM" }), output: "AssertionError: real" });
+  assert.equal(ranWithErrorObject.kind, "REAL_FAILURE");
+  // Unknown spawn error codes are real (fail closed), not environmental.
+  assert.equal(classifySpawnResult({ status: null, signal: null, error: Object.assign(new Error("weird"), { code: "EWEIRD" }), output: "" }).kind, "REAL_FAILURE");
+  // A child terminated by a signal (no exit status, no spawn error) never passes: real, with the signal named.
+  const killed = classifySpawnResult({ status: null, signal: "SIGKILL", error: null, output: "partial" });
+  assert.equal(killed.kind, "REAL_FAILURE");
+  assert.equal(killed.exit_signal, "SIGKILL");
+  assert.match(formatClassification(killed), /exit_signal=SIGKILL/);
 });
 
 test("classified runner preserves the exit code, classifies, and reruns only with the explicit flag", () => {

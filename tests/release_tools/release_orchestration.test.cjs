@@ -85,22 +85,104 @@ test("preflight: a failing gate yields FAIL and exit 1; an environment failure y
     ] };
     fixture.write("config/release-preflight-gates.json", JSON.stringify(catalogue));
     spawnSync("git", ["init", "-q"], { cwd: fixture.root });
-    const failing = fixture.run("scripts/release_preflight.cjs", ["--profile", "static"]);
+    // The "needs docker -> SKIPPED_ENVIRONMENT" path must be exercised on
+    // every machine. A GitHub runner HAS a Docker engine (the first CI run
+    // failed exactly here: needs-docker ran and passed, skipped_environment=1),
+    // so the capability is forced absent through the control seam instead of
+    // assuming the developer laptop's environment.
+    const noDocker = { SITON_PREFLIGHT_ASSUME_UNAVAILABLE: "docker" };
+    const failing = fixture.run("scripts/release_preflight.cjs", ["--profile", "static"], noDocker);
     assert.equal(failing.status, 1, failing.stdout + failing.stderr);
+    assert.match(failing.stdout, /docker=false/);
     assert.match(failing.stdout, /\[PASS\] ok/);
     assert.match(failing.stdout, /\[WARNING\] warn/);
     assert.match(failing.stdout, /\[SKIPPED_ENVIRONMENT\] env: could not run here: spawn-eperm/);
+    assert.match(failing.stdout, /\[SKIPPED_ENVIRONMENT\] needs-docker: needs docker/);
     assert.match(failing.stdout, /\[FAIL\] bad: exit 1 \(FAILURE_CLASS=REAL_FAILURE/);
     assert.match(failing.stdout, /RELEASE_PREFLIGHT_FAIL/);
-    const withoutBad = fixture.run("scripts/release_preflight.cjs", ["--profile", "static", "--skip", "bad"]);
+    const withoutBad = fixture.run("scripts/release_preflight.cjs", ["--profile", "static", "--skip", "bad"], noDocker);
     assert.equal(withoutBad.status, 0, withoutBad.stdout + withoutBad.stderr);
     assert.match(withoutBad.stdout, /RELEASE_PREFLIGHT_PASS/);
     assert.match(withoutBad.stdout, /skipped_environment=2/);
+    // The seam can only REMOVE a capability: asking for a docker that is not
+    // there changes nothing, and a present engine is honoured otherwise.
+    const dockerReal = spawnSync("docker", ["version", "--format", "{{.Server.Version}}"], { encoding: "utf8" }).status === 0;
+    const natural = fixture.run("scripts/release_preflight.cjs", ["--profile", "static", "--skip", "bad"]);
+    assert.match(natural.stdout, dockerReal ? /\[PASS\] needs-docker/ : /\[SKIPPED_ENVIRONMENT\] needs-docker/);
     const stopEarly = fixture.run("scripts/release_preflight.cjs", ["--profile", "static", "--stop-on-fail", "--only", "bad,ok"]);
     assert.equal(stopEarly.status, 1);
     assert.match(stopEarly.stdout, /stopping at first FAIL/);
     const unknownProfile = fixture.run("scripts/release_preflight.cjs", ["--profile", "nope"]);
     assert.equal(unknownProfile.status, 2);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+// Adversarial gate outcomes through the REAL preflight. The first CI run
+// mislabelled a nested test's fixture output ("spawnSync docker EPERM") as
+// signals=spawn-eperm on a REAL assertion failure; these controls pin the
+// structural rule: the harness's own spawn result decides first, text
+// second, and a test-failure marker always dominates textual signals.
+test("preflight classifies spawn refusal, missing executable, timeout, exit 1 and nested-noise assertion failures distinctly", () => {
+  const fixture = createFixtureRepo(["scripts/lib", "config/release-preflight-gates.json", "config/real-money-release-policy.json", "config/runtime-environment-policy.json", "scripts/release_preflight.cjs", "package.json"]);
+  try {
+    fixture.write("scripts/exit1_gate.cjs", "console.log('nothing diagnostic here'); process.exit(1);");
+    fixture.write("scripts/nested_noise_gate.cjs", [
+      "console.log('[SKIPPED_ENVIRONMENT] env: could not run here: spawn-eperm (fixture output of a nested run)');",
+      "console.log('Error: spawnSync docker EPERM');",
+      "console.log('\\u2139 tests 3');",
+      "console.log('\\u2139 pass 2');",
+      "console.log('\\u2139 fail 1');",
+      "process.exit(1);"
+    ].join("\n"));
+    fixture.write("scripts/genuine_env_gate.cjs", "console.log('error: connect ECONNREFUSED 127.0.0.1:5432'); process.exit(1);");
+    fixture.write("scripts/hang_gate.cjs", "setTimeout(() => {}, 20000);");
+    fixture.write("scripts/not-a-program.txt", "plain data, not a program\n");
+    // A POSIX-only genuine spawn refusal: an unreadable/non-executable file
+    // gives EACCES when spawned directly. Windows reports EFTYPE for a data
+    // file (a missing/not-a-program condition), so that gate is POSIX-only.
+    const posix = process.platform !== "win32";
+    const gates = [
+      { id: "exit1", category: "TESTS", command: ["node", "scripts/exit1_gate.cjs"], needs: "none", profiles: ["static"] },
+      { id: "nested-noise", category: "TESTS", command: ["node", "scripts/nested_noise_gate.cjs"], needs: "none", profiles: ["static"] },
+      { id: "genuine-env", category: "INFRA", command: ["node", "scripts/genuine_env_gate.cjs"], needs: "none", profiles: ["static"] },
+      { id: "hang", category: "INFRA", command: ["node", "scripts/hang_gate.cjs"], needs: "none", profiles: ["static"], timeout_ms: 1500 },
+      { id: "missing-exe", category: "INFRA", command: ["definitely-missing-executable-siton-xyz", "--version"], needs: "none", profiles: ["static"] },
+      { id: "not-a-program", category: "INFRA", command: [path.join(fixture.root, "scripts", "not-a-program.txt")], needs: "none", profiles: ["static"] }
+    ];
+    fixture.write("config/release-preflight-gates.json", JSON.stringify({ version: 1, profiles: { static: "x" }, gates }));
+    spawnSync("git", ["init", "-q"], { cwd: fixture.root });
+    const result = fixture.run("scripts/release_preflight.cjs", ["--profile", "static"], { SITON_RELEASE_ARTIFACTS_DIR: path.join(fixture.root, ".release-artifacts") });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    // child exit 1 with no signal -> REAL failure
+    assert.match(result.stdout, /\[FAIL\] exit1: exit 1 \(FAILURE_CLASS=REAL_FAILURE\)/);
+    // nested test output that PRINTS an EPERM signal but reports a failed test -> REAL, signals ignored (not "signals=")
+    assert.match(result.stdout, /\[FAIL\] nested-noise: exit 1 \(FAILURE_CLASS=REAL_FAILURE ignored_signals=spawn-eperm assertion_seen=true\)/);
+    assert.doesNotMatch(result.stdout, /nested-noise: exit 1 \(FAILURE_CLASS=REAL_FAILURE signals=/);
+    // a documented environment signal with no test-failure marker -> SKIPPED_ENVIRONMENT
+    assert.match(result.stdout, /\[SKIPPED_ENVIRONMENT\] genuine-env: could not run here: postgres-unreachable/);
+    // a hang -> FAIL as TIMEOUT, never environmental
+    assert.match(result.stdout, /\[FAIL\] hang: timed out after 2s \(FAILURE_CLASS=TIMEOUT signals=spawn-timeout/);
+    // a catalogue command whose program does not exist -> FAIL (repository/catalogue defect), never skipped
+    assert.match(result.stdout, /\[FAIL\] missing-exe: executable not found for `definitely-missing-executable-siton-xyz --version` \(FAILURE_CLASS=EXECUTABLE_MISSING signals=executable-not-found error_code=ENOENT\)/);
+    if (posix) {
+      // spawning a data file: Linux says EACCES (refused) -> SKIPPED_ENVIRONMENT with the spawn named
+      assert.match(result.stdout, /\[(SKIPPED_ENVIRONMENT|FAIL)\] not-a-program: /);
+      const line = result.stdout.split(/\r?\n/).find((l) => /\] not-a-program: /.test(l));
+      assert.ok(/SPAWN_REFUSED|spawn-eperm|EXECUTABLE_MISSING/.test(line), line);
+    } else {
+      assert.match(result.stdout, /\[FAIL\] not-a-program: executable not found for `[^`]*not-a-program\.txt` \(FAILURE_CLASS=EXECUTABLE_MISSING signals=executable-not-found error_code=EFTYPE\)/);
+    }
+    // The verdict buckets keep the two kinds apart: environment BLOCKED lists only the genuine one.
+    assert.match(result.stdout, /BLOCKED\s+\d+\s+governance: real-money-activation; environment: genuine-env(?: not-a-program)?\s*$/m);
+    const report = JSON.parse(fixture.read(".release-artifacts/release-preflight.json"));
+    const byId = Object.fromEntries(report.items.map((item) => [item.id, item.status]));
+    assert.equal(byId.exit1, "FAIL");
+    assert.equal(byId["nested-noise"], "FAIL");
+    assert.equal(byId["genuine-env"], "SKIPPED_ENVIRONMENT");
+    assert.equal(byId.hang, "FAIL");
+    assert.equal(byId["missing-exe"], "FAIL");
   } finally {
     fixture.cleanup();
   }

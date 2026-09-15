@@ -19,6 +19,17 @@
 //   --skip id,id                     skip gates
 //   --continue                       keep going after a FAIL (default: yes)
 //   --stop-on-fail                   stop at the first FAIL
+//   SITON_PREFLIGHT_ASSUME_UNAVAILABLE=docker,db,pgtools,network (env)
+//                                    control seam: treat a capability as absent
+//                                    (can only remove, never grant); used by the
+//                                    orchestration controls so the "needs X ->
+//                                    SKIPPED_ENVIRONMENT" path runs on every machine
+//
+// Failing gates are classified STRUCTURALLY first (the harness's own spawn
+// result: TIMEOUT, SPAWN_REFUSED, EXECUTABLE_MISSING), then by output text
+// (scripts/lib/flake_classifier.cjs). A test-failure marker in the output
+// always makes the failure REAL, whatever environment signals a nested run
+// printed alongside it.
 //
 // The summary always prints REAL_MONEY: BLOCKED/ALLOWED from the release
 // governance file, independent of any test result.
@@ -27,7 +38,7 @@ const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { runSync } = require("./lib/run_command.cjs");
 const { ReleaseReport, artifactsDir } = require("./lib/release_report.cjs");
-const { classifyFailure, formatClassification } = require("./lib/flake_classifier.cjs");
+const { classifySpawnResult, isEnvironmental, formatClassification } = require("./lib/flake_classifier.cjs");
 const { describeGit } = require("./lib/git_info.cjs");
 const policyLib = require("./lib/runtime_environment_policy.cjs");
 const isolation = require("./lib/test_db_isolation.cjs");
@@ -54,6 +65,13 @@ function environmentCapabilities() {
   caps.pgtools = pgDump.status === 0 || (process.platform === "win32" && [18, 17, 16, 15].some((v) => fs.existsSync("C:/Program Files/PostgreSQL/" + v + "/bin/pg_dump.exe"))) || Boolean(process.env.PG_BIN);
   const docker = spawnSync("docker", ["version", "--format", "{{.Server.Version}}"], { encoding: "utf8" });
   caps.docker = docker.status === 0 && Boolean(String(docker.stdout || "").trim());
+  // Control seam for the orchestration tests: pretend a capability is absent
+  // so the "needs X -> SKIPPED_ENVIRONMENT" path is exercised on EVERY
+  // machine (a CI runner has Docker, a developer laptop may not). It can only
+  // remove capabilities, never grant one.
+  for (const name of String(process.env.SITON_PREFLIGHT_ASSUME_UNAVAILABLE || "").split(",").map((item) => item.trim()).filter(Boolean)) {
+    if (name in caps) caps[name] = false;
+  }
   return caps;
 }
 
@@ -70,18 +88,28 @@ function runGate(gate, logDir) {
   const output = String(result.stdout || "") + (result.stderr ? "\n--- stderr ---\n" + String(result.stderr) : "");
   fs.writeFileSync(path.join(logDir, gate.id + ".log"), output);
   const duration_ms = Date.now() - started;
-  const timedOut = result.error && /ETIMEDOUT/.test(String(result.error.message || result.error.code));
-  const status = result.status === null ? (result.error ? 1 : 0) : result.status;
+  const timedOut = Boolean(result.error && /ETIMEDOUT/.test(String(result.error.code || result.error.message)));
+  // A child with no exit status was either not spawned (error) or terminated
+  // by a signal; neither is a pass.
+  const status = result.status === null ? (result.error || result.signal ? 1 : 0) : result.status;
   const has = (markers) => (markers || []).some((marker) => new RegExp(marker).test(output));
   let verdict;
   let summary;
-  if (timedOut) { verdict = "FAIL"; summary = "timed out after " + Math.round((gate.timeout_ms || 300000) / 1000) + "s"; }
-  else if (status !== 0) {
-    const classification = classifyFailure(output + (result.error ? "\n" + result.error.message : ""));
-    verdict = classification.kind === "ENVIRONMENT_FAILURE" ? "SKIPPED_ENVIRONMENT" : "FAIL";
-    summary = "exit " + status + " (" + formatClassification(classification) + ")";
-    if (verdict === "SKIPPED_ENVIRONMENT") summary = "could not run here: " + classification.signals.map((s) => s.id).join(",") + " (" + classification.signals.map((s) => s.hint).join("; ") + ")";
-  } else if (has(gate.skip_markers) || /overall=SKIPPED_ENVIRONMENT/.test(output)) { verdict = "SKIPPED_ENVIRONMENT"; summary = "reported SKIPPED_ENVIRONMENT (could not be proven on this machine)"; }
+  // Structured classification first (the harness's own spawn result), text
+  // second (the child's output). See scripts/lib/flake_classifier.cjs:
+  //   TIMEOUT / EXECUTABLE_MISSING / REAL_FAILURE -> FAIL
+  //   SPAWN_REFUSED / ENVIRONMENT_FAILURE          -> SKIPPED_ENVIRONMENT
+  const classification = (timedOut || status !== 0)
+    ? classifySpawnResult({ status: result.status, signal: result.signal, error: result.error, output, timedOut, command: gate.command.join(" ") })
+    : null;
+  if (classification && classification.kind === "TIMEOUT") { verdict = "FAIL"; summary = "timed out after " + Math.round((gate.timeout_ms || 300000) / 1000) + "s (" + formatClassification(classification) + ")"; }
+  else if (classification && classification.kind === "EXECUTABLE_MISSING") { verdict = "FAIL"; summary = "executable not found for `" + gate.command.join(" ") + "` (" + formatClassification(classification) + "): a catalogue command names a program that does not exist on this machine - fix the catalogue or install the tool; never skipped"; }
+  else if (classification && isEnvironmental(classification)) {
+    verdict = "SKIPPED_ENVIRONMENT";
+    summary = "could not run here: " + classification.signals.map((s) => s.id).join(",") + " (" + classification.signals.map((s) => s.hint).join("; ") + ")" + (classification.kind === "SPAWN_REFUSED" ? " [spawn of `" + gate.command.join(" ") + "` refused with " + classification.error_code + "]" : "");
+  }
+  else if (classification) { verdict = "FAIL"; summary = "exit " + status + " (" + formatClassification(classification) + ")"; }
+  else if (has(gate.skip_markers) || /overall=SKIPPED_ENVIRONMENT/.test(output)) { verdict = "SKIPPED_ENVIRONMENT"; summary = "reported SKIPPED_ENVIRONMENT (could not be proven on this machine)"; }
   else if (has(gate.warn_markers) || /overall=WARNING/.test(output)) { verdict = "WARNING"; summary = "passed with warnings"; }
   else { verdict = "PASS"; summary = "ok"; }
   const tail = output.trim().split(/\r?\n/).filter((line) => /_PASS|_FAIL|SUMMARY|WARNING|SKIPPED|overall=|REAL_MONEY|MIGRATION_PREFLIGHT|BLOCKED|ALLOWED/.test(line)).slice(-6).join("\n");

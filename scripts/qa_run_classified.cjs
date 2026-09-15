@@ -12,7 +12,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { classifyFailure, formatClassification } = require("./lib/flake_classifier.cjs");
+const { classifySpawnResult, isEnvironmental, formatClassification } = require("./lib/flake_classifier.cjs");
 const { createProcessGuard } = require("./lib/process_cleanup_guard.cjs");
 
 const argv = process.argv.slice(2);
@@ -35,7 +35,7 @@ function runOnce(attempt) {
   const status = result.status === null ? (result.error ? 1 : 0) : result.status;
   const record = { attempt, command: command.join(" "), status, duration_ms: Date.now() - started, error: result.error ? String(result.error.message) : null };
   if (status !== 0) {
-    const classification = classifyFailure(output + (result.error ? "\n" + result.error.message : ""));
+    const classification = classifySpawnResult({ status: result.status, signal: result.signal, error: result.error, output, command: command.join(" ") });
     record.classification = classification;
     console.log("\n" + formatClassification(classification) + " attempt=" + attempt + " exit=" + status);
     for (const signal of classification.signals) console.log("  " + signal.id + ": " + signal.hint);
@@ -46,7 +46,7 @@ function runOnce(attempt) {
 const first = runOnce(1);
 const records = [first];
 let final = first;
-if (first.status !== 0 && rerun && first.classification && first.classification.kind === "ENVIRONMENT_FAILURE") {
+if (first.status !== 0 && rerun && first.classification && isEnvironmental(first.classification)) {
   console.log("\nCORRECTIVE_RERUN requested by operator flag after ENVIRONMENT_FAILURE");
   const second = runOnce(2);
   second.kind = "CORRECTIVE_RERUN";

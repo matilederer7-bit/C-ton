@@ -55,7 +55,10 @@ services:
       RUNTIME_ROLE: web
       HOST: 0.0.0.0
       PORT: "3000"
-    command: ["npm", "run", "start:web:prod"]
+    # No command override: the lab proves the image's OWN entrypoint
+    # (Dockerfile CMD = `node .demo_dist/src/app.js`), which is what Render
+    # runs. With `npm run` as PID 1 the stop signal never reached Node and
+    # npm exited 1 (first CI run); Node as PID 1 handles SIGTERM and exits 0.
     ports:
       - target: 3000
         host_ip: 127.0.0.1
@@ -79,7 +82,9 @@ services:
       OUTBOX_POLL_MS: "200"
       WORKER_HEARTBEAT_MS: "1000"
       WORKER_CONCURRENCY: "2"
-    command: ["npm", "run", "start:worker:prod"]
+    # Node itself as PID 1 (the program `npm run start:worker:prod` runs), so
+    # SIGTERM reaches src/worker.ts's drain handler and the process exits 0.
+    command: ["node", ".demo_dist/src/worker.js"]
     healthcheck:
       test: ["CMD", "node", "-e", "const{Client}=require('pg');const c=new Client({connectionString:process.env.DATABASE_URL});c.connect().then(()=>c.query(\"select 1 from siton.worker_heartbeats where worker_id='release-lab-worker' and status='ready' and heartbeat_at>now()-interval '10 seconds'\")).then(r=>c.end().then(()=>process.exit(r.rowCount===1?0:1))).catch(()=>process.exit(1))"]
       interval: 2s
