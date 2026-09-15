@@ -78,8 +78,15 @@ function isExcludedFileName(name) {
   return EXCLUDED_FILE_PATTERNS.some((pattern) => pattern.test(name));
 }
 
+// Repository-relative paths are normalised on BOTH separators on every
+// platform: a scanner may receive a Windows-shaped path on Linux (CI, a path
+// copied from a report) and a backslash-joined ".worktrees\x\src\app.ts" must
+// still be recognised as excluded. Splitting only on path.sep left such a
+// path as one segment on Linux (first CI runs: "isCanonicalSourcePath agrees
+// on both separators" failed there and passed on Windows). Git paths never
+// carry a literal backslash, so nothing canonical is lost.
 function toPosix(rel) {
-  return String(rel).split(path.sep).join("/").replace(/^\.\//, "");
+  return String(rel).split(/[\\/]+/).join("/").replace(/^\.\//, "");
 }
 
 /**
