@@ -1,7 +1,7 @@
 # Siton current project status
 
 Updated: 2026-09-15
-Purpose: compact current-state source for agents. `PROJECT_STATUS.md` remains the historical status archive and is read only when older milestone history is actually needed.
+Purpose: compact current-state source for agents. `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` preserves the full historical status through 2026-09-15 and is read only when older milestone history is actually needed.
 
 ## Current architecture
 
@@ -32,6 +32,7 @@ Purpose: compact current-state source for agents. `PROJECT_STATUS.md` remains th
 - Stage 5 repository-side implementation prepared: canonical required-check list and drift contract.
 - Stage 6 infrastructure already exists in Render: staging tracks `master` with auto-deploy, pre-deploy migration command and `/readiness` health check.
 - Stage 7 basic implementation prepared: read-only hosted staging smoke workflow after successful master Release Readiness.
+- Project-status context was compacted: the previous 886,681-byte status history is preserved unchanged in `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md`; the active `PROJECT_STATUS.md` is a small current-state document.
 
 ### Checked
 
@@ -40,18 +41,18 @@ Purpose: compact current-state source for agents. `PROJECT_STATUS.md` remains th
 - Render service configuration was inspected: branch `master`, auto-deploy enabled, build `npm ci && npm run build:demo`, pre-deploy `npm run db:migrate`, start `npm run start:web:prod`, health check `/readiness`.
 - Hosted smoke implementation performs GET requests only and carries no credentials or mutation path.
 - Worktree helper contains no hard reset or force-push path and refuses dirty task switching / overwrite of existing non-worktree directories.
+- Historical status rotation reused the exact existing Git blob rather than rewriting or truncating the archive.
 
 ### Open
 
 - Merge Stage 2 only after the final Backend Quality workflow is fully green.
-- Rebase/land the workflow-hardening branch after Stage 2 is on `master`, run its PR CI, then merge only when green.
+- Land the workflow-hardening branch after Stage 2 is on `master`, run its PR CI, then merge only when green.
 - One GitHub owner/admin action is required: create the `master` ruleset described in `docs/GITHUB_MASTER_RULESET.md` and require the contexts in `config/required-merge-checks.json`.
-- Verify the Render auto-deploy produced the exact merged commit and that hosted staging smoke is green.
-- The historical `PROJECT_STATUS.md` is very large. Do not feed it into every agent task; use this compact file. A future local maintenance pass may archive/rotate the historical file safely without losing history.
+- Verify the Render auto-deploy produced the merged commit and that hosted staging smoke is green.
 
 ### Progress
 
-Engineering workflow efficiency track: approximately 80% implemented, approximately 65% fully enforced/verified.
+Engineering workflow efficiency track: approximately 85% implemented, approximately 65% fully enforced/verified.
 
 The gap between implemented and enforced is mainly the pending CI completion, master GitHub ruleset, landing the prepared workflow branch, and post-merge hosted verification.
 
@@ -66,6 +67,6 @@ The gap between implemented and enforced is mainly the pending CI completion, ma
 
 ## Agent reading rule
 
-For routine work read this file, not the full historical `PROJECT_STATUS.md`.
+For routine work read this file.
 
-Open `PROJECT_STATUS.md` only when the task needs older milestone history that is absent here. When a meaningful milestone closes, update this compact file first with completed, checked, open, percentage and next step. Preserve the historical archive rather than repeatedly loading it into context.
+Open `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` only when the task needs older milestone history that is absent here. When a meaningful milestone closes, update this compact file with completed, checked, open, percentage and next step. Keep historical detail out of the hot context unless it is actually needed.
