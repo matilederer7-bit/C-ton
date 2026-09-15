@@ -4,12 +4,15 @@ This file is binding for Codex, Claude Code, and any other coding agent working 
 
 ## Start every meaningful task
 
-Read:
+Read, in this order:
 
-1. `PROJECT_STATUS.md`
-2. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
-3. `AI_WORKFLOW.md`
-4. the task-relevant architecture, product, UX, migration, runbook, and test files
+1. `PROJECT_STATUS.md` — compact current state
+2. `AGENT_TASK_PROTOCOL.md` — task / review / handoff contract
+3. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
+4. `AI_WORKFLOW.md`
+5. only the task-relevant architecture, product, UX, migration, runbook, and test files
+
+Read `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` only when older milestone history is actually needed. Do not load the archive by default.
 
 Do not rely on memory of an older Siton phase when newer repository decisions exist.
 
@@ -38,6 +41,8 @@ Do not change these unless the owner explicitly changes them:
 ## How to work
 
 Work autonomously inside the assigned task. Do not stop for routine confirmations.
+
+A short owner brief is intentional. If the owner supplies only `TASK`, or `TASK` plus `SCOPE` / `DO NOT TOUCH` / `MODE`, derive the rest from this repository instead of asking the owner to repeat standing instructions.
 
 Inspect before editing. Make the smallest coherent change that fully solves the task. Do not mix unrelated cleanup into the same patch.
 
@@ -75,20 +80,48 @@ Classify results as PASS, FAIL introduced by this change, pre-existing FAIL, NOT
 
 ## Two-agent coordination
 
-Codex and Claude Code may work in parallel, but must not edit the same working tree concurrently.
+Codex and Claude Code use separate Git worktrees as the canonical parallel-work model.
 
-Until dedicated Git worktrees are configured:
+Expected sibling workspaces:
 
-- use separate branches and separate working directories/process contexts for parallel work
-- never reset, clean, stash, checkout over, amend, or force-push another agent's work
-- inspect `git status`, current branch, and recent commits before editing
-- if another agent has active uncommitted work in the same tree, do not touch it
+- `C-ton-codex`
+- `C-ton-claude`
 
-When reviewing another agent, review the actual diff and tests rather than trusting the summary.
+If missing, run:
+
+`node scripts/agent_workspace.cjs setup`
+
+Start every new implementation task from current `origin/master`:
+
+- Codex: `node scripts/agent_workspace.cjs start codex <task-slug>`
+- Claude Code: `node scripts/agent_workspace.cjs start claude <task-slug>`
+
+See `AGENT_WORKSPACES.md` for the full contract.
+
+Parallel builders are allowed only for separate coherent scopes. When scopes overlap materially, one agent is the writer and the other is reviewer/read-only.
+
+Never reset, clean, stash, checkout over, amend, or force-push another agent's work.
+
+When reviewing another agent, review the actual diff and tests rather than trusting the summary. Stay read-only unless explicitly switched to repair mode.
+
+## Task / review / handoff format
+
+Use `AGENT_TASK_PROTOCOL.md`.
+
+A normal owner assignment can be as short as:
+
+```text
+TASK: <desired outcome>
+SCOPE: <optional>
+DO NOT TOUCH: <optional>
+MODE: build | review | parallel-part
+```
+
+Builder completion and reviewer verdict must use the compact handoff formats defined there. Do not dump long command transcripts unless needed to explain a failure.
 
 ## Git workflow
 
-For meaningful work, prefer a task branch and Pull Request rather than direct work on `master`.
+For meaningful work, use a task branch and Pull Request rather than direct work on `master`.
 
 Before commit:
 
@@ -102,13 +135,17 @@ Use a clear commit message. Push the completed branch. Open a Pull Request when 
 
 ## PROJECT_STATUS.md
 
-At the end of every meaningful task, append a concise status block with:
+`PROJECT_STATUS.md` is intentionally compact and current. Keep it that way.
+
+At the end of every meaningful task, update it with:
 
 - What was completed
 - What was checked
 - What is open
 - Progress percentage for the task or track
 - Next step
+
+Do not append unlimited historical detail. Move obsolete milestone history to the archive during deliberate status maintenance, not during ordinary feature work.
 
 Do not mark a track 100% while known required work remains inside that track.
 
@@ -139,4 +176,4 @@ Report only useful evidence:
 - branch or Pull Request
 - remaining blocker, if any
 
-Optimize for repository correctness and verifiability, not for producing a reassuring progress report.
+Optimize for repository correctness and verifiability, minimal owner intervention, and minimal context waste.
