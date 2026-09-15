@@ -1,0 +1,93 @@
+name: ChatGPT integration merge
+
+on:
+  push:
+    branches:
+      - chatgpt/integration-runner-f620072
+    paths-ignore:
+      - .integration-report/**
+
+permissions:
+  contents: write
+
+jobs:
+  integrate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout runner
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Merge transfer into PR18 integration branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET='chatgpt/integrate-pr18-product-path-f620072'
+          SOURCE='claude/blissful-planck-l94ke3-transfer'
+          git config user.name 'ChatGPT Integration'
+          git config user.email 'actions@users.noreply.github.com'
+          git fetch origin "$TARGET" "$SOURCE"
+          git checkout -B "$TARGET" "origin/$TARGET"
+
+          set +e
+          git merge --no-ff "origin/$SOURCE" -m 'merge: integrate adversarial hardening with product-path closeout'
+          rc=$?
+          set -e
+
+          if [ "$rc" -ne 0 ]; then
+            conflicts="$(git diff --name-only --diff-filter=U | sort)"
+            printf '%s\n' "$conflicts" > /tmp/conflicts.txt
+            echo 'MERGE_CONFLICTS:'
+            cat /tmp/conflicts.txt
+
+            if [ "$conflicts" = 'PROJECT_STATUS.md' ]; then
+              git show :1:PROJECT_STATUS.md > /tmp/status-base.md
+              git show :2:PROJECT_STATUS.md > /tmp/status-ours.md
+              git show :3:PROJECT_STATUS.md > /tmp/status-theirs.md
+              git merge-file --union /tmp/status-ours.md /tmp/status-base.md /tmp/status-theirs.md || true
+              cp /tmp/status-ours.md PROJECT_STATUS.md
+              git add PROJECT_STATUS.md
+              if git diff --name-only --diff-filter=U | grep -q .; then
+                echo 'UNRESOLVED_AFTER_STATUS_UNION=1'
+                exit 21
+              fi
+              git commit -m 'merge: integrate adversarial hardening with product-path closeout'
+            else
+              echo 'CODE_CONFLICT_REQUIRES_REVIEW=1'
+              exit 20
+            fi
+          fi
+
+          echo 'INTEGRATION_HEAD:'
+          git rev-parse HEAD
+          echo 'INTEGRATION_TREE:'
+          git rev-parse HEAD^{tree}
+          echo 'PARENTS:'
+          git show -s --format='%P' HEAD
+          git status --short
+          git push origin HEAD:refs/heads/$TARGET
+
+      - name: Persist integration conflict diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set -euo pipefail
+          TARGET='chatgpt/integration-runner-f620072'
+          git merge --abort || true
+          git reset --hard || true
+          git checkout -B "$TARGET" "origin/$TARGET"
+          mkdir -p .integration-report
+          {
+            echo 'Integration merge failed.'
+            echo 'Target: chatgpt/integrate-pr18-product-path-f620072'
+            echo 'Source: claude/blissful-planck-l94ke3-transfer'
+            echo
+            echo 'Conflicts:'
+            cat /tmp/conflicts.txt 2>/dev/null || echo 'No conflict list captured.'
+          } > .integration-report/latest.txt
+          git add .integration-report/latest.txt
+          git config user.name 'ChatGPT Integration'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'chore(integration): capture merge conflict diagnostics' || true
+          git push origin HEAD:refs/heads/$TARGET
