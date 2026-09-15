@@ -75,6 +75,19 @@ function environmentCapabilities() {
   return caps;
 }
 
+// Under GitHub Actions, surface every FAIL / SKIPPED_ENVIRONMENT gate as a
+// check-run annotation: job logs are private to repository admins, while
+// annotations are readable by anyone who can see the check run, so a failing
+// gate (and the failing subtest inside it) explains itself.
+function emitGithubAnnotation(record) {
+  if (process.env.GITHUB_ACTIONS !== "true") return;
+  if (record.status === "PASS" || record.status === "WARNING") return;
+  const escape = (text) => String(text).replace(/%/g, "%25").replace(/\r/g, "%0D").replace(/\n/g, "%0A");
+  const body = [record.summary].concat(record.detail ? String(record.detail).split(/\r?\n/).slice(0, 14) : []).join("\n").slice(0, 1800);
+  const level = record.status === "FAIL" ? "error" : "notice";
+  console.log("::" + level + " title=release-preflight " + record.id + " " + record.status + "::" + escape(body));
+}
+
 function runGate(gate, logDir) {
   const started = Date.now();
   const [command, ...args] = gate.command;
@@ -112,8 +125,13 @@ function runGate(gate, logDir) {
   else if (has(gate.skip_markers) || /overall=SKIPPED_ENVIRONMENT/.test(output)) { verdict = "SKIPPED_ENVIRONMENT"; summary = "reported SKIPPED_ENVIRONMENT (could not be proven on this machine)"; }
   else if (has(gate.warn_markers) || /overall=WARNING/.test(output)) { verdict = "WARNING"; summary = "passed with warnings"; }
   else { verdict = "PASS"; summary = "ok"; }
-  const tail = output.trim().split(/\r?\n/).filter((line) => /_PASS|_FAIL|SUMMARY|WARNING|SKIPPED|overall=|REAL_MONEY|MIGRATION_PREFLIGHT|BLOCKED|ALLOWED/.test(line)).slice(-6).join("\n");
-  return { verdict, summary, duration_ms, detail: (verdict === "PASS" ? "" : tail || output.trim().split(/\r?\n/).slice(-15).join("\n")), log: path.join(path.relative(root, logDir), gate.id + ".log") };
+  // The detail names the failing SUBTEST when the gate is a test run (TAP
+  // `not ok`, spec-reporter failure lines, assertion lines), then the usual
+  // summary markers.
+  const lines = output.trim().split(/\r?\n/);
+  const failureLines = lines.filter((line) => /^\s*not ok\b|^\s*✖ |AssertionError|ERR_ASSERTION|FAILURE_CLASS=|\bTEST_FAIL\b|FAILED_GROUP/.test(line)).slice(0, 8);
+  const tail = failureLines.concat(lines.filter((line) => /_PASS|_FAIL|SUMMARY|WARNING|SKIPPED|overall=|REAL_MONEY|MIGRATION_PREFLIGHT|BLOCKED|ALLOWED/.test(line)).slice(-6)).join("\n");
+  return { verdict, summary, duration_ms, detail: (verdict === "PASS" ? "" : tail || lines.slice(-15).join("\n")), log: path.join(path.relative(root, logDir), gate.id + ".log") };
 }
 
 function main() {
@@ -146,7 +164,7 @@ function main() {
   for (const gate of selected) {
     const needs = gate.needs || "none";
     if ((needs === "db" && !caps.db) || (needs === "pgtools" && (!caps.db || !caps.pgtools)) || (needs === "docker" && !caps.docker)) {
-      report.skip(gate.id, "needs " + needs + " (not available on this machine)", { evidence: { category: gate.category, blocked_by: "environment:" + needs } });
+      emitGithubAnnotation(report.skip(gate.id, "needs " + needs + " (not available on this machine)", { evidence: { category: gate.category, blocked_by: "environment:" + needs } }));
       byCategory[gate.category] = byCategory[gate.category] || [];
       byCategory[gate.category].push({ id: gate.id, status: "SKIPPED_ENVIRONMENT" });
       continue;
@@ -155,6 +173,7 @@ function main() {
     const result = runGate(gate, logDir);
     process.stdout.write("\r");
     const record = report.add({ id: gate.id, status: result.verdict, summary: result.summary + (gate.note ? " - " + gate.note : ""), duration_ms: result.duration_ms, detail: result.detail || undefined, evidence: { category: gate.category, log: result.log } });
+    emitGithubAnnotation(record);
     byCategory[gate.category] = byCategory[gate.category] || [];
     byCategory[gate.category].push({ id: gate.id, status: record.status });
     if (record.status === "FAIL" && args.stopOnFail) { console.log("stopping at first FAIL (--stop-on-fail)"); break; }

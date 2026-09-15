@@ -71,16 +71,20 @@ async function stopWith(runtime, signal, timeoutMs) {
 test("shutdown harness detects a clean exit, a non-zero exit and an ignored signal", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "siton-shutdown-ctl-"));
   try {
+    // Each control prints READY once its handler is installed and the test
+    // waits for that line before signalling: node:test runs files concurrently
+    // (alongside tsx app boots), so a fixed delay could deliver the raw signal
+    // before the handler exists and kill the child by default action.
     const write = (name, body) => { const file = path.join(dir, name); fs.writeFileSync(file, body); return file; };
-    const clean = write("clean.mjs", "process.once('SIGTERM', () => { console.log('clean handler ran'); process.exit(0); }); setInterval(() => {}, 1000);");
-    const dirty = write("dirty.mjs", "process.once('SIGTERM', () => { console.log('dirty handler ran'); process.exit(1); }); setInterval(() => {}, 1000);");
-    const deaf = write("deaf.mjs", "process.on('SIGTERM', () => { console.log('ignoring'); }); setInterval(() => {}, 1000);");
+    const clean = write("clean.mjs", "process.once('SIGTERM', () => { process.stdout.write('clean handler ran\\n', () => process.exit(0)); }); setInterval(() => {}, 1000); process.stdout.write('READY\\n');");
+    const dirty = write("dirty.mjs", "process.once('SIGTERM', () => { process.stdout.write('dirty handler ran\\n', () => process.exit(1)); }); setInterval(() => {}, 1000); process.stdout.write('READY\\n');");
+    const deaf = write("deaf.mjs", "process.on('SIGTERM', () => { process.stdout.write('ignoring\\n'); }); setInterval(() => {}, 1000); process.stdout.write('READY\\n');");
     for (const [file, expectCode, expectLog] of [[clean, 0, /clean handler ran/], [dirty, 1, /dirty handler ran/], [deaf, "TIMEOUT", /ignoring/]]) {
       const runtime = spawnRuntime(file, { ...process.env });
-      await delay(WIN ? 600 : 400);
-      const result = await stopWith(runtime, "SIGTERM", 3000);
+      await waitFor(async () => /READY/.test(runtime.text()), 30000, path.basename(file) + " READY");
+      const result = await stopWith(runtime, "SIGTERM", 5000);
       assert.equal(result.code, expectCode, path.basename(file) + " -> " + JSON.stringify(result) + "\n" + runtime.text());
-      if (WIN || expectCode !== "TIMEOUT") assert.match(runtime.text(), expectLog);
+      if (expectCode !== "TIMEOUT") assert.match(runtime.text(), expectLog);
     }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
