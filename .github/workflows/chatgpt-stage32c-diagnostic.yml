@@ -1,0 +1,56 @@
+name: ChatGPT stage32c diagnostic
+
+on:
+  push:
+    branches:
+      - chatgpt/stage32c-diagnostic-f620072
+
+permissions:
+  contents: read
+
+jobs:
+  stage32c-diagnostic:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [isolated, after-mutation]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: chatgpt/integrate-pr18-product-path-f620072
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run ci:migrations
+      - run: npx tsc -p tsconfig.test.json
+      - name: Run mutation predecessor
+        if: matrix.mode == 'after-mutation'
+        run: node .tmp_test_dist/tests/mutation_error_contract_validation.js
+      - name: Run Stage32C twice
+        run: |
+          node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js
+          node .tmp_test_dist/tests/stage32c_product_surface_closure_validation.js
