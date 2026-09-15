@@ -1,93 +1,93 @@
 # Siton Agent Workspaces
 
-Codex and Claude Code use separate permanent Git worktrees so they can work concurrently without sharing a working directory or overwriting each other's uncommitted state.
+Codex and Claude Code use separate permanent Git worktrees so they can work concurrently without sharing a working directory or uncommitted state.
+
+Owner-facing command:
+
+`node scripts/agent.cjs <command>`
 
 ## One-time setup
 
-From the canonical `C-ton` repository directory run:
+From any Siton worktree:
 
-`node scripts/agent_workspace.cjs setup`
+`node scripts/agent.cjs setup`
 
-This creates sibling worktrees when missing:
+Creates sibling worktrees when missing:
 
 - `C-ton-codex`
 - `C-ton-claude`
 
-Each receives a standby branch:
+Standby branches:
 
 - `workspace/codex`
 - `workspace/claude`
 
-The setup is idempotent and refuses to overwrite an existing directory that is not already a registered Git worktree.
+The helper resolves the canonical repository root through Git's common directory, so invoking it from `C-ton`, `C-ton-codex`, or `C-ton-claude` targets the same two workspaces.
 
 ## Start a task
 
-Codex:
+```text
+node scripts/agent.cjs start codex <task name>
+node scripts/agent.cjs start claude <task name>
+```
 
-`node scripts/agent_workspace.cjs start codex <task name>`
+Hebrew and English task names are normalized safely into `agent/<agent>/<task>` branches.
 
-Claude Code:
+Start refuses:
 
-`node scripts/agent_workspace.cjs start claude <task name>`
+- missing agent worktree
+- dirty selected worktree
+- local task-branch collision
+- remote task-branch collision
+- overwrite of an existing non-worktree directory
 
-`<task name>` may be a normal multi-word Hebrew or English description. The helper safely normalizes it into a Git branch component, so the owner does not need to invent an English slug.
+Every task branch starts from freshly fetched `origin/master`.
 
-Example:
+## Status and doctor
 
-`node scripts/agent_workspace.cjs start codex תיקון תמונות מוכר`
+`node scripts/agent.cjs status`
 
-creates a branch under `agent/codex/תיקון-תמונות-מוכר`.
+Shows registered worktrees, branches, heads, and dirty state.
 
-The command:
+`node scripts/agent.cjs doctor`
 
-1. requires the agent worktree to exist
-2. refuses to continue if that worktree has uncommitted changes
-3. fetches current `origin/master`
-4. refuses a task-branch name that already exists locally or on `origin`
-5. creates a fresh task branch from current `origin/master`
-6. switches only the selected agent worktree
+Returns a short operational result:
 
-Branches are named:
+- `DONE` when both worktrees exist, branches are isolated, and both are clean
+- `DECISION_NEEDED` when a worktree has uncommitted changes
+- `FAILED` when a required workspace is missing or a branch collision exists
 
-- `agent/codex/<normalized-task-name>`
-- `agent/claude/<normalized-task-name>`
+## Finish
 
-## Status / dry plan
+`node scripts/agent.cjs finish <codex|claude>`
 
-`node scripts/agent_workspace.cjs status`
+Finish is intentionally conservative. It refuses to leave the current task branch unless:
 
-prints all registered worktrees plus the expected Codex and Claude workspace state.
+- the worktree is clean
+- it is not detached or on `master`
+- the branch exists on origin
+- local HEAD exactly matches the pushed remote branch
 
-`node scripts/agent_workspace.cjs plan`
+Then it returns only that agent workspace to its standby branch. It never resets, stashes, cleans, amends, or force-pushes work.
 
-prints the intended paths, branch prefixes, and safety boundaries without mutating the repository.
+## Review and handoff
+
+`node scripts/agent.cjs review claude "PR #123"`
+
+prints the compact reviewer assignment. Review is read-only by default and the PR/diff is the primary source of truth.
+
+`node scripts/agent.cjs handoff "PR #123"`
+
+prints the minimum handoff contract. Do not create long handoff documents.
 
 ## Parallel-work rule
 
-Separate worktrees prevent filesystem collisions. They do not make overlapping product changes safe.
+Separate worktrees prevent filesystem collisions. They do not make overlapping scopes safe.
 
-Use parallel builders only for separate coherent scopes. When two tasks materially overlap, designate one agent as the writer and the other as reviewer/read-only for that task.
+Use two builders only for separate coherent scopes. Each must know its owned scope and the other agent's forbidden overlap.
 
-Never reset, clean, stash, amend, force-push, or checkout over the other agent's branch or worktree.
+Shared files must not be edited by both builders concurrently. If integration needs a shared file, designate one integrator after both independent parts are complete.
 
-## Integration rule
+For overlapping or risky work, use one builder and one reviewer.
 
-Each builder commits and pushes only its own task branch, then opens a Pull Request into `master`.
-
-Do not integrate by copying files between worktrees.
-
-The reviewer reviews the actual PR diff, tests, and current repository state. The reviewer does not edit the same scope unless the task explicitly changes from review to repair.
-
-## Safety guarantees
-
-`scripts/agent_workspace.cjs` deliberately does not:
-
-- overwrite an existing non-worktree directory
-- discard uncommitted changes
-- hard-reset a worktree
-- reuse an existing local or remote task branch
-- force-push
-- modify `master`
-- merge a Pull Request
-
-Its job is only to create isolated workspaces and clean task branches from current `origin/master`.
+Never reset, clean, stash, checkout over, amend, or force-push another agent's work.

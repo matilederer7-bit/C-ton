@@ -4,17 +4,23 @@ This file is binding for Codex, Claude Code, and any other coding agent working 
 
 ## Start every meaningful task
 
-Read, in this order:
+Default standing context is intentionally small.
 
-1. `PROJECT_STATUS.md` — compact current state
-2. `AGENT_TASK_PROTOCOL.md` — task / review / handoff contract
-3. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
-4. `AI_WORKFLOW.md`
-5. only the task-relevant architecture, product, UX, migration, runbook, and test files
+Read first:
 
-Read `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` only when older milestone history is actually needed. Do not load the archive by default.
+1. `PROJECT_STATUS.md`
+2. this `AGENTS.md`
+3. only task-relevant source, tests, migrations, runbooks, or current product/architecture files
 
-Do not rely on memory of an older Siton phase when newer repository decisions exist.
+Read these only when needed:
+
+- `AGENT_TASK_PROTOCOL.md` for review, parallel-builder, repair, or handoff semantics
+- `AGENT_WORKSPACES.md` for worktree mechanics or troubleshooting
+- `AI_WORKFLOW.md` for workflow/process questions
+- `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md` when the task genuinely depends on foundational architecture/product history
+- `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` only for older milestone history
+
+Do not load historical or workflow documents by default merely because they exist.
 
 ## Source of truth
 
@@ -36,23 +42,20 @@ Do not change these unless the owner explicitly changes them:
 - The 8% fee applies to the full customer amount actually collected, including shipping/delivery, excluding VAT.
 - There is no in-system distributor commission, distributor balance, payout entitlement, or distributor payment rail.
 - Distributor functionality is attribution, measurement, and sharing unless a newer owner decision changes it.
-- Existing state-machine, idempotency, atomicity, audit, outbox, inventory, and 90% success rules are safety boundaries.
+- Existing state-machine, idempotency, atomicity, audit, outbox, inventory, and 90% success rules remain safety boundaries.
+- Green technical checks never authorize real-money activation.
 
 ## How to work
 
-Work autonomously inside the assigned task. Do not stop for routine confirmations.
+A short owner brief is intentional. `TASK: <desired outcome>` is enough when scope is obvious. Optional fields are `SCOPE`, `DO NOT TOUCH`, and `MODE`.
 
-A short owner brief is intentional. If the owner supplies only `TASK`, or `TASK` plus `SCOPE` / `DO NOT TOUCH` / `MODE`, derive the rest from this repository instead of asking the owner to repeat standing instructions.
+Work autonomously inside the assigned scope. Inspect before editing. Make the smallest coherent change that fully solves the task. Do not mix unrelated cleanup into the same patch.
 
-Inspect before editing. Make the smallest coherent change that fully solves the task. Do not mix unrelated cleanup into the same patch.
+Do not stop for routine confirmation. Ask only when an unresolved decision materially affects real money, security, legal exposure, irreversible production data, or a major product choice.
 
 Do not weaken tests, gates, security checks, or product invariants merely to make a change pass.
 
-When fixing a bug, add or strengthen a regression test when practical.
-
-After two materially similar failed attempts, stop repeating the same approach. Diagnose from first principles and try a different path.
-
-Ask the owner only when a decision cannot be derived safely from current sources and the ambiguity materially affects money, security, legal exposure, irreversible data changes, or a major product decision.
+After two materially similar failed attempts, stop repeating the same tactic. Re-diagnose from first principles and change approach.
 
 ## External research boundary
 
@@ -60,64 +63,61 @@ Codex and Claude Code are repository execution agents first.
 
 Do not spend coding-agent time on broad external research such as provider documentation, market research, regulation, vendor pricing, Grow documentation, or general web research unless the owner explicitly assigns it.
 
-The normal flow is that ChatGPT performs external research and gives the coding agent implementation facts, constraints, and acceptance criteria. Repository-local investigation is always expected.
+ChatGPT normally performs external research and gives coding agents implementation facts, constraints, and acceptance criteria. Repository-local investigation is always expected.
 
 ## Testing
 
-The canonical repository completion command is:
+Use focused tests during implementation.
+
+The canonical completion command is:
 
 `npm run siton:verify`
 
-It runs the current static release preflight, isolated migration proof, protected-route authorization gate, and complete grouped repository test suite. It deliberately excludes Docker labs, external provider calls, real-money actions, and production mutation.
+It is the full repository completion gate when the task and environment require it. It excludes real-money actions and production mutation. It requires Node 22+ and a disposable local PostgreSQL `DATABASE_URL`; hosted staging/production databases are refused.
 
-The command requires Node 22 or newer and a disposable local PostgreSQL `DATABASE_URL`. It refuses hosted staging or production databases. If the required local database is unavailable, the result is BLOCKED, not PASS.
+Never claim a test passed if it was not run. Report PASS, FAIL introduced by this change, pre-existing FAIL, NOT RUN, or BLOCKED by unavailable infrastructure.
 
-During implementation, run focused tests for fast feedback. Before completing meaningful code work, run `npm run siton:verify` unless the task is documentation-only or the environment cannot provide its prerequisites. If it cannot run, report that explicitly and do not claim full verification.
+Documentation-only/workflow-only changes may use focused contract checks instead of unrelated product QA.
 
-Never claim a test passed if it was not run.
+## One owner-facing agent command
 
-Classify results as PASS, FAIL introduced by this change, pre-existing FAIL, NOT RUN, or blocked by unavailable external infrastructure.
+Use:
+
+`node scripts/agent.cjs <command>`
+
+Common commands:
+
+- `setup`
+- `status`
+- `doctor`
+- `start codex <task>`
+- `start claude <task>`
+- `review <codex|claude> <PR|commit|branch>`
+- `handoff <PR|commit|branch>`
+- `finish <codex|claude>`
+
+`scripts/agent_workspace.cjs` is the lower-level implementation helper. Owners and agents should normally use `scripts/agent.cjs`.
 
 ## Two-agent coordination
 
-Codex and Claude Code use separate Git worktrees as the canonical parallel-work model.
-
-Expected sibling workspaces:
+Codex and Claude Code use separate permanent sibling worktrees:
 
 - `C-ton-codex`
 - `C-ton-claude`
 
-If missing, run:
+Every implementation task starts on a fresh `agent/<agent>/<task>` branch from current `origin/master`.
 
-`node scripts/agent_workspace.cjs setup`
+Default modes:
 
-Start every new implementation task from current `origin/master`:
+- single builder: one agent writes
+- builder + reviewer: one writes, the other reviews the PR read-only
+- parallel builders: allowed only for clearly separate scopes with explicit forbidden overlap
 
-- Codex: `node scripts/agent_workspace.cjs start codex <task-slug>`
-- Claude Code: `node scripts/agent_workspace.cjs start claude <task-slug>`
-
-See `AGENT_WORKSPACES.md` for the full contract.
-
-Parallel builders are allowed only for separate coherent scopes. When scopes overlap materially, one agent is the writer and the other is reviewer/read-only.
+Never let both agents edit the same scope concurrently.
 
 Never reset, clean, stash, checkout over, amend, or force-push another agent's work.
 
-When reviewing another agent, review the actual diff and tests rather than trusting the summary. Stay read-only unless explicitly switched to repair mode.
-
-## Task / review / handoff format
-
-Use `AGENT_TASK_PROTOCOL.md`.
-
-A normal owner assignment can be as short as:
-
-```text
-TASK: <desired outcome>
-SCOPE: <optional>
-DO NOT TOUCH: <optional>
-MODE: build | review | parallel-part
-```
-
-Builder completion and reviewer verdict must use the compact handoff formats defined there. Do not dump long command transcripts unless needed to explain a failure.
+A reviewer reads the actual diff and checks, not the builder summary alone, and stays read-only unless explicitly switched to repair mode.
 
 ## Git workflow
 
@@ -128,52 +128,44 @@ Before commit:
 1. inspect `git status`
 2. inspect the full diff
 3. verify no secrets or generated junk were added
-4. run appropriate focused tests and the canonical verification gate when applicable
+4. run appropriate focused checks and canonical verification when applicable
 5. update `PROJECT_STATUS.md` for meaningful milestones
 
-Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
+Use a clear commit message. Push the completed branch. Open or update the appropriate Pull Request. Never force-push `master`.
 
 ## PROJECT_STATUS.md
 
-`PROJECT_STATUS.md` is intentionally compact and current. Keep it that way.
+Keep it compact and current.
 
-At the end of every meaningful task, update it with:
+After a meaningful milestone record only:
 
-- What was completed
-- What was checked
-- What is open
-- Progress percentage for the task or track
-- Next step
+- COMPLETED
+- CHECKED
+- OPEN
+- PROGRESS %
+- NEXT STEP
 
-Do not append unlimited historical detail. Move obsolete milestone history to the archive during deliberate status maintenance, not during ordinary feature work.
-
-Do not mark a track 100% while known required work remains inside that track.
+Historical detail belongs in the archive, not the standing context.
 
 ## Definition of done
 
-A meaningful task is done only when the applicable items are true:
+A meaningful task is done when applicable items are true:
 
 - requested behavior is implemented
-- relevant tests were added or updated
-- focused tests pass, or failures are classified honestly
-- `npm run siton:verify` passes when the task and environment require full repository verification, or its inability to run is reported as BLOCKED
-- the diff was reviewed
-- `PROJECT_STATUS.md` was updated when required
+- relevant tests/checks were run and classified honestly
+- final diff was reviewed
+- `PROJECT_STATUS.md` was updated
 - changes were committed clearly
 - branch was pushed
-- Pull Request was opened when expected
+- Pull Request was opened or updated when expected
 - remaining blockers and next step are explicit
 
-## Completion report
+Builder completion should be compact:
 
-Report only useful evidence:
+`RESULT / BRANCH / COMMIT / PR / CHANGED / TESTED / OPEN / NEXT`
 
-- result
-- changed files
-- tests and exact outcomes
-- canonical verification result when applicable
-- commit SHA
-- branch or Pull Request
-- remaining blocker, if any
+Reviewer completion should be compact:
 
-Optimize for repository correctness and verifiability, minimal owner intervention, and minimal context waste.
+`VERDICT / P0-P1 / P2 / TEST_EVIDENCE / RECOMMENDED_NEXT`
+
+No long terminal transcript unless it is needed as failure evidence.

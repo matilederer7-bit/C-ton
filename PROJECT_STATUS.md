@@ -1,7 +1,7 @@
 # PROJECT STATUS — Siton current project status
 
-Updated: 2026-09-15
-Purpose: compact current-state source for coding agents. Historical milestone detail before this reset is preserved byte-for-byte in `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` and is read only when needed.
+Updated: 2026-09-16
+Purpose: compact current-state source for coding agents. Historical milestone detail before this reset is preserved in `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` and is read only when needed.
 
 ## Current architecture
 
@@ -22,36 +22,39 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 
 ## Agent-efficiency track
 
-### Completed
+### COMPLETED
 
-- Stage 1: canonical `AGENTS.md` and `AI_WORKFLOW.md` created so standing rules no longer need to be pasted into every coding-agent prompt.
-- Stage 2 implementation: canonical `npm run siton:verify` command exists on the current efficiency branch baseline and provides one completion-verification entry point. PR #16 is superseded by the consolidated efficiency branch until integration is complete.
-- Stage 3 implementation: `scripts/agent_workspace.cjs` creates isolated permanent sibling worktrees for Codex and Claude Code and starts each task on a clean branch from current `origin/master`.
-- Worktree helper refuses dirty-worktree switching, existing non-worktree path overwrite, local task-branch reuse, and remote task-branch collision. It contains no hard reset or force-push path.
-- `AGENT_WORKSPACES.md` documents the one-time setup and parallel-work contract.
-- `AGENT_TASK_PROTOCOL.md` defines the short owner task brief, builder completion packet, reviewer verdict, parallel-scope rule, and builder-to-reviewer handoff.
-- `AGENTS.md` now makes the compact task protocol and isolated worktrees the default operating model.
-- Status history was rotated: the former ~887 KB `PROJECT_STATUS.md` is preserved as `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md`; this compact file is now the default context source.
+- Standing agent rules and compact current status exist in-repo, so routine tasks no longer require pasted instruction blocks.
+- Historical status was rotated out of standing context into `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md`.
+- Canonical completion verification exists as `npm run siton:verify`.
+- Separate permanent Codex/Claude worktree model exists with dirty-worktree, path-overwrite, local-branch, and remote-branch collision guards.
+- Owner-facing workflow is consolidated behind `node scripts/agent.cjs` with `setup`, `status`, `doctor`, `start`, `review`, `handoff`, and `finish`.
+- Worktree path resolution now uses Git's common directory, so the helper targets the canonical `C-ton` root even when invoked from `C-ton-codex` or `C-ton-claude`.
+- `finish` refuses dirty, detached, master, unpushed, or not-fully-pushed task branches before returning an agent to standby.
+- Default context loading was reduced to `PROJECT_STATUS.md`, `AGENTS.md`, and task-relevant files. Workflow/history documents are on-demand.
+- Builder/reviewer and parallel-builder contracts use PR/commit diff and checks as the primary handoff object.
+- Owner quickstart is reduced to one short phone-friendly page.
 
-### Checked
+### CHECKED
 
-- Repository-side contract test added for the worktree helper.
-- Static inspection confirms no destructive reset or force-push path in the helper.
-- Historical status archive reuses the exact prior Git blob, so no historical bytes were rewritten during rotation.
-- PR #17 Release Readiness and Web Runtime gates passed. Backend gates passed through unit, integration, DB, API, workers, payments, authorization, security, concurrency, and failure/fault checks. The only E2E failure was `mvp_completion_project_status_optional_validation`, caused by the compact status heading no longer containing the compatibility marker `PROJECT STATUS`; that marker is restored by this commit.
+- Existing PR #17 Release Readiness and Web Runtime gates passed on the previous head.
+- Existing worktree contract checks cover two isolated agents, dirty guard, local/remote branch collision guard, Unicode task names, and absence of destructive reset/force-push paths.
+- Workflow contract coverage was extended for the single `agent.cjs` command, review/handoff output, canonical-root resolution, and pushed-head finish guard.
+- Repository-wide product QA is intentionally out of scope for this workflow-efficiency track.
 
-### Open
+### OPEN
 
-- The actual sibling worktrees must be instantiated once on the development machine with `node scripts/agent_workspace.cjs setup` after this branch is integrated. GitHub cannot create local filesystem worktrees on the owner's PC by itself.
-- Confirm the CI rerun after the one-line status-heading compatibility fix, then merge PR #17.
-- The next efficiency layer after worktrees is operational orchestration: make task assignment/review from phone require only a short brief plus PR/commit references, without re-sending repository context.
+- GitHub cannot create the physical sibling worktrees on the owner's Windows machine. After PR #17 is integrated, run `node scripts/agent.cjs setup` once on that machine.
+- Confirm the new PR #17 CI run on this workflow-only commit.
+- After local setup, run `node scripts/agent.cjs doctor` and start one disposable task branch in each workspace to prove local isolation end-to-end.
 
-### Progress
+### PROGRESS %
 
-- Agent-efficiency foundation: 95%.
-- Repository implementation for isolated two-agent work: 99%; only CI confirmation and merge remain.
-- Local machine activation of both worktrees: 0% until the one-time setup command is run on that machine.
+- Agent-efficiency repository implementation: 99%.
+- Standing-context compression and short-task protocol: 100%.
+- Two-agent repository safety controls: 99% pending CI confirmation.
+- Local Windows worktree activation: 0% until the one-time local setup is run.
 
-### Next step
+### NEXT STEP
 
-Confirm PR #17 CI after the compatibility-marker fix, merge it, then run the one-time worktree setup on the development machine and verify both agents can start independent task branches concurrently.
+Confirm PR #17 CI, integrate the PR, then run `node scripts/agent.cjs setup` and `node scripts/agent.cjs doctor` on the development PC.

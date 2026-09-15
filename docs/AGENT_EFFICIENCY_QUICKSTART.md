@@ -1,87 +1,51 @@
-# Siton agent efficiency quickstart
+# Siton Agent Quickstart
 
-This is the shortest operational view for the owner/coordinator.
+פקודת הבעלים היחידה:
 
-## One-time machine setup
+`node scripts/agent.cjs <command>`
 
-From `C-ton`:
+הקמה חד־פעמית:
 
-`node scripts/agent_workspace.cjs setup`
+`node scripts/agent.cjs setup`
 
-Creates:
+משימה רגילה:
 
-- `C-ton-codex`
-- `C-ton-claude`
+`node scripts/agent.cjs start codex "תיקון תמונות מוכר"`
 
-## Give work
+ואז לסוכן מספיק בדרך כלל:
 
-Normal implementation task:
+`TASK: <מה צריך להיות נכון בסוף>`
 
-```text
-TASK: <what should be true when done>
-```
+Review:
 
-Add only when useful:
+`node scripts/agent.cjs review claude "PR #123"`
 
-```text
-SCOPE: <owned area>
-DO NOT TOUCH: <exclusions>
-MODE: build | review | parallel-part
-```
+או פשוט:
 
-Standing rules, architecture, testing, status, commit/push and PR behavior are already in the repository. Do not paste them again.
+`REVIEW: PR #123`
 
-## Start agent branch
+שני builders במקביל:
 
-Codex:
+השתמש רק ב־scopes נפרדים. לכל אחד כתוב `SCOPE` ו־`DO NOT TOUCH` שמגדירים את הגבול מול השני.
 
-`node scripts/agent_workspace.cjs start codex <task-slug>`
+Status:
 
-Claude Code:
+`node scripts/agent.cjs status`
 
-`node scripts/agent_workspace.cjs start claude <task-slug>`
+בדיקת סביבת עבודה:
 
-## Best two-agent patterns
+`node scripts/agent.cjs doctor`
 
-### One important task
+סיום workspace אחרי commit + push + PR:
 
-Agent A = builder.
+`node scripts/agent.cjs finish codex`
 
-Agent B = reviewer after Agent A opens a PR.
+אם סוכן נתקע פעמיים באותה דרך:
 
-Reviewer gets only:
+STOP. אבחון מחדש. לא להריץ שוב את אותה פעולה ולא לשרוף full suite בלי סיבה חדשה.
 
-```text
-REVIEW: PR #<number>
-FOCUS: <optional concern>
-```
+בסוף אני אמור לקבל רק:
 
-### Two independent tasks
+`DONE` או `FAILED` או `DECISION_NEEDED`
 
-Run both as builders in their own worktrees and branches. State each scope and what the other agent owns.
-
-### Overlapping task
-
-Do not use two writers. One writes; one reviews.
-
-## What the owner should receive at the end
-
-Builder:
-
-```text
-RESULT / BRANCH / COMMIT / PR / CHANGED / TESTED / OPEN / NEXT
-```
-
-Reviewer:
-
-```text
-VERDICT / P0-P1 / P2 / TEST_EVIDENCE / RECOMMENDED_NEXT
-```
-
-Anything longer is optional evidence, not the default.
-
-## Token rule
-
-Read `PROJECT_STATUS.md` by default.
-
-Do not read `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md` unless historical detail is actually needed.
+ובתוספת קצרה: PR, מה השתנה, מה נבדק, blocker אם יש.
