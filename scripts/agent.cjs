@@ -18,7 +18,9 @@ function runWorkspace(args) {
   if (result.stdout) process.stdout.write(result.stdout);
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.error) throw result.error;
-  if (typeof result.status === "number" && result.status !== 0) process.exit(result.status);
+  if (result.signal) throw new Error(`workspace helper terminated by signal ${result.signal}`);
+  if (typeof result.status !== "number") throw new Error("workspace helper did not return an exit status");
+  if (result.status !== 0) process.exit(result.status);
 }
 
 function normalizeTarget(parts) {
