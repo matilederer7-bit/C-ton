@@ -38,11 +38,15 @@ run("canonical verifier preserves no-real-money and local-database boundaries", 
   assert.match(source, /Hosted staging\/production databases are refused/);
 });
 
-run("CI summarizer returns compact actionable output from a failed log", () => {
+run("CI summarizer is branch-scoped and returns compact actionable output", () => {
+  const source = readFileSync("scripts/ci_failure_summary.cjs", "utf8");
+  assert.match(source, /"--branch", branch/);
+  assert.match(source, /cannot determine current branch/);
+
   const fixture = join(tmpdir(), `siton-ci-failure-${process.pid}.log`);
   writeFileSync(fixture, [
-    "Backend quality\\tIntegration tests\\t2026-09-16T00:00:00Z Run npm run test:integration",
-    "Backend quality\\tIntegration tests\\t2026-09-16T00:00:01Z tests/stage32c_product_surface_closure_validation.ts:44 AssertionError: Expected values to be strictly equal: 1 !== 2"
+    "Backend quality\tIntegration tests\t2026-09-16T00:00:00Z Run npm run test:integration",
+    "Backend quality\tIntegration tests\t2026-09-16T00:00:01Z tests/stage32c_product_surface_closure_validation.ts:44 AssertionError: Expected values to be strictly equal: 1 !== 2"
   ].join("\n"));
   try {
     const result = spawnSync(process.execPath, ["scripts/ci_failure_summary.cjs", "latest", "--log-file", fixture], { encoding: "utf8" });
