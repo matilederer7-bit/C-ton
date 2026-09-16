@@ -42,6 +42,14 @@ test("workspace v3 isolates status writes and keeps open PR context", () => {
   assert.match(status, /AGENT_STATUS:codex:END/);
 });
 
+test("pull request backend CI runs every test group once, not twice", () => {
+  const workflow = read(".github/workflows/backend-quality-gates.yml");
+  for (const script of ["test:unit", "test:integration", "test:db", "test:api", "test:workers", "test:payments", "test:security", "test:concurrency", "test:failure", "test:e2e"]) {
+    assert.match(workflow, new RegExp(`npm run ${script.replace(":", "\\:")}`));
+  }
+  assert.match(workflow, /- name: Complete repository suite\n\s+if: github\.event_name == 'push'\n\s+run: npm run test:all/);
+});
+
 test("owner CLI rejects signalled helpers and exposes CI summary", () => {
   const source = read("scripts/agent.cjs");
   assert.match(source, /result\.signal/);
