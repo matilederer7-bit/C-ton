@@ -1,4 +1,6 @@
-import { PublicSellerPage, ContentPage, useSiteContent } from "./receiptContent";
+import { PublicSellerPage, ContentPage } from "./receiptContent";
+import { captureCmsPreviewFlag, exitCmsPreview, pageOf, useSiteContentState } from "./siteContent";
+import { blockOf, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT } from "./content/cmsTemplates";
 import React, { useEffect, useState } from "react";
 import { Mall } from "./pages/mall";
 import { Landing } from "./pages/landing";
@@ -17,6 +19,10 @@ import { captureAuthRedirect } from "./authRedirect";
 // Supabase auth-email redirects (recovery/confirmation) land in the hash —
 // capture them BEFORE any routing or ref-capture touches the URL.
 captureAuthRedirect();
+// SITE CMS — an admin opening "תצוגה מקדימה" lands on #/?cms_preview=1; the
+// flag is adopted for THIS tab only (draft content is served only to an
+// authenticated admin; everyone else keeps reading the published site).
+captureCmsPreviewFlag();
 import { captureRefFromLocation } from "./viral";
 import { BrandMark, BrandWordmark } from "./brand";
 import { PUBLIC_MALL_ENABLED } from "./config";
@@ -139,7 +145,9 @@ function AdminHotspot({ onActivate }: { onActivate: () => void }) {
 }
 
 export default function App() {
-  const content = useSiteContent();
+  const { content, preview, previewDenied } = useSiteContentState();
+  const footer = blockOf(pageOf(content, "footer"), "footer");
+  const footerLinks = footer?.items ?? FOOTER_DEFAULT_LINKS;
   const [route, navigate] = useRoute();
   const mallEnabled = useMallEnabled();
   const page = route.page;
@@ -156,6 +164,12 @@ export default function App() {
 
   return (
     <div className="app">
+      {preview || previewDenied ? (
+        <div className="cms-preview-banner" role="status" data-testid="cms-preview-banner" data-preview={preview ? "1" : "0"}>
+          <span>{preview ? "תצוגה מקדימה של טיוטה — רק אתם רואים את הגרסה הזו" : "התצוגה המקדימה דורשת התחברות מנהל — מוצג התוכן המפורסם"}</span>
+          <button type="button" className="btn btn-sm btn-ghost" data-testid="cms-preview-exit" onClick={exitCmsPreview}>יציאה מהתצוגה המקדימה</button>
+        </div>
+      ) : null}
       <AdminHotspot onActivate={() => { navigate("#/admin"); }} />
       <header className="topbar">
         <div className="topbar-inner">
@@ -206,16 +220,16 @@ export default function App() {
       )}
 
       {!isAdmin ? (
-        <footer className="footer">
+        <footer className="footer" data-testid="site-footer">
           <div>
-            <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>
-            <a href="#/content/about">אודות</a>
-            <a href="#/content/legal_terms">תקנון ותנאי שימוש</a>
-            <a href="#/content/legal_privacy">פרטיות</a>
-            <a href="#/content/legal_refunds">מדיניות ביטולים והחזרים</a>
+            {footerLinks.map((l, i) => l.link.startsWith("#/") ? (
+              <a key={`${i}-${l.link}`} href={l.link} onClick={(e) => { e.preventDefault(); navigate(l.link); }}>{l.label}</a>
+            ) : (
+              <a key={`${i}-${l.link}`} href={l.link}>{l.label}</a>
+            ))}
           </div>
-          <div style={{ marginTop: 8 }}>
-            {content.footer?.text ?? "C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)"}
+          <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
+            {footer?.fields.text ?? FOOTER_DEFAULT_TEXT}
           </div>
         </footer>
       ) : null}

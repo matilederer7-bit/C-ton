@@ -1,0 +1,38 @@
+/* SITE CMS — admin content editor, draft preview banner and the image/text landing block.
+   Kept beside styles.css (imported from main.tsx) so the CMS styling lives with the feature. */
+/* ── SITE CMS — admin content editor + preview banner + image/text block ── */
+.cms { min-width: 0; }
+.cms-pages { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 14px; }
+.cms-status { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+.cms-status-text { min-width: 0; flex: 1 1 260px; }
+.cms-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.cms-blocks { margin-top: 14px; }
+.cms-block-off { opacity: .72; border-style: dashed; }
+.cms-block-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
+.cms-block-toggle { background: none; border: 0; color: var(--ink-soft); font-size: 1rem; cursor: pointer; padding: 4px; }
+.cms-block-title { display: flex; align-items: center; gap: 8px; flex: 1 1 160px; min-width: 0; }
+.cms-chip { font-size: .72rem; padding: 2px 8px; }
+.cms-block-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cms-switch { display: inline-flex; align-items: center; gap: 6px; font-size: .85rem; color: var(--ink-soft); }
+.cms-fields { margin-top: 14px; display: grid; gap: 4px; min-width: 0; }
+.cms-fields input[type="text"], .cms-fields textarea, .cms-fields select { width: 100%; max-width: 100%; box-sizing: border-box; }
+.cms-fields input[type="file"] { max-width: 100%; }
+.cms-media-preview { max-width: 100%; max-height: 220px; border-radius: var(--radius); border: 1px solid var(--line); display: block; }
+.cms-items { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 6px; display: grid; gap: 10px; }
+.cms-items-head { display: flex; align-items: center; gap: 6px; }
+.cms-item { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; display: grid; gap: 4px; min-width: 0; }
+.cms-item-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 4px; }
+.cms-add select { max-width: 100%; }
+.cms-preview-banner { position: sticky; top: 0; z-index: 30; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 8px 16px; background: var(--saffron-tint); color: var(--saffron); border-bottom: 1px solid rgba(255, 170, 0, .35); font-weight: 700; font-size: .9rem; }
+.landing-image-text { display: grid; grid-template-columns: minmax(0, 300px) 1fr; gap: 20px; align-items: start; }
+.landing-image-text.image-end { grid-template-columns: 1fr minmax(0, 300px); }
+.landing-image-text.image-end .landing-image-text-img { order: 2; }
+.landing-image-text-img { width: 100%; max-width: 100%; border-radius: var(--radius-lg); border: 1px solid var(--line); display: block; }
+.landing-image-text-body { min-width: 0; }
+.landing-image-text-body p { color: var(--ink-soft); }
+.landing-cols-3 { grid-template-columns: 1fr 1fr 1fr; }
+.content-doc-image { max-width: 100%; border-radius: var(--radius-lg); border: 1px solid var(--line); margin: 0 0 16px; display: block; }
+@media (max-width: 720px) {
+  .landing-image-text, .landing-image-text.image-end, .landing-cols-3 { grid-template-columns: 1fr; }
+  .landing-image-text.image-end .landing-image-text-img { order: 0; }
+}

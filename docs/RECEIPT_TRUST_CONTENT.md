@@ -34,6 +34,8 @@ Published deals require `published_at IS NOT NULL` and a non-Draft state. Succes
 
 ## Content and storage
 
+Update 2026-09-16: `site_content` now stores template pages (blocks) with a draft/published split and the admin editor is the template-driven `#/admin/content`; see `docs/SITE_CMS.md`. The paragraph below describes the original flat model, which remains readable.
+
 `site_content` holds allowlisted structured text sections, revision, updated time, authenticated admin identity and the previous value. Defaults use the existing legal and landing copy. Admin writes require the existing named administrative mutation guard and management permission; a bootstrap/read-only key cannot edit. Revision checks prevent one editor from overwriting another. Raw HTML is rejected and React renders text without HTML execution.
 
 `content_assets` records the reference and owner of images stored through the canonical image validation/storage adapter. Only PNG/JPEG/WebP artifacts with matching signatures are accepted. Profile images must belong to that seller; homepage images must come from admin uploads. The existing orphan report recognizes these additional storage references. No user-supplied storage path is accepted. Migration 066 must be applied through the canonical migration runner before this code is deployed; this task does not deploy or apply migrations to production.

@@ -12,12 +12,11 @@
 // configured video used to render *behind* a configured image. This module is
 // the single decision point: one input set in, one medium out.
 //
-// BACKEND GAP (documented, deliberately NOT implemented in this task):
-// a real image-or-video CMS choice needs (a) a stored `kind` on the hero
-// content field and (b) a video MIME in siton.content_assets — whose CHECK
-// constraint today allows only image/png|jpeg|webp, so uploading a video is
-// rejected at the database. Both require a migration + a persistence-contract
-// change. See docs/UX_NIGHT_REINTEGRATION.md.
+// SITE CMS (closes the documented backend gap): the hero block now stores the
+// choice — `media_kind` (image | video) plus an admin-uploaded image or a
+// bounded MP4/WebM video (migration 069 widened the content_assets MIME
+// check). The runtime LANDING_HERO_VIDEO_* env stays a fallback video source
+// when the owner chose "video" without uploading one. See docs/SITE_CMS.md.
 //
 // Pure module (no DOM, no React) so the precedence rule is unit-testable.
 
@@ -26,7 +25,14 @@ export interface HeroMediumInput {
   imageUrl?: string | null;
   /** brand asset used when the CMS image slot is empty (never a "second medium") */
   fallbackImageUrl: string;
-  /** runtime flag + asset for the background-video capability */
+  /** the CMS hero choice; undefined = pre-CMS behaviour (env video wins when enabled) */
+  mediaKind?: "image" | "video";
+  /** admin-uploaded video (+ optional poster) from the CMS hero block */
+  cmsVideoUrl?: string | null;
+  cmsVideoPoster?: string | null;
+  /** the video only becomes eligible after first paint */
+  deferred?: boolean;
+  /** runtime flag + asset for the background-video capability (env fallback) */
   videoEnabled?: boolean | null;
   videoUrl?: string | null;
   videoPoster?: string | null;
@@ -47,12 +53,18 @@ export type HeroMedium =
  * object, so a caller that renders `medium.kind` can never show both.
  */
 export function resolveHeroMedium(input: HeroMediumInput): HeroMedium {
-  const videoUrl = String(input.videoUrl || "").trim();
-  const videoUsable = Boolean(input.videoEnabled) && videoUrl.length > 0
-    && !input.prefersReducedMotion && !input.saveData;
-  if (videoUsable) {
-    return { kind: "video", url: videoUrl, poster: String(input.videoPoster || "").trim() };
+  const envUrl = String(input.videoUrl || "").trim();
+  const cmsUrl = String(input.cmsVideoUrl || "").trim();
+  let videoUrl = "", poster = "";
+  if (input.mediaKind === "video") {
+    // the owner chose video: the uploaded asset, else the env asset when enabled
+    if (cmsUrl && input.deferred !== false) { videoUrl = cmsUrl; poster = String(input.cmsVideoPoster || "").trim(); }
+    else if (Boolean(input.videoEnabled) && envUrl) { videoUrl = envUrl; poster = String(input.videoPoster || "").trim(); }
+  } else if (input.mediaKind === undefined && Boolean(input.videoEnabled) && envUrl) {
+    videoUrl = envUrl; poster = String(input.videoPoster || "").trim();
   }
+  const videoUsable = videoUrl.length > 0 && !input.prefersReducedMotion && !input.saveData;
+  if (videoUsable) return { kind: "video", url: videoUrl, poster };
   const cms = String(input.imageUrl || "").trim();
   return cms
     ? { kind: "image", url: cms, fromCms: true }
