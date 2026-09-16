@@ -7,9 +7,10 @@ This file is binding for Codex, Claude Code, and any other coding agent working 
 Read:
 
 1. `PROJECT_STATUS.md`
-2. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
-3. `AI_WORKFLOW.md`
-4. the task-relevant architecture, product, UX, migration, runbook, and test files
+2. `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`
+3. `docs/CANONICAL_FOUNDATION_SOURCE_OF_TRUTH_2026-04-18.md`
+4. `AI_WORKFLOW.md`
+5. the task-relevant architecture, product, UX, migration, runbook, and test files
 
 Do not rely on memory of an older Siton phase when newer repository decisions exist.
 
@@ -30,10 +31,14 @@ Never revive deprecated behavior only because an old file still exists.
 Do not change these unless the owner explicitly changes them:
 
 - Siton platform fee is 8%.
-- The 8% fee applies to the full customer amount actually collected, including shipping/delivery, excluding VAT.
-- There is no in-system distributor commission, distributor balance, payout entitlement, or distributor payment rail.
-- Distributor functionality is attribution, measurement, and sharing unless a newer owner decision changes it.
-- Existing state-machine, idempotency, atomicity, audit, outbox, inventory, and 90% success rules are safety boundaries.
+- The 8% fee applies to the full customer amount actually collected, including shipping/delivery and any other purchase amount collected through Siton, excluding the customer VAT component.
+- There is no per-deal commission-rate override.
+- Every publishable deal has a finite mandatory `max_units`; unlimited or `NULL` capacity is not canonical.
+- Completion Window duration is exactly 24 hours, is not configurable, and exists only for recovery by participants whose initial charge failed and are in `ChargeFailedCompletion`.
+- There is no distributor/affiliate user role or distributor product module. Canonical user roles are buyer, seller, and administrator.
+- Ordinary deal sharing and role-neutral viral/acquisition analytics may exist only if they do not create distributor identity, permissions, economics, or a separate distributor product path.
+- There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
+- Existing state-machine, idempotency, atomicity, audit, outbox, inventory, security, and 90% success rules are safety boundaries.
 
 ## How to work
 
@@ -98,6 +103,18 @@ Before commit:
 5. update `PROJECT_STATUS.md` for meaningful milestones
 
 Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
+
+### Push checkpoint rule
+
+Completed work must never exist only inside a session container. For every substantial task:
+
+1. `git fetch origin` and start an isolated task branch from current `master`
+2. push the branch before substantial implementation to prove GitHub write access
+3. commit and push a meaningful checkpoint at each coherent milestone
+4. after tests and the `PROJECT_STATUS.md` update, make the final commit and push
+5. verify the remote SHA (`git ls-remote origin <branch>`) before reporting completion or opening the Pull Request
+
+If the early preflight push fails, stop substantial work and apply the authorization fallback below instead of accumulating hours of local-only changes.
 
 If push fails because the current session lacks GitHub authorization, especially a repeated 403 after access/setup was already attempted, do not keep retrying equivalent push methods. Preserve the coherent local commit, generate a complete patch from the intended base, and report the branch, base SHA, final commit SHA, patch path/name, and exact apply command. Continue only with work that does not depend on the blocked push.
 

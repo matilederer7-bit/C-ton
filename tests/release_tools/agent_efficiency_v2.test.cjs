@@ -49,6 +49,16 @@ test("Claude Code has a compact repository entry point into canonical agent rule
   assert.match(claude, /PROJECT_STATUS\.md/);
   assert.match(claude, /Do not ask the owner to repeat rules already defined in those files/);
   assert.match(claude, /Do not burn time or credits on authentication loops/);
+  assert.match(claude, /Push checkpoint rule/);
+  assert.match(claude, /verify the remote SHA/);
+});
+
+test("agent rules make early preflight and checkpoint pushes binding", () => {
+  const agents = read("AGENTS.md");
+  assert.match(agents, /### Push checkpoint rule/);
+  assert.match(agents, /push the branch before substantial implementation/);
+  assert.match(agents, /verify the remote SHA/);
+  assert.match(agents, /never exist only inside a session container/);
 });
 
 test("pull request backend CI runs every test group once, not twice", () => {

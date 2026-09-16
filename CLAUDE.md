@@ -23,6 +23,10 @@ At every meaningful milestone update `PROJECT_STATUS.md` with completed, checked
 
 When the task is coherent and verified, commit it clearly, push the branch, and open a Pull Request when integration or review is expected.
 
+## Push checkpoint rule
+
+Follow the push checkpoint rule in `AGENTS.md`: fetch, isolated task branch, preflight push before substantial implementation, checkpoint pushes at each coherent milestone, final push after tests and the `PROJECT_STATUS.md` update, then verify the remote SHA before reporting or opening a Pull Request. Never leave completed work only in a session container.
+
 ## Failure-loop and Git failure rule
 
 Do not repeat materially identical failed tactics more than twice.
