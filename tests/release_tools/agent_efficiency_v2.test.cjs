@@ -42,6 +42,15 @@ test("workspace v3 isolates status writes and keeps open PR context", () => {
   assert.match(status, /AGENT_STATUS:codex:END/);
 });
 
+test("Claude Code has a compact repository entry point into canonical agent rules", () => {
+  const claude = read("CLAUDE.md");
+  assert.match(claude, /AGENTS\.md/);
+  assert.match(claude, /AI_WORKFLOW\.md/);
+  assert.match(claude, /PROJECT_STATUS\.md/);
+  assert.match(claude, /Do not ask the owner to repeat rules already defined in those files/);
+  assert.match(claude, /Do not burn time or credits on authentication loops/);
+});
+
 test("pull request backend CI runs every test group once, not twice", () => {
   const workflow = read(".github/workflows/backend-quality-gates.yml");
   for (const script of ["test:unit", "test:integration", "test:db", "test:api", "test:workers", "test:payments", "test:security", "test:concurrency", "test:failure", "test:e2e"]) {
