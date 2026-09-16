@@ -104,14 +104,22 @@ test("binding agent rules make cloud manager the sole Git and status lifecycle o
   assert.match(rules, /auto-merge is forbidden/);
 });
 
-test("cloud workflow is owner-gated, GitHub-hosted, bounded and never auto-merges", () => {
+test("cloud workflow is owner-gated, serialized, lifecycle-guarded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
   assert.match(workflow, /github\.event\.issue\.user\.login == github\.repository_owner/);
   assert.match(workflow, /startsWith\(github\.event\.issue\.title, '\[agent-manager\]'\)/);
+  assert.match(workflow, /group: siton-cloud-agent-manager-v1/);
+  assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/);
   assert.match(workflow, /anthropics\/claude-code-action@v1/);
   assert.match(workflow, /openai\/codex-action@v1/);
   assert.match(workflow, /permission-profile: ":read-only"/);
+  assert.match(workflow, /Enforce builder lifecycle and control-plane boundary/);
+  assert.match(workflow, /Builder committed or changed HEAD/);
+  assert.match(workflow, /Enforce fix-pass lifecycle and control-plane boundary/);
+  assert.match(workflow, /cloud-agent-manager\\\.yml/);
+  assert.match(workflow, /PROJECT_STATUS\\\.md/);
   assert.match(workflow, /Canonical verification after build/);
   assert.match(workflow, /Re-verify after bounded fix/);
   assert.match(workflow, /This is the only automatic fix pass/);
