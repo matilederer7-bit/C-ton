@@ -18,9 +18,11 @@ Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
   - one global cloud-writer queue, so managed coding tasks are serialized instead of silently racing overlapping scopes.
   - canonical task packet with Siton commercial and production safety invariants.
   - one writer, read-only reviewer, at most one bounded automatic fix pass, then stop.
-  - lifecycle guards fail if a builder or fix pass changes branch, changes HEAD by committing, or edits the manager control plane/shared status.
+  - lifecycle guards fail if a builder or fix pass changes branch, changes HEAD by committing, or edits workflows, manager control-plane files or shared status.
   - Claude subprocess environment scrubbing is enabled.
-  - disposable local PostgreSQL service and canonical `scripts/siton_verify.cjs` before commit.
+  - default `GITHUB_TOKEN` is read-only and checkout credentials are not persisted into the builder workspace.
+  - manager-owned push, PR creation and issue/PR comments use the dedicated `SITON_AGENT_GITHUB_TOKEN`, so automation-created PRs can enter normal CI rather than relying on suppressed `GITHUB_TOKEN` events.
+  - disposable local PostgreSQL service and canonical `scripts/siton_verify.cjs` run before manager-owned commit.
   - isolated Cloud Agent Manager status slot, automated commit/push/PR creation and no auto-merge.
   - draft PR when the final review still requires changes.
 - Cloud manager contract tests and a mobile-friendly GitHub issue form are included.
@@ -29,14 +31,15 @@ Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
 
 - PR #22 passed Backend and deployment quality gates, Web runtime depth gates and Release readiness before merge, including the complete repository suite and extended Docker smoke.
 - Agent efficiency v2/v3 contract tests are under `tests/release_tools/agent_efficiency_v2.test.cjs` and are part of the standard/full release-preflight catalogue.
-- Cloud Agent Manager contract coverage is under `tests/release_tools/cloud_agent_manager.test.cjs` for role selection, standing safety invariants, read-only review, isolated status updates, owner-only triggers, the serialized queue, builder lifecycle guards, one bounded fix pass and no auto-merge.
-- On PR #25, the previous head passed the Release Readiness static preflight, database preflight and Docker release lab, and passed Web runtime core before the additional queue/lifecycle hardening commit reset CI to the latest head.
-- The latest head must receive fresh GitHub CI; repository CI remains the authority for workflow syntax and the release-tool contract suite.
+- Cloud Agent Manager contract coverage is under `tests/release_tools/cloud_agent_manager.test.cjs` for role selection, standing safety invariants, read-only review, isolated status updates, owner-only triggers, the serialized queue, dedicated GitHub lifecycle credential, builder lifecycle guards, one bounded fix pass and no auto-merge.
+- An earlier PR #25 head passed Release Readiness static/database/Docker and Web runtime core before later hardening commits deliberately reset CI.
+- The latest head requires fresh GitHub CI; repository CI remains the authority for workflow syntax and the release-tool contract suite.
 
 ## OPEN
 
-- PR #25 requires fresh green CI on the latest queue/lifecycle-hardening head before merge.
-- Cloud Agent Manager cannot execute an AI coding run until at least one GitHub Actions cloud credential is configured.
+- PR #25 requires fresh green CI on the latest hardening head before merge.
+- Computer-off activation requires `SITON_AGENT_GITHUB_TOKEN` plus at least one coding-agent credential.
+- `SITON_AGENT_GITHUB_TOKEN` should be a dedicated fine-grained token limited to `matilederer7-bit/C-ton`, with Contents read/write, Pull requests read/write and Issues read/write only. Do not grant Administration or secrets access.
 - Claude cloud mode supports either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. For Claude Pro/Max, the documented OAuth path is `claude setup-token`, then store the token as a GitHub Actions secret.
 - Codex cloud mode requires `OPENAI_API_KEY`; ChatGPT subscription access does not itself create API billing credentials.
 - Two-provider independent review requires both a Claude credential and `OPENAI_API_KEY`. With only one provider, the manager records a bounded same-provider review.
@@ -47,17 +50,18 @@ Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
 ## PERCENTAGE
 
 - Local agent workflow repository-side implementation: 100% merged.
-- Cloud Agent Manager repository implementation: 92% pending latest-head CI/merge and one-time cloud credential activation.
-- Computer-off execution path: code complete, not yet live until a supported GitHub Actions secret is present.
+- Cloud Agent Manager repository implementation: 93% pending latest-head CI/merge and one-time cloud credential activation.
+- Computer-off execution path: code complete, not yet live until the GitHub lifecycle token and at least one coding-agent credential are present.
 - Product/real-money readiness percentages are intentionally not recomputed by this workflow-only change.
 
 ## NEXT STEP
 
 1. Complete fresh GitHub CI on PR #25 and inspect only evidence-backed failures.
 2. Merge PR #25 when all required workflows are green.
-3. Configure at least one cloud credential in GitHub Actions secrets. Preferred first path for the current setup: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
-4. Trigger a harmless cloud smoke task through an owner-authored `[agent-manager]` issue and prove end-to-end execution while the owner computer is not participating.
-5. Add `OPENAI_API_KEY` later if independent cross-provider Codex review is desired.
+3. Configure `SITON_AGENT_GITHUB_TOKEN` as a minimal fine-grained GitHub repository secret.
+4. Configure at least one coding-agent credential. Preferred first path for the current setup: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+5. Trigger a harmless cloud smoke task through an owner-authored `[agent-manager]` issue and prove end-to-end execution while the owner computer is not participating.
+6. Add `OPENAI_API_KEY` later if independent cross-provider Codex review is desired.
 
 ## AGENT MILESTONES
 
@@ -94,11 +98,11 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - BRANCH: chore/cloud-agent-manager-v1
 - BUILDER: manager infrastructure
 - REVIEWER: repository CI pending latest head
-- COMPLETED: GitHub-hosted orchestration, global serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, status ownership and PR creation implemented.
-- TESTED: Contract tests added; prior head passed Release Readiness static/database/Docker and Web core; latest-head full CI pending after hardening.
-- OPEN: Latest-head CI, PR merge, one-time GitHub cloud credential activation and end-to-end computer-off smoke run remain.
-- PERCENTAGE: 92%
-- NEXT STEP: Pass latest CI, merge PR #25, configure Claude OAuth or API credential, then execute a harmless computer-off smoke task.
+- COMPLETED: GitHub-hosted orchestration, global serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token, status ownership and PR creation implemented.
+- TESTED: Contract tests added; earlier head passed Release Readiness static/database/Docker and Web core; latest-head full CI pending after autonomous Git hardening.
+- OPEN: Latest-head CI, PR merge, one-time GitHub lifecycle token plus coding-agent credential activation, and end-to-end computer-off smoke run remain.
+- PERCENTAGE: 93%
+- NEXT STEP: Pass latest CI, merge PR #25, configure `SITON_AGENT_GITHUB_TOKEN` plus Claude OAuth/API credential, then execute a harmless computer-off smoke task.
 <!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
