@@ -23,7 +23,7 @@ The manager coordinates one writer and one reviewer. It owns branch creation, ca
 9. The manager runs `git diff --check` and `node scripts/siton_verify.cjs` against a disposable PostgreSQL service on the GitHub runner.
 10. The reviewer inspects the actual diff in read-only mode and must return `VERDICT=PASS` or `VERDICT=CHANGES_REQUIRED`.
 11. If changes are required, the builder gets exactly one automatic bounded fix pass. The lifecycle/control-plane guards and canonical verification run again, then the reviewer checks again.
-12. The manager updates only its isolated `PROJECT_STATUS.md` slot, commits, pushes and opens a Pull Request.
+12. The manager updates only its isolated `PROJECT_STATUS.md` slot, commits, pushes and opens a Pull Request using a dedicated GitHub credential rather than the workflow's default `GITHUB_TOKEN`.
 13. If the final reviewer still requires changes, the PR is opened as draft. There is no automatic retry loop.
 14. Repository Pull Request CI remains the integration authority. There is no auto-merge.
 
@@ -35,7 +35,12 @@ The workflow itself, the agents, tests, Git operations and PR creation run in Gi
 
 ## Authentication
 
-At least one cloud agent credential must be configured as a GitHub Actions repository secret.
+Computer-off execution needs two credential classes:
+
+1. one coding-agent credential
+2. one dedicated GitHub lifecycle credential
+
+All credentials must be stored only as GitHub Actions repository secrets.
 
 ### Claude
 
@@ -52,15 +57,40 @@ For Claude Pro or Max, Anthropic documents `claude setup-token` as a way to crea
 
 The OpenAI Codex GitHub Action requires an API key. A ChatGPT subscription and API billing are separate surfaces, so do not assume that ChatGPT plan access automatically creates an API key or API balance.
 
+### GitHub lifecycle
+
+Required secret:
+
+- `SITON_AGENT_GITHUB_TOKEN`
+
+Use a dedicated fine-grained personal access token limited to the `matilederer7-bit/C-ton` repository. It should have only the repository permissions needed for the manager lifecycle:
+
+- Contents: read and write
+- Pull requests: read and write
+- Issues: read and write
+
+Do not grant Administration or repository-secret access.
+
+Why this exists: GitHub's normal `GITHUB_TOKEN` is deliberately kept read-only in the Cloud Agent Manager. GitHub also suppresses normal workflow chaining for events created by `GITHUB_TOKEN`, and repositories may block workflow-created pull requests. A dedicated fine-grained token lets the manager push its task branch and open a PR that enters the repository's ordinary CI flow.
+
+The checkout does not persist credentials. Builders therefore do not inherit the lifecycle token. The dedicated token is exposed only to the final manager-owned Git push/PR/comment steps.
+
 ### Recommended Siton setup
 
 Minimum useful cloud mode:
 
-- Claude credential only: Claude builds and performs a bounded self-review.
+- `SITON_AGENT_GITHUB_TOKEN`
+- one Claude credential
+
+This gives Claude build plus bounded same-provider review.
 
 Preferred two-provider mode:
 
-- Claude credential plus `OPENAI_API_KEY`: Claude builds by default and Codex performs an independent read-only review.
+- `SITON_AGENT_GITHUB_TOKEN`
+- Claude credential
+- `OPENAI_API_KEY`
+
+Claude builds by default and Codex performs an independent read-only review.
 
 The builder/reviewer can be overridden in manual workflow dispatch.
 
@@ -77,11 +107,13 @@ This prevents arbitrary public issues from receiving access to cloud-agent crede
 Additional boundaries:
 
 - Managed cloud writers are serialized through one GitHub Actions concurrency group.
+- The workflow's default `GITHUB_TOKEN` is read-only.
+- The dedicated GitHub lifecycle token is not persisted into the checkout and is used only by manager-owned Git/PR/comment steps.
 - Real money remains 0.
 - Grow remains untouched.
 - Production charging, payouts, refunds, customer messaging, destructive production data changes, live migrations and credential rotation are outside normal cloud-agent authority.
 - A builder/fix pass fails if it changes branch or HEAD by committing.
-- A builder/fix pass cannot modify `.github/workflows/cloud-agent-manager.yml`, `scripts/cloud_agent_manager.cjs`, `AGENTS.md`, `AI_WORKFLOW.md` or `PROJECT_STATUS.md`; the manager control plane cannot rewrite itself during a product task.
+- A builder/fix pass cannot modify any `.github/workflows/` file, `scripts/cloud_agent_manager.cjs`, `AGENTS.md`, `AI_WORKFLOW.md` or `PROJECT_STATUS.md`; the manager control plane cannot rewrite itself during a product task.
 - Claude subprocess environment scrubbing is enabled.
 - Reviewer mode is read-only and the workflow compares the repository diff/status before and after review.
 - The manager performs at most one automatic fix pass.
@@ -90,7 +122,7 @@ Additional boundaries:
 
 ## Triggering from ChatGPT
 
-Once this workflow is merged and a Claude or Codex cloud credential is present, ChatGPT can create an owner task issue in the repository with the `[agent-manager]` prefix. GitHub then executes the work independently of the owner's computer.
+Once this workflow is merged and the GitHub lifecycle credential plus at least one coding-agent credential are present, ChatGPT can create an owner task issue in the repository with the `[agent-manager]` prefix. GitHub then executes the work independently of the owner's computer.
 
 The issue becomes the persistent task record. The manager comments back with the builder, reviewer, verdict and PR URL.
 
@@ -110,7 +142,8 @@ Inputs:
 
 The workflow fails closed when:
 
-- no supported cloud credential exists
+- `SITON_AGENT_GITHUB_TOKEN` is absent
+- no supported coding-agent credential exists
 - a requested provider is unavailable
 - the builder changes branch or HEAD instead of leaving an uncommitted task diff
 - the builder touches the manager control plane/shared status
