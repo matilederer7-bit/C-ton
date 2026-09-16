@@ -48,6 +48,7 @@
 - **בקוד:** [src/app.ts:1977](src/app.ts#L1977) — המוכר יכול לשלוח `body.deadline` חופשי. default = `nowPlusMinutes(60)` (שעה). אין upper/lower bound.
 - **השלכה:** מוכר יכול ליצור עסקה של שנה או של 30 שניות. שובר טיימינג-גיים קריטי במוצר.
 - **תיקון:** ולידציה ב-POST /deals: `2h ≤ deadline - now ≤ 7d`. במקביל: אכיפה ב-DB trigger (`deadline <= created_at + interval '7 days'`).
+- **עדכון 2026-09-16 (LONG_HORIZON_DEALS):** המינימום של שעתיים נשאר. המקסימום של 7 ימים בוטל — הוא נבע מהנחה שתפיסת המסגרת חייבת לשרוד עד החיוב, ולא מכלל מוצר. משך העסקה אינו תלוי בתוקף האישור: אישור שפג מחודש על ידי ה-worker בגבול החיוב (`docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`). ה-DB trigger המוצע לא נבנה מעולם ולא ייבנה.
 
 ### D4. אזור מפיצים כמערכת עמלות פנימית (**DRIFT-DIST-01..04, פתוח**)
 
@@ -210,7 +211,7 @@
 1. **D1** — לשנות `COMPLETION_WINDOW_MINUTES` ל-1440. שינוי של שורה אחת, השפעה כספית עצומה.
 2. **D2** — קיבוע שיעור עמלה ל-8% כקבוע מערכת; הסרת commission_rate מ-seller input. השפעה כספית.
 3. **D6** — יישור `DEAL_TRANSITIONS` ב-TS לאפיון ולטריגר DB. הגנה מפני ביטול לא חוקי.
-4. **D3** — enforcement של 2h ≤ deadline ≤ 7d. מונע עסקאות "שבורות".
+4. **D3** — enforcement של deadline ≥ 2h (המקסימום 7d בוטל ב-2026-09-16, ראו D3). מונע עסקאות "שבורות".
 5. **D7** — הוספת endpoints החזר (seller + admin). חסם גדול לשימוש אמיתי.
 6. **D4** + **D5** — הסרת payout subsystem של מפיצים. תלוי ב-DB migration, שיפוץ routes.
 7. **D8** — Trusted device cookie.

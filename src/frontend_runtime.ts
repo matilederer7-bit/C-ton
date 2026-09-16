@@ -7881,7 +7881,7 @@ export function registerFrontendExperience(
     if (!(await requireAdminRead(req, reply))) return;
     const stuckTimeoutMs = deps.workerStuckTimeoutMs ?? 60_000;
     return deps.withTx(async (c) => {
-      const [outbox, dlq, workers] = await Promise.all([
+      const [outbox, dlq, workers, maintenance] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*)                                              FILTER (WHERE status='pending')    AS pending_count,
@@ -7909,6 +7909,16 @@ export function registerFrontendExperience(
                   (heartbeat_at > now() - interval '30 seconds') AS fresh
              FROM siton.worker_heartbeats
             ORDER BY heartbeat_at DESC`
+        ),
+        // LONG_HORIZON_DEALS — payment-maintenance signal (migration 069)
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE b.expires_at IS NOT NULL AND b.expires_at <= now()
+                              AND p.money_state IN ('AuthHeld','AuthLocked','ChargeAttempt','ChargeFailedRecovery')) AS past_validity,
+             COUNT(*) FILTER (WHERE b.renewal_count > 0) AS renewed
+           FROM siton.payment_authorization_bindings b
+           JOIN siton.participants p ON p.participant_id = b.consumed_by_participant_id
+           WHERE b.status='consumed'`
         )
       ]);
       const o = outbox.rows[0];
@@ -7936,6 +7946,15 @@ export function registerFrontendExperience(
           running: workers.rows.some((row: any) => row.fresh && row.status === "ready"),
           active_count: workers.rows.filter((row: any) => row.fresh && row.status === "ready").length,
           instances: workers.rows
+        },
+        // LONG_HORIZON_DEALS — a payment-MAINTENANCE signal, not a product state
+        // and not an alert: committed participants whose CURRENT authorization
+        // is past its declared validity are renewal candidates at the charging
+        // boundary. Deal lifetime is independent of authorization lifetime.
+        payment_maintenance: {
+          authorizations_past_declared_validity: Number((maintenance.rows[0] as any)?.past_validity ?? 0),
+          authorizations_renewed: Number((maintenance.rows[0] as any)?.renewed ?? 0),
+          deal_lifetime_bounded_by_authorization: false
         }
       };
     });
@@ -10206,7 +10225,13 @@ export function registerFrontendExperience(
         delivery_option_id: dealAuthorizationContext.delivery_option_id,
         delivery_cost: dealAuthorizationContext.delivery_cost,
         status: result.authorization === "authorized" ? "authorized" : "pending_provider_confirmation",
-        correlation_id: result.correlation_id
+        correlation_id: result.correlation_id,
+        // LONG_HORIZON_DEALS — the instrument's provider-declared validity and
+        // the opaque stored payment-method reference: what the worker needs to
+        // re-establish the authorization at the charging boundary, long after
+        // this hold may have lapsed. Never raw card data.
+        expires_at: result.expires_at ?? null,
+        payment_method_ref: body.payment_method_id ? String(body.payment_method_id) : null
       });
     }
     if (body.buyer_id && body.payment_method_id) {

@@ -41,6 +41,14 @@ export const PAYMENT_PROVIDER_RECOVERY_PATH = process.env.PAYMENT_PROVIDER_RECOV
 export const PAYMENT_PROVIDER_REFUND_PATH = process.env.PAYMENT_PROVIDER_REFUND_PATH || "/refund";
 export const PAYMENT_PROVIDER_RELEASE_PATH = process.env.PAYMENT_PROVIDER_RELEASE_PATH || "/release";
 export const PAYMENT_PROVIDER_STATUS_PATH = process.env.PAYMENT_PROVIDER_STATUS_PATH || "/status";
+// LONG_HORIZON_DEALS — merchant-initiated re-authorization from a stored
+// payment-method reference (provider-ready HTTP contract). The worker uses it
+// at the charging boundary when the join-time authorization is no longer
+// usable. An EMPTY value disables the capability for this deployment (the
+// worker then lets the provider decide on the original authorization).
+export const PAYMENT_PROVIDER_REAUTHORIZE_PATH = process.env.PAYMENT_PROVIDER_REAUTHORIZE_PATH === undefined
+  ? "/reauthorize"
+  : String(process.env.PAYMENT_PROVIDER_REAUTHORIZE_PATH || "").trim();
 export const PAYMENT_PROVIDER_TIMEOUT_MS = readNumberEnv("PAYMENT_PROVIDER_TIMEOUT_MS", 8000);
 export const PAYMENT_PROVIDER_CURRENCY = process.env.PAYMENT_PROVIDER_CURRENCY || "ILS";
 // Independent financial review — provider-specific SETTLEMENT HORIZON for the

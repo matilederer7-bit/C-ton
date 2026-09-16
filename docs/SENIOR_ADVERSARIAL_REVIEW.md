@@ -352,6 +352,18 @@ Recorded here so it is not mistaken for closed by this review or by any green su
 - **Blocked on F13 / provider semantics and must not be guessed in repository code.** Encoding an assumed future-charge, mandate or token-reuse behaviour would create precisely the defect class this review exists to catch: something that looks implemented and passes its own tests while resting on an unverified external fact.
 - Migration `068`'s settlement horizon is a **different** problem (finality for money already in flight) and does **not** extend how long an authorization can be held.
 
+> **RESOLUTION NOTE (2026-09-16, `docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`).** The
+> repository-side blocker above is closed by decoupling deal lifetime from
+> authorization lifetime rather than by stretching a hold: the 7-day cap is
+> removed (`src/deadline_policy.ts`), the current authorization is a
+> replaceable instrument (migration 069, `reauthorize` identities through the
+> 067/068 lifecycle), and the worker re-establishes it at the charging boundary
+> through `PaymentProvider.reauthorize`. Nothing about a provider's future-charge
+> behaviour is guessed: Grow and Stripe adapters do NOT implement `reauthorize`
+> (documented gap, §7 of the architecture); for them the capture is dispatched
+> on the original authorization and the provider decides. The review text above
+> is kept verbatim as the historical record.
+
 ---
 
 **Canonical fee invariant independently re-verified** (not merely trusted from the existing suite):

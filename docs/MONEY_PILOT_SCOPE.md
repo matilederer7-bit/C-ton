@@ -44,7 +44,7 @@ Not suitable for the first pilot:
 - One deal.
 - Maximum 30 buyers.
 - Maximum total buyer authorization exposure: ILS 10,000.
-- Maximum duration: 7 days from publish to completion/failure.
+- Duration: a pilot-scope choice (recommended ≤ 7 days for the first money pilot so every hold is captured inside the provider's declared validity). NOT a platform limit: deal lifetime is independent of authorization lifetime (LONG_HORIZON_DEALS, 2026-09-16, `docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`); longer deals renew the authorization at the charging boundary once the active provider's stored-instrument re-authorization is proven.
 - No public marketplace, catalog, or search.
 - No distributor commission.
 - No manual refund path.

@@ -68,7 +68,9 @@ const MIGRATIONS = [
   ["065", "065_pilot_readiness.sql"],
   ["066", "066_receipt_trust_content.sql"],
   ["067", "067_payment_operation_lifecycle.sql"],
-  ["068", "068_payment_settlement_horizon.sql"]
+  ["068", "068_payment_settlement_horizon.sql"],
+  // LONG_HORIZON_DEALS — deal lifetime decoupled from authorization lifetime.
+  ["069", "069_long_horizon_authorization_renewal.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

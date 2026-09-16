@@ -2,65 +2,58 @@
 
 Updated: 2026-09-16
 Canonical branch: `master`
-Current merged baseline: `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`
+Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
 
 ## COMPLETED
 
 - PR #19 merged to `master`: adversarial production hardening plus seller-to-buyer product-path closeout.
-- PR #18 closed as superseded by PR #19.
-- Agent efficiency v2 is merged to `master` at `294399e32bbcd090761eb9e7774e64ef89d3eca3`.
-- PR #22 merged to `master` at `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
-- PR #21 was closed without merge as the stale-base predecessor superseded by PR #22.
-- Agent workflow includes isolated permanent Claude and Codex worktrees, one-command setup and doctor, fail-closed branch collision checks, untracked task packets, automated verification/commit/push/PR creation, compact CI failure summaries and no auto-merge.
-- Agent efficiency v3 hardening is implemented on `chore/agent-efficiency-v3-status-isolation`:
-  - Claude and Codex update separate fixed status slots inside this file instead of appending into the same EOF region.
-  - `finish` keeps the worktree on the active task branch while the PR remains open so CI fixes continue with the same context.
-  - the next `start` automatically releases only a clean prior task whose PR is already merged or closed.
-  - an open prior PR blocks task replacement instead of silently discarding context.
-  - PR backend CI runs the ten explicit test groups once; the aggregate `test:all` re-run is retained only on push to `master`, eliminating a proven duplicate pass on every PR without reducing PR test inventory.
+- PR #22 merged to `master`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
+- Agent efficiency v2 and v3 are merged. PR #23 merged at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`, providing isolated Claude/Codex status slots, retained task context while PRs are open, fail-closed task replacement and de-duplicated PR CI without reducing the explicit test inventory.
+- LONG_HORIZON_DEALS repository implementation was transferred from Claude commit `6c5aacb61492b06c63ff8846fbf5ae0345e6c625` onto current master through a SHA-256 verified patch.
+- Deal lifetime is decoupled from the lifetime of a single payment authorization. The buyer financial commitment remains in the existing participant state machine; the provider authorization is a renewable technical instrument.
+- The 7-day product deadline cap is removed from API validation, seller UI, Hebrew copy and legacy frontend. Minimum deal duration remains 2 hours.
+- Migration 069 and the authorization renewal lifecycle add renewable authorization metadata, `reauthorize`, idempotent renewal ownership and worker handling for long-horizon charging.
 
 ## TESTED
 
-- PR #22 passed Backend and deployment quality gates, Web runtime depth gates and Release readiness before merge, including the complete repository suite and extended Docker smoke.
-- Agent efficiency v2/v3 contract tests are under `tests/release_tools/agent_efficiency_v2.test.cjs` and are part of the standard/full release-preflight catalogue.
-- The v3 contract requires isolated Claude/Codex status markers, retained task branches while PRs are open, automatic release only after PR resolution and preservation of all ten explicit PR test groups while `test:all` is push-only.
-- PR #23 was refreshed onto merged master after PR #22. Fresh GitHub CI on the resulting combined head remains the merge authority.
+- Transfer artifact SHA-256 verified exactly: `ca1a830c01c767ba0df567c3eb0ce913ca442f51ee5f5f738be18285cc87b61b`.
+- Claude source-branch evidence: authorization renewal lifecycle 10/10, deadline policy 5/5, long-horizon worker scheduling 4/4, full grouped repository suite green with four environment-dependent files passing when their prerequisites were supplied, and static gates green.
+- The transfer applies to current master with a single expected documentation conflict in `PROJECT_STATUS.md`; `src/frontend_runtime.ts` merges automatically. This status file resolves the documentation conflict while preserving the merged v3 workflow state.
+- GitHub PR CI on the imported current-master head remains the merge authority.
 
 ## OPEN
 
-- PR #23 requires fresh green GitHub CI after its master refresh and CI de-duplication change before merge.
-- Owner-machine worktrees should be rechecked with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` after v3 merges.
-- The deterministic task-branch slug can still collide when the exact same task text is reused after a historical branch remains locally or remotely. This is a workflow follow-up, not a v3 merge blocker.
-- Task packets currently use the compact top-of-file status excerpt; later refinement can include the active agent's isolated status slot directly.
-- Runtime/production items intentionally remain open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F13 external provider semantics, LONG_HORIZON_DEALS dependent on F13, F-12 production image pruning, F-07 architecture decision, and legacy `/app/...` recovery URL cleanup.
+- The imported LONG_HORIZON_DEALS candidate requires a PR, green GitHub CI and merge to `master`.
+- Grow and Stripe `reauthorize` semantics are not yet proven in provider sandbox. This is an external-provider readiness blocker for real money, not a repository merge blocker.
+- Runtime/production items still open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F-12 production image pruning, F-07 architecture decision and legacy `/app/...` recovery URL cleanup.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ## PERCENTAGE
 
-- Agent workflow repository-side implementation: 98% pending fresh PR #23 CI and merge.
-- Agent workflow owner-machine activation: not re-verified by this repository-only change.
-- Product/real-money readiness percentages are intentionally not recomputed by this workflow-only change.
+- LONG_HORIZON_DEALS repository implementation: 100% on the candidate branch, pending GitHub CI and merge.
+- Agent workflow repository implementation: 100% merged; owner-machine setup/doctor can be rechecked separately.
+- Real-money readiness is not claimed until provider sandbox semantics are proven.
 
 ## NEXT STEP
 
-1. Complete fresh GitHub CI on PR #23 and inspect only evidence-backed failures.
-2. Merge PR #23 when all required workflows are green.
-3. Re-run `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` once on the owner machine.
-4. Harden repeated-task branch naming and improve task-packet status targeting in the next workflow-only change.
-5. Evaluate further path-sensitive CI optimization only with explicit protection against skipped required checks.
+1. Open the LONG_HORIZON_DEALS PR against current `master`.
+2. Run and inspect all required GitHub CI.
+3. Fix only evidence-backed integration defects if CI fails.
+4. Merge when green.
+5. Prove the selected payment provider's token/reauthorization semantics in sandbox before enabling any real-money path.
 
 ## AGENT MILESTONES
 
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone
 
-- UPDATED: not yet written by v3 workflow
-- BRANCH: none
-- COMPLETED: none
-- TESTED: none
-- OPEN: none
-- PERCENTAGE: not set
-- NEXT STEP: use this slot only from Claude Code finish
+- UPDATED: 2026-09-16
+- BRANCH: `import/long-horizon-2026-09-16`
+- COMPLETED: LONG_HORIZON_DEALS implementation transferred from Claude commit `6c5aacb61492b06c63ff8846fbf5ae0345e6c625` onto current master; 7-day cap removed; renewable authorization architecture and migration 069 included.
+- TESTED: source evidence 10/10 renewal lifecycle, 5/5 deadline policy, 4/4 worker scheduling, grouped full suite green; transfer SHA-256 verified exactly.
+- OPEN: GitHub PR CI and merge; provider sandbox proof for Grow/Stripe reauthorization before real money.
+- PERCENTAGE: repository implementation 100% on candidate; real money remains 0.
+- NEXT STEP: qualify the imported PR and merge when green; then prove provider semantics in sandbox.
 <!-- AGENT_STATUS:claude:END -->
 
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.

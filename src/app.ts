@@ -26,6 +26,7 @@ import {
 } from "./payment_attempt_helpers.js";
 import { buildPaymentProvider, getPaymentProviderSummary, providerAmbiguityPolicy, type PaymentExecutionResult, type PaymentStatusResult } from "./payment_provider.js";
 import { buildPaymentAuthorizationBindings, PaymentBindingError } from "./payment_binding.js";
+import { assessAuthorizationUsability, isAuthorizationUnusableResult, reauthorizationIdentity } from "./authorization_lifecycle.js";
 import { computeCustomerChargeVat } from "./vat_authority.js";
 import { buildNotificationService, getNotificationServiceSummary } from "./notification_service.js";
 import {
@@ -118,6 +119,7 @@ import { ensureAdminIdentityTables } from "./admin_identity.js";
 import { ensureParticipantTrackingTables, issueParticipantTrackingToken } from "./participant_tracking_security.js";
 import { ensureAdminInterventionTables, isFlagActive } from "./admin_intervention.js";
 import { mallStatusForState } from "./mall_read_model.js";
+import { classifyDeadline, DEADLINE_DEFAULT_MS as DEADLINE_POLICY_DEFAULT_MS } from "./deadline_policy.js";
 dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -128,11 +130,11 @@ const COMPLETION_WINDOW_MINUTES = Number(process.env.COMPLETION_WINDOW_MINUTES |
 const OUTBOX_POLL_MS = Number(process.env.OUTBOX_POLL_MS || 1000);
 const OUTBOX_MAX_ATTEMPTS = Number(process.env.OUTBOX_MAX_ATTEMPTS || 4);
 
-// Per spec: deal deadline must be at least 2 hours and at most 7 days in the future.
-const DEADLINE_MIN_MS = 2 * 60 * 60 * 1000;
-const DEADLINE_MAX_MS = 7 * 24 * 60 * 60 * 1000;
-// Default deadline when caller does not provide one (sits comfortably inside the 2h–7d window).
-const DEADLINE_DEFAULT_MS = 24 * 60 * 60 * 1000;
+// Deal deadline bounds come from ONE policy module (src/deadline_policy.ts):
+// a 2-hour product minimum and a technical sanity ceiling. There is no
+// payment-derived maximum — deal lifetime is independent of provider
+// authorization lifetime (LONG_HORIZON_DEALS, docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md).
+const DEADLINE_DEFAULT_MS = DEADLINE_POLICY_DEFAULT_MS;
 
 // P0.2 — deal content + media bounds. The short description is the concise
 // sales line (cards/OG/top of the deal page); the long description is the full
@@ -1893,9 +1895,10 @@ async function handleRefundEvent(
 type PaymentReconcilePayload = {
   participant_id: string;
   deal_id: string;
-  attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release";
+  attempt_type: "charge_start" | "recovery" | "refund" | "cancel_refund" | "release" | "reauthorize";
   correlation_id: string;
-  operation: "capture" | "refund" | "release";
+  /** "authorization" = LONG_HORIZON_DEALS re-authorization identity (attempt_type reauthorize) */
+  operation: "capture" | "refund" | "release" | "authorization";
   provider_reference: string | null;
   reason: string;
 };
@@ -1982,7 +1985,8 @@ export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3
   const orphans = await withTx(async (c) => {
     const r = await c.query(
       `SELECT pa.participant_id, pa.deal_id, pa.attempt_type, pa.correlation_id,
-              COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS provider_reference
+              COALESCE(NULLIF(pab.provider_reference, ''), auth.payload->>'authorization_id', '') AS provider_reference,
+              pa.provider_reference AS attempt_reference
        FROM siton.payment_attempts pa
        JOIN siton.participants p ON p.participant_id = pa.participant_id
        LEFT JOIN siton.payment_authorization_bindings pab ON pab.consumed_by_participant_id = p.participant_id
@@ -1991,7 +1995,7 @@ export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3
          WHERE entity_type='participant' AND entity_id=p.participant_id AND action_name='participant.join_authorize'
          ORDER BY created_at DESC LIMIT 1
        ) auth ON true
-       WHERE pa.attempt_type IN ('charge_start','recovery','refund','cancel_refund','release')
+       WHERE pa.attempt_type IN ('charge_start','recovery','refund','cancel_refund','release','reauthorize')
          AND pa.result_class='unknown'
          AND NOT siton.payment_operation_in_flight(pa.owner_event_uuid, pa.owner_lease_generation)
          -- F-8: a NOT_DISPATCHED identity whose job is gone (participant left the
@@ -2007,21 +2011,22 @@ export async function reconcileOrphanedUnknownIdentities(limit = 50, quietMs = 3
        LIMIT $1`,
       [Math.max(1, Math.floor(limit)), String(Math.max(0, Math.floor(quietMs)))]
     );
-    return r.rows as Array<{ participant_id: string; deal_id: string; attempt_type: PaymentReconcilePayload["attempt_type"]; correlation_id: string; provider_reference: string }>;
+    return r.rows as Array<{ participant_id: string; deal_id: string; attempt_type: PaymentReconcilePayload["attempt_type"]; correlation_id: string; provider_reference: string; attempt_reference: string | null }>;
   });
   let scheduled = 0;
   const seen = new Set<string>();
   for (const row of orphans) {
     if (seen.has(row.participant_id)) continue; // one live reconcile per participant
     seen.add(row.participant_id);
-    const operation: PaymentReconcilePayload["operation"] = row.attempt_type === "refund" || row.attempt_type === "cancel_refund" ? "refund" : row.attempt_type === "release" ? "release" : "capture";
+    const operation: PaymentReconcilePayload["operation"] = row.attempt_type === "refund" || row.attempt_type === "cancel_refund" ? "refund" : row.attempt_type === "release" ? "release" : row.attempt_type === "reauthorize" ? "authorization" : "capture";
     const outcome = await schedulePaymentReconcile({
       participant_id: row.participant_id,
       deal_id: row.deal_id,
       attempt_type: row.attempt_type,
       correlation_id: row.correlation_id,
       operation,
-      provider_reference: row.provider_reference || null,
+      // a renewal identity is reconciled through the NEW authorization it may have created, never the binding's current one
+      provider_reference: (row.attempt_type === "reauthorize" ? row.attempt_reference : row.provider_reference) || null,
       reason: "maintenance_orphaned_unknown_identity"
     }).catch(() => "already_pending" as const);
     if (outcome === "scheduled") scheduled += 1;
@@ -2168,8 +2173,8 @@ async function handlePaymentReconcileEvent(
   const payload = (event.payload || {}) as PaymentReconcilePayload;
   const participantId = String(payload.participant_id || event.aggregate_id);
   const dealId = String(payload.deal_id || "");
-  const operation = (payload.operation === "refund" || payload.operation === "release") ? payload.operation : "capture";
-  const attemptType = payload.attempt_type || (operation === "refund" ? "refund" : operation === "release" ? "release" : "charge_start");
+  const operation = (payload.operation === "refund" || payload.operation === "release" || payload.operation === "authorization") ? payload.operation : "capture";
+  const attemptType = payload.attempt_type || (operation === "refund" ? "refund" : operation === "release" ? "release" : operation === "authorization" ? "reauthorize" : "charge_start");
   const correlationId = String(payload.correlation_id || "");
   if (!dealId) throw new PermanentFailError(`payment_reconcile missing deal_id for participant ${participantId}`);
 
@@ -2186,7 +2191,12 @@ async function handlePaymentReconcileEvent(
         (target.buyer_state === "ChargeFailedCompletion" && target.money_state === "ChargeFailedRecovery" && attemptType === "recovery")
       : operation === "refund"
         ? ["ChargedSuccess", "RecoveredCharge"].includes(String(target.money_state))
-        : ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state));
+        : operation === "authorization"
+          // LONG_HORIZON_DEALS — a renewal matters while the participant still
+          // waits for a capture-side operation on its CURRENT authorization
+          ? (target.buyer_state === "ChargingAttempt" && target.money_state === "ChargeAttempt")
+            || (target.buyer_state === "ChargeFailedCompletion" && target.money_state === "ChargeFailedRecovery")
+          : ["AuthHeld", "AuthLocked", "ChargeFailedRecovery"].includes(String(target.money_state));
   // R9C — a participant whose canonical state already moved on may still carry
   // an UNRESOLVED identity for this exact operation (e.g. charge_failed was
   // declared by another path while the capture was unresolved). The ROW must
@@ -2217,7 +2227,7 @@ async function handlePaymentReconcileEvent(
       ? { event_type: attemptType === "cancel_refund" ? "cancel_refund" : "refund_issue", aggregate_type: "deal", aggregate_id: dealId }
       : operation === "release"
         ? { event_type: "payment_release", aggregate_type: "participant", aggregate_id: participantId }
-        : attemptType === "recovery"
+        : attemptType === "recovery" || (operation === "authorization" && String(target.money_state) === "ChargeFailedRecovery")
           ? { event_type: "recovery_deal", aggregate_type: "deal", aggregate_id: dealId }
           : { event_type: "charge_deal", aggregate_type: "deal", aggregate_id: dealId };
     const live = await withTx(async (c) => Number((await c.query(
@@ -2226,8 +2236,8 @@ async function handlePaymentReconcileEvent(
       [railJob.event_type, railJob.aggregate_type, railJob.aggregate_id]
     )).rows[0]?.n || 0));
     if (live > 0) return; // the rail owns the identity (reuse or retire under the lock)
-    const phaseOpen = operation === "capture"
-      ? (attemptType === "recovery" ? (String(target.deal_state) === "CompletionWindow" && Boolean(target.within_window)) : String(target.deal_state) === "Charging")
+    const phaseOpen = operation === "capture" || operation === "authorization"
+      ? (railJob.event_type === "recovery_deal" ? (String(target.deal_state) === "CompletionWindow" && Boolean(target.within_window)) : String(target.deal_state) === "Charging")
       : waiting;
     if (waiting && phaseOpen) {
       if (operation === "release") {
@@ -2257,7 +2267,7 @@ async function handlePaymentReconcileEvent(
   // while another identity of the same family is still UNKNOWN: the evidence
   // belongs to the unresolved one, whose own reconcile owns the verdict.
   if (unresolvedRow && unresolvedRow.result_class !== "unknown") {
-    const family: PaymentAttemptType[] = operation === "capture" ? ["charge_start", "recovery"] : operation === "refund" ? ["refund", "cancel_refund"] : ["release"];
+    const family: PaymentAttemptType[] = operation === "capture" ? ["charge_start", "recovery"] : operation === "refund" ? ["refund", "cancel_refund"] : operation === "authorization" ? ["reauthorize"] : ["release"];
     const siblings = await listAttemptLifecycle(participantId, dealId);
     const otherUnresolved = siblings.find((row) => family.includes(row.attempt_type) && row.correlation_id !== correlationId && row.result_class === "unknown");
     if (otherUnresolved) return; // FR-4: the unresolved sibling identity owns this verdict
@@ -2318,9 +2328,28 @@ async function handlePaymentReconcileEvent(
     throw new PermanentFailError(`payment_reconcile_missing_reference participant ${participantId}`);
   }
 
-  const statusOperation = operation === "refund" ? "refund" : operation === "release" ? "release" : "capture";
+  const statusOperation = operation === "refund" ? "refund" : operation === "release" ? "release" : operation === "authorization" ? "authorization" : "capture";
+  // LONG_HORIZON_DEALS — a renewal identity is proven ONLY through the
+  // authorization it created (the reference its dispatching owner recorded, or
+  // the one the provider answered with). The binding's CURRENT reference is a
+  // DIFFERENT instrument: a status read about it can never settle the renewal.
+  let statusReference = providerReference;
+  if (operation === "authorization") {
+    if (!unresolvedRow || unresolvedRow.result_class !== "unknown") return; // nothing to prove
+    statusReference = String(unresolvedRow.provider_reference || payload.provider_reference || "").trim();
+    if (!statusReference || statusReference === String(target.binding_reference || "").trim()) {
+      if (policy.same_identity_repeat_safe) return; // the rail re-sends the SAME identity on its next run (provider replay); nothing to conclude here
+      await openPaymentOperationalCase({
+        autoKey: `payment-reauthorization-unresolved:${participantId}`,
+        subject: `FINANCIAL_OUTCOME_UNRESOLVED: re-authorization ${correlationId} cannot be verified for participant ${participantId}`,
+        description: `Re-authorization ${correlationId} of participant ${participantId} is unresolved and carries no provider reference of its own, and provider ${paymentProvider.providerCode} does not prove same-identity idempotency (${policy.basis}). No renewal was repeated, no capture was dispatched and no state was guessed; manual provider-side verification required.`,
+        correlationId
+      });
+      throw new PermanentFailError(`payment_reconcile_reauthorization_unverifiable participant ${participantId}`);
+    }
+  }
   const status = await paymentProvider.status({
-    provider_reference: providerReference,
+    provider_reference: statusReference,
     operation: statusOperation,
     correlation_id: correlationId || `reconcile:${eventId}`
   });
@@ -2464,6 +2493,63 @@ async function handlePaymentReconcileEvent(
           }
         }).catch(() => undefined);
       }
+      return;
+    }
+  } else if (operation === "authorization") {
+    // LONG_HORIZON_DEALS — an UNKNOWN re-authorization: did the provider
+    // establish the new authorization? "authorized" is positive proof — the
+    // renewal is applied to the binding atomically with the identity settle
+    // and the waiting rail is woken; a final "failed" (authoritative provider)
+    // settles the identity as not executed — the rail then lets the provider
+    // decide on the ORIGINAL authorization at capture. No participant or deal
+    // state moves here in either case; ambiguity stays ambiguous (bounded
+    // retry, then a case), exactly like every other money identity.
+    if (status.state === "authorized" && correlationId) {
+      const renewedReference = status.provider_reference || statusReference;
+      await withTx(async (c) => {
+        await lockParticipantDealInTx(c, participantId, dealId);
+        await settleAttemptInTx(c, {
+          participant_id: participantId,
+          deal_id: dealId,
+          attempt_type: "reauthorize",
+          correlation_id: correlationId,
+          result_class: "success",
+          provider_reference: renewedReference,
+          note: `reconcile:authorization_confirmed:${status.final ? "final" : "open"}`
+        });
+        await paymentBindings.applyAuthorizationRenewalInTx(c, {
+          participant_id: participantId,
+          new_authorization_id: renewedReference,
+          new_provider_reference: renewedReference,
+          expires_at: null,
+          correlation_id: correlationId
+        });
+      }).catch(deferIfInFlight);
+      // wake the rail that waits on this renewal (idempotent: one pending job per deal/event type)
+      if (waiting) {
+        const railEvent = String(target.money_state) === "ChargeFailedRecovery" ? "recovery_deal" : "charge_deal";
+        await withTx(async (c) => {
+          await c.query(
+            `INSERT INTO siton.outbox_events(event_type, aggregate_type, aggregate_id, payload, status, attempt_count, available_at)
+             VALUES ($1,'deal',$2,$3,'pending',0, now())
+             ON CONFLICT DO NOTHING`,
+            [railEvent, dealId, JSON.stringify({ deal_id: dealId, reason: "reauthorization_confirmed" })]
+          );
+        }).catch(() => undefined);
+      }
+      return;
+    }
+    if (status.state === "failed" && status.final && correlationId) {
+      if (!policy.negative_status_authoritative) await failClosedUnresolved(`${status.state}/final (re-authorization not visible)`);
+      await finalizeAttemptResult({
+        participant_id: participantId,
+        deal_id: dealId,
+        attempt_type: "reauthorize",
+        correlation_id: correlationId,
+        result_class: "permanent_fail",
+        failure_evidence: "status_inference",
+        note: "reconcile_reauthorization_not_executed"
+      }).catch(deferIfInFlight);
       return;
     }
   } else if (operation === "refund") {
@@ -2731,15 +2817,20 @@ async function handleBlockedMoneyOperation(args: {
       ? "refund"
       : args.blocking.attempt_type === "release"
         ? "release"
-        : "capture";
+        : args.blocking.attempt_type === "reauthorize"
+          ? "authorization"
+          : "capture";
   if (args.blocking.result_class === "unknown") {
+    const blockingReference = blockingOperation === "authorization"
+      ? (await loadAttemptLifecycle({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: args.blocking.correlation_id }))?.provider_reference ?? null
+      : args.provider_reference;
     await schedulePaymentReconcile({
       participant_id: args.participant_id,
       deal_id: args.deal_id,
       attempt_type: args.blocking.attempt_type as PaymentReconcilePayload["attempt_type"],
       correlation_id: args.blocking.correlation_id,
       operation: blockingOperation,
-      provider_reference: args.provider_reference,
+      provider_reference: blockingReference,
       reason: `blocks_${args.attempt_type}`
     });
   }
@@ -3093,6 +3184,215 @@ async function handlePaymentReleaseEvent(
   throw new PermanentFailError(`permanent_fail release participant ${participantId}`);
 }
 
+// ---------------------------------------------------------------------------
+// LONG_HORIZON_DEALS — the payment boundary between the buyer's COMMITMENT and
+// the CURRENT provider authorization instrument.
+//
+// A deal may live far longer than a card authorization. Before a capture-side
+// operation is dispatched the rail asks: can the participant's current
+// authorization still legally be used?
+//   * no binding / no declared validity   → the provider decides at capture
+//   * declared validity still open        → proceed on the current authorization
+//   * declared validity passed (or the provider declared the instrument
+//     unusable in its answer to a capture) → RE-ESTABLISH the authorization from
+//     the stored payment-method reference through the provider abstraction,
+//     then proceed on the renewed authorization
+//   * provider lacks the capability / no stored instrument / renewal declined
+//     → proceed on the original authorization: the provider is the authority,
+//       and a decline then follows the existing recovery rules (a definitive
+//       inability to obtain the payment result, not "the deal aged")
+// Renewal is a money-side operation in every respect: ONE durable identity
+// (attempt_type 'reauthorize') minted before I/O, armed under the worker lease,
+// settled by its owner, idempotent on retry, reconciled when ambiguous, and
+// blocking every capture/recovery/release of the same obligation while
+// unresolved (069). The participant's visible state never moves because an
+// authorization expired.
+// ---------------------------------------------------------------------------
+type AuthorizationGate =
+  | { kind: "proceed"; authorization_id: string | null; renewed: boolean }
+  | { kind: "defer"; until: Date }
+  | { kind: "skip" };
+
+async function renewalEligibilityForParticipant(participantId: string, dealId: string) {
+  const source = await paymentBindings.resolveRenewalSourceForParticipant(participantId, paymentProvider.providerCode);
+  if (!source.binding) return { eligible: false as const, reason: "no_binding", source };
+  if (!paymentProvider.reauthorize) return { eligible: false as const, reason: "provider_capability_missing", source };
+  if (!source.payment_method_ref) return { eligible: false as const, reason: "no_stored_instrument", source };
+  // a renewal the provider already DECLINED for the current instrument is not
+  // repeated in a loop: the capture proceeds and the provider decides
+  const rows = await listAttemptLifecycle(participantId, dealId);
+  const lastRenewal = [...rows].reverse().find((row) => row.attempt_type === "reauthorize");
+  if (lastRenewal && lastRenewal.result_class === "permanent_fail"
+    && Date.parse(lastRenewal.created_at) >= Date.parse(String(source.binding.authorization_established_at))) {
+    return { eligible: false as const, reason: "renewal_declined_for_current_instrument", source };
+  }
+  return { eligible: true as const, reason: "eligible", source };
+}
+
+async function ensureUsableAuthorizationForCapture(args: {
+  event: { event_uuid: string; lease_generation?: number | null };
+  event_id: string;
+  participant_id: string;
+  deal_id: string;
+  buyer_id: string;
+  amount_minor: number;
+  rail: "charge_start" | "recovery";
+  fallback_authorization_id: string | null;
+}): Promise<AuthorizationGate> {
+  const admitted = args.rail === "charge_start"
+    ? { money_states: ["ChargeAttempt"], buyer_states: ["ChargingAttempt"] }
+    : { money_states: ["ChargeFailedRecovery"], buyer_states: ["ChargeFailedCompletion"] };
+  const eligibility = await renewalEligibilityForParticipant(args.participant_id, args.deal_id);
+  const binding = eligibility.source.binding;
+  const current = String(binding?.provider_reference || args.fallback_authorization_id || "").trim() || null;
+  if (!binding) return { kind: "proceed", authorization_id: current, renewed: false };
+  const usability = assessAuthorizationUsability(binding);
+  if (usability.usability !== "expired") return { kind: "proceed", authorization_id: current, renewed: false };
+  if (!eligibility.eligible) {
+    app.log.info({ participant_id: args.participant_id, deal_id: args.deal_id, reason: eligibility.reason, expires_at: binding.expires_at }, "authorization past declared validity: no renewal path, provider decides at capture");
+    return { kind: "proceed", authorization_id: current, renewed: false };
+  }
+  const paymentMethodRef = eligibility.source.payment_method_ref!;
+  const policy = providerAmbiguityPolicy(paymentProvider);
+
+  const attempt = await beginProviderAttempt({
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: "reauthorize",
+    identity: (logicalAttempt) => reauthorizationIdentity(args.event_id, logicalAttempt, args.participant_id),
+    admitted
+  });
+  if (attempt.kind === "state_changed") return { kind: "skip" };
+  if (attempt.kind === "fenced") return { kind: "skip" }; // unreachable for a renewal (the 068 fence reads capture-side rows only)
+  if (attempt.kind === "blocked") {
+    await handleBlockedMoneyOperation({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", reason: attempt.reason, blocking: attempt.blocking, provider_reference: current, event_id: args.event_id });
+    return attempt.blocking.result_class === "unknown" ? { kind: "defer", until: new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS) } : { kind: "skip" };
+  }
+  if (attempt.kind === "in_flight") {
+    // another live worker is renewing this very authorization: wait for its truth
+    return { kind: "defer", until: new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS) };
+  }
+  let correlation = attempt.correlation_id;
+  if (attempt.kind === "unresolved") {
+    // The identity may have reached the provider (crash / stall after dispatch).
+    // A reference the provider already answered with is resolved through the
+    // status seam; otherwise the SAME identity is re-sent only when the provider
+    // deduplicates it (same_identity_repeat_safe) — never a fresh identity.
+    const row = await loadAttemptLifecycle({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: attempt.correlation_id });
+    const knownReference = String(row?.provider_reference || "").trim();
+    if (knownReference && paymentProvider.status) {
+      const status = await paymentProvider.status({ provider_reference: knownReference, operation: "authorization", correlation_id: attempt.correlation_id });
+      if (status.state === "authorized" && status.reference_matches_query !== false) {
+        await withTx(async (c) => {
+          await lockParticipantDealInTx(c, args.participant_id, args.deal_id);
+          await settleAttemptInTx(c, { participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: attempt.correlation_id, result_class: "success", provider_reference: status.provider_reference || knownReference, note: "prior_reauthorization_confirmed_by_status" });
+          await paymentBindings.applyAuthorizationRenewalInTx(c, { participant_id: args.participant_id, new_authorization_id: status.provider_reference || knownReference, new_provider_reference: status.provider_reference || knownReference, expires_at: null, correlation_id: attempt.correlation_id });
+        });
+        return { kind: "proceed", authorization_id: status.provider_reference || knownReference, renewed: true };
+      }
+      if (status.state === "failed" && status.final && policy.negative_status_authoritative) {
+        await finalizeAttemptResult({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: attempt.correlation_id, result_class: "permanent_fail", failure_evidence: "status_inference", note: "prior_reauthorization_not_executed" });
+        return { kind: "proceed", authorization_id: current, renewed: false };
+      }
+      await schedulePaymentReconcile({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: attempt.correlation_id, operation: "authorization", provider_reference: knownReference, reason: "prior_reauthorization_unresolved" });
+      return { kind: "defer", until: new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS) };
+    }
+    if (!policy.same_identity_repeat_safe) {
+      await openPaymentOperationalCase({
+        autoKey: `payment-reauthorization-unresolved:${args.participant_id}`,
+        subject: `FINANCIAL_OUTCOME_UNRESOLVED: re-authorization ${attempt.correlation_id} is unresolved for participant ${args.participant_id}`,
+        description: `A re-authorization of participant ${args.participant_id} (deal ${args.deal_id}) may have reached provider ${paymentProvider.providerCode} without a recorded answer, and the provider contract does not prove same-identity idempotency (${policy.basis}). No renewal was repeated and no capture was dispatched (worker event ${args.event_id}); manual provider-side verification required.`,
+        correlationId: attempt.correlation_id
+      });
+      return { kind: "skip" };
+    }
+    correlation = attempt.correlation_id; // provider dedupes: re-send the SAME identity
+  }
+
+  await hitTestFault("payment.before_provider_io");
+  const armed = await armMoneyOperation({
+    event: args.event,
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: "reauthorize",
+    correlation_id: correlation,
+    expected_money_states: admitted.money_states,
+    expected_buyer_states: admitted.buyer_states,
+    provider_reference: null
+  });
+  if (!armed) return { kind: "skip" };
+  const owner = { event_uuid: args.event.event_uuid, lease_generation: args.event.lease_generation };
+  const result = await paymentProvider.reauthorize!({
+    payment_method_ref: paymentMethodRef,
+    amount_minor: args.amount_minor,
+    currency: "ILS",
+    buyer_id: args.buyer_id,
+    deal_id: args.deal_id,
+    participant_id: args.participant_id,
+    replaced_authorization_id: binding.authorization_id,
+    correlation_id: correlation,
+    request_id: `worker:${args.event_id}`
+  });
+  await hitTestFault("payment.after_provider_io");
+  const settle = (outcome: MoneyRailOutcome, note?: string, inside?: (c: PoolClient) => Promise<void>) => settleOwnedMoneyOperation({
+    participant_id: args.participant_id,
+    deal_id: args.deal_id,
+    attempt_type: "reauthorize",
+    correlation_id: correlation,
+    owner,
+    outcome,
+    provider_reference: result.ok ? result.provider_reference : null,
+    ...(note ? { note } : {}),
+    ...(inside ? { inside } : {})
+  });
+
+  if (result.ok && result.authorization === "authorized") {
+    // The renewed instrument becomes current ATOMICALLY with the identity's success.
+    await settle("success", "authorization_renewed", async (c) => {
+      await paymentBindings.applyAuthorizationRenewalInTx(c, {
+        participant_id: args.participant_id,
+        new_authorization_id: result.authorization_id,
+        new_provider_reference: result.provider_reference || result.authorization_id,
+        expires_at: result.expires_at ?? null,
+        correlation_id: correlation
+      });
+    });
+    app.log.info({ participant_id: args.participant_id, deal_id: args.deal_id, replaced: binding.authorization_id, correlation }, "authorization renewed at the charging boundary");
+    return { kind: "proceed", authorization_id: result.provider_reference || result.authorization_id, renewed: true };
+  }
+  if (result.ok) {
+    // pending provider confirmation: the reconcile rail proves it through status
+    await settle("unknown", "reauthorization_pending_provider_confirmation");
+    await schedulePaymentReconcile({ participant_id: args.participant_id, deal_id: args.deal_id, attempt_type: "reauthorize", correlation_id: correlation, operation: "authorization", provider_reference: result.provider_reference || result.authorization_id, reason: "reauthorization_pending" });
+    return { kind: "defer", until: new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS) };
+  }
+  if (result.dispatched === false) {
+    // proven pre-dispatch (configuration / validation): nothing reached the
+    // provider — disarm, keep the identity, let the provider decide on the
+    // original authorization; visible as a case because it is a system issue
+    await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.error}`);
+    await openPaymentOperationalCase({
+      autoKey: `payment-reauthorization-unavailable:${args.participant_id}`,
+      subject: `Re-authorization unavailable for participant ${args.participant_id}: ${result.error}`,
+      description: `The stored-instrument re-authorization of participant ${args.participant_id} (deal ${args.deal_id}) could not be sent to provider ${paymentProvider.providerCode} (${result.error}: ${result.message}). The capture proceeds on the original authorization and the provider decides; a decline follows the normal recovery rules (worker event ${args.event_id}).`,
+      correlationId: correlation
+    });
+    return { kind: "proceed", authorization_id: current, renewed: false };
+  }
+  if (result.retryable) {
+    // post-dispatch ambiguity (5xx / timeout / transport loss): the provider may
+    // have created the authorization. Durable UNKNOWN on the SAME identity; the
+    // next run re-sends it (the provider deduplicates) or resolves it by status.
+    await settle("unknown", `reauthorization_outcome_unknown:${result.error}`);
+    return { kind: "defer", until: new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS) };
+  }
+  // provider-declared decline of the renewal: definitive for this instrument —
+  // the capture proceeds on the original authorization and the provider decides
+  await settle("permanent_fail", `reauthorization_declined:${result.error}`);
+  app.log.warn({ participant_id: args.participant_id, deal_id: args.deal_id, error: result.error, correlation }, "authorization renewal declined; capture proceeds on the original authorization");
+  return { kind: "proceed", authorization_id: current, renewed: false };
+}
+
 async function handleChargeDealEvent(
   event: {
     event_uuid: string;
@@ -3156,15 +3456,21 @@ async function handleChargeDealEvent(
 
   // Residual C — a capture blocked behind an UNRESOLVED release of its hold is
   // not skipped for good: the job retries (bounded) once the release truth exists.
+  // LONG_HORIZON_DEALS — the same deferral carries a participant whose
+  // authorization renewal is unresolved (in flight elsewhere / pending at the
+  // provider): the deal stays Charging until the renewal resolves; no visible
+  // state moves on an ambiguous instrument.
   const chargeHold: { until: Date | null } = { until: null };
-  for (const p of participants) {
-    if (p.buyer_state !== "ChargingAttempt" || p.money_state !== "ChargeAttempt") continue;
+  const holdUntil = (at: Date) => { if (!chargeHold.until || at.getTime() < chargeHold.until.getTime()) chargeHold.until = at; };
 
-    const amountMinor = paymentMinorAmount({
-      qty: Number(p.qty || 0),
-      pricePerUnit: Number(p.price_per_unit || 0),
-      deliveryCost: Number(p.delivery_cost || 0)
-    });
+  // ONE capture attempt for a participant on the authorization the gate handed
+  // over (the original, or the renewed one). Byte-for-byte the R9C capture rail;
+  // the only addition is the instrument-unusable branch.
+  const captureParticipantOnce = async (
+    p: (typeof participants)[number],
+    amountMinor: number,
+    ctx: { allow_renewal_retry: boolean }
+  ): Promise<"done" | "renew_and_retry"> => {
     // R9C — ONE durable provider-operation identity per logical attempt,
     // minted from the attempts table (never from the outbox attempt_count).
     // An unresolved prior attempt is reconciled through the provider status
@@ -3183,7 +3489,7 @@ async function handleChargeDealEvent(
       // that failed the participant meanwhile leaves NO orphan identity behind.
       admitted: { money_states: ["ChargeAttempt"], buyer_states: ["ChargingAttempt"] }
     });
-    if (attempt.kind === "state_changed") continue; // decided elsewhere (finalize) between the read and the mint: nothing minted, nothing sent
+    if (attempt.kind === "state_changed") return "done" as const; // decided elsewhere (finalize) between the read and the mint: nothing minted, nothing sent
     if (attempt.kind === "blocked") {
       if (attempt.reason === "capture_blocked_by_released_authorization") {
         // Residual C — the hold was RELEASED at the provider (release identity
@@ -3197,14 +3503,14 @@ async function handleChargeDealEvent(
           description: `Release ${attempt.blocking.correlation_id} executed at provider ${paymentProvider.providerCode} before the capture of participant ${p.participant_id} could be dispatched (worker event ${eventId}). No capture was sent; the participant's money state is AuthReleased and the deal will decide without this participant.`,
           correlationId: attempt.blocking.correlation_id
         });
-        continue;
+        return "done" as const;
       }
       await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "charge_start", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
-      if (attempt.reason === "capture_blocked_by_unresolved_release") chargeHold.until = new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS);
-      continue;
+      if (attempt.reason === "capture_blocked_by_unresolved_release") holdUntil(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+      return "done" as const;
     }
-    if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
-    if (attempt.kind === "fenced") continue; // unreachable for a capture (the 064 fence applies to recovery/release); never mint on it
+    if (attempt.kind === "in_flight") return "done" as const; // another live worker owns this exact operation
+    if (attempt.kind === "fenced") return "done" as const; // unreachable for a capture (the 064 fence applies to recovery/release); never mint on it
     if (attempt.kind === "unresolved") {
       const resolution = await resolvePriorProviderAttempt({
         operation: "capture",
@@ -3218,7 +3524,7 @@ async function handleChargeDealEvent(
         expected_currency: "ILS",
         event_id: eventId
       });
-      if (resolution !== "reuse") continue;
+      if (resolution !== "reuse") return "done" as const;
     }
     const correlation = attempt.correlation_id;
 
@@ -3246,12 +3552,12 @@ async function handleChargeDealEvent(
       expected_buyer_states: ["ChargingAttempt"],
       provider_reference: p.authorization_id || null
     });
-    if (!armed) continue;
+    if (!armed) return "done" as const;
     const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
     const result = await paymentProvider.capture(captureInput);
     await hitTestFault("payment.after_provider_io");
     const outcome = classifyMoneyOutcome(result);
-    const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
+    const settle = (settled: MoneyRailOutcome, note?: string, inside?: (c: PoolClient) => Promise<void>) => settleOwnedMoneyOperation({
       participant_id: p.participant_id,
       deal_id: dealId,
       attempt_type: "charge_start",
@@ -3259,7 +3565,8 @@ async function handleChargeDealEvent(
       owner,
       outcome: settled,
       provider_reference: result.provider_reference || p.authorization_id || null,
-      ...(note ? { note } : {})
+      ...(note ? { note } : {}),
+      ...(inside ? { inside } : {})
     });
 
     if (outcome === "pre_dispatch_failure") {
@@ -3268,6 +3575,24 @@ async function handleChargeDealEvent(
       // identity, no rolling-cap consumption.
       await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
       throw new Error(`temporary_fail capture participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
+    }
+
+    // LONG_HORIZON_DEALS — the provider declared the INSTRUMENT unusable
+    // (expired / voided hold): the obligation was not charged and never can be
+    // on this authorization. That is not a charge failure of the buyer: the
+    // identity settles as the provider's exact decline, the binding records the
+    // instrument as no longer valid (so a crash-retry renews first), and the
+    // rail renews + captures again ONCE with a fresh identity. Only when no
+    // renewal path exists does the decline follow the recovery rules.
+    if (outcome === "permanent_fail" && isAuthorizationUnusableResult(result) && ctx.allow_renewal_retry) {
+      const eligibility = await renewalEligibilityForParticipant(p.participant_id, dealId);
+      if (eligibility.eligible) {
+        await settle("permanent_fail", `authorization_unusable:${result.failure_code || "provider_declared"}`, async (c) => {
+          await paymentBindings.markAuthorizationUnusableInTx(c, p.participant_id, String(result.failure_code || "provider_declared"));
+        });
+        app.log.info({ participant_id: p.participant_id, deal_id: dealId, correlation, failure_code: result.failure_code || null }, "capture declined: authorization instrument unusable; renewing before a fresh capture");
+        return "renew_and_retry" as const;
+      }
     }
 
     if (result.reconciliation_event_type && (outcome === "success" || outcome === "permanent_fail")) {
@@ -3291,7 +3616,7 @@ async function handleChargeDealEvent(
           .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
           .catch(() => undefined);
       }
-      continue;
+      return "done" as const;
     }
 
     // No provider-declared canonical outcome: transport loss, timeout, 5xx,
@@ -3309,6 +3634,32 @@ async function handleChargeDealEvent(
       provider_reference: result.provider_reference || p.authorization_id || null,
       reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
     });
+    return "done" as const;
+  };
+
+  for (const p of participants) {
+    if (p.buyer_state !== "ChargingAttempt" || p.money_state !== "ChargeAttempt") continue;
+
+    const amountMinor = paymentMinorAmount({
+      qty: Number(p.qty || 0),
+      pricePerUnit: Number(p.price_per_unit || 0),
+      deliveryCost: Number(p.delivery_cost || 0)
+    });
+    // LONG_HORIZON_DEALS — at most ONE reactive renewal per participant per
+    // job run: a capture the provider declines because the instrument is no
+    // longer usable is followed by a renewal and one fresh capture identity.
+    let renewalBudget = 1;
+    while (true) {
+      const gate = await ensureUsableAuthorizationForCapture({
+        event, event_id: eventId, participant_id: p.participant_id, deal_id: dealId, buyer_id: p.buyer_id,
+        amount_minor: amountMinor, rail: "charge_start", fallback_authorization_id: p.authorization_id || null
+      });
+      if (gate.kind === "defer") { holdUntil(gate.until); break; }
+      if (gate.kind === "skip") break;
+      const outcome = await captureParticipantOnce({ ...p, authorization_id: gate.authorization_id || "" }, amountMinor, { allow_renewal_retry: renewalBudget > 0 });
+      if (outcome === "renew_and_retry" && renewalBudget > 0) { renewalBudget -= 1; continue; }
+      break;
+    }
   }
 
   if (chargeHold.until) {
@@ -3414,9 +3765,13 @@ async function verifyOriginalCaptureBeforeRecovery(args: {
   /** who is asking (recovery rail / terminal finalize decision) — recorded on the ingested event */
   context?: "recovery" | "finalize";
 }): Promise<"proceed" | "captured" | "ambiguous"> {
-  const reference = String(args.authorization_id || "").trim();
-  if (!paymentProvider.status || !reference) return "proceed";
   const rows = await listAttemptLifecycle(args.participant_id, args.deal_id);
+  // LONG_HORIZON_DEALS — the authorization a capture was dispatched against is
+  // the one recorded on its identity; after a renewal the binding's CURRENT
+  // reference is a different instrument and says nothing about that capture.
+  const dispatchedReference = [...rows].reverse().find((row) => (row.attempt_type === "charge_start" || row.attempt_type === "recovery") && row.provider_reference)?.provider_reference || null;
+  const reference = String(dispatchedReference || args.authorization_id || "").trim();
+  if (!paymentProvider.status || !reference) return "proceed";
   // A recovery identity that is UNKNOWN or executed is owned by the identity
   // discipline and resolvePriorProviderAttempt: a "captured" status may then be
   // THAT recovery, not a late original capture. The pre-flight steps aside.
@@ -3626,6 +3981,170 @@ async function handleRecoveryDealEvent(
   // ambiguous pre-flight); the others proceed now.
   const deferral: { until: Date | null } = { until: null };
   const deferTo = (at: Date) => { if (!deferral.until || at.getTime() < deferral.until.getTime()) deferral.until = at; };
+
+  // ONE recovery attempt for a participant on the authorization the gate handed
+  // over. Byte-for-byte the R9C recovery rail from the identity mint onwards;
+  // the only addition is the instrument-unusable branch.
+  const recoverParticipantOnce = async (
+    p: (typeof participants)[number],
+    amountMinor: number,
+    ctx: { allow_renewal_retry: boolean }
+  ): Promise<"done" | "renew_and_retry"> => {
+    // R9C — durable identity + reconcile-before-new-operation (see charge rail).
+    const attempt = await beginProviderAttempt({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`,
+      // R9C ROUND 5 — state re-read under the lock before minting (F-8 closed
+      // generally: no NOT_DISPATCHED recovery identity can be left behind)
+      admitted: { money_states: ["ChargeFailedRecovery"], buyer_states: ["ChargeFailedCompletion"] }
+    });
+    if (attempt.kind === "state_changed") return "done" as const; // the participant left the recoverable state before an identity existed
+    if (attempt.kind === "blocked") {
+      if (attempt.reason === "capture_blocked_by_released_authorization") {
+        // Residual C — the hold was released while the participant waited for
+        // recovery: no recovery capture of a released hold; money truth is the
+        // provider-proofed release, the business outcome follows at finalize.
+        await applyAuthorizationRelease(p.participant_id, dealId, `worker:${eventId}`, attempt.blocking.correlation_id);
+        await openPaymentOperationalCase({
+          autoKey: `payment-capture-refused-released-hold:${p.participant_id}`,
+          subject: `Recovery refused: the authorization of participant ${p.participant_id} was released while recovery was pending`,
+          description: `Release ${attempt.blocking.correlation_id} executed at provider ${paymentProvider.providerCode} before a recovery capture of participant ${p.participant_id} could be dispatched (worker event ${eventId}). No recovery was sent; the participant's money state is AuthReleased.`,
+          correlationId: attempt.blocking.correlation_id
+        });
+        return "done" as const;
+      }
+      // R9C C1 — recovery is a SECOND capture of the same obligation: never
+      // while the original capture is unresolved or already executed.
+      await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "recovery", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
+      // Residual C — an UNRESOLVED release: retry once its truth exists (bounded).
+      if (attempt.reason === "capture_blocked_by_unresolved_release") deferTo(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
+      return "done" as const;
+    }
+    if (attempt.kind === "in_flight") return "done" as const; // another live worker owns this exact operation
+    if (attempt.kind === "fenced") {
+      // DB-side view of the settlement fence (belt to the check above).
+      if (attempt.until) deferTo(attempt.until);
+      return "done" as const;
+    }
+    if (attempt.kind === "unresolved") {
+      const resolution = await resolvePriorProviderAttempt({
+        operation: "capture",
+        attempt_type: "recovery",
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        correlation_id: attempt.correlation_id,
+        dispatch_state: attempt.dispatch_state,
+        provider_reference: p.authorization_id || null,
+        expected_amount_minor: amountMinor,
+        expected_currency: "ILS",
+        event_id: eventId
+      });
+      if (resolution !== "reuse") return "done" as const;
+    }
+    const correlation = attempt.correlation_id;
+
+    const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
+      amount_minor: amountMinor,
+      currency: "ILS",
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      buyer_id: p.buyer_id,
+      correlation_id: correlation,
+      request_id: `worker:${eventId}`,
+      within_window: withinWindow
+    };
+    if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
+    await hitTestFault("payment.before_provider_io");
+    // R9C — arm: lease fence + state check + lifecycle CAS in ONE transaction,
+    // the LAST step before external money I/O.
+    const armed = await armMoneyOperation({
+      event,
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      expected_money_states: ["ChargeFailedRecovery"],
+      expected_buyer_states: ["ChargeFailedCompletion"],
+      provider_reference: p.authorization_id || null
+    });
+    if (!armed) return "done" as const;
+    const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
+    const result = await paymentProvider.recover(recoverInput, withinWindow);
+    await hitTestFault("payment.after_provider_io");
+    const outcome = classifyMoneyOutcome(result);
+    const settle = (settled: MoneyRailOutcome, note?: string, inside?: (c: PoolClient) => Promise<void>) => settleOwnedMoneyOperation({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      owner,
+      outcome: settled,
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      ...(note ? { note } : {}),
+      ...(inside ? { inside } : {})
+    });
+
+    if (outcome === "pre_dispatch_failure") {
+      await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
+      throw new Error(`temporary_fail recovery participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
+    }
+
+    // LONG_HORIZON_DEALS — instrument unusable (see the charge rail): renew and
+    // recover again once on a fresh identity instead of dropping the buyer.
+    if (outcome === "permanent_fail" && isAuthorizationUnusableResult(result) && ctx.allow_renewal_retry) {
+      const eligibility = await renewalEligibilityForParticipant(p.participant_id, dealId);
+      if (eligibility.eligible) {
+        await settle("permanent_fail", `authorization_unusable:${result.failure_code || "provider_declared"}`, async (c) => {
+          await paymentBindings.markAuthorizationUnusableInTx(c, p.participant_id, String(result.failure_code || "provider_declared"));
+        });
+        app.log.info({ participant_id: p.participant_id, deal_id: dealId, correlation, failure_code: result.failure_code || null }, "recovery declined: authorization instrument unusable; renewing before a fresh recovery");
+        return "renew_and_retry" as const;
+      }
+    }
+
+    // Route through the webhook reconciliation truth path when the provider emits an event type
+    if (result.reconciliation_event_type && (outcome === "success" || outcome === "permanent_fail")) {
+      await settle(outcome);
+      await ingestAndProcessPaymentEvent({
+        provider: result.provider,
+        event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
+        event_type: result.reconciliation_event_type,
+        correlation_id: result.correlation_id || correlation,
+        participant_id: p.participant_id,
+        deal_id: dealId,
+        provider_reference: result.provider_reference || p.authorization_id || null,
+        payload: {
+          source: "recovery_worker",
+          provider_reference: result.provider_reference || p.authorization_id || null,
+          authorization_id: p.authorization_id || null
+        }
+      });
+      if (outcome === "success" && result.provider_reference) {
+        await paymentBindings
+          .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
+          .catch(() => undefined);
+      }
+      return "done" as const;
+    }
+
+    // No provider-declared canonical outcome — durable UNKNOWN on the SAME
+    // identity, then the reconciliation rail. Never a blind retry, never a
+    // fresh identity after possible money movement.
+    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
+    await schedulePaymentReconcile({
+      participant_id: p.participant_id,
+      deal_id: dealId,
+      attempt_type: "recovery",
+      correlation_id: correlation,
+      operation: "capture",
+      provider_reference: result.provider_reference || p.authorization_id || null,
+      reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
+    });
+    return "done" as const;
+  };
+
   for (const p of participants) {
     const amountMinor = paymentMinorAmount({
       qty: Number(p.qty || 0),
@@ -3671,144 +4190,20 @@ async function handleRecoveryDealEvent(
     if (preflight === "captured") continue;
     if (preflight === "ambiguous") { deferTo(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS)); continue; }
 
-    // R9C — durable identity + reconcile-before-new-operation (see charge rail).
-    const attempt = await beginProviderAttempt({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      identity: (logicalAttempt) => `recovery:${eventId}:n${logicalAttempt}:${p.participant_id}`,
-      // R9C ROUND 5 — state re-read under the lock before minting (F-8 closed
-      // generally: no NOT_DISPATCHED recovery identity can be left behind)
-      admitted: { money_states: ["ChargeFailedRecovery"], buyer_states: ["ChargeFailedCompletion"] }
-    });
-    if (attempt.kind === "state_changed") continue; // the participant left the recoverable state before an identity existed
-    if (attempt.kind === "blocked") {
-      if (attempt.reason === "capture_blocked_by_released_authorization") {
-        // Residual C — the hold was released while the participant waited for
-        // recovery: no recovery capture of a released hold; money truth is the
-        // provider-proofed release, the business outcome follows at finalize.
-        await applyAuthorizationRelease(p.participant_id, dealId, `worker:${eventId}`, attempt.blocking.correlation_id);
-        await openPaymentOperationalCase({
-          autoKey: `payment-capture-refused-released-hold:${p.participant_id}`,
-          subject: `Recovery refused: the authorization of participant ${p.participant_id} was released while recovery was pending`,
-          description: `Release ${attempt.blocking.correlation_id} executed at provider ${paymentProvider.providerCode} before a recovery capture of participant ${p.participant_id} could be dispatched (worker event ${eventId}). No recovery was sent; the participant's money state is AuthReleased.`,
-          correlationId: attempt.blocking.correlation_id
-        });
-        continue;
-      }
-      // R9C C1 — recovery is a SECOND capture of the same obligation: never
-      // while the original capture is unresolved or already executed.
-      await handleBlockedMoneyOperation({ participant_id: p.participant_id, deal_id: dealId, attempt_type: "recovery", reason: attempt.reason, blocking: attempt.blocking, provider_reference: p.authorization_id || null, event_id: eventId });
-      // Residual C — an UNRESOLVED release: retry once its truth exists (bounded).
-      if (attempt.reason === "capture_blocked_by_unresolved_release") deferTo(new Date(Date.now() + PROVIDER_IO_LEASE_MARGIN_MS));
-      continue;
-    }
-    if (attempt.kind === "in_flight") continue; // another live worker owns this exact operation
-    if (attempt.kind === "fenced") {
-      // DB-side view of the settlement fence (belt to the check above).
-      if (attempt.until) deferTo(attempt.until);
-      continue;
-    }
-    if (attempt.kind === "unresolved") {
-      const resolution = await resolvePriorProviderAttempt({
-        operation: "capture",
-        attempt_type: "recovery",
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        correlation_id: attempt.correlation_id,
-        dispatch_state: attempt.dispatch_state,
-        provider_reference: p.authorization_id || null,
-        expected_amount_minor: amountMinor,
-        expected_currency: "ILS",
-        event_id: eventId
+    // LONG_HORIZON_DEALS — renew an expired authorization from the stored
+    // instrument before the recovery capture; one reactive renewal per run.
+    let renewalBudget = 1;
+    while (true) {
+      const gate = await ensureUsableAuthorizationForCapture({
+        event, event_id: eventId, participant_id: p.participant_id, deal_id: dealId, buyer_id: p.buyer_id,
+        amount_minor: amountMinor, rail: "recovery", fallback_authorization_id: p.authorization_id || null
       });
-      if (resolution !== "reuse") continue;
+      if (gate.kind === "defer") { deferTo(gate.until); break; }
+      if (gate.kind === "skip") break;
+      const outcome = await recoverParticipantOnce({ ...p, authorization_id: gate.authorization_id || "" }, amountMinor, { allow_renewal_retry: renewalBudget > 0 });
+      if (outcome === "renew_and_retry" && renewalBudget > 0) { renewalBudget -= 1; continue; }
+      break;
     }
-    const correlation = attempt.correlation_id;
-
-    const recoverInput: Parameters<typeof paymentProvider.recover>[0] = {
-      amount_minor: amountMinor,
-      currency: "ILS",
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      buyer_id: p.buyer_id,
-      correlation_id: correlation,
-      request_id: `worker:${eventId}`,
-      within_window: withinWindow
-    };
-    if (p.authorization_id) recoverInput.authorization_id = p.authorization_id;
-    await hitTestFault("payment.before_provider_io");
-    // R9C — arm: lease fence + state check + lifecycle CAS in ONE transaction,
-    // the LAST step before external money I/O.
-    const armed = await armMoneyOperation({
-      event,
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      correlation_id: correlation,
-      expected_money_states: ["ChargeFailedRecovery"],
-      expected_buyer_states: ["ChargeFailedCompletion"],
-      provider_reference: p.authorization_id || null
-    });
-    if (!armed) continue;
-    const owner = { event_uuid: event.event_uuid, lease_generation: event.lease_generation };
-    const result = await paymentProvider.recover(recoverInput, withinWindow);
-    await hitTestFault("payment.after_provider_io");
-    const outcome = classifyMoneyOutcome(result);
-    const settle = (settled: MoneyRailOutcome, note?: string) => settleOwnedMoneyOperation({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      correlation_id: correlation,
-      owner,
-      outcome: settled,
-      provider_reference: result.provider_reference || p.authorization_id || null,
-      ...(note ? { note } : {})
-    });
-
-    if (outcome === "pre_dispatch_failure") {
-      await settle("pre_dispatch_failure", `pre_dispatch_failure:${result.provider}`);
-      throw new Error(`temporary_fail recovery participant ${p.participant_id} (pre-dispatch, identity ${correlation} retained)`);
-    }
-
-    // Route through the webhook reconciliation truth path when the provider emits an event type
-    if (result.reconciliation_event_type && (outcome === "success" || outcome === "permanent_fail")) {
-      await settle(outcome);
-      await ingestAndProcessPaymentEvent({
-        provider: result.provider,
-        event_id: `${eventId}:${p.participant_id}:${result.reconciliation_event_type}`,
-        event_type: result.reconciliation_event_type,
-        correlation_id: result.correlation_id || correlation,
-        participant_id: p.participant_id,
-        deal_id: dealId,
-        provider_reference: result.provider_reference || p.authorization_id || null,
-        payload: {
-          source: "recovery_worker",
-          provider_reference: result.provider_reference || p.authorization_id || null,
-          authorization_id: p.authorization_id || null
-        }
-      });
-      if (outcome === "success" && result.provider_reference) {
-        await paymentBindings
-          .updateProviderReferenceForParticipant(p.participant_id, result.provider_reference)
-          .catch(() => undefined);
-      }
-      continue;
-    }
-
-    // No provider-declared canonical outcome — durable UNKNOWN on the SAME
-    // identity, then the reconciliation rail. Never a blind retry, never a
-    // fresh identity after possible money movement.
-    await settle("unknown", result.result_class === "success" ? "success_without_reconciliation_event" : `provider_outcome_unknown:${result.result_class}`);
-    await schedulePaymentReconcile({
-      participant_id: p.participant_id,
-      deal_id: dealId,
-      attempt_type: "recovery",
-      correlation_id: correlation,
-      operation: "capture",
-      provider_reference: result.provider_reference || p.authorization_id || null,
-      reason: result.result_class === "success" ? "success_without_reconciliation_event" : "provider_outcome_unknown"
-    });
   }
 
   if (deferral.until) {
@@ -5367,17 +5762,11 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       throw err;
     }
   }
-  const deadlineDiffMs = deadlineMs - now;
-  if (deadlineDiffMs < DEADLINE_MIN_MS) {
-    const err: any = new Error("deadline must be at least 2 hours in the future");
+  const deadlinePolicy = classifyDeadline(deadlineMs, now);
+  if (!deadlinePolicy.ok) {
+    const err: any = new Error(deadlinePolicy.message);
     err.statusCode = 400;
-    err.code = "deadline_below_minimum";
-    throw err;
-  }
-  if (deadlineDiffMs > DEADLINE_MAX_MS) {
-    const err: any = new Error("deadline must be within 7 days from now");
-    err.statusCode = 400;
-    err.code = "deadline_above_maximum";
+    err.code = deadlinePolicy.code;
     throw err;
   }
   const deadlineIso = new Date(deadlineMs).toISOString();
@@ -5556,9 +5945,8 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (hasOwn("deadline")) {
       const deadlineMs = new Date(body.deadline).getTime();
       if (!Number.isFinite(deadlineMs)) throw Object.assign(new Error("deadline must be a valid ISO date"), { statusCode: 400, code: "deadline_invalid" });
-      const deadlineDiffMs = deadlineMs - Date.now();
-      if (deadlineDiffMs < DEADLINE_MIN_MS) throw Object.assign(new Error("deadline must be at least 2 hours in the future"), { statusCode: 400, code: "deadline_below_minimum" });
-      if (deadlineDiffMs > DEADLINE_MAX_MS) throw Object.assign(new Error("deadline must be within 7 days from now"), { statusCode: 400, code: "deadline_above_maximum" });
+      const deadlinePolicy = classifyDeadline(deadlineMs);
+      if (!deadlinePolicy.ok) throw Object.assign(new Error(deadlinePolicy.message), { statusCode: 400, code: deadlinePolicy.code });
       deadline = new Date(deadlineMs).toISOString();
     }
 
