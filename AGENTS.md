@@ -1,6 +1,6 @@
 # Siton Agent Operating Rules
 
-This file is binding for Codex, Claude Code, and any other coding agent working in this repository.
+This file is binding for Codex, Claude Code, the Cloud Agent Manager, and any other coding agent working in this repository.
 
 ## Start every meaningful task
 
@@ -59,35 +59,32 @@ The normal flow is that ChatGPT performs external research and gives the coding 
 
 ## Testing
 
-Until a single canonical `siton:verify` command is introduced, use the existing repository scripts truthfully.
+`scripts/siton_verify.cjs` is the canonical repository verification command for meaningful completed work when its disposable local PostgreSQL requirement is available.
 
 At minimum:
 
-- run focused tests for the changed area
+- run focused tests for the changed area while implementing
 - run relevant TypeScript, build, lint, scan, or architecture checks
-- run `npm test` when scope or risk justifies the full grouped suite
+- before normal completion, run the canonical verifier when the execution environment provides a disposable local PostgreSQL database
 - run additional named gates when the touched area has a dedicated script in `package.json`
 
 Never claim a test passed if it was not run.
 
 Classify results as PASS, FAIL introduced by this change, pre-existing FAIL, NOT RUN, or blocked by unavailable external infrastructure.
 
-## Two-agent coordination
+## Agent coordination
 
-Codex and Claude Code may work in parallel, but must not edit the same working tree concurrently.
+Local Codex and Claude Code have permanent isolated worktrees managed by `scripts/agent.cjs` and must not edit the same product/code scope concurrently.
 
-Until dedicated Git worktrees are configured:
+The Cloud Agent Manager uses a separate GitHub-hosted checkout and a one-writer model. A reviewer is read-only. Cloud-managed tasks must not overlap an active local writer in the same scope.
 
-- use separate branches and separate working directories/process contexts for parallel work
-- never reset, clean, stash, checkout over, amend, or force-push another agent's work
-- inspect `git status`, current branch, and recent commits before editing
-- if another agent has active uncommitted work in the same tree, do not touch it
+Never reset, clean, stash, checkout over, amend, or force-push another agent's work.
 
 When reviewing another agent, review the actual diff and tests rather than trusting the summary.
 
 ## Git workflow
 
-For meaningful work, prefer a task branch and Pull Request rather than direct work on `master`.
+For normal local agent work, meaningful tasks use a task branch and Pull Request rather than direct work on `master`.
 
 Before commit:
 
@@ -95,19 +92,34 @@ Before commit:
 2. inspect the full diff
 3. verify no secrets or generated junk were added
 4. run appropriate tests
-5. update `PROJECT_STATUS.md` for meaningful milestones
+5. update the agent's isolated `PROJECT_STATUS.md` slot for meaningful milestones
 
 Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
 
+### Cloud-managed exception
+
+When `.siton-cloud-task.md` is present and identifies the task as Cloud Agent Manager work:
+
+- the coding agent is the writer only
+- the agent must not commit, push, merge, open a Pull Request, or edit `PROJECT_STATUS.md`
+- the Cloud Agent Manager owns canonical verification, its isolated status slot, commit, push and Pull Request creation
+- the reviewer must remain read-only
+- at most one automatic bounded fix pass is allowed
+- auto-merge is forbidden
+
+This exception avoids Git/status collisions and makes the cloud manager the single lifecycle authority for that run.
+
 ## PROJECT_STATUS.md
 
-At the end of every meaningful task, append a concise status block with:
+At the end of every meaningful task, the responsible lifecycle owner must record:
 
 - What was completed
 - What was checked
 - What is open
 - Progress percentage for the task or track
 - Next step
+
+Local Claude and Codex replace only their own marked status slots. The Cloud Agent Manager replaces only its `cloud-manager` slot.
 
 Do not mark a track 100% while known required work remains inside that track.
 
@@ -119,7 +131,7 @@ A meaningful task is done only when the applicable items are true:
 - relevant tests were added or updated
 - relevant tests pass, or failures are classified honestly
 - the diff was reviewed
-- `PROJECT_STATUS.md` was updated when required
+- `PROJECT_STATUS.md` was updated by the responsible lifecycle owner
 - changes were committed clearly
 - branch was pushed
 - Pull Request was opened when expected
