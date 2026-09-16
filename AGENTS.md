@@ -104,6 +104,20 @@ Before commit:
 
 Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
 
+### Push checkpoint rule
+
+Completed work must never exist only inside a session container. For every substantial task:
+
+1. `git fetch origin` and start an isolated task branch from current `master`
+2. push the branch before substantial implementation to prove GitHub write access
+3. commit and push a meaningful checkpoint at each coherent milestone
+4. after tests and the `PROJECT_STATUS.md` update, make the final commit and push
+5. verify the remote SHA (`git ls-remote origin <branch>`) before reporting completion or opening the Pull Request
+
+If the early preflight push fails, stop substantial work and apply the authorization fallback below instead of accumulating hours of local-only changes.
+
+If push fails because the current session lacks GitHub authorization, especially a repeated 403 after access/setup was already attempted, do not keep retrying equivalent push methods. Preserve the coherent local commit, generate a complete patch from the intended base, and report the branch, base SHA, final commit SHA, patch path/name, and exact apply command. Continue only with work that does not depend on the blocked push.
+
 ## PROJECT_STATUS.md
 
 At the end of every meaningful task, append a concise status block with:

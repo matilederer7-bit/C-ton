@@ -56,31 +56,42 @@ Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
 - Agent efficiency v2 is merged to `master` at `294399e32bbcd090761eb9e7774e64ef89d3eca3`.
 - PR #22 merged to `master` at `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
 - PR #21 was closed without merge as the stale-base predecessor superseded by PR #22.
+- PR #23 merged to `master` at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`: agent efficiency v3 isolates Claude/Codex status writes, retains active task branches while PRs remain open, and removes the duplicate aggregate PR test pass while preserving the ten explicit test groups.
 - Agent workflow includes isolated permanent Claude and Codex worktrees, one-command setup and doctor, fail-closed branch collision checks, untracked task packets, automated verification/commit/push/PR creation, compact CI failure summaries and no auto-merge.
 - Agent efficiency v3 hardening is merged at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`.
+- PR #26 merged to `master` at `563b9ad5f72c6dd296923a3566be55d4c133b351`: canonical product policy amendment 2026-09-16 (finite mandatory `max_units`, 24-hour Completion Window, 8% fee including delivery excluding VAT, no distributor role/module, no seven-day cap) locked in docs and `AGENTS.md`.
+- Agent efficiency v4 is implemented on `chore/agent-entrypoints-v4` (PR #27):
+  - root `CLAUDE.md` gives Claude Code a compact automatic entry point into `AGENTS.md`, `AI_WORKFLOW.md`, `PROJECT_STATUS.md` and current canonical product sources, so task prompts no longer need to repeat standing rules.
+  - GitHub authorization failures have a fixed no-loop fallback: stop equivalent retries, preserve the coherent commit, produce a complete patch, report exact SHAs and apply instructions.
+  - push-checkpoint discipline is now binding: prove push access with an early branch push before substantial implementation, push meaningful checkpoints, and verify the remote SHA at the end, so completed work is never left only in a session container.
+  - a release-tool contract test requires the Claude entry point, the no-loop fallback and the push-checkpoint rule.
 
 ## TESTED
 
 - PR #22 passed Backend and deployment quality gates, Web runtime depth gates and Release readiness before merge, including the complete repository suite and extended Docker smoke.
-- Agent efficiency v2/v3 contract tests are under `tests/release_tools/agent_efficiency_v2.test.cjs` and are part of the standard/full release-preflight catalogue.
+- Agent efficiency v2/v3/v4 contract coverage lives under `tests/release_tools/agent_efficiency_v2.test.cjs` and remains part of the standard/full release-preflight catalogue.
+- PR #27 was refreshed onto merged master `563b9ad` after PR #26; the v4 contract test was run locally on the refreshed head and fresh GitHub CI on that head is the merge authority.
 
 ## OPEN
 
+- PR #27 requires green GitHub CI on its refreshed head before merge.
 - Owner-machine worktrees should be rechecked with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` after workflow changes.
 - Runtime/production items intentionally remain open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F13 external provider semantics, LONG_HORIZON_DEALS dependent on F13, F-12 production image pruning, F-07 architecture decision, and legacy `/app/...` recovery URL cleanup.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ## PERCENTAGE
 
-- Agent workflow repository-side implementation: 100% for merged v3 scope.
+- Agent workflow repository-side implementation: 100% for merged v3 scope; v4 entry point and push-checkpoint rule pending PR #27 CI and merge.
 - Agent workflow owner-machine activation: not re-verified by this repository-only change.
 - Product/real-money readiness percentages are intentionally not globally recomputed here.
 
 ## NEXT STEP
 
-1. Complete canonical policy runtime cleanup without colliding with CMS or duration work.
-2. Re-run owner-machine agent doctor after next local sync.
-3. Continue external-provider and hosted-runtime readiness only under existing real-money safety boundaries.
+1. Merge PR #27 when GitHub CI is green on the refreshed head.
+2. Complete canonical policy runtime cleanup without colliding with CMS or duration work.
+3. Re-run owner-machine agent doctor after next local sync.
+4. From then on, task prompts should contain mainly the task-specific objective, scope, constraints and acceptance criteria instead of repeating standing workflow rules.
+5. Continue external-provider and hosted-runtime readiness only under existing real-money safety boundaries.
 
 ## AGENT MILESTONES
 
