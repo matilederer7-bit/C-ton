@@ -370,11 +370,25 @@ function renderLegalMarkdown(markdown: string) {
       const trimmed = block.trim();
       if (!trimmed) return "";
       if (trimmed.startsWith("# ")) return `<h1>${escapeHtml(trimmed.slice(2))}</h1>`;
-      if (trimmed.startsWith("## ")) return `<h2>${escapeHtml(trimmed.slice(3))}</h2>`;
+      if (/^#{2,3} /.test(trimmed)) return `<h2>${escapeHtml(trimmed.replace(/^#{2,3} /, ""))}</h2>`;
+      // Same block grammar as the in-app ContentPage renderer: a block made only
+      // of "- " lines is a list, never a paragraph of <br>-joined dashes.
+      const lines = trimmed.split("\n");
+      if (lines.every((line) => line.startsWith("- "))) {
+        return `<ul>${lines.map((line) => `<li>${escapeHtml(line.slice(2))}</li>`).join("")}</ul>`;
+      }
       return `<p>${escapeHtml(trimmed).replace(/\n/g, "<br>")}</p>`;
     })
     .join("\n");
 }
+
+// The server-rendered legal document (linked from the join consent line and
+// shared externally) is the SAME site as the React product: identical topbar
+// (brand emblem + wordmark + tagline + primary nav), the same legal chip strip,
+// the same `.panel.content-doc` document typography, the same footer, the same
+// stylesheet. Legal CONTENT is untouched — it stays the CMS projection of
+// src/legal_pages.ts; only the chrome around it is aligned.
+const LEGAL_HTML_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds", "payments"];
 
 async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: string; body: string }) {
   const page = { ...LEGAL_PAGES[slug], ...override };
@@ -383,16 +397,25 @@ async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: stri
     const index = await readFile(join(previewDir, "index.html"), "utf8");
     stylesheet = index.match(/href="(\/preview\/assets\/[^"<>]+\.css)"/)?.[1] || "";
   }
-  const nav = (["terms", "privacy", "refunds"] as LegalPageSlug[]).map(key =>
-    `<a class="nav-link" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ''}>${escapeHtml(LEGAL_PAGES[key].navLabel)}</a>`).join("");
+  const chips = LEGAL_HTML_NAV.map((key) =>
+    `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(LEGAL_PAGES[key].navLabel)}</a>`).join("");
+  const fallbackCss = "<style>body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}</style>";
   return `<!doctype html><html lang="he" dir="rtl"><head>
-    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#17181b">
     <title>C-ton | ${escapeHtml(page.title)}</title>
-    ${stylesheet ? '<link rel="stylesheet" href="' + escapeHtml(stylesheet) + '">' : '<style>body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:24px}a{color:#ff8a25}.container{max-width:1000px;margin:auto}.panel{padding:24px}.nav-links{display:flex;gap:16px;flex-wrap:wrap}</style>'}
+    <link rel="icon" href="/preview/brand/c-ton-mark-180.png">
+    ${stylesheet ? '<link rel="stylesheet" href="' + escapeHtml(stylesheet) + '">' : fallbackCss}
   </head><body><div class="app">
-    <header class="topbar"><div class="topbar-inner"><a class="brand" href="/preview/">C-ton · חזרה לאתר</a><nav class="nav-links" aria-label="ניווט משפטי">${nav}</nav></div></header>
-    <main class="container"><article class="panel"><div class="notice info">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article></main>
-    <footer class="footer"><a href="/legal/terms">תקנון</a><a href="/legal/privacy">מדיניות פרטיות</a><a href="/legal/refunds">ביטולים והחזרים</a><a href="/preview/#/support">תמיכה ויצירת קשר</a></footer>
+    <header class="topbar"><div class="topbar-inner">
+      <a class="brand" href="/preview/"><img class="brand-mark-img" src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="38" height="38"><span><img class="brand-word-img" src="/preview/brand/c-ton-wordmark.png" alt="C-ton"><div class="brand-sub">קונים ביחד · משלמים פחות</div></span></a>
+      <nav class="nav-links" aria-label="ניווט ראשי"><a class="nav-link" href="/preview/#/seller">אזור המוכרים</a></nav>
+    </div></header>
+    <main class="container">
+      <nav class="legal-nav" aria-label="מסמכים משפטיים">${chips}</nav>
+      <article class="panel content-doc" data-section="legal_${slug}"><div class="notice info">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
+    </main>
+    <footer class="footer"><div><a href="/preview/#/support">תמיכה ויצירת קשר</a><a href="/preview/#/content/about">אודות</a><a href="/legal/terms">תקנון ותנאי שימוש</a><a href="/legal/privacy">פרטיות</a><a href="/legal/refunds">מדיניות ביטולים והחזרים</a></div><div style="margin-top:8px">C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)</div></footer>
   </div></body></html>`;
 }
 

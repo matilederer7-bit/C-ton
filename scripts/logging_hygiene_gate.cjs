@@ -112,7 +112,16 @@ function main() {
     const leaks = [];
     if (/SECRET-OTP-654321/.test(output)) leaks.push("raw OTP code");
     if (/\+972501112233/.test(output)) leaks.push("raw OTP destination phone");
-    (leaks.length ? report.fail : report.pass).call(report, "runtime log providers", leaks.length ? "emitted " + leaks.join(", ") : "OTP log provider emitted masked destination and [redacted] code; notification log provider emitted recipient_ref (see SENSITIVE warning)", { detail: leaks.length ? output.slice(0, 2000) : undefined });
+    // LOG-1 regression: the notification log provider must never emit a raw
+    // recipient_ref. Each sentinel below belongs to exactly one provider arm.
+    if (/\+972509998877/.test(output)) leaks.push("raw notification recipient_ref (sms)");
+    if (/seller-support@probe\.invalid/.test(output)) leaks.push("raw notification recipient_ref (email)");
+    // Guard against the check going vacuous again: the notification arm must
+    // actually have logged, and the masked forms must be present.
+    if (/PROBE_INERT/.test(output)) leaks.push("notification provider logged nothing (check is vacuous)");
+    if (!/\*+8877/.test(output)) leaks.push("masked sms recipient_ref absent from the notification log line");
+    if (!/s\*+@probe\.invalid/.test(output)) leaks.push("masked email recipient_ref absent from the notification log line");
+    (leaks.length ? report.fail : report.pass).call(report, "runtime log providers", leaks.length ? "emitted " + leaks.join(", ") : "OTP log provider emitted masked destination and [redacted] code; notification log provider emitted MASKED recipient_ref on both sms and email arms (LOG-1 closed)", { detail: leaks.length ? output.slice(0, 2000) : undefined });
   } else {
     report.skip("runtime log providers", "probe could not run: " + String(probe.stderr || probe.stdout).slice(0, 300));
   }

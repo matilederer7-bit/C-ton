@@ -249,8 +249,15 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           <div className="panel">
             <div className="panel-title">סטטוס אישי</div>
-            <p style={{ marginBottom: 4 }}><b>{t.personal_status?.headline || t.headline}</b></p>
-            {t.personal_status?.body ? <p className="muted small">{t.personal_status.body}</p> : null}
+            {/* The server emits { title, detail, cta, action_required } (buildTrackingPersonalStatus);
+                the older headline/body keys are kept as a fallback only. */}
+            <p style={{ marginBottom: 4 }}><b>{t.personal_status?.title || t.personal_status?.headline || t.headline}</b></p>
+            {t.personal_status?.detail || t.personal_status?.body ? <p className="muted small">{t.personal_status.detail || t.personal_status.body}</p> : null}
+            {t.personal_status?.cta?.href && t.personal_status?.cta?.label ? (
+              <p style={{ marginBottom: 8 }}>
+                <a className="btn btn-primary btn-sm" data-testid="track-personal-cta" href={String(t.personal_status.cta.href)}>{String(t.personal_status.cta.label)}</a>
+              </p>
+            ) : null}
             <p className="muted small" style={{ marginBottom: 0 }}>עודכן: {fmtDate(t.live?.generated_at)}</p>
           </div>
         </div>

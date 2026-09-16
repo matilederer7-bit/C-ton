@@ -40,11 +40,16 @@ test("health contract check proves liveness vs readiness on a local runtime", { 
   assert.match(result.stdout, /\[PASS\] worker readiness/);
 });
 
-test("http security smoke passes on a local runtime and records the /readiness cache gap", { skip: !dbAvailable && "no local DATABASE_URL" }, () => {
+// GAP-HTTP-1 is CLOSED: /readiness is in the dynamic no-store route list, so the
+// smoke ASSERTS it like /health instead of recording it as a non-failing gap.
+// This test now pins the closed state - it must fail if the gap ever returns.
+test("http security smoke passes on a local runtime with /readiness no-store enforced", { skip: !dbAvailable && "no local DATABASE_URL" }, () => {
   const result = spawnSync(process.execPath, [path.join(REPO_ROOT, "scripts", "http_security_smoke.cjs")], { cwd: REPO_ROOT, encoding: "utf8", timeout: 240000 });
   assert.equal(result.status, 0, result.stdout + result.stderr);
   assert.match(result.stdout, /HTTP_SECURITY_SMOKE_PASS/);
-  assert.match(result.stdout, /GAP-HTTP-1 \/readiness/);
+  assert.doesNotMatch(result.stdout, /GAP-HTTP-1/, "GAP-HTTP-1 must stay closed: /readiness must carry cache-control: no-store");
+  assert.match(result.stdout, /\[PASS\] health \+ readiness responses/);
+  assert.match(result.stdout, /no-store, security headers on \/health, \/readiness and \/health\/integrations/);
   assert.match(result.stdout, /\[PASS\] admin surface anonymous refusal/);
   assert.match(result.stdout, /\[PASS\] unsigned webhook refused without 500/);
 });

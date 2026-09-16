@@ -47,7 +47,8 @@ services:
       HOST: 0.0.0.0
       PORT: "3000"
       UPLOAD_DIR: /tmp/uploads
-    command: ["npm", "run", "start:web:prod"]
+    # Node itself as PID 1 so `docker compose stop` reaches gracefulShutdown.
+    command: ["node", ".demo_dist/src/app.js"]
     ports:
       - "3000:3000"
     healthcheck:
@@ -66,7 +67,8 @@ services:
       RUNTIME_ROLE: worker
       WORKER_CONCURRENCY: "4"
       WORKER_HEARTBEAT_MS: "10000"
-    command: ["npm", "run", "start:worker:prod"]
+    # Node itself as PID 1 so `docker compose stop` reaches stopWorker().
+    command: ["node", ".demo_dist/src/worker.js"]
 
 volumes:
   siton_demo_pgdata:

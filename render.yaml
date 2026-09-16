@@ -64,7 +64,13 @@ services:
 
   # R4 — the single approved continuous Background Worker (0.5 CPU / 512 MB,
   # "starter", ~US$7/month; the only paid staging resource). Same Docker image
-  # as the Web service, started via npm run start:worker:prod. It authenticates
+  # as the Web service. It starts the built worker entrypoint DIRECTLY, so the
+  # Node process is PID 1 and Render's deploy SIGTERM reaches src/worker.ts's
+  # stopWorker() drain: the worker finishes its in-flight cycle and records
+  # status=stopped instead of being SIGKILLed mid-job. Starting it through
+  # `npm run start:worker:prod` put npm at PID 1, where it cannot die from the
+  # signal it re-sends to itself and exits 1 without ever forwarding the drain
+  # (the release lab measured exactly that). It authenticates
   # as siton_worker_login through the Supavisor session-mode pooler and never
   # reuses the Web credential. It runs the outbox worker (DISABLE_OUTBOX_WORKER
   # is deliberately absent) while the Web service has it disabled.
@@ -75,7 +81,7 @@ services:
     plan: starter
     branch: master
     dockerfilePath: ./Dockerfile
-    dockerCommand: npm run start:worker:prod
+    dockerCommand: node .demo_dist/src/worker.js
     autoDeploy: true
     envVars:
       - key: APP_DEPLOYMENT_MODE

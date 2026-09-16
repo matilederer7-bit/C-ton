@@ -187,7 +187,11 @@ await runTest("docker_readiness_doc_validation", async () => {
 });
 
 await runTest("container_build_smoke", async () => {
-  const dockerCheck = spawnSync("docker", ["--version"], { stdio: "pipe" });
+  // `docker --version` only proves the CLI binary exists; it succeeds with no
+  // engine running, which turns an environment limitation into a hard FAIL
+  // instead of the SKIPPED_ENVIRONMENT this suite uses everywhere else.
+  // `docker info` is the reachability probe.
+  const dockerCheck = spawnSync("docker", ["info"], { stdio: "pipe" });
   if (dockerCheck.status !== 0) {
     console.log("SKIP container_build_smoke — Docker engine unavailable in this environment (static validation only)");
     return;
@@ -197,7 +201,11 @@ await runTest("container_build_smoke", async () => {
 });
 
 await runTest("compose_smoke", async () => {
-  const dockerCheck = spawnSync("docker", ["--version"], { stdio: "pipe" });
+  // `docker --version` only proves the CLI binary exists; it succeeds with no
+  // engine running, which turns an environment limitation into a hard FAIL
+  // instead of the SKIPPED_ENVIRONMENT this suite uses everywhere else.
+  // `docker info` is the reachability probe.
+  const dockerCheck = spawnSync("docker", ["info"], { stdio: "pipe" });
   if (dockerCheck.status !== 0) {
     console.log("SKIP compose_smoke — Docker engine unavailable in this environment (static validation only)");
     return;
