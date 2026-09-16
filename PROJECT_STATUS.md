@@ -28,6 +28,7 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 - Historical status was rotated out of standing context into `PROJECT_STATUS_ARCHIVE_PRE_2026-09-15.md`.
 - Canonical completion verification exists as `npm run siton:verify`.
 - Separate permanent Codex/Claude worktree model exists with dirty-worktree, path-overwrite, local-branch, and remote-branch collision guards.
+- Remote branch collision checks now fail closed: if `git ls-remote` cannot verify origin because of network/auth/Git failure, the helper stops instead of treating the branch as absent and risking a collision.
 - Owner-facing workflow is consolidated behind `node scripts/agent.cjs` with `setup`, `status`, `doctor`, `start`, `review`, `handoff`, and `finish`.
 - Worktree path resolution now uses Git's common directory, so the helper targets the canonical `C-ton` root even when invoked from `C-ton-codex` or `C-ton-claude`.
 - `finish` refuses dirty, detached, master, unpushed, or not-fully-pushed task branches before returning an agent to standby.
@@ -37,24 +38,26 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 
 ### CHECKED
 
-- Existing PR #17 Release Readiness and Web Runtime gates passed on the previous head.
+- Existing PR #17 Release Readiness, Web Runtime, and Backend quality gates passed on the previous head.
 - Existing worktree contract checks cover two isolated agents, dirty guard, local/remote branch collision guard, Unicode task names, and absence of destructive reset/force-push paths.
+- The worktree contract now explicitly requires `remote_lookup_fail_closed=true` and verifies the helper contains the fail-closed remote-lookup error path.
 - Workflow contract coverage was extended for the single `agent.cjs` command, review/handoff output, canonical-root resolution, and pushed-head finish guard.
 - Repository-wide product QA is intentionally out of scope for this workflow-efficiency track.
 
 ### OPEN
 
+- Confirm the new PR #17 CI run after the fail-closed remote lookup hardening and status update.
+- PR #17 must remain separate until PR #19 is qualified and integrated. Then update #17 from the new `master`, preserving newer product/production status and PR #19 dependency hardening.
 - GitHub cannot create the physical sibling worktrees on the owner's Windows machine. After PR #17 is integrated, run `node scripts/agent.cjs setup` once on that machine.
-- Confirm the new PR #17 CI run on this workflow-only commit.
 - After local setup, run `node scripts/agent.cjs doctor` and start one disposable task branch in each workspace to prove local isolation end-to-end.
 
 ### PROGRESS %
 
-- Agent-efficiency repository implementation: 99%.
+- Agent-efficiency repository implementation: 99% pending fresh CI.
 - Standing-context compression and short-task protocol: 100%.
-- Two-agent repository safety controls: 99% pending CI confirmation.
+- Two-agent repository safety controls: 99% pending fresh CI confirmation of the fail-closed guard.
 - Local Windows worktree activation: 0% until the one-time local setup is run.
 
 ### NEXT STEP
 
-Confirm PR #17 CI, integrate the PR, then run `node scripts/agent.cjs setup` and `node scripts/agent.cjs doctor` on the development PC.
+Confirm PR #17 CI, keep it isolated while PR #19 is qualified, then update #17 from the integrated master, rerun all three workflows, merge it, and run `node scripts/agent.cjs setup` plus `node scripts/agent.cjs doctor` on the development PC.
