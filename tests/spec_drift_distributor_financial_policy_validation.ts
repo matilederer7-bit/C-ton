@@ -17,8 +17,14 @@ import { join, relative, resolve } from "node:path";
 const ROOT = process.cwd();
 const FINANCIAL_TOKEN =
   /\b(?:affiliate|distributor)_(?:commission|commission_rate|commission_amount|payout|payout_status|balance|withdraw|withdrawal|earnings?|wallet|invoice|entitlement)\b|\b(?:commission|commission_rate|commission_amount|payout|payout_status|balance|withdraw|withdrawal|earnings?|wallet|invoice|entitlement)_(?:affiliate|distributor)\b/i;
+const FINANCIAL_CAMEL_TOKEN =
+  /\b(?:affiliate|distributor)(?:Commission|Payout|Balance|Withdraw|Withdrawal|Earning|Earnings|Wallet|Invoice|Entitlement)\b|\b(?:commission|payout|balance|withdraw|withdrawal|earning|earnings|wallet|invoice|entitlement)(?:Affiliate|Distributor)\b/;
 const FINANCIAL_ROUTE =
   /\/(?:api\/)?(?:affiliate|distributor)[^\s"'`]*(?:commission|payout|balance|withdraw|wallet|invoice|entitlement)/i;
+const DISTRIBUTOR_TABLE_ADD_FINANCIAL_COLUMN =
+  /ALTER\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:siton\.)?(?:affiliate|distributor)[a-z0-9_]*[\s\S]{0,160}?ADD\s+COLUMN(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:commission_rate|commission_amount|payout_status|payout_method|payout_details_masked|balance|wallet|entitlement)\b/i;
+const DISTRIBUTOR_FINANCIAL_TABLE_DEFINITION =
+  /CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:siton\.)?(?:affiliate|distributor)[a-z0-9_]*(?:commission|payout|balance|withdraw|wallet|invoice|entitlement)[a-z0-9_]*\s*\(/i;
 
 function read(path: string): string {
   return readFileSync(resolve(ROOT, path), "utf8");
@@ -42,6 +48,12 @@ function collectFiles(dir: string, allowedExtensions: Set<string>): string[] {
   return output;
 }
 
+function assertNoDistributorFinancialAuthority(path: string, body: string): void {
+  assert.ok(!FINANCIAL_TOKEN.test(body), `${path} reintroduces distributor financial authority`);
+  assert.ok(!FINANCIAL_CAMEL_TOKEN.test(body), `${path} reintroduces camelCase distributor financial authority`);
+  assert.ok(!FINANCIAL_ROUTE.test(body), `${path} exposes a distributor financial route`);
+}
+
 async function run(name: string, fn: () => void | Promise<void>): Promise<void> {
   try {
     await fn();
@@ -62,9 +74,7 @@ await run("distributor runtime contains no financial authority identifiers or ro
 
   for (const path of runtimeFiles) {
     if (!existsSync(resolve(ROOT, path))) continue;
-    const body = read(path);
-    assert.ok(!FINANCIAL_TOKEN.test(body), `${path} reintroduces distributor financial authority`);
-    assert.ok(!FINANCIAL_ROUTE.test(body), `${path} exposes a distributor financial route`);
+    assertNoDistributorFinancialAuthority(path, read(path));
   }
 });
 
@@ -77,8 +87,15 @@ await run("post-cleanup migrations do not reintroduce distributor financial sche
 
   for (const path of migrations) {
     const body = read(path);
-    assert.ok(!FINANCIAL_TOKEN.test(body), `${path} reintroduces distributor financial schema`);
-    assert.ok(!FINANCIAL_ROUTE.test(body), `${path} reintroduces a distributor financial endpoint or route`);
+    assertNoDistributorFinancialAuthority(path, body);
+    assert.ok(
+      !DISTRIBUTOR_TABLE_ADD_FINANCIAL_COLUMN.test(body),
+      `${path} adds a financial column to a distributor/affiliate table`
+    );
+    assert.ok(
+      !DISTRIBUTOR_FINANCIAL_TABLE_DEFINITION.test(body),
+      `${path} creates a distributor/affiliate financial table`
+    );
   }
 });
 
@@ -100,7 +117,11 @@ await run("distributor measurement migration stays attribution-only", () => {
   assert.match(body, /attribution-only measurement resources/i);
   assert.match(body, /CREATE TABLE IF NOT EXISTS siton\.affiliate_links/i);
   assert.match(body, /CREATE TABLE IF NOT EXISTS siton\.affiliate_link_events/i);
-  assert.ok(!FINANCIAL_TOKEN.test(body), "measurement migration must not create distributor money fields");
+  assertNoDistributorFinancialAuthority("src/migrations/046_distributor_measurement_surfaces.sql", body);
+  assert.ok(
+    !DISTRIBUTOR_TABLE_ADD_FINANCIAL_COLUMN.test(body),
+    "measurement migration must not add financial columns to distributor tables"
+  );
 });
 
 console.log("\nDistributor financial-policy regression guard completed.");
