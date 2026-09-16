@@ -2,52 +2,57 @@
 
 Updated: 2026-09-16
 Canonical branch: `master`
-Current merged baseline: `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`
+Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
 
 ## COMPLETED
 
 - PR #19 merged to `master`: adversarial production hardening plus seller-to-buyer product-path closeout.
-- PR #18 closed as superseded by PR #19.
-- Agent efficiency v2 is merged to `master` at `294399e32bbcd090761eb9e7774e64ef89d3eca3`.
 - PR #22 merged to `master` at `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
-- PR #21 was closed without merge as the stale-base predecessor superseded by PR #22.
-- Agent workflow includes isolated permanent Claude and Codex worktrees, one-command setup and doctor, fail-closed branch collision checks, untracked task packets, automated verification/commit/push/PR creation, compact CI failure summaries and no auto-merge.
-- Agent efficiency v3 hardening is implemented on `chore/agent-efficiency-v3-status-isolation`:
-  - Claude and Codex update separate fixed status slots inside this file instead of appending into the same EOF region.
-  - `finish` keeps the worktree on the active task branch while the PR remains open so CI fixes continue with the same context.
-  - the next `start` automatically releases only a clean prior task whose PR is already merged or closed.
-  - an open prior PR blocks task replacement instead of silently discarding context.
-  - PR backend CI runs the ten explicit test groups once; the aggregate `test:all` re-run is retained only on push to `master`, eliminating a proven duplicate pass on every PR without reducing PR test inventory.
+- Agent efficiency v2 merged at `294399e32bbcd090761eb9e7774e64ef89d3eca3`.
+- PR #23 merged to `master` at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`: agent efficiency v3 now isolates Claude/Codex status slots, retains active PR context and removes the proven duplicate PR test pass while preserving the ten explicit test groups.
+- Local agent workflow includes permanent isolated Claude and Codex worktrees, one-command setup/doctor, fail-closed branch collision checks, untracked task packets, automated verification/commit/push/PR creation, compact CI failure summaries and no auto-merge.
+- Cloud Agent Manager v1 is implemented on `chore/cloud-agent-manager-v1`:
+  - GitHub-hosted `ubuntu-24.04` execution, so the owner computer is not part of task execution after dispatch.
+  - owner-only `[agent-manager]` issue trigger plus manual `workflow_dispatch`.
+  - automatic builder/reviewer selection across Claude and Codex based on configured cloud credentials.
+  - canonical task packet with Siton commercial and production safety invariants.
+  - one writer, read-only reviewer, at most one bounded automatic fix pass, then stop.
+  - disposable local PostgreSQL service and canonical `scripts/siton_verify.cjs` before commit.
+  - isolated Cloud Agent Manager status slot, automated commit/push/PR creation and no auto-merge.
+  - draft PR when the final review still requires changes.
+- Cloud manager contract tests and a mobile-friendly GitHub issue form are included.
 
 ## TESTED
 
 - PR #22 passed Backend and deployment quality gates, Web runtime depth gates and Release readiness before merge, including the complete repository suite and extended Docker smoke.
 - Agent efficiency v2/v3 contract tests are under `tests/release_tools/agent_efficiency_v2.test.cjs` and are part of the standard/full release-preflight catalogue.
-- The v3 contract requires isolated Claude/Codex status markers, retained task branches while PRs are open, automatic release only after PR resolution and preservation of all ten explicit PR test groups while `test:all` is push-only.
-- PR #23 was refreshed onto merged master after PR #22. Fresh GitHub CI on the resulting combined head remains the merge authority.
+- Cloud Agent Manager static contract coverage is added under `tests/release_tools/cloud_agent_manager.test.cjs` for role selection, standing safety invariants, read-only review, isolated status updates, owner-only triggers, one bounded fix pass and no auto-merge.
+- Cloud Agent Manager branch still requires GitHub PR CI; repository CI is the authority for the new workflow syntax and release-tool test execution.
 
 ## OPEN
 
-- PR #23 requires fresh green GitHub CI after its master refresh and CI de-duplication change before merge.
-- Owner-machine worktrees should be rechecked with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` after v3 merges.
-- The deterministic task-branch slug can still collide when the exact same task text is reused after a historical branch remains locally or remotely. This is a workflow follow-up, not a v3 merge blocker.
-- Task packets currently use the compact top-of-file status excerpt; later refinement can include the active agent's isolated status slot directly.
+- Cloud Agent Manager cannot execute an AI coding run until at least one GitHub Actions cloud credential is configured.
+- Claude cloud mode supports either `CLAUDE_CODE_OAUTH_TOKEN` or `ANTHROPIC_API_KEY`. For Claude Pro/Max, the documented OAuth path is `claude setup-token`, then store the token as a GitHub Actions secret.
+- Codex cloud mode requires `OPENAI_API_KEY`; ChatGPT subscription access does not itself create API billing credentials.
+- Two-provider independent review requires both a Claude credential and `OPENAI_API_KEY`. With only one provider, the manager records a bounded same-provider review.
+- Owner-machine worktrees should still be rechecked with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` when local operation resumes.
 - Runtime/production items intentionally remain open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F13 external provider semantics, LONG_HORIZON_DEALS dependent on F13, F-12 production image pruning, F-07 architecture decision, and legacy `/app/...` recovery URL cleanup.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ## PERCENTAGE
 
-- Agent workflow repository-side implementation: 98% pending fresh PR #23 CI and merge.
-- Agent workflow owner-machine activation: not re-verified by this repository-only change.
+- Local agent workflow repository-side implementation: 100% merged.
+- Cloud Agent Manager repository implementation: 90% pending PR CI/merge and one-time cloud credential activation.
+- Computer-off execution path: code complete, not yet live until a supported GitHub Actions secret is present.
 - Product/real-money readiness percentages are intentionally not recomputed by this workflow-only change.
 
 ## NEXT STEP
 
-1. Complete fresh GitHub CI on PR #23 and inspect only evidence-backed failures.
-2. Merge PR #23 when all required workflows are green.
-3. Re-run `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` once on the owner machine.
-4. Harden repeated-task branch naming and improve task-packet status targeting in the next workflow-only change.
-5. Evaluate further path-sensitive CI optimization only with explicit protection against skipped required checks.
+1. Open the Cloud Agent Manager Pull Request and let all repository CI run.
+2. Fix only evidence-backed CI failures and merge when green.
+3. Configure at least one cloud credential in GitHub Actions secrets. Preferred first path for the current setup: `CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`.
+4. Trigger a harmless cloud smoke task through an owner-authored `[agent-manager]` issue and prove end-to-end execution while the owner computer is not participating.
+5. Add `OPENAI_API_KEY` later if independent cross-provider Codex review is desired.
 
 ## AGENT MILESTONES
 
@@ -76,6 +81,20 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - PERCENTAGE: not set
 - NEXT STEP: use this slot only from Codex finish
 <!-- AGENT_STATUS:codex:END -->
+
+<!-- AGENT_STATUS:cloud-manager:START -->
+### Cloud Agent Manager latest milestone
+
+- UPDATED: 2026-09-16
+- BRANCH: chore/cloud-agent-manager-v1
+- BUILDER: manager infrastructure
+- REVIEWER: repository CI pending
+- COMPLETED: GitHub-hosted orchestration, cloud provider selection, task packets, bounded review/fix cycle, canonical verification, status ownership and PR creation implemented.
+- TESTED: Static contract tests added; full GitHub CI pending PR creation.
+- OPEN: One-time GitHub cloud credential activation and end-to-end smoke run remain.
+- PERCENTAGE: 90%
+- NEXT STEP: Open PR, pass CI, merge, configure Claude OAuth or API credential, then execute a harmless computer-off smoke task.
+<!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
 
