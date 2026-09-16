@@ -112,13 +112,13 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
-- UPDATED: not yet written by v3 workflow
-- BRANCH: none
-- COMPLETED: none
-- TESTED: none
-- OPEN: none
-- PERCENTAGE: not set
-- NEXT STEP: use this slot only from Codex finish
+- UPDATED: 2026-09-16
+- BRANCH: `chatgpt/distributor-financial-policy-guard`
+- COMPLETED: added a repository-wide spec-drift guard that blocks distributor/affiliate commission, payout, balance, withdrawal, wallet, invoice, or entitlement authority while preserving attribution and measurement surfaces.
+- TESTED: inspected the existing Wave 3 guard plus migrations 020 and 046; branch implementation committed and GitHub CI is the remaining execution proof.
+- OPEN: CI must pass before merge. This guard prevents financial-policy regression but does not itself remove the broader legacy distributor role/module surfaces tracked in the canonical cleanup task.
+- PERCENTAGE: 85%.
+- NEXT STEP: open PR, run GitHub CI, review the diff, then merge only if green.
 <!-- AGENT_STATUS:codex:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
