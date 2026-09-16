@@ -132,7 +132,12 @@ jobs:
       - name: End-to-end tests
         run: npm run test:e2e 2>&1 | tee .ci-artifacts/test-e2e.log
 
+      # The ten explicit group steps above already execute the complete TypeScript
+      # test inventory on pull requests. Re-running test:all here simply spawns the
+      # same ten groups again. Keep the aggregate orchestrator as a canonical
+      # post-merge proof on master, but do not pay the duplicate cost on every PR.
       - name: Complete repository suite
+        if: github.event_name == 'push'
         run: npm run test:all 2>&1 | tee .ci-artifacts/test-all.log
 
       - name: Extended Docker process, MinIO, multi-Web, worker, and outbox fault smoke
