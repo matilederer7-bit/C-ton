@@ -121,19 +121,51 @@ function taskPacketPath(target) {
   const gitPath = git(["rev-parse", "--git-path", "SITON_TASK_PACKET.md"], target);
   return path.isAbsolute(gitPath) ? gitPath : path.resolve(target, gitPath);
 }
+function taskBranchLifecycle(target, branch) {
+  const r = spawnSync("gh", ["pr", "view", branch, "--json", "state,mergedAt,url"], {
+    cwd: target, env: process.env, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]
+  });
+  if (r.error) throw new Error(`unable to resolve PR state for ${branch}: ${r.error.message}`);
+  if (r.signal) throw new Error(`gh pr view terminated by signal ${r.signal}`);
+  if (typeof r.status !== "number" || r.status !== 0) {
+    const detail = String(r.stderr || r.stdout || "unknown gh failure").trim();
+    throw new Error(`unable to resolve PR state for active task branch ${branch}: ${detail}`);
+  }
+  let payload;
+  try { payload = JSON.parse(r.stdout || "{}"); }
+  catch { throw new Error(`unable to parse PR state for active task branch ${branch}`); }
+  if (payload.mergedAt) return { state: "MERGED", url: payload.url || "" };
+  return { state: String(payload.state || "UNKNOWN").toUpperCase(), url: payload.url || "" };
+}
+function releaseResolvedTaskIfNeeded(repo, agent, target) {
+  const current = git(["branch", "--show-current"], target);
+  if (!current || current === standby(agent)) return;
+  if (!current.startsWith(`agent/${agent}/`)) throw new Error(`refusing to replace unexpected ${agent} branch: ${current || "detached"}`);
+  if (dirty(target)) throw new Error(`active ${agent} task branch is dirty: ${current}`);
+  const lifecycle = taskBranchLifecycle(target, current);
+  if (lifecycle.state === "OPEN") {
+    throw new Error(`active ${agent} task PR is still open: ${current}${lifecycle.url ? ` ${lifecycle.url}` : ""}; keep using this worktree for CI fixes`);
+  }
+  if (!["MERGED", "CLOSED"].includes(lifecycle.state)) {
+    throw new Error(`active ${agent} task branch has unresolved PR state ${lifecycle.state}: ${current}`);
+  }
+  git(["switch", "-C", standby(agent), "origin/master"], target, true);
+  console.log(`AGENT_PREVIOUS_TASK_RELEASED agent=${agent} branch=${current} pr_state=${lifecycle.state} path=${target}`);
+}
 function start(agent, args) {
   ensureAgent(agent);
   const p = parseStart(args), repo = root(), target = workspace(repo, agent);
   if (!entry(repo, agent)) throw new Error(`missing ${agent} worktree; run node scripts/agent.cjs setup`);
   if (dirty(target)) throw new Error(`refusing to switch dirty ${agent} worktree`);
   fetchMaster(repo);
+  releaseResolvedTaskIfNeeded(repo, agent, target);
   const branch = `agent/${agent}/${slug(p.task)}`;
   if (localBranch(repo, branch) || remoteSha(repo, branch)) throw new Error(`task branch already exists locally or remotely: ${branch}`);
   git(["switch", "-C", standby(agent), "origin/master"], target, true);
   git(["switch", "-c", branch, "origin/master"], target, true);
   const base = git(["rev-parse", "HEAD"], target);
   const packet = taskPacketPath(target);
-  fs.writeFileSync(packet, `# SITON TASK PACKET\n\nTASK\n${p.task}\n\nSCOPE\n${p.scope}\n\nDO NOT TOUCH\n${p.doNotTouch}\n\nMODE\n${p.mode}\n\nBASE SHA\n${base}\n\nBRANCH\n${branch}\n\nSTANDING CONTEXT\nRead AGENTS.md and only the current PROJECT_STATUS.md section needed for this task. Do not read archives or scan the entire repository without evidence.\n\nCURRENT STATUS EXCERPT\n${statusExcerpt(target)}\n\nFINISH\nAfter relevant tests, run node scripts/agent.cjs finish ${agent} with --completed --tested --open --percentage --next. Finish verifies, updates PROJECT_STATUS.md, commits, pushes and opens or updates the PR. Never auto-merge.\n`, "utf8");
+  fs.writeFileSync(packet, `# SITON TASK PACKET\n\nTASK\n${p.task}\n\nSCOPE\n${p.scope}\n\nDO NOT TOUCH\n${p.doNotTouch}\n\nMODE\n${p.mode}\n\nBASE SHA\n${base}\n\nBRANCH\n${branch}\n\nSTANDING CONTEXT\nRead AGENTS.md and only the current PROJECT_STATUS.md section needed for this task. Do not read archives or scan the entire repository without evidence.\n\nCURRENT STATUS EXCERPT\n${statusExcerpt(target)}\n\nFINISH\nAfter relevant tests, run node scripts/agent.cjs finish ${agent} with --completed --tested --open --percentage --next. Finish verifies, updates only this agent's isolated PROJECT_STATUS slot, commits, pushes and opens or updates the PR. Never auto-merge. The worktree remains on this task branch while the PR is open so CI fixes can continue without rebuilding context. A later start automatically releases a clean prior task only after its PR is merged or closed.\n`, "utf8");
   console.log(`AGENT_TASK_READY agent=${agent} branch=${branch} base_sha=${base} path=${target}`);
   console.log(`TASK_PACKET=${packet}`);
   console.log(`TASK=${p.task}`);
@@ -150,10 +182,22 @@ function finishMeta(args) {
   if (missing.length) throw new Error(`finish metadata missing: ${missing.join(",")}`);
   return out;
 }
-function appendStatus(target, agent, branch, m) {
+function updateAgentStatus(target, agent, branch, m) {
   const file = path.join(target, "PROJECT_STATUS.md");
-  const current = fs.existsSync(file) ? fs.readFileSync(file, "utf8").replace(/\s+$/u, "") : "# PROJECT STATUS";
-  fs.writeFileSync(file, `${current}\n\n## Agent milestone ${new Date().toISOString()}\n\n- AGENT: ${agent}\n- BRANCH: ${branch}\n- COMPLETED: ${m.completed}\n- TESTED: ${m.tested}\n- OPEN: ${m.open}\n- PERCENTAGE: ${m.percentage}\n- NEXT STEP: ${m.next}\n`, "utf8");
+  if (!fs.existsSync(file)) throw new Error("PROJECT_STATUS.md unavailable");
+  const current = fs.readFileSync(file, "utf8");
+  const startMarker = `<!-- AGENT_STATUS:${agent}:START -->`;
+  const endMarker = `<!-- AGENT_STATUS:${agent}:END -->`;
+  const startIndex = current.indexOf(startMarker);
+  const endIndex = current.indexOf(endMarker);
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    throw new Error(`PROJECT_STATUS.md missing isolated ${agent} status slot`);
+  }
+  const label = agent === "claude" ? "Claude Code" : "Codex";
+  const block = `${startMarker}\n### ${label} latest milestone\n\n- UPDATED: ${new Date().toISOString()}\n- BRANCH: ${branch}\n- COMPLETED: ${m.completed}\n- TESTED: ${m.tested}\n- OPEN: ${m.open}\n- PERCENTAGE: ${m.percentage}\n- NEXT STEP: ${m.next}\n${endMarker}`;
+  const before = current.slice(0, startIndex);
+  const after = current.slice(endIndex + endMarker.length);
+  fs.writeFileSync(file, `${before}${block}${after}`, "utf8");
 }
 function finish(agent, args) {
   ensureAgent(agent);
@@ -167,7 +211,7 @@ function finish(agent, args) {
   const verify = run(process.execPath, [verifier], target, true);
   if (verify.status !== 0) throw new Error(`verification failed with exit ${verify.status}; no commit or push performed`);
   git(["diff", "--check"], target);
-  appendStatus(target, agent, branch, m);
+  updateAgentStatus(target, agent, branch, m);
   git(["diff", "--check"], target);
   git(["add", "-A"], target);
   if (!git(["diff", "--cached", "--name-only"], target)) throw new Error("nothing staged");
@@ -183,8 +227,7 @@ function finish(agent, args) {
   }
   const local = git(["rev-parse", "HEAD"], target);
   if (remoteSha(repo, branch) !== local) throw new Error("remote SHA verification failed");
-  git(["switch", "-C", standby(agent), "origin/master"], target, true);
-  console.log(`AGENT_FINISH_PASS agent=${agent} completed_branch=${branch} pushed_sha=${local} standby=${standby(agent)}`);
+  console.log(`AGENT_FINISH_PASS agent=${agent} active_branch=${branch} pushed_sha=${local} retained_for_pr=true`);
   console.log(`PR=${String(pr.stdout || "").trim()}`);
   console.log(`OWNER_SUMMARY completed=${m.completed} tested=${m.tested} open=${m.open} percentage=${m.percentage} next=${m.next}`);
   console.log("AUTO_MERGE=false");
@@ -192,9 +235,9 @@ function finish(agent, args) {
 
 function plan() {
   const repo = root();
-  console.log("AGENT_WORKTREE_PLAN version=3");
+  console.log("AGENT_WORKTREE_PLAN version=4");
   for (const agent of ["codex", "claude"]) console.log(`AGENT_WORKTREE_TARGET agent=${agent} path=${workspace(repo, agent)} standby_branch=${standby(agent)} task_prefix=agent/${agent}/`);
-  console.log("AGENT_WORKTREE_BOUNDARY overwrite=false discard_uncommitted=false force_push=false remote_lookup_fail_closed=true isolated_agents=true setup_runs_doctor=true task_packet_untracked=true finish_verifies_commits_pushes_pr=true auto_merge=false");
+  console.log("AGENT_WORKTREE_BOUNDARY overwrite=false discard_uncommitted=false force_push=false remote_lookup_fail_closed=true isolated_agents=true setup_runs_doctor=true task_packet_untracked=true isolated_status_slots=true finish_verifies_commits_pushes_pr=true task_branch_retained_until_pr_resolved=true next_start_releases_merged_or_closed=true auto_merge=false");
 }
 
 function main() {
