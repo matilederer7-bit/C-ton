@@ -95,6 +95,15 @@ test("cloud status owns an isolated status slot", () => {
   assert.match(second, /BRANCH: agent\/cloud\/test2/);
 });
 
+test("binding agent rules make cloud manager the sole Git and status lifecycle owner", () => {
+  const rules = read("AGENTS.md");
+  assert.match(rules, /Cloud-managed exception/);
+  assert.match(rules, /the coding agent is the writer only/);
+  assert.match(rules, /must not commit, push, merge, open a Pull Request, or edit `PROJECT_STATUS\.md`/);
+  assert.match(rules, /at most one automatic bounded fix pass is allowed/);
+  assert.match(rules, /auto-merge is forbidden/);
+});
+
 test("cloud workflow is owner-gated, GitHub-hosted, bounded and never auto-merges", () => {
   const workflow = read(".github/workflows/cloud-agent-manager.yml");
   assert.match(workflow, /runs-on: ubuntu-24\.04/);
