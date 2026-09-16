@@ -10341,22 +10341,26 @@ export function registerFrontendExperience(
     if (!sourceCode || clickId.length < 8 || entryId.length < 8) {
       return reply.code(400).send({ error: "affiliate_visit_invalid" });
     }
-    return deps.withTx(async (c) => {
+    // The acknowledgement is sent only after COMMIT: answering from inside the
+    // transaction let the client (and the very next dashboard read) observe the
+    // previous click count while the INSERT was still uncommitted.
+    const result = await deps.withTx(async (c) => {
       const link = await c.query(
         `SELECT link_id FROM siton.affiliate_links
          WHERE source_code=$1 AND deal_id=$2 AND disabled_at IS NULL
          LIMIT 1`,
         [sourceCode, dealId]
       );
-      if (!link.rows[0]) return reply.code(202).send({ ok: true, recorded: false });
+      if (!link.rows[0]) return { recorded: false };
       await c.query(
         `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id)
          VALUES ($1,'click',$2),($1,'entry',$3)
          ON CONFLICT (link_id, event_type, client_event_id) DO NOTHING`,
         [link.rows[0].link_id, clickId, entryId]
       );
-      return reply.code(202).send({ ok: true, recorded: true });
+      return { recorded: true };
     });
+    return reply.code(202).send({ ok: true, recorded: result.recorded });
   });
 
   // ═══ R6 — commerce viral graph + owner control-center surfaces ═══════════
