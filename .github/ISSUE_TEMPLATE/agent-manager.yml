@@ -1,0 +1,45 @@
+name: Siton Cloud Agent Task
+description: Run a managed coding task on GitHub-hosted agents without depending on the owner computer.
+title: "[agent-manager] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This issue is the cloud task queue entry. The workflow runs only when the issue is opened by the repository owner and the title keeps the `[agent-manager]` prefix.
+
+        The cloud manager never auto-merges. Real money stays disabled and Grow stays untouched unless a separate owner-authorized production process exists.
+  - type: textarea
+    id: task
+    attributes:
+      label: Task
+      description: State the desired outcome and acceptance criteria.
+      placeholder: Describe the result, not low-level implementation guesses.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: Optional files, subsystem, or product area that may be changed.
+      placeholder: Smallest coherent scope required for the task.
+    validations:
+      required: false
+  - type: textarea
+    id: protected
+    attributes:
+      label: Additional do-not-touch boundaries
+      description: Add task-specific protected areas. Standing Siton safety boundaries still apply regardless of this field.
+      placeholder: Payments, migrations, unrelated UX, etc.
+    validations:
+      required: false
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - normal
+        - high
+        - urgent
+    validations:
+      required: true
