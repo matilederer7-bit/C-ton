@@ -2,96 +2,66 @@
 
 Updated: 2026-09-16
 Canonical branch: `master`
-Current merged baseline: `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`
+Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
 
-## PRODUCT POLICY ALIGNMENT — 2026-09-16
+## CURRENT SNAPSHOT
 
 ### COMPLETED
 
-- Owner policy is now explicit and canonical in `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
-- Every publishable deal must have a finite mandatory `max_units`; no `NULL` or unlimited capacity is canonical.
-- Completion Window is fixed at exactly 24 hours and is only for recovery by participants whose initial charge failed and are in `ChargeFailedCompletion`.
-- Siton fee is fixed at 8% of all purchase money actually collected through Siton, including shipping/delivery, excluding the customer VAT component. There is no per-deal fee override.
-- There is no distributor/affiliate user role or distributor product module. Ordinary deal sharing remains role-neutral.
-- Current legal material remains unchanged for now.
-- The earlier decision removing the fixed seven-day maximum deal duration remains binding.
-- `AGENTS.md` precedence and invariant rules were updated so future agents cannot revive stale distributor, variable-window, unlimited-capacity, fee, or seven-day-deadline behavior.
-- A repository-local implementation task was written at `docs/CANONICAL_PRODUCT_POLICY_CODE_CLEANUP_2026-09-16.md`.
+- PR #19 merged to `master`: adversarial production hardening plus seller-to-buyer product-path closeout.
+- PR #22 merged to `master`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
+- PR #23 merged to `master`: agent efficiency v3 with isolated Claude/Codex status writes, branch retention while PRs remain open, and streamlined aggregate test execution.
+- PR #26 merged to `master`: canonical product policy amendment 2026-09-16.
+- PR #27 merged to `master` at `7c975d062eecc02faf1c3ab48909b7f05043c7a8`: agent efficiency v4 with root `CLAUDE.md`, no-loop Git authorization fallback, push-checkpoint discipline, and release-tool contract coverage.
+- Repository-side agent workflow is therefore merged through v4.
 
 ### TESTED / CHECKED
 
-- Supabase staging inspection: `siton.deals.max_units` is `NOT NULL`; DB constraint enforces `max_units >= min_units`; `deals.commission_rate` is absent.
-- Runtime money inspection: `SITON_PLATFORM_FEE_RATE = 0.08`; product gross plus delivery gross forms the collected amount; customer VAT is excluded from the fee base.
-- Runtime completion-window inspection found one remaining policy drift: `src/app.ts` still permits `COMPLETION_WINDOW_MINUTES` environment override even though the default is 1440 minutes.
-- Repository schema/runtime inspection found legacy distributor/affiliate tables and product surfaces still present and currently required by `src/schema_contract.ts`.
-- Historical applied migration `046_distributor_measurement_surfaces.sql` still documents the prior distributor attribution model. It must not be rewritten; cleanup must use forward changes.
-- Updated external DOCX source copies for DB, database constitution, enforcement mechanism, constitution/checklist, UX, and product specification were text-scanned and rendered page-by-page with no material layout break found.
-- Runtime test suite was NOT RUN in this source-of-truth commit because runtime code is intentionally deferred to the separate cleanup task to avoid colliding with active parallel work.
+- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of this status refresh.
+- PR #27 was verified as closed and merged, with merge commit `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
+- `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
+- `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
+- Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
+- Runtime tests were not run for this status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
 
 ### OPEN
 
-- Runtime code cleanup remains required to hard-lock Completion Window to 24 hours and remove the environment override.
-- Distributor/affiliate role/session/routes/UI/schema-contract/environment/test surfaces remain legacy implementation drift and must be removed without deleting ordinary sharing or role-neutral viral analytics.
-- `max_units` must be audited across create/edit/clone/publish/import/admin paths so the finite upper limit cannot regress.
-- The separate active no-seven-day-cap implementation task must land without overlap.
-- CMS/content-management work is active in parallel and is deliberately untouched by this policy-alignment task.
-- Real money remains 0. Grow remains untouched and unactivated.
+- LONG_HORIZON_DEALS remains open in runtime. The legacy seven-day maximum still exists in `src/app.ts` and must not be removed as an isolated two-line change if the durable future-charge/payment semantics are not landed with it.
+- The previously prepared long-horizon implementation exists outside current GitHub history and still needs safe publication/integration before it can be reviewed and merged.
+- Runtime product-policy cleanup remains required for the fixed 24-hour Completion Window and legacy distributor/affiliate surfaces, without touching ordinary sharing or role-neutral viral analytics.
+- CMS/content-management work is active in parallel and must remain isolated from unrelated cleanup.
+- Owner-machine agent worktrees should be rechecked after the next local sync with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor`.
+- Hosted/runtime readiness remains open for the existing Render worker/Blueprint, hosted OTP secret, external payment-provider semantics, production image pruning, architecture decision, and legacy recovery-URL cleanup tracks.
+- REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ### PERCENTAGE
 
+- Agent workflow repository-side implementation: 100% through merged v4.
 - Canonical product-policy decision and source-of-truth alignment: 100%.
-- Runtime implementation alignment for this policy set: approximately 70%; the fee and DB upper-cap invariants are already aligned, while fixed-window hardening and distributor-module removal remain open.
+- Runtime implementation alignment for the current product-policy set: incomplete. Do not infer readiness from documentation alignment alone.
+- Long-horizon runtime integration: not complete on `master`.
 
 ### NEXT STEP
 
-1. Merge the canonical policy/source-of-truth change.
-2. Run `docs/CANONICAL_PRODUCT_POLICY_CODE_CLEANUP_2026-09-16.md` on an isolated agent branch after checking active Claude/Codex scopes.
-3. Rebase that runtime cleanup after the separate no-seven-day-cap task lands if necessary.
-4. Run focused tests, full relevant suite, release gates, update this status, commit, push, and open PR.
+1. Publish and review the complete long-horizon implementation against current `master`, rather than deleting only the seven-day validator.
+2. Merge long-horizon work only after focused regression tests and payment-lifecycle invariants are proven.
+3. Continue the separate canonical policy runtime cleanup on an isolated branch without colliding with CMS or duration work.
+4. Re-run owner-machine agent doctor after the next local sync.
+5. Keep real money disabled until the existing provider-readiness gates are explicitly cleared.
 
-## COMPLETED
+## PRODUCT POLICY ALIGNMENT — 2026-09-16
 
-- PR #19 merged to `master`: adversarial production hardening plus seller-to-buyer product-path closeout.
-- PR #18 closed as superseded by PR #19.
-- Agent efficiency v2 is merged to `master` at `294399e32bbcd090761eb9e7774e64ef89d3eca3`.
-- PR #22 merged to `master` at `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
-- PR #21 was closed without merge as the stale-base predecessor superseded by PR #22.
-- PR #23 merged to `master` at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`: agent efficiency v3 isolates Claude/Codex status writes, retains active task branches while PRs remain open, and removes the duplicate aggregate PR test pass while preserving the ten explicit test groups.
-- Agent workflow includes isolated permanent Claude and Codex worktrees, one-command setup and doctor, fail-closed branch collision checks, untracked task packets, automated verification/commit/push/PR creation, compact CI failure summaries and no auto-merge.
-- Agent efficiency v3 hardening is merged at `39d9569fc3041bf0374e867a8902cea9ea8b5dd5`.
-- PR #26 merged to `master` at `563b9ad5f72c6dd296923a3566be55d4c133b351`: canonical product policy amendment 2026-09-16 (finite mandatory `max_units`, 24-hour Completion Window, 8% fee including delivery excluding VAT, no distributor role/module, no seven-day cap) locked in docs and `AGENTS.md`.
-- Agent efficiency v4 is implemented on `chore/agent-entrypoints-v4` (PR #27):
-  - root `CLAUDE.md` gives Claude Code a compact automatic entry point into `AGENTS.md`, `AI_WORKFLOW.md`, `PROJECT_STATUS.md` and current canonical product sources, so task prompts no longer need to repeat standing rules.
-  - GitHub authorization failures have a fixed no-loop fallback: stop equivalent retries, preserve the coherent commit, produce a complete patch, report exact SHAs and apply instructions.
-  - push-checkpoint discipline is now binding: prove push access with an early branch push before substantial implementation, push meaningful checkpoints, and verify the remote SHA at the end, so completed work is never left only in a session container.
-  - a release-tool contract test requires the Claude entry point, the no-loop fallback and the push-checkpoint rule.
+The binding policy source is `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
 
-## TESTED
+Current invariants:
 
-- PR #22 passed Backend and deployment quality gates, Web runtime depth gates and Release readiness before merge, including the complete repository suite and extended Docker smoke.
-- Agent efficiency v2/v3/v4 contract coverage lives under `tests/release_tools/agent_efficiency_v2.test.cjs` and remains part of the standard/full release-preflight catalogue.
-- PR #27 was refreshed onto merged master `563b9ad` after PR #26; the v4 contract test was run locally on the refreshed head and fresh GitHub CI on that head is the merge authority.
-
-## OPEN
-
-- PR #27 requires green GitHub CI on its refreshed head before merge.
-- Owner-machine worktrees should be rechecked with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor` after workflow changes.
-- Runtime/production items intentionally remain open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F13 external provider semantics, LONG_HORIZON_DEALS dependent on F13, F-12 production image pruning, F-07 architecture decision, and legacy `/app/...` recovery URL cleanup.
-- REAL MONEY remains 0. Grow remains untouched and unactivated.
-
-## PERCENTAGE
-
-- Agent workflow repository-side implementation: 100% for merged v3 scope; v4 entry point and push-checkpoint rule pending PR #27 CI and merge.
-- Agent workflow owner-machine activation: not re-verified by this repository-only change.
-- Product/real-money readiness percentages are intentionally not globally recomputed here.
-
-## NEXT STEP
-
-1. Merge PR #27 when GitHub CI is green on the refreshed head.
-2. Complete canonical policy runtime cleanup without colliding with CMS or duration work.
-3. Re-run owner-machine agent doctor after next local sync.
-4. From then on, task prompts should contain mainly the task-specific objective, scope, constraints and acceptance criteria instead of repeating standing workflow rules.
-5. Continue external-provider and hosted-runtime readiness only under existing real-money safety boundaries.
+- Every publishable deal has a finite mandatory `max_units`. Unlimited or `NULL` capacity is non-canonical.
+- Completion Window is exactly 24 hours and exists only for failed-charge recovery by eligible participants.
+- Siton fee is fixed at 8% of all purchase money actually collected through Siton, including shipping/delivery and other applicable purchase charges, excluding the customer VAT component.
+- There is no per-deal fee override.
+- There is no distributor/affiliate user role or distributor product module. Ordinary sharing remains role-neutral.
+- There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
+- Current legal material remains unchanged unless the owner explicitly changes it.
 
 ## AGENT MILESTONES
 
@@ -112,13 +82,13 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
-- UPDATED: not yet written by v3 workflow
-- BRANCH: none
-- COMPLETED: none
-- TESTED: none
-- OPEN: none
-- PERCENTAGE: not set
-- NEXT STEP: use this slot only from Codex finish
+- UPDATED: 2026-09-16
+- BRANCH: `chore/status-refresh-2026-09-16`
+- COMPLETED: refreshed stale project status after PR #27 merge; aligned the recorded baseline with the verified task-start `master`; verified canonical deadline policy already exists and recorded the remaining runtime drift without making a partial payment-sensitive code change.
+- TESTED: task-start GitHub `master` SHA and PR #27 merge state verified; canonical policy and agent source-of-truth files inspected; runtime tests not applicable to this documentation-only change.
+- OPEN: long-horizon runtime integration still not on `master`; legacy seven-day validator remains until the complete duration/payment design lands safely.
+- PERCENTAGE: 100% for this status-integrity task.
+- NEXT STEP: integrate the complete long-horizon implementation on a separate branch and prove its regression/payment invariants before merge.
 <!-- AGENT_STATUS:codex:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
@@ -129,10 +99,11 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - Completion Window is fixed at exactly 24 hours and only serves failed-charge recovery for `ChargeFailedCompletion` participants.
 - No distributor/affiliate user role or distributor product module. Ordinary sharing remains role-neutral.
 - No fixed seven-day maximum deal duration.
+- Existing state-machine, idempotency, atomicity, audit, outbox, inventory, security, and 90% success rules remain safety boundaries.
 - Real money must remain disabled unless explicitly authorized by the owner.
 - Grow must remain untouched unless explicitly authorized.
 - Claude Code and Codex must not edit the same product/code scope concurrently.
 - External research belongs outside coding-agent credit. Coding agents receive conclusions and repository tasks.
-- Meaningful work ends with tests, diff review, PROJECT_STATUS update, clear commit, push and PR. No retry loops.
+- Meaningful work ends with tests, diff review, `PROJECT_STATUS.md` update, clear commit, push and PR. No retry loops.
 
 Historical milestone detail is preserved in Git history and should not be loaded into normal agent context.
