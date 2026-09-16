@@ -98,8 +98,9 @@ function remoteBranchSha(repoRoot, branch) {
   try {
     const text = git(["ls-remote", "--heads", "origin", branch], { cwd: repoRoot });
     return text ? text.split(/\s+/)[0] : null;
-  } catch {
-    return null;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    throw new Error(`unable to verify remote branch state for ${branch}: ${detail}`);
   }
 }
 
@@ -243,7 +244,7 @@ function printPlan() {
   for (const agent of ["codex", "claude"]) {
     console.log(`AGENT_WORKTREE_TARGET agent=${agent} path=${workspacePath(repoRoot, agent)} standby_branch=${standbyBranch(agent)} task_prefix=agent/${agent}/`);
   }
-  console.log("AGENT_WORKTREE_BOUNDARY overwrite_existing_path=false discard_uncommitted=false force_push=false remote_branch_collision=false unicode_task_names=true canonical_root_from_any_worktree=true finish_requires_pushed_head=true");
+  console.log("AGENT_WORKTREE_BOUNDARY overwrite_existing_path=false discard_uncommitted=false force_push=false remote_branch_collision=false remote_lookup_fail_closed=true unicode_task_names=true canonical_root_from_any_worktree=true finish_requires_pushed_head=true");
 }
 
 function main() {
