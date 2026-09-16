@@ -32,10 +32,13 @@ on:
   issues:
     types: [opened]
 
+# The default workflow token is intentionally read-only. Git lifecycle uses the
+# dedicated SITON_AGENT_GITHUB_TOKEN so workflow-created branches/PRs can
+# trigger normal repository CI instead of being suppressed by GITHUB_TOKEN.
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
+  contents: read
+  pull-requests: read
+  issues: read
 
 # v1 deliberately serializes managed cloud writers. This is a real queue, not
 # merely separate Git branches: overlapping product scopes cannot execute at
@@ -84,6 +87,7 @@ jobs:
         with:
           ref: master
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Node 22
         uses: actions/setup-node@v4
@@ -100,11 +104,16 @@ jobs:
           OPENAI_KEY_VALUE: ${{ secrets.OPENAI_API_KEY }}
           ANTHROPIC_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY }}
           CLAUDE_OAUTH_VALUE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MANAGER_GH_TOKEN_VALUE: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           REQUESTED_BUILDER: ${{ github.event_name == 'workflow_dispatch' && inputs.builder || 'auto' }}
           REQUESTED_REVIEWER: ${{ github.event_name == 'workflow_dispatch' && inputs.reviewer || 'auto' }}
         shell: bash
         run: |
           set -euo pipefail
+          if [ -z "$MANAGER_GH_TOKEN_VALUE" ]; then
+            echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering" >&2
+            exit 1
+          fi
           has_codex=false
           has_claude=false
           if [ -n "$OPENAI_KEY_VALUE" ]; then has_codex=true; fi
@@ -166,7 +175,7 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Builder changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Builder committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/workflows/cloud-agent-manager\.yml|scripts/cloud_agent_manager\.cjs|AGENTS\.md|AI_WORKFLOW\.md|PROJECT_STATUS\.md)$'
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
           if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
             echo "Builder modified the cloud-manager control plane or shared status" >&2
             exit 1
@@ -296,7 +305,7 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Fix pass changed branch" >&2; exit 1; }
           test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Fix pass committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
-          protected='^(\.github/workflows/cloud-agent-manager\.yml|scripts/cloud_agent_manager\.cjs|AGENTS\.md|AI_WORKFLOW\.md|PROJECT_STATUS\.md)$'
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
           if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
             echo "Fix pass modified the cloud-manager control plane or shared status" >&2
             exit 1
@@ -391,6 +400,7 @@ jobs:
       - name: Commit and push managed branch
         env:
           BRANCH: ${{ steps.task.outputs.branch }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
         shell: bash
         run: |
           set -euo pipefail
@@ -400,12 +410,13 @@ jobs:
             exit 1
           fi
           git commit -m "agent(cloud): managed run ${GITHUB_RUN_ID}"
+          gh auth setup-git
           git push -u origin "$BRANCH"
 
       - name: Open Pull Request
         id: pr
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           BRANCH: ${{ steps.task.outputs.branch }}
           BUILDER: ${{ steps.roles.outputs.builder }}
           REVIEWER: ${{ steps.roles.outputs.reviewer }}
@@ -429,7 +440,7 @@ jobs:
       - name: Attach reviewer evidence to PR
         if: steps.roles.outputs.reviewer != 'none'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           PR_URL: ${{ steps.pr.outputs.url }}
           NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
         shell: bash
@@ -442,7 +453,7 @@ jobs:
       - name: Report result to owner issue
         if: github.event_name == 'issues'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
           ISSUE_NUMBER: ${{ github.event.issue.number }}
           PR_URL: ${{ steps.pr.outputs.url }}
           VERDICT: ${{ steps.final_review.outputs.verdict }}
