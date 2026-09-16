@@ -29,6 +29,7 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 - Canonical completion verification exists as `npm run siton:verify`.
 - Separate permanent Codex/Claude worktree model exists with dirty-worktree, path-overwrite, local-branch, and remote-branch collision guards.
 - Remote branch collision checks now fail closed: if `git ls-remote` cannot verify origin because of network/auth/Git failure, the helper stops instead of treating the branch as absent and risking a collision.
+- `agent.cjs` now fails closed if the workspace helper terminates by signal or returns no numeric exit status, preventing a false `DONE` after abnormal helper termination.
 - Owner-facing workflow is consolidated behind `node scripts/agent.cjs` with `setup`, `status`, `doctor`, `start`, `review`, `handoff`, and `finish`.
 - Worktree path resolution now uses Git's common directory, so the helper targets the canonical `C-ton` root even when invoked from `C-ton-codex` or `C-ton-claude`.
 - `finish` refuses dirty, detached, master, unpushed, or not-fully-pushed task branches before returning an agent to standby.
@@ -40,13 +41,14 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 
 - Existing PR #17 Release Readiness, Web Runtime, and Backend quality gates passed on the previous head.
 - Existing worktree contract checks cover two isolated agents, dirty guard, local/remote branch collision guard, Unicode task names, and absence of destructive reset/force-push paths.
-- The worktree contract now explicitly requires `remote_lookup_fail_closed=true` and verifies the helper contains the fail-closed remote-lookup error path.
-- Workflow contract coverage was extended for the single `agent.cjs` command, review/handoff output, canonical-root resolution, and pushed-head finish guard.
+- The worktree contract explicitly requires `remote_lookup_fail_closed=true` and verifies the helper contains the fail-closed remote-lookup error path.
+- The CLI contract now verifies abnormal helper termination guards for both signaled exits and missing numeric exit status, so a child-process failure cannot silently produce `DONE`.
+- Workflow contract coverage includes the single `agent.cjs` command, review/handoff output, canonical-root resolution, pushed-head finish guard, remote-lookup fail-closed behavior, and abnormal-helper-exit handling.
 - Repository-wide product QA is intentionally out of scope for this workflow-efficiency track.
 
 ### OPEN
 
-- Confirm the new PR #17 CI run after the fail-closed remote lookup hardening and status update.
+- Confirm the fresh PR #17 CI run on the latest safety-hardening head.
 - PR #17 must remain separate until PR #19 is qualified and integrated. Then update #17 from the new `master`, preserving newer product/production status and PR #19 dependency hardening.
 - GitHub cannot create the physical sibling worktrees on the owner's Windows machine. After PR #17 is integrated, run `node scripts/agent.cjs setup` once on that machine.
 - After local setup, run `node scripts/agent.cjs doctor` and start one disposable task branch in each workspace to prove local isolation end-to-end.
@@ -55,7 +57,7 @@ Purpose: compact current-state source for coding agents. Historical milestone de
 
 - Agent-efficiency repository implementation: 99% pending fresh CI.
 - Standing-context compression and short-task protocol: 100%.
-- Two-agent repository safety controls: 99% pending fresh CI confirmation of the fail-closed guard.
+- Two-agent repository safety controls: 99% pending fresh CI confirmation of the two fail-closed guards.
 - Local Windows worktree activation: 0% until the one-time local setup is run.
 
 ### NEXT STEP
