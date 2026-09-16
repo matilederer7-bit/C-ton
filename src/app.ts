@@ -3357,7 +3357,7 @@ async function ensureUsableAuthorizationForCapture(args: {
         correlation_id: correlation
       });
     });
-    app.log.info({ participant_id: args.participant_id, deal_id: args.deal_id, replaced: binding.authorization_id, correlation }, "authorization renewed at the charging boundary");
+    app.log.info({ participant_id: args.participant_id, deal_id: args.deal_id, correlation }, "authorization renewed at the charging boundary");
     return { kind: "proceed", authorization_id: result.provider_reference || result.authorization_id, renewed: true };
   }
   if (result.ok) {
