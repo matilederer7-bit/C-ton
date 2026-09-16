@@ -2,7 +2,7 @@
 
 Updated: 2026-09-16
 Canonical branch: `master`
-Current merged baseline: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
+Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
 
 ## CURRENT SNAPSHOT
 
@@ -17,7 +17,7 @@ Current merged baseline: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
 
 ### TESTED / CHECKED
 
-- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
+- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of this status refresh.
 - PR #27 was verified as closed and merged, with merge commit `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
 - `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
 - `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
@@ -84,8 +84,8 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 
 - UPDATED: 2026-09-16
 - BRANCH: `chore/status-refresh-2026-09-16`
-- COMPLETED: refreshed stale project status after PR #27 merge; aligned merged baseline with current `master`; verified canonical deadline policy already exists and recorded the remaining runtime drift without making a partial payment-sensitive code change.
-- TESTED: GitHub `master` SHA and PR #27 merge state verified; canonical policy and agent source-of-truth files inspected; runtime tests not applicable to this documentation-only change.
+- COMPLETED: refreshed stale project status after PR #27 merge; aligned the recorded baseline with the verified task-start `master`; verified canonical deadline policy already exists and recorded the remaining runtime drift without making a partial payment-sensitive code change.
+- TESTED: task-start GitHub `master` SHA and PR #27 merge state verified; canonical policy and agent source-of-truth files inspected; runtime tests not applicable to this documentation-only change.
 - OPEN: long-horizon runtime integration still not on `master`; legacy seven-day validator remains until the complete duration/payment design lands safely.
 - PERCENTAGE: 100% for this status-integrity task.
 - NEXT STEP: integrate the complete long-horizon implementation on a separate branch and prove its regression/payment invariants before merge.
