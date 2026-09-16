@@ -2,7 +2,43 @@
 
 Updated: 2026-09-16
 Canonical branch: `master`
-Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
+Baseline verified at start of this status refresh: `50e4635eedf7e9de29a98f064aafbbb2f7879235`
+
+## DISTRIBUTOR ATTRIBUTION-ONLY GUARD — 2026-09-16
+
+### COMPLETED
+
+- Added a fail-closed CI guard at `scripts/distributor_attribution_only_gate.cjs` for the canonical rule that distributor/affiliate behavior is attribution and measurement only, never an in-platform money entitlement.
+- The guard allows clicks, joins, units, attributed gross and the fixed Siton platform fee, while rejecting distributor/affiliate commission, payout, withdrawal, balance, earnings, entitlement, invoice, fee and reward identifiers in runtime/code surfaces.
+- Built-in self-test proves allowed attribution passes and representative forbidden money identifiers fail.
+- The first CI run correctly exposed three existing negative references. Two are deliberate enforcement/removal references in migration 020 and `legal_compliance_gate.cjs`; one is the literal `distributor_commission_present: false` safety assertion in mission control. The guard now permits only those narrow negative references and would still fail the same assertion if changed to `true`.
+- Wired self-test plus live repository scan into `.github/workflows/backend-quality-gates.yml`.
+- Branch was refreshed onto current `master` after a parallel Codex status-only commit, preserving that agent's status block and avoiding code overlap.
+
+### TESTED / CHECKED
+
+- Initial GitHub CI: TypeScript and existing backend enforcement scans passed. The new guard self-test passed, then the live scan failed on the three negative references above, which were inspected individually rather than bypassed broadly.
+- The guard was refined with path-specific negative-enforcement exceptions and an exact false-only mission-control assertion.
+- Final GitHub CI on the refreshed head is the merge authority.
+- No CMS files, duration/deadline runtime files, payment-provider behavior, Grow configuration or real-money paths were changed.
+- Real money remains 0. Grow remains untouched and unactivated.
+
+### OPEN
+
+- Merge this task only after fresh CI is green on the refreshed head.
+- Broader runtime removal of legacy distributor/session/routes/UI/schema surfaces remains a separate cleanup task; ordinary sharing and role-neutral attribution analytics must remain intact.
+- Fixed 24-hour Completion Window hardening remains separate because `src/app.ts` overlaps the active duration workstream.
+
+### PERCENTAGE
+
+- Distributor no-money regression protection: 100% implemented, pending final CI confirmation.
+- Broader canonical product-policy runtime cleanup: incomplete.
+
+### NEXT STEP
+
+1. Run fresh PR CI on the refreshed head.
+2. Merge when all required workflows are green.
+3. Continue legacy distributor runtime-surface cleanup separately after active parallel scopes clear.
 
 ## CURRENT SNAPSHOT
 
@@ -17,12 +53,12 @@ Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909
 
 ### TESTED / CHECKED
 
-- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of this status refresh.
+- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of the prior status refresh.
 - PR #27 was verified as closed and merged, with merge commit `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
 - `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
 - `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
 - Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
-- Runtime tests were not run for this status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
+- Runtime tests were not run for the prior status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
 
 ### OPEN
 
