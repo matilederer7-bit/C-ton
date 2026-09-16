@@ -37,8 +37,11 @@ permissions:
   pull-requests: write
   issues: write
 
+# v1 deliberately serializes managed cloud writers. This is a real queue, not
+# merely separate Git branches: overlapping product scopes cannot execute at
+# the same time and silently race each other.
 concurrency:
-  group: siton-cloud-agent-${{ github.event_name == 'issues' && github.event.issue.number || github.run_id }}
+  group: siton-cloud-agent-manager-v1
   cancel-in-progress: false
 
 env:
@@ -49,6 +52,7 @@ env:
   PAYMENT_PROVIDER: mockpay
   PAYMENT_PROVIDER_MODE: mock-backed
   SITON_AGENT: cloud-manager
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
 
 jobs:
   managed-task:
@@ -128,6 +132,7 @@ jobs:
           printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' '.siton-fix-task.md' >> .git/info/exclude
           node scripts/cloud_agent_manager.cjs packet .siton-cloud-task.md
           echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Claude builder
         id: claude_build
@@ -151,6 +156,21 @@ jobs:
           prompt-file: .siton-cloud-task.md
           effort: high
           safety-strategy: drop-sudo
+
+      - name: Enforce builder lifecycle and control-plane boundary
+        env:
+          EXPECTED_BRANCH: ${{ steps.task.outputs.branch }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Builder changed branch" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Builder committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
+          protected='^(\.github/workflows/cloud-agent-manager\.yml|scripts/cloud_agent_manager\.cjs|AGENTS\.md|AI_WORKFLOW\.md|PROJECT_STATUS\.md)$'
+          if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
+            echo "Builder modified the cloud-manager control plane or shared status" >&2
+            exit 1
+          fi
 
       - name: Require intentional task diff
         shell: bash
@@ -265,6 +285,22 @@ jobs:
           prompt-file: .siton-fix-task.md
           effort: high
           safety-strategy: drop-sudo
+
+      - name: Enforce fix-pass lifecycle and control-plane boundary
+        if: steps.review1.outputs.needs_fix == 'true'
+        env:
+          EXPECTED_BRANCH: ${{ steps.task.outputs.branch }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Fix pass changed branch" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Fix pass committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
+          protected='^(\.github/workflows/cloud-agent-manager\.yml|scripts/cloud_agent_manager\.cjs|AGENTS\.md|AI_WORKFLOW\.md|PROJECT_STATUS\.md)$'
+          if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
+            echo "Fix pass modified the cloud-manager control plane or shared status" >&2
+            exit 1
+          fi
 
       - name: Re-verify after bounded fix
         if: steps.review1.outputs.needs_fix == 'true'
