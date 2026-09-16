@@ -99,6 +99,8 @@ Before commit:
 
 Use a clear commit message. Push the completed branch. Open a Pull Request when integration or review is expected. Never force-push `master`.
 
+If push fails because the current session lacks GitHub authorization, especially a repeated 403 after access/setup was already attempted, do not keep retrying equivalent push methods. Preserve the coherent local commit, generate a complete patch from the intended base, and report the branch, base SHA, final commit SHA, patch path/name, and exact apply command. Continue only with work that does not depend on the blocked push.
+
 ## PROJECT_STATUS.md
 
 At the end of every meaningful task, append a concise status block with:
