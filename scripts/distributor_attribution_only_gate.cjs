@@ -25,11 +25,14 @@ const IGNORED_DIRECTORIES = new Set([
 ]);
 
 const SELF_PATH = path.normalize(path.join('scripts', 'distributor_attribution_only_gate.cjs'));
+const LEGACY_CLEANUP_MIGRATION = path.normalize(
+  path.join('src', 'migrations', '020_drop_affiliate_legacy_columns.sql')
+);
 
 // These files may name legacy money fields only because they remove or detect
 // them. They are not runtime distributor-product surfaces.
 const NEGATIVE_REFERENCE_PATHS = new Set([
-  path.normalize(path.join('src', 'migrations', '020_drop_affiliate_legacy_columns.sql')),
+  LEGACY_CLEANUP_MIGRATION,
   path.normalize(path.join('scripts', 'legal_compliance_gate.cjs'))
 ]);
 
@@ -40,6 +43,29 @@ const FORBIDDEN_PATTERNS = [
   new RegExp(`${MONEY}[A-Za-z0-9_-]*${ROLE}`, 'i')
 ];
 
+// Line-oriented identifier scanning is useful for runtime code, but it is not
+// sufficient for SQL: a future migration can put the table name and the money
+// column on different lines. These patterns deliberately span whitespace but
+// stop at the SQL statement terminator so they catch schema authority rather
+// than unrelated words later in the file.
+const SQL_ROLE_TABLE = '(?:affiliate|distributor|referrer|promoter)[A-Za-z0-9_]*';
+const SQL_MONEY_COLUMN =
+  '(?:commission|payout|withdraw(?:al)?|balance|earning(?:s)?|entitlement|invoice|fee|reward)(?:_[A-Za-z0-9]+)*';
+const SQL_DISTRIBUTOR_FINANCIAL_PATTERNS = [
+  new RegExp(
+    `ALTER\\s+TABLE\\s+(?:IF\\s+EXISTS\\s+)?(?:[A-Za-z0-9_]+\\.)?${SQL_ROLE_TABLE}[^;]{0,600}?ADD\\s+COLUMN(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+${SQL_MONEY_COLUMN}\\b`,
+    'i'
+  ),
+  new RegExp(
+    `CREATE\\s+TABLE(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+(?:[A-Za-z0-9_]+\\.)?${SQL_ROLE_TABLE}\\s*\\([^;]{0,3000}?\\b${SQL_MONEY_COLUMN}\\s+(?:NUMERIC|DECIMAL|MONEY|TEXT|VARCHAR|CHAR|INTEGER|INT|BIGINT|BOOLEAN|JSONB?|UUID|TIMESTAMPTZ|TIMESTAMP|DATE)\\b`,
+    'i'
+  )
+];
+const SQL_ADD_FINANCIAL_COLUMN = new RegExp(
+  `ADD\\s+COLUMN(?:\\s+IF\\s+NOT\\s+EXISTS)?\\s+${SQL_MONEY_COLUMN}\\b`,
+  'i'
+);
+
 function isAllowedNegativeReference(relative, line) {
   if (NEGATIVE_REFERENCE_PATHS.has(relative)) return true;
 
@@ -48,6 +74,63 @@ function isAllowedNegativeReference(relative, line) {
   if (/^\s*distributor_commission_present\s*:\s*false\s*,?\s*$/.test(line)) return true;
 
   return false;
+}
+
+function migrationNumber(relative) {
+  const match = /^(\d+)_/.exec(path.basename(relative));
+  return match ? Number(match[1]) : null;
+}
+
+function lineNumberAt(source, index) {
+  return source.slice(0, Math.max(0, index)).split(/\r?\n/).length;
+}
+
+function pushSqlFinding(relative, source, pattern, findings, token) {
+  const match = source.match(pattern);
+  if (!match || match.index == null) return;
+  findings.push({
+    file: relative,
+    line: lineNumberAt(source, match.index),
+    token: token || match[0].replace(/\s+/g, ' ').trim().slice(0, 180)
+  });
+}
+
+function scanSqlSchema(relative, source, findings) {
+  if (path.extname(relative).toLowerCase() !== '.sql') return;
+
+  if (relative === LEGACY_CLEANUP_MIGRATION) {
+    // Migration 020 is allowed to name legacy money fields because its purpose
+    // is to remove them. It must never be repurposed to add them back.
+    pushSqlFinding(
+      relative,
+      source,
+      SQL_ADD_FINANCIAL_COLUMN,
+      findings,
+      'legacy cleanup migration adds a distributor financial column'
+    );
+
+    for (const requiredColumn of ['commission_rate', 'commission_amount', 'payout_status']) {
+      const requiredDrop = new RegExp(`DROP\\s+COLUMN(?:\\s+IF\\s+EXISTS)?\\s+${requiredColumn}\\b`, 'i');
+      if (!requiredDrop.test(source)) {
+        findings.push({
+          file: relative,
+          line: 1,
+          token: `legacy cleanup no longer drops ${requiredColumn}`
+        });
+      }
+    }
+    return;
+  }
+
+  // Historical migrations at or before the cleanup point may legitimately
+  // describe the model that migration 020 removed. Only later migrations are
+  // forbidden from reintroducing that authority.
+  const number = migrationNumber(relative);
+  if (number != null && number <= 20) return;
+
+  for (const pattern of SQL_DISTRIBUTOR_FINANCIAL_PATTERNS) {
+    pushSqlFinding(relative, source, pattern, findings);
+  }
 }
 
 function walk(directory, root, findings) {
@@ -65,7 +148,10 @@ function walk(directory, root, findings) {
     const relative = path.normalize(path.relative(root, absolute));
     if (relative === SELF_PATH) continue;
 
-    const lines = fs.readFileSync(absolute, 'utf8').split(/\r?\n/);
+    const source = fs.readFileSync(absolute, 'utf8');
+    scanSqlSchema(relative, source, findings);
+
+    const lines = source.split(/\r?\n/);
     lines.forEach((line, index) => {
       for (const pattern of FORBIDDEN_PATTERNS) {
         const match = line.match(pattern);
@@ -106,9 +192,14 @@ function runSelfTest() {
 
     const cleanupDir = path.join(src, 'migrations');
     fs.mkdirSync(cleanupDir, { recursive: true });
+    const cleanupPath = path.join(cleanupDir, '020_drop_affiliate_legacy_columns.sql');
     fs.writeFileSync(
-      path.join(cleanupDir, '020_drop_affiliate_legacy_columns.sql'),
-      'ALTER TABLE siton.invoice_documents DROP COLUMN IF EXISTS affiliate_fee_amount;\n'
+      cleanupPath,
+      [
+        'ALTER TABLE siton.affiliate_accounts DROP COLUMN IF EXISTS commission_rate;',
+        'ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS commission_amount;',
+        'ALTER TABLE siton.affiliate_attributions DROP COLUMN IF EXISTS payout_status;'
+      ].join('\n')
     );
 
     const scriptsDir = path.join(tempRoot, 'scripts');
@@ -132,9 +223,32 @@ function runSelfTest() {
       ].join('\n')
     );
 
+    const multilineMigration = path.join(cleanupDir, '999_reintroduce_distributor_money.sql');
+    fs.writeFileSync(
+      multilineMigration,
+      [
+        'ALTER TABLE siton.affiliate_attributions',
+        '  ADD COLUMN commission_amount NUMERIC(12,2);'
+      ].join('\n')
+    );
+
     findings = scanRepository(tempRoot);
-    if (findings.length !== 3) {
-      throw new Error(`self-test failed to detect financial distributor model: ${JSON.stringify(findings)}`);
+    const runtimeFindings = findings.filter((finding) => finding.file.endsWith('forbidden.ts'));
+    const multilineSqlFinding = findings.some((finding) =>
+      finding.file.endsWith('999_reintroduce_distributor_money.sql')
+    );
+    if (runtimeFindings.length !== 3 || !multilineSqlFinding) {
+      throw new Error(`self-test failed to detect runtime or multiline SQL financial distributor model: ${JSON.stringify(findings)}`);
+    }
+
+    fs.rmSync(multilineMigration, { force: true });
+    fs.appendFileSync(
+      cleanupPath,
+      '\nALTER TABLE siton.affiliate_attributions\n  ADD COLUMN payout_status TEXT;\n'
+    );
+    findings = scanRepository(tempRoot);
+    if (!findings.some((finding) => finding.file === LEGACY_CLEANUP_MIGRATION)) {
+      throw new Error(`self-test failed to protect destructive-only migration 020: ${JSON.stringify(findings)}`);
     }
 
     console.log('Distributor attribution-only gate self-test: PASS');
@@ -152,7 +266,7 @@ function main() {
   const findings = scanRepository(process.cwd());
   if (findings.length === 0) {
     console.log('Distributor attribution-only gate: PASS');
-    console.log('No distributor/affiliate financial-entitlement identifiers found in runtime code.');
+    console.log('No distributor/affiliate financial-entitlement identifiers found in runtime code or post-cleanup SQL schema.');
     return;
   }
 
