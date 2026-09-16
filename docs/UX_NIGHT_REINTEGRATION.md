@@ -34,8 +34,8 @@ existing migration-066 fields, with a strict public payload allow-list test.
 ## Open backend contracts
 
 Receipt method persistence remains single-valued; selection cards do not claim
-multiple methods can be saved. Structured FAQ persistence, CMS hero-video
-storage, and windowed backend virality remain open. FAQ fallback and hero
+multiple methods can be saved. Structured FAQ persistence and CMS hero-video
+storage were closed by the site CMS (docs/SITE_CMS.md); windowed backend virality remains open. FAQ fallback and hero
 precedence are presentation helpers, not new storage contracts. Existing
 business-profile save semantics and legal content remain authoritative.
 

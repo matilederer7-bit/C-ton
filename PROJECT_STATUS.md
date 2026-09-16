@@ -33,6 +33,7 @@ Current merged baseline: `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`
 - The deterministic task-branch slug can still collide when the exact same task text is reused after a historical branch remains locally or remotely. This is a workflow follow-up, not a v3 merge blocker.
 - Task packets currently use the compact top-of-file status excerpt; later refinement can include the active agent's isolated status slot directly.
 - Runtime/production items intentionally remain open: O-1 Render worker/Blueprint live sync, O-2 hosted `OTP_HASH_SALT`, F13 external provider semantics, LONG_HORIZON_DEALS dependent on F13, F-12 production image pruning, F-07 architecture decision, and legacy `/app/...` recovery URL cleanup.
+- Site CMS (template editor, drafts/preview/publish, FAQ + hero video persistence) is implemented on `claude/admin-cms-template-editor-x9mava`; staging needs migration 069 before deploy. See the Claude milestone slot and docs/SITE_CMS.md.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ## PERCENTAGE
@@ -54,13 +55,30 @@ Current merged baseline: `8b9945f2c83a9380c78d9fd75d7d36c944f3cf40`
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone
 
-- UPDATED: not yet written by v3 workflow
-- BRANCH: none
-- COMPLETED: none
-- TESTED: none
-- OPEN: none
-- PERCENTAGE: not set
-- NEXT STEP: use this slot only from Claude Code finish
+- UPDATED: 2026-09-16
+- BRANCH: `claude/admin-cms-template-editor-x9mava` (baseline `39d9569fc3041bf0374e867a8902cea9ea8b5dd5` = merged master after PR #23)
+- TASK: Siton admin CMS → template-driven site editor (docs/SITE_CMS.md)
+- COMPLETED:
+  - Audit of the existing CMS (site_content / content_assets, `src/site_content.ts`, admin + public content API, ContentAdmin, landing, About, footer, legal pages, FAQ + hero-medium resolvers, tests) recorded in `docs/SITE_CMS.md`.
+  - ONE shared template library `web/src/content/cmsTemplates.ts` (hero, text, image_text, cta, steps, faq, columns, about, legal, footer; page contracts for home / about / footer / legal_*; strict `validatePage`, lenient `normalizePage`, legacy flat → blocks conversion, flat legacy projection) used by the backend validator, the admin editor and the public renderers.
+  - Persistence: migration `069_site_content_drafts_media.sql` (additive: `draft_jsonb`, `draft_updated_at/by`, `published_at`; `content_assets` MIME check widened to video/mp4 + video/webm). `value_jsonb` stays the published page; existing flat rows remain readable and migrate deterministically.
+  - API: `GET /api/site-content` (published, enabled blocks + legacy flat fields), `GET /api/admin/site-content` (published + draft + contract + revision), `PUT …/:key/draft`, `POST …/:key/publish` (re-validates the stored draft), `POST …/:key/discard`, `GET /api/admin/site-content/preview` (named admin only), legacy `PUT …/:key` kept; admin video upload (bounded, signature-checked) and byte-range playback on `/api/content-assets/:id`.
+  - Admin UI `#/admin/content` (ניהול תוכן האתר): page chips (דף הבית / אודות / תחתית האתר / legal pages), block editor cards generated from the schema, enable/disable, up/down reordering, add block from the allowed template library, remove optional blocks, repeatable items (FAQ questions, steps, columns, footer links) with add/delete/reorder, image and video upload with preview, שמור טיוטה / תצוגה מקדימה / פרסם באתר / ביטול הטיוטה, 409 conflict surfaced (no silent overwrite).
+  - Public: landing renders the published `home` blocks in order with LANDING_HE fallback; FAQ, how-it-works, why, for buyers/sellers, trust, contact CTA and hero (incl. buyer-entry text, CTA labels/links, media choice) are CMS-driven; footer text + links, About and legal documents render from blocks inside the Siton shell; preview mode is a per-tab flag with a visible banner.
+- TESTED (all PASS locally on a migrated local Postgres unless stated):
+  - `tests/site_content_cms_validation.ts` 17 cases (legacy compatibility, fallback, templates load, text edit, image replace, FAQ add/edit/delete/reorder, block reorder/disable, hero lock, draft vs public, preview, publish, discard, invalid stored draft never publishes, revision conflict, malformed / HTML / script / executable-link / foreign-asset rejection, unauthorized seller/buyer/anonymous, video upload + range, single hero medium).
+  - `tests/receipt_content_integration_validation.ts` 13 cases updated to the block shape.
+  - `npm run proof:cms` (new browser proof, 62 checks at 320/390/768/1440: block order, hidden block absent, FAQ, hero image, footer links, preview banner/exit/denied, legal doc, editor edit/add/delete/reorder/hide/remove/upload/draft/publish/discard/409/add-from-library, no horizontal overflow).
+  - `node scripts/receipt_content_browser_proof.cjs` PASS; `npm run proof:ux-round2` 324/324 PASS (hardened UX intact).
+  - `node scripts/site_cms_rehearsal.cjs --local-admin` against a locally running full stack (built web bundle + Fastify + Postgres): 28 checks — draft heading → public unchanged (API + browser) → preview tab shows draft → publish → public changes → original restored; smoke of landing, legal, about, seller login, admin gate, deal, tracking, support without crash or overflow.
+  - Targeted regression run (19 files across all 10 groups incl. admin/seller route auth coverage, protected route gate, admin mutation inventory, legal trust, frontend foundation, cache policy, json boundary, deal images, storage readiness): PASS. `tsc --noEmit` (backend) and `tsc -b` + Vite build (web) PASS. `npm run lint`, `scan:runtime-ddl`, `scan:payment`, `web_route_inventory` (0 unguarded), `ci:migrations` on a fresh DB (62 migrations, rerun pass): PASS.
+  - Full `npm test` (`test:all`, 235 files, 10 groups) on the committed tree: PASS (groups_passed=10, groups_failed=0). Two e2e browser files need a Chromium at `/usr/bin/google-chrome` (environment prerequisite, satisfied locally).
+- OPEN:
+  - Staging: migration 069 must be applied through the canonical runner and the branch deployed before the staging rehearsal (`node scripts/site_cms_rehearsal.cjs --base-url=<staging> --admin-cookie=<session>`) can run; this session has no deploy/migration authority (protected action).
+  - `GET /api/admin/site-content` still honours the operator `x-admin-key` read path (drafts included); the preview and every mutation require a named admin session.
+  - Landing "about" section is now its own home text block (hidden by default); the About page is edited separately — the old implicit "About page text shows on the landing" coupling is gone.
+- PERCENTAGE: CMS task 95% (repository work complete and verified locally; staging migration + rehearsal pending deploy).
+- NEXT STEP: merge PR → apply migration 069 on staging via `npm run db:migrate` → run `scripts/site_cms_rehearsal.cjs` against staging with an admin session → restore content.
 <!-- AGENT_STATUS:claude:END -->
 
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.

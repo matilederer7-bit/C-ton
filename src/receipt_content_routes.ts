@@ -3,7 +3,8 @@ import { randomUUID } from "node:crypto";
 import { extractTrackingToken, verifyParticipantTrackingAccess } from "./participant_tracking_security.js";
 import { saveDealImage, readDealImage, deleteDealImageFile } from "./product_image_storage.js";
 import { failure, loadReceiptOrder, receiptForOrder, redeemReceipt, receiptConfig, validateReceiptConfig, publicSeller, safePublicName, RECEIPT_LABELS, type Db } from "./receipt_trust.js";
-import { CONTENT_SECTIONS, readContent, validateContent } from "./site_content.js";
+import { CONTENT_SECTIONS, contractOf, publicContent, readContent, validateContent, verifyContentAssets } from "./site_content.js";
+import { CONTENT_UPLOAD_BODY_LIMIT, saveAdminContentAsset, sliceRange } from "./content_media.js";
 
 type Deps = {
   withTx: (fn: (c: any) => Promise<any>) => Promise<any>;
@@ -112,31 +113,91 @@ export function registerReceiptContentRoutes(app: FastifyInstance, deps: Deps) {
     const r = await c.query(`SELECT public_profile_id, profile_image_id FROM siton.seller_accounts WHERE seller_id=$1`, [seller.seller_id]);
     return { ok: true, profile: await publicSeller(c, r.rows[0].public_profile_id), image_id: r.rows[0].profile_image_id };
   }));
-  app.get("/api/site-content", async () => deps.withTx(async c => {
-    const sections = await readContent(c);
-    return { ok: true, content: Object.fromEntries(Object.entries(sections).map(([key, s]) => [key, s.value])) };
-  }));
+  // ── Site CMS ──────────────────────────────────────────────────────────────
+  // Public: PUBLISHED pages only. Admin: published + draft state per page,
+  // draft save / publish / discard with optimistic revision protection, and a
+  // preview projection (draft ?? published) behind the admin read guard.
+  app.get("/api/site-content", async () => deps.withTx(async c => ({ ok: true, content: publicContent(await readContent(c)) })));
   app.get("/api/admin/site-content", async (req: any, reply: any) => {
     if (!(await deps.requireAdminRead(req, reply))) return reply;
     return deps.withTx(async c => ({ ok: true, sections: await readContent(c) }));
   });
+  // Drafts are NOT public: preview needs a named admin with content permission
+  // (never the shared bootstrap key, never the open local read path).
+  app.get("/api/admin/site-content/preview", async (req: any, reply: any) => {
+    if (!(await deps.requireAdminMutation(req, reply, "admin_users.manage"))) return reply;
+    reply.header("Cache-Control", "no-store");
+    return deps.withTx(async c => ({ ok: true, preview: true, content: publicContent(await readContent(c), "preview") }));
+  });
+  function contentRevision(body: any): number {
+    if (!Number.isInteger(body?.revision) || body.revision < 0) failure("invalid_content_revision");
+    return body.revision;
+  }
+  // Serialize every mutation of a page (even first creation) and refuse a stale
+  // revision so one editor can never silently overwrite another.
+  async function lockContentRow(c: Db, key: string, revision: number) {
+    await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`site-content:${key}`]);
+    const row = (await c.query(`SELECT value_jsonb, draft_jsonb, revision FROM siton.site_content WHERE content_key=$1`, [key])).rows[0];
+    if ((row?.revision || 0) !== revision) failure("content_changed_reload", 409);
+    return row;
+  }
+  const actorOf = (admin: any) => String(admin.admin_user_id || admin.email);
+  const defaultsOf = (key: string) => JSON.stringify({ blocks: CONTENT_SECTIONS[key]!.defaults() });
+  // Legacy direct publish (kept for compatibility): validates and publishes in one step, dropping any draft.
   app.put("/api/admin/site-content/:key", async (req: any, reply: any) => {
     const admin = await deps.requireAdminMutation(req, reply, "admin_users.manage"); if (!admin) return reply;
-    const key = String(req.params.key); const value = validateContent(key, req.body?.value);
-    if (!Number.isInteger(req.body?.revision) || req.body.revision < 0) failure("invalid_content_revision");
+    const key = String(req.params.key); const page = validateContent(key, req.body?.value);
+    const revision = contentRevision(req.body);
     return deps.withTx(async c => {
-      // Serialize even first creation; optimistic revision prevents lost edits.
-      await c.query(`SELECT pg_advisory_xact_lock(hashtext($1))`, [`site-content:${key}`]);
-      const old = (await c.query(`SELECT revision FROM siton.site_content WHERE content_key=$1`, [key])).rows[0];
-      if ((old?.revision || 0) !== req.body.revision) failure("content_changed_reload", 409);
-      if (value.image) {
-        const asset = await c.query(`SELECT 1 FROM siton.content_assets WHERE asset_id=$1 AND owner_ref LIKE 'admin:%'`, [value.image.split('/').pop()]);
-        if (!asset.rowCount) failure("invalid_content_image");
-      }
-      await c.query(`INSERT INTO siton.site_content(content_key,value_jsonb,previous_value_jsonb,updated_by)
-        VALUES ($1,$2::jsonb,$4::jsonb,$3) ON CONFLICT(content_key) DO UPDATE SET previous_value_jsonb=site_content.value_jsonb,
-        value_jsonb=EXCLUDED.value_jsonb, revision=site_content.revision+1, updated_by=EXCLUDED.updated_by, updated_at=now()`,
-        [key, JSON.stringify(value), String(admin.admin_user_id || admin.email), JSON.stringify(CONTENT_SECTIONS[key]!.defaults)]);
+      await lockContentRow(c, key, revision);
+      await verifyContentAssets(c, page);
+      await c.query(`INSERT INTO siton.site_content(content_key,value_jsonb,previous_value_jsonb,updated_by,published_at)
+        VALUES ($1,$2::jsonb,$4::jsonb,$3,now()) ON CONFLICT(content_key) DO UPDATE SET previous_value_jsonb=site_content.value_jsonb,
+        value_jsonb=EXCLUDED.value_jsonb, draft_jsonb=NULL, draft_updated_at=NULL, draft_updated_by=NULL, published_at=now(),
+        revision=site_content.revision+1, updated_by=EXCLUDED.updated_by, updated_at=now()`,
+        [key, JSON.stringify(page), actorOf(admin), defaultsOf(key)]);
+      return { ok: true, sections: await readContent(c) };
+    });
+  });
+  // שמור טיוטה — the public site keeps the last published page.
+  app.put("/api/admin/site-content/:key/draft", async (req: any, reply: any) => {
+    const admin = await deps.requireAdminMutation(req, reply, "admin_users.manage"); if (!admin) return reply;
+    const key = String(req.params.key); const page = validateContent(key, req.body?.value);
+    const revision = contentRevision(req.body);
+    return deps.withTx(async c => {
+      await lockContentRow(c, key, revision);
+      await verifyContentAssets(c, page);
+      await c.query(`INSERT INTO siton.site_content(content_key,value_jsonb,updated_by,draft_jsonb,draft_updated_at,draft_updated_by)
+        VALUES ($1,$4::jsonb,$3,$2::jsonb,now(),$3) ON CONFLICT(content_key) DO UPDATE SET draft_jsonb=EXCLUDED.draft_jsonb,
+        draft_updated_at=now(), draft_updated_by=EXCLUDED.draft_updated_by, revision=site_content.revision+1`,
+        [key, JSON.stringify(page), actorOf(admin), defaultsOf(key)]);
+      return { ok: true, sections: await readContent(c) };
+    });
+  });
+  // פרסם באתר — the stored draft is re-validated; an invalid or missing draft never reaches the public page.
+  app.post("/api/admin/site-content/:key/publish", async (req: any, reply: any) => {
+    const admin = await deps.requireAdminMutation(req, reply, "admin_users.manage"); if (!admin) return reply;
+    const key = String(req.params.key); contractOf(key);
+    const revision = contentRevision(req.body);
+    return deps.withTx(async c => {
+      const row = await lockContentRow(c, key, revision);
+      if (!row?.draft_jsonb) failure("no_draft_to_publish", 409);
+      let page;
+      try { page = validateContent(key, row.draft_jsonb); } catch { failure("draft_invalid", 409); }
+      await verifyContentAssets(c, page!);
+      await c.query(`UPDATE siton.site_content SET previous_value_jsonb=value_jsonb, value_jsonb=$2::jsonb, draft_jsonb=NULL, draft_updated_at=NULL, draft_updated_by=NULL,
+        published_at=now(), revision=revision+1, updated_by=$3, updated_at=now() WHERE content_key=$1`, [key, JSON.stringify(page), actorOf(admin)]);
+      return { ok: true, sections: await readContent(c) };
+    });
+  });
+  // ביטול טיוטה — back to the published page.
+  app.post("/api/admin/site-content/:key/discard", async (req: any, reply: any) => {
+    const admin = await deps.requireAdminMutation(req, reply, "admin_users.manage"); if (!admin) return reply;
+    const key = String(req.params.key); contractOf(key);
+    const revision = contentRevision(req.body);
+    return deps.withTx(async c => {
+      const row = await lockContentRow(c, key, revision);
+      if (row) await c.query(`UPDATE siton.site_content SET draft_jsonb=NULL, draft_updated_at=NULL, draft_updated_by=NULL, revision=revision+1 WHERE content_key=$1`, [key]);
       return { ok: true, sections: await readContent(c) };
     });
   });
@@ -151,21 +212,27 @@ export function registerReceiptContentRoutes(app: FastifyInstance, deps: Deps) {
     } catch (err) { await deleteDealImageFile(file.storage_key).catch(() => undefined); throw err; }
     return { ok: true, asset_id: id, url: `/api/content-assets/${id}` };
   });
-  app.post("/api/admin/content-assets", async (req: any, reply: any) => {
+  app.post("/api/admin/content-assets", { bodyLimit: CONTENT_UPLOAD_BODY_LIMIT }, async (req: any, reply: any) => {
     const owner = await deps.requireAdminMutation(req, reply, "admin_users.manage");
     if (!owner) return reply;
     const ref = `admin:${owner.admin_user_id || owner.email}`;
     const id = randomUUID();
-    const file = await saveDealImage({ dealId: id, mimeType: req.body?.mime_type, base64Data: req.body?.base64_data, originalFilename: req.body?.filename });
+    const file = await saveAdminContentAsset({ ownerId: id, mimeType: req.body?.mime_type, base64Data: req.body?.base64_data, filename: req.body?.filename });
     try {
       await deps.withTx(c => c.query(`INSERT INTO siton.content_assets(asset_id,owner_ref,storage_key,mime_type) VALUES($1,$2,$3,$4)`, [id, ref, file.storage_key, file.mime_type]));
     } catch (err) { await deleteDealImageFile(file.storage_key).catch(() => undefined); throw err; }
-    return { ok: true, asset_id: id, url: `/api/content-assets/${id}` };
+    return { ok: true, asset_id: id, url: `/api/content-assets/${id}`, mime_type: file.mime_type };
   });
   app.get("/api/content-assets/:id", async (req: any, reply: any) => {
     const asset = await deps.withTx(async c => (await c.query(`SELECT storage_key,mime_type FROM siton.content_assets WHERE asset_id=$1`, [uuid(req.params.id)])).rows[0]);
     if (!asset) failure("asset_not_found", 404);
     const file = await readDealImage(asset.storage_key);
-    return reply.header("X-Content-Type-Options", "nosniff").type(asset.mime_type).send(file);
+    reply.header("X-Content-Type-Options", "nosniff").header("Accept-Ranges", "bytes").type(asset.mime_type);
+    if (String(asset.mime_type).startsWith("video/") && req.headers?.range) {
+      const range = sliceRange(req.headers.range, file.length);
+      if (range === "invalid") return reply.code(416).header("Content-Range", `bytes */${file.length}`).send();
+      if (range) return reply.code(206).header("Content-Range", `bytes ${range.start}-${range.end}/${file.length}`).send(file.subarray(range.start, range.end + 1));
+    }
+    return reply.send(file);
   });
 }

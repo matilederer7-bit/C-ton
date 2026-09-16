@@ -100,7 +100,20 @@ const CODE_MESSAGES: Record<string, string> = {
   fulfillment_qty_mismatch: "הכמות בהזמנה השתנתה — בדקו שוב לפני המסירה",
   fulfillment_expected_qty_invalid: "כמות לא תקינה",
   fulfillment_not_physical: "זו לא עסקה של מוצר פיזי — אין מסירה פיזית",
-  deal_not_completed: "העסקה טרם הושלמה — אין עדיין הזמנות למסירה"
+  deal_not_completed: "העסקה טרם הושלמה — אין עדיין הזמנות למסירה",
+  // SITE CMS
+  content_changed_reload: "התוכן עודכן בידי מנהל אחר. רעננו את העמוד לפני השמירה.",
+  no_draft_to_publish: "אין טיוטה לפרסום — שמרו טיוטה תחילה",
+  draft_invalid: "הטיוטה השמורה אינה תקינה — תקנו ושמרו שוב לפני הפרסום",
+  content_html_not_allowed: "אסור להזין HTML או תגיות — טקסט בלבד",
+  invalid_content_length: "אחד השדות ארוך מדי",
+  invalid_content_link: "קישור לא תקין — מותר קישור פנימי (#/...) או כתובת https",
+  invalid_content_image: "התמונה חייבת להיות תמונה שהועלתה דרך המערכת",
+  invalid_content_video: "הוידאו חייב להיות קובץ שהועלה דרך המערכת",
+  required_field_missing: "חסר שדה חובה",
+  invalid_video_mime: "סוג הוידאו אינו נתמך — רק MP4 או WebM",
+  invalid_video_content: "קובץ הוידאו אינו תקין",
+  video_too_large: "הוידאו גדול מדי (עד 10MB)"
 };
 
 const PATTERN_MESSAGES: [RegExp, string][] = [
