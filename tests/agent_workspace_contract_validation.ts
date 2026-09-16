@@ -86,5 +86,8 @@ assert.match(cliSource, /start/);
 assert.match(cliSource, /review/);
 assert.match(cliSource, /handoff/);
 assert.match(cliSource, /finish/);
+assert.match(cliSource, /result\.signal/);
+assert.match(cliSource, /workspace helper terminated by signal/);
+assert.match(cliSource, /workspace helper did not return an exit status/);
 
-console.log("AGENT_WORKSPACE_CONTRACT_PASS agents=2 isolated_paths=pass clean_guard=pass remote_collision_guard=pass remote_lookup_fail_closed=pass unicode_task_names=pass canonical_root=pass single_command=pass reviewer_handoff=pass finish_pushed_head_guard=pass destructive_reset=absent");
+console.log("AGENT_WORKSPACE_CONTRACT_PASS agents=2 isolated_paths=pass clean_guard=pass remote_collision_guard=pass remote_lookup_fail_closed=pass unicode_task_names=pass canonical_root=pass single_command=pass reviewer_handoff=pass finish_pushed_head_guard=pass abnormal_helper_exit_guard=pass destructive_reset=absent");
