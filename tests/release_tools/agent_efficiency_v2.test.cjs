@@ -27,6 +27,21 @@ test("workspace automation is fail-closed and produces task packet", () => {
   assert.match(source, /AUTO_MERGE=false|auto_merge=false/);
 });
 
+test("workspace v3 isolates status writes and keeps open PR context", () => {
+  const source = read("scripts/agent_workspace.cjs");
+  const status = read("PROJECT_STATUS.md");
+  assert.match(source, /AGENT_STATUS:\$\{agent\}:START/);
+  assert.match(source, /isolated_status_slots=true/);
+  assert.match(source, /task_branch_retained_until_pr_resolved=true/);
+  assert.match(source, /next_start_releases_merged_or_closed=true/);
+  assert.match(source, /active .* task PR is still open/);
+  assert.match(source, /retained_for_pr=true/);
+  assert.match(status, /AGENT_STATUS:claude:START/);
+  assert.match(status, /AGENT_STATUS:claude:END/);
+  assert.match(status, /AGENT_STATUS:codex:START/);
+  assert.match(status, /AGENT_STATUS:codex:END/);
+});
+
 test("owner CLI rejects signalled helpers and exposes CI summary", () => {
   const source = read("scripts/agent.cjs");
   assert.match(source, /result\.signal/);
