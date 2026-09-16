@@ -83,12 +83,12 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 ### Codex latest milestone
 
 - UPDATED: 2026-09-16
-- BRANCH: `chore/status-refresh-2026-09-16`
-- COMPLETED: refreshed stale project status after PR #27 merge; aligned the recorded baseline with the verified task-start `master`; verified canonical deadline policy already exists and recorded the remaining runtime drift without making a partial payment-sensitive code change.
-- TESTED: task-start GitHub `master` SHA and PR #27 merge state verified; canonical policy and agent source-of-truth files inspected; runtime tests not applicable to this documentation-only change.
-- OPEN: long-horizon runtime integration still not on `master`; legacy seven-day validator remains until the complete duration/payment design lands safely.
-- PERCENTAGE: 100% for this status-integrity task.
-- NEXT STEP: integrate the complete long-horizon implementation on a separate branch and prove its regression/payment invariants before merge.
+- BRANCH: `chatgpt/agent-workflow-v5-refresh`
+- COMPLETED: rebased the useful agent-workflow v5 implementation onto current master without carrying the stale PROJECT_STATUS conflict; repeated task names receive the first free `-rN` branch suffix, task packets contain only the active agent status slot, and task start now proves GitHub push access plus remote SHA before substantial work.
+- TESTED: exact PR #28 diff reviewed and only its two workflow/test files were transplanted onto current master; release-tool contract coverage for all three v5 behaviors is included; GitHub CI on the refreshed PR is the merge authority.
+- OPEN: refreshed PR must pass Backend, Release readiness, and Web runtime gates before merge; owner-machine worktrees still need one doctor/setup pass after sync.
+- PERCENTAGE: 90% until refreshed PR CI is green and merged.
+- NEXT STEP: open refreshed PR, require all three GitHub gates green, merge, then close stale PR #28 as superseded.
 <!-- AGENT_STATUS:codex:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
