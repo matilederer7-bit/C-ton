@@ -13,17 +13,19 @@ The manager coordinates one writer and one reviewer. It owns branch creation, ca
 ## Execution model
 
 1. The owner starts a task from GitHub Actions `workflow_dispatch` or opens an owner-authored issue whose title begins with `[agent-manager]`.
-2. The workflow checks which cloud credentials are available.
-3. `auto` prefers Claude as the builder when Claude credentials exist. Otherwise it uses Codex when `OPENAI_API_KEY` exists.
-4. `auto` uses the other provider as reviewer when possible. If only one provider is configured, the same provider performs a bounded second-pass review and the run records that the review was not independent.
-5. The builder receives a generated Siton task packet with standing product, safety and Git boundaries.
-6. The builder edits the GitHub-hosted checkout. It is explicitly forbidden from owning Git lifecycle or PROJECT_STATUS.
-7. The manager runs `git diff --check` and `node scripts/siton_verify.cjs` against a disposable PostgreSQL service on the GitHub runner.
-8. The reviewer inspects the actual diff in read-only mode and must return `VERDICT=PASS` or `VERDICT=CHANGES_REQUIRED`.
-9. If changes are required, the builder gets exactly one automatic bounded fix pass. The manager verifies again and the reviewer checks again.
-10. The manager updates only its isolated `PROJECT_STATUS.md` slot, commits, pushes and opens a Pull Request.
-11. If the final reviewer still requires changes, the PR is opened as draft. There is no automatic retry loop.
-12. Repository Pull Request CI remains the integration authority. There is no auto-merge.
+2. All Cloud Agent Manager coding runs enter one global writer queue. A second task waits instead of executing concurrently against an overlapping product scope.
+3. The workflow checks which cloud credentials are available.
+4. `auto` prefers Claude as the builder when Claude credentials exist. Otherwise it uses Codex when `OPENAI_API_KEY` exists.
+5. `auto` uses the other provider as reviewer when possible. If only one provider is configured, the same provider performs a bounded second-pass review and the run records that the review was not independent.
+6. The builder receives a generated Siton task packet with standing product, safety and Git boundaries.
+7. The builder edits the GitHub-hosted checkout. It is explicitly forbidden from owning Git lifecycle or PROJECT_STATUS.
+8. The manager verifies that the builder did not change branch, commit, change HEAD, or modify the cloud-manager control plane/shared status.
+9. The manager runs `git diff --check` and `node scripts/siton_verify.cjs` against a disposable PostgreSQL service on the GitHub runner.
+10. The reviewer inspects the actual diff in read-only mode and must return `VERDICT=PASS` or `VERDICT=CHANGES_REQUIRED`.
+11. If changes are required, the builder gets exactly one automatic bounded fix pass. The lifecycle/control-plane guards and canonical verification run again, then the reviewer checks again.
+12. The manager updates only its isolated `PROJECT_STATUS.md` slot, commits, pushes and opens a Pull Request.
+13. If the final reviewer still requires changes, the PR is opened as draft. There is no automatic retry loop.
+14. Repository Pull Request CI remains the integration authority. There is no auto-merge.
 
 ## Computer-off requirement
 
@@ -74,9 +76,13 @@ This prevents arbitrary public issues from receiving access to cloud-agent crede
 
 Additional boundaries:
 
+- Managed cloud writers are serialized through one GitHub Actions concurrency group.
 - Real money remains 0.
 - Grow remains untouched.
 - Production charging, payouts, refunds, customer messaging, destructive production data changes, live migrations and credential rotation are outside normal cloud-agent authority.
+- A builder/fix pass fails if it changes branch or HEAD by committing.
+- A builder/fix pass cannot modify `.github/workflows/cloud-agent-manager.yml`, `scripts/cloud_agent_manager.cjs`, `AGENTS.md`, `AI_WORKFLOW.md` or `PROJECT_STATUS.md`; the manager control plane cannot rewrite itself during a product task.
+- Claude subprocess environment scrubbing is enabled.
 - Reviewer mode is read-only and the workflow compares the repository diff/status before and after review.
 - The manager performs at most one automatic fix pass.
 - The manager never runs `gh pr merge` and never enables auto-merge.
@@ -106,6 +112,8 @@ The workflow fails closed when:
 
 - no supported cloud credential exists
 - a requested provider is unavailable
+- the builder changes branch or HEAD instead of leaving an uncommitted task diff
+- the builder touches the manager control plane/shared status
 - the builder produces no repository change
 - canonical verification fails
 - reviewer changes the repository during a read-only pass
@@ -125,4 +133,4 @@ The cloud manager is a separate execution path for computer-off work. Both paths
 - repository tests and gates
 - GitHub Pull Requests as the integration boundary
 
-They must not edit the same active task scope concurrently.
+Cloud-managed writes are serialized with each other. Local work still must not edit the same active task scope as the currently running cloud task.
