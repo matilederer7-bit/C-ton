@@ -111,6 +111,11 @@ test("cloud workflow is owner-gated, serialized, lifecycle-guarded and never aut
   assert.match(workflow, /startsWith\(github\.event\.issue\.title, '\[agent-manager\]'\)/);
   assert.match(workflow, /group: siton-cloud-agent-manager-v1/);
   assert.match(workflow, /cancel-in-progress: false/);
+  assert.match(workflow, /permissions:\n  contents: read\n  pull-requests: read\n  issues: read/);
+  assert.match(workflow, /persist-credentials: false/);
+  assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN/);
+  assert.match(workflow, /SITON_AGENT_GITHUB_TOKEN is required/);
+  assert.match(workflow, /gh auth setup-git/);
   assert.match(workflow, /CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"/);
   assert.match(workflow, /anthropics\/claude-code-action@v1/);
   assert.match(workflow, /openai\/codex-action@v1/);
@@ -118,7 +123,7 @@ test("cloud workflow is owner-gated, serialized, lifecycle-guarded and never aut
   assert.match(workflow, /Enforce builder lifecycle and control-plane boundary/);
   assert.match(workflow, /Builder committed or changed HEAD/);
   assert.match(workflow, /Enforce fix-pass lifecycle and control-plane boundary/);
-  assert.match(workflow, /cloud-agent-manager\\\.yml/);
+  assert.match(workflow, /\.github\/workflows\//);
   assert.match(workflow, /PROJECT_STATUS\\\.md/);
   assert.match(workflow, /Canonical verification after build/);
   assert.match(workflow, /Re-verify after bounded fix/);
