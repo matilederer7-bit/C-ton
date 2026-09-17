@@ -1,8 +1,46 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-16
+Updated: 2026-09-17
 Canonical branch: `master`
-Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
+Baseline verified at start of this status refresh: `50e4635eedf7e9de29a98f064aafbbb2f7879235`
+
+## DISTRIBUTOR ATTRIBUTION-ONLY GUARD — 2026-09-17
+
+### COMPLETED
+
+- Added a fail-closed CI guard at `scripts/distributor_attribution_only_gate.cjs` for the canonical rule that distributor/affiliate behavior is attribution and measurement only, never an in-platform money entitlement.
+- The guard allows clicks, joins, units, attributed gross and the fixed Siton platform fee, while rejecting distributor/affiliate commission, payout, withdrawal, balance, earnings, entitlement, invoice, fee and reward identifiers in runtime/code surfaces.
+- Built-in self-test proves allowed attribution passes and representative forbidden money identifiers fail.
+- The first CI run correctly exposed three existing negative references. Two are deliberate enforcement/removal references in migration 020 and `legal_compliance_gate.cjs`; one is the literal `distributor_commission_present: false` safety assertion in mission control. The guard permits only those narrow negative references and still fails the same assertion if changed to `true`.
+- Wired self-test plus live repository scan into `.github/workflows/backend-quality-gates.yml`.
+- Hardened the guard against multi-line SQL bypasses so an `ALTER TABLE` and a forbidden `ADD COLUMN` split across lines are still rejected.
+- Hardened migration 020 so it cannot silently switch from destructive cleanup to recreating distributor financial columns.
+- Branch was refreshed onto current `master` during parallel agent work while avoiding code overlap.
+
+### TESTED / CHECKED
+
+- Final head `df2a05bea8375277178e6400670930bf9b078fb8` passed all three GitHub workflows: Backend and deployment quality gates, Release readiness, and Web runtime depth gates.
+- Backend coverage included TypeScript, lint/enforcement scans, the distributor attribution-only self-test and live scan, payment/raw-card compliance, runtime DDL, schema/integrity checks, unit, integration, database, API, worker, payment, protected-route authorization, security, concurrency, failure-injection, E2E, and extended Docker smoke.
+- The multi-line SQL regression case is covered by the guard self-test.
+- No CMS files, duration/deadline runtime files, payment-provider behavior, Grow configuration or real-money paths were changed.
+- Real money remains 0. Grow remains untouched and unactivated.
+
+### OPEN
+
+- Merge PR #31 to `master` with the verified head SHA locked.
+- Broader runtime removal of legacy distributor/session/routes/UI/schema surfaces remains a separate cleanup task; ordinary sharing and role-neutral attribution analytics must remain intact.
+- Fixed 24-hour Completion Window hardening remains separate because `src/app.ts` overlaps the active duration workstream.
+
+### PERCENTAGE
+
+- Distributor no-money regression protection: 100% implemented and verified.
+- Broader canonical product-policy runtime cleanup: incomplete.
+
+### NEXT STEP
+
+1. Merge PR #31 using expected head `df2a05bea8375277178e6400670930bf9b078fb8`.
+2. Verify merged `master` and post-merge status.
+3. Continue a separate non-overlapping cleanup task only after checking current active branches.
 
 ## CURRENT SNAPSHOT
 
@@ -17,12 +55,12 @@ Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909
 
 ### TESTED / CHECKED
 
-- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of this status refresh.
+- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of the prior status refresh.
 - PR #27 was verified as closed and merged, with merge commit `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
 - `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
 - `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
 - Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
-- Runtime tests were not run for this status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
+- Runtime tests were not run for the prior status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
 
 ### OPEN
 
