@@ -11,7 +11,7 @@ const isolation = require("../../scripts/lib/test_db_isolation.cjs");
 let dbAvailable = false;
 try { if (process.env.DATABASE_URL) { isolation.assertLocalBase(process.env.DATABASE_URL); dbAvailable = true; } } catch { dbAvailable = false; }
 
-const ROUTE_FIXTURE = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "frontend/app.js", "scripts/lib", "scripts/protected_route_policy.cjs", "scripts/web_route_inventory.cjs", "scripts/route_inventory_report.cjs", "config/route-classification.json"];
+const ROUTE_FIXTURE = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts", "frontend/app.js", "scripts/lib", "scripts/protected_route_policy.cjs", "scripts/web_route_inventory.cjs", "scripts/route_inventory_report.cjs", "config/route-classification.json"];
 
 test("route inventory report classifies every route on the real code and fails on a new unclassified sensitive route", () => {
   const clean = createFixtureRepo(ROUTE_FIXTURE);
