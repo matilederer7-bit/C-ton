@@ -2,7 +2,7 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `1d38656950381733cbf2459913be7439038b4ccf`
+Current merged baseline: `8bdd401aecef973dbeb65b405bf3e0ffe86a96be`
 
 ## CURRENT SNAPSHOT
 
@@ -16,46 +16,52 @@ Current merged baseline: `1d38656950381733cbf2459913be7439038b4ccf`
 - PR #31 merged: fail-closed distributor attribution-only financial regression guard.
 - PR #33 merged: agent workflow v5 refresh with repeated-task branch allocation, focused packets, and start-time push/SHA checkpoint.
 - PR #34 merged at `18ba51985f71ebf83563216ec22f88aaa7c023f0`: block-based Site CMS and editable product copy across deal, tracking, seller and support surfaces.
-- Render staging confirmed PR #34 deployment `dep-dalqc695efls73bnm0v0` LIVE.
-- PR #35 merged at `1d38656950381733cbf2459913be7439038b4ccf`: Cloud Agent Manager reintegrated onto the current product baseline without changing product runtime, database, payments or Grow.
-- Legacy PRs #2, #4 and #5 were closed as archival/superseded paths rather than active merge candidates.
-- Seller Distribution Hub from stale PR #36 was rebuilt cleanly on current master as PR #37 instead of merging a conflicted branch.
+- PR #35 merged at `1d38656950381733cbf2459913be7439038b4ccf`: Cloud Agent Manager reintegrated onto the current product baseline.
+- PR #37 Seller Distribution Hub merged at `8bdd401aecef973dbeb65b405bf3e0ffe86a96be` with seller-created attribution links and optional scoped read-only external link dashboards, aggregate analytics only, no buyer PII and no distributor economics.
+- Staging deployment failure after PR #37 was diagnosed as missing database migration 070. `070_seller_distribution_links.sql` was applied to Supabase staging; all four required external-viewer tables were verified; Render redeploy `dep-dalsa98ae00c73cf9tbg` reached LIVE on `8bdd401...`.
+- Hosted CMS failure `column "draft_jsonb" does not exist` was diagnosed as missing CMS migration 069. `069_site_content_drafts_media.sql` was applied to Supabase staging and the draft/publish columns were verified readable.
+- Hosted UX reality audit produced Issue #39 for terminal-deal archive, mature UI cleanup, multi-method receipt/redemption, preview-stage removal and support/deal-context unification.
+- LONG_HORIZON_DEALS was promoted to the next blocking integration. Issue #40 is the clean current-master Claude execution packet; old PR #24 is source/provenance only.
+- PR #38 integration order was updated: long-horizon owns migration 071; Product Catalog must move to 072 during later current-master reintegration.
 
 ### TESTED / CHECKED
 
-- PR #34 passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates before merge and its exact merge SHA was confirmed LIVE on Render.
-- PR #37 is mergeable on current master. Its first fresh run exposed one stale release-tools fixture: the route scanner now reads `src/distribution_hub.ts` but the fixture did not copy that file.
-- The fixture was corrected in commit `13742469ab0d51db8fff8abb0b113a0734942f30`; the authorization mechanism itself was not weakened or bypassed.
-- The real route inventory reported 226 routes, zero unclassified routes and zero unclassified sensitive routes before the fixture correction.
-- Fresh repository CI after the fixture correction remains the merge authority for PR #37.
+- PR #37 repository CI was green before merge; its distribution routes reported zero unclassified routes and zero unclassified sensitive routes after the release-tools fixture correction.
+- Supabase staging now contains `distribution_link_viewers`, `distribution_link_viewer_grants`, `distribution_link_viewer_sessions`, and `distribution_link_viewer_login_attempts` from migration 070.
+- Render staging is LIVE on PR #37 merge SHA `8bdd401aecef973dbeb65b405bf3e0ffe86a96be` after the migration repair.
+- Supabase staging `site_content` now contains `draft_jsonb`, `draft_updated_at`, `draft_updated_by`, and `published_at`; a direct read using the new CMS schema succeeds.
+- Current active seller code was rechecked and still contains the obsolete seven-day maximum in the picker, hint and validator. This is a real current-master defect, not cache.
+- Current seller dashboard still renders terminal deals as full cards instead of a compact archive; current product UI still contains decorative emoji/glyph residues; public support contact still lacks canonical deal/seller context; receipt/redemption remains single-method.
+- Old PR #24 source evidence remains: deadline policy 5/5, authorization renewal lifecycle 10/10, worker long-horizon scheduling 4/4. Fresh current-master CI on the replacement PR is authoritative.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
-### OPEN MERGE QUEUE
+### OPEN MERGE / EXECUTION QUEUE
 
-1. PR #37 Seller Distribution Hub: finish fresh CI, merge, confirm staging, then close stale PR #36 as superseded.
-2. PR #24 LONG_HORIZON_DEALS: re-integrate on the resulting master using migration 071, resolve only current overlaps, run fresh CI, then merge.
-3. PR #7 launch integration: do not merge stale branch wholesale. Extract only still-missing communications/runtime value onto current master and close the obsolete PR.
-4. Reconcile remaining divergent shelf branches in risk/value order: authenticated UI acceptance harness, pre-financial resilience, CI request-id flake repair, closed-pilot war game, Amazon/product-catalog work, mobile release readiness, and visual C-ton rebrand.
-5. Archive older planning-only or fully superseded branches after confirming they contain no unique executable value.
-6. Hosted/runtime readiness remains open for external payment-provider semantics, hosted OTP secret, production image pruning, architecture decision, and remaining legacy recovery/runtime cleanup.
+1. Issue #40 — Claude rebuilds LONG_HORIZON_DEALS from current `master`, preserving current CMS + Distribution Hub, using migration 071, full renewable-authorization behavior and fresh CI. ChatGPT retains final merge/deploy authority.
+2. After the replacement long-horizon PR is green: merge, apply migration 071 to staging, confirm Render LIVE and smoke 30/60/90-day seller deadlines. Close old PR #24 as superseded.
+3. Issue #39 — Claude UX/support lane starts only from the then-current master: terminal-deal archive, remove childish decorative glyphs, multiple receipt/redemption methods, remove standalone preview journey step, unify support with deal/seller context and PII-safe visibility.
+4. PR #38 — clean reintegration only after the above; Product Catalog migration becomes 072. Preserve useful product catalog/mobile/native-brand/acceptance-harness work without blind-merging the stale branch.
+5. PR #7 communications — extract only still-missing communications/runtime value on current master; do not merge stale branch wholesale.
+6. Continue reducing the remaining shelf through current-master PRs, fresh CI, staging deploy and smoke evidence.
 
 ### PERCENTAGE
 
 - Agent workflow v5: 100% merged repository-side.
-- CMS/product-copy integration: 100% merged and confirmed live on staging.
-- Cloud Agent Manager repository integration: 100% merged; credential activation and harmless computer-off smoke proof remain operational follow-up.
-- Seller Distribution Hub: 95% pending corrected fresh CI, merge and staging smoke.
-- Shelf cleanup and integration: in progress; active divergent work is being reduced item by item rather than left on stale branches.
-- Long-horizon runtime integration: not complete on `master`.
+- CMS/product-copy repository integration: 100%; missing staging migration repaired and schema verified. Authenticated CMS browser smoke remains a runtime follow-up.
+- Cloud Agent Manager repository integration: 100%; credential activation and harmless computer-off smoke remain operational follow-up.
+- Seller Distribution Hub: 100% merged and deployed to staging; authenticated seller end-to-end link-creation smoke remains to be performed.
+- Long-horizon current-master integration: source implementation complete on stale PR #24, but 0% merged on current master; replacement execution assigned as Issue #40.
+- Hosted UX reality closeout: scoped and queued as Issue #39; implementation not yet merged.
+- PR #38 shelf-closeout integration: pending after long-horizon / UX sequencing.
 - Real-money readiness: intentionally blocked.
 
 ### NEXT STEP
 
-1. Require all PR #37 repository gates green and merge it.
-2. Confirm the resulting master deployment on Render and perform a lightweight distribution-hub smoke check.
-3. Close PR #36 as superseded.
-4. Rebuild PR #24 on that master as migration 071 and qualify it through fresh CI.
-5. Continue immediately through communications, product catalog, mobile, rebrand and remaining hardening/test shelf work.
+1. Execute Issue #40 on a fresh current-master Claude branch; no routine approval stops.
+2. ChatGPT reviews the replacement PR, requires fresh CI, merges it, applies migration 071 to staging, deploys and smokes long deadlines.
+3. Execute Issue #39 from the resulting master and drive it through the same CI → master → staging → smoke chain.
+4. Reintegrate PR #38 with Product Catalog at migration 072.
+5. Do not mark product work complete merely because code exists in a branch or PR; completion requires current master plus applicable staging migration/deployment and smoke evidence.
 
 ## PRODUCT POLICY ALIGNMENT
 
@@ -68,7 +74,7 @@ Current invariants:
 - Siton fee is fixed at 8% of all purchase money actually collected through Siton, including shipping/delivery and other applicable purchase charges, excluding the customer VAT component.
 - There is no per-deal fee override.
 - There is no distributor/affiliate user role or distributor product module. A seller may create attribution/measurement links and may grant an external viewer scoped read-only access to one link's aggregate dashboard. That viewer receives no buyer PII, seller navigation, Siton-managed commission, balance or payout rights.
-- There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
+- There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical and active code that still enforces them is a defect to remove.
 - Current legal material remains unchanged unless the owner explicitly changes it.
 
 ## AGENT MILESTONES
@@ -80,9 +86,9 @@ Current invariants:
 - BRANCH: none
 - COMPLETED: none
 - TESTED: none
-- OPEN: none
+- OPEN: Issue #40 is the next exclusive Claude coding lane; Issue #39 follows only after long-horizon integration.
 - PERCENTAGE: not set
-- NEXT STEP: use this slot only from Claude Code finish
+- NEXT STEP: execute Issue #40 from current master and update this slot at finish
 <!-- AGENT_STATUS:claude:END -->
 
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
@@ -91,12 +97,12 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 ### Codex latest milestone
 
 - UPDATED: 2026-09-17
-- BRANCH: `chatgpt/integrate-distribution-hub-20260917`
-- COMPLETED: PR #35 merged; stale PR #36 was rebuilt as clean current-master PR #37; the release-tools fixture was updated to include the new distribution route source.
-- TESTED: PR #37 is mergeable; real route inventory has zero unclassified routes and zero unclassified sensitive routes; fresh CI is running after the focused fixture fix.
-- OPEN: all PR #37 gates green, merge, Render smoke, close #36, then PR #24 long-horizon reintegration as migration 071.
-- PERCENTAGE: Seller Distribution Hub 95% pending CI/merge/staging smoke.
-- NEXT STEP: merge PR #37 only after all repository gates are green, then continue directly to long-horizon integration.
+- BRANCH: `master`
+- COMPLETED: PR #37 Seller Distribution Hub merged; missing migration 070 was applied to staging; Render redeploy reached LIVE; missing CMS migration 069 was applied and verified; hosted UX/runtime gaps were converted into Issues #39/#40 with collision-safe sequencing.
+- TESTED: distribution schema exists; Render is LIVE on `8bdd401...`; CMS draft schema reads successfully; current active seven-day seller restriction was independently confirmed as an unresolved current-master defect.
+- OPEN: Claude Issue #40 replacement PR, then merge/migration071/deploy/smoke; Issue #39 follows; PR #38 after that with Product Catalog migration 072.
+- PERCENTAGE: Distribution Hub merged/deployed 100%; long-horizon current-master integration pending.
+- NEXT STEP: integrate Issue #40 output through fresh CI and staging before accepting any later overlapping UX/shelf branch.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->
