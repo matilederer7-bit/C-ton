@@ -57,7 +57,7 @@ Strengthen regression coverage if any execution path is not covered.
 
 ### E. Deal-duration coordination
 
-The no-seven-day-cap decision is being handled in a separate parallel task. Do not reimplement or overwrite that agent's active work. Rebase/merge cleanly after that task lands and verify no old seven-day maximum is reintroduced.
+**RESOLVED 2026-09-17.** The no-seven-day-cap work landed on `master` in PR #42 as migration 071 (`docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`). There is no longer a parallel task to coordinate with. What remains binding: never reintroduce a seven-day maximum deal duration in any active surface (seller picker, hint, validator, Hebrew copy, backend validator, legacy frontend). The two-hour minimum stands, and the remaining twenty-year ceiling is a technical sanity bound, not a business or payment cap.
 
 ## Safety boundaries
 

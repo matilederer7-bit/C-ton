@@ -73,7 +73,7 @@ Known cleanup still required:
 - hard-lock Completion Window to 24 hours in runtime code rather than accepting an environment override;
 - remove remaining distributor/affiliate identity, session, route, UI, schema-contract, environment, and test surfaces;
 - preserve generic sharing and role-neutral viral analytics without a distributor product role;
-- coordinate with the separate active implementation task removing the obsolete seven-day deal-duration cap;
+- ~~coordinate with the separate active implementation task removing the obsolete seven-day deal-duration cap~~ **DONE 2026-09-17 (PR #42, migration 071):** the seven-day deal-duration cap is removed from all active product behavior; the two-hour minimum stands and the remaining ceiling is a non-business technical sanity bound (`docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`);
 - do not touch the parallel CMS/content-management implementation while doing this cleanup.
 
 See `docs/CANONICAL_PRODUCT_POLICY_CODE_CLEANUP_2026-09-16.md` for the implementation task.

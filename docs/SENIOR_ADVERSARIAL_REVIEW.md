@@ -341,7 +341,18 @@ Co-blockers, all external or owner-owned: `GROW_LIVE_VERIFICATION_NOT_PERFORMED`
 
 `npm run proof:no-real-money` → **`REAL_MONEY: BLOCKED`**, `NO_REAL_MONEY_PROOF_PASS 16/16`. `git diff` against `src/grow_payment_adapter.ts`, `src/payment_provider.ts`, `src/payout_rail.ts`, `src/platform_fee_money.ts`, `src/vat_authority.ts`, `config/real-money-release-policy.json`: **empty**.
 
-### LONG_HORIZON_DEALS — a second, separate provider-blocked item (not a review finding)
+### [OBSOLETE — HISTORICAL] LONG_HORIZON_DEALS — a second, separate provider-blocked item (not a review finding)
+
+> **OBSOLETE / HISTORICAL — do not act on this subsection.** The seven-day
+> deadline cap that the bullets below describe as *enforced* was **REMOVED** by
+> the owner decision of 2026-09-16 (LONG_HORIZON_DEALS) and is gone from every
+> active surface. There is **no fixed maximum deal duration**: `src/app.ts` no
+> longer defines `DEADLINE_MAX_MS`, and `src/deadline_policy.ts` is the single
+> source of truth (2-hour minimum, a 20-year technical sanity ceiling, and an
+> advisory notice above one year that never blocks). The bullets are preserved
+> verbatim as the record of what was true at this review's base SHA. See the
+> RESOLUTION NOTE at the end of this subsection and
+> `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
 
 Recorded here so it is not mistaken for closed by this review or by any green suite. It is owner-stated and outside the review's scope; no fix was attempted and none may be attempted in repository code.
 

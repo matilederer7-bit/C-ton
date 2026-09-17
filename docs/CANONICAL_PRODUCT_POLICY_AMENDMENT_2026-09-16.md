@@ -71,7 +71,7 @@ Known implementation cleanup still required after this source-of-truth update:
 - remove the runtime override for the Completion Window and hard-lock it to 24 hours;
 - preserve the absence of distributor economics while allowing seller-owned distribution attribution and the scoped, read-only, no-PII external link dashboard described above;
 - preserve the mandatory finite `max_units` invariant through all create, edit, publish, import, clone, and admin paths;
-- keep the separate no-seven-day-cap implementation work coordinated with the already active parallel task;
+- ~~keep the separate no-seven-day-cap implementation work coordinated with the already active parallel task~~ **DONE 2026-09-17 (PR #42, migration 071):** the cap is gone from every active surface; do not reintroduce it;
 - do not touch the CMS/content-management scope that is being implemented in parallel.
 
 ## Precedence
