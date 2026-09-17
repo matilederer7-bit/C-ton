@@ -1,0 +1,466 @@
+name: Siton Cloud Agent Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      task:
+        description: "Task for the Siton agent team"
+        required: true
+        type: string
+      builder:
+        description: "Primary coding agent"
+        required: true
+        default: auto
+        type: choice
+        options: [auto, claude, codex]
+      reviewer:
+        description: "Reviewer"
+        required: true
+        default: auto
+        type: choice
+        options: [auto, claude, codex, none]
+      scope:
+        description: "Allowed scope"
+        required: false
+        default: "Smallest coherent repository scope required for the task."
+        type: string
+      do_not_touch:
+        description: "Additional protected scope"
+        required: false
+        default: "Grow, real money, production side effects, unrelated product areas."
+        type: string
+  issues:
+    types: [opened]
+
+# The default workflow token is intentionally read-only. Git lifecycle uses the
+# dedicated SITON_AGENT_GITHUB_TOKEN so workflow-created branches/PRs can
+# trigger normal repository CI instead of being suppressed by GITHUB_TOKEN.
+permissions:
+  contents: read
+  pull-requests: read
+  issues: read
+
+# v1 deliberately serializes managed cloud writers. This is a real queue, not
+# merely separate Git branches: overlapping product scopes cannot execute at
+# the same time and silently race each other.
+concurrency:
+  group: siton-cloud-agent-manager-v1
+  cancel-in-progress: false
+
+env:
+  CI: "true"
+  NODE_ENV: test
+  DISABLE_OUTBOX_WORKER: "1"
+  DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_cloud_agent
+  PAYMENT_PROVIDER: mockpay
+  PAYMENT_PROVIDER_MODE: mock-backed
+  SITON_AGENT: cloud-manager
+  CLAUDE_CODE_SUBPROCESS_ENV_SCRUB: "1"
+
+jobs:
+  managed-task:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' &&
+       github.event.issue.user.login == github.repository_owner &&
+       startsWith(github.event.issue.title, '[agent-manager]'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_cloud_agent
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_cloud_agent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - name: Checkout canonical master
+        uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Clean dependency install
+        run: npm ci
+
+      - name: Resolve cloud credentials and roles
+        id: roles
+        env:
+          OPENAI_KEY_VALUE: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_KEY_VALUE: ${{ secrets.ANTHROPIC_API_KEY }}
+          CLAUDE_OAUTH_VALUE: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          MANAGER_GH_TOKEN_VALUE: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+          REQUESTED_BUILDER: ${{ github.event_name == 'workflow_dispatch' && inputs.builder || 'auto' }}
+          REQUESTED_REVIEWER: ${{ github.event_name == 'workflow_dispatch' && inputs.reviewer || 'auto' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$MANAGER_GH_TOKEN_VALUE" ]; then
+            echo "SITON_AGENT_GITHUB_TOKEN is required for autonomous branch/PR lifecycle and downstream CI triggering" >&2
+            exit 1
+          fi
+          has_codex=false
+          has_claude=false
+          if [ -n "$OPENAI_KEY_VALUE" ]; then has_codex=true; fi
+          if [ -n "$ANTHROPIC_KEY_VALUE" ] || [ -n "$CLAUDE_OAUTH_VALUE" ]; then has_claude=true; fi
+          export HAS_CODEX="$has_codex"
+          export HAS_CLAUDE="$has_claude"
+          node scripts/cloud_agent_manager.cjs roles "$REQUESTED_BUILDER" "$REQUESTED_REVIEWER"
+
+      - name: Create isolated task branch and packet
+        id: task
+        env:
+          SITON_TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || format('{0}\n\n{1}', github.event.issue.title, github.event.issue.body) }}
+          SITON_SCOPE: ${{ github.event_name == 'workflow_dispatch' && inputs.scope || 'Derive the smallest coherent scope from the owner issue. Do not edit unrelated areas.' }}
+          SITON_DO_NOT_TOUCH: ${{ github.event_name == 'workflow_dispatch' && inputs.do_not_touch || 'Grow, real money, production side effects, unrelated product areas.' }}
+          SITON_TASK_SOURCE: ${{ github.event_name == 'issues' && format('GitHub issue #{0}', github.event.issue.number) || format('workflow_dispatch run {0}', github.run_id) }}
+          SITON_BUILDER: ${{ steps.roles.outputs.builder }}
+          SITON_REVIEWER: ${{ steps.roles.outputs.reviewer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "siton-agent-manager[bot]"
+          git config user.email "siton-agent-manager[bot]@users.noreply.github.com"
+          branch="agent/cloud/${{ steps.roles.outputs.builder }}-${GITHUB_RUN_ID}"
+          git switch -c "$branch" origin/master
+          printf '%s\n' '.siton-cloud-task.md' '.siton-review-prompt.md' '.siton-review-1.txt' '.siton-review-2.txt' '.siton-fix-task.md' >> .git/info/exclude
+          node scripts/cloud_agent_manager.cjs packet .siton-cloud-task.md
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+          echo "head=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Claude builder
+        id: claude_build
+        if: steps.roles.outputs.builder == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: "Read .siton-cloud-task.md and execute the task completely. Follow the packet literally. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md."
+          claude_args: "--max-turns 24"
+          show_full_output: false
+
+      - name: Codex builder
+        id: codex_build
+        if: steps.roles.outputs.builder == 'codex'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          prompt-file: .siton-cloud-task.md
+          effort: high
+          safety-strategy: drop-sudo
+
+      - name: Enforce builder lifecycle and control-plane boundary
+        env:
+          EXPECTED_BRANCH: ${{ steps.task.outputs.branch }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Builder changed branch" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Builder committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
+          if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
+            echo "Builder modified the cloud-manager control plane or shared status" >&2
+            exit 1
+          fi
+
+      - name: Require intentional task diff
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          if [ -z "$(git status --porcelain --untracked-files=all)" ]; then
+            echo "Cloud builder produced no repository changes." >&2
+            exit 1
+          fi
+
+      - name: Canonical verification after build
+        run: node scripts/siton_verify.cjs
+
+      - name: Prepare read-only review
+        if: steps.roles.outputs.reviewer != 'none'
+        env:
+          BUILDER: ${{ steps.roles.outputs.builder }}
+          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const manager = require('./scripts/cloud_agent_manager.cjs');
+          fs.writeFileSync('.siton-review-prompt.md', manager.buildReviewerPrompt({
+            builder: process.env.BUILDER,
+            reviewer: process.env.REVIEWER,
+            baseRef: 'origin/master',
+          }));
+          NODE
+          git diff --binary HEAD > /tmp/siton-review-before.diff
+          git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-before.status
+
+      - name: Codex review pass 1
+        id: codex_review_1
+        if: steps.roles.outputs.reviewer == 'codex'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: .siton-review-prompt.md
+          output-file: .siton-review-1.txt
+          effort: high
+          safety-strategy: drop-sudo
+
+      - name: Claude review pass 1
+        id: claude_review_1
+        if: steps.roles.outputs.reviewer == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: "Read .siton-review-prompt.md and perform the review exactly as instructed. This is read-only. Do not edit any repository file."
+          claude_args: >-
+            --max-turns 12
+            --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
+            --disallowedTools Write Edit NotebookEdit
+          show_full_output: false
+
+      - name: Extract Claude review pass 1
+        if: steps.roles.outputs.reviewer == 'claude'
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_1.outputs.execution_file }}
+        run: node scripts/cloud_agent_manager.cjs extract-claude "$CLAUDE_EXECUTION_FILE" .siton-review-1.txt
+
+      - name: Enforce reviewer read-only contract
+        if: steps.roles.outputs.reviewer != 'none'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --binary HEAD > /tmp/siton-review-after.diff
+          git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-after.status
+          cmp /tmp/siton-review-before.diff /tmp/siton-review-after.diff
+          cmp /tmp/siton-review-before.status /tmp/siton-review-after.status
+
+      - name: Parse review pass 1
+        id: review1
+        if: steps.roles.outputs.reviewer != 'none'
+        run: node scripts/cloud_agent_manager.cjs review .siton-review-1.txt
+
+      - name: Prepare one bounded fix pass
+        if: steps.review1.outputs.needs_fix == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const packet = fs.readFileSync('.siton-cloud-task.md', 'utf8');
+          const review = fs.readFileSync('.siton-review-1.txt', 'utf8');
+          fs.writeFileSync('.siton-fix-task.md', `${packet}\n\n# REVIEW FINDINGS\n${review}\n\nFix only valid findings required for the original task. Do not broaden scope. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md.\n`);
+          NODE
+
+      - name: Claude bounded fix pass
+        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: "Read .siton-fix-task.md. Address the valid review findings within the original scope. This is the only automatic fix pass. Do not commit, push, merge, open a PR, or edit PROJECT_STATUS.md."
+          claude_args: "--max-turns 18"
+          show_full_output: false
+
+      - name: Codex bounded fix pass
+        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.builder == 'codex'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":workspace"
+          prompt-file: .siton-fix-task.md
+          effort: high
+          safety-strategy: drop-sudo
+
+      - name: Enforce fix-pass lifecycle and control-plane boundary
+        if: steps.review1.outputs.needs_fix == 'true'
+        env:
+          EXPECTED_BRANCH: ${{ steps.task.outputs.branch }}
+          EXPECTED_HEAD: ${{ steps.task.outputs.head }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git branch --show-current)" = "$EXPECTED_BRANCH" || { echo "Fix pass changed branch" >&2; exit 1; }
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD" || { echo "Fix pass committed or changed HEAD; Git lifecycle belongs to the manager" >&2; exit 1; }
+          protected='^(\.github/workflows/|scripts/cloud_agent_manager\.cjs$|AGENTS\.md$|AI_WORKFLOW\.md$|PROJECT_STATUS\.md$)'
+          if git status --porcelain=v1 --untracked-files=all | sed -E 's/^.. //' | grep -E "$protected"; then
+            echo "Fix pass modified the cloud-manager control plane or shared status" >&2
+            exit 1
+          fi
+
+      - name: Re-verify after bounded fix
+        if: steps.review1.outputs.needs_fix == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check
+          node scripts/siton_verify.cjs
+          git diff --binary HEAD > /tmp/siton-review-before-2.diff
+          git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-before-2.status
+
+      - name: Codex review pass 2
+        id: codex_review_2
+        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'codex'
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          permission-profile: ":read-only"
+          prompt-file: .siton-review-prompt.md
+          output-file: .siton-review-2.txt
+          effort: high
+          safety-strategy: drop-sudo
+
+      - name: Claude review pass 2
+        id: claude_review_2
+        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: "Re-read .siton-review-prompt.md and review the current diff after the bounded fix pass. Return the required verdict marker. Do not edit any repository file."
+          claude_args: >-
+            --max-turns 12
+            --allowedTools Read Grep Glob "Bash(git diff:*)" "Bash(git status:*)" "Bash(git log:*)" "Bash(git show:*)"
+            --disallowedTools Write Edit NotebookEdit
+          show_full_output: false
+
+      - name: Extract Claude review pass 2
+        if: steps.review1.outputs.needs_fix == 'true' && steps.roles.outputs.reviewer == 'claude'
+        env:
+          CLAUDE_EXECUTION_FILE: ${{ steps.claude_review_2.outputs.execution_file }}
+        run: node scripts/cloud_agent_manager.cjs extract-claude "$CLAUDE_EXECUTION_FILE" .siton-review-2.txt
+
+      - name: Enforce second reviewer read-only contract
+        if: steps.review1.outputs.needs_fix == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --binary HEAD > /tmp/siton-review-after-2.diff
+          git status --porcelain=v1 --untracked-files=all > /tmp/siton-review-after-2.status
+          cmp /tmp/siton-review-before-2.diff /tmp/siton-review-after-2.diff
+          cmp /tmp/siton-review-before-2.status /tmp/siton-review-after-2.status
+
+      - name: Select final review verdict
+        id: final_review
+        env:
+          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+          NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$REVIEWER" = "none" ]; then
+            echo "verdict=NOT_RUN" >> "$GITHUB_OUTPUT"
+            echo "needs_fix=false" >> "$GITHUB_OUTPUT"
+          elif [ "$NEEDED_FIX" = "true" ]; then
+            node scripts/cloud_agent_manager.cjs review .siton-review-2.txt
+          else
+            node scripts/cloud_agent_manager.cjs review .siton-review-1.txt
+          fi
+
+      - name: Update project status and final diff checks
+        env:
+          STATUS_BRANCH: ${{ steps.task.outputs.branch }}
+          STATUS_BUILDER: ${{ steps.roles.outputs.builder }}
+          STATUS_REVIEWER: ${{ steps.roles.outputs.reviewer }}
+          STATUS_COMPLETED: "Cloud-managed task executed on a GitHub-hosted runner; builder completed the task and the manager performed canonical verification."
+          STATUS_TESTED: "git diff --check and node scripts/siton_verify.cjs passed on a disposable local PostgreSQL service in GitHub Actions."
+          STATUS_OPEN: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && 'Final review still requires changes after the single bounded fix pass; PR will remain draft for follow-up.' || 'No manager-side blocker remains; merge remains owner-controlled and repository CI remains authoritative.' }}
+          STATUS_PERCENTAGE: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && '80%' || '95% pending PR merge' }}
+          STATUS_NEXT: ${{ steps.final_review.outputs.verdict == 'CHANGES_REQUIRED' && 'Address final reviewer findings in a fresh bounded run; do not loop automatically.' || 'Open PR, let repository CI run, then merge only when required checks are green.' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/cloud_agent_manager.cjs status PROJECT_STATUS.md
+          git diff --check
+
+      - name: Commit and push managed branch
+        env:
+          BRANCH: ${{ steps.task.outputs.branch }}
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No staged changes after managed task." >&2
+            exit 1
+          fi
+          git commit -m "agent(cloud): managed run ${GITHUB_RUN_ID}"
+          gh auth setup-git
+          git push -u origin "$BRANCH"
+
+      - name: Open Pull Request
+        id: pr
+        env:
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+          BRANCH: ${{ steps.task.outputs.branch }}
+          BUILDER: ${{ steps.roles.outputs.builder }}
+          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+          INDEPENDENT_REVIEW: ${{ steps.roles.outputs.independent_review }}
+          VERDICT: ${{ steps.final_review.outputs.verdict }}
+          SITON_TASK: ${{ github.event_name == 'workflow_dispatch' && inputs.task || format('{0}\n\n{1}', github.event.issue.title, github.event.issue.body) }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const task = String(process.env.SITON_TASK || '').trim().slice(0, 3000);
+          fs.writeFileSync('/tmp/cloud-pr-body.md', `Cloud Agent Manager run ${process.env.GITHUB_RUN_ID}\n\nBuilder: ${process.env.BUILDER}\nReviewer: ${process.env.REVIEWER}\nIndependent review: ${process.env.INDEPENDENT_REVIEW}\nFinal reviewer verdict: ${process.env.VERDICT}\n\nTask\n${task}\n\nVerification\n- git diff --check: PASS\n- canonical siton_verify: PASS\n- real money: 0\n- Grow: untouched\n- auto-merge: disabled\n`);
+          NODE
+          draft_arg=""
+          if [ "$VERDICT" = "CHANGES_REQUIRED" ] || [ "$VERDICT" = "INVALID" ]; then draft_arg="--draft"; fi
+          pr_url=$(gh pr create --base master --head "$BRANCH" --title "Cloud agent manager run ${GITHUB_RUN_ID}" --body-file /tmp/cloud-pr-body.md $draft_arg)
+          echo "url=$pr_url" >> "$GITHUB_OUTPUT"
+          echo "CLOUD_AGENT_PR=$pr_url"
+
+      - name: Attach reviewer evidence to PR
+        if: steps.roles.outputs.reviewer != 'none'
+        env:
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          NEEDED_FIX: ${{ steps.review1.outputs.needs_fix }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          review_file=.siton-review-1.txt
+          if [ "$NEEDED_FIX" = "true" ] && [ -f .siton-review-2.txt ]; then review_file=.siton-review-2.txt; fi
+          gh pr comment "$PR_URL" --body-file "$review_file"
+
+      - name: Report result to owner issue
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ secrets.SITON_AGENT_GITHUB_TOKEN }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          PR_URL: ${{ steps.pr.outputs.url }}
+          VERDICT: ${{ steps.final_review.outputs.verdict }}
+          BUILDER: ${{ steps.roles.outputs.builder }}
+          REVIEWER: ${{ steps.roles.outputs.reviewer }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf 'Cloud Agent Manager completed this run.\n\nBuilder: %s\nReviewer: %s\nFinal verdict: %s\nPR: %s\n\nNo auto-merge was performed.\n' "$BUILDER" "$REVIEWER" "$VERDICT" "$PR_URL" > /tmp/cloud-issue-result.md
+          gh issue comment "$ISSUE_NUMBER" --body-file /tmp/cloud-issue-result.md
