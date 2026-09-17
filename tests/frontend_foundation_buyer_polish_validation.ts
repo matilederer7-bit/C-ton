@@ -24,7 +24,7 @@ function run(name: string, fn: () => void) {
   catch (e: any) { console.error(`FAIL ${name}: ${e.message}`); failed++; }
 }
 
-const [dealPage, trackPage, landingPage, landingHe, appTsx, components, feedback, buyerCopy, he, styles, runtime, adminPage, viral] = await Promise.all([
+const [dealPage, trackPage, landingPage, landingHe, appTsx, components, feedback, buyerCopy, he, styles, runtime, adminPage, viral, mobileUrls] = await Promise.all([
   readFile("web/src/pages/deal.tsx", "utf8"),
   readFile("web/src/pages/track.tsx", "utf8"),
   readFile("web/src/pages/landing.tsx", "utf8"),
@@ -37,7 +37,8 @@ const [dealPage, trackPage, landingPage, landingHe, appTsx, components, feedback
   readFile("web/src/styles.css", "utf8"),
   readFile("src/frontend_runtime.ts", "utf8"),
   readFile("web/src/pages/admin.tsx", "utf8"),
-  readFile("web/src/viral.ts", "utf8")
+  readFile("web/src/viral.ts", "utf8"),
+  readFile("web/src/mobileUrls.ts", "utf8")
 ]);
 
 run("P1: the deal page answers WHAT/WHY/WHAT-IF at the top and the needed/deadline facts from canonical fields", () => {
@@ -178,7 +179,10 @@ run("P4/P7: tracking page — what still has to happen, deadline in Israel time,
 });
 
 run("P5: share loop — canonical /d/:id URL with the personal code, messaging channel leads in loop layout, exactly ONE copy control, every share tracked", () => {
-  assert.match(viral, /return `\$\{window\.location\.origin\}\/d\/\$\{dealId\}\$\{ref\}`;/);
+  // the canonical /d/:id share URL on the PUBLIC host: same-origin on the web,
+  // the configured HTTPS link host inside the native shells (web/src/mobileUrls.ts)
+  assert.match(viral, /return `\$\{publicWebOrigin\(\)\}\/d\/\$\{dealId\}\$\{ref\}`;/);
+  assert.match(mobileUrls, /if \(!runtime\.Capacitor\?\.isNativePlatform\?\.\(\)\) return window\.location\.origin;/, "ordinary web builds keep the same-origin share URL");
   assert.match(components, /const loop = props\.layout === "loop";/);
   assert.match(components, /data-testid="share-whatsapp" href=\{whatsappHref\}[^>]*\n?\s*onClick=\{\(\) => track\("whatsapp"\)\}/);
   assert.match(components, /\.\.\.\(loop \? \[\] : \[\{ key: "whatsapp"/, "the lead channel is not duplicated in the icon row");

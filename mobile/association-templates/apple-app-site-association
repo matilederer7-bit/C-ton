@@ -1,0 +1,14 @@
+{
+  "applinks": {
+    "apps": [],
+    "details": [
+      {
+        "appID": "REPLACE_TEAM_ID.REPLACE_BUNDLE_ID",
+        "paths": [
+          "/preview/",
+          "/d/*"
+        ]
+      }
+    ]
+  }
+}

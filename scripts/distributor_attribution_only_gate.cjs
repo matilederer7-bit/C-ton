@@ -66,12 +66,36 @@ const SQL_ADD_FINANCIAL_COLUMN = new RegExp(
   'i'
 );
 
+// An own-property check that is explicitly negated proves a forbidden money
+// field is absent from a runtime payload. The asserted property name is the
+// only place the forbidden identifier may appear on such a line.
+const ABSENCE_ASSERTION =
+  /!\s*(?:Object\.hasOwn|Object\.prototype\.hasOwnProperty\.call)\(\s*[A-Za-z0-9_.$[\]]+\s*,\s*(['"])([A-Za-z0-9_]+)\1\s*\)/g;
+
+function isAbsenceAssertion(line) {
+  const assertedNames = new Set();
+  ABSENCE_ASSERTION.lastIndex = 0;
+  let match;
+  while ((match = ABSENCE_ASSERTION.exec(line)) !== null) assertedNames.add(match[2]);
+  if (assertedNames.size === 0) return false;
+
+  // Remove the asserted property names. Anything forbidden still left on the
+  // line is a real reference riding along with the assertion, not a proof.
+  let remainder = line;
+  for (const name of assertedNames) remainder = remainder.split(name).join('');
+  return !FORBIDDEN_PATTERNS.some((pattern) => pattern.test(remainder));
+}
+
 function isAllowedNegativeReference(relative, line) {
   if (NEGATIVE_REFERENCE_PATHS.has(relative)) return true;
 
   // Mission control may expose a literal safety assertion that the forbidden
   // model is absent. Only the exact false-valued assertion is allowed.
   if (/^\s*distributor_commission_present\s*:\s*false\s*,?\s*$/.test(line)) return true;
+
+  // Scenario and readiness scripts may assert that a legacy money field is not
+  // present on a computed payload. Only the negated own-property form counts.
+  if (isAbsenceAssertion(line)) return true;
 
   return false;
 }
@@ -186,7 +210,9 @@ function runSelfTest() {
         'const distributorAttributionGross = 1250;',
         'const affiliateClicks = 42;',
         'const sitonCommissionRate = 0.08;',
-        'distributor_commission_present: false,'
+        'distributor_commission_present: false,',
+        "assert.ok(!Object.hasOwn(money, 'affiliate_fee_amount'));",
+        'assert.ok(!Object.prototype.hasOwnProperty.call(summary, "distributor_payout_amount"));'
       ].join('\n')
     );
 
@@ -219,7 +245,9 @@ function runSelfTest() {
       [
         'const distributorCommissionRate = 0.05;',
         'const affiliatePayoutBalance = 100;',
-        'distributor_commission_present: true,'
+        'distributor_commission_present: true,',
+        // An absence assertion must not launder a real reference on the same line.
+        "const affiliateFeeRate = 0.05; assert.ok(!Object.hasOwn(money, 'affiliate_fee_amount'));"
       ].join('\n')
     );
 
@@ -237,7 +265,7 @@ function runSelfTest() {
     const multilineSqlFinding = findings.some((finding) =>
       finding.file.endsWith('999_reintroduce_distributor_money.sql')
     );
-    if (runtimeFindings.length !== 3 || !multilineSqlFinding) {
+    if (runtimeFindings.length !== 4 || !multilineSqlFinding) {
       throw new Error(`self-test failed to detect runtime or multiline SQL financial distributor model: ${JSON.stringify(findings)}`);
     }
 

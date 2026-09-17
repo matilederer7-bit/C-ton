@@ -53,6 +53,19 @@ const EXCLUDED_DIR_NAMES = Object.freeze([
 // temporary QA/review directories, generated scratch directories).
 const EXCLUDED_DIR_PREFIXES = Object.freeze([".tmp", ".worktree", ".review", ".scratch"]);
 
+// Repository-relative directory PATHS excluded. `mobile:sync` (Capacitor) copies
+// the built web bundle verbatim into the native shells, so these trees are
+// generated output whose source already lives under web/. A scanner that walks
+// them reports findings against minified vendor code — the payment scan matched
+// the raw-card term "pan" inside a bundled `zoomAndPan` identifier — and makes
+// its own result depend on whether a mobile build ran first in the same
+// workspace. Named by full path, so a real `public/` source directory elsewhere
+// stays scanned.
+const EXCLUDED_DIR_PATHS = Object.freeze([
+  "android/app/src/main/assets/public",
+  "ios/App/App/public"
+]);
+
 // File name patterns that are never canonical source: logs, review artefacts,
 // generated binaries, dumps, local env files.
 const EXCLUDED_FILE_PATTERNS = Object.freeze([
@@ -76,6 +89,14 @@ function isExcludedDirName(name) {
 
 function isExcludedFileName(name) {
   return EXCLUDED_FILE_PATTERNS.some((pattern) => pattern.test(name));
+}
+
+// True when a repository-relative directory path is, or lies inside, one of the
+// generated trees named by full path above.
+function isExcludedDirPath(relDir) {
+  const posix = toPosix(relDir);
+  if (!posix || posix === ".") return false;
+  return EXCLUDED_DIR_PATHS.some((excluded) => posix === excluded || posix.startsWith(excluded + "/"));
 }
 
 // Repository-relative paths are normalised on BOTH separators on every
@@ -102,6 +123,7 @@ function isCanonicalSourcePath(rel) {
   for (const segment of segments.slice(0, -1)) {
     if (isExcludedDirName(segment)) return false;
   }
+  if (isExcludedDirPath(segments.slice(0, -1).join("/"))) return false;
   if (isExcludedFileName(fileName)) return false;
   return true;
 }
@@ -133,6 +155,7 @@ function walkRepository(root, options = {}) {
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         if (isExcludedDirName(entry.name) || extra.has(entry.name)) continue;
+        if (isExcludedDirPath(path.relative(root, abs))) continue;
         visit(abs);
         continue;
       }
@@ -152,6 +175,7 @@ function walkRepository(root, options = {}) {
     // ".worktrees") is refused rather than silently walked.
     const relRoot = toPosix(path.relative(root, dir));
     if (relRoot && relRoot.split("/").some((segment) => isExcludedDirName(segment))) continue;
+    if (isExcludedDirPath(relRoot)) continue;
     visit(dir);
   }
   out.sort((left, right) => left.rel.localeCompare(right.rel));
@@ -162,6 +186,7 @@ function describePolicy() {
   return {
     excluded_dir_names: [...EXCLUDED_DIR_NAMES],
     excluded_dir_prefixes: [...EXCLUDED_DIR_PREFIXES],
+    excluded_dir_paths: [...EXCLUDED_DIR_PATHS],
     excluded_file_patterns: EXCLUDED_FILE_PATTERNS.map((pattern) => pattern.source),
     always_scanned_examples: ["src", "tests", "tests/lab", "scripts", "supabase", "legacy", "frontend", "web/src", "config", "docs"]
   };
@@ -170,10 +195,12 @@ function describePolicy() {
 module.exports = {
   EXCLUDED_DIR_NAMES,
   EXCLUDED_DIR_PREFIXES,
+  EXCLUDED_DIR_PATHS,
   EXCLUDED_FILE_PATTERNS,
   SOURCE_EXTENSIONS,
   CODE_EXTENSIONS,
   isExcludedDirName,
+  isExcludedDirPath,
   isExcludedFileName,
   isCanonicalSourcePath,
   walkRepository,

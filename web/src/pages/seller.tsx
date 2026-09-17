@@ -38,8 +38,11 @@ import { DealPage } from "./deal";
 import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./sellerInquiries";
 // LAUNCH SPRINT 3 — physical pickup handoff (scanner + per-deal fulfillment list)
 import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
+// Product catalog (072) — seller Product Library + create-a-Deal-from-a-Product
+import { SellerProductCreatePage, SellerProductLibraryPage, SellerProductPage } from "./sellerProducts";
+import { deliveryEstimateText, validateEstimateRange } from "../productLibrary";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
-import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
+import { PICKUP_PRECISION_COPY, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupPrecision } from "../../../src/pickup_location";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -311,6 +314,8 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
           <a className="btn btn-sm btn-ghost" href="#/seller/receipts">מימוש רכישות</a>
           <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>🏢 פרופיל עסקי</button>
+          {/* 071 — Product Library: reusable products the seller creates deals from */}
+          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>📦 ספריית המוצרים</button>
           {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
           <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
@@ -467,8 +472,17 @@ function validateDeadline(date: string, time: string): { iso: string | null; err
 
 // ── create wizard — saves a Draft and lands INSIDE the deal (P0.2-G) ───────
 const WIZARD_STEPS = ["פרטי העסקה", "כמויות", "אספקה / מימוש", "מועד סיום", "סיכום ושמירה"];
+// 071 — ISO → the value a datetime-local input expects (local wall clock)
+function toWizardLocalDateTime(iso: unknown): string {
+  const ms = Date.parse(String(iso || ""));
+  if (!Number.isFinite(ms)) return "";
+  const d = new Date(ms);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 type WizardDealType = "physical_product" | "voucher" | "ticket";
-type DeliveryDraft = { option_type: string; label: string; cost: string; latitude: number | null; longitude: number | null };
+// 071 — est_min/est_max: optional fulfillment estimate (business days from Deal completion)
+type DeliveryDraft = { option_type: string; label: string; cost: string; latitude: number | null; longitude: number | null; est_min: string; est_max: string };
 
 // P0.6A — pickup GPS with the bounded explicit-click strategy (web/src/geo.ts).
 // Location is requested ONLY on the seller's click (never on load, never
@@ -592,7 +606,47 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
   );
 }
 
-function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
+// 071 — optional fulfillment estimate on a delivery option (business days from
+// Deal completion). Required at publish time only for Product-backed Deals.
+function estimateTextFor(row: DeliveryDraft): string | null {
+  return deliveryEstimateText({
+    estimated_min_business_days: row.est_min.trim() ? Number(row.est_min) : null,
+    estimated_max_business_days: row.est_max.trim() ? Number(row.est_max) : null
+  });
+}
+function DeliveryEstimateInputs({ row, index, onChange, error }: { row: DeliveryDraft; index: number; onChange: (min: string, max: string) => void; error?: string }) {
+  const preview = estimateTextFor(row);
+  return (
+    <div className="field" style={{ marginBottom: 8 }} data-testid={`delivery-estimate-${index}`}>
+      <label>זמן אספקה משוער <span className="hint">(ימי עסקים מהשלמת העסקה — לא חובה)</span></label>
+      <div className="row" style={{ alignItems: "center", gap: 8 }}>
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_min} aria-label="מינימום ימי עסקים" data-testid={`delivery-est-min-${index}`} onChange={(e) => onChange(e.target.value, row.est_max)} />
+        <span>עד</span>
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_max} aria-label="מקסימום ימי עסקים" data-testid={`delivery-est-max-${index}`} onChange={(e) => onChange(row.est_min, e.target.value)} />
+        {preview ? <span className="muted small">יוצג לקונים: {preview}</span> : null}
+      </div>
+      <FieldError msg={error} />
+    </div>
+  );
+}
+
+function deliveryEstimatePayload(row: DeliveryDraft): { estimated_min_business_days?: number; estimated_max_business_days?: number } {
+  return {
+    ...(row.est_min.trim() ? { estimated_min_business_days: Number(row.est_min) } : {}),
+    ...(row.est_max.trim() ? { estimated_max_business_days: Number(row.est_max) } : {})
+  };
+}
+
+function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; productId?: string | null }) {
+  // 071 — a Deal created FROM a Product: the Product owns name, copy, type and
+  // typed attributes (frozen server-side into the Deal snapshot); the wizard
+  // only asks for what the DEAL decides — price, quantities, delivery, deadline.
+  const [product, setProduct] = useState<Json | null>(null);
+  const [productError, setProductError] = useState("");
+  const productEstDefaults = {
+    min: product?.fulfillment_defaults?.estimated_min_business_days == null ? "" : String(product.fulfillment_defaults.estimated_min_business_days),
+    max: product?.fulfillment_defaults?.estimated_max_business_days == null ? "" : String(product.fulfillment_defaults.estimated_max_business_days)
+  };
   const [receipt, setReceipt] = useState<ReceiptConfig>({ method: "qr", instructions: "", url: "" });
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
@@ -612,7 +666,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [maxUnits, setMaxUnits] = useState("50");
   // step 3
   const [delivery, setDelivery] = useState<DeliveryDraft[]>([
-    { option_type: "pickup", label: "", cost: "0", latitude: null, longitude: null }
+    { option_type: "pickup", label: "", cost: "0", latitude: null, longitude: null, est_min: "", est_max: "" }
   ]);
   const [voucherFaceValue, setVoucherFaceValue] = useState("");
   const [voucherValidUntil, setVoucherValidUntil] = useState("");
@@ -633,6 +687,42 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const [deadlineDate, setDeadlineDate] = useState("");
   const [deadlineTime, setDeadlineTime] = useState("18:00");
 
+  useEffect(() => {
+    if (!productId) return;
+    let alive = true;
+    api.sellerProduct(productId).then((r) => {
+      if (!alive) return;
+      const p = r.product as Json;
+      if (String(p.status) !== "active") { setProductError("המוצר נמצא בארכיון — שחזרו אותו מספריית המוצרים לפני יצירת עסקה."); return; }
+      setProduct(p);
+      const type = String(p.product_type || "physical_product") as WizardDealType;
+      setDealType(type);
+      setTitle(String(p.name || ""));
+      setShortDesc(String(p.short_description || ""));
+      setLongDesc(String(p.long_description || ""));
+      const attrs = (p.type_attributes || {}) as Json;
+      if (type === "voucher") {
+        setRedemptionLocation(String(attrs.redemption_location || ""));
+        setRedemptionInstructions(String(attrs.redemption_instructions || ""));
+        setVoucherTerms(String(attrs.usage_restrictions || ""));
+        if (attrs.valid_until) setVoucherValidUntil(String(attrs.valid_until).slice(0, 10));
+      }
+      if (type === "ticket") {
+        setEventName(String(attrs.event_name || ""));
+        if (attrs.event_starts_at) setEventStartsAt(toWizardLocalDateTime(attrs.event_starts_at));
+        if (attrs.event_ends_at) setEventEndsAt(toWizardLocalDateTime(attrs.event_ends_at));
+        setVenueName(String(attrs.venue_name || "")); setVenueAddress(String(attrs.venue_address || "")); setVenueCity(String(attrs.venue_city || ""));
+        setEntryInstructions(String(attrs.entry_instructions || ""));
+      }
+      const d = (p.fulfillment_defaults || {}) as Json;
+      const min = d.estimated_min_business_days == null ? "" : String(d.estimated_min_business_days);
+      const max = d.estimated_max_business_days == null ? "" : String(d.estimated_max_business_days);
+      setDelivery((rows) => rows.map((row) => ({ ...row, est_min: row.est_min || min, est_max: row.est_max || max })));
+    }).catch((e) => { if (alive) setProductError(e.message || "לא ניתן לטעון את המוצר"); });
+    return () => { alive = false; };
+  }, [productId]);
+  const productImages: Json[] = product?.images || [];
+
   const priceNum = Number(price);
   const minNum = Math.max(1, Number(minUnits) || 0);
   const maxNum = Number(maxUnits) || 0;
@@ -645,11 +735,12 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
   const validateStep = (s: number): Record<string, string> => {
     const errs: Record<string, string> = {};
     if (s === 0) {
-      if (!title.trim()) errs.title = "יש להזין שם לעסקה";
-      if (!shortDesc.trim()) errs.short = "יש להזין תיאור קצר — המשפט שמוכר את העסקה";
+      if (productId && !product) errs.product = productError || "ממתינים לטעינת המוצר";
+      if (!product && !title.trim()) errs.title = "יש להזין שם לעסקה";
+      if (!product && !shortDesc.trim()) errs.short = "יש להזין תיאור קצר — המשפט שמוכר את העסקה";
       if (!(priceNum > 0)) errs.price = "יש להזין מחיר ליחידה";
       if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = "המחיר הרגיל חייב להיות גבוה מהמחיר הקבוצתי (או להישאר ריק)";
-      if (images.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
+      if (images.length === 0 && productImages.length === 0) errs.images = "יש להעלות לפחות תמונה אחת";
     }
     if (s === 1) {
       if (!isPositiveIntegerText(minUnits)) errs.min = "יש להזין כמות מינימום";
@@ -679,6 +770,14 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
       if (configured.some((d) => !hasUsablePickupLocation(d))) {
         errs.delivery = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום (או ללחוץ על ״השתמש במיקום שלי״)";
       }
+    }
+    if (s === 2 && dealType === "physical_product") {
+      delivery.forEach((d, i) => {
+        if (!d.label.trim()) return;
+        const estError = validateEstimateRange(d.est_min, d.est_max);
+        if (estError) errs[`delivery-estimate-${i}`] = estError;
+        else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = "לעסקה שנוצרת ממוצר יש להזין זמן אספקה משוער (מינימום ומקסימום) לכל אפשרות";
+      });
     }
     if (s === 2 && receipt.method === "instructions" && !receipt.instructions.trim()) errs.receipt = "יש להזין הוראות מימוש";
     if (s === 2 && receipt.method === "digital_link") {
@@ -746,10 +845,13 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
           .filter((d) => d.label.trim())
           .map((d, i) => ({
             option_type: d.option_type, label: d.label.trim(), cost: Math.max(0, Number(d.cost) || 0), sort_order: i,
-            ...(d.latitude != null && d.longitude != null ? { latitude: d.latitude, longitude: d.longitude } : {})
+            ...(d.latitude != null && d.longitude != null ? { latitude: d.latitude, longitude: d.longitude } : {}),
+            ...deliveryEstimatePayload(d)
           }))
       };
       const created = await api.createDeal({
+        // 071 — the server takes name/copy/type from the Product snapshot when product_id is set
+        ...(product ? { product_id: String(product.product_id) } : {}),
         title: title.trim(),
         description: longDesc.trim(),
         description_short: shortDesc.trim(),
@@ -809,9 +911,21 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
           ))}
         </div>
 
+        {step === 0 && productId ? (
+          productError ? <div className="notice err" data-testid="wizard-product-error">{productError} <a href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>לספריית המוצרים</a></div>
+          : !product ? <div className="notice info">טוענים את המוצר…</div>
+          : (
+            <div className="notice info product-locked-summary" data-testid="wizard-product-summary">
+              <b>עסקה מהמוצר: {product.name}</b> · {dealTypeLabel(String(product.product_type))} · גרסה {num(product.revision || 1)}
+              <div className="small muted" style={{ marginTop: 4 }}>{product.short_description}</div>
+              <div className="small muted" style={{ marginTop: 4 }}>השם, התיאור והסוג מגיעים מספריית המוצרים ומוקפאים בעסקה. לשינוי — ערכו את המוצר ואז צרו את העסקה מחדש. <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>למוצר</a></div>
+              {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{num(productImages.length)} תמונות המוצר יועתקו לעסקה; אפשר להוסיף תמונות נוספות למטה.</div> : null}
+            </div>
+          )
+        ) : null}
         {step === 0 ? (
           <>
-            <div className="field">
+            {!productId ? <div className="field">
               <label htmlFor="deal-type">סוג העסקה</label>
               <select id="deal-type" data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
                 <option value="physical_product">מוצר פיזי</option>
@@ -819,8 +933,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                 <option value="ticket">כרטיס לאירוע</option>
               </select>
               <span className="hint">השלב הבא יבקש רק את פרטי האספקה או המימוש שמתאימים לסוג שנבחר.</span>
-            </div>
-            <div className="field">
+            </div> : null}
+            {!productId ? <><div className="field">
               <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
               <input {...attention(errors, "title")} data-testid="deal-title" value={title}
                 onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder="למשל: מארז זיתי סורי 5 ק״ג" />
@@ -836,7 +950,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
               <label htmlFor="f-long">תיאור מלא <span className="hint">(לא חובה — כל מה שחשוב לקונים, מופיע בהמשך דף העסקה)</span></label>
               <textarea {...attention(errors, "long")} data-testid="deal-long" rows={6} value={longDesc} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000}
                 placeholder="מה בדיוק מקבלים, איך זה מגיע, למה זה משתלם…" />
-            </div>
+            </div></> : null}
             <div className="field">
               <label htmlFor="f-price">מחיר ליחידה (₪) <span className="req">*</span></label>
               <input {...attention(errors, "price")} data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5"
@@ -854,7 +968,7 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                 : null}
             </div>
             <div {...attentionBlock(errors, "images", "field")}>
-              <label>תמונות (עד 12) <span className="req">*</span></label>
+              <label>תמונות (עד 12) {productImages.length ? <span className="hint">(לא חובה — {num(productImages.length)} תמונות מגיעות מהמוצר)</span> : <span className="req">*</span>}</label>
               <LocalImageManager images={images} onChange={setImages} />
               <FieldError msg={errors.images} />
             </div>
@@ -917,9 +1031,10 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
                   {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
                 </div>
                 <LocationCapture row={d} onSet={(lat, lng) => setDelivery(delivery.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
+                <DeliveryEstimateInputs row={d} index={i} error={errors[`delivery-estimate-${i}`]} onChange={(min, max) => setDelivery(delivery.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
               </React.Fragment>
             ))}
-            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null }])}>+ הוספת אפשרות</button> : null}
+            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>+ הוספת אפשרות</button> : null}
             </> : null}
 
             {dealType === "voucher" ? <>
@@ -1034,7 +1149,8 @@ function CreateWizard({ navigate }: { navigate: (h: string) => void }) {
               <span className="k">מקסימום (מלאי)</span><span className="v">{num(maxNum)} יחידות</span>
               <span className="k">סף הצלחה (90%)</span><span className="v">{num(threshold)} יחידות מחויבות</span>
               <span className="k">מועד סיום</span><span className="v">{deadlineCheck.iso ? formatIsraelDateTime(deadlineCheck.iso) : "—"}</span>
-              {dealType === "physical_product" ? <><span className="k">אספקה</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => d.label).join(" · ")}</span></> : null}
+              {product ? <><span className="k">מוצר</span><span className="v">{product.name} (גרסה {num(product.revision || 1)})</span></> : null}
+              {dealType === "physical_product" ? <><span className="k">אספקה</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => `${d.label}${estimateTextFor(d) ? ` (${estimateTextFor(d)})` : ""}`).join(" · ")}</span></> : null}
               {dealType === "voucher" ? <>
                 <span className="k">שווי שובר</span><span className="v">{ils(Number(voucherFaceValue))}</span>
                 <span className="k">מימוש</span><span className="v">{redemptionLocation}</span>
@@ -1163,9 +1279,8 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     setBusy(true);
     try {
       await api.updateDraft(String(deal.deal_id), {
-        title: title.trim(),
-        description: longDesc.trim(),
-        description_short: shortDesc.trim(),
+        // 071 — a Product-backed Draft's name/copy are snapshot-owned (server 409s on them)
+        ...(deal.product_id ? {} : { title: title.trim(), description: longDesc.trim(), description_short: shortDesc.trim() }),
         price_per_unit: Number(price),
         list_price_per_unit: listPrice.trim() ? Number(listPrice) : null,
         min_units: minN,
@@ -1220,16 +1335,17 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
       <div className="panel-title">עריכת פרטי העסקה</div>
       <div className="field">
         <label htmlFor="f-title">שם העסקה <span className="req">*</span></label>
-        <input {...attention(errors, "title")} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+        <input {...attention(errors, "title")} value={title} disabled={Boolean(deal.product_id)} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
+        {deal.product_id ? <span className="hint" data-testid="draft-product-locked">השם והתיאור מגיעים מהמוצר בספרייה ומוקפאים בעסקה.</span> : null}
         <FieldError msg={errors.title} />
       </div>
       <div className="field">
         <label>תיאור קצר <span className="hint">(עד 200 תווים)</span></label>
-        <input value={shortDesc} onChange={(e) => setShortDesc(e.target.value)} maxLength={200} />
+        <input value={shortDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setShortDesc(e.target.value)} maxLength={200} />
       </div>
       <div className="field">
         <label>תיאור מלא</label>
-        <textarea rows={6} value={longDesc} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000} />
+        <textarea rows={6} value={longDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000} />
       </div>
       <div className="field-row">
         <div className="field">
@@ -1336,6 +1452,12 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
     else if (String(deal.state) !== "Draft") rows.forEach((row, index) => {
       if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = "לאיסוף עצמי / נקודת חלוקה יש להזין כתובת או מיקום";
     });
+    rows.forEach((row, index) => {
+      if (!row.label.trim()) return;
+      const estError = validateEstimateRange(row.est_min, row.est_max);
+      if (estError) errors[`delivery-estimate-${index}`] = estError;
+      else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = "לעסקה שנוצרה ממוצר יש להזין זמן אספקה משוער (מינימום ומקסימום) לכל אפשרות";
+    });
     return errors;
   };
   useEffect(() => {
@@ -1361,7 +1483,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
       label: String(o.label || ""),
       cost: String(Number(o.cost || 0)),
       latitude: o.latitude == null ? null : Number(o.latitude),
-      longitude: o.longitude == null ? null : Number(o.longitude)
+      longitude: o.longitude == null ? null : Number(o.longitude),
+      est_min: o.estimated_min_business_days == null ? "" : String(o.estimated_min_business_days),
+      est_max: o.estimated_max_business_days == null ? "" : String(o.estimated_max_business_days)
     })));
     setError("");
     setEditing(true);
@@ -1379,7 +1503,8 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
       await api.updateDealDelivery(String(deal.deal_id), {
         delivery_options: clean.map((r, i) => ({
           option_type: r.option_type, label: r.label.trim(), cost: Math.max(0, Number(r.cost) || 0), sort_order: i,
-          ...(r.latitude != null && r.longitude != null ? { latitude: r.latitude, longitude: r.longitude } : {})
+          ...(r.latitude != null && r.longitude != null ? { latitude: r.latitude, longitude: r.longitude } : {}),
+          ...deliveryEstimatePayload(r)
         }))
       });
       showToast("אפשרויות האספקה נשמרו");
@@ -1420,13 +1545,16 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                     <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
                     {isPickupOptionType(o.option_type) ? (
                       hasUsablePickupLocation(o) ? (
-                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}</span>
+                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}
+                          <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {pickupPrecision(o) === "exact" ? "✓" : "⚠️"} {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
+                        </span>
                       ) : (
                         <span className="pickup-missing" data-testid="pickup-location-missing"> · ⚠️ חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
                       )
                     ) : null}
                   </span>
                   <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
+                  {deliveryEstimateText(o) ? <span className="muted small" data-testid="seller-delivery-estimate">⏱ {deliveryEstimateText(o)}</span> : null}
                   {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">הצגה במפה</a> : null}
                 </div>
               );
@@ -1463,11 +1591,12 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                 {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label="הסרה">✕</button> : null}
               </div>
               <LocationCapture row={d} onSet={(lat, lng) => setRows(rows.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
+              <DeliveryEstimateInputs row={d} index={i} error={fieldErrors[`delivery-estimate-${i}`]} onChange={(min, max) => setRows(rows.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
             </React.Fragment>
           ))}
           {rows.length < 5 ? (
             <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} style={{ alignSelf: "flex-start" }}
-              onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null }])}>
+              onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: "", est_max: "" }])}>
               + הוספת אפשרות
             </button>
           ) : null}
@@ -1479,6 +1608,43 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── 071 — Product association: which Product (and revision) this Deal froze,
+// or, for a Draft without a Product, the one-tap "save as Product" promotion.
+function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { deal: Json; isDraft: boolean; onChanged: () => void; showToast: (m: string) => void; navigate: (h: string) => void }) {
+  const [busy, setBusy] = useState(false);
+  const snapshot = deal.product_snapshot as Json | null;
+  if (deal.product_id) {
+    return (
+      <div className="panel" data-testid="product-link-panel" data-product-id={String(deal.product_id)}>
+        <div className="panel-title">המוצר בספרייה</div>
+        <p className="muted small" style={{ margin: 0 }}>
+          העסקה נוצרה מהמוצר <a href={`#/seller/products/${deal.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${deal.product_id}`); }}><b>{snapshot?.name || deal.title}</b></a>
+          {snapshot?.product_revision ? <> (גרסה {num(snapshot.product_revision)})</> : null}. השם, התיאור והסוג הוקפאו בעסקה ואינם ניתנים לעריכה כאן; עריכת המוצר יוצרת גרסה חדשה לעסקאות הבאות.
+        </p>
+      </div>
+    );
+  }
+  if (!isDraft) return null;
+  const promote = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const r = await api.promoteDealToProduct(String(deal.deal_id));
+      showToast("הטיוטה נשמרה כמוצר בספרייה");
+      onChanged();
+      if (r?.product?.product_id) navigate(`#/seller/products/${r.product.product_id}`);
+    } catch (e: any) { showToast(e.message || "השמירה כמוצר נכשלה"); }
+    setBusy(false);
+  };
+  return (
+    <div className="panel" data-testid="product-link-panel" data-product-id="">
+      <div className="panel-title">שמירה כמוצר בספרייה</div>
+      <p className="muted small">שמרו את הפרטים והתמונות של הטיוטה כמוצר לשימוש חוזר — העסקה הזו תוקפא על הגרסה הזו, ובעתיד תוכלו ליצור ממנו עסקאות נוספות בלחיצה.</p>
+      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? "שומרים…" : "📦 שמירה כמוצר"}</button>
     </div>
   );
 }
@@ -1873,6 +2039,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         showToast={showToast}
       />
       <TypeTermsPanel deal={deal} />
+      <ProductLinkPanel deal={deal} isDraft={isDraft} onChanged={load} showToast={showToast} navigate={navigate} />
       <ReceiptEditor dealId={dealId} state={String(deal.state)} />
 
       {isDraft ? (
@@ -2264,7 +2431,11 @@ export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: UR
   // QR lands here with ?code=…) + the per-deal "הזמנות למסירה" list
   if (sub[0] === "pickup") return <SellerPickupPage navigate={navigate} initialCode={query?.get("code") || null} />;
   if (sub[0] === "deal" && sub[1] && sub[2] === "fulfillment") return <SellerFulfillmentPage dealId={sub[1]} navigate={navigate} />;
-  if (sub[0] === "new") return <CreateWizard navigate={navigate} />;
+  if (sub[0] === "new") return <CreateWizard navigate={navigate} productId={query?.get("product") || null} />;
+  // 071 — Product Library
+  if (sub[0] === "products" && sub[1] === "new") return <SellerProductCreatePage navigate={navigate} />;
+  if (sub[0] === "products" && sub[1]) return <SellerProductPage productId={sub[1]} navigate={navigate} />;
+  if (sub[0] === "products") return <SellerProductLibraryPage navigate={navigate} />;
   if (sub[0] === "receipts") return <SellerReceipts initialCode={query?.get("code") || ""} />;
   if (sub[0] === "profile") return <><PublicProfileEditor /><BusinessProfilePage navigate={navigate} /></>;
   if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;

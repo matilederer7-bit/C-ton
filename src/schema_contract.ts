@@ -35,7 +35,7 @@ export const REQUIRED_TABLES = [
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
   "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
   "distribution_link_viewers", "distribution_link_viewer_grants", "distribution_link_viewer_sessions",
-  "distribution_link_viewer_login_attempts"
+  "distribution_link_viewer_login_attempts", "products", "product_images"
 ] as const;
 
 export const REQUIRED_MIGRATION_IDS = [
@@ -51,7 +51,6 @@ export async function assertDatabaseSchema(db: Db): Promise<void> {
       `SELECT migration_id, status FROM siton.migration_ledger ORDER BY position`
     );
   } catch (error) {
-    // Only SQLSTATE codes are surfaced: never connection details or identities.
     const code = typeof (error as { code?: unknown })?.code === "string"
       ? (error as { code: string }).code
       : "";

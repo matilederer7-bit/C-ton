@@ -15,7 +15,7 @@ import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessio
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, seller
 // payload, public payload): the buyer preview IS this page, so what a seller
 // previews is exactly what buyers see after publication.
-import { hasUsablePickupLocation, isPickupOptionType, pickupDirectionsUrl, pickupLocationText } from "../../../src/pickup_location";
+import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupNavigation, PICKUP_NAV_MODE_COPY, type PickupNavigation, type PickupPrecision } from "../../../src/pickup_location";
 // LAUNCH POLISH 2 — shared buyer copy (what/why/what-if, honesty lines) + the
 // one-question feedback surface.
 import { INQUIRY_PRIVACY_LINE, NOTIFICATIONS_OFF_LINE, PILOT_MOCK_MONEY_LINE, notificationsLine } from "../buyerCopy";
@@ -37,6 +37,10 @@ type DeliveryOption = {
   option_id: string; option_type: string; label: string; cost: number;
   latitude?: number | null; longitude?: number | null;
   location_text?: string | null; has_location?: boolean; map_url?: string | null;
+  // Sprint 4 A1 — server-projected navigation truth (coordinates or address search)
+  precision?: PickupPrecision; navigation?: PickupNavigation | null;
+  // 071 — optional fulfillment estimate projected by the server
+  estimated_min_business_days?: number | null; estimated_max_business_days?: number | null; estimate_text?: string | null;
 };
 
 const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
@@ -52,23 +56,36 @@ function deliveryOptionTitle(o: DeliveryOption): string {
 // option (address text, else "marked on the map" when only coordinates exist);
 // a legacy option without any location gets a neutral fallback — never an
 // invented address, never a seller-profile address.
+// ONE navigation renderer (Sprint 4 A1, ported from claude/launch-ux-cleanup):
+// Google Maps + Waze to the SAME truth — stored coordinates, or an address
+// search of the seller's real text — with the mode said out loud. A generic
+// label never becomes a navigation target.
+export function PickupNavActions({ navigation, testIdPrefix = "pickup-nav" }: { navigation: PickupNavigation | null | undefined; testIdPrefix?: string }) {
+  if (!navigation) return null;
+  return (
+    <span className="pickup-nav-actions" data-testid={`${testIdPrefix}-actions`} data-mode={navigation.mode}>
+      <a className="btn btn-ghost btn-sm" data-testid={testIdPrefix} href={navigation.google_maps_url} target="_blank" rel="noreferrer">🧭 Google Maps</a>
+      <a className="btn btn-ghost btn-sm" data-testid={`${testIdPrefix}-waze`} href={navigation.waze_url} target="_blank" rel="noreferrer">🚗 Waze</a>
+      <span className="muted small pickup-nav-mode" data-testid={`${testIdPrefix}-mode`}>{PICKUP_NAV_MODE_COPY[navigation.mode]}</span>
+    </span>
+  );
+}
+
 function PickupLocationLine({ option, showNav }: { option: DeliveryOption; showNav: boolean }) {
   if (!isPickupOptionType(option.option_type)) return null;
   const text = pickupLocationText(option);
-  const nav = pickupDirectionsUrl(option);
+  const navigation = option.navigation ?? pickupNavigation(option);
   const usable = hasUsablePickupLocation(option);
   return (
     <div className="pickup-location" data-testid="pickup-location" data-option-type={option.option_type} data-has-location={usable ? "1" : "0"}>
       {text ? (
         <span className="pickup-location-text" data-testid="pickup-location-text">📍 {text}</span>
-      ) : nav ? (
+      ) : navigation ? (
         <span className="pickup-location-text" data-testid="pickup-location-text">📍 נקודת האיסוף מסומנת במפה</span>
       ) : (
         <span className="pickup-location-text muted" data-testid="pickup-location-fallback">📍 המוכר טרם פרסם כתובת לנקודת האיסוף — אפשר לשאול דרך ״פנייה למוכר״</span>
       )}
-      {nav && showNav ? (
-        <a className="btn btn-ghost btn-sm" data-testid="pickup-nav" href={nav} target="_blank" rel="noreferrer">🧭 פתח במפה</a>
-      ) : null}
+      {showNav ? <PickupNavActions navigation={navigation} /> : null}
     </div>
   );
 }
@@ -1148,7 +1165,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                       <label className={`choice-card delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type} data-selected={o.option_id === deliveryId ? "1" : "0"}>
                         <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
                         <span className="choice-ind choice-dot" aria-hidden="true" />
-                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span></span>
+                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span>{o.estimate_text ? <span className="choice-sub muted small" data-testid="delivery-estimate">⏱ {o.estimate_text}</span> : null}</span>
                         <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : "חינם"}</span>
                       </label>
                       {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}

@@ -11,6 +11,11 @@ share, camera/photo selection, deep links, app lifecycle, network status,
 hosted-payment browser return, push registration, safe areas, launch assets,
 and encrypted pending-payment recovery.
 
+> **2026-09-17 update:** the native shells now package the canonical React `web/` app at
+> `/preview/` (see `docs/MOBILE_RELEASE_READINESS.md`, `docs/MOBILE_TECHNICAL_INVENTORY.md`).
+> The `/app` legacy frontend described below remains a separate web/PWA surface and is no
+> longer what `npm run mobile:build` packages.
+
 `/app` is the canonical public Siton Mall on web, PWA, Android, and iOS. It uses
 the same bounded public read API and the same canonical deal route as direct
 links. Mall filters and cards must remain touch-safe without horizontal

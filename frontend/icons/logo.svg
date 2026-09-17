@@ -1,7 +1,26 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
-  <title id="title">Siton</title>
-  <rect width="1024" height="1024" rx="224" fill="#0f766e"/>
-  <circle cx="512" cy="512" r="304" fill="#faf7f2"/>
-  <path d="M700 330c-49-47-112-72-188-72-142 0-254 108-254 254s112 254 254 254c78 0 143-25 194-76l-92-92c-26 25-59 38-99 38-70 0-124-52-124-124s54-124 124-124c38 0 70 12 96 35z" fill="#0f766e"/>
-  <path d="M585 451h202v122H585z" fill="#c65a1e"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">C-ton</title>
+  <desc id="description">Dark graphite C mark with a vivid orange bar</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2b2d31"/>
+      <stop offset=".5" stop-color="#151619"/>
+      <stop offset="1" stop-color="#0b0c0e"/>
+    </linearGradient>
+    <linearGradient id="graphite" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b5e64"/>
+      <stop offset=".52" stop-color="#303237"/>
+      <stop offset="1" stop-color="#18191c"/>
+    </linearGradient>
+    <linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ff8a2a"/>
+      <stop offset="1" stop-color="#f06000"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="30" stdDeviation="28" flood-color="#000" flood-opacity=".65"/>
+    </filter>
+  </defs>
+  <rect width="1024" height="1024" rx="224" fill="url(#background)"/>
+  <path d="M720 310c-56-54-127-82-213-82-161 0-288 123-288 288s127 288 288 288c88 0 162-29 220-86L623 614c-30 29-67 43-112 43-80 0-141-59-141-141s61-141 141-141c43 0 79 14 109 40z" fill="url(#graphite)" stroke="#74777d" stroke-width="4" filter="url(#shadow)"/>
+  <path d="M590 446h232v138H590z" rx="8" fill="url(#orange)" stroke="#ff9a4f" stroke-width="4" filter="url(#shadow)"/>
 </svg>

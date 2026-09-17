@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
+// Sprint 4 A1 — the ONE pickup navigation renderer (Google Maps + Waze)
+import { PickupNavActions } from "./pages/deal";
 import { containDialogFocus } from "./dialogFocus";
 import { Json } from "./api";
 import { QrCode } from "./qrcode";
@@ -99,7 +101,9 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
               <span className="k">נקודת איסוף:</span> {location}
             </div>
           ) : null}
-          {location && pickup.pickup_map_url ? (
+          {location && pickup.pickup_navigation ? (
+            <PickupNavActions navigation={pickup.pickup_navigation} testIdPrefix="track-pickup-nav" />
+          ) : location && pickup.pickup_map_url ? (
             <a className="pickup-map-link" href={pickup.pickup_map_url} target="_blank" rel="noreferrer">📍 פתיחה במפה</a>
           ) : null}
         </div>

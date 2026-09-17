@@ -77,6 +77,50 @@ test("isCanonicalSourcePath agrees on both separators", () => {
   assert.equal(policy.isCanonicalSourcePath("supabase/functions/storage-broker/index.ts"), true);
 });
 
+test("Capacitor-synced native web bundles are generated output, not canonical source", () => {
+  // `mobile:sync` copies the built web bundle into the native shells. Before
+  // this exclusion the payment scan walked those copies and matched the
+  // raw-card term "pan" inside a minified `zoomAndPan` identifier, so the scan
+  // passed or failed depending on whether a mobile build had run first.
+  assert.equal(
+    policy.isCanonicalSourcePath("android/app/src/main/assets/public/preview/assets/index-b3sXOwUn.js"),
+    false
+  );
+  assert.equal(policy.isCanonicalSourcePath("ios/App/App/public/preview/assets/index-b3sXOwUn.js"), false);
+  assert.equal(policy.isCanonicalSourcePath("android\\app\\src\\main\\assets\\public\\app.js"), false);
+
+  // The real sources behind those copies, and anything else under the native
+  // shells, stay scanned.
+  assert.equal(policy.isCanonicalSourcePath("web/src/app.tsx"), true);
+  assert.equal(policy.isCanonicalSourcePath("web/public/manifest.json"), true);
+  assert.equal(policy.isCanonicalSourcePath("android/app/src/main/java/com/cton/MainActivity.java"), true);
+  assert.equal(policy.isCanonicalSourcePath("ios/App/App/AppDelegate.swift"), true);
+  assert.equal(policy.isCanonicalSourcePath("src/public/handler.ts"), true);
+});
+
+test("walkRepository does not descend into the Capacitor-synced native bundles", () => {
+  const root = makeTempDir("siton-scan-policy-");
+  try {
+    const files = {
+      "web/src/app.ts": "export const a = 1;\n",
+      "android/app/src/main/assets/public/preview/assets/index-b3sXOwUn.js": "const zoomAndPan = 1;\n",
+      "ios/App/App/public/preview/assets/index-b3sXOwUn.js": "const zoomAndPan = 1;\n",
+      "android/app/src/main/java/App.java": "class App {}\n"
+    };
+    for (const [rel, content] of Object.entries(files)) {
+      fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+      fs.writeFileSync(path.join(root, rel), content);
+    }
+    const walked = policy.walkRepository(root).map((entry) => entry.rel);
+    assert.deepEqual(walked, ["web/src/app.ts"]);
+
+    // Asking for the generated tree by name is refused rather than walked.
+    assert.deepEqual(policy.walkRepository(root, { roots: ["android/app/src/main/assets/public"] }), []);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("describePolicy lists what the scanners rely on", () => {
   const described = policy.describePolicy();
   for (const name of [".git", ".worktrees", "node_modules", "dist", "build", "coverage", ".demo_dist", ".tmp_test_dist"]) assert.ok(described.excluded_dir_names.includes(name), name);
