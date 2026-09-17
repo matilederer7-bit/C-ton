@@ -67,6 +67,12 @@ jobs:
           npm run lint 2>&1 | tee .ci-artifacts/lint-and-backend-scan.log
           npm run scan:backend 2>&1 | tee -a .ci-artifacts/lint-and-backend-scan.log
 
+      - name: Distributor attribution-only contract
+        run: |
+          set -o pipefail
+          node scripts/distributor_attribution_only_gate.cjs --self-test 2>&1 | tee .ci-artifacts/distributor-attribution-gate.log
+          node scripts/distributor_attribution_only_gate.cjs 2>&1 | tee -a .ci-artifacts/distributor-attribution-gate.log
+
       - name: Payment and raw-card compliance scan
         run: npm run scan:payment 2>&1 | tee .ci-artifacts/payment-scan.log
 

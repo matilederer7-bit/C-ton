@@ -42,6 +42,31 @@ test("workspace v3 isolates status writes and keeps open PR context", () => {
   assert.match(status, /AGENT_STATUS:codex:END/);
 });
 
+test("workspace v5 allocates repeat-task branches instead of colliding", () => {
+  const source = read("scripts/agent_workspace.cjs");
+  assert.match(source, /function uniqueTaskBranch\(/);
+  assert.match(source, /attempt <= 99/);
+  assert.match(source, /`\$\{base\}-r\$\{attempt\}`/);
+  assert.match(source, /const branch = uniqueTaskBranch\(repo, agent, p\.task\)/);
+  assert.match(source, /repeated_task_branch_suffix=true/);
+});
+
+test("workspace v5 task packets include only the active agent status slot", () => {
+  const source = read("scripts/agent_workspace.cjs");
+  assert.match(source, /function statusExcerpt\(target, agent\)/);
+  assert.match(source, /CURRENT AGENT STATUS/);
+  assert.match(source, /statusExcerpt\(target, agent\)/);
+  assert.match(source, /task_packet_agent_status_only=true/);
+  assert.doesNotMatch(source, /slice\(0, 24\)/);
+});
+
+test("workspace v5 proves GitHub push access at task start", () => {
+  const source = read("scripts/agent_workspace.cjs");
+  assert.match(source, /AGENT_START_PUSH_PASS/);
+  assert.match(source, /start preflight remote SHA verification failed/);
+  assert.match(source, /start_preflight_push=true/);
+});
+
 test("Claude Code has a compact repository entry point into canonical agent rules", () => {
   const claude = read("CLAUDE.md");
   assert.match(claude, /AGENTS\.md/);

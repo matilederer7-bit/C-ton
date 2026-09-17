@@ -61,6 +61,14 @@ function slug(value) {
   if (!s || s.endsWith(".lock")) throw new Error("invalid task name");
   return s;
 }
+function uniqueTaskBranch(repo, agent, task) {
+  const base = `agent/${agent}/${slug(task)}`;
+  for (let attempt = 1; attempt <= 99; attempt++) {
+    const candidate = attempt === 1 ? base : `${base}-r${attempt}`;
+    if (!localBranch(repo, candidate) && !remoteSha(repo, candidate)) return candidate;
+  }
+  throw new Error(`unable to allocate task branch after 99 attempts: ${base}`);
+}
 
 function ensureWorkspace(repo, agent) {
   const target = workspace(repo, agent);
@@ -112,10 +120,18 @@ function parseStart(args) {
   if (!out.task) throw new Error("task is required");
   return out;
 }
-function statusExcerpt(target) {
+function statusExcerpt(target, agent) {
   const file = path.join(target, "PROJECT_STATUS.md");
   if (!fs.existsSync(file)) return "PROJECT_STATUS.md unavailable";
-  return fs.readFileSync(file, "utf8").split(/\r?\n/).filter((x) => x.trim()).slice(0, 24).join("\n");
+  const current = fs.readFileSync(file, "utf8");
+  const startMarker = `<!-- AGENT_STATUS:${agent}:START -->`;
+  const endMarker = `<!-- AGENT_STATUS:${agent}:END -->`;
+  const startIndex = current.indexOf(startMarker);
+  const endIndex = current.indexOf(endMarker);
+  if (startIndex < 0 || endIndex < 0 || endIndex < startIndex) {
+    throw new Error(`PROJECT_STATUS.md missing isolated ${agent} status slot`);
+  }
+  return current.slice(startIndex, endIndex + endMarker.length).trim();
 }
 function taskPacketPath(target) {
   const gitPath = git(["rev-parse", "--git-path", "SITON_TASK_PACKET.md"], target);
@@ -159,13 +175,15 @@ function start(agent, args) {
   if (dirty(target)) throw new Error(`refusing to switch dirty ${agent} worktree`);
   fetchMaster(repo);
   releaseResolvedTaskIfNeeded(repo, agent, target);
-  const branch = `agent/${agent}/${slug(p.task)}`;
-  if (localBranch(repo, branch) || remoteSha(repo, branch)) throw new Error(`task branch already exists locally or remotely: ${branch}`);
+  const branch = uniqueTaskBranch(repo, agent, p.task);
   git(["switch", "-C", standby(agent), "origin/master"], target, true);
   git(["switch", "-c", branch, "origin/master"], target, true);
   const base = git(["rev-parse", "HEAD"], target);
+  git(["push", "-u", "origin", branch], target, true);
+  if (remoteSha(repo, branch) !== base) throw new Error("start preflight remote SHA verification failed");
+  console.log(`AGENT_START_PUSH_PASS agent=${agent} branch=${branch} base_sha=${base}`);
   const packet = taskPacketPath(target);
-  fs.writeFileSync(packet, `# SITON TASK PACKET\n\nTASK\n${p.task}\n\nSCOPE\n${p.scope}\n\nDO NOT TOUCH\n${p.doNotTouch}\n\nMODE\n${p.mode}\n\nBASE SHA\n${base}\n\nBRANCH\n${branch}\n\nSTANDING CONTEXT\nRead AGENTS.md and only the current PROJECT_STATUS.md section needed for this task. Do not read archives or scan the entire repository without evidence.\n\nCURRENT STATUS EXCERPT\n${statusExcerpt(target)}\n\nFINISH\nAfter relevant tests, run node scripts/agent.cjs finish ${agent} with --completed --tested --open --percentage --next. Finish verifies, updates only this agent's isolated PROJECT_STATUS slot, commits, pushes and opens or updates the PR. Never auto-merge. The worktree remains on this task branch while the PR is open so CI fixes can continue without rebuilding context. A later start automatically releases a clean prior task only after its PR is merged or closed.\n`, "utf8");
+  fs.writeFileSync(packet, `# SITON TASK PACKET\n\nTASK\n${p.task}\n\nSCOPE\n${p.scope}\n\nDO NOT TOUCH\n${p.doNotTouch}\n\nMODE\n${p.mode}\n\nBASE SHA\n${base}\n\nBRANCH\n${branch}\n\nSTANDING CONTEXT\nRead AGENTS.md and only the current PROJECT_STATUS.md section needed for this task. Do not read archives or scan the entire repository without evidence.\n\nCURRENT AGENT STATUS\n${statusExcerpt(target, agent)}\n\nFINISH\nAfter relevant tests, run node scripts/agent.cjs finish ${agent} with --completed --tested --open --percentage --next. Finish verifies, updates only this agent's isolated PROJECT_STATUS slot, commits, pushes and opens or updates the PR. Never auto-merge. The worktree remains on this task branch while the PR is open so CI fixes can continue without rebuilding context. A later start automatically releases a clean prior task only after its PR is merged or closed.\n`, "utf8");
   console.log(`AGENT_TASK_READY agent=${agent} branch=${branch} base_sha=${base} path=${target}`);
   console.log(`TASK_PACKET=${packet}`);
   console.log(`TASK=${p.task}`);
@@ -235,9 +253,9 @@ function finish(agent, args) {
 
 function plan() {
   const repo = root();
-  console.log("AGENT_WORKTREE_PLAN version=4");
+  console.log("AGENT_WORKTREE_PLAN version=5");
   for (const agent of ["codex", "claude"]) console.log(`AGENT_WORKTREE_TARGET agent=${agent} path=${workspace(repo, agent)} standby_branch=${standby(agent)} task_prefix=agent/${agent}/`);
-  console.log("AGENT_WORKTREE_BOUNDARY overwrite=false discard_uncommitted=false force_push=false remote_lookup_fail_closed=true isolated_agents=true setup_runs_doctor=true task_packet_untracked=true isolated_status_slots=true finish_verifies_commits_pushes_pr=true task_branch_retained_until_pr_resolved=true next_start_releases_merged_or_closed=true auto_merge=false");
+  console.log("AGENT_WORKTREE_BOUNDARY overwrite=false discard_uncommitted=false force_push=false remote_lookup_fail_closed=true isolated_agents=true setup_runs_doctor=true task_packet_untracked=true isolated_status_slots=true finish_verifies_commits_pushes_pr=true task_branch_retained_until_pr_resolved=true next_start_releases_merged_or_closed=true repeated_task_branch_suffix=true task_packet_agent_status_only=true start_preflight_push=true auto_merge=false");
 }
 
 function main() {

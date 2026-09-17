@@ -2,7 +2,70 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Baseline verified at start of this status refresh: `50e4635eedf7e9de29a98f064aafbbb2f7879235`
+Current merged baseline: `17035f900ccaebf185b2cb806fd28acf872d3a6a`
+
+## AGENT WORKFLOW V5 REFRESH — 2026-09-17
+
+### COMPLETED
+
+- Re-applied the useful workflow-v5 changes from PR #32 on top of the current post-PR-31 baseline without carrying stale status content.
+- Repeated task names allocate the first free `-rN` branch suffix instead of dead-ending on an old local or remote branch.
+- Task packets include only the active agent's isolated `PROJECT_STATUS.md` slot instead of generic status lines.
+- Task start now proves GitHub write access by pushing the new branch and verifying the remote SHA before substantial work begins.
+- Release-tool contract coverage includes all three v5 behaviors.
+- Stale duplicate PR #28 was closed as superseded.
+
+### TESTED / CHECKED
+
+- The v5 implementation previously passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates on PR #32 head `d7b1676cda510330ab06de1b2abc1237fe1380cc`.
+- This refresh preserves those workflow and test files while replacing only stale `PROJECT_STATUS.md` content with the current master status.
+- Fresh GitHub CI on this refreshed branch is the final merge authority.
+- No product runtime, database, auth, payments, Grow, Render, Supabase, or real-money behavior is changed.
+
+### OPEN
+
+- Fresh CI must pass on the refreshed branch before merge.
+- Owner-machine worktrees still need one setup/doctor verification after the next local sync.
+
+### PERCENTAGE
+
+- Agent workflow v5 repository implementation: 95% pending fresh CI and merge.
+
+### NEXT STEP
+
+1. Open refreshed PR against current master.
+2. Require Backend, Release readiness, and Web runtime depth gates green.
+3. Merge only after green CI, then close the older PR #32 as superseded.
+4. Re-run owner-machine agent doctor after local sync.
+
+## DISTRIBUTOR ATTRIBUTION-ONLY GUARD — 2026-09-17
+
+### COMPLETED
+
+- PR #31 merged to `master` at `17035f900ccaebf185b2cb806fd28acf872d3a6a`.
+- Added fail-closed CI enforcement for the canonical rule that distributor/affiliate behavior is attribution and measurement only, never an in-platform money entitlement.
+- The guard rejects distributor/affiliate commission, payout, withdrawal, balance, earnings, entitlement, invoice, fee and reward identifiers while preserving ordinary sharing and attribution measurement.
+- The guard includes multi-line SQL regression protection and prevents migration 020 from recreating removed distributor financial fields.
+
+### TESTED / CHECKED
+
+- Verified head `df2a05bea8375277178e6400670930bf9b078fb8` passed all three GitHub workflows before merge: Backend and deployment quality gates, Release readiness, and Web runtime depth gates.
+- Backend coverage included TypeScript, lint/enforcement scans, distributor self-test/live scan, payment/raw-card compliance, runtime DDL, integrity checks, unit, integration, database, API, worker, payment, authorization, security, concurrency, failure-injection, E2E, and extended Docker smoke.
+- Real money remains 0. Grow remains untouched and unactivated.
+
+### OPEN
+
+- Broader removal of legacy distributor/session/routes/UI/schema surfaces remains a separate cleanup task; ordinary sharing and role-neutral attribution analytics must remain intact.
+- Fixed 24-hour Completion Window hardening remains separate because `src/app.ts` overlaps the active duration workstream.
+
+### PERCENTAGE
+
+- Distributor no-money regression protection: 100% merged and verified.
+- Broader canonical product-policy runtime cleanup: incomplete.
+
+### NEXT STEP
+
+- Continue separate runtime cleanup only on an isolated branch after checking active scopes.
 
 ## CURRENT SNAPSHOT
 
@@ -13,80 +76,37 @@ Baseline verified at start of this status refresh: `50e4635eedf7e9de29a98f064aaf
 - PR #23 merged to `master`: agent efficiency v3 with isolated Claude/Codex status writes, branch retention while PRs remain open, and streamlined aggregate test execution.
 - PR #26 merged to `master`: canonical product policy amendment 2026-09-16.
 - PR #27 merged to `master` at `7c975d062eecc02faf1c3ab48909b7f05043c7a8`: agent efficiency v4 with root `CLAUDE.md`, no-loop Git authorization fallback, push-checkpoint discipline, and release-tool contract coverage.
-- Repository-side agent workflow is therefore merged through v4.
-- Site CMS is complete on `claude/siton-admin-cms-templates-s8g2ih` (rebased onto `master` `50e4635`): the template-driven content editor from `claude/admin-cms-template-editor-x9mava` was ADOPTED rather than rebuilt, and extended with the product-copy surfaces the owner's task named (deal page, buyer tracking, seller area, support).
-
-### SITE CMS — CURRENT STATE
-
-Branch `claude/siton-admin-cms-templates-s8g2ih` = current `master` + the adopted template
-editor (`8679cb4`, cherry-picked) + the product-copy extension. No competing second CMS was
-written: there is ONE content mechanism (`siton.site_content` rows, block pages validated by
-`web/src/content/cmsTemplates.ts`) and ONE admin screen (`#/admin/content`).
-
-Editable through templates today:
-
-| Area | Page key | What the admin edits |
-|---|---|---|
-| Home | `home` | hero (title, subtitle, intro, image/video, CTA labels) plus addable/reorderable/hideable blocks: text, image+text, CTA, steps, FAQ, columns |
-| FAQ | `home` (`faq` block) | ordered add / edit / delete / reorder |
-| Footer | `footer` | text + ordered links |
-| About | `about` | title, body, optional image |
-| Legal (7 documents) | `legal_<slug>` | title + body of תקנון / פרטיות / ביטולים והחזרים / תשלומים / מוכרים / שותפים / דמו |
-| Deal page + tracking | `deal_page` | the explainer, why the price is lower, what happens on tap, the hold notice, the share headline, the how-it-works steps, the tracking hold note, the return headline, three empty-state titles |
-| Seller area | `seller_area` | empty state (title/body/button), guidance headline, pending / rejected account messages, incomplete-profile headline |
-| Support | `support_page` | form title + intro, post-submit title + body |
-
-Workflow per page: שמור טיוטה → תצוגה מקדימה → פרסם באתר. Drafts live in `draft_jsonb` and are
-never public; publish moves the draft to `value_jsonb` and keeps the previous value; a stale
-revision is refused with 409. Product surfaces are LOCKED contracts (no block can be added,
-removed, hidden or reordered) so a content edit can never delete a sentence the flow needs.
-
-Deliberately NOT content (system truth): tracking status headline/subline/next steps, prices,
-unit counts, deadlines, the pilot mock-money disclosure, the fee and every money state.
+- PR #31 merged to `master` at `17035f900ccaebf185b2cb806fd28acf872d3a6a`: distributor attribution-only financial-regression guard.
+- Repository-side agent workflow is merged through v4; v5 refresh is in progress.
 
 ### TESTED / CHECKED
 
-- GitHub `master` was verified at `7c975d062eecc02faf1c3ab48909b7f05043c7a8` at the start of this status refresh.
-- PR #27 was verified as closed and merged, with merge commit `7c975d062eecc02faf1c3ab48909b7f05043c7a8`.
-- `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
-- `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
+- `AGENTS.md` declares the no-seven-day-cap product invariant and source-of-truth precedence rules.
+- `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` records the no-seven-day-cap decision as binding and marks older seven-day references as historical.
 - Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
-- Runtime tests were not run for the 2026-09-16 status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
-- Site CMS branch verification on 2026-09-17 (local, PostgreSQL 16, commit `c6f5694`):
-  - complete repository suite `npm test`: 236 files, **234 passed**. Groups db / api / workers / payments / security / concurrency / failure all green on the first pass; unit and integration went green on the corrective rerun (16/16 and 37/37) — `frontend_foundation_buyer_polish_validation` needed the test update this change carries, and `mobile_readiness_validation` needed `npm run mobile:build` first.
-  - **2 files blocked by environment, not by this change**: `frontend_browser_smoke_validation` and `frontend_browser_v11_validation` launch Chromium without `--no-sandbox`, which Chromium refuses under a root container ("Running as root without --no-sandbox is not supported"). The identical launch succeeds as a non-root user, and neither test touches CMS content.
-  - CMS-specific: `site_content_cms_validation` 17/17, `product_copy_cms_validation` 11/11 (new), `receipt_content_integration_validation` 13/13.
-  - Browser proof `npm run proof:cms`: **73/73** checks at 320 / 390 / 768 / 1440, including the product-copy pages, the locked controls, the inline preview, draft isolation, publish, and the support page rendering published CMS copy. Screenshots: `.tmp_cms_admin_*.png`, `.tmp_cms_deal_page_*.png`.
-  - Static gates green: backend enforcement, payment compliance, architecture truth, runtime DDL, secret/PII, logging hygiene, legal (pre-existing owner-decision warning only), migration preflight (high water 069, 62 migrations) and the route authorization gate (static 1 + behavioural 4).
 
 ### OPEN
 
 - LONG_HORIZON_DEALS remains open in runtime. The legacy seven-day maximum still exists in `src/app.ts` and must not be removed as an isolated two-line change if the durable future-charge/payment semantics are not landed with it.
-- The previously prepared long-horizon implementation exists outside current GitHub history and still needs safe publication/integration before it can be reviewed and merged.
 - Runtime product-policy cleanup remains required for the fixed 24-hour Completion Window and legacy distributor/affiliate surfaces, without touching ordinary sharing or role-neutral viral analytics.
-- The site CMS branch is not merged yet: it needs a PR and fresh GitHub CI. It carries migration `069_site_content_drafts_media.sql`, and PR #24 (long-horizon) also claims id `069` — whichever merges second must be renumbered before merge.
-- Branch `claude/admin-cms-template-editor-x9mava` is now redundant: its commit is contained in `claude/siton-admin-cms-templates-s8g2ih`. Do not open two PRs for the same work.
-- The buyer tracking status texts, seller KYC wording inside conditional branches and the deal-page fulfilment strings remain code-owned by design; moving more of them to the CMS is a follow-up decision, not a gap.
+- CMS/content-management work is active in parallel and must remain isolated from unrelated cleanup.
 - Owner-machine agent worktrees should be rechecked after the next local sync with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor`.
 - Hosted/runtime readiness remains open for the existing Render worker/Blueprint, hosted OTP secret, external payment-provider semantics, production image pruning, architecture decision, and legacy recovery-URL cleanup tracks.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ### PERCENTAGE
 
-- Agent workflow repository-side implementation: 100% through merged v4.
 - Canonical product-policy decision and source-of-truth alignment: 100%.
-- Runtime implementation alignment for the current product-policy set: incomplete. Do not infer readiness from documentation alignment alone.
+- Runtime implementation alignment for the current product-policy set: incomplete.
 - Long-horizon runtime integration: not complete on `master`.
-- Admin content management (owner can edit the site without code): 95% — implemented, tested and browser-proven on the branch; the remaining 5% is PR review, GitHub CI and merge.
 
 ### NEXT STEP
 
-1. Open ONE pull request from `claude/siton-admin-cms-templates-s8g2ih` for the complete site CMS (adopted editor + product copy) and merge it on green CI, renumbering migration 069 if PR #24 lands first.
-2. Publish and review the complete long-horizon implementation against current `master`, rather than deleting only the seven-day validator.
-3. Merge long-horizon work only after focused regression tests and payment-lifecycle invariants are proven.
-4. Continue the separate canonical policy runtime cleanup on an isolated branch without colliding with CMS or duration work.
-5. Re-run owner-machine agent doctor after the next local sync.
-6. Keep real money disabled until the existing provider-readiness gates are explicitly cleared.
+1. Close the workflow-v5 refresh after green CI and merge.
+2. Review the complete long-horizon implementation against current `master` rather than deleting only the seven-day validator.
+3. Continue separate canonical policy runtime cleanup without colliding with CMS or duration work.
+4. Re-run owner-machine agent doctor after local sync.
+5. Keep real money disabled until provider-readiness gates are explicitly cleared.
 
 ## PRODUCT POLICY ALIGNMENT — 2026-09-16
 
@@ -121,13 +141,13 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
-- UPDATED: 2026-09-16
-- BRANCH: `chore/status-refresh-2026-09-16`
-- COMPLETED: refreshed stale project status after PR #27 merge; aligned the recorded baseline with the verified task-start `master`; verified canonical deadline policy already exists and recorded the remaining runtime drift without making a partial payment-sensitive code change.
-- TESTED: task-start GitHub `master` SHA and PR #27 merge state verified; canonical policy and agent source-of-truth files inspected; runtime tests not applicable to this documentation-only change.
-- OPEN: long-horizon runtime integration still not on `master`; legacy seven-day validator remains until the complete duration/payment design lands safely.
-- PERCENTAGE: 100% for this status-integrity task.
-- NEXT STEP: integrate the complete long-horizon implementation on a separate branch and prove its regression/payment invariants before merge.
+- UPDATED: 2026-09-17
+- BRANCH: `chatgpt/agent-workflow-v5-refresh-r2`
+- COMPLETED: refreshed agent-workflow v5 onto the current post-PR-31 master baseline, preserving the repeated-task branch allocator, focused task packets, and start-time push/SHA checkpoint while removing stale status conflict.
+- TESTED: source PR #32 implementation was green in Backend, Release readiness, and Web runtime workflows; fresh CI on this branch is the final merge authority.
+- OPEN: fresh CI and merge remain; owner-machine doctor remains after local sync.
+- PERCENTAGE: 95%.
+- NEXT STEP: open refreshed PR, require all three CI workflows green, merge, close PR #32 as superseded, then run owner-machine doctor after sync.
 <!-- AGENT_STATUS:codex:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
