@@ -51,7 +51,13 @@ unit counts, deadlines, the pilot mock-money disclosure, the fee and every money
 - `AGENTS.md` already declares the current no-seven-day-cap product invariant and the source-of-truth precedence rules.
 - `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` already records the no-seven-day-cap decision as binding and explicitly marks older seven-day references as historical.
 - Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
-- Runtime tests were not run for this status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
+- Runtime tests were not run for the 2026-09-16 status-only refresh because no runtime, schema, dependency, configuration, payment, or UI file was changed.
+- Site CMS branch verification on 2026-09-17 (local, PostgreSQL 16, commit `c6f5694`):
+  - complete repository suite `npm test`: 236 files, **234 passed**. Groups db / api / workers / payments / security / concurrency / failure all green on the first pass; unit and integration went green on the corrective rerun (16/16 and 37/37) — `frontend_foundation_buyer_polish_validation` needed the test update this change carries, and `mobile_readiness_validation` needed `npm run mobile:build` first.
+  - **2 files blocked by environment, not by this change**: `frontend_browser_smoke_validation` and `frontend_browser_v11_validation` launch Chromium without `--no-sandbox`, which Chromium refuses under a root container ("Running as root without --no-sandbox is not supported"). The identical launch succeeds as a non-root user, and neither test touches CMS content.
+  - CMS-specific: `site_content_cms_validation` 17/17, `product_copy_cms_validation` 11/11 (new), `receipt_content_integration_validation` 13/13.
+  - Browser proof `npm run proof:cms`: **73/73** checks at 320 / 390 / 768 / 1440, including the product-copy pages, the locked controls, the inline preview, draft isolation, publish, and the support page rendering published CMS copy. Screenshots: `.tmp_cms_admin_*.png`, `.tmp_cms_deal_page_*.png`.
+  - Static gates green: backend enforcement, payment compliance, architecture truth, runtime DDL, secret/PII, logging hygiene, legal (pre-existing owner-decision warning only), migration preflight (high water 069, 62 migrations) and the route authorization gate (static 1 + behavioural 4).
 
 ### OPEN
 
