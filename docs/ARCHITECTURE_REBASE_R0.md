@@ -24,7 +24,7 @@ The target must preserve exactly:
 - Financial completion is only `ChargedSuccess` or `RecoveredCharge`.
 - Siton fee is exactly 8% of everything collected from the customer, including delivery/shipping and excluding VAT. Distributor commission is exactly 0%.
 - No direct state mutation; final money is asynchronous; provider calls are server-side; idempotency is mandatory; `UNKNOWN` enters reconciliation and never manufactures success.
-- At most three retries per participant/deal/30 minutes; completion window 24 hours; deadline at most seven days; mandatory `max_units`; threshold by units and exactly 90%.
+- At most three retries per participant/deal/30 minutes; completion window 24 hours; deadline at least two hours (the former seven-day maximum was an authorization-lifetime assumption and was removed on 2026-09-16 — `docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`); mandatory `max_units`; threshold by units and exactly 90%.
 - State and audit evidence commit atomically; no manual state override; late webhooks cannot mutate terminal truth; repeat purchases by one buyer are allowed while inventory exists; inventory is concurrency-safe.
 - Draft is private; `TargetReached != Completed`; Mall owns only derived discovery; Mall and direct links open the same Deal truth; default Mall order is `published_at DESC, deal_id` deterministic tie-break; supported deal types are `physical_product`, `voucher`, `ticket`.
 

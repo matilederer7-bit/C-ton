@@ -70,7 +70,11 @@ const MIGRATIONS = [
   ["067", "067_payment_operation_lifecycle.sql"],
   ["068", "068_payment_settlement_horizon.sql"],
   ["069", "069_site_content_drafts_media.sql"],
-  ["070", "070_seller_distribution_links.sql"]
+  ["070", "070_seller_distribution_links.sql"],
+  // LONG_HORIZON_DEALS — deal lifetime decoupled from authorization lifetime.
+  // CMS keeps 069 and the Seller Distribution Hub keeps 070; this migration
+  // was authored as 069 on an older base and takes the next free id here.
+  ["071", "071_long_horizon_authorization_renewal.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

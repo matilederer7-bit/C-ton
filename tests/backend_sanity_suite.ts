@@ -108,7 +108,28 @@ async function main() {
     assert.match(String(body.error || ""), /at least 2 hours/i);
   });
 
-  await runTest("deal creation rejects deadline longer than 7 days", async () => {
+  await runTest("deal creation accepts a long-horizon deadline (no payment-derived maximum)", async () => {
+    // LONG_HORIZON_DEALS — the former 7-day cap existed only because the
+    // join-time authorization was assumed to have to survive until capture;
+    // deal lifetime is now independent of provider authorization lifetime.
+    const res = await app.inject({
+      method: "POST",
+      url: "/deals",
+      payload: {
+        title: "Sixty-day deadline",
+        price_per_unit: 10,
+        min_units: 5,
+        max_units: 10,
+        deadline: new Date(Date.now() + 60 * 24 * 60 * 60_000).toISOString() // 60d
+      }
+    });
+    assert.ok([200, 201].includes(res.statusCode), res.body);
+    const created = res.json() as any;
+    assert.equal(String(created.state || ""), "Draft");
+    assert.ok(created.deal_id, "a 60-day deal is created like any other");
+  });
+
+  await runTest("deal creation rejects a deadline beyond the technical ceiling", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/deals",
@@ -117,12 +138,13 @@ async function main() {
         price_per_unit: 10,
         min_units: 5,
         max_units: 10,
-        deadline: new Date(Date.now() + 8 * 24 * 60 * 60_000).toISOString() // 8d
+        deadline: new Date(Date.now() + 21 * 365 * 24 * 60 * 60_000).toISOString() // 21y
       }
     });
     assert.equal(res.statusCode, 400);
     const body = res.json() as any;
-    assert.match(String(body.error || ""), /within 7 days/i);
+    assert.equal(String(body.code || ""), "deadline_above_maximum");
+    assert.match(String(body.error || ""), /technical maximum/i);
   });
 
   await runTest("deal creation rejects invalid deadline string", async () => {

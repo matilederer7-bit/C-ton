@@ -22,6 +22,8 @@ import {
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
 } from "../util";
 import { absoluteShareUrl } from "../viral";
+import { CODE_MESSAGES as he } from "../he";
+import { DEADLINE_TECHNICAL_MAX_MS, classifyDeadlineMs } from "../deadlinePolicy";
 // ROUND 2 (UX-2) — the ONE required-field attention rule (pulsing border on the
 // exact control, aria-invalid, scroll/focus anchor, clears when it becomes valid)
 import { QUANTITY_INPUT_ATTRS, isPositiveIntegerText } from "../quantityInput";
@@ -418,7 +420,10 @@ function DeadlinePicker(props: {
   const prefix = props.idPrefix || "deadline";
   const iso = israelPartsToUtcIso(props.date, props.time);
   const todayIsrael = utcIsoToIsraelParts(new Date().toISOString()).date;
-  const maxIsrael = utcIsoToIsraelParts(new Date(Date.now() + 7 * 864e5).toISOString()).date;
+  // LONG_HORIZON_DEALS — no payment-derived maximum: the picker only refuses
+  // the technical sanity ceiling shared with the server (web/src/deadlinePolicy.ts).
+  const maxIsrael = utcIsoToIsraelParts(new Date(Date.now() + DEADLINE_TECHNICAL_MAX_MS).toISOString()).date;
+  const longHorizon = iso ? classifyDeadlineMs(Date.parse(iso)).long_horizon : false;
   return (
     <div className="field">
       <label>מועד סיום ההצטרפות <span className="req">*</span> <span className="hint">(שעון ישראל)</span></label>
@@ -432,7 +437,21 @@ function DeadlinePicker(props: {
       {iso && !props.error ? (
         <span className="deadline-confirm">✓ {formatIsraelDateTime(iso)}</span>
       ) : null}
-      <span className="hint">בין שעתיים ל-7 ימים מרגע הפרסום.</span>
+      <span className="hint">לפחות שעתיים מרגע הפרסום. אפשר לפתוח עסקה לימים, שבועות או חודשים — משך העסקה אינו מוגבל על ידי תוקף אישור התשלום.</span>
+      {longHorizon && !props.error ? <LongHorizonWarning /> : null}
+    </div>
+  );
+}
+
+// Advisory only (strictly > 1 year): cards may expire, be replaced or blocked
+// over a long horizon, so some buyers may need to update their payment method
+// before completion. The worker renews an expired authorization from the
+// stored payment method; this warning never blocks the seller.
+function LongHorizonWarning() {
+  return (
+    <div className="notice warn" data-testid="long-horizon-warning">
+      <strong>שימו לב:</strong> העסקה מוגדרת לטווח ארוך. לאורך זמן כרטיסי אשראי עלולים לפוג, להתחלף או להיחסם,
+      ולכן חלק מהמשתתפים עשויים להידרש לעדכן אמצעי תשלום לפני השלמת העסקה.
     </div>
   );
 }
@@ -441,9 +460,8 @@ function validateDeadline(date: string, time: string): { iso: string | null; err
   if (!date || !time) return { iso: null, error: "יש לבחור תאריך ושעה למועד הסיום" };
   const iso = israelPartsToUtcIso(date, time);
   if (!iso) return { iso: null, error: "יש לבחור תאריך ושעה תקינים" };
-  const ms = Date.parse(iso) - Date.now();
-  if (ms < 2 * 3600_000) return { iso, error: "מועד הסיום חייב להיות לפחות שעתיים מעכשיו" };
-  if (ms > 7 * 24 * 3600_000) return { iso, error: "מועד הסיום יכול להיות עד 7 ימים קדימה" };
+  const policy = classifyDeadlineMs(Date.parse(iso));
+  if (!policy.ok) return { iso, error: he[policy.code] || policy.code };
   return { iso, error: "" };
 }
 
