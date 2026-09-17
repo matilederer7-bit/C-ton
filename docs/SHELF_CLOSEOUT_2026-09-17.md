@@ -4,17 +4,21 @@ Branch `claude/shelf-heavy-closeout-20260917` from `origin/master` `1d38656` (PR
 Method: every shelf branch was compared against current master (tree diff for the three
 unrelated-history Codex branches, commit-range diff for the rest), the unique part was
 identified, existing equivalents on master were checked, and only still-missing,
-architecture-compatible functionality was ported. No blind cherry-pick. Excluded by
-instruction and untouched: PR #24 / long-horizon, `import/long-horizon-2026-09-16`,
+architecture-compatible functionality was ported. No blind cherry-pick. Excluded from the
+original shelf build by instruction: PR #24 / long-horizon, `import/long-horizon-2026-09-16`,
 authorization-lifetime changes, PR #7 / pilot communications, `src/notification_events.ts`,
 pilot-communications migrations/docs, Cloud Agent Manager (PR #35). No Base44 business
 dependency was added. REAL MONEY stays 0; Grow untouched.
+
+The branch was subsequently reconciled onto current master after PR #37 and PR #42 landed.
+Canonical migration ownership is therefore: 069 CMS, 070 Seller Distribution Hub,
+071 LONG_HORIZON_DEALS, 072 Product Catalog.
 
 ## Classification
 
 | Branch | Result | What was carried onto master | Evidence |
 |---|---|---|---|
-| `codex/amazon-benchmark-upgrade` (unrelated history, 363 commits) | **STILL VALUABLE → INTEGRATED (product catalog)** | Migration **071** (`products`, `product_images`, `deals.product_id` + frozen `product_snapshot_jsonb` with DB-trigger immutability after Draft, delivery estimate range), `src/product_catalog.ts`, enrichment provider seam, seller-scoped product writers (`POST/PATCH /api/seller/products`, `POST /api/seller/deals/:id/product`) and readers (`GET /api/seller/products[/:id]`), Deal-from-Product creation (`POST /deals` + `product_id`), draft locking, publish readiness, shared-blob-safe image cleanup, React Product Library (`#/seller/products…`), wizard prefill (`#/seller/new?product=`), estimate inputs, buyer estimate line, staging grants, `docs/PRODUCT_CATALOG.md` | `npm run test:product-catalog` (static 11/11 + DB API 9/9), deal_types 25/25 |
+| `codex/amazon-benchmark-upgrade` (unrelated history, 363 commits) | **STILL VALUABLE → INTEGRATED (product catalog)** | Migration **072** (`products`, `product_images`, `deals.product_id` + frozen `product_snapshot_jsonb` with DB-trigger immutability after Draft, delivery estimate range), `src/product_catalog.ts`, enrichment provider seam, seller-scoped product writers (`POST/PATCH /api/seller/products`, `POST /api/seller/deals/:id/product`) and readers (`GET /api/seller/products[/:id]`), Deal-from-Product creation (`POST /deals` + `product_id`), draft locking, publish readiness, shared-blob-safe image cleanup, React Product Library (`#/seller/products…`), wizard prefill (`#/seller/new?product=`), estimate inputs, buyer estimate line, staging grants, `docs/PRODUCT_CATALOG.md` | `npm run test:product-catalog` (static 11/11 + DB API 9/9), deal_types 25/25 |
 | ↳ not carried | — | `service` deal type + `deal_service_terms`, funnel-event extension, Base44 `product.jsonc` / `siton-seller-product`, legacy `frontend/` Product Library UI | product decision outside scope; Base44 not a source of truth; React `web/` is canonical |
 | `codex/mobile-release-readiness` | **STILL VALUABLE → INTEGRATED** | canonical `web/` bundle at `/preview/`, SHA-256 manifest + read-only release gate, `mobile/runtime.js`, `web/src/mobileUrls.ts`, Android/iOS metadata hardening, association templates, 12 negative-control tests, mobile CI workflow, inventories/runbook | Linux: build → `cap sync` (android+ios) → `MOBILE_GATE_PASS` → `MOBILE_TESTS_PASS negative_controls=12`; legacy `mobile_readiness_validation` PASS; `release:preflight:static` PASS (`mobile-pwa-gate` PASS) |
 | ↳ external blockers (unchanged) | — | signing keys, store accounts, Apple/Google credentials, domain association hosting, device proof, `SITON_APP_ID`/link host | `.invalid` placeholders rejected by `--release` |
@@ -33,14 +37,14 @@ dependency was added. REAL MONEY stays 0; Grow untouched.
 
 ## Migration sequencing
 
-`070` is left free for PR #24's renumbered long-horizon migration; the product catalog appends as
-`071` (manifest position after `069`). The isolated migration proof and the migration
-preflight run against the full ledger (63 rows).
+`069` is CMS, `070` is Seller Distribution Hub, `071` is LONG_HORIZON_DEALS, and the
+Product Catalog appends as `072`. The isolated migration proof and migration preflight must
+validate this canonical ordering.
 
 ## Not done here (owner / integrator)
 
-- Staging: apply migration 071 and `supabase/staging/025_product_catalog_grants.sql` before deploying
-  (boot fail-closes on the new required tables, like the content tables).
+- Staging: apply migration 072 and `supabase/staging/025_product_catalog_grants.sql` before deploying
+  the Product Catalog runtime (boot fail-closes on the new required tables, like the content tables).
 - Hosted acceptance run needs the four `SITON_ACCEPTANCE_*` logins.
 - Mobile store readiness stays external (signing, accounts, association hosting, devices).
 - Final review and merge are the integrator's (ChatGPT); this branch is not self-merged.
