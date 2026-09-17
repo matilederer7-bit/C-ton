@@ -1,4 +1,4 @@
-name: PR38 reconcile current master
+name: PR38 final validation
 
 on:
   push:
@@ -6,53 +6,82 @@ on:
       - claude/shelf-heavy-closeout-20260917
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  reconcile:
-    runs-on: ubuntu-latest
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-      - name: Merge current master with guarded conflict resolution
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
+      - name: Migration numbering and stale-reference sweep
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "Siton Integration Bot"
-          git config user.email "siton-integration@users.noreply.github.com"
-          git fetch origin master
-
-          if git merge-base --is-ancestor origin/master HEAD; then
-            echo "CURRENT_MASTER_ALREADY_PRESENT"
-            exit 0
-          fi
-
-          set +e
-          git merge --no-commit --no-ff origin/master
-          rc=$?
-          set -e
-
-          if [ "$rc" -ne 0 ]; then
-            mapfile -t conflicts < <(git diff --name-only --diff-filter=U | sort)
-            printf 'CONFLICTS=%s\n' "${conflicts[*]}"
-            expected=("scripts/migration_manifest.cjs" "src/schema_contract.ts")
-            if [ "${conflicts[*]}" != "${expected[*]}" ]; then
-              echo "Unexpected conflict set; refusing automatic resolution"
-              git merge --abort || true
-              exit 1
-            fi
-            # Both files were deliberately pre-reconciled on this branch:
-            # manifest = 069 CMS, 070 distribution, 071 long-horizon, 072 catalog;
-            # schema contract = union of distribution + product required tables.
-            git checkout --ours scripts/migration_manifest.cjs src/schema_contract.ts
-            git add scripts/migration_manifest.cjs src/schema_contract.ts
-          fi
-
-          if git diff --name-only --diff-filter=U | grep -q .; then
-            echo "Unresolved conflicts remain"
+          node - <<'NODE'
+          const { MIGRATIONS } = require('./scripts/migration_manifest.cjs');
+          const tail = MIGRATIONS.slice(-4).map(x => `${x.id}:${x.filename}`).join('\n');
+          console.log(tail);
+          const expected = [
+            '069:069_site_content_drafts_media.sql',
+            '070:070_seller_distribution_links.sql',
+            '071:071_long_horizon_authorization_renewal.sql',
+            '072:072_product_catalog_and_fulfillment_estimates.sql'
+          ].join('\n');
+          if (tail !== expected) process.exit(1);
+          NODE
+          if grep -RniE --exclude-dir=.git --exclude='pr38-reconcile-probe.yml' '071_product_catalog|product catalog \(071\)|Product Catalog.*071|Migration \*\*071\*\*' .; then
+            echo 'STALE_PRODUCT_CATALOG_071_REFERENCE_FOUND'
             exit 1
           fi
-
-          git commit -m "Merge current master into PR38 after long-horizon integration"
-          git push origin HEAD:claude/shelf-heavy-closeout-20260917
+      - name: TypeScript and enforcement
+        run: |
+          npx tsc --noEmit
+          npm run lint
+          npm run scan:payment
+          npm run scan:runtime-ddl
+          npm run gate:real-money
+      - name: Migration gates
+        run: |
+          npm run migrations:preflight
+          npm run ci:migrations
+      - name: Shelf feature tests
+        run: |
+          npm run test:product-catalog
+          npm run test:pickup-navigation
+          npm run test:visual-brand
+          npm run test:mobile-readiness
+          npm run test:authenticated-ui-harness
+      - name: Mobile canonical bundle gate
+        run: npm run mobile:verify
