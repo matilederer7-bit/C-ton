@@ -233,7 +233,12 @@ export function ContentPage({ section }: { section: string }) {
   // "## heading" / "- item" structure the legal documents already use.
   const doc = content ? pageOf(all, section).blocks[0] : undefined;
   const title = doc?.fields.title || "";
-  const blocks = String(doc?.fields.body || "").replace(/^# [^\n]+\r?\n/, "").trim().split(/\n\s*\n/);
+  const rawBody = String(doc?.fields.body || "").replace(/^# [^\n]+\r?\n/, "").trim();
+  const blocks = rawBody ? rawBody.split(/\n\s*\n/) : [];
+  // A document page whose body is still empty says so plainly instead of
+  // rendering a lone heading that looks like a broken page. The footer already
+  // stops linking here while this is true (App.tsx / contentPageHasBody).
+  const awaitingCopy = Boolean(content) && !loading && !rawBody;
   const isLegal = section.startsWith("legal_");
   return <>
     {isLegal ? <nav className="legal-nav" aria-label="מסמכים משפטיים">
@@ -244,6 +249,11 @@ export function ContentPage({ section }: { section: string }) {
     <article className="panel content-doc" data-testid="content-doc" data-section={section}>
       <h1>{title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
       {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
+      {awaitingCopy ? (
+        <p role="status" className="muted" data-testid="content-doc-awaiting">
+          התוכן של העמוד הזה עדיין לא פורסם. בינתיים אפשר לקרוא את <a href="#/content/legal_terms">התקנון</a> או לפנות אלינו דרך <a href="#/support">התמיכה</a>.
+        </p>
+      ) : null}
       {doc?.fields.image ? <img className="content-doc-image" src={doc.fields.image} alt="" loading="lazy" /> : null}
       {blocks.map((block, i) => {
         if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;

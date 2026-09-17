@@ -65,3 +65,21 @@ export function useSiteContent(): Json { return useSiteContentState().content; }
 export function pageOf(content: Json | null | undefined, key: string): PageContent {
   return normalizePage(content?.[key], contractFor(key));
 }
+
+/**
+ * Does a CMS document page (`#/content/<key>`) actually have something to read?
+ *
+ * The landing page already follows the rule "a section renders ONLY when its
+ * content is present — no lorem ipsum, ever": the About section is hidden while
+ * its body is empty, because the final copy is the owner's to write
+ * (ABOUT_CONTENT_PENDING_OWNER in content/landing.he.ts). The STANDALONE About
+ * page did not follow that rule — it was linked from the footer of every page
+ * and rendered a heading with nothing under it. This is the same test, applied
+ * in the one place both the footer and the document page can read.
+ */
+export function contentPageHasBody(content: Json | null | undefined, key: string): boolean {
+  const doc = pageOf(content, key).blocks[0];
+  if (!doc) return false;
+  const body = String(doc.fields.body || "").replace(/^# [^\n]+\r?\n/, "").trim();
+  return body.length > 0;
+}

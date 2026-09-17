@@ -139,6 +139,35 @@ try {
     assert.match(sellerPage, /תצוגה מקדימה כקונה/, "the preview action keeps its label");
   });
 
+  // ── HOSTED FINDING (night closeout) — no footer link to an empty page ────
+  // Browsing the deployed build found "אודות" in the footer of every page
+  // leading to a document with a heading and nothing under it. The landing page
+  // already hides its About section while the body is empty ("a section renders
+  // ONLY when its content is present"), because the final copy is the owner's
+  // to write; the standalone page and the footer did not follow that rule.
+  await run("hosted finding: one emptiness test, read by both the footer and the document page", async () => {
+    const siteContent = await readFile("web/src/siteContent.ts", "utf8");
+    assert.match(siteContent, /export function contentPageHasBody\(/,
+      "the emptiness test must live in one place");
+    const app = await readFile("web/src/App.tsx", "utf8");
+    assert.match(app, /\.filter\(\(l\) => \{[\s\S]*?contentPageHasBody\(content, match\[1\]!\)/,
+      "the footer must drop a #/content link whose page has no body");
+    const receipt = await readFile("web/src/receiptContent.tsx", "utf8");
+    assert.match(receipt, /data-testid="content-doc-awaiting"/,
+      "a body-less document page must say so instead of rendering a lone heading");
+    assert.match(receipt, /const awaitingCopy = Boolean\(content\) && !loading && !rawBody;/,
+      "the notice must wait for the content to load before deciding it is empty");
+  });
+
+  await run("hosted finding: the owner's pending About copy is still pending, not invented", async () => {
+    // The fix must NOT be to write marketing copy on the owner's behalf. The
+    // canonical landing content still carries the empty body and its marker.
+    const landing = await readFile("web/src/content/landing.he.ts", "utf8");
+    assert.match(landing, /about: \{ title: "על C-ton", body: "" \}/,
+      "About copy stays the owner's to supply");
+    assert.match(landing, /ABOUT_CONTENT_PENDING_OWNER/, "and the marker stays discoverable");
+  });
+
   // ── ITEM 5 — support ↔ deal/seller, resolved server-side ──────────────────
   await run("item 5: a deal reference is extracted from any real link shape, and never guessed", () => {
     const id = "6e35c4f3-3701-5874-9f6c-13a2693f87cc";

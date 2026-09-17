@@ -99,7 +99,9 @@ DECLARE
     'admin_sessions','admin_users','affiliate_accounts','affiliate_attributions',
     'affiliate_link_events','affiliate_links','audit_log','buyer_payment_methods',
     'buyer_resume_contexts','buyer_sessions','deal_chat_messages','deal_delivery_options',
-    'deal_images','deal_ticket_terms','deal_voucher_terms','deals','distributor_sessions',
+    'deal_images','deal_ticket_terms','deal_voucher_terms','deals',
+    'distribution_link_viewer_grants','distribution_link_viewer_login_attempts',
+    'distribution_link_viewer_sessions','distribution_link_viewers','distributor_sessions',
     'fulfillment_units','idempotency_log','infrastructure_change_audit',
     'invoice_document_attempts','invoice_documents','invoice_reconciliation_cases',
     'invoice_webhook_events','invoice_webhook_security_events','join_idempotency_results',
@@ -110,6 +112,32 @@ DECLARE
     'seller_payout_batches','seller_security_events','seller_sessions','storage_cleanup_tasks',
     'storage_orphan_reports','support_tickets','webhook_events','worker_heartbeats'
   ];
+  -- seller_business_profiles is DELIBERATELY absent from this list. Staging file
+  -- 019 revokes it here and re-grants COLUMN-level SELECT that excludes
+  -- bank_account_number, so the web runtime can read bank_account_last4 and
+  -- never the full number. A table-level GRANT SELECT here would silently undo
+  -- that restriction on the next boundary re-run.
+  -- The four distribution_link_viewer_* tables (canonical migration 070, the
+  -- Seller Distribution Hub) were created by that migration but never added to
+  -- this boundary, so EVERY seller opening the distribution panel on ANY deal
+  -- got a 500: GET /api/seller/deals/:id/distribution joins
+  -- distribution_link_viewer_grants and raised "permission denied for table".
+  -- Same shape as the seller_security_events gap below, and found the same way
+  -- — in the hosted UI, not in CI, because the suites drive these routes as the
+  -- owning superuser, where table privileges never apply.
+  -- The rails stay NON-DESTRUCTIVE for the web runtime: SELECT/INSERT/UPDATE
+  -- only. A viewer, a grant and a session are REVOKED (revoked_at) and never
+  -- deleted, and login attempts are append-only, so no DELETE is granted.
+  --
+  -- One more gap of the same shape, found by auditing every siton table the
+  -- Fastify app reaches against what this boundary grants it: affiliate_links
+  -- had SELECT and INSERT but NOT UPDATE, so renaming a distribution link,
+  -- changing its channel, or disabling and re-enabling it
+  -- (PATCH .../distribution/links/:linkId) answered 500.
+  -- Payout batches, settlements and notification attempts are deliberately NOT
+  -- widened: every write to those is an outbox-worker handler, and the web
+  -- runtime correctly keeps read-only access.
+  --
   -- seller_security_events is read by the seller self-signup hourly cap, which
   -- counts 'seller.self_signup.bound' rows on the append-only audit rail rather
   -- than on admin_note (an approval decision rewrites admin_note and must not
@@ -122,7 +150,9 @@ DECLARE
     'admin_mfa_factors','admin_sessions','affiliate_attributions','affiliate_link_events',
     'affiliate_links','audit_log','buyer_payment_methods','buyer_resume_contexts','buyer_sessions',
     'deal_chat_messages','deal_delivery_options','deal_images','deal_ticket_terms','deal_voucher_terms',
-    'deals','discovery_events','distributor_sessions','fulfillment_units','idempotency_log',
+    'deals','discovery_events','distribution_link_viewer_grants',
+    'distribution_link_viewer_login_attempts','distribution_link_viewer_sessions',
+    'distribution_link_viewers','distributor_sessions','fulfillment_units','idempotency_log',
     'infrastructure_change_audit','invoice_document_attempts','invoice_documents',
     'invoice_reconciliation_cases','invoice_webhook_events','invoice_webhook_security_events',
     'join_idempotency_results','legal_acceptances','operational_case_events','operational_cases',
@@ -133,8 +163,11 @@ DECLARE
   ];
   web_update_tables text[] := ARRAY[
     'admin_actions','admin_control_flags','admin_mfa_challenges','admin_mfa_factors','admin_sessions',
-    'admin_users','affiliate_accounts','buyer_payment_methods','buyer_resume_contexts','buyer_sessions',
-    'deal_images','deal_ticket_terms','deal_voucher_terms','deals','distributor_sessions',
+    'admin_users','affiliate_accounts','affiliate_links','buyer_payment_methods',
+    'buyer_resume_contexts','buyer_sessions',
+    'deal_images','deal_ticket_terms','deal_voucher_terms','deals',
+    'distribution_link_viewer_grants','distribution_link_viewer_sessions',
+    'distribution_link_viewers','distributor_sessions',
     'fulfillment_units','infrastructure_change_audit','invoice_document_attempts','invoice_documents',
     'invoice_reconciliation_cases','invoice_webhook_events','notification_events','operational_cases',
     'otp_challenges','outbox_events','participant_tracking_tokens','participants','payment_attempts',
