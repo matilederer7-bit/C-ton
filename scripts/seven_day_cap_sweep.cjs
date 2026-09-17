@@ -30,6 +30,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const { walkRepository } = require('./lib/repo_scan_policy.cjs');
 
 const SELF_PATH = path.normalize(path.join('scripts', 'seven_day_cap_sweep.cjs'));
@@ -66,6 +67,99 @@ function scanSource(relative, source) {
   return findings;
 }
 
+// ---------------------------------------------------------------------------
+// .docx support
+//
+// The owner's constitution, product spec and UX document are Word files. Their
+// text lives in XML inside a zip, so a plain text scan never sees it — which is
+// exactly how a seven-day cap survived in them after the Markdown had been
+// reconciled. These helpers extract the real paragraph text so the gate reads
+// what a person opening the document would read.
+//
+// Word splits one logical sentence across many <w:t> runs (RTL, spell check,
+// revision marks), so runs are joined per <w:p> before matching. Without that
+// join, "דדליין מקסימום 7 ימים" is invisible to any regex.
+// ---------------------------------------------------------------------------
+
+const DOCX_TEXT_PARTS = /^word\/(document|header\d*|footer\d*|footnotes|endnotes)\.xml$/;
+
+function xmlDecode(value) {
+  return value
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
+    .replace(/&amp;/g, '&');
+}
+
+function docxParagraphs(xml) {
+  const out = [];
+  for (const chunk of xml.split(/<w:p[ >]/).slice(1)) {
+    const body = chunk.split('</w:p>')[0];
+    const runs = [...body.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)].map((m) => xmlDecode(m[1]));
+    if (runs.length) out.push(runs.join(''));
+  }
+  return out;
+}
+
+// Extract the archive to a temporary directory rather than naming members:
+// `unzip -p` treats [ and ] in a member name as glob metacharacters, which
+// [Content_Types].xml trips over.
+function docxText(file) {
+  const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'seven-day-docx-'));
+  try {
+    execFileSync('unzip', ['-qq', '-o', file, '-d', temp], { stdio: 'pipe' });
+    const paragraphs = [];
+    const walk = (dir, base) => {
+      for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        const abs = path.join(dir, entry.name);
+        const rel = base ? `${base}/${entry.name}` : entry.name;
+        if (entry.isDirectory()) { walk(abs, rel); continue; }
+        if (!DOCX_TEXT_PARTS.test(rel)) continue;
+        paragraphs.push(...docxParagraphs(fs.readFileSync(abs, 'utf8')));
+      }
+    };
+    walk(temp, '');
+    return paragraphs;
+  } finally {
+    fs.rmSync(temp, { recursive: true, force: true });
+  }
+}
+
+function listDocx(root) {
+  const out = [];
+  const skip = new Set(['.git', 'node_modules', 'dist', 'build', 'coverage', '.demo_dist', '.tmp_test_dist', '.mobile_dist']);
+  const walk = (dir) => {
+    let entries;
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      const abs = path.join(dir, entry.name);
+      if (entry.isDirectory()) { if (!skip.has(entry.name)) walk(abs); continue; }
+      if (entry.name.toLowerCase().endsWith('.docx')) out.push(abs);
+    }
+  };
+  walk(root);
+  return out;
+}
+
+function scanDocx(root) {
+  const findings = [];
+  for (const abs of listDocx(root)) {
+    const rel = path.relative(root, abs);
+    let paragraphs;
+    try {
+      paragraphs = docxText(abs);
+    } catch (error) {
+      // A .docx the gate cannot read is a finding in itself: it would otherwise
+      // be a silent hole exactly where the rule already hid once.
+      findings.push({ file: rel, line: 0, text: `unreadable .docx (${error.message.slice(0, 80)})` });
+      continue;
+    }
+    // Reuse the line scanner by treating each paragraph as a line, so the
+    // classification and the context window behave identically to source text.
+    findings.push(...scanSource(rel, paragraphs.join('\n')).map((f) => ({ ...f, paragraph: f.line })));
+  }
+  return findings;
+}
+
 function scanRepository(root) {
   const findings = [];
   for (const { rel, abs } of walkRepository(root)) {
@@ -74,7 +168,48 @@ function scanRepository(root) {
     try { source = fs.readFileSync(abs, 'utf8'); } catch { continue; }
     findings.push(...scanSource(rel, source));
   }
+  findings.push(...scanDocx(root));
   return findings;
+}
+
+// Build a minimal but genuinely valid .docx for the self-test. Each paragraph
+// is given as an array of run texts so a fixture can reproduce Word's habit of
+// splitting one sentence across several <w:t> elements.
+function buildFixtureDocx(dir, name, paragraphs) {
+  const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const body = paragraphs
+    .map((runs) => `<w:p>${runs.map((t) => `<w:r><w:t xml:space="preserve">${escape(t)}</w:t></w:r>`).join('')}</w:p>`)
+    .join('');
+  const documentXml =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">' +
+    `<w:body>${body}</w:body></w:document>`;
+  const contentTypes =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+    '<Default Extension="xml" ContentType="application/xml"/>' +
+    '<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>' +
+    '</Types>';
+  const rels =
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>' +
+    '</Relationships>';
+
+  const stage = fs.mkdtempSync(path.join(os.tmpdir(), 'seven-day-fixture-'));
+  const target = path.join(dir, name);
+  try {
+    fs.mkdirSync(path.join(stage, '_rels'), { recursive: true });
+    fs.mkdirSync(path.join(stage, 'word'), { recursive: true });
+    fs.writeFileSync(path.join(stage, '[Content_Types].xml'), contentTypes);
+    fs.writeFileSync(path.join(stage, '_rels', '.rels'), rels);
+    fs.writeFileSync(path.join(stage, 'word', 'document.xml'), documentXml);
+    execFileSync('zip', ['-q', '-r', target, '[Content_Types].xml', '_rels', 'word'], { cwd: stage });
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
+  }
+  return target;
 }
 
 function runSelfTest() {
@@ -132,6 +267,44 @@ function runSelfTest() {
     }
   } finally {
     fs.rmSync(temp, { recursive: true, force: true });
+  }
+
+  // The gate must read the real text INSIDE a .docx, not a marker file beside
+  // it. Both fixtures below split the sentence across <w:t> runs the way Word
+  // actually stores it, so a scan that does not join runs per paragraph fails
+  // this test — which is precisely the hole that let the cap survive before.
+  const docxTemp = fs.mkdtempSync(path.join(os.tmpdir(), 'siton-seven-day-docx-'));
+  try {
+    const planted = buildFixtureDocx(docxTemp, 'planted.docx', [
+      ['3.3 כללים עסקיים מחייבים'],
+      ['דדליין ', 'מקסימום ', '7 ', 'ימים'],
+      ['מינימום יחידות מוגדר מראש']
+    ]);
+    const clean = buildFixtureDocx(docxTemp, 'clean.docx', [
+      ['דדליין ', 'מינימום 2 שעות, ללא מגבלת מקסימום קבועה'],
+      ['זמן אספקה משוער: ', '3-7 ', 'ימי עסקים'],
+      ['Authorization > ', '7 ', 'ימים']
+    ]);
+
+    const inPlanted = scanDocx(docxTemp).filter((f) => f.file.endsWith('planted.docx'));
+    if (inPlanted.length !== 1) {
+      console.error(`self-test FAIL: a cap planted inside a .docx was not detected (got ${inPlanted.length})`);
+      failures += 1;
+    }
+    const inClean = scanDocx(docxTemp).filter((f) => f.file.endsWith('clean.docx'));
+    if (inClean.length !== 0) {
+      console.error(`self-test FAIL: legitimate .docx text was flagged: ${JSON.stringify(inClean)}`);
+      failures += 1;
+    }
+    if (!fs.existsSync(planted) || !fs.existsSync(clean)) {
+      console.error('self-test FAIL: .docx fixtures were not written');
+      failures += 1;
+    }
+  } catch (error) {
+    console.error(`self-test FAIL: .docx fixture check errored: ${error.message}`);
+    failures += 1;
+  } finally {
+    fs.rmSync(docxTemp, { recursive: true, force: true });
   }
 
   if (failures > 0) {

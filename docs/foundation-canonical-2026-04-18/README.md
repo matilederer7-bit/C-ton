@@ -14,17 +14,24 @@ They are **not** the current product policy. Per `AGENTS.md` ("Source of
 truth"), these are rank 5 — *older foundation, delivery, and historical
 documents*. Current canonical decisions and amendments override them.
 
-## OBSOLETE rule in these documents: the seven-day deal-deadline maximum
+## The seven-day deal-deadline maximum — CORRECTED IN THE DOCUMENTS THEMSELVES
 
-These source documents state a **maximum deal deadline of seven days**. That
-rule is **OBSOLETE / HISTORICAL and must not be implemented, reintroduced or
-cited as active policy.** Specifically:
+These source documents used to state a **maximum deal deadline of seven days**.
+That text is **gone**: on 2026-09-17 the `.docx` files in this directory were
+edited in place, so the rule no longer appears in any of them. The note below
+records what changed rather than warning about text that is still present.
 
-| Document | Obsolete text (verbatim) |
-|---|---|
-| `חוקה וצקליסט לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" |
-| `סיטון אפיון מוצר מלא עדכני.docx` | "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום" · "דדליין עד 7 ימים" · "מקסימום עד שבעה ימים קלנדריים, מינימום החל מ‑2 שעות" |
-| `UX סיטון.docx` שלב 4 – תנאים | "דדליין עד 7 ימים" |
+| Document | Was (verbatim) | Now reads |
+|---|---|---|
+| `חוקה וצקליסט לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" | "דדליין מינימום 2 שעות, ללא מגבלת מקסימום מוצרית קבועה" |
+| `סיטון אפיון מוצר מלא עדכני.docx` | "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום." · "דדליין עד 7 ימים" · "(מקסימום עד שבעה ימים קלנדריים, מינימום החל מ 2 שעות)" | "דדליין לעיסקה: מינימום 2 שעות ממועד הפרסום. אין מגבלת מקסימום מוצרית קבועה; קיימת תקרת מערכת טכנית בלבד למניעת שגיאות קלט." · "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" · "(מינימום החל מ 2 שעות, ללא מגבלת מקסימום קבועה)" |
+| `UX סיטון.docx` שלב 1 – פרטי בסיס | "דדליין עד 7 ימים" | "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" |
+
+This directory's earlier "kept verbatim, never edited" rule was deliberately
+overridden by the owner for this one correction, on the grounds that a reader
+opening the constitution must not meet an active instruction that contradicts
+current policy. Only `word/document.xml` was rewritten inside each archive;
+styles, numbering, fonts, relationships and content types are byte-identical.
 
 **Current binding rule (LONG_HORIZON_DEALS, owner decision 2026-09-16):**
 there is **no fixed maximum deal duration**. A deal's lifetime is a product
