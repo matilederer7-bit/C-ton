@@ -82,6 +82,7 @@ Legend:
 | `SELLER_SESSION_SECRET` | ⬜ (demo skips) | ⚠ | ⚠ | 🔒 | — | Required for non-demo seller sessions. |
 | `BUYER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs deal-bound HttpOnly buyer sessions used only for safe server-side resume. |
 | `DISTRIBUTOR_SESSION_SECRET` | ⬜ (demo context) | ⚠ | ⚠ | 🔒 | — | Required for non-demo distributor sessions and tenant resolution. |
+| `LINK_VIEWER_SESSION_SECRET` | ⬜ (local-only fallback) | ⚠ | ⚠ | 🔒 | — | Signs the scoped read-only external link-dashboard sessions (seller distribution hub). Falls back to `BUYER_SESSION_SECRET` / `OTP_TOKEN_SECRET`. |
 | `SITON_PLATFORM_FEE_VAT_RATE` | ⬜ | ⬜ | ⬜ | 📄 | `0.18` | |
 | `COMPLETION_WINDOW_MINUTES` | ⬜ | ⬜ | ⬜ | 📄 | `1440` | C6 spec — 24 h. |
 | `OUTBOX_POLL_MS` | ⬜ | ⬜ | ⬜ | 📄 | `1000` | |
