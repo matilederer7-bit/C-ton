@@ -20,6 +20,6 @@ jobs:
       - run: npm ci --ignore-scripts --no-audit --no-fund
       - run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: web
-      - run: npm run mobile:sync
+      - run: npm run mobile:verify
       - run: npm run test:mobile-readiness
       - run: git diff --exit-code -- android ios

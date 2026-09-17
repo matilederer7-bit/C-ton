@@ -41,7 +41,9 @@ jobs:
           node-version: 22
           cache: npm
       - name: Clean dependency install
-        run: npm ci
+        run: |
+          npm ci
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
       - name: Release preflight (static profile)
         run: npm run release:preflight:static
       - name: Release manifest and checklist
@@ -108,7 +110,9 @@ jobs:
           sudo apt-get install -y -qq postgresql-client
           pg_dump --version
       - name: Clean dependency install
-        run: npm ci
+        run: |
+          npm ci
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
       - name: Release preflight (standard profile, database gates)
         run: npm run release:preflight -- --profile standard --skip route-authorization-behavioural,release-local-lab
       - name: Upload release reports

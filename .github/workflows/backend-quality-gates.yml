@@ -102,7 +102,7 @@ jobs:
         run: |
           set -o pipefail
           npm ci --prefix web --ignore-scripts --no-audit --no-fund
-          npm run mobile:sync 2>&1 | tee .ci-artifacts/mobile-gate.log
+          npm run mobile:verify 2>&1 | tee .ci-artifacts/mobile-gate.log
 
       - name: Diff whitespace gate
         run: git diff --check HEAD^ HEAD 2>&1 | tee .ci-artifacts/git-diff-check.log

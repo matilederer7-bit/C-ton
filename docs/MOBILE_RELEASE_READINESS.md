@@ -3,7 +3,8 @@
 > **Ported onto current `master` on 2026-09-17** (shelf closeout, branch
 > `claude/shelf-heavy-closeout-20260917`, source `codex/mobile-release-readiness` @ `541b7dc`).
 > Carried: canonical `web/` bundle at `/preview/` (no legacy `/app`, no hosted fallback), SHA-256
-> source/asset manifest + read-only release gate (`npm run mobile:verify`), native runtime adapter
+> source/asset manifest + read-only release gate (`npm run mobile:gate`; `npm run mobile:verify`
+> = build → `cap sync` → normalize → gate, what CI and the release preflight run), native runtime adapter
 > (`mobile/runtime.js`) and public-origin helper (`web/src/mobileUrls.ts`), Android/iOS metadata
 > hardening (backup off, release `debuggable false`, narrowed FileProvider, foreground location
 > strings, `/preview/` + `/d/` link filters), unhosted association templates, negative-control
