@@ -5,6 +5,11 @@ pack**: the constitution/checklist, the binding system spec, the full product
 spec and the UX document. They are kept **verbatim** as provenance and are
 never edited.
 
+Loose copies of several of these documents also sit directly in `docs/`, plus
+`חוקה לסיטון.docx`, which is not part of this pack. Those are marked by
+`docs/SOURCE_DOCX_OBSOLETE_RULES.md`, which carries the same obsolescence
+notice for them.
+
 They are **not** the current product policy. Per `AGENTS.md` ("Source of
 truth"), these are rank 5 — *older foundation, delivery, and historical
 documents*. Current canonical decisions and amendments override them.

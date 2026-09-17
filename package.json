@@ -157,7 +157,8 @@
     "qa:diagnose": "node scripts/qa_process_guard.cjs --diagnose",
     "qa:cleanup-stale-dbs": "node scripts/qa_process_guard.cjs --cleanup-stale-dbs",
     "qa:classified": "node scripts/qa_run_classified.cjs",
-    "test:release-tools": "node --test \"tests/release_tools/**/*.test.cjs\""
+    "test:release-tools": "node --test \"tests/release_tools/**/*.test.cjs\"",
+    "gate:seven-day-cap": "node scripts/seven_day_cap_sweep.cjs"
   },
   "engines": {
     "node": ">=22.0.0"
