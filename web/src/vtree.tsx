@@ -232,7 +232,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
           {/* deal root — the trunk of the whole hierarchy */}
           <g transform={`translate(${rootLaid.x - NODE_W / 2},0)`} className={`vtree-node-deal${hasSelection ? " on-path" : ""}`}>
             <rect width={NODE_W} height={NODE_H} rx={14} />
-            <text x={NODE_W / 2} y={26} textAnchor="middle" className="t1">🌳 {dealTitle ? String(dealTitle).slice(0, 18) : "העסקה"}</text>
+            <text x={NODE_W / 2} y={26} textAnchor="middle" className="t1">{dealTitle ? String(dealTitle).slice(0, 18) : "העסקה"}</text>
             <text x={NODE_W / 2} y={46} textAnchor="middle" className="t2">שורש ההפצה — הקישורים המקוריים</text>
             <text x={NODE_W / 2} y={66} textAnchor="middle" className="t2">{num(directJoins)} מצטרפים ישירים{data.truncated["root"] ? "+" : ""}</text>
           </g>

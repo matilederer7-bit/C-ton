@@ -62,6 +62,14 @@ import {
   verifyCustomerAccessToken
 } from "./seller_inquiries.js";
 import {
+  extractDealReference, isDealScopedSupportCategory, supportCategoryRequiresDeal
+} from "./support_deal_context.js";
+// SHELF REINTEGRATION (PR #7 residual slice) — the admin growth window and the
+// intent-sensitive buyer search, carried onto current master.
+import { buyerNameRankSql, buyerSearchPredicateSql, classifyBuyerSearch } from "./buyer_search_intent.js";
+import { resolveGrowthWindow } from "./growth_window.js";
+import { computeGrowthWindowMetrics } from "./growth_metrics.js";
+import {
   buildOtpProvider,
   ensureOtpRailTables,
   ensureJoinOtpVerified,
@@ -3245,7 +3253,7 @@ export function registerFrontendExperience(
       Number(usage.per_deal || 0) >= INQUIRY_LIMITS.per_deal_per_hour ||
       Number(usage.total || 0) >= INQUIRY_LIMITS.global_per_hour
     ) {
-      return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      return { ok: false as const, rate_limited: true as const };
     }
 
     const bodyHash = inquiryBodyHash(args.message);
@@ -3393,7 +3401,7 @@ export function registerFrontendExperience(
           thread = existing.rows[0] as InquiryThreadRow;
         }
       }
-      return appendCustomerInquiryMessage(c, {
+      const appended: any = await appendCustomerInquiryMessage(c, {
         req, reply, dealId,
         dealTitle: String(deal.title || ""),
         sellerId: String(deal.seller_id),
@@ -3403,6 +3411,10 @@ export function registerFrontendExperience(
         message,
         requestId
       });
+      if (appended?.rate_limited) {
+        return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      }
+      return appended;
     });
   });
 
@@ -9041,8 +9053,20 @@ export function registerFrontendExperience(
     report: { case_type: "ContentReport", label: "דיווח על תוכן" },
     seller: { case_type: "Other", label: "שאלת מוכר" }
   };
+  // UX CLOSEOUT (Issue #39, item 5) — deal-scoped support is bound to the deal
+  // and its seller SERVER-SIDE, and becomes the SAME canonical inquiry thread
+  // the in-product "פנייה למוכר" creates, rather than a third support universe:
+  //
+  //   admin  ← siton.operational_cases (deal_id, seller_id, thread pointer)
+  //   seller ← siton.seller_inquiry_threads  (the conversation, PII-masked)
+  //
+  // One inquiry, two projections. The buyer's e-mail and phone stay on the
+  // admin case; the seller surface never maps them out (mapSellerInquiryThreadRow).
+  // A general or seller-account question carries no deal binding at all, so it
+  // can never surface to an unrelated seller.
   app.post("/api/support/contact", async (req: any, reply: any) => {
     await ensureOperationalCaseTables(deps.withTx);
+    await ensureInquiryTables();
     const body = req.body && typeof req.body === "object" ? req.body : {};
     // honeypot: bots fill every field — humans never see this one
     if (String(body.website || "").trim()) {
@@ -9060,6 +9084,15 @@ export function registerFrontendExperience(
     if (message.length < 10) return reply.code(400).send({ ok: false, error: "contact_message_too_short" });
     if (message.length > 2000) return reply.code(400).send({ ok: false, error: "contact_message_too_long" });
 
+    // The reference is a LOOKUP KEY only — a deal id, a public deal link, a
+    // hash route or a tracking link. The seller is read off the resolved DEAL
+    // row; nothing in the request can name a seller.
+    const dealScoped = isDealScopedSupportCategory(categoryKey);
+    const dealReference = dealScoped ? extractDealReference(body.deal_ref ?? body.deal_link ?? body.deal_id) : null;
+    if (supportCategoryRequiresDeal(categoryKey) && !dealReference) {
+      return reply.code(400).send({ ok: false, error: "contact_deal_reference_required" });
+    }
+
     const created = await deps.withTx(async (c) => {
       const counts = await c.query(
         `SELECT
@@ -9074,24 +9107,96 @@ export function registerFrontendExperience(
       if (Number(limits.per_email || 0) >= 3 || Number(limits.total || 0) >= 30) {
         throw Object.assign(new Error("support contact rate limited"), { statusCode: 429, code: "support_rate_limited" });
       }
+      // Resolve the deal reference to a real PUBLISHED deal, and take the
+      // seller from that row. An unknown or unpublished id resolves to nothing.
+      let dealContext: { deal_id: string; title: string; seller_id: string } | null = null;
+      if (dealReference) {
+        const dealRow = await c.query(
+          `SELECT d.deal_id, d.title, COALESCE(d.seller_id, $2) AS seller_id
+           FROM siton.deals d
+           WHERE d.deal_id = $1 AND d.published_at IS NOT NULL
+           LIMIT 1`,
+          [dealReference, DEFAULT_SELLER_ID]
+        );
+        if (dealRow.rowCount) {
+          dealContext = {
+            deal_id: String(dealRow.rows[0].deal_id),
+            title: String(dealRow.rows[0].title || ""),
+            seller_id: String(dealRow.rows[0].seller_id)
+          };
+        }
+      }
+      if (supportCategoryRequiresDeal(categoryKey) && !dealContext) {
+        throw Object.assign(new Error("support deal reference unresolved"), {
+          statusCode: 404, code: "contact_deal_not_found"
+        });
+      }
+
+      // The seller's copy IS the canonical inquiry thread, created through the
+      // same helper the deal page uses — same rate limits, same retry dedupe,
+      // same single pointer notification, same PII masking.
+      let inquiry: any = null;
+      if (dealContext) {
+        const threadName = normalizeInquiryText(name, INQUIRY_NAME_MAX);
+        const threadEmail = normalizeInquiryEmail(email);
+        const threadBody = normalizeInquiryText(message, INQUIRY_MESSAGE_MAX);
+        if (threadName.length >= 2 && threadEmail && threadBody.length >= INQUIRY_MESSAGE_MIN) {
+          const appended = await appendCustomerInquiryMessage(c, {
+            req, reply,
+            dealId: dealContext.deal_id,
+            dealTitle: dealContext.title,
+            sellerId: dealContext.seller_id,
+            thread: null,
+            name: threadName,
+            email: threadEmail,
+            message: threadBody,
+            requestId: inquiryRequestId(req)
+          });
+          if (appended?.rate_limited) {
+            throw Object.assign(new Error("support contact rate limited"), { statusCode: 429, code: "support_rate_limited" });
+          }
+          inquiry = appended;
+        }
+      }
+
       const description = [
         message,
         "",
         `— פרטי הפונה —`,
         `שם: ${name}`,
         `אימייל: ${email}`,
-        phone ? `טלפון: ${phone}` : null
+        phone ? `טלפון: ${phone}` : null,
+        dealContext ? "" : null,
+        dealContext ? `— הקשר העסקה —` : null,
+        dealContext ? `עסקה: ${dealContext.title} (${dealContext.deal_id})` : null,
+        inquiry?.thread_id ? `שיחת מוכר: ${inquiry.thread_id}` : null
       ].filter((line) => line !== null).join("\n");
       const inserted = await c.query(
         `INSERT INTO siton.operational_cases
-           (case_type, status, priority, source, buyer_ref, opened_by, subject, description)
-         VALUES ($1,'Open','Normal','Buyer',$2,'public_contact_form',$3,$4)
+           (case_type, status, priority, source, buyer_ref, opened_by, subject, description, deal_id, seller_id)
+         VALUES ($1,'Open','Normal','Buyer',$2,'public_contact_form',$3,$4,$5,$6)
          RETURNING case_id, status, created_at`,
-        [category.case_type, email, `${category.label} — ${name}`.slice(0, 200), description]
+        [
+          category.case_type, email, `${category.label} — ${name}`.slice(0, 200), description,
+          dealContext ? dealContext.deal_id : null,
+          dealContext ? dealContext.seller_id : null
+        ]
       );
-      return inserted.rows[0];
+      return { ...inserted.rows[0], deal_context: dealContext, inquiry };
     });
-    return reply.code(201).send({ ok: true, case_id: created.case_id, status: created.status });
+    // `appendCustomerInquiryMessage` sets 201 for the thread it created; the
+    // support intake owns the final status either way.
+    return reply.code(201).send({
+      ok: true,
+      case_id: created.case_id,
+      status: created.status,
+      deal_id: created.deal_context ? created.deal_context.deal_id : null,
+      // The seller-visible half, when there is one. The access token lets the
+      // buyer follow their own thread exactly as the deal-page form does.
+      ...(created.inquiry?.thread_id
+        ? { thread_id: created.inquiry.thread_id, ...(created.inquiry.access_token ? { access_token: created.inquiry.access_token } : {}) }
+        : {})
+    });
   });
 
   app.post("/api/admin/support-cases", async (req: any, reply: any) => {
@@ -10929,28 +11034,30 @@ export function registerFrontendExperience(
     });
   });
 
+  // SHELF REINTEGRATION (PR #7 residual slice) — the virality dashboard is
+  // WINDOWED: default last 7 days, presets 7/30/90, a custom [from,to) range
+  // (UTC instants; the UI enters Israel-local days) or all time. The window
+  // drives every number in `windowed` (src/growth_metrics.ts computes them
+  // live), not just a label. The lifetime rollup stays a separate, explicitly
+  // labelled block. The old hardcoded `last_7_days` card is GONE: it mixed a
+  // fixed seven-day number into a screen whose other numbers followed the
+  // selected range, which is exactly the kind of quiet lie this rewrite exists
+  // to remove.
   app.get("/api/admin/growth", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
+    const resolved = resolveGrowthWindow(req.query || {});
+    if (!resolved.ok) return reply.code(400).send({ ok: false, error: resolved.error, message: resolved.message_he });
+    const window = resolved.window;
     return deps.withTx(async (c) => {
       const platform = await readViralMetricsCache(c, "platform", "global");
-      const recentEvents = await c.query(
-        `SELECT event_type, COUNT(*)::int AS cnt
-         FROM siton.viral_events
-         WHERE created_at > now() - interval '7 days'
-         GROUP BY event_type`
-      );
-      const recentAttributed = await c.query(
-        `SELECT COUNT(*)::int AS cnt
-         FROM siton.viral_attributions
-         WHERE origin_ref_type <> 'none' AND created_at > now() - interval '7 days'`
-      );
+      const windowed = await computeGrowthWindowMetrics(c, window);
       return {
         ok: true,
-        platform,
-        last_7_days: {
-          funnel_events: Object.fromEntries(recentEvents.rows.map((r: any) => [String(r.event_type), Number(r.cnt)])),
-          attributed_joins: Number(recentAttributed.rows[0]?.cnt || 0)
-        }
+        window,
+        windowed,
+        lifetime: { ...platform, label_he: "מצטבר מאז ההשקה (כל הזמן)" },
+        // kept for older readers of this payload; identical to `lifetime`
+        platform
       };
     });
   });
@@ -11778,33 +11885,45 @@ export function registerFrontendExperience(
   });
 
   // Admin: buyers/participants roster (aggregated by buyer identity).
+  // SHELF REINTEGRATION (PR #7 residual slice) — intent-sensitive search
+  // (src/buyer_search_intent.ts): letters go to the NAME only, digits to the
+  // phone, "@" to the e-mail, CT-… to the order code, a uuid to technical ids.
+  // The old roster searched four hidden fields at once and then DISPLAYED a
+  // different aggregate value, so typing "ש" could return a buyer whose visible
+  // name had no ש. The predicate now runs on the DISPLAYED values of the
+  // aggregated row and every hit says why it matched.
   app.get("/api/admin/r6/buyers", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
-    const q = String(req.query?.q || "").trim().slice(0, 120);
+    const plan = classifyBuyerSearch(req.query?.q);
+    const rank = buyerNameRankSql(plan, "p", 1);
+    const predicate = buyerSearchPredicateSql(plan, "agg", 1 + rank.params.length);
     return deps.withTx(async (c) => {
       const rows = await c.query(
-        `SELECT p.buyer_id,
-                MAX(p.buyer_name) AS buyer_name,
-                MAX(p.buyer_phone) AS buyer_phone,
-                MAX(p.buyer_email) AS buyer_email,
-                COUNT(*)::int AS participations,
-                COUNT(DISTINCT p.deal_id)::int AS deals,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
-                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
-                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
-                COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
-                (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
-                (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
-                MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
-                MAX(p.created_at) AS last_join_at
-         FROM siton.participants p
-         JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%' OR p.buyer_phone ILIKE '%' || $1 || '%')
-         GROUP BY p.buyer_id
+        `WITH agg AS (
+           SELECT p.buyer_id,
+                  (ARRAY_AGG(p.buyer_name ORDER BY (p.buyer_name IS NOT NULL) DESC, ${rank.sql}p.created_at DESC))[1] AS buyer_name,
+                  (ARRAY_AGG(p.buyer_phone ORDER BY (p.buyer_phone IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_phone,
+                  (ARRAY_AGG(p.buyer_email ORDER BY (p.buyer_email IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_email,
+                  COUNT(*)::int AS participations,
+                  COUNT(DISTINCT p.deal_id)::int AS deals,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                  COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                    FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                  COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                  (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
+                  (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
+                  MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
+                  MAX(p.created_at) AS last_join_at
+           FROM siton.participants p
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           GROUP BY p.buyer_id
+         )
+         SELECT * FROM agg
+         WHERE ${predicate.sql}
          ORDER BY last_join_at DESC
          LIMIT 200`,
-        [q]
+        [...rank.params, ...predicate.params]
       );
       // Verification is REAL, never fabricated: a contact is verified ONLY if a
       // verified OTP challenge exists for its normalized-destination hash (same
@@ -11831,9 +11950,15 @@ export function registerFrontendExperience(
       const buyers = rows.rows.map((b: any) => ({
         ...b,
         email_verified: emailHashes.has(String(b.buyer_id)) && verified.has(`email:${emailHashes.get(String(b.buyer_id))}`),
-        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`)
+        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`),
+        match: plan.intent === "empty" ? null : { field: plan.intent, label_he: plan.match_label_he }
       }));
-      return { ok: true, buyers, contact_privacy: "admin_only" };
+      return {
+        ok: true,
+        buyers,
+        contact_privacy: "admin_only",
+        search: { intent: plan.intent, label_he: plan.label_he, normalized: plan.normalized, tokens: plan.tokens }
+      };
     });
   });
 

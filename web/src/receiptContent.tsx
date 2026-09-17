@@ -10,38 +10,65 @@ import { ChoiceCard, StatusPill } from "./components";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "./pickupScan";
 import { attention as fieldAttention, focusField } from "./fieldAttention";
 
-export type ReceiptConfig = { method: string; instructions: string; url: string };
-const OPTIONS = [
+// UX CLOSEOUT (Issue #39, item 3) — several redemption methods, ONE entitlement.
+// `methods` is the canonical field; `method` is kept as the primary so an older
+// payload still round-trips. Helpers below let every caller treat a legacy
+// single-method value and a v2 set identically.
+export type ReceiptConfig = { method?: string; methods?: string[]; instructions: string; url: string };
+export const RECEIPT_METHOD_ORDER = ["qr", "code", "name_phone", "digital_link", "instructions"] as const;
+const OPTIONS: [string, string, string][] = [
   ["qr", "QR / ברקוד", "הקונה יקבל קוד סריקה אישי לאחר השלמת העסקה"],
   ["code", "קוד מימוש", "הקונה יקבל קוד אישי למימוש"],
   ["name_phone", "שם וטלפון", "המימוש יתבצע לפי שם וטלפון של הקונה"],
   ["digital_link", "קישור דיגיטלי", "הקונה יקבל קישור לאחר השלמת העסקה"],
   ["instructions", "הוראות מהמוכר", "הקונה יקבל את הוראות המימוש שתגדירו"]
 ];
-// ROUND 2 (UX-4) — the receipt method now uses THE Siton selection card, so a
-// chosen option is unmistakable (orange border + tint, orange-filled
-// indicator) instead of a bare native radio. The indicator is the ROUND
-// single-select dot on purpose: siton.deals.receipt_config carries exactly ONE
-// "method", so a square multi-select would promise something the canonical
-// contract cannot store. See docs/UX_NIGHT_REINTEGRATION.md (Open backend contracts).
+
+/** Canonical-ordered, distinct, never empty. Accepts v1 and v2 shapes. */
+export function receiptMethodsOf(value: ReceiptConfig | null | undefined): string[] {
+  const raw = Array.isArray(value?.methods) && value!.methods!.length ? value!.methods! : value?.method ? [value.method] : [];
+  const picked = RECEIPT_METHOD_ORDER.filter(m => raw.includes(m));
+  return picked.length ? [...picked] : ["qr"];
+}
+
+export function withReceiptMethods(value: ReceiptConfig, methods: string[]): ReceiptConfig {
+  const ordered = RECEIPT_METHOD_ORDER.filter(m => methods.includes(m));
+  const next = ordered.length ? [...ordered] : ["qr"];
+  return { ...value, methods: next, method: next[0] };
+}
+
+// ROUND 2 (UX-4) used THE Siton selection card with the ROUND single-select dot
+// because receipt_config could store exactly one method. That contract changed
+// in Issue #39 item 3: the column now stores a versioned SET, so the indicator
+// is the SQUARE multi-select — the shape and the stored truth agree again, and
+// the seller can offer a QR *and* a spoken code *and* name+phone for the same
+// purchase. The last enabled method cannot be switched off.
 export function ReceiptFields({ value, onChange, disabled = false, attention }: { value: ReceiptConfig; onChange: (v: ReceiptConfig) => void; disabled?: boolean; attention?: boolean }) {
-  const invalidUrl = attention && value.method === "digital_link";
-  const invalidInstructions = attention && value.method === "instructions" && !value.instructions.trim();
-  const exactField = value.method === "digital_link" || value.method === "instructions";
+  const methods = receiptMethodsOf(value);
+  const has = (key: string) => methods.includes(key);
+  const invalidUrl = attention && has("digital_link");
+  const invalidInstructions = attention && has("instructions") && !value.instructions.trim();
+  const exactField = has("digital_link") || has("instructions");
   const fieldErrors: Record<string, string> = invalidUrl || invalidInstructions ? { receipt: "required" } : {};
+  const toggle = (key: string, checked: boolean) => {
+    const next = checked ? [...methods, key] : methods.filter(m => m !== key);
+    if (!next.length) return; // at least one method must remain
+    onChange(withReceiptMethods(value, next));
+  };
   return <fieldset className={`receipt-fields${attention && !exactField ? " attention-block needs-attention" : ""}`} disabled={disabled} id={exactField ? undefined : "f-receipt"} tabIndex={-1} aria-invalid={attention && !exactField ? "true" : undefined}>
     <legend>איך הקונה יקבל את מה ששילם עליו?</legend>
+    <p className="muted small" style={{ margin: "0 0 8px" }}>אפשר לבחור כמה דרכים — כולן מציגות את אותה זכאות אחת, והמימוש נרשם פעם אחת בלבד.</p>
     <div className="choice-group" data-testid="receipt-methods">
-      {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="one" name="receipt-method" value={key}
-        testId="receipt-method-option" checked={value.method === key} title={title!} help={help}
-        onSelect={() => onChange({ ...value, method: key! })} />)}
+      {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="many" name="receipt-method" value={key}
+        testId="receipt-method-option" checked={has(key)} title={title} help={help}
+        onSelect={checked => toggle(key, checked)} />)}
     </div>
-    {value.method === "digital_link" ? <label className="field">קישור מאובטח
+    {has("digital_link") ? <label className="field">קישור מאובטח
       <input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
       <span className="muted small">לכתובת אישית לכל קונה אפשר להוסיף {'{code}'} לקישור.</span>
     </label> : null}
-    {value.method === "instructions" || value.method === "code" || value.method === "qr" ? <label className="field">הוראות מימוש {value.method === "instructions" ? "" : "(לא חובה)"}
-      <textarea {...(value.method === "instructions" ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={value.method === "instructions"} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
+    {has("instructions") || has("code") || has("qr") ? <label className="field">הוראות מימוש {has("instructions") ? "" : "(לא חובה)"}
+      <textarea {...(has("instructions") ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={has("instructions")} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
     </label> : null}
   </fieldset>;
 }
@@ -112,6 +139,10 @@ export function PublicSellerPage({ id }: { id: string }) {
     </div>
   </>;
 }
+/** The methods a served entitlement carries (v2 set, or the legacy primary). */
+function entitlementMethods(receipt: Json): string[] {
+  return Array.isArray(receipt?.methods) && receipt.methods.length ? receipt.methods.map(String) : [String(receipt?.method || "")];
+}
 export function BuyerEntitlement({ participantId, token, pickup }: { participantId: string; token: string; pickup?: Json }) {
   const [loaded, setLoaded] = useState<{ participantId: string; token: string; value: Json } | null>(null), [error, setError] = useState("");
   const data = loaded?.participantId === participantId && loaded.token === token ? loaded.value : null;
@@ -130,8 +161,14 @@ export function BuyerEntitlement({ participantId, token, pickup }: { participant
     {pickupStatus ? <PickupCard pickup={pickup} /> : error ? <p role="alert">{error}</p> : !data ? <p>טוענים…</p> : !receipt ? <p>פרטי המימוש יופיעו כאן אחרי שהעסקה תושלם והתשלום יאושר.</p> : <>
       {!data.configured && pickup?.applicable ? <PickupCard pickup={pickup} /> : <>
         <h3>{receipt.title} · {receipt.quantity} יחידות</h3><p>{receipt.status === "redeemed" ? "כבר מומש" : "זכאי למימוש"}</p>
-        {receipt.method === "name_phone" ? <p>הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
-        {receipt.status !== "redeemed" && receipt.method === "qr" && receipt.code ? <QrCode value={`${location.origin}/preview/#/seller/receipts?code=${encodeURIComponent(receipt.code)}`} size={200} label="קוד QR למימוש" /> : null}
+        {/* Issue #39 item 3 — every method the seller enabled is shown for the
+            SAME entitlement. The QR, the printed code and the personal link all
+            carry one code; redeeming through any of them redeems it once. */}
+        {entitlementMethods(receipt).length > 1 ? <p className="muted small" data-testid="receipt-multi-method">
+          אפשר להשתמש בכל אחת מהדרכים האלה — כולן מציגות את אותה זכאות, והמימוש נרשם פעם אחת.
+        </p> : null}
+        {entitlementMethods(receipt).includes("name_phone") ? <p data-testid="receipt-name-phone">הציגו למוכר את השם והטלפון שמסרתם בהצטרפות.</p> : null}
+        {receipt.status !== "redeemed" && entitlementMethods(receipt).includes("qr") && receipt.code ? <QrCode value={`${location.origin}/preview/#/seller/receipts?code=${encodeURIComponent(receipt.code)}`} size={200} label="קוד QR למימוש" /> : null}
         {receipt.code ? <p className="receipt-code" dir="ltr">{receipt.code}</p> : null}
         {receipt.url && receipt.status !== "redeemed" ? <a className="btn btn-primary" href={receipt.url} target="_blank" rel="noopener noreferrer">פתיחת הקישור שלי</a> : null}
         <p style={{ whiteSpace: "pre-wrap" }}>{receipt.instructions}</p>

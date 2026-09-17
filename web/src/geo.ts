@@ -201,7 +201,7 @@ async function readPermission(deps: GeoDeps): Promise<GeoPermissionState> {
 }
 
 /**
- * The single entry point behind "📍 השתמש במיקום שלי". Resolves exactly once
+ * The single entry point behind "השתמש במיקום שלי". Resolves exactly once
  * with a fully described outcome; never throws.
  */
 export async function requestPickupLocation(deps: GeoDeps, hooks: GeoHooks = {}): Promise<GeoOutcome> {

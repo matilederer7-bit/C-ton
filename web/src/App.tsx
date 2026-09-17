@@ -217,7 +217,9 @@ export default function App() {
               refusal (the load guard is per mounted page). */}
           {page === "track" && route.seg[1] ? <TrackPage key={`${route.seg[1]}:${route.query.get("t") || ""}`} participantId={route.seg[1]} token={route.query.get("t") || ""} /> : null}
           {page === "seller" ? <SellerArea sub={route.seg.slice(1)} query={route.query} navigate={navigate} /> : null}
-          {page === "support" ? <SupportPage /> : null}
+          {/* Issue #39 item 5 — an in-product entry point may pre-bind the deal:
+               #/support?deal=<deal id or link>. The server still resolves it. */}
+          {page === "support" ? <SupportPage dealRef={route.query.get("deal") || ""} /> : null}
           {page === "public-seller" && route.seg[1] ? <PublicSellerPage id={route.seg[1]} /> : null}
           {page === "content" && route.seg[1] ? <ContentPage section={route.seg[1]} /> : null}
           {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}

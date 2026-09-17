@@ -1,4 +1,4 @@
-import { ReceiptFields, ReceiptEditor, PublicProfileEditor, SellerReceipts, type ReceiptConfig } from "../receiptContent";
+import { ReceiptFields, ReceiptEditor, PublicProfileEditor, SellerReceipts, receiptMethodsOf, type ReceiptConfig } from "../receiptContent";
 import { productRequest } from "../api";
 // Seller-area system messages, empty states and guidance are CMS content —
 // the `seller_area` template — resolved with the canonical Hebrew as fallback.
@@ -18,7 +18,7 @@ import {
   requestPickupLocation, type GeoOutcome
 } from "../geo";
 import {
-  CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeIcon, dealTypeLabel,
+  CLOSED_STATES, OPEN_STATES, URGENT_SELLER_STATES, countdownView, dealTypeLabel,
   failReason, fmtDate, formatIsraelDateTime, ils, israelPartsToUtcIso, moneyStateLabel, num, utcIsoToIsraelParts
 } from "../util";
 import { absoluteShareUrl } from "../viral";
@@ -89,25 +89,34 @@ function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
 }
 
 // ── LAUNCH POLISH (P3) — "מה קורה מכאן?" the seller journey in one strip ────
-// Five steps a first-time seller must understand in ~10 seconds: what THEY do
-// (create → preview → publish → share), what SITON does (counts joins, holds
-// frames only, charges only on success), when it succeeds, what happens if the
-// target is missed. The lit step follows the real deal state; nothing here
-// claims a real payment — the demo disclosure stays on the strip.
-type JourneyStage = 0 | 1 | 2 | 3 | 4;
+// UX CLOSEOUT (Issue #39, item 4): the journey is FOUR steps, not five. The
+// standalone "תצוגה מקדימה" stage was removed — previewing a draft is a tool
+// the seller may reach for from the deal screen at any time, never a mandatory
+// stage they must pass through, and presenting it as one made the path look
+// longer and more bureaucratic than it is. The preview ACTION itself is
+// untouched (see `draft-preview-open` below); only the journey stage is gone.
+//
+// What remains: what THEY do (create → publish → share), what SITON does
+// (counts joins, holds frames only, charges only on success), when it
+// succeeds, what happens if the target is missed. The lit step follows the
+// real deal state; nothing here claims a real payment — the demo disclosure
+// stays on the strip.
+type JourneyStage = 0 | 1 | 2 | 3;
 const JOURNEY_STEPS: { t: string; b: string }[] = [
   { t: "יצירת עסקה", b: "מוצר, מחיר, יעד יחידות, מועד סיום" },
-  { t: "תצוגה מקדימה", b: "רואים בדיוק מה הקונים יראו" },
   { t: "פרסום", b: "מקבלים קישור אחד לשיתוף" },
   { t: "איסוף משתתפים", b: "קונים מצטרפים ומשתפים — נתפסת מסגרת בלבד, אין חיוב" },
   { t: "הצלחה / כישלון", b: "הגיעו ליעד → חיוב ואספקה · לא הגיעו → המסגרות משתחררות" }
 ];
+const JOURNEY_TERMINAL_STEP = JOURNEY_STEPS.length - 1;
 function journeyStageOf(deal: Json | null): JourneyStage {
   if (!deal) return 0;
   const state = String(deal.state || "");
+  // A draft that already carries images is one action away from publishing, so
+  // "פרסום" is the live step; an empty draft is still being created.
   if (state === "Draft") return (deal.images || []).length ? 1 : 0;
-  if (["PendingTarget", "TargetReached", "ClosedForJoining"].includes(state)) return 3;
-  return 4;
+  if (["PendingTarget", "TargetReached", "ClosedForJoining"].includes(state)) return 2;
+  return 3;
 }
 function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
   const stage = journeyStageOf(deal);
@@ -125,12 +134,13 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
       </div>
       <ol className="journey-steps">
         {JOURNEY_STEPS.map((s, i) => {
-          const cls = i < stage || (terminal && i === 4) ? "done" : i === stage ? "now" : "";
+          const done = i < stage || (terminal && i === JOURNEY_TERMINAL_STEP);
+          const cls = done ? "done" : i === stage ? "now" : "";
           return (
             <li key={s.t} className={`journey-step ${cls}`} data-testid={`journey-step-${i + 1}`} aria-current={i === stage ? "step" : undefined}>
-              <span className="j-n" aria-hidden="true">{i < stage || (terminal && i === 4) ? "✓" : i + 1}</span>
+              <span className="j-n" aria-hidden="true">{done ? "✓" : i + 1}</span>
               <div className="j-t">{s.t}</div>
-              <div className="j-b">{i === 4 && outcome ? outcome : s.b}</div>
+              <div className="j-b">{i === JOURNEY_TERMINAL_STEP && outcome ? outcome : s.b}</div>
             </li>
           );
         })}
@@ -176,7 +186,7 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
       <div className="sd-main" onClick={open} role="button" tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter") open(); }}>
         <div className="sd-top">
-          <div className="sd-thumb">{img ? <img src={img} alt="" /> : dealTypeIcon(String(deal.deal_type || "physical_product"))}</div>
+          <div className="sd-thumb">{img ? <img src={img} alt="" /> : <span className="sd-thumb-type">{dealTypeLabel(String(deal.deal_type || "physical_product"))}</span>}</div>
           <div className="grow">
             <div className="sd-title">{deal.title}</div>
             <StatusPill state={state} />
@@ -211,7 +221,7 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
           }}>העתקת קישור</button>
         ) : null}
         {closed && state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
-          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>📦 הזמנות למסירה</button>
+          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>הזמנות למסירה</button>
         ) : null}
         {closed ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
@@ -223,6 +233,45 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
             } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
           }}>יצירת עסקה דומה</button>
         ) : null}
+      </div>
+    </div>
+  );
+}
+
+// ── UX CLOSEOUT (Issue #39, item 1) — the terminal-deal archive row ────────
+// A Completed / Failed / Cancelled deal is history: it must stay REACHABLE but
+// must not consume the primary dashboard next to the deals the seller can still
+// act on. The archive therefore renders one compact row per deal instead of the
+// full card — title, outcome, the money that actually settled, and only the
+// actions that still mean something on a closed deal (open the summary, the
+// fulfilment list for a completed physical deal, duplicate).
+function SellerArchiveRow({ deal, navigate, showToast }: { deal: Json; navigate: (h: string) => void; showToast: (m: string) => void }) {
+  const state = String(deal.state);
+  const money = deal.money || {};
+  const charged = Number(money.charged_gross || 0);
+  const open = () => navigate(`#/seller/deal/${deal.deal_id}`);
+  return (
+    <div className="sd-archive-row" data-testid="seller-archive-row" data-state={state}>
+      <div className="sd-archive-main" onClick={open} role="button" tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter") open(); }}>
+        <span className="sd-archive-title">{deal.title}</span>
+        <StatusPill state={state} />
+        <span className="sd-archive-money">{state === "Completed" ? ils(charged) : state === "Failed" ? failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units }) : "בוטלה"}</span>
+        <span className="sd-archive-when muted small">{fmtDate(deal.last_update_at || deal.created_at)}</span>
+      </div>
+      <div className="sd-archive-actions">
+        <button className="btn btn-sm btn-ghost" data-testid="archive-open" onClick={open}>צפייה בסיכום</button>
+        {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
+          <button className="btn btn-sm btn-ghost" data-testid="archive-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>הזמנות למסירה</button>
+        ) : null}
+        <button className="btn btn-sm btn-ghost" data-testid="archive-duplicate" onClick={async () => {
+          try {
+            const r = await api.duplicateDeal(deal.deal_id);
+            const newId = r?.deal?.deal_id || r?.deal_id;
+            showToast("נוצרה טיוטה חדשה — בדקו את כל הפרטים לפני פרסום");
+            if (newId) navigate(`#/seller/deal/${newId}`);
+          } catch (e: any) { showToast(e.message || "השכפול נכשל"); }
+        }}>יצירת עסקה דומה</button>
       </div>
     </div>
   );
@@ -285,14 +334,19 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
   }, [aPeriod, aDeal]);
 
   const deals: Json[] = surface?.deals || [];
-  const { urgentDeals, otherDeals } = useMemo(() => {
+  // Issue #39 item 1 — three buckets, not two: what needs attention now, what
+  // is still live, and the terminal archive that must not crowd either of them.
+  const { urgentDeals, activeDeals, archivedDeals } = useMemo(() => {
+    const byRecency = (a: Json, b: Json) => Date.parse(b.last_update_at || b.created_at) - Date.parse(a.last_update_at || a.created_at);
     const urgent = deals
       .filter((d) => URGENT_SELLER_STATES.includes(String(d.state)))
       .sort((a, b) => Date.parse(a.completion_window_until || a.deadline || 0) - Date.parse(b.completion_window_until || b.deadline || 0));
-    const rest = deals
-      .filter((d) => !URGENT_SELLER_STATES.includes(String(d.state)))
-      .sort((a, b) => Date.parse(b.last_update_at || b.created_at) - Date.parse(a.last_update_at || a.created_at));
-    return { urgentDeals: urgent, otherDeals: rest };
+    const rest = deals.filter((d) => !URGENT_SELLER_STATES.includes(String(d.state)));
+    return {
+      urgentDeals: urgent,
+      activeDeals: rest.filter((d) => !CLOSED_STATES.includes(String(d.state))).sort(byRecency),
+      archivedDeals: rest.filter((d) => CLOSED_STATES.includes(String(d.state))).sort(byRecency)
+    };
   }, [deals]);
 
   if (!surface && !error) return <BrandLoader label="טוענים את הדשבורד…" minHeight={420} />;
@@ -313,11 +367,11 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         <div className="row" style={{ marginInlineStart: "auto" }}>
           <button className="btn btn-sm btn-ghost" onClick={load} aria-label="רענון">↻ רענון</button>
           <a className="btn btn-sm btn-ghost" href="#/seller/receipts">מימוש רכישות</a>
-          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>🏢 פרופיל עסקי</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>פרופיל עסקי</button>
           {/* 071 — Product Library: reusable products the seller creates deals from */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>📦 ספריית המוצרים</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>ספריית המוצרים</button>
           {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
           <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>+ יצירת עסקה חדשה</button>
           <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>יציאה</button>
         </div>
@@ -372,16 +426,30 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
         </>
       ) : null}
 
-      <div className="section-title">העסקאות שלי <span className="count">({otherDeals.length})</span></div>
-      {otherDeals.length === 0 && urgentDeals.length === 0 ? (
-        <EmptyState icon="🏷️" title={copy.empty_title}
+      <div className="section-title">העסקאות שלי <span className="count">({activeDeals.length})</span></div>
+      {deals.length === 0 ? (
+        <EmptyState title={copy.empty_title}
           body={copy.empty_body}
           action={<button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{copy.empty_cta}</button>} />
+      ) : activeDeals.length === 0 && urgentDeals.length === 0 ? (
+        <p className="muted" data-testid="seller-no-active-deals">אין עסקאות פעילות כרגע — כל מה שהיה נמצא בארכיון למטה.</p>
       ) : (
         <div className="sd-grid">
-          {otherDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
+          {activeDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
         </div>
       )}
+
+      {/* Issue #39 item 1 — terminal deals: collapsed by default, one line each */}
+      {archivedDeals.length ? (
+        <details className="sd-archive" data-testid="seller-archive">
+          <summary data-testid="seller-archive-toggle">
+            ארכיון עסקאות שהסתיימו <span className="count" data-testid="seller-archive-count">({archivedDeals.length})</span>
+          </summary>
+          <div className="sd-archive-list">
+            {archivedDeals.map((d) => <SellerArchiveRow key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
+          </div>
+        </details>
+      ) : null}
 
       {/* P0.4-2G/C/D/F/I — money, trends, funnel, viral, activity */}
       {analytics ? (
@@ -559,7 +627,7 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
         <button type="button" className="btn btn-sm btn-ghost" disabled={pending} data-testid="use-my-location"
           data-geo-pending={pending ? "1" : "0"} data-geo-attempt={attempt ? String(attempt.n) : ""}
           onClick={() => { void capture(); }}>
-          {pending ? pendingLabel : "📍 השתמש במיקום שלי"}
+          {pending ? pendingLabel : "השתמש במיקום שלי"}
         </button>
         <button type="button" className="btn btn-sm btn-ghost" style={{ opacity: .7 }} data-testid="geo-manual-toggle"
           onClick={() => setShowManual((v) => !v)}>
@@ -647,7 +715,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
     min: product?.fulfillment_defaults?.estimated_min_business_days == null ? "" : String(product.fulfillment_defaults.estimated_min_business_days),
     max: product?.fulfillment_defaults?.estimated_max_business_days == null ? "" : String(product.fulfillment_defaults.estimated_max_business_days)
   };
-  const [receipt, setReceipt] = useState<ReceiptConfig>({ method: "qr", instructions: "", url: "" });
+  const [receipt, setReceipt] = useState<ReceiptConfig>({ method: "qr", methods: ["qr"], instructions: "", url: "" });
   const [step, setStep] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -779,8 +847,8 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = "לעסקה שנוצרת ממוצר יש להזין זמן אספקה משוער (מינימום ומקסימום) לכל אפשרות";
       });
     }
-    if (s === 2 && receipt.method === "instructions" && !receipt.instructions.trim()) errs.receipt = "יש להזין הוראות מימוש";
-    if (s === 2 && receipt.method === "digital_link") {
+    if (s === 2 && receiptMethodsOf(receipt).includes("instructions") && !receipt.instructions.trim()) errs.receipt = "יש להזין הוראות מימוש";
+    if (s === 2 && receiptMethodsOf(receipt).includes("digital_link")) {
       try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = "יש להזין קישור HTTPS תקין"; } catch { errs.receipt = "יש להזין קישור HTTPS תקין"; }
     }
     if (s === 3 && deadlineCheck.error) errs.deadline = deadlineCheck.error;
@@ -1425,7 +1493,6 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
 // always; published only while ZERO buyers ever relied on the options. Locked
 // deals still SHOW everything with an explicit explanation — never hidden.
 const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
-const DELIVERY_TYPE_ICONS: Record<string, string> = { delivery: "🚚", pickup: "🏪", distribution_point: "📍" };
 
 function mapsPlaceUrl(lat: number | null, lng: number | null): string | null {
   if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
@@ -1540,21 +1607,21 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
               const nav = mapsPlaceUrl(o.latitude == null ? null : Number(o.latitude), o.longitude == null ? null : Number(o.longitude));
               return (
                 <div className="delivery-view-row" key={String(o.option_id)}>
-                  <span className="ico" aria-hidden="true">{DELIVERY_TYPE_ICONS[String(o.option_type)] || "📦"}</span>
+                  <span className="ico" aria-hidden="true" data-option-type={String(o.option_type)} />
                   <span className="grow">
                     <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
                     {isPickupOptionType(o.option_type) ? (
                       hasUsablePickupLocation(o) ? (
-                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}
-                          <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {pickupPrecision(o) === "exact" ? "✓" : "⚠️"} {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
+                        <span className="pickup-loc" data-testid="seller-pickup-location"> · {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}
+                          <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
                         </span>
                       ) : (
-                        <span className="pickup-missing" data-testid="pickup-location-missing"> · ⚠️ חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
+                        <span className="pickup-missing" data-testid="pickup-location-missing"> · חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
                       )
                     ) : null}
                   </span>
                   <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : "חינם"}</span>
-                  {deliveryEstimateText(o) ? <span className="muted small" data-testid="seller-delivery-estimate">⏱ {deliveryEstimateText(o)}</span> : null}
+                  {deliveryEstimateText(o) ? <span className="muted small" data-testid="seller-delivery-estimate">{deliveryEstimateText(o)}</span> : null}
                   {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">הצגה במפה</a> : null}
                 </div>
               );
@@ -1644,7 +1711,7 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
     <div className="panel" data-testid="product-link-panel" data-product-id="">
       <div className="panel-title">שמירה כמוצר בספרייה</div>
       <p className="muted small">שמרו את הפרטים והתמונות של הטיוטה כמוצר לשימוש חוזר — העסקה הזו תוקפא על הגרסה הזו, ובעתיד תוכלו ליצור ממנו עסקאות נוספות בלחיצה.</p>
-      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? "שומרים…" : "📦 שמירה כמוצר"}</button>
+      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? "שומרים…" : "שמירה כמוצר"}</button>
     </div>
   );
 }
@@ -1844,7 +1911,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
     return () => clearInterval(id);
   }, [dealId]);
 
-  if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את העסקה" body={error} />;
+  if (error) return <EmptyState title="לא ניתן לטעון את העסקה" body={error} />;
   if (!payload?.deal) return <BrandLoader label="טוענים את העסקה…" minHeight={420} />;
 
   const deal = payload.deal;
@@ -1923,7 +1990,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       {/* constant header: name, image, big colored status */}
       <div className="panel">
         <div className="sd-top">
-          <div className="sd-thumb">{deal.images?.[0]?.url ? <img src={deal.images[0].url} alt="" /> : dealTypeIcon(String(deal.deal_type || ""))}</div>
+          <div className="sd-thumb">{deal.images?.[0]?.url ? <img src={deal.images[0].url} alt="" /> : <span className="sd-thumb-type">{dealTypeLabel(String(deal.deal_type || "physical_product"))}</span>}</div>
           <div className="grow">
             <h1 style={{ margin: 0, fontSize: "1.3rem" }}>{deal.title}</h1>
             <div className="row">
@@ -1995,8 +2062,8 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                   handoff queue: the list + the counter scanner come first */}
               {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
                 <>
-                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>📦 הזמנות למסירה</button>
-                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
+                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>הזמנות למסירה</button>
+                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
                 </>
               ) : null}
               <button className="btn btn-ghost" onClick={async () => {
@@ -2100,7 +2167,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {state === "Completed" ? (
             <div className="row" style={{ marginTop: 10 }}>
               {String(deal.deal_type || "physical_product") === "physical_product" ? (
-                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>📦 הזמנות למסירה</button>
+                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>הזמנות למסירה</button>
               ) : null}
               <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">הורדת רשימת משלוחים (Excel)</a>
             </div>
@@ -2160,7 +2227,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         <PublishModal
           deal={deal}
           onClose={() => setPublishing(false)}
-          onPublished={() => { setPublishing(false); showToast("העסקה פורסמה! 🎉 עכשיו אפשר לשתף"); load(); }}
+          onPublished={() => { setPublishing(false); showToast("העסקה פורסמה — עכשיו אפשר לשתף"); load(); }}
         />
       ) : null}
 
@@ -2311,7 +2378,7 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
     api.sellerBusinessProfile().then(adopt).catch((e) => setError(e.message));
   }, []);
 
-  if (error && !payload) return <EmptyState icon="⚠️" title="לא ניתן לטעון את הפרופיל העסקי" body={error} />;
+  if (error && !payload) return <EmptyState title="לא ניתן לטעון את הפרופיל העסקי" body={error} />;
   if (!payload) return <BrandLoader label="טוענים את הפרופיל העסקי…" minHeight={420} />;
 
   const statuses = payload.statuses || {};

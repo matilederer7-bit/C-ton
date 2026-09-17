@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import { randomUUID } from "node:crypto";
 import { extractTrackingToken, verifyParticipantTrackingAccess } from "./participant_tracking_security.js";
 import { saveDealImage, readDealImage, deleteDealImageFile } from "./product_image_storage.js";
-import { failure, loadReceiptOrder, receiptForOrder, redeemReceipt, receiptConfig, validateReceiptConfig, publicSeller, safePublicName, RECEIPT_LABELS, type Db } from "./receipt_trust.js";
+import { failure, loadReceiptOrder, receiptForOrder, redeemReceipt, receiptConfig, receiptMethodsLabel, validateReceiptConfig, publicSeller, safePublicName, RECEIPT_LABELS, type Db } from "./receipt_trust.js";
 import { CONTENT_SECTIONS, contractOf, publicContent, readContent, validateContent, verifyContentAssets } from "./site_content.js";
 import { CONTENT_UPLOAD_BODY_LIMIT, saveAdminContentAsset, sliceRange } from "./content_media.js";
 
@@ -32,7 +32,11 @@ export function registerReceiptContentRoutes(app: FastifyInstance, deps: Deps) {
       LEFT JOIN siton.seller_accounts sa ON sa.seller_id=d.seller_id WHERE d.deal_id=$1 AND d.published_at IS NOT NULL AND d.state <> 'Draft'`, [uuid(req.params.id)]);
     if (!r.rows[0]) failure("deal_not_found", 404);
     const cfg = receiptConfig(r.rows[0]);
-    return { ok: true, method: cfg.method, label: RECEIPT_LABELS[cfg.method], seller: r.rows[0].public_profile_id ? await publicSeller(c, r.rows[0].public_profile_id, 0, false) : null };
+    // Issue #39 item 3 — a deal may offer several redemption methods for the
+    // SAME entitlement. "method"/"label" stay the primary for older readers.
+    return { ok: true, method: cfg.method, methods: cfg.methods, label: receiptMethodsLabel(cfg.methods),
+      labels: cfg.methods.map((m) => RECEIPT_LABELS[m]),
+      seller: r.rows[0].public_profile_id ? await publicSeller(c, r.rows[0].public_profile_id, 0, false) : null };
   }));
   app.get("/api/public-sellers/:id", async (req: any) => deps.withTx(async c => {
     const page = Number(req.query?.page || 0);

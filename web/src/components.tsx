@@ -68,7 +68,7 @@ export function GroupMeter(props: {
         {props.showFlag !== false && flagPct > 3 && flagPct < 99 ? (
           <>
             <div className="gm-flag" style={{ insetInlineStart: `${flagPct}%` }} />
-            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>🎯 יעד {num(threshold)}</div>
+            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>יעד {num(threshold)}</div>
           </>
         ) : null}
       </div>
@@ -96,7 +96,7 @@ export function Countdown(props: { until: string | null | undefined; label?: str
   return (
     <span className={`countdown ${view.tone}`}>
       {props.label ? <span className="countdown-label">{props.label}</span> : null}
-      <span>⏳ {view.text}</span>
+      <span>{view.text}</span>
     </span>
   );
 }
@@ -352,11 +352,13 @@ export function SkeletonCards({ count = 6 }: { count?: number }) {
   );
 }
 
-export function EmptyState(props: { icon: string; title: string; body?: string; action?: React.ReactNode }) {
+// MATURE UI (Issue #39, item 2): an empty state is carried by typography and
+// spacing, not by a 2.6rem emoji. The rule above the title is a CSS hairline,
+// so the component no longer takes — or renders — a decorative glyph.
+export function EmptyState(props: { title: string; body?: string; action?: React.ReactNode }) {
   return (
-    <div className="center">
-      <div style={{ fontSize: "2.6rem" }}>{props.icon}</div>
-      <h3 style={{ marginTop: 8 }}>{props.title}</h3>
+    <div className="center empty-state" data-testid="empty-state">
+      <h3 className="empty-state-title">{props.title}</h3>
       {props.body ? <p className="muted">{props.body}</p> : null}
       {props.action}
     </div>

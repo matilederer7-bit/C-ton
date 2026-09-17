@@ -246,7 +246,7 @@ export function LocalImageManager({ images, onChange }: { images: LocalImage[]; 
         </div>
       ) : (
         <div className="img-empty">
-          <span className="img-empty-icon">🖼️</span>
+          <span className="img-empty-icon" aria-hidden="true" />
           <span>גררו תמונות לכאן או בחרו מהמכשיר</span>
         </div>
       )}
@@ -372,7 +372,7 @@ export function DraftImageManager({ dealId, images, onChanged, arrangeOnly = fal
         </div>
       ) : (
         <div className="img-empty">
-          <span className="img-empty-icon">🖼️</span>
+          <span className="img-empty-icon" aria-hidden="true" />
           <span>אין תמונות עדיין — גררו לכאן או בחרו מהמכשיר</span>
         </div>
       )}

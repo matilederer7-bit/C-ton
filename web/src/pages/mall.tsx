@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { GroupMeter, SkeletonCards, EmptyState, StatusPill, Countdown } from "../components";
-import { countdownView, dealTypeIcon, dealTypeLabel, ils, num } from "../util";
+import { countdownView, dealTypeLabel, ils, num } from "../util";
 
 type MallDeal = {
   deal_id: string;
@@ -45,7 +45,7 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
       <div className="card-media">
         {deal.primary_image?.url
           ? <img src={deal.primary_image.url} alt={deal.title} loading="lazy" />
-          : <div className="placeholder">{dealTypeIcon(deal.deal_type)}</div>}
+          : <div className="placeholder">{dealTypeLabel(deal.deal_type)}</div>}
         <span className="card-type">{dealTypeLabel(deal.deal_type)}</span>
         {badge ? <span className={`card-urgency${badge.hot ? " hot" : ""}`}>{badge.text}</span> : null}
       </div>
@@ -151,7 +151,6 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
       {error ? <div className="notice err">{error}</div> : null}
       {!visible ? <SkeletonCards /> : visible.length === 0 ? (
         <EmptyState
-          icon="🛍️"
           title="אין עסקאות פתוחות כרגע"
           body="עסקאות חדשות נפתחות כל הזמן — שווה לחזור בקרוב."
           action={!onlyOpen ? undefined : <button className="btn btn-ghost" onClick={() => setOnlyOpen(false)}>הצגת כל העסקאות</button>}

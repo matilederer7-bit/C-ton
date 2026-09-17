@@ -348,7 +348,7 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
     catch (e: any) { setError(String(e?.message || "הטעינה נכשלה")); }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dealId, status]);
-  if (error) return <EmptyState icon="📦" title="אי אפשר להציג את רשימת המסירה" body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>לעסקה</a>} />;
+  if (error) return <EmptyState title="אי אפשר להציג את רשימת המסירה" body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>לעסקה</a>} />;
   if (!payload) return <BrandLoader label="טוענים את ההזמנות למסירה…" minHeight={360} />;
   const counts = payload.counts || {};
   const orders: Json[] = Array.isArray(payload.orders) ? payload.orders : [];
@@ -365,7 +365,7 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
         {Number(counts.blocked) > 0 ? <div className="stat-tile bad"><div className="num">{num(counts.blocked)}</div><div className="lbl">אין למסור</div></div> : null}
       </div>
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>📷 סריקת איסוף</button>
+        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>סריקת איסוף</button>
         <a className="btn btn-ghost btn-sm" href={`/api/seller/deals/${dealId}/delivery-handoff/export.xlsx`} target="_blank" rel="noreferrer">הורדת Excel לוגיסטי</a>
       </div>
       <div className="pickup-tabs" role="tablist" aria-label="סינון" style={{ marginTop: 12 }}>

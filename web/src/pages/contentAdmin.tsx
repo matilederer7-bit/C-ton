@@ -187,7 +187,6 @@ function CopyPreview({ page }: { page: PageContent }) {
       <div className="notice err"><b>{f("seller", "rejected_title")}</b> {f("seller", "rejected_body")} <a href="#/support">תמיכה</a></div>
       <div className="notice info"><b>{f("seller", "profile_incomplete_title")}</b></div>
       <div className="center" style={{ padding: 12 }}>
-        <div style={{ fontSize: "2rem" }}>🏷️</div>
         <h3 style={{ marginTop: 6 }}>{f("seller", "empty_title")}</h3>
         <p className="muted">{f("seller", "empty_body")}</p>
         <span className="btn btn-primary btn-sm">{f("seller", "empty_cta")}</span>

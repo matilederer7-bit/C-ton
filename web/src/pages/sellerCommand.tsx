@@ -80,8 +80,6 @@ export function KpiStrip({ analytics }: { analytics: Json }) {
   );
 }
 
-const SEVERITY_ICON: Record<string, string> = { critical: "🚨", warning: "⚠️", info: "💡" };
-
 export function ActionCenterPanel({ items, navigate }: { items: Json[]; navigate: (h: string) => void }) {
   if (!items?.length) {
     return (
@@ -102,7 +100,6 @@ export function ActionCenterPanel({ items, navigate }: { items: Json[]; navigate
       <div className="action-center" data-testid="action-center">
         {items.map((item, i) => (
           <button key={`${item.type}-${item.deal_id || i}`} className={`action-item ${item.severity}`} onClick={() => go(item)}>
-            <span className="ico">{SEVERITY_ICON[String(item.severity)] || "•"}</span>
             <span className="grow" style={{ textAlign: "start" }}>
               {item.deal_title ? <b>{item.deal_title}: </b> : null}{item.message_he}
             </span>
