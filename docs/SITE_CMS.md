@@ -1,6 +1,6 @@
 # Site CMS — template-driven content editor
 
-Updated: 2026-09-16. Branch `claude/admin-cms-template-editor-x9mava`.
+Updated: 2026-09-17. Template editor: branch `claude/admin-cms-template-editor-x9mava`; product-copy pages: branch `claude/siton-admin-cms-templates-s8g2ih`.
 
 THE SITE DESIGN IS FIXED. THE CONTENT IS EDITABLE THROUGH TEMPLATES. The owner edits
 ordinary website content from `#/admin/content` (ניהול תוכן האתר) without touching code.
@@ -41,6 +41,9 @@ Page contracts (`PAGE_CONTRACTS` + `legalPageContract`):
 | `about` | `about` | none |
 | `footer` | `footer` | none |
 | `legal_<slug>` | `document` (legal) | none |
+| `deal_page` | `deal` (deal_copy), `how` (steps), `track` (track_copy) | none |
+| `seller_area` | `seller` (seller_copy) | none |
+| `support_page` | `support` (support_copy) | none |
 
 Default `home` composition: hero → how (steps) → why (text, hidden) → audiences (columns:
 לקונים / למוכרים) → trust (text) → about (text, hidden) → faq → contact (cta).
@@ -81,6 +84,43 @@ the canonical page.
   (206/416) for video so Safari can play it.
 - React renders text only; the server-rendered `/legal/:slug` escapes everything.
 
+## Product surfaces: fixed composition, editable wording
+
+The deal page, the buyer tracking screen, the seller dashboard and the support form are
+product surfaces, not free-form pages. They are editable through the SAME CMS, with a
+narrower contract: every block is **locked** and `addable` is empty, so an edit can change
+the wording but can never remove, hide, reorder or add a sentence the flow depends on.
+
+| Page | Template | What the owner edits | Where it appears |
+|---|---|---|---|
+| `deal_page` | `deal_copy` | explainer, why the group price is lower, what happens on tap, the hold notice in the join form, the share headline | `#/deal/:id` (also the join sheet and the success screen) |
+| `deal_page` | `steps` (`how`) | the how-it-works steps — add / edit / delete / reorder | the deal page "איך זה עובד" panel |
+| `deal_page` | `track_copy` | the hold explanation, the "לחזור לכאן ולשאול" headline, the three empty-state titles (no access / network / busy) | `#/track/:id` |
+| `seller_area` | `seller_copy` | the "no deals yet" empty state (title, body, button), the guidance headline, the pending / rejected account messages, the incomplete-profile headline | `#/seller` |
+| `support_page` | `support_copy` | the form title and intro, the post-submit title and body | `#/support` |
+
+Reading path: `web/src/productCopy.ts` — a pure module with `resolveDealCopy`,
+`resolveTrackCopy`, `resolveSellerCopy`, `resolveSupportCopy`. Each resolves a field to the
+published value when it is non-empty and to the **canonical Hebrew default of the page
+contract** otherwise, so a missing, partial, malformed or unavailable CMS payload renders
+exactly what shipped. The defaults are the same constants the product already used
+(`web/src/buyerCopy.ts`, `web/src/content/seller.he.ts`), imported by the template library,
+so there is one source of truth for "the original text" in the editor and in the fallback.
+
+Preview: `support_page` previews on its real public route (`#/support?cms_preview=1`).
+`deal_page` and `seller_area` have no standalone URL that would show their sentences to an
+admin (a deal page needs a deal, the dashboard needs a seller account), so the editor
+previews them **inline**, rendering the sentences in their on-screen context.
+
+### What stays server-owned on these surfaces
+
+The tracking status headline, subline and "what still has to happen" steps are projections
+of canonical participant/deal state and are NOT content: they must stay true of the state
+machine, so they remain server-derived. The same holds for prices, unit counts, deadlines,
+the pilot mock-money disclosure and every money sentence the payment rail owns. The two
+frame/hold sentences that ARE editable carry an editor hint saying they must stay truthful
+(no charge on join), and the tests assert the shipped defaults say so.
+
 ## Intentionally hardcoded (system truth)
 
 - Pilot disclosure "פיילוט סגור — בשלב זה לא מתבצעים חיובים אמיתיים." (`LANDING_HE.pilot`).
@@ -94,5 +134,8 @@ the canonical page.
   `content_assets` CHECK) must be applied through the canonical runner **before** deploying
   this code (same rule as 066). No new grants: `supabase/staging/023_receipt_content_grants.sql`
   already covers both tables.
+- The product-copy pages need **no migration and no new grant**: they are additional page
+  contracts over the same `siton.site_content` row model.
 - Verification: `TEST_FILE_PATTERN=site_content_cms npm run test:integration`,
-  `npm run proof:cms`, `node scripts/receipt_content_browser_proof.cjs`, `npm run proof:ux-round2`.
+  `npm run test:product-copy-cms`, `npm run proof:cms`,
+  `node scripts/receipt_content_browser_proof.cjs`, `npm run proof:ux-round2`.

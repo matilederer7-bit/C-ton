@@ -36,6 +36,10 @@ const state = { home: { label: 'דף הבית', description: '', contract: { loc
   about: { label: 'אודות', description: '', contract: { locked: PAGE_CONTRACTS.about.locked, addable: [], maxBlocks: 1 }, published: { blocks: PAGE_CONTRACTS.about.defaults() }, draft: null, revision: 0 },
   footer: { label: 'תחתית האתר', description: '', contract: { locked: PAGE_CONTRACTS.footer.locked, addable: [], maxBlocks: 1 }, published: { blocks: PAGE_CONTRACTS.footer.defaults() }, draft: null, revision: 0 },
   legal_terms: { label: 'תקנון', description: '', contract: { locked: contractFor('legal_terms').locked, addable: [], maxBlocks: 1 }, published: { blocks: [{ id: 'document', type: 'legal', enabled: true, fields: { title: 'תקנון ותנאי שימוש', body: '# תקנון\\n\\n## מידע לקונים\\n\\nתוכן משפטי בתוך עיצוב האתר\\n\\n- סעיף\\n- סעיף שני' } }] }, draft: null, revision: 0 } };
+for (const key of ['deal_page', 'seller_area', 'support_page']) {
+  const c = PAGE_CONTRACTS[key];
+  state[key] = { label: c.label, description: c.description, contract: { locked: c.locked, addable: c.addable, maxBlocks: c.maxBlocks }, published: { blocks: c.defaults() }, draft: null, revision: 1, updated_at: null, updated_by: null, draft_updated_at: null, draft_updated_by: null, published_at: null };
+}
 window.cms = { state, published, draft, saved: [], conflictNext: false, adminOk: true };
 const publicShape = mode => Object.fromEntries(Object.entries(state).map(([k, s]) => [k, { blocks: (mode === 'preview' && s.draft ? s.draft : s.published).blocks }]));
 window.fetch = async (url, init = {}) => {
@@ -58,7 +62,14 @@ window.fetch = async (url, init = {}) => {
   return new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json' } });
 };
 const root = createRoot(document.getElementById('root'));
-window.show = view => root.render(view === 'admin' ? <div className="app"><div className="admin-shell"><main className="admin-main"><ContentAdmin/></main></div></div> : <App/>);
+// the admin shell is a two-column grid (nav + main); the fixture renders the
+// same structure so widths and overflow match the real #/admin/content screen
+window.show = view => root.render(view === 'admin'
+  ? <div className="app"><div className="admin-shell">
+      <nav className="admin-nav" aria-label="ניווט ניהול"><div className="admin-nav-title">C-ton · ניהול</div><button className="active">ניהול תוכן האתר</button></nav>
+      <main className="admin-main"><ContentAdmin/></main>
+    </div></div>
+  : <App/>);
 window.show('site');
 `;
 async function main() {
@@ -123,7 +134,7 @@ async function main() {
       await ev('location.hash = "#/"'); await wait(50);
       // admin editor
       await ev('window.show("admin")'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-hero"]\')');
-      check(`admin @${width}: pages listed, home blocks shown as cards in order`, JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="cms-block-"]')].filter(e=>/^cms-block-[a-z_0-9]+$/.test(e.dataset.testid)).map(e=>e.dataset.testid.replace('cms-block-',''))`)) === JSON.stringify(['hero', 'how', 'why', 'audiences', 'trust', 'about', 'faq', 'contact']) && (await ev(`document.querySelectorAll('[data-testid^="cms-page-"]').length`)) === 4);
+      check(`admin @${width}: pages listed, home blocks shown as cards in order`, JSON.stringify(await ev(`[...document.querySelectorAll('[data-testid^="cms-block-"]')].filter(e=>/^cms-block-[a-z_0-9]+$/.test(e.dataset.testid)).map(e=>e.dataset.testid.replace('cms-block-',''))`)) === JSON.stringify(['hero', 'how', 'why', 'audiences', 'trust', 'about', 'faq', 'contact']) && (await ev(`document.querySelectorAll('[data-testid^="cms-page-"]').length`)) === 7);
       check(`admin @${width}: no horizontal overflow`, !(await overflow()));
       if (width === 390 || width === 1440) { const shot = await send('Page.captureScreenshot', { format: 'png' }); fs.writeFileSync(`.tmp_cms_admin_${width}.png`, Buffer.from(shot.data, 'base64')); }
     }
@@ -183,6 +194,48 @@ async function main() {
     await ev(`(()=>{const el=document.querySelector('[data-testid="cms-add-block"] select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(el,'image_text');el.dispatchEvent(new Event('change',{bubbles:true}));})()`);
     await click('[data-testid="cms-add-block-confirm"]'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-image_text_1"]\')');
     check('editor: a block from the template library can be added to the home page', await ev(`document.querySelector('[data-testid="cms-block-image_text_1"]').dataset.blockType === 'image_text'`));
+    // ── product-copy pages: deal / tracking, seller area, support ───────────
+    await ev('window.show("admin")'); await waitFor('!!document.querySelector(\'[data-testid="cms-page-deal_page"]\')');
+    check('editor: the product surfaces are offered as content pages',
+      await ev(`['deal_page','seller_area','support_page'].every(k => !!document.querySelector('[data-testid="cms-page-'+k+'"]'))`));
+    await click('[data-testid="cms-page-deal_page"]'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-deal"]\')');
+    check('editor: the deal page shows its locked copy blocks and offers no block library',
+      await ev(`['deal','how','track'].every(id => document.querySelector('[data-testid="cms-block-'+id+'"]')) && !document.querySelector('[data-testid="cms-add-block"]')`));
+    check('editor: the locked copy blocks cannot be hidden, removed or moved',
+      await ev(`['deal','how','track'].every(id => !document.querySelector('[data-testid="cms-block-enabled-'+id+'"]') && document.querySelector('[data-testid="cms-block-up-'+id+'"]').disabled)`));
+    check('editor: the fixed sentences are preloaded for editing',
+      await ev(`document.querySelector('[data-testid="cms-field-deal-explainer"]').value.includes('קנייה קבוצתית')`));
+    // in-editor preview (a deal page has no standalone admin URL)
+    await click('[data-testid="cms-preview"]'); await waitFor('!!document.querySelector(\'[data-testid="cms-copy-preview"]\')');
+    check('editor: the deal copy previews inside the editor, in context',
+      await ev(`document.querySelector('[data-testid="cms-copy-preview"]').innerText.includes('קנייה קבוצתית')`));
+    for (const width of [390, 1440]) {
+      await send('Emulation.setDeviceMetricsOverride', { width, height: 1100, deviceScaleFactor: 1, mobile: width < 500 });
+      await wait(120);
+      check(`editor @${width}: the product-copy editor has no horizontal overflow`, !(await overflow()));
+      const shot = await send('Page.captureScreenshot', { format: 'png' });
+      fs.writeFileSync(`.tmp_cms_deal_page_${width}.png`, Buffer.from(shot.data, 'base64'));
+    }
+    // edit → draft → publish
+    await type('[data-testid="cms-field-deal-explainer"]', 'הסבר חדש לקונים: משלמים רק אם הקבוצה נסגרת.');
+    await click('[data-testid="cms-save-draft"]'); await waitFor(`document.querySelector('[data-testid="cms-status"]').dataset.hasDraft === '1'`);
+    check('editor: the deal copy draft is stored without touching the public site',
+      await ev(`window.cms.state.deal_page.draft.blocks.find(b=>b.id==='deal').fields.explainer.includes('הסבר חדש') && window.cms.state.deal_page.published.blocks.find(b=>b.id==='deal').fields.explainer.includes('קנייה קבוצתית: המחיר')`));
+    await click('[data-testid="cms-publish"]'); await waitFor(`document.querySelector('[data-testid="cms-message"]').innerText.includes('פורסם')`);
+    check('editor: publishing the deal copy moves it to the public content',
+      await ev(`window.cms.state.deal_page.published.blocks.find(b=>b.id==='deal').fields.explainer.includes('הסבר חדש') && window.cms.state.deal_page.draft === null`));
+    // the support page is a real public route: the published copy renders there
+    await click('[data-testid="cms-page-support_page"]'); await waitFor('!!document.querySelector(\'[data-testid="cms-block-support"]\')');
+    await type('[data-testid="cms-field-support-title"]', 'מוקד התמיכה של C-ton');
+    await click('[data-testid="cms-save-draft"]'); await waitFor(`document.querySelector('[data-testid="cms-status"]').dataset.hasDraft === '1'`);
+    await click('[data-testid="cms-publish"]'); await waitFor(`document.querySelector('[data-testid="cms-message"]').innerText.includes('פורסם')`);
+    // stay in the same document: a reload would rebuild the fixture state and
+    // discard the publish this check is about
+    await ev('window.location.hash = "#/support"; window.show("site")');
+    await waitFor('!!document.querySelector(".panel h2")');
+    check('support page: the published CMS title is what the visitor reads',
+      await ev(`[...document.querySelectorAll('.panel h2')].some(h => h.innerText.includes('מוקד התמיכה של C-ton'))`));
+    check('support page: no horizontal overflow after the content change', !(await overflow()));
     console.log(`SITE_CMS_BROWSER_PROOF_PASS checks=${checks}`);
   } finally { if (ws) ws.close(); browser.kill(); await new Promise(r => server.close(r)); }
 }

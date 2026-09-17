@@ -1,5 +1,9 @@
 import { ReceiptFields, ReceiptEditor, PublicProfileEditor, SellerReceipts, type ReceiptConfig } from "../receiptContent";
 import { productRequest } from "../api";
+// Seller-area system messages, empty states and guidance are CMS content —
+// the `seller_area` template — resolved with the canonical Hebrew as fallback.
+import { resolveSellerCopy } from "../productCopy";
+import { useSiteContent } from "../siteContent";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, clearAuthSession, getSellerToken, Json } from "../api";
 import { clearOwnerSession, readSellerBindingHint } from "../ownerMode";
@@ -219,6 +223,7 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
 
 // ── dashboard ──────────────────────────────────────────────────────────────
 function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
+  const copy = resolveSellerCopy(useSiteContent());
   const [surface, setSurface] = useState<Json | null>(null);
   const [error, setError] = useState("");
   const [updatedAt, setUpdatedAt] = useState<number>(Date.now());
@@ -312,21 +317,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {/* LAUNCH MODE — a self-registered seller is pending until the owner approves; say so plainly */}
       {String(profile.verification_status || "") === "pending" ? (
         <div className="notice info" data-testid="seller-pending-approval">
-          <b>החשבון ממתין לאישור C-ton — עדיין לא ניתן לפרסם.</b> אפשר כבר להכין עסקה כטיוטה, להעלות תמונות ולראות תצוגה מקדימה;
-          הטיוטה נשמרת, והפרסום ייפתח מיד כשהחשבון יאושר (בדרך כלל תוך שעות ספורות).
+          <b>{copy.pending_title}</b> {copy.pending_body}
         </div>
       ) : null}
       {String(profile.verification_status || "") === "rejected" ? (
         <div className="notice err" data-testid="seller-rejected">
-          <b>החשבון לא אושר לפרסום עסקאות.</b> טיוטות נשמרות, אך פרסום אינו אפשרי. לשאלות — <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>.
+          <b>{copy.rejected_title}</b> {copy.rejected_body} <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>תמיכה ויצירת קשר</a>.
         </div>
       ) : null}
       {/* LAUNCH POLISH (P3) — a seller who never published sees the whole path once, compactly */}
-      {deals.every((d) => !d.published_at) ? <SellerJourney deal={null} title="מה קורה מכאן?" /> : null}
+      {deals.every((d) => !d.published_at) ? <SellerJourney deal={null} title={copy.journey_title} /> : null}
       {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
         <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span>
-            <b>הפרופיל העסקי עדיין לא הושלם</b> — {!bizStatuses.profile_complete ? "חסרים פרטי העסק ואיש הקשר" : "חסרים פרטי חשבון הבנק לקבלת כספים"}.
+            <b>{copy.profile_incomplete_title}</b> — {!bizStatuses.profile_complete ? "חסרים פרטי העסק ואיש הקשר" : "חסרים פרטי חשבון הבנק לקבלת כספים"}.
           </span>
           <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>השלמת הפרופיל</button>
         </div>
@@ -361,9 +365,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
 
       <div className="section-title">העסקאות שלי <span className="count">({otherDeals.length})</span></div>
       {otherDeals.length === 0 && urgentDeals.length === 0 ? (
-        <EmptyState icon="🏷️" title="עדיין לא יצרת עסקאות"
-          body="עסקה קבוצתית ראשונה לוקחת פחות מ־5 דקות."
-          action={<button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>יצירת עסקה ראשונה</button>} />
+        <EmptyState icon="🏷️" title={copy.empty_title}
+          body={copy.empty_body}
+          action={<button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{copy.empty_cta}</button>} />
       ) : (
         <div className="sd-grid">
           {otherDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}

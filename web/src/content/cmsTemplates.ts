@@ -17,6 +17,8 @@
 // to an admin-uploaded asset on this origin.
 
 import { LANDING_HE } from "./landing.he.js";
+import { AFTER_TAP_LINE, DEAL_EXPLAINER, HOW_IT_WORKS, SHARE_LOOP_TITLE, WHY_GROUP_PRICE } from "../buyerCopy.js";
+import { SELLER_AREA_HE } from "./seller.he.js";
 
 export type FieldKind = "text" | "multiline" | "image" | "video" | "link" | "select";
 export interface FieldDef {
@@ -34,7 +36,7 @@ export interface FieldDef {
 export interface ItemsDef { label: string; addLabel: string; min: number; max: number; fields: Record<string, FieldDef> }
 export interface TemplateDef { name: string; description: string; fields: Record<string, FieldDef>; items?: ItemsDef }
 
-export type TemplateId = "hero" | "text" | "image_text" | "cta" | "steps" | "faq" | "columns" | "about" | "legal" | "footer";
+export type TemplateId = "hero" | "text" | "image_text" | "cta" | "steps" | "faq" | "columns" | "about" | "legal" | "footer" | "deal_copy" | "track_copy" | "seller_copy" | "support_copy";
 
 export interface Block {
   id: string;
@@ -64,7 +66,7 @@ export const CMS_LIMITS = { blockIdPattern: /^[a-z][a-z0-9_]{0,39}$/, maxBlocksA
 const LINK_HINT = "קישור פנימי (#/seller) או כתובת https מלאה";
 const link = (label: string, required = false): FieldDef => ({ label, kind: "link", max: 300, required, hint: LINK_HINT });
 const text = (label: string, max: number, required = false, hint?: string): FieldDef => ({ label, kind: "text", max, required, ...(hint ? { hint } : {}) });
-const multiline = (label: string, max: number, required = false, rows = 4): FieldDef => ({ label, kind: "multiline", max, required, rows });
+const multiline = (label: string, max: number, required = false, rows = 4, hint?: string): FieldDef => ({ label, kind: "multiline", max, required, rows, ...(hint ? { hint } : {}) });
 const image = (label: string): FieldDef => ({ label, kind: "image", max: 100 });
 
 export const TEMPLATES: Record<TemplateId, TemplateDef> = {
@@ -138,6 +140,59 @@ export const TEMPLATES: Record<TemplateId, TemplateDef> = {
     description: "השורה התחתונה והקישורים בתחתית כל עמוד",
     fields: { text: multiline("טקסט", 500, false, 2) },
     items: { label: "קישורים", addLabel: "הוספת קישור", min: 0, max: 8, fields: { label: text("טקסט הקישור", 60, true), link: link("יעד הקישור", true) } }
+  },
+  // ── Fixed product copy ────────────────────────────────────────────────────
+  // These templates hold the recurring sentences the product itself speaks on
+  // every deal, tracking and seller screen. They are named slots (not a free
+  // composition) because the code reads each one by name; the admin edits the
+  // wording, never the structure. Every sentence must stay TRUE of canonical
+  // behaviour — the hints say so where money wording is involved.
+  deal_copy: {
+    name: "דף עסקה — טקסטי הסבר",
+    description: "המשפטים הקבועים שכל קונה רואה בדף העסקה",
+    fields: {
+      explainer: multiline("משפט ההסבר בראש העסקה", 400, true, 2, "מה זו קנייה קבוצתית ומה קורה אם לא מגיעים ליעד"),
+      why_group_price: multiline("למה המחיר נמוך", 300, true, 2),
+      after_tap: multiline("מה קורה בלחיצה על הכפתור", 300, true, 2, "מוצג לפני הלחיצה, מתחת לכפתור ההצטרפות"),
+      hold_notice: multiline("הודעת תפיסת מסגרת בטופס", 300, true, 2, "חייב להישאר נכון: בהצטרפות נתפסת מסגרת ולא מתבצע חיוב"),
+      share_title: text("כותרת בלוק השיתוף", 120, true, "מוצגת אחרי הצטרפות ובמסך המעקב")
+    }
+  },
+  track_copy: {
+    name: "מסך מעקב — טקסטים",
+    description: "ההסברים ומסכי ה־Empty State של מסך המעקב של הקונה",
+    fields: {
+      hold_note: multiline("הסבר המסגרת שנתפסה", 400, true, 3, "חייב להישאר נכון: אין חיוב עד סגירת העסקה"),
+      return_title: text("כותרת ״לחזור לכאן ולשאול״", 120, true),
+      no_access_title: text("Empty State — אין גישה", 120, true, "כשקישור המעקב אינו תקף"),
+      network_title: text("Empty State — בעיית תקשורת", 120, true),
+      busy_title: text("Empty State — עומס רגעי", 120, true)
+    }
+  },
+  seller_copy: {
+    name: "אזור המוכר — הודעות וכותרות",
+    description: "הודעות המערכת, מסכי ה־Empty State וההכוונה בדשבורד המוכר",
+    fields: {
+      empty_title: text("אין עסקאות — כותרת", 120, true),
+      empty_body: multiline("אין עסקאות — טקסט", 300, false, 2),
+      empty_cta: text("אין עסקאות — כפתור", 60, true),
+      journey_title: text("״מה קורה מכאן?״ — כותרת", 120, true),
+      pending_title: text("חשבון ממתין לאישור — כותרת", 160, true),
+      pending_body: multiline("חשבון ממתין לאישור — הסבר", 600, false, 3),
+      rejected_title: text("חשבון לא אושר — כותרת", 160, true),
+      rejected_body: multiline("חשבון לא אושר — הסבר", 400, false, 2, "קישור לתמיכה מתווסף אוטומטית בסוף המשפט"),
+      profile_incomplete_title: text("פרופיל עסקי לא הושלם — כותרת", 160, true)
+    }
+  },
+  support_copy: {
+    name: "תמיכה — טקסטים",
+    description: "הכותרת וההסבר בטופס הפנייה לתמיכה",
+    fields: {
+      title: text("כותרת", 120, true),
+      intro: multiline("טקסט הסבר", 500, false, 3, "כתובת המייל לתמיכה מתווספת אוטומטית כשהיא מוגדרת"),
+      sent_title: text("אחרי שליחה — כותרת", 120, true),
+      sent_body: multiline("אחרי שליחה — טקסט", 400, false, 2)
+    }
   }
 };
 
@@ -214,6 +269,46 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
     locked: [{ id: "footer", type: "footer" }], addable: [], maxBlocks: 1,
     legacy: { text: ["footer", "text"] },
     defaults: () => [{ id: "footer", type: "footer", enabled: true, fields: { text: FOOTER_DEFAULT_TEXT }, items: FOOTER_DEFAULT_LINKS.map(l => ({ ...l })) }]
+  },
+  // ── Product pages: fixed composition, editable wording ────────────────────
+  // The deal, tracking, seller and support screens are product surfaces, not
+  // free-form pages: their blocks are locked so no admin edit can remove a
+  // sentence the flow depends on, and nothing can be added. The admin edits the
+  // wording and the how-it-works steps; the layout and the data stay canonical.
+  deal_page: {
+    label: "דף עסקה ומעקב",
+    description: "הטקסטים הקבועים שכל קונה רואה בדף העסקה ובמסך המעקב. המספרים, הסטטוסים והמחירים נשארים מהמערכת",
+    locked: [{ id: "deal", type: "deal_copy" }, { id: "how", type: "steps" }, { id: "track", type: "track_copy" }],
+    addable: [], maxBlocks: 3,
+    legacy: {},
+    defaults: (): Block[] => [
+      { id: "deal", type: "deal_copy", enabled: true, fields: {
+        explainer: DEAL_EXPLAINER, why_group_price: WHY_GROUP_PRICE, after_tap: AFTER_TAP_LINE,
+        hold_notice: "לא משלמים עכשיו — נתפסת מסגרת בלבד.", share_title: SHARE_LOOP_TITLE } },
+      { id: "how", type: "steps", enabled: true, fields: { title: "איך זה עובד" }, items: HOW_IT_WORKS.map(s => ({ title: s.title, body: s.body })) },
+      { id: "track", type: "track_copy", enabled: true, fields: {
+        hold_note: "מסגרת האשראי נתפסה — לא בוצע חיוב בפועל עד סגירת העסקה בהצלחה. אין אפשרות שינוי או ביטול לאחר נעילת העסקה.",
+        return_title: "לחזור לכאן ולשאול את המוכר",
+        no_access_title: "אין גישה למסך המעקב", network_title: "בעיית תקשורת", busy_title: "עומס רגעי — נסו שוב בעוד רגע" } }
+    ]
+  },
+  seller_area: {
+    label: "אזור המוכר",
+    description: "הודעות המערכת, מסכי ״אין עדיין״ וההכוונה שמוכר רואה בדשבורד",
+    locked: [{ id: "seller", type: "seller_copy" }], addable: [], maxBlocks: 1,
+    legacy: {},
+    defaults: (): Block[] => [{ id: "seller", type: "seller_copy", enabled: true, fields: { ...SELLER_AREA_HE } }]
+  },
+  support_page: {
+    label: "תמיכה ויצירת קשר",
+    description: "הכותרת וההסבר בראש טופס הפנייה (#/support)",
+    locked: [{ id: "support", type: "support_copy" }], addable: [], maxBlocks: 1,
+    legacy: {},
+    defaults: (): Block[] => [{ id: "support", type: "support_copy", enabled: true, fields: {
+      title: "תמיכה ויצירת קשר",
+      intro: "נתקלתם בבעיה או שיש לכם שאלה? מלאו את הטופס והפנייה תיפתח ישירות אצל צוות C-ton.",
+      sent_title: "הפנייה נקלטה",
+      sent_body: "הפנייה שלכם נפתחה במערכת התמיכה של C-ton והצוות יטפל בה." } }]
   }
 };
 

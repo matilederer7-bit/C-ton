@@ -3,7 +3,13 @@ import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, Countdown, EmptyState, GroupMeter, ShareActions, StatusPill, Toast, copyText, useToast } from "../components";
 import { fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
-import { NOTIFICATIONS_OFF_LINE, INQUIRY_PRIVACY_LINE, PILOT_MOCK_MONEY_LINE, SHARE_LOOP_TITLE, notificationsLine } from "../buyerCopy";
+import { NOTIFICATIONS_OFF_LINE, INQUIRY_PRIVACY_LINE, PILOT_MOCK_MONEY_LINE, notificationsLine } from "../buyerCopy";
+// Fixed tracking copy (the hold explanation, the return/ask headline and the
+// empty-state titles) is CMS content — the `deal_page` template. The
+// status headline, subline and next steps stay server-derived: they are
+// projections of canonical state and must never be editable.
+import { resolveDealCopy, resolveTrackCopy } from "../productCopy";
+import { useSiteContent } from "../siteContent";
 import { FeedbackPrompt } from "../feedback";
 import { PickupCard } from "../pickupCard";
 
@@ -45,6 +51,9 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
   const [error, setError] = useState<{ kind: "link" | "gone" | "network" | "busy" | "other"; message: string } | null>(null);
   const [toast, showToast] = useToast();
   const [notifLine, setNotifLine] = useState(NOTIFICATIONS_OFF_LINE);
+  const content = useSiteContent();
+  const trackCopy = resolveTrackCopy(content);
+  const shareTitle = resolveDealCopy(content).shareTitle;
 
   useEffect(() => {
     let alive = true;
@@ -73,7 +82,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
   if (error) {
     return (
       <EmptyState icon={error.kind === "network" ? "📡" : error.kind === "busy" ? "⏳" : "🔒"}
-        title={error.kind === "network" ? "בעיית תקשורת" : error.kind === "busy" ? "עומס רגעי — נסו שוב בעוד רגע" : "אין גישה למסך המעקב"} body={error.message}
+        title={error.kind === "network" ? trackCopy.networkTitle : error.kind === "busy" ? trackCopy.busyTitle : trackCopy.noAccessTitle} body={error.message}
         action={
           <div className="row" style={{ justifyContent: "center" }}>
             {error.kind === "network" || error.kind === "busy" ? <button className="btn btn-primary" data-testid="track-retry" onClick={() => window.location.reload()}>נסו שוב</button> : null}
@@ -153,8 +162,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
               <span className="k">סכום שנתפס במסגרת</span><span className="v">{ils(t.estimated_total)}</span>
             </div>
             <div className="order-note" style={{ marginTop: 12 }}>
-              מסגרת האשראי נתפסה — <b>לא בוצע חיוב בפועל</b> עד סגירת העסקה בהצלחה.
-              אין אפשרות שינוי או ביטול לאחר נעילת העסקה.
+              {trackCopy.holdNote}
               <div className="muted small" style={{ marginTop: 4 }}>{PILOT_MOCK_MONEY_LINE}</div>
             </div>
           </div>
@@ -165,7 +173,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
           {/* LAUNCH POLISH 2 (P4/P7) — how I get back here + how I ask the seller */}
           <div className="panel" data-testid="track-return">
-            <div className="panel-title">לחזור לכאן ולשאול את המוכר</div>
+            <div className="panel-title">{trackCopy.returnTitle}</div>
             <p className="small" style={{ marginTop: 0 }} data-testid="track-notif-line">{notifLine}</p>
             <div className="row" style={{ gap: 8 }}>
               <button type="button" className="btn btn-ghost btn-sm" data-testid="track-copy-link" onClick={copyHere}>העתקת קישור המעקב</button>
@@ -196,7 +204,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
         <div className="stack">
           {/* LAUNCH POLISH 2 (P5) — the share loop: the deal depends on aggregation */}
           <div className="panel" data-testid="track-share">
-            <div className="panel-title">{SHARE_LOOP_TITLE}</div>
+            <div className="panel-title">{shareTitle}</div>
             {impact ? (
               <>
                 <div className="impact-stats">

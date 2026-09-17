@@ -1,8 +1,8 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-16
+Updated: 2026-09-17
 Canonical branch: `master`
-Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909b7f05043c7a8`
+Baseline verified at start of this status refresh: `50e4635eedf7e9de29a98f064aafbbb2f7879235`
 
 ## CURRENT SNAPSHOT
 
@@ -14,6 +14,35 @@ Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909
 - PR #26 merged to `master`: canonical product policy amendment 2026-09-16.
 - PR #27 merged to `master` at `7c975d062eecc02faf1c3ab48909b7f05043c7a8`: agent efficiency v4 with root `CLAUDE.md`, no-loop Git authorization fallback, push-checkpoint discipline, and release-tool contract coverage.
 - Repository-side agent workflow is therefore merged through v4.
+- Site CMS is complete on `claude/siton-admin-cms-templates-s8g2ih` (rebased onto `master` `50e4635`): the template-driven content editor from `claude/admin-cms-template-editor-x9mava` was ADOPTED rather than rebuilt, and extended with the product-copy surfaces the owner's task named (deal page, buyer tracking, seller area, support).
+
+### SITE CMS — CURRENT STATE
+
+Branch `claude/siton-admin-cms-templates-s8g2ih` = current `master` + the adopted template
+editor (`8679cb4`, cherry-picked) + the product-copy extension. No competing second CMS was
+written: there is ONE content mechanism (`siton.site_content` rows, block pages validated by
+`web/src/content/cmsTemplates.ts`) and ONE admin screen (`#/admin/content`).
+
+Editable through templates today:
+
+| Area | Page key | What the admin edits |
+|---|---|---|
+| Home | `home` | hero (title, subtitle, intro, image/video, CTA labels) plus addable/reorderable/hideable blocks: text, image+text, CTA, steps, FAQ, columns |
+| FAQ | `home` (`faq` block) | ordered add / edit / delete / reorder |
+| Footer | `footer` | text + ordered links |
+| About | `about` | title, body, optional image |
+| Legal (7 documents) | `legal_<slug>` | title + body of תקנון / פרטיות / ביטולים והחזרים / תשלומים / מוכרים / שותפים / דמו |
+| Deal page + tracking | `deal_page` | the explainer, why the price is lower, what happens on tap, the hold notice, the share headline, the how-it-works steps, the tracking hold note, the return headline, three empty-state titles |
+| Seller area | `seller_area` | empty state (title/body/button), guidance headline, pending / rejected account messages, incomplete-profile headline |
+| Support | `support_page` | form title + intro, post-submit title + body |
+
+Workflow per page: שמור טיוטה → תצוגה מקדימה → פרסם באתר. Drafts live in `draft_jsonb` and are
+never public; publish moves the draft to `value_jsonb` and keeps the previous value; a stale
+revision is refused with 409. Product surfaces are LOCKED contracts (no block can be added,
+removed, hidden or reordered) so a content edit can never delete a sentence the flow needs.
+
+Deliberately NOT content (system truth): tracking status headline/subline/next steps, prices,
+unit counts, deadlines, the pilot mock-money disclosure, the fee and every money state.
 
 ### TESTED / CHECKED
 
@@ -29,7 +58,9 @@ Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909
 - LONG_HORIZON_DEALS remains open in runtime. The legacy seven-day maximum still exists in `src/app.ts` and must not be removed as an isolated two-line change if the durable future-charge/payment semantics are not landed with it.
 - The previously prepared long-horizon implementation exists outside current GitHub history and still needs safe publication/integration before it can be reviewed and merged.
 - Runtime product-policy cleanup remains required for the fixed 24-hour Completion Window and legacy distributor/affiliate surfaces, without touching ordinary sharing or role-neutral viral analytics.
-- CMS/content-management work is active in parallel and must remain isolated from unrelated cleanup.
+- The site CMS branch is not merged yet: it needs a PR and fresh GitHub CI. It carries migration `069_site_content_drafts_media.sql`, and PR #24 (long-horizon) also claims id `069` — whichever merges second must be renumbered before merge.
+- Branch `claude/admin-cms-template-editor-x9mava` is now redundant: its commit is contained in `claude/siton-admin-cms-templates-s8g2ih`. Do not open two PRs for the same work.
+- The buyer tracking status texts, seller KYC wording inside conditional branches and the deal-page fulfilment strings remain code-owned by design; moving more of them to the CMS is a follow-up decision, not a gap.
 - Owner-machine agent worktrees should be rechecked after the next local sync with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor`.
 - Hosted/runtime readiness remains open for the existing Render worker/Blueprint, hosted OTP secret, external payment-provider semantics, production image pruning, architecture decision, and legacy recovery-URL cleanup tracks.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
@@ -40,14 +71,16 @@ Baseline verified at start of this status refresh: `7c975d062eecc02faf1c3ab48909
 - Canonical product-policy decision and source-of-truth alignment: 100%.
 - Runtime implementation alignment for the current product-policy set: incomplete. Do not infer readiness from documentation alignment alone.
 - Long-horizon runtime integration: not complete on `master`.
+- Admin content management (owner can edit the site without code): 95% — implemented, tested and browser-proven on the branch; the remaining 5% is PR review, GitHub CI and merge.
 
 ### NEXT STEP
 
-1. Publish and review the complete long-horizon implementation against current `master`, rather than deleting only the seven-day validator.
-2. Merge long-horizon work only after focused regression tests and payment-lifecycle invariants are proven.
-3. Continue the separate canonical policy runtime cleanup on an isolated branch without colliding with CMS or duration work.
-4. Re-run owner-machine agent doctor after the next local sync.
-5. Keep real money disabled until the existing provider-readiness gates are explicitly cleared.
+1. Open ONE pull request from `claude/siton-admin-cms-templates-s8g2ih` for the complete site CMS (adopted editor + product copy) and merge it on green CI, renumbering migration 069 if PR #24 lands first.
+2. Publish and review the complete long-horizon implementation against current `master`, rather than deleting only the seven-day validator.
+3. Merge long-horizon work only after focused regression tests and payment-lifecycle invariants are proven.
+4. Continue the separate canonical policy runtime cleanup on an isolated branch without colliding with CMS or duration work.
+5. Re-run owner-machine agent doctor after the next local sync.
+6. Keep real money disabled until the existing provider-readiness gates are explicitly cleared.
 
 ## PRODUCT POLICY ALIGNMENT — 2026-09-16
 

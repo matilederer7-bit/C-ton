@@ -26,7 +26,11 @@ type Message = { tone: "ok" | "err" | "info"; text: string } | null;
 
 const LOAD_ERROR = "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד.";
 const CONFLICT = "התוכן עודכן בידי מנהל אחר. רעננו את העמוד לפני השמירה.";
-const PAGE_ORDER = ["home", "about", "footer"];
+const PAGE_ORDER = ["home", "deal_page", "seller_area", "support_page", "about", "footer"];
+// Product surfaces have no standalone public URL that shows their copy to an
+// admin (a deal page needs a deal, the seller dashboard needs a seller). They
+// preview INSIDE the editor instead of opening a tab that would not show them.
+const IN_EDITOR_PREVIEW = new Set(["deal_page", "seller_area"]);
 
 function toSection(key: string, raw: Json): Section {
   const base = contractFor(key);
@@ -45,6 +49,7 @@ function toSections(raw: Json): Record<string, Section> {
 }
 function previewHashFor(key: string): string {
   if (key === "home" || key === "footer") return "#/?cms_preview=1";
+  if (key === "support_page") return "#/support?cms_preview=1";
   return `#/content/${key}?cms_preview=1`;
 }
 const when = (iso: string | null) => iso ? new Date(iso).toLocaleString("he-IL") : "";
@@ -58,6 +63,7 @@ export function ContentAdmin() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<Message>(null);
   const [addType, setAddType] = useState<TemplateId | "">("");
+  const [inlinePreview, setInlinePreview] = useState(false);
   // the revisions the server last returned — a save followed by a publish in one
   // click must send the NEW revision, not the one this render closed over
   const revisions = useRef<Record<string, number>>({});
@@ -97,6 +103,11 @@ export function ContentAdmin() {
   };
   const saveDraft = async () => { const page = validateLocally(); if (!page) return null; return mutate(`/api/admin/site-content/${key}/draft`, "PUT", { value: page }, "הטיוטה נשמרה. האתר הציבורי לא השתנה עדיין."); };
   const preview = async () => {
+    if (IN_EDITOR_PREVIEW.has(key)) {
+      setInlinePreview(v => !v);
+      setMessage({ tone: "info", text: inlinePreview ? "" : "התצוגה המקדימה מציגה את המשפטים כפי שהם מופיעים במסך עצמו." });
+      return;
+    }
     if (dirty) { const r = await saveDraft(); if (!r) return; }
     window.open(`${window.location.origin}${window.location.pathname}${previewHashFor(key)}`, "siton-cms-preview");
     setMessage({ tone: "info", text: "התצוגה המקדימה נפתחה בלשונית חדשה. היא מציגה את הטיוטה רק לכם." });
@@ -133,6 +144,7 @@ export function ContentAdmin() {
           {section.draft || dirty ? <button type="button" className="btn btn-danger-ghost btn-sm" data-testid="cms-discard" disabled={busy} onClick={() => dirty && !section.draft ? (setWorking(section.published), setDirty(false)) : void discard()}>ביטול הטיוטה</button> : null}
         </div>
       </section>
+      {inlinePreview && IN_EDITOR_PREVIEW.has(key) ? <CopyPreview page={working} /> : null}
       <div className="stack cms-blocks">
         {working.blocks.map((block, index) => {
           const locked = lockedIds.has(block.id);
@@ -159,6 +171,42 @@ export function ContentAdmin() {
     </> : null}
     <p role="status" data-testid="cms-message" className={message ? `notice ${message.tone}` : ""}>{message?.text || ""}</p>
   </div>;
+}
+
+// ── In-editor preview of the fixed product copy ────────────────────────────
+// Shows the sentences the way the buyer / seller meets them on screen, so the
+// owner can judge the wording in context before publishing.
+function CopyPreview({ page }: { page: PageContent }) {
+  const f = (id: string, name: string) => String(page.blocks.find(b => b.id === id)?.fields?.[name] || "");
+  const steps = page.blocks.find(b => b.id === "how")?.items || [];
+  const seller = page.blocks.find(b => b.id === "seller");
+  return <section className="panel cms-copy-preview" data-testid="cms-copy-preview">
+    <div className="panel-title">תצוגה מקדימה</div>
+    {seller ? <div className="stack">
+      <div className="notice info"><b>{f("seller", "pending_title")}</b> {f("seller", "pending_body")}</div>
+      <div className="notice err"><b>{f("seller", "rejected_title")}</b> {f("seller", "rejected_body")} <a href="#/support">תמיכה</a></div>
+      <div className="notice info"><b>{f("seller", "profile_incomplete_title")}</b></div>
+      <div className="center" style={{ padding: 12 }}>
+        <div style={{ fontSize: "2rem" }}>🏷️</div>
+        <h3 style={{ marginTop: 6 }}>{f("seller", "empty_title")}</h3>
+        <p className="muted">{f("seller", "empty_body")}</p>
+        <span className="btn btn-primary btn-sm">{f("seller", "empty_cta")}</span>
+      </div>
+      <p className="muted small">כותרת ההכוונה: {f("seller", "journey_title")}</p>
+    </div> : <div className="stack">
+      <p className="deal-explainer">{f("deal", "explainer")}</p>
+      <p className="muted small">{f("deal", "why_group_price")}</p>
+      <p className="muted small">{f("deal", "after_tap")}</p>
+      <div className="notice info">{f("deal", "hold_notice")}</div>
+      <div><b>{f("how", "title")}</b>
+        <ol className="how-strip">{steps.map((s, i) => <li className="how-step" key={i}><span className="how-n" aria-hidden="true">{i + 1}</span><div><b>{s.title}</b><p>{s.body}</p></div></li>)}</ol>
+      </div>
+      <p><b>{f("deal", "share_title")}</b></p>
+      <div className="notice info">{f("track", "hold_note")}</div>
+      <p><b>{f("track", "return_title")}</b></p>
+      <p className="muted small">Empty States: {f("track", "no_access_title")} · {f("track", "network_title")} · {f("track", "busy_title")}</p>
+    </div>}
+  </section>;
 }
 
 function BlockCard({ block, index, locked, busy, canUp, canDown, onChange, onMove, onRemove, onMessage }: {

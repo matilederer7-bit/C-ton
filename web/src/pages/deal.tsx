@@ -18,10 +18,13 @@ import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessio
 import { hasUsablePickupLocation, isPickupOptionType, pickupDirectionsUrl, pickupLocationText } from "../../../src/pickup_location";
 // LAUNCH POLISH 2 — shared buyer copy (what/why/what-if, honesty lines) + the
 // one-question feedback surface.
-import {
-  AFTER_TAP_LINE, DEAL_EXPLAINER, HOW_IT_WORKS, INQUIRY_PRIVACY_LINE, NOTIFICATIONS_OFF_LINE, PILOT_MOCK_MONEY_LINE,
-  SHARE_LOOP_TITLE, WHY_GROUP_PRICE, notificationsLine
-} from "../buyerCopy";
+import { INQUIRY_PRIVACY_LINE, NOTIFICATIONS_OFF_LINE, PILOT_MOCK_MONEY_LINE, notificationsLine } from "../buyerCopy";
+// The fixed explanatory sentences (what/why/what-if, the hold notice, the
+// share headline and the how-it-works steps) are CMS content: the `deal_page`
+// template. resolveDealCopy always answers complete canonical text, so an
+// unavailable or partial payload renders exactly as before.
+import { resolveDealCopy } from "../productCopy";
+import { useSiteContent } from "../siteContent";
 import { FeedbackPrompt } from "../feedback";
 
 const OPEN_STATES = ["PendingTarget", "TargetReached"];
@@ -535,6 +538,7 @@ function JoinModal(props: {
   onRefused: () => void;
 }) {
   const { deal, qty, delivery } = props;
+  const dealCopy = resolveDealCopy(useSiteContent());
   const remembered = readBuyerIdentity();
   const [name, setName] = useState(remembered.name);
   const [phone, setPhone] = useState(remembered.phone);
@@ -659,7 +663,7 @@ function JoinModal(props: {
             {busy ? "מצטרפים…" : `אישור הצטרפות · ${ils(total)}`}
           </button>
           <p className="muted small" style={{ textAlign: "center", margin: "6px 0 0" }} data-testid="join-foot-line">
-            לא משלמים עכשיו — נתפסת מסגרת בלבד. {PILOT_MOCK_MONEY_LINE}
+            {dealCopy.holdNotice} {PILOT_MOCK_MONEY_LINE}
           </p>
         </>
       }
@@ -752,6 +756,7 @@ function JoinSuccess(props: {
   deal: Json; result: Json; qty: number; liveJoined: number; onClose: () => void; onAskSeller: () => void;
 }) {
   const { deal, result, qty } = props;
+  const dealCopy = resolveDealCopy(useSiteContent());
   const [toast, showToast] = useToast();
   const [live, setLive] = useState<Json | null>(null);
   const [notifLine, setNotifLine] = useState(NOTIFICATIONS_OFF_LINE);
@@ -802,7 +807,7 @@ function JoinSuccess(props: {
           </div>
         ) : null}
         <div className="success-share" data-testid="join-success-share">
-          <p style={{ fontWeight: 800, margin: "0 0 8px" }}>{SHARE_LOOP_TITLE}</p>
+          <p style={{ fontWeight: 800, margin: "0 0 8px" }}>{dealCopy.shareTitle}</p>
           <p className="muted small" style={{ marginTop: 0 }}>זה הקישור האישי שלך — כל מי שיצטרף דרכו נזקף לזכותך.</p>
           <ShareActions layout="loop" dealId={deal.deal_id} title={deal.title} price={Number(deal.price_per_unit)} code={shareCode} onNotify={showToast} />
         </div>
@@ -902,6 +907,7 @@ function closedStory(args: { state: string; soldOut: boolean; timeUp: boolean; d
 export function DealPage({ dealId, navigate, preview = false, openInquiry = false }: {
   dealId: string; navigate: (hash: string) => void; preview?: boolean; openInquiry?: boolean;
 }) {
+  const dealCopy = resolveDealCopy(useSiteContent());
   const [payload, setPayload] = useState<Json | null>(null);
   const [activity, setActivity] = useState<Json | null>(null);
   const [error, setError] = useState("");
@@ -1063,7 +1069,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             {deal.description_short ? (
               <p className="deal-short-desc">{deal.description_short}</p>
             ) : null}
-            <p className="deal-explainer" data-testid="deal-explainer">{DEAL_EXPLAINER}</p>
+            <p className="deal-explainer" data-testid="deal-explainer">{dealCopy.explainer}</p>
             {seller.business_name ? (
               <div className="deal-seller-line" data-testid="deal-seller-line">
                 <span>🏪 {seller.business_name}</span>
@@ -1074,7 +1080,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             {isOpen && !preview ? <div className="deal-early-action" data-testid="deal-early-action">
               <p><b>{ils(deal.price_per_unit)} ליחידה</b> · יעד הקבוצה: {num(deal.threshold_units)} יחידות</p>
               <button type="button" className="btn btn-join btn-block" data-testid="join-open-summary" onClick={startJoin}>{ctaText}</button>
-              <p className="muted small">{AFTER_TAP_LINE}</p>
+              <p className="muted small">{dealCopy.afterTap}</p>
             </div> : null}
           </div>
         </div>
@@ -1101,7 +1107,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 <span className="saving-amount" data-testid="deal-saving-amount">חוסכים {ils(listPrice - Number(deal.price_per_unit))} ליחידה</span>
               </div>
             ) : null}
-            <p className="deal-why" data-testid="deal-why">{WHY_GROUP_PRICE}</p>
+            <p className="deal-why" data-testid="deal-why">{dealCopy.whyGroupPrice}</p>
             <div className="deal-facts" data-testid="deal-needed" data-units-to-target={unitsToTarget}>
               <div className="fact"><span className="fact-n">{num(deal.threshold_units)}</span><span className="fact-l">יחידות ביעד</span></div>
               <div className="fact"><span className="fact-n">{num(joined)}</span><span className="fact-l">כבר הצטרפו</span></div>
@@ -1166,7 +1172,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 onClick={startJoin}>
                 {preview ? "הצטרפות (מושבת בתצוגה מקדימה)" : ctaText}
               </button>
-              <p className="after-tap muted small" data-testid="after-tap">{AFTER_TAP_LINE}</p>
+              <p className="after-tap muted small" data-testid="after-tap">{dealCopy.afterTap}</p>
               <p className="pilot-line" data-testid="pilot-line">{PILOT_MOCK_MONEY_LINE}</p>
               {preview ? null : (
                 <button type="button" className="btn btn-ghost btn-sm btn-block" data-testid="inquiry-open-cta" onClick={startInquiry}>יש שאלה לפני שמצטרפים? שאלה למוכר</button>
@@ -1199,9 +1205,9 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
 
           {/* LAUNCH POLISH 2 (P1/P2) — the whole mechanism in three lines, right under the decision */}
           <div className="panel how-panel" data-testid="how-it-works">
-            <div className="panel-title">איך זה עובד?</div>
+            <div className="panel-title">{dealCopy.howTitle}</div>
             <ol className="how-strip">
-              {HOW_IT_WORKS.map((s) => (
+              {dealCopy.howSteps.map((s) => (
                 <li className="how-step" key={s.n}>
                   <span className="how-n" aria-hidden="true">{s.n}</span>
                   <div><b>{s.title}</b><p>{s.body}</p></div>

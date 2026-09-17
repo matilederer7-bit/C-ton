@@ -4,7 +4,10 @@
 // missed) and for the two honesty lines the pilot must carry (mock money, no
 // e-mail/SMS delivery). Nothing here invents a guarantee: every sentence
 // describes canonical behaviour of the deal state machine.
-import { getPreviewMeta } from "./previewMeta";
+// Explicit .js specifier: this module is also loaded by the backend content
+// templates (src/content/cmsTemplates → src/site_content.ts) under Node ESM
+// resolution, which requires the extension. Vite resolves it to the .ts source.
+import { getPreviewMeta } from "./previewMeta.js";
 
 export const PRODUCT_NAME_HE = "סיטון";
 

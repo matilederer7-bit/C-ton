@@ -36,3 +36,9 @@
   .landing-image-text, .landing-image-text.image-end, .landing-cols-3 { grid-template-columns: 1fr; }
   .landing-image-text.image-end .landing-image-text-img { order: 0; }
 }
+
+/* Fixed-copy preview inside the editor (product surfaces have no public URL
+   that would show their sentences to an admin). */
+.cms-copy-preview { border: 1px dashed var(--line-strong); }
+.cms-copy-preview .how-strip { margin-top: 8px; }
+.cms-copy-preview .deal-explainer { font-weight: 600; margin: 0; }
