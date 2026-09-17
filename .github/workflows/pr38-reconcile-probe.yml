@@ -81,6 +81,7 @@ jobs:
           npm run test:product-catalog
           npm run test:pickup-navigation
           npm run test:visual-brand
+          npm run mobile:build
           npm run test:mobile-readiness
           npm run test:authenticated-ui-harness
       - name: Mobile canonical bundle gate
