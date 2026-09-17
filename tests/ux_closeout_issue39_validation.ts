@@ -152,7 +152,7 @@ try {
     ]) assert.equal(extractDealReference(shape), id, `failed to read ${shape}`);
     // nothing to resolve, or AMBIGUOUS — never a guess that could bind the
     // inquiry to the wrong seller
-    for (const shape of ["", "   ", "not a link", "1234", `${id} and 11111111-2222-3333-4444-555555555555`, "x".repeat(2100)]) {
+    for (const shape of ["", "   ", "not a link", "1234", `${id} and 0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b4c5d`, "x".repeat(2100)]) {
       assert.equal(extractDealReference(shape), null, `must refuse ${JSON.stringify(String(shape).slice(0, 40))}`);
     }
     assert.deepEqual([...DEAL_SCOPED_SUPPORT_CATEGORIES], ["deal", "payment", "report"]);
