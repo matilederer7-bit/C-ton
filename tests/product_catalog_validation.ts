@@ -5,7 +5,7 @@
 // Base44 / legacy-frontend assertions of the original were dropped; the React
 // web app (web/src) is the canonical frontend and is asserted instead.
 //
-//   • migration 072 is registered after 069 (070 reserved for PR #24) and
+//   • migration 072 is registered after 071 in the canonical 069 CMS, 070 distribution, 071 long-horizon, 072 catalog order and
 //     creates products / product_images / deals.product_id + snapshot + trigger
 //     + delivery estimate columns, without a fourth deal type
 //   • product_catalog rules: typed attributes, fulfillment defaults, deterministic
@@ -48,17 +48,19 @@ const [migration, manifest, schema, app, runtime, dealTypes, sellerPage, product
   readFile("supabase/staging/025_product_catalog_grants.sql", "utf8")
 ]);
 
-await runTest("migration_071_registered_after_069_without_renumbering", async () => {
+await runTest("migration_072_registered_after_long_horizon", async () => {
   const names = await readdir("src/migrations");
+  assert.ok(names.includes("069_site_content_drafts_media.sql"));
+  assert.ok(names.includes("070_seller_distribution_links.sql"));
+  assert.ok(names.includes("071_long_horizon_authorization_renewal.sql"));
   assert.ok(names.includes("072_product_catalog_and_fulfillment_estimates.sql"));
-  assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n) || /^070_/.test(n)), false, "071 does not squat on 062-064 or on the 070 slot reserved for PR #24");
+  assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n)), false, "Product Catalog does not squat on 062-064");
   const ids = [...manifest.matchAll(/\["(\d{3}a?)", "/g)].map((m) => m[1]);
-  assert.equal(ids[ids.length - 1], "071", "071 is the last manifest position");
-  assert.equal(ids[ids.length - 2], "069", "071 appends directly after 069 (070 is left for the long-horizon renumbering)");
-  assert.match(schema, /"products", "product_images"/, "boot fail-closes until 071 is applied (same rule as content tables)");
+  assert.deepEqual(ids.slice(-4), ["069", "070", "071", "072"], "canonical tail is CMS, distribution, long-horizon, Product Catalog");
+  assert.match(schema, /"products", "product_images"/, "boot fail-closes until 072 is applied (same rule as content tables)");
 });
 
-await runTest("migration_071_shape_and_constraints", () => {
+await runTest("migration_072_shape_and_constraints", () => {
   assert.match(migration, /CREATE TABLE IF NOT EXISTS siton\.products/);
   assert.match(migration, /CREATE TABLE IF NOT EXISTS siton\.product_images/);
   assert.match(migration, /product_type IN \('physical_product','voucher','ticket'\)/, "no fourth product type");
