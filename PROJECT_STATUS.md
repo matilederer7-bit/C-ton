@@ -2,8 +2,8 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `5a581472a950fab0bd386e623f58547e02890b08` (PR #46)
-Render staging: LIVE on that SHA (`dep-dam1sl4s728c738v12p0`)
+Current merged baseline: `70daf3bcfa8f257fb1ee9a47a0e93acf78ce46ed` (PR #47)
+Render staging: LIVE on that SHA (`dep-dam2k0jm8hqs738qlij0`)
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -86,6 +86,24 @@ Smoke fixtures left on staging, deliberately, as evidence: seller `s-siton-smoke
 
 Re-checked after the final merge: `/readiness` 200 with `database: connected` and `runtime_role: siton_web_runtime`; home page renders with C-ton branding and the closed-pilot notice "פיילוט סגור — בשלב זה לא מתבצעים חיובים אמיתיים"; the published smoke deal still counts down (59 days remaining on its 60-day horizon) and still renders both Google Maps and Waze plus the 3–7 business-day estimate; `#/seller`, `#/seller/products`, `#/content/legal_terms` and `#/support` all load with zero 401/403/404/500 on any `/api/` call. Nothing regressed.
 
+#### FULL HOSTED SELLER FLOW ON THE MERGED MASTER `70daf3b`, 2026-09-17
+
+Run in a real browser against `https://siton-staging-web.onrender.com` after the PR #47 deploy reached LIVE. Every line below was observed in the browser or read back from the staging database, not inferred.
+
+- `/health` 200 `{"ok":true}`; `/readiness` 200 with `database: connected`, `schema: siton`, `runtime_role: siton_web_runtime`.
+- Site entry: `C-ton — קניות קבוצתיות` loads.
+- Seller sign-in with the smoke account → PASS.
+- Seller bootstrap → PASS: dashboard renders as `Smoke Test Shop` with the Product Library and Create-Deal entry points.
+- Product Library → PASS: the catalogue lists the smoke product, which still reports revision 1.
+- Create Draft from the product → PASS: the wizard shows the product frozen into the deal; deal `648796e9-8fc2-59a6-9129-8043e2c1903b` saved as a Draft at ₪59 with a **45-day** deadline (1 November). The deadline step reads "אפשר לפתוח עסקה לימים, שבועות או חודשים" and contains no seven-day restriction copy.
+- Edit Draft → PASS: price changed 59 → 64, persisted across a reload, deal still a Draft.
+- Publish → PASS: `POST /publish` 200, the Draft banner is gone, a share link appears and the countdown starts at 44 days.
+- Appears where it should → PASS: the seller dashboard count goes 1 → 2 and lists the deal; `GET /api/mall/deals` returns 200 and contains the deal id.
+- Public deal page → PASS: correct title, **₪64** (the edit reached the buyer-facing page), 44-day countdown, seller `Smoke Test Shop`, both `🧭 Google Maps` and `🚗 Waze` deep links, the 3–7 business-day estimate and the join CTA. Zero 401/403/404/500 on any `/api/` call.
+- Database read-back: state `PendingTarget`, price `64.00`, `deadline::date - created_at::date = 45`, `product_snapshot_jsonb` present, 0 participants.
+- Money stayed at zero: 0 payment attempts and 0 platform-fee money events in the run window.
+- `npm run gate:seven-day-cap` passes on this exact master, and its self-test passes.
+
 #### REPOSITORY-WIDE SEVEN-DAY SWEEP, 2026-09-17
 
 Swept every Markdown file, spec, constitution, UX document, README, test description, code comment and UI string for a seven-day cap on **deal duration**, deliberately excluding the unrelated seven-day facts: a product's delivery estimate (for example 3–7 business days), Grow's documented J5 authorization-hold validity, admin authorization-age alert thresholds, Freeze-Payouts approval validity, the Low-priority support SLA and `7d` analytics windows.
@@ -117,6 +135,8 @@ The classifier is now a repository gate rather than a one-off: `scripts/seven_da
 - Seller self-service onboarding: 100% on this defect. The first-login 500 is fixed, merged (`45f349f7`), applied to staging and re-verified live; a regression test now pins the grant.
 - Hosted UX reality closeout: scoped and queued as Issue #39; implementation not yet merged. 0%.
 - PR #7 shelf item: audited against current master and rescoped. Its communications deliverable is 100% superseded; the residual admin growth-window / buyer-search-intent slice is 0% merged.
+- Seven-day deal-cap reconciliation: **100%**. Code, shipped UI copy and Markdown were already clean; the unmarked `.docx` copies in `docs/` and the drift-map D3 omission are fixed, and `npm run gate:seven-day-cap` now guards the rule permanently.
+- **Deployment chain end to end: 100% and verified in the browser.** Merged master `70daf3b` is LIVE on Render, and the full seller journey — sign-in, bootstrap, Product Library, create Draft, edit Draft, publish, listing, public deal page — was exercised on that deployed build with zero new 401/403/404/500 and money at zero.
 - Real-money readiness: intentionally blocked.
 
 ### NEXT STEP
