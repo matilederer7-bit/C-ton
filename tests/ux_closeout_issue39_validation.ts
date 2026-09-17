@@ -159,13 +159,20 @@ try {
       "the notice must wait for the content to load before deciding it is empty");
   });
 
-  await run("hosted finding: the owner's pending About copy is still pending, not invented", async () => {
-    // The fix must NOT be to write marketing copy on the owner's behalf. The
-    // canonical landing content still carries the empty body and its marker.
+  await run("hosted finding: the About page is governed by the rule, not by invented copy", async () => {
+    // The fix was the emptiness RULE, never writing marketing copy on the
+    // owner's behalf. This deliberately does NOT freeze the body as empty — the
+    // owner may supply it at any time and the footer link simply returns. What
+    // must hold is that the About page's default is still declared in the one
+    // canonical place, with the marker that says whose job the copy is.
     const landing = await readFile("web/src/content/landing.he.ts", "utf8");
-    assert.match(landing, /about: \{ title: "על C-ton", body: "" \}/,
-      "About copy stays the owner's to supply");
-    assert.match(landing, /ABOUT_CONTENT_PENDING_OWNER/, "and the marker stays discoverable");
+    assert.match(landing, /ABOUT_CONTENT_PENDING_OWNER/,
+      "the marker naming the owner as the source of About copy must stay discoverable");
+    assert.match(landing, /about: \{ title: "[^"]+", body: /,
+      "the About default must still live in the canonical landing content");
+    const templates = await readFile("web/src/content/cmsTemplates.ts", "utf8");
+    assert.match(templates, /body: LANDING_HE\.about\.body/,
+      "and the #/content/about page must keep reading that one source");
   });
 
   // ── ITEM 5 — support ↔ deal/seller, resolved server-side ──────────────────
