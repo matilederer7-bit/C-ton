@@ -1,4 +1,4 @@
-name: PR38 fix product catalog canonical assertions
+name: PR38 final validation
 
 on:
   push:
@@ -6,38 +6,82 @@ on:
       - claude/shelf-heavy-closeout-20260917
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  fix:
+  validate:
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: siton_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d siton_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      CI: "true"
+      NODE_ENV: test
+      DISABLE_OUTBOX_WORKER: "1"
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/siton_ci
+      PAYMENT_PROVIDER: mockpay
+      PAYMENT_PROVIDER_MODE: mock-backed
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 2
-      - name: Align Product Catalog migration test with canonical 069-072 ordering
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix web --ignore-scripts --no-audit --no-fund
+      - name: Migration numbering and stale-reference sweep
         shell: bash
         run: |
           set -euo pipefail
-          git config user.name "Siton Integration Bot"
-          git config user.email "siton-integration@users.noreply.github.com"
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('tests/product_catalog_validation.ts')
-          s = p.read_text()
-          s = s.replace(
-              '  • migration 072 is registered after 069 (070 reserved for PR #24) and\n',
-              '  • migration 072 is registered after 071 in the canonical 069 CMS, 070 distribution, 071 long-horizon, 072 catalog order and\n'
-          )
-          old = '''await runTest("migration_071_registered_after_069_without_renumbering", async () => {\n  const names = await readdir("src/migrations");\n  assert.ok(names.includes("072_product_catalog_and_fulfillment_estimates.sql"));\n  assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n) || /^070_/.test(n)), false, "071 does not squat on 062-064 or on the 070 slot reserved for PR #24");\n  const ids = [...manifest.matchAll(/\\["(\\d{3}a?)", "/g)].map((m) => m[1]);\n  assert.equal(ids[ids.length - 1], "071", "071 is the last manifest position");\n  assert.equal(ids[ids.length - 2], "069", "071 appends directly after 069 (070 is left for the long-horizon renumbering)");\n  assert.match(schema, /"products", "product_images"/, "boot fail-closes until 071 is applied (same rule as content tables)");\n});'''
-          new = '''await runTest("migration_072_registered_after_long_horizon", async () => {\n  const names = await readdir("src/migrations");\n  assert.ok(names.includes("069_site_content_drafts_media.sql"));\n  assert.ok(names.includes("070_seller_distribution_links.sql"));\n  assert.ok(names.includes("071_long_horizon_authorization_renewal.sql"));\n  assert.ok(names.includes("072_product_catalog_and_fulfillment_estimates.sql"));\n  assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n)), false, "Product Catalog does not squat on 062-064");\n  const ids = [...manifest.matchAll(/\\["(\\d{3}a?)", "/g)].map((m) => m[1]);\n  assert.deepEqual(ids.slice(-4), ["069", "070", "071", "072"], "canonical tail is CMS, distribution, long-horizon, Product Catalog");\n  assert.match(schema, /"products", "product_images"/, "boot fail-closes until 072 is applied (same rule as content tables)");\n});'''
-          if old not in s:
-              raise SystemExit('expected stale test block not found')
-          s = s.replace(old, new)
-          s = s.replace('await runTest("migration_071_shape_and_constraints"', 'await runTest("migration_072_shape_and_constraints"')
-          p.write_text(s)
-          PY
-          git diff --check
-          git add tests/product_catalog_validation.ts
-          git commit -m "test(integration): align Product Catalog assertions to migration 072"
-          git push origin HEAD:claude/shelf-heavy-closeout-20260917
+          node - <<'NODE'
+          const { MIGRATIONS } = require('./scripts/migration_manifest.cjs');
+          const tail = MIGRATIONS.slice(-4).map(x => `${x.id}:${x.filename}`).join('\n');
+          console.log(tail);
+          const expected = [
+            '069:069_site_content_drafts_media.sql',
+            '070:070_seller_distribution_links.sql',
+            '071:071_long_horizon_authorization_renewal.sql',
+            '072:072_product_catalog_and_fulfillment_estimates.sql'
+          ].join('\n');
+          if (tail !== expected) process.exit(1);
+          NODE
+          if grep -RniE --exclude-dir=.git --exclude='pr38-reconcile-probe.yml' '071_product_catalog|product catalog \(071\)|Product Catalog.*071|Migration \*\*071\*\*' .; then
+            echo 'STALE_PRODUCT_CATALOG_071_REFERENCE_FOUND'
+            exit 1
+          fi
+      - name: TypeScript and enforcement
+        run: |
+          npx tsc --noEmit
+          npm run lint
+          npm run scan:payment
+          npm run scan:runtime-ddl
+          npm run gate:real-money
+      - name: Migration gates
+        run: |
+          npm run migrations:preflight
+          npm run ci:migrations
+      - name: Shelf feature tests
+        run: |
+          npm run test:product-catalog
+          npm run test:pickup-navigation
+          npm run test:visual-brand
+          npm run test:mobile-readiness
+          npm run test:authenticated-ui-harness
+      - name: Mobile canonical bundle gate
+        run: npm run mobile:verify
