@@ -1,0 +1,32 @@
+name: PR38 reconcile probe
+
+on:
+  push:
+    branches:
+      - claude/shelf-heavy-closeout-20260917
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Probe merge against current master
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin master
+          set +e
+          git merge --no-commit --no-ff origin/master
+          rc=$?
+          set -e
+          echo "MERGE_RC=$rc"
+          echo "CONFLICT_FILES_BEGIN"
+          git diff --name-only --diff-filter=U || true
+          echo "CONFLICT_FILES_END"
+          git merge --abort >/dev/null 2>&1 || true
+          exit $rc
