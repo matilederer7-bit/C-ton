@@ -107,9 +107,16 @@ DECLARE
     'operational_cases','otp_challenges','otp_proofs','outbox_dlq','outbox_events',
     'participant_tracking_tokens','participants','payment_attempts',
     'payment_webhook_security_events','platform_fee_money_events','seller_accounts',
-    'seller_payout_batches','seller_sessions','storage_cleanup_tasks','storage_orphan_reports',
-    'support_tickets','webhook_events','worker_heartbeats'
+    'seller_payout_batches','seller_security_events','seller_sessions','storage_cleanup_tasks',
+    'storage_orphan_reports','support_tickets','webhook_events','worker_heartbeats'
   ];
+  -- seller_security_events is read by the seller self-signup hourly cap, which
+  -- counts 'seller.self_signup.bound' rows on the append-only audit rail rather
+  -- than on admin_note (an approval decision rewrites admin_note and must not
+  -- reset the cap). Without SELECT the whole binding transaction fails with
+  -- "permission denied", so a first seller login 500s instead of provisioning.
+  -- The rail stays append-only for the web runtime: INSERT and SELECT only,
+  -- never UPDATE or DELETE.
   web_insert_tables text[] := ARRAY[
     'admin_actions','admin_control_flag_events','admin_control_flags','admin_mfa_challenges',
     'admin_mfa_factors','admin_sessions','affiliate_attributions','affiliate_link_events',
