@@ -1,7 +1,7 @@
 # Product catalog — reusable Products, frozen Deal snapshots
 
 Updated: 2026-09-17. Source: shelf branch `codex/amazon-benchmark-upgrade`, ported onto current
-`master` by the Claude shelf closeout (`claude/shelf-heavy-closeout-20260917`). Migration `071`.
+`master` by the Claude shelf closeout (`claude/shelf-heavy-closeout-20260917`). Migration `072`.
 
 ## What it is
 
@@ -25,7 +25,7 @@ Product types are exactly the canonical deal types (`physical_product`, `voucher
 The shelf branch's fourth `service` type, its funnel-event extension and its Base44 entity /
 function were **not** carried (see "Not carried").
 
-## Data model (migration 071)
+## Data model (migration 072)
 
 | Object | Notes |
 |---|---|
@@ -35,7 +35,7 @@ function were **not** carried (see "Not carried").
 | `siton.deal_delivery_options.estimated_min/max_business_days` | optional 0–365 range, `max ≥ min`; relative to Deal completion |
 
 Staging grants: `supabase/staging/025_product_catalog_grants.sql` (web runtime only, RLS on,
-no Data API exposure). Boot fail-closes until 071 is applied (`REQUIRED_TABLES`).
+no Data API exposure). Boot fail-closes until 072 is applied (`REQUIRED_TABLES`).
 
 ## Routes
 
