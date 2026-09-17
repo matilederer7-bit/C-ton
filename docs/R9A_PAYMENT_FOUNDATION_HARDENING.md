@@ -52,7 +52,10 @@ indexed financial-authority record for a payment authorization:
 - Join (`POST /deals/:id/join`) consumes a matching `authorized` binding
   exactly once, inside the Join transaction (`consumeBindingForJoinTx`, row
   locked). Verified: provider code, provider mode + environment, deal, buyer,
-  quantity, authoritative amount, currency, status, prior consumption, expiry.
+  quantity, authoritative amount, currency, status, prior consumption, expiry
+  (expiry here is PRE-commitment only — an unconsumed binding; once consumed,
+  authorization expiry is a renewable technical condition, never a
+  participation failure: `docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md`).
   Any mismatch aborts the Join; `AuthHeld` is unreachable without a consumed
   binding in strict mode.
 - Enforcement: every non-mock provider mode is ALWAYS strict; the synthetic

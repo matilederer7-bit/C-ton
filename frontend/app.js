@@ -2000,9 +2000,11 @@ async function createDeal(form) {
       fieldErrors.sellerDeadline = "חלון ההצטרפות חייב להיות לפחות שעתיים קדימה.";
       validationErrors.push("דדליין של לפחות שעתיים קדימה");
     }
-    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 7 * 24 * 60 * 60 * 1000) {
-      fieldErrors.sellerDeadline = "בדמו אפשר לפתוח עסקה עד 7 ימים קדימה.";
-      validationErrors.push("דדליין עד 7 ימים קדימה");
+    // LONG_HORIZON_DEALS — no payment-derived maximum; only the technical
+    // sanity ceiling shared with the server (src/deadline_policy.ts).
+    if (Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 20 * 365 * 24 * 60 * 60 * 1000) {
+      fieldErrors.sellerDeadline = "מועד הסיום רחוק מדי — המערכת תומכת בעסקאות עד 20 שנים קדימה.";
+      validationErrors.push("דדליין בטווח הנתמך");
     }
   }
   Object.assign(fieldErrors, deliveryResult.fieldErrors || {});

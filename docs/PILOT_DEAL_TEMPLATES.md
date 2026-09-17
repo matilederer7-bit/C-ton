@@ -9,7 +9,7 @@ Platform constraints every template respects (as enforced by the code today):
 
 | Rule | Value | Where enforced |
 |---|---|---|
-| Deadline | 2 hours … **7 days** from publish | `POST /deals` (`deadline_below_minimum` / `deadline_above_maximum`) |
+| Deadline | at least **2 hours** from publish; no payment-derived maximum (technical ceiling 20 years; advisory notice above one year) — LONG_HORIZON_DEALS | `POST /deals` (`deadline_below_minimum` / `deadline_above_maximum`), `src/deadline_policy.ts` |
 | Success threshold | **90 % of minimum units**, auto-derived, not editable | `threshold_units = ceil(0.9 × min_units)` |
 | Charge timing | Authorization only at join; charge only when the deal closes at/above threshold | mock in staging, real money 0 |
 | Self-pickup | Every pickup / distribution-point option needs an address text or coordinates | publish gate `pickup_location_required` |
@@ -74,7 +74,7 @@ The pitch line that works for every template: **"אתם קובעים מחיר ק
 | Siton price | ₪99 (≈ 34 % saving) | |
 | Minimum units | 25 (threshold auto = 23) | a full booked week |
 | Maximum units | 100 | what the team can schedule in the validity window |
-| Deadline | 7 days | |
+| Deadline | 7 days (template choice, not a platform limit) | |
 | Redemption | Location: business address; valid 45 days; "לתאם תור בטלפון ולציין את קוד השובר" | |
 | Seller rationale | Predictable bookings, buyers pre-commit (authorization held), marketing done by the buyers' links. | |
 
@@ -88,7 +88,7 @@ The pitch line that works for every template: **"אתם קובעים מחיר ק
 | Siton price | ₪249 (≈ 29 % saving) | |
 | Minimum units | 30 (threshold auto = 27) | the importer's carton size / MOQ |
 | Maximum units | 120 | shipment size |
-| Deadline | 7 days | |
+| Deadline | 7 days (template choice, not a platform limit) | |
 | Fulfilment | Distribution point with full address + "משלוח ₪25" | |
 | Seller rationale | The MOQ is only ordered when the group closes; no inventory risk; the "אף אחד לא משלם" promise removes buyer hesitation. | |
 
@@ -99,7 +99,7 @@ The pitch line that works for every template: **"אתם קובעים מחיר ק
 1. Pick the template closest to the business; confirm the **one** product/voucher/ticket.
 2. Ask: "What do you sell it for today?" → regular price. "What price would you give a group of N?" → Siton price (must be lower).
 3. Ask: "What's the smallest quantity that makes it worth it?" → minimum. "What's the most you can deliver in a week?" → maximum.
-4. Pick the deadline (≤ 7 days). Prefer an evening hour (20:00) after a weekend.
+4. Pick the deadline (any horizon the seller's promise supports; the pilot templates use 7 days). Prefer an evening hour (20:00) after a weekend.
 5. For pickup: get the **full address** now (the publish button is blocked without it).
 6. Get 1–3 real photos on WhatsApp before you leave.
 7. Create the deal together in the wizard (or from the seller's phone), preview it as a buyer, publish, and share the `/d/<id>` link in the seller's own WhatsApp groups first.

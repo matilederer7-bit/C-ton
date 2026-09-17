@@ -10,6 +10,7 @@ import {
   PAYMENT_PROVIDER_REFUND_PATH,
   PAYMENT_PROVIDER_RELEASE_PATH,
   PAYMENT_PROVIDER_STATUS_PATH,
+  PAYMENT_PROVIDER_REAUTHORIZE_PATH,
   PAYMENT_PROVIDER_CURRENCY,
   PAYMENT_SETTLEMENT_HORIZON_MS,
   PAYMENT_NEGATIVE_STATUS_AUTHORITATIVE,
@@ -104,6 +105,15 @@ export type PaymentAuthorizationResult =
       hold_message: string;
       mock: boolean;
       payment_url?: string;
+      /**
+       * LONG_HORIZON_DEALS — the provider-declared instant until which this
+       * authorization may be captured (ISO 8601), or null/absent when the
+       * provider declares no validity. Stored on the binding; the worker
+       * re-establishes the authorization at the charging boundary once it has
+       * passed. It is a technical property of the instrument, never a bound on
+       * the deal's lifetime.
+       */
+      expires_at?: string | null;
     }
   | {
       ok: false;
@@ -113,6 +123,8 @@ export type PaymentAuthorizationResult =
       statusCode: number;
       retryable: boolean;
       mock: boolean;
+      /** `false` = proven pre-dispatch (adapter validation / configuration): nothing reached the provider */
+      dispatched?: boolean;
     };
 
 export type PaymentExecutionResult = {
@@ -138,6 +150,38 @@ export type PaymentExecutionResult = {
     | "recovery_failed"
     | "refund_issued"
     | null;
+  /**
+   * LONG_HORIZON_DEALS — a provider-declared permanent failure whose cause is
+   * the AUTHORIZATION INSTRUMENT itself (expired / voided / no longer
+   * capturable), not the buyer's ability to pay. The obligation was not
+   * charged and never can be on this authorization; the worker may
+   * re-establish the authorization from the stored payment method and capture
+   * again with a new identity instead of routing the buyer into recovery.
+   */
+  authorization_unusable?: boolean;
+  /** provider-declared failure code, when the adapter can read one (observability only) */
+  failure_code?: string | null;
+};
+
+/**
+ * LONG_HORIZON_DEALS — merchant-initiated re-establishment of the payment
+ * authorization for an existing obligation, from the provider-side stored
+ * payment-method reference the buyer gave at join (never raw card data). The
+ * cardholder is NOT present: the provider must support charging/authorizing a
+ * stored instrument. Idempotent on correlation_id (the durable operation
+ * identity the worker mints before I/O).
+ */
+export type ReauthorizePaymentInput = {
+  payment_method_ref: string;
+  amount_minor: number;
+  currency: string;
+  buyer_id?: string;
+  deal_id?: string;
+  participant_id?: string;
+  /** the authorization being replaced (observability / provider linkage only) */
+  replaced_authorization_id?: string | null;
+  correlation_id: string;
+  request_id?: string;
 };
 
 export type AuthorizePaymentInput = {
@@ -237,6 +281,8 @@ export interface PaymentProvider {
   readonly ambiguityPolicy?: ProviderAmbiguityPolicy;
   tokenize?(input: TokenizePaymentInput): Promise<PaymentTokenizationResult>;
   authorize(input: AuthorizePaymentInput): Promise<PaymentAuthorizationResult>;
+  /** LONG_HORIZON_DEALS — stored-instrument re-authorization; absent = the provider decides on the original authorization at capture */
+  reauthorize?(input: ReauthorizePaymentInput): Promise<PaymentAuthorizationResult>;
   capture(input: CapturePaymentInput): Promise<PaymentExecutionResult>;
   recover(input: RecoverPaymentInput, withinWindow: boolean): Promise<PaymentExecutionResult>;
   refund(input: RefundPaymentInput): Promise<PaymentExecutionResult>;
@@ -446,6 +492,22 @@ function classifyReleaseOutcome(payload: any): "success" | "permanent_fail" | "u
   return "unknown";
 }
 
+// LONG_HORIZON_DEALS — provider-ready HTTP contract: a declared decline whose
+// cause is the authorization instrument (expired hold, voided/cancelled
+// authorization, "no longer capturable"). Read from the error/status/code
+// fields; anything else is an ordinary decline of the buyer's obligation.
+const AUTHORIZATION_UNUSABLE_CODES = new Set([
+  "authorization_expired", "authorization_unusable", "authorization_voided", "authorization_cancelled",
+  "authorization_canceled", "authorization_released", "hold_expired", "authorization_not_capturable", "expired_authorization"
+]);
+function classifyAuthorizationUnusable(payload: any): { unusable: boolean; code: string | null } {
+  const candidates = [payload?.error, payload?.code, payload?.reason, payload?.decline_code, payload?.status, payload?.result]
+    .map((value) => String(value || "").trim().toLowerCase())
+    .filter(Boolean);
+  const code = candidates.find((value) => AUTHORIZATION_UNUSABLE_CODES.has(value)) || null;
+  return { unusable: Boolean(code), code: code || (candidates[0] ?? null) };
+}
+
 function classifyCaptureEventType(payload: any): "charge_captured" | "charge_failed" | null {
   const value = String(
     payload?.event_type || payload?.status || payload?.result || payload?.capture_status || ""
@@ -511,6 +573,17 @@ function mapProviderError(args: {
   };
 }
 
+/** LONG_HORIZON_DEALS — provider-declared authorization validity, if the payload names one (ISO string or epoch seconds/ms); otherwise null. */
+function providerDeclaredExpiry(payload: any): string | null {
+  const raw = payload?.expires_at ?? payload?.authorization_expires_at ?? payload?.valid_until ?? null;
+  if (raw === null || raw === undefined || raw === "") return null;
+  const asNumber = Number(raw);
+  const date = Number.isFinite(asNumber) && String(raw).trim() !== "" && /^\d+$/.test(String(raw).trim())
+    ? new Date(asNumber < 1e12 ? asNumber * 1000 : asNumber)
+    : new Date(String(raw));
+  return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+}
+
 async function parseJsonSafely(response: Response) {
   const rawText = await response.text();
   if (!rawText.trim()) return {};
@@ -569,7 +642,34 @@ function buildMockPaymentProvider(): PaymentProvider {
         correlation_id: buildAuthorizationCorrelationId(),
         authorization: "authorized",
         hold_message: "Authorization accepted. Final capture happens only if the deal completes successfully.",
-        mock: true
+        mock: true,
+        // the in-process mock declares no validity: an authorization never expires here
+        expires_at: null
+      };
+    },
+    // LONG_HORIZON_DEALS — deterministic stored-instrument re-authorization:
+    // the same durable identity always yields the same authorization reference
+    // (idempotent replay), the decline suffix still declines, nothing external.
+    async reauthorize(input: ReauthorizePaymentInput): Promise<PaymentAuthorizationResult> {
+      const paymentMethodRef = String(input.payment_method_ref || "").trim();
+      const correlationId = String(input.correlation_id || "").trim();
+      if (!paymentMethodRef || !correlationId) {
+        return { ok: false, provider: PAYMENT_PROVIDER, error: "payment_method_ref_required", message: "payment_method_ref and correlation_id are required", statusCode: 400, retryable: false, mock: true, dispatched: false };
+      }
+      if (paymentMethodRef.endsWith(PAYMENT_AUTH_DECLINE_SUFFIX)) {
+        return { ok: false, provider: PAYMENT_PROVIDER, error: "authorization_failed", message: "re-authorization declined in payment provider", statusCode: 402, retryable: false, mock: true, dispatched: true };
+      }
+      const reference = paymentAuthorizationId(`${paymentMethodRef}:${correlationId}`);
+      return {
+        ok: true,
+        provider: PAYMENT_PROVIDER,
+        authorization_id: reference,
+        provider_reference: reference,
+        correlation_id: correlationId,
+        authorization: "authorized",
+        hold_message: "Authorization re-established from the stored payment method. Final capture happens only if the deal completes successfully.",
+        mock: true,
+        expires_at: null
       };
     },
     async capture(input: CapturePaymentInput): Promise<PaymentExecutionResult> {
@@ -684,6 +784,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
   const authorizationUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_AUTH_PATH)}`;
   const captureUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_CAPTURE_PATH)}`;
   const recoveryUrl = `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_RECOVERY_PATH)}`;
+  const reauthorizeUrl = PAYMENT_PROVIDER_REAUTHORIZE_PATH
+    ? `${normalizeProviderBaseUrl(PAYMENT_PROVIDER_BASE_URL)}${normalizeProviderPath(PAYMENT_PROVIDER_REAUTHORIZE_PATH)}`
+    : "";
   return {
     providerCode: PAYMENT_PROVIDER,
     mode: "provider-ready",
@@ -779,7 +882,8 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
           hold_message:
             String(payload.hold_message || "").trim() ||
             "Authorization accepted. Final capture happens only if the deal completes successfully.",
-          mock: false
+          mock: false,
+          expires_at: providerDeclaredExpiry(payload)
         };
       } catch (error: any) {
         const timeout =
@@ -796,6 +900,74 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
         });
       }
     },
+    // LONG_HORIZON_DEALS — stored-instrument re-authorization over the
+    // provider-ready HTTP contract. Same identity discipline as every money
+    // request (idempotency-key = the worker's durable operation identity);
+    // present only when PAYMENT_PROVIDER_REAUTHORIZE_PATH is configured.
+    ...(reauthorizeUrl ? {
+      async reauthorize(input: ReauthorizePaymentInput): Promise<PaymentAuthorizationResult> {
+        const paymentMethodRef = String(input.payment_method_ref || "").trim();
+        const amountMinor = Number(input.amount_minor);
+        const currency = String(input.currency || PAYMENT_PROVIDER_CURRENCY || "").trim().toUpperCase();
+        const correlationId = String(input.correlation_id || "").trim();
+        const requestId = String(input.request_id || "").trim() || correlationId;
+        if (!paymentMethodRef || !correlationId) return { ...authorizationValidationFailure("payment_method_ref and correlation_id are required", "payment_method_ref_required"), dispatched: false };
+        if (!Number.isInteger(amountMinor) || amountMinor <= 0) return { ...authorizationValidationFailure("amount_minor must be a positive integer", "invalid_amount_minor"), dispatched: false };
+        if (!/^[A-Z]{3}$/.test(currency)) return { ...authorizationValidationFailure("currency must be a 3-letter ISO code", "invalid_currency"), dispatched: false };
+        if (!configured) {
+          return { ...mapProviderError({ statusCode: 503, payload: null, fallbackError: "payment_provider_not_configured", fallbackMessage: "provider-ready mode is enabled but PAYMENT_PROVIDER_BASE_URL and PAYMENT_PROVIDER_API_KEY are not configured" }), dispatched: false };
+        }
+        try {
+          const response = await fetch(reauthorizeUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${PAYMENT_PROVIDER_API_KEY}`,
+              "idempotency-key": correlationId,
+              "x-request-id": requestId
+            },
+            body: JSON.stringify({
+              capture: false,
+              merchant_initiated: true,
+              amount_minor: amountMinor,
+              currency,
+              reference: correlationId,
+              buyer_id: input.buyer_id ? String(input.buyer_id) : undefined,
+              deal_id: input.deal_id ? String(input.deal_id) : undefined,
+              participant_id: input.participant_id ? String(input.participant_id) : undefined,
+              replaced_authorization_id: input.replaced_authorization_id ? String(input.replaced_authorization_id) : undefined,
+              payment_method: { type: "stored", id: paymentMethodRef }
+            }),
+            signal: AbortSignal.timeout(PAYMENT_PROVIDER_TIMEOUT_MS)
+          });
+          const payload = await parseJsonSafely(response);
+          if (!response.ok || payload?.ok === false) {
+            return { ...mapProviderError({ statusCode: response.status, payload, fallbackError: "reauthorization_failed", fallbackMessage: "payment provider rejected the re-authorization request" }), dispatched: true };
+          }
+          const authorizationReference = String(payload.authorization_id || payload.provider_reference || payload.id || payload.reference || "").trim();
+          if (!authorizationReference) {
+            return { ...mapProviderError({ statusCode: 502, payload, fallbackError: "provider_response_invalid", fallbackMessage: "payment provider response did not include an authorization reference" }), dispatched: true };
+          }
+          const pending = String(payload.status || payload.state || "").trim().toLowerCase() === "pending";
+          return {
+            ok: true,
+            provider: PAYMENT_PROVIDER,
+            authorization_id: authorizationReference,
+            provider_reference: authorizationReference,
+            correlation_id: String(payload.correlation_id || payload.reference || correlationId),
+            authorization: pending ? "pending_provider_confirmation" : "authorized",
+            hold_message: String(payload.hold_message || "").trim() || "Authorization re-established from the stored payment method.",
+            mock: false,
+            expires_at: providerDeclaredExpiry(payload)
+          };
+        } catch (error: any) {
+          const timeout = error?.name === "TimeoutError" || error?.name === "AbortError" || String(error?.message || "").toLowerCase().includes("timed out");
+          // post-dispatch transport loss: the provider may have created the
+          // authorization — retryable with the SAME identity (idempotency-key)
+          return { ...mapProviderError({ statusCode: timeout ? 504 : 503, payload: null, fallbackError: timeout ? "payment_provider_timeout" : "payment_provider_unreachable", fallbackMessage: timeout ? "payment provider did not confirm the re-authorization request in time" : "payment provider could not be reached for re-authorization" }), dispatched: true };
+        }
+      }
+    } : {}),
     // R9C — provider-ready HTTP contract: Siton sends the durable operation
     // identity as `idempotency-key` on every money request and the status seam
     // reports a `final` settled state, so a same-identity repeat is deduplicated
@@ -882,6 +1054,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
               reconciliation_event_type: null
             };
           }
+          const unusable = classifyAuthorizationUnusable(payload);
           return {
             provider: PAYMENT_PROVIDER,
             result_class: "permanent_fail",
@@ -890,7 +1063,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
             dispatched: true,
             provider_reference: providerReference,
             correlation_id: echoedCorrelation,
-            reconciliation_event_type: eventType ?? "charge_failed"
+            reconciliation_event_type: eventType ?? "charge_failed",
+            authorization_unusable: unusable.unusable,
+            failure_code: unusable.code
           };
         }
 
@@ -1018,6 +1193,7 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
               reconciliation_event_type: null
             };
           }
+          const unusable = classifyAuthorizationUnusable(payload);
           return {
             provider: PAYMENT_PROVIDER,
             result_class: "permanent_fail",
@@ -1026,7 +1202,9 @@ function buildProviderReadyPaymentProvider(): PaymentProvider {
             dispatched: true,
             provider_reference: providerReference,
             correlation_id: echoedCorrelation,
-            reconciliation_event_type: reconciliationEventType ?? "recovery_failed"
+            reconciliation_event_type: reconciliationEventType ?? "recovery_failed",
+            authorization_unusable: unusable.unusable,
+            failure_code: unusable.code
           };
         }
 
@@ -1566,6 +1744,9 @@ function buildStripePaymentProvider(): PaymentProvider {
   };
 }
 
+/** Documented Grow J5 "Suspended Charge" validity (up to 7 days; auto-released after ~10 days without J4). Provider fact, not a Siton product rule. */
+export const GROW_J5_AUTHORIZATION_VALIDITY_MS = 7 * 24 * 60 * 60 * 1000;
+
 export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
   const adapter = buildGrowPaymentAdapter();
   const providerCode = "grow";
@@ -1693,7 +1874,14 @@ export function buildGrowCanonicalPaymentProvider(): PaymentProvider {
         authorization: "pending_provider_confirmation",
         payment_url: result.payment_url,
         hold_message: "Grow-hosted J4/J5 authorization is pending authoritative provider confirmation.",
-        mock: false
+        mock: false,
+        // Documented Grow contract (grow_payment_adapter.ts header): a J5 hold
+        // is valid for up to 7 days. Recorded on the binding as the
+        // instrument's technical validity — it bounds the AUTHORIZATION, not the
+        // deal: the worker re-establishes it at the charging boundary once a
+        // stored-instrument re-authorization is proven for Grow (open adapter
+        // gap, docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md §7).
+        expires_at: new Date(Date.now() + GROW_J5_AUTHORIZATION_VALIDITY_MS).toISOString()
       };
     },
     async capture(input) {
@@ -1847,7 +2035,12 @@ export function paymentProviderCapabilities(provider: PaymentProvider) {
     status: Boolean(provider.status),
     webhook_verification: Boolean(provider.verifyWebhook),
     webhook_parsing: Boolean(provider.parseWebhookEvent),
-    reconciliation: Boolean(provider.status)
+    reconciliation: Boolean(provider.status),
+    // LONG_HORIZON_DEALS — stored-instrument re-authorization at the charging
+    // boundary. NOT mandatory: without it the worker dispatches the capture on
+    // the original authorization and the provider decides (a decline then
+    // follows the existing recovery rules).
+    stored_instrument_reauthorization: Boolean(provider.reauthorize)
   };
 }
 
@@ -1973,9 +2166,18 @@ export function getPaymentProviderSummary(provider: PaymentProvider) {
         : "provider-specific",
     timeout_ms: PAYMENT_PROVIDER_TIMEOUT_MS,
     supported_modes: ["mock-backed", "provider-ready", "stripe", "grow"],
+    // LONG_HORIZON_DEALS — deal lifetime is never bounded by authorization
+    // lifetime; the authorization is a replaceable technical instrument.
+    authorization_lifetime: {
+      deal_lifetime_bounded_by_authorization: false,
+      renewal_at_charging_boundary: Boolean(provider.reauthorize),
+      renewal_capability: provider.reauthorize ? "stored_instrument_reauthorization" : "none (provider decides on the original authorization at capture; a decline follows recovery)",
+      declared_validity_source: provider.mode === "grow" ? "documented J5 window (7 days) recorded on the binding" : "provider response expires_at when declared, otherwise none"
+    },
     adapter_contract: {
       tokenize: "Stripe PaymentMethod creation when PAYMENT_PROVIDER=stripe",
       authorize: "authorization intent only, no capture side-effects",
+      reauthorize: provider.reauthorize ? "merchant-initiated re-authorization from the stored payment-method reference, idempotent on the worker's durable identity" : "not implemented for this provider (documented adapter gap)",
       capture: "charge capture result with reconciliation event mapping",
       recover: "completion-window recovery capture result with reconciliation event mapping",
       refund: "refund result with duplicate-safe reconciliation handoff",
