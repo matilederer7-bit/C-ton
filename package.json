@@ -111,6 +111,7 @@
     "test:launch-rehearsal": "node scripts/run_launch_rehearsal.cjs",
     "qa:pilot-war-game": "node scripts/closed_pilot_war_game.cjs",
     "test:admin-overview-settlement": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/admin_overview_settlement_truth_validation.js",
+    "test:visual-brand": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/visual_brand_consistency_validation.js",
     "test:mobile-readiness": "tsc -p tsconfig.test.json && node .tmp_test_dist/tests/mobile_readiness_validation.js && node scripts/mobile_readiness_tests.cjs",
     "proof:ux-round2": "node scripts/ux_polish_round2_browser_proof.cjs",
     "proof:cms": "node scripts/site_cms_browser_proof.cjs",

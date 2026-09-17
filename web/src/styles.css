@@ -24,12 +24,14 @@
   --ink-soft: #a8aeb9;
   --ink-faint: #767d89;
 
-  /* brand — the C-ton commercial orange (from the logo bar) */
+  /* brand — the C-ton commercial orange (from the logo bar).
+     2026-09-17 brand reconciliation: glow/shadow intensities are ~15% below the
+     shelf rebrand so orange reads as a practical accent, not an effect. */
   --brand: #ec6608;
   --brand-hi: #ff8a2e;
   --brand-deep: #c4530a;
   --brand-tint: rgba(236, 102, 8, 0.14);
-  --brand-glow: rgba(236, 102, 8, 0.38);
+  --brand-glow: rgba(236, 102, 8, 0.32);
 
   /* P0.3 disciplined palette: graphite + orange dominate. The ONLY permitted
      accent deviation is a premium muted light-cyan with a restrained glow —
@@ -37,7 +39,7 @@
      (errors/destructive); warnings lean orange. */
   --accent-cyan: #6fd3e0;
   --accent-cyan-soft: rgba(111, 211, 224, 0.13);
-  --accent-cyan-glow: 0 0 16px rgba(111, 211, 224, 0.22);
+  --accent-cyan-glow: 0 0 16px rgba(111, 211, 224, 0.19);
   --saffron: #f5a623;
   --saffron-tint: rgba(245, 166, 35, 0.14);
   --pomegranate: #f0563a;
@@ -51,9 +53,9 @@
   --radius: 14px;
   --radius-sm: 10px;
   --radius-lg: 18px;
-  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.55);
-  --shadow-soft: 0 4px 14px -6px rgba(0, 0, 0, 0.45);
-  --shadow-pop: 0 18px 44px -14px rgba(0, 0, 0, 0.65);
+  --shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.47);
+  --shadow-soft: 0 4px 14px -6px rgba(0, 0, 0, 0.38);
+  --shadow-pop: 0 18px 44px -14px rgba(0, 0, 0, 0.55);
   --max: 1140px;
 
   --font-ui: "Assistant", "Segoe UI", system-ui, sans-serif;
