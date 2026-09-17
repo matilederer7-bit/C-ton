@@ -2,7 +2,7 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `18ba51985f71ebf83563216ec22f88aaa7c023f0`
+Current merged baseline: `1d38656950381733cbf2459913be7439038b4ccf`
 
 ## CURRENT SNAPSHOT
 
@@ -16,43 +16,46 @@ Current merged baseline: `18ba51985f71ebf83563216ec22f88aaa7c023f0`
 - PR #31 merged: fail-closed distributor attribution-only financial regression guard.
 - PR #33 merged: agent workflow v5 refresh with repeated-task branch allocation, focused packets, and start-time push/SHA checkpoint.
 - PR #34 merged at `18ba51985f71ebf83563216ec22f88aaa7c023f0`: block-based Site CMS and editable product copy across deal, tracking, seller and support surfaces.
-- Render staging auto-deployed PR #34 and reported deploy `dep-dalqc695efls73bnm0v0` LIVE.
+- Render staging confirmed PR #34 deployment `dep-dalqc695efls73bnm0v0` LIVE.
+- PR #35 merged at `1d38656950381733cbf2459913be7439038b4ccf`: Cloud Agent Manager reintegrated onto the current product baseline without changing product runtime, database, payments or Grow.
 - Legacy PRs #2, #4 and #5 were closed as archival/superseded paths rather than active merge candidates.
-- Shelf-integration work started: Cloud Agent Manager v1 has been ported onto current master on `chatgpt/integrate-cloud-agent-manager-20260917` without carrying stale product-policy text.
+- Seller Distribution Hub from stale PR #36 was rebuilt cleanly on current master as PR #37 instead of merging a conflicted branch.
 
 ### TESTED / CHECKED
 
-- PR #34 head passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates before merge.
-- Render confirmed the exact merge SHA `18ba51985f71ebf83563216ec22f88aaa7c023f0` as LIVE.
-- Open shelf was inventoried across open PRs and divergent branches; branches already fully behind master are not treated as active backlog.
-- Cloud Agent Manager source blobs are preserved from the previously reviewed PR #25 implementation; current-master integration receives fresh CI before merge.
+- PR #34 passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates before merge and its exact merge SHA was confirmed LIVE on Render.
+- PR #37 is mergeable on current master. Its first fresh run exposed one stale release-tools fixture: the route scanner now reads `src/distribution_hub.ts` but the fixture did not copy that file.
+- The fixture was corrected in commit `13742469ab0d51db8fff8abb0b113a0734942f30`; the authorization mechanism itself was not weakened or bypassed.
+- The real route inventory reported 226 routes, zero unclassified routes and zero unclassified sensitive routes before the fixture correction.
+- Fresh repository CI after the fixture correction remains the merge authority for PR #37.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
 
 ### OPEN MERGE QUEUE
 
-1. Cloud Agent Manager current-master integration: fresh CI, merge, then one-time credential activation and harmless cloud smoke task.
-2. PR #24 LONG_HORIZON_DEALS: re-integrate on current master, renumber its conflicting migration 069 now that CMS migration 069 is merged, resolve overlapping runtime files, run fresh CI, then merge.
+1. PR #37 Seller Distribution Hub: finish fresh CI, merge, confirm staging, then close stale PR #36 as superseded.
+2. PR #24 LONG_HORIZON_DEALS: re-integrate on the resulting master using migration 071, resolve only current overlaps, run fresh CI, then merge.
 3. PR #7 launch integration: do not merge stale branch wholesale. Extract only still-missing communications/runtime value onto current master and close the obsolete PR.
-4. Divergent shelf branches requiring reconciliation rather than blind cherry-pick: authenticated UI acceptance harness, pre-financial resilience, CI request-id flake repair, closed-pilot war game, mobile release readiness, Amazon/product-catalog work, and visual C-ton rebrand.
-5. Older planning-only branches may be archived after confirming no unique executable value remains.
+4. Reconcile remaining divergent shelf branches in risk/value order: authenticated UI acceptance harness, pre-financial resilience, CI request-id flake repair, closed-pilot war game, Amazon/product-catalog work, mobile release readiness, and visual C-ton rebrand.
+5. Archive older planning-only or fully superseded branches after confirming they contain no unique executable value.
 6. Hosted/runtime readiness remains open for external payment-provider semantics, hosted OTP secret, production image pruning, architecture decision, and remaining legacy recovery/runtime cleanup.
 
 ### PERCENTAGE
 
 - Agent workflow v5: 100% merged repository-side.
-- CMS/product-copy integration: 100% merged and live on staging.
-- Shelf cleanup and integration: in progress; the active queue is now explicit and being reduced item by item.
-- Cloud Agent Manager repository integration: 95% pending fresh current-master CI and merge; activation credentials and smoke proof remain afterward.
+- CMS/product-copy integration: 100% merged and confirmed live on staging.
+- Cloud Agent Manager repository integration: 100% merged; credential activation and harmless computer-off smoke proof remain operational follow-up.
+- Seller Distribution Hub: 95% pending corrected fresh CI, merge and staging smoke.
+- Shelf cleanup and integration: in progress; active divergent work is being reduced item by item rather than left on stale branches.
 - Long-horizon runtime integration: not complete on `master`.
 - Real-money readiness: intentionally blocked.
 
 ### NEXT STEP
 
-1. Finish Cloud Agent Manager current-master PR through fresh CI and merge.
-2. Rebuild PR #24 on the resulting master, renumber migration 069, resolve overlaps, and qualify it through CI.
-3. Extract still-unique communications work from PR #7 and close the stale integration path.
-4. Reconcile remaining divergent shelf branches in risk/value order, merging only unique current-compatible changes.
-5. Keep every accepted item moving through PR, green CI, master, Render staging where applicable, and smoke evidence; archive rejected/superseded items explicitly.
+1. Require all PR #37 repository gates green and merge it.
+2. Confirm the resulting master deployment on Render and perform a lightweight distribution-hub smoke check.
+3. Close PR #36 as superseded.
+4. Rebuild PR #24 on that master as migration 071 and qualify it through fresh CI.
+5. Continue immediately through communications, product catalog, mobile, rebrand and remaining hardening/test shelf work.
 
 ## PRODUCT POLICY ALIGNMENT
 
@@ -64,7 +67,7 @@ Current invariants:
 - Completion Window is exactly 24 hours and exists only for failed-charge recovery by eligible participants.
 - Siton fee is fixed at 8% of all purchase money actually collected through Siton, including shipping/delivery and other applicable purchase charges, excluding the customer VAT component.
 - There is no per-deal fee override.
-- There is no distributor/affiliate user role or distributor product module. Ordinary sharing and role-neutral attribution measurement remain allowed without distributor identity, permissions, economics, or payout rights.
+- There is no distributor/affiliate user role or distributor product module. A seller may create attribution/measurement links and may grant an external viewer scoped read-only access to one link's aggregate dashboard. That viewer receives no buyer PII, seller navigation, Siton-managed commission, balance or payout rights.
 - There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
 - Current legal material remains unchanged unless the owner explicitly changes it.
 
@@ -88,26 +91,26 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 ### Codex latest milestone
 
 - UPDATED: 2026-09-17
-- BRANCH: `chatgpt/integrate-cloud-agent-manager-20260917`
-- COMPLETED: shelf inventory completed; PR #34 merged and confirmed live; archival PRs #2/#4/#5 closed; Cloud Agent Manager ported onto current master with current product invariants preserved.
-- TESTED: source Cloud Agent Manager implementation retained its reviewed files; fresh GitHub CI on the new current-master integration branch is the merge authority.
-- OPEN: fresh CI and merge for Cloud Agent Manager; PR #24, PR #7 extraction, and remaining divergent shelf branches follow.
-- PERCENTAGE: shelf cleanup in progress; Cloud Agent Manager integration 95% pending CI/merge.
-- NEXT STEP: open current-master Cloud Agent Manager PR, require all repository gates green, merge, then continue immediately to PR #24.
+- BRANCH: `chatgpt/integrate-distribution-hub-20260917`
+- COMPLETED: PR #35 merged; stale PR #36 was rebuilt as clean current-master PR #37; the release-tools fixture was updated to include the new distribution route source.
+- TESTED: PR #37 is mergeable; real route inventory has zero unclassified routes and zero unclassified sensitive routes; fresh CI is running after the focused fixture fix.
+- OPEN: all PR #37 gates green, merge, Render smoke, close #36, then PR #24 long-horizon reintegration as migration 071.
+- PERCENTAGE: Seller Distribution Hub 95% pending CI/merge/staging smoke.
+- NEXT STEP: merge PR #37 only after all repository gates are green, then continue directly to long-horizon integration.
 <!-- AGENT_STATUS:codex:END -->
 
 <!-- AGENT_STATUS:cloud-manager:START -->
 ### Cloud Agent Manager latest milestone
 
 - UPDATED: 2026-09-17
-- BRANCH: `chatgpt/integrate-cloud-agent-manager-20260917`
-- BUILDER: manager infrastructure ported from PR #25
-- REVIEWER: fresh repository CI pending
-- COMPLETED: GitHub-hosted orchestration, serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token, isolated status ownership and PR creation are present on the current-master integration branch.
-- TESTED: original PR #25 implementation carried dedicated contract coverage; current-master integration requires fresh CI before merge.
-- OPEN: fresh CI, merge, one-time `SITON_AGENT_GITHUB_TOKEN` plus coding-agent credential activation, and harmless computer-off smoke proof.
-- PERCENTAGE: 95%
-- NEXT STEP: pass current-master CI, merge, configure minimal credentials, then execute a harmless cloud smoke task.
+- BRANCH: `master`
+- BUILDER: manager infrastructure from PR #35
+- REVIEWER: repository integration completed
+- COMPLETED: GitHub-hosted orchestration, serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token path, isolated status ownership and PR creation are merged on master.
+- TESTED: repository integration completed through PR #35; no product runtime, database, payment or Grow behavior was changed by that merge.
+- OPEN: configure the required minimal credentials and execute one harmless computer-off smoke task.
+- PERCENTAGE: 100% repository-side; operational activation pending.
+- NEXT STEP: perform credential activation and harmless cloud smoke without enabling real money or Grow.
 <!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
@@ -116,7 +119,7 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - No per-deal commission-rate override.
 - Every publishable deal has a finite mandatory `max_units`; no unlimited or `NULL` capacity.
 - Completion Window is fixed at exactly 24 hours and only serves failed-charge recovery for `ChargeFailedCompletion` participants.
-- No distributor/affiliate user role, commission, balance, payout rail, or separate distributor product module. Ordinary role-neutral sharing/attribution remains allowed.
+- No distributor/affiliate product role, commission, balance, payout rail, or separate distributor product module. Seller-created attribution links and a scoped read-only aggregate dashboard for an external link viewer are allowed without exposing buyer PII or creating platform economics.
 - No fixed seven-day maximum deal duration.
 - Existing state-machine, idempotency, atomicity, audit, outbox, inventory, security, and 90% success rules remain safety boundaries.
 - Real money must remain disabled unless explicitly authorized by the owner.

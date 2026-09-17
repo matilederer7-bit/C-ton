@@ -10,6 +10,9 @@ import { SellerArea } from "./pages/seller";
 import { AdminArea } from "./pages/admin";
 import { SupportPage } from "./pages/support";
 import { ResetPasswordPage } from "./pages/reset";
+// External link dashboard: a scoped read-only analytics view for one
+// distribution link (no seller navigation, no other surfaces).
+import { LinkViewerPage } from "./pages/distribution";
 import { getPreviewMeta } from "./previewMeta";
 // ROUND 2 (UX-9, ported from Sprint 4) — Back/Forward restore the exact
 // position of the history entry they return to; a NEW entry starts at the top.
@@ -152,6 +155,7 @@ export default function App() {
   const mallEnabled = useMallEnabled();
   const page = route.page;
   const isAdmin = page === "admin";
+  const isLinkViewer = page === "link-dashboard";
   // P0.5-1 — presentation gate for the Admin surface: a direct #/admin URL
   // never bypasses the password step-up. (Every admin API route still
   // authorizes server-side regardless of this flag.)
@@ -180,6 +184,7 @@ export default function App() {
               <div className="brand-sub">קונים ביחד · משלמים פחות</div>
             </span>
           </a>
+          {isLinkViewer ? null : (
           <nav className="nav-links" aria-label="ניווט ראשי">
             {mallEnabled ? (
               <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>העסקאות</a>
@@ -187,6 +192,7 @@ export default function App() {
             <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>אזור המוכרים</a>
             <OwnerModeSwitch page={page} navigate={navigate} />
           </nav>
+          )}
         </div>
       </header>
 
@@ -215,7 +221,8 @@ export default function App() {
           {page === "public-seller" && route.seg[1] ? <PublicSellerPage id={route.seg[1]} /> : null}
           {page === "content" && route.seg[1] ? <ContentPage section={route.seg[1]} /> : null}
           {page === "reset-password" ? <ResetPasswordPage navigate={navigate} /> : null}
-          {!["", "deals", "deal", "track", "seller", "support", "reset-password", "public-seller", "content"].includes(page) ? <Home navigate={navigate} /> : null}
+          {isLinkViewer ? <LinkViewerPage /> : null}
+          {!["", "deals", "deal", "track", "seller", "support", "reset-password", "public-seller", "content", "link-dashboard"].includes(page) ? <Home navigate={navigate} /> : null}
         </main>
       )}
 

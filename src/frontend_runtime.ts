@@ -1,4 +1,5 @@
 import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
+import { registerDistributionHubRoutes } from "./distribution_hub.js";
 import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -1755,6 +1756,23 @@ export function registerFrontendExperience(
   registerReceiptContentRoutes(app, {
     withTx: deps.withTx, requireAdminRead, requireAdminMutation,
     requireSeller: async (req, reply, c) => {
+      reply.header("Cache-Control", "no-store");
+      const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!seller || !(await ensureSellerActionAllowed(c, seller.seller_id, "operate", reply))) return null;
+      return seller;
+    }
+  });
+  // SELLER DISTRIBUTION HUB — per-deal distribution links, attribution
+  // analytics and the scoped read-only external link dashboard. Reads need
+  // the seller capability; mutations also pass seller enforcement.
+  registerDistributionHubRoutes(app, {
+    withTx: deps.withTx,
+    requireSeller: async (req, reply, c) => {
+      reply.header("Cache-Control", "no-store");
+      const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      return seller || null;
+    },
+    requireSellerOperate: async (req, reply, c) => {
       reply.header("Cache-Control", "no-store");
       const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!seller || !(await ensureSellerActionAllowed(c, seller.seller_id, "operate", reply))) return null;
@@ -10337,6 +10355,9 @@ export function registerFrontendExperience(
     const sourceCode = String(body.source_code || "").trim().slice(0, 64);
     const clickId = String(body.click_id || "").trim().slice(0, 100);
     const entryId = String(body.entry_id || "").trim().slice(0, 100);
+    // Opaque anonymous browser id (same one the viral funnel uses) so unique
+    // visitors can be counted per link. Never an identity, never required.
+    const visitorId = String(body.visitor_id || "").trim().slice(0, 64) || null;
     requireUuid(dealId, "deal_id");
     if (!sourceCode || clickId.length < 8 || entryId.length < 8) {
       return reply.code(400).send({ error: "affiliate_visit_invalid" });
@@ -10353,10 +10374,10 @@ export function registerFrontendExperience(
       );
       if (!link.rows[0]) return { recorded: false };
       await c.query(
-        `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id)
-         VALUES ($1,'click',$2),($1,'entry',$3)
+        `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id, visitor_id)
+         VALUES ($1,'click',$2,$4),($1,'entry',$3,$4)
          ON CONFLICT (link_id, event_type, client_event_id) DO NOTHING`,
-        [link.rows[0].link_id, clickId, entryId]
+        [link.rows[0].link_id, clickId, entryId, visitorId]
       );
       return { recorded: true };
     });

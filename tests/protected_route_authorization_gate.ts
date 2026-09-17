@@ -231,18 +231,23 @@ const EXPECTED_ANONYMOUS_BY_DESIGN = [
   "/api/distributor/session",
   "/api/distributor/session/login",
   "/api/distributor/session/logout",
+  // Seller distribution hub — scoped read-only external link dashboard
+  // (state probe, credential entry, idempotent logout; no link data anonymously).
+  "/api/link-viewer/session",
+  "/api/link-viewer/session/login",
+  "/api/link-viewer/session/logout",
   "/api/seller/session",
   "/api/seller/session/login",
   "/api/seller/session/logout"
 ];
 
-// The ONE anonymous entry point whose signed-out answer is a guard-refusal-
-// shaped body (401 distributor_auth_required with authenticated:false) and so
-// carries the reviewed `state_probe` flag. Pinned here as well as in the policy:
+// The anonymous entry points whose signed-out answer is a guard-refusal-
+// shaped body (401 distributor_auth_required / link_viewer_auth_required with
+// authenticated:false) and so carry the reviewed `state_probe` flag. Pinned here as well as in the policy:
 // marking any other route a state probe means editing two files in one review,
 // exactly as the allowlist itself does. A crafted data route (e.g.
 // /api/seller/deals) cannot ride this - it is not a `/session` state probe.
-const EXPECTED_STATE_PROBES = ["/api/distributor/session"];
+const EXPECTED_STATE_PROBES = ["/api/distributor/session", "/api/link-viewer/session"];
 
 await run("the anonymous-by-design allowlist is exactly the reviewed set", async () => {
   const actual = policy.ANONYMOUS_BY_DESIGN.map((entry: any) => entry.path).sort();
