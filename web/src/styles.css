@@ -1568,3 +1568,9 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 @media (max-width: 680px) {
   .product-library-controls .row, .product-library-card .row, .product-detail-header, .product-history-row { flex-direction: column; align-items: stretch; }
 }
+
+/* ── Sprint 4 A1 — pickup navigation (Google Maps + Waze, mode said out loud) ── */
+.pickup-nav-actions { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-inline-start: 6px; }
+.pickup-nav-actions .btn { min-height: 44px; }
+.pickup-nav-mode { white-space: nowrap; }
+.pickup-precision-warn { color: var(--saffron); }

@@ -38,7 +38,7 @@ import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
 import { SellerProductCreatePage, SellerProductLibraryPage, SellerProductPage } from "./sellerProducts";
 import { deliveryEstimateText, validateEstimateRange } from "../productLibrary";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
-import { hasUsablePickupLocation, isPickupOptionType, pickupLocationText } from "../../../src/pickup_location";
+import { PICKUP_PRECISION_COPY, hasUsablePickupLocation, isPickupOptionType, pickupLocationText, pickupPrecision } from "../../../src/pickup_location";
 
 // ── login (the shared truthful auth panel) ─────────────────────────────────
 function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?: "login" | "signup" }) {
@@ -1525,7 +1525,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                     <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
                     {isPickupOptionType(o.option_type) ? (
                       hasUsablePickupLocation(o) ? (
-                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}</span>
+                        <span className="pickup-loc" data-testid="seller-pickup-location"> · 📍 {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}
+                          <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {pickupPrecision(o) === "exact" ? "✓" : "⚠️"} {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
+                        </span>
                       ) : (
                         <span className="pickup-missing" data-testid="pickup-location-missing"> · ⚠️ חסרה כתובת/מיקום איסוף — קונים לא רואים איפה לאסוף</span>
                       )
