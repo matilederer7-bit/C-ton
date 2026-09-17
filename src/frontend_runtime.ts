@@ -62,6 +62,9 @@ import {
   verifyCustomerAccessToken
 } from "./seller_inquiries.js";
 import {
+  extractDealReference, isDealScopedSupportCategory, supportCategoryRequiresDeal
+} from "./support_deal_context.js";
+import {
   buildOtpProvider,
   ensureOtpRailTables,
   ensureJoinOtpVerified,
@@ -3245,7 +3248,7 @@ export function registerFrontendExperience(
       Number(usage.per_deal || 0) >= INQUIRY_LIMITS.per_deal_per_hour ||
       Number(usage.total || 0) >= INQUIRY_LIMITS.global_per_hour
     ) {
-      return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      return { ok: false as const, rate_limited: true as const };
     }
 
     const bodyHash = inquiryBodyHash(args.message);
@@ -3393,7 +3396,7 @@ export function registerFrontendExperience(
           thread = existing.rows[0] as InquiryThreadRow;
         }
       }
-      return appendCustomerInquiryMessage(c, {
+      const appended: any = await appendCustomerInquiryMessage(c, {
         req, reply, dealId,
         dealTitle: String(deal.title || ""),
         sellerId: String(deal.seller_id),
@@ -3403,6 +3406,10 @@ export function registerFrontendExperience(
         message,
         requestId
       });
+      if (appended?.rate_limited) {
+        return reply.code(429).send({ ok: false, error: "inquiry rate limited", code: "inquiry_rate_limited" });
+      }
+      return appended;
     });
   });
 
@@ -9041,8 +9048,20 @@ export function registerFrontendExperience(
     report: { case_type: "ContentReport", label: "דיווח על תוכן" },
     seller: { case_type: "Other", label: "שאלת מוכר" }
   };
+  // UX CLOSEOUT (Issue #39, item 5) — deal-scoped support is bound to the deal
+  // and its seller SERVER-SIDE, and becomes the SAME canonical inquiry thread
+  // the in-product "פנייה למוכר" creates, rather than a third support universe:
+  //
+  //   admin  ← siton.operational_cases (deal_id, seller_id, thread pointer)
+  //   seller ← siton.seller_inquiry_threads  (the conversation, PII-masked)
+  //
+  // One inquiry, two projections. The buyer's e-mail and phone stay on the
+  // admin case; the seller surface never maps them out (mapSellerInquiryThreadRow).
+  // A general or seller-account question carries no deal binding at all, so it
+  // can never surface to an unrelated seller.
   app.post("/api/support/contact", async (req: any, reply: any) => {
     await ensureOperationalCaseTables(deps.withTx);
+    await ensureInquiryTables();
     const body = req.body && typeof req.body === "object" ? req.body : {};
     // honeypot: bots fill every field — humans never see this one
     if (String(body.website || "").trim()) {
@@ -9060,6 +9079,15 @@ export function registerFrontendExperience(
     if (message.length < 10) return reply.code(400).send({ ok: false, error: "contact_message_too_short" });
     if (message.length > 2000) return reply.code(400).send({ ok: false, error: "contact_message_too_long" });
 
+    // The reference is a LOOKUP KEY only — a deal id, a public deal link, a
+    // hash route or a tracking link. The seller is read off the resolved DEAL
+    // row; nothing in the request can name a seller.
+    const dealScoped = isDealScopedSupportCategory(categoryKey);
+    const dealReference = dealScoped ? extractDealReference(body.deal_ref ?? body.deal_link ?? body.deal_id) : null;
+    if (supportCategoryRequiresDeal(categoryKey) && !dealReference) {
+      return reply.code(400).send({ ok: false, error: "contact_deal_reference_required" });
+    }
+
     const created = await deps.withTx(async (c) => {
       const counts = await c.query(
         `SELECT
@@ -9074,24 +9102,96 @@ export function registerFrontendExperience(
       if (Number(limits.per_email || 0) >= 3 || Number(limits.total || 0) >= 30) {
         throw Object.assign(new Error("support contact rate limited"), { statusCode: 429, code: "support_rate_limited" });
       }
+      // Resolve the deal reference to a real PUBLISHED deal, and take the
+      // seller from that row. An unknown or unpublished id resolves to nothing.
+      let dealContext: { deal_id: string; title: string; seller_id: string } | null = null;
+      if (dealReference) {
+        const dealRow = await c.query(
+          `SELECT d.deal_id, d.title, COALESCE(d.seller_id, $2) AS seller_id
+           FROM siton.deals d
+           WHERE d.deal_id = $1 AND d.published_at IS NOT NULL
+           LIMIT 1`,
+          [dealReference, DEFAULT_SELLER_ID]
+        );
+        if (dealRow.rowCount) {
+          dealContext = {
+            deal_id: String(dealRow.rows[0].deal_id),
+            title: String(dealRow.rows[0].title || ""),
+            seller_id: String(dealRow.rows[0].seller_id)
+          };
+        }
+      }
+      if (supportCategoryRequiresDeal(categoryKey) && !dealContext) {
+        throw Object.assign(new Error("support deal reference unresolved"), {
+          statusCode: 404, code: "contact_deal_not_found"
+        });
+      }
+
+      // The seller's copy IS the canonical inquiry thread, created through the
+      // same helper the deal page uses — same rate limits, same retry dedupe,
+      // same single pointer notification, same PII masking.
+      let inquiry: any = null;
+      if (dealContext) {
+        const threadName = normalizeInquiryText(name, INQUIRY_NAME_MAX);
+        const threadEmail = normalizeInquiryEmail(email);
+        const threadBody = normalizeInquiryText(message, INQUIRY_MESSAGE_MAX);
+        if (threadName.length >= 2 && threadEmail && threadBody.length >= INQUIRY_MESSAGE_MIN) {
+          const appended = await appendCustomerInquiryMessage(c, {
+            req, reply,
+            dealId: dealContext.deal_id,
+            dealTitle: dealContext.title,
+            sellerId: dealContext.seller_id,
+            thread: null,
+            name: threadName,
+            email: threadEmail,
+            message: threadBody,
+            requestId: inquiryRequestId(req)
+          });
+          if (appended?.rate_limited) {
+            throw Object.assign(new Error("support contact rate limited"), { statusCode: 429, code: "support_rate_limited" });
+          }
+          inquiry = appended;
+        }
+      }
+
       const description = [
         message,
         "",
         `— פרטי הפונה —`,
         `שם: ${name}`,
         `אימייל: ${email}`,
-        phone ? `טלפון: ${phone}` : null
+        phone ? `טלפון: ${phone}` : null,
+        dealContext ? "" : null,
+        dealContext ? `— הקשר העסקה —` : null,
+        dealContext ? `עסקה: ${dealContext.title} (${dealContext.deal_id})` : null,
+        inquiry?.thread_id ? `שיחת מוכר: ${inquiry.thread_id}` : null
       ].filter((line) => line !== null).join("\n");
       const inserted = await c.query(
         `INSERT INTO siton.operational_cases
-           (case_type, status, priority, source, buyer_ref, opened_by, subject, description)
-         VALUES ($1,'Open','Normal','Buyer',$2,'public_contact_form',$3,$4)
+           (case_type, status, priority, source, buyer_ref, opened_by, subject, description, deal_id, seller_id)
+         VALUES ($1,'Open','Normal','Buyer',$2,'public_contact_form',$3,$4,$5,$6)
          RETURNING case_id, status, created_at`,
-        [category.case_type, email, `${category.label} — ${name}`.slice(0, 200), description]
+        [
+          category.case_type, email, `${category.label} — ${name}`.slice(0, 200), description,
+          dealContext ? dealContext.deal_id : null,
+          dealContext ? dealContext.seller_id : null
+        ]
       );
-      return inserted.rows[0];
+      return { ...inserted.rows[0], deal_context: dealContext, inquiry };
     });
-    return reply.code(201).send({ ok: true, case_id: created.case_id, status: created.status });
+    // `appendCustomerInquiryMessage` sets 201 for the thread it created; the
+    // support intake owns the final status either way.
+    return reply.code(201).send({
+      ok: true,
+      case_id: created.case_id,
+      status: created.status,
+      deal_id: created.deal_context ? created.deal_context.deal_id : null,
+      // The seller-visible half, when there is one. The access token lets the
+      // buyer follow their own thread exactly as the deal-page form does.
+      ...(created.inquiry?.thread_id
+        ? { thread_id: created.inquiry.thread_id, ...(created.inquiry.access_token ? { access_token: created.inquiry.access_token } : {}) }
+        : {})
+    });
   });
 
   app.post("/api/admin/support-cases", async (req: any, reply: any) => {

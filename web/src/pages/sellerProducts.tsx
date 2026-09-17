@@ -11,7 +11,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, EmptyState, StatusPill, Toast, useToast } from "../components";
-import { dealTypeIcon, dealTypeLabel, fmtDate, ils, num } from "../util";
+import { dealTypeLabel, fmtDate, ils, num } from "../util";
 import {
   PRODUCT_TYPE_LABELS, applyProductLibraryFilters, productDealRevisionStatus, productLibraryEmptyKind, validateEstimateRange,
   type ProductLibraryFilters
@@ -242,7 +242,7 @@ export function SellerProductLibraryPage({ navigate }: { navigate: (h: string) =
     } catch (e: any) { showToast(e.message || "הפעולה נכשלה"); }
   };
 
-  if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את ספריית המוצרים" body={error} />;
+  if (error) return <EmptyState title="לא ניתן לטעון את ספריית המוצרים" body={error} />;
   if (!rows) return <BrandLoader label="טוענים את ספריית המוצרים…" minHeight={320} />;
 
   return (
@@ -281,18 +281,18 @@ export function SellerProductLibraryPage({ navigate }: { navigate: (h: string) =
       </div>
 
       {emptyKind === "library-empty" ? (
-        <EmptyState icon="📦" title="עדיין אין מוצרים בספרייה" body="הוסיפו מוצר אחד ותוכלו ליצור ממנו עסקאות שוב ושוב — או שמרו טיוטה קיימת כמוצר מתוך מסך העסקה."
+        <EmptyState title="עדיין אין מוצרים בספרייה" body="הוסיפו מוצר אחד ותוכלו ליצור ממנו עסקאות שוב ושוב — או שמרו טיוטה קיימת כמוצר מתוך מסך העסקה."
           action={<button className="btn btn-primary" onClick={() => navigate("#/seller/products/new")}>+ מוצר חדש</button>} />
       ) : emptyKind === "search-empty" ? (
-        <EmptyState icon="🔍" title="לא נמצאו מוצרים לחיפוש הזה" body="נסו מילה אחרת או נקו את החיפוש." action={<button className="btn btn-ghost" onClick={() => setFilters({ ...filters, query: "" })}>ניקוי החיפוש</button>} />
+        <EmptyState title="לא נמצאו מוצרים לחיפוש הזה" body="נסו מילה אחרת או נקו את החיפוש." action={<button className="btn btn-ghost" onClick={() => setFilters({ ...filters, query: "" })}>ניקוי החיפוש</button>} />
       ) : emptyKind === "filter-empty" ? (
-        <EmptyState icon="🗂️" title="אין מוצרים שמתאימים לסינון" body="שנו את הסטטוס או את סוג המוצר." action={<button className="btn btn-ghost" onClick={() => setFilters({ query: filters.query, status: "all", type: "", sort: filters.sort })}>הצגת הכול</button>} />
+        <EmptyState title="אין מוצרים שמתאימים לסינון" body="שנו את הסטטוס או את סוג המוצר." action={<button className="btn btn-ghost" onClick={() => setFilters({ query: filters.query, status: "all", type: "", sort: filters.sort })}>הצגת הכול</button>} />
       ) : (
         <div className="sd-grid" data-testid="product-grid">
           {visible.map((p: any) => (
             <div className="sd-card product-library-card" key={p.product_id} data-testid="product-card" data-product-status={String(p.status)}>
               <div className="sd-top">
-                <div className="sd-thumb">{p.primary_image_url ? <img src={p.primary_image_url} alt="" /> : dealTypeIcon(String(p.product_type || "physical_product"))}</div>
+                <div className="sd-thumb">{p.primary_image_url ? <img src={p.primary_image_url} alt="" /> : <span className="sd-thumb-type">{dealTypeLabel(String(p.product_type || "physical_product"))}</span>}</div>
                 <div className="grow">
                   <b>{p.name}</b>
                   <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -360,7 +360,7 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
   const load = () => api.sellerProduct(productId).then((r) => { setProduct(r.product); setError(""); }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [productId]);
 
-  if (error) return <EmptyState icon="⚠️" title="לא ניתן לטעון את המוצר" body={error} action={<button className="btn btn-ghost" onClick={() => navigate("#/seller/products")}>לספריית המוצרים</button>} />;
+  if (error) return <EmptyState title="לא ניתן לטעון את המוצר" body={error} action={<button className="btn btn-ghost" onClick={() => navigate("#/seller/products")}>לספריית המוצרים</button>} />;
   if (!product) return <BrandLoader label="טוענים את המוצר…" minHeight={320} />;
 
   const revision = Number(product.revision || 1);
@@ -393,7 +393,7 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
       <a className="back" href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>→ לספריית המוצרים</a>
       <div className="panel">
         <div className="sd-top product-detail-header">
-          <div className="sd-thumb">{product.images?.[0]?.url ? <img src={product.images[0].url} alt="" /> : dealTypeIcon(String(product.product_type || "physical_product"))}</div>
+          <div className="sd-thumb">{product.images?.[0]?.url ? <img src={product.images[0].url} alt="" /> : <span className="sd-thumb-type">{dealTypeLabel(String(product.product_type || "physical_product"))}</span>}</div>
           <div className="grow">
             <h1 style={{ margin: 0, fontSize: "1.3rem" }} data-testid="product-title">{product.name}</h1>
             <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -446,7 +446,7 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
       <div className="panel" data-testid="product-deal-history">
         <div className="panel-title">עסקאות מהמוצר <span className="count">({deals.length})</span></div>
         {deals.length === 0 ? (
-          <EmptyState icon="🏷️" title="עדיין לא נוצרו עסקאות מהמוצר הזה" body="צרו את העסקה הראשונה — המחיר, הכמויות והמועד נקבעים בעסקה."
+          <EmptyState title="עדיין לא נוצרו עסקאות מהמוצר הזה" body="צרו את העסקה הראשונה — המחיר, הכמויות והמועד נקבעים בעסקה."
             action={!archived ? <button className="btn btn-primary" onClick={() => navigate(`#/seller/new?product=${productId}`)}>יצירת עסקה מהמוצר</button> : undefined} />
         ) : (
           <div className="stack" style={{ gap: 8 }}>

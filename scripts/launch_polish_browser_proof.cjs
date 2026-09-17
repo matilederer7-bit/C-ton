@@ -150,7 +150,7 @@ const text = (sel) => `(document.querySelector(${JSON.stringify(sel)})?.innerTex
         demo: document.querySelector('[data-testid="seller-journey"]').innerText.includes('ללא חיובים אמיתיים'),
         h: document.querySelector('[data-testid="seller-journey"]').getBoundingClientRect().height
       }))()`);
-      assert(snap.steps === 5, `steps ${snap.steps}`);
+      assert(snap.steps === 4, `steps ${snap.steps}`);
       assert(snap.stage === "0" && /יצירת עסקה/.test(snap.now), `stage ${snap.stage} now=${snap.now}`);
       assert(/לא ניתן לפרסם/.test(snap.banner), "pending banner must say publishing is not possible yet");
       assert(snap.demo, "demo disclosure missing from the journey strip");
@@ -160,7 +160,7 @@ const text = (sel) => `(document.querySelector(${JSON.stringify(sel)})?.innerTex
       return check("dashboard", { journey_height: Math.round(snap.h) });
     });
 
-    await run("seller deal (Draft) @390: journey stage 2, cancel entry visible but not prominent, confirmation distinguishes cancel from pause", async () => {
+    await run("seller deal (Draft) @390: journey stage 1 (publish), cancel entry visible but not prominent, confirmation distinguishes cancel from pause", async () => {
       await cdp.navigate(`${BASE}/preview/#/seller/deal/${dealId}`);
       await waitFor(cdp, exists('[data-testid="deal-cancel-open"]'), 30000, "cancel entry");
       const snap = await cdp.evaluate(`(() => {
@@ -169,7 +169,7 @@ const text = (sel) => `(document.querySelector(${JSON.stringify(sel)})?.innerTex
         const bs = getComputedStyle(btn), ps = getComputedStyle(pub);
         return { stage: document.querySelector('[data-testid="seller-journey"]').getAttribute('data-stage'), cancelFont: parseFloat(bs.fontSize), publishFont: parseFloat(ps.fontSize), cancelBg: bs.backgroundColor, cancelTop: btn.getBoundingClientRect().top, publishTop: pub.getBoundingClientRect().top };
       })()`);
-      assert(snap.stage === "1", `draft with image must be stage 1 (preview), got ${snap.stage}`);
+      assert(snap.stage === "1", `draft with image must be stage 1 (publish), got ${snap.stage}`);
       assert(snap.cancelFont < snap.publishFont, "cancel must be visually smaller than publish");
       assert(snap.publishTop < snap.cancelTop, "publish CTA must come before the cancel entry");
       await wait(400);
@@ -257,7 +257,7 @@ const text = (sel) => `(document.querySelector(${JSON.stringify(sel)})?.innerTex
       await cdp.navigate(`${BASE}/preview/#/seller/deal/${dealId}`);
       await waitFor(cdp, exists('[data-testid="deal-cancel-open"]'), 30000, "cancel entry on live deal");
       const stage = await cdp.evaluate(`document.querySelector('[data-testid="seller-journey"]').getAttribute('data-stage')`);
-      assert(stage === "3", `live deal must be at stage 3 (collecting), got ${stage}`);
+      assert(stage === "2", `live deal must be at stage 2 (collecting), got ${stage}`);
       await cdp.shot("09_seller_deal_live_390.png");
       await check("seller deal live");
       await cdp.evaluate(click('[data-testid="deal-cancel-open"]'));

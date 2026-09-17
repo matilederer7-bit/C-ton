@@ -190,17 +190,7 @@ export function absoluteShareUrl(dealId: string, code: string | null): string {
   return `${publicWebOrigin()}/d/${dealId}${ref}`;
 }
 
-export interface ShareTarget {
-  key: string;
-  label: string;
-  icon: string;
-  href: (url: string, title: string) => string;
-}
-
-export const SHARE_TARGETS: ShareTarget[] = [
-  { key: "whatsapp", label: "וואטסאפ", icon: "💬", href: (u, t) => `https://wa.me/?text=${encodeURIComponent(`${t}\n${u}`)}` },
-  { key: "telegram", label: "טלגרם", icon: "✈️", href: (u, t) => `https://t.me/share/url?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}` },
-  { key: "facebook", label: "פייסבוק", icon: "👥", href: (u) => `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(u)}` },
-  { key: "x", label: "X", icon: "𝕏", href: (u, t) => `https://twitter.com/intent/tweet?url=${encodeURIComponent(u)}&text=${encodeURIComponent(t)}` },
-  { key: "email", label: "מייל", icon: "✉️", href: (u, t) => `mailto:?subject=${encodeURIComponent(t)}&body=${encodeURIComponent(u)}` }
-];
+// SHELF SWEEP 2026-09-17: `ShareTarget`/`SHARE_TARGETS` was dead code — an
+// emoji-labelled share list nothing imported. The live share row is
+// `ShareRow` in components.tsx, which already uses the real monochrome brand
+// SVGs from shareIcons.tsx. Removed rather than left to rot.

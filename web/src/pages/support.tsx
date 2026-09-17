@@ -10,27 +10,39 @@ import { useSiteContent } from "../siteContent";
 // no email transport is required for the case to exist, and no fake support
 // address is ever displayed (the address appears only when SUPPORT_EMAIL is
 // configured).
+//
+// UX CLOSEOUT (Issue #39, item 5): a deal-scoped inquiry now carries the deal.
+// The buyer pastes the deal link (or arrives from the deal with it already
+// filled in) and the SERVER resolves link → deal → seller. The same submission
+// becomes the seller's inquiry thread, so a question about a specific deal
+// reaches the person who can actually answer it instead of dying in an
+// admin-only queue. Nothing here names a seller — the browser cannot.
 
-const CATEGORIES: { key: string; label: string }[] = [
-  { key: "general", label: "שאלה כללית" },
-  { key: "deal", label: "בעיה בעסקה שהצטרפתי אליה" },
-  { key: "payment", label: "תשלומים וחיובים" },
-  { key: "seller", label: "שאלת מוכר" },
-  { key: "report", label: "דיווח על תוכן" }
+const CATEGORIES: { key: string; label: string; deal: "required" | "optional" | "none" }[] = [
+  { key: "general", label: "שאלה כללית", deal: "none" },
+  { key: "deal", label: "בעיה בעסקה שהצטרפתי אליה", deal: "required" },
+  { key: "payment", label: "תשלומים וחיובים", deal: "optional" },
+  { key: "seller", label: "שאלת מוכר", deal: "none" },
+  { key: "report", label: "דיווח על תוכן", deal: "optional" }
 ];
 
-export function SupportPage() {
+const DEAL_SCOPE = new Map(CATEGORIES.map((c) => [c.key, c.deal]));
+const UUID_ANYWHERE = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
+
+export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
   const copy = resolveSupportCopy(useSiteContent());
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
-  const [category, setCategory] = useState("general");
+  const [category, setCategory] = useState(dealRef ? "deal" : "general");
+  const [deal, setDeal] = useState(dealRef);
   const [message, setMessage] = useState("");
   const [website, setWebsite] = useState(""); // honeypot — humans never see it
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [sentCase, setSentCase] = useState("");
+  const [sentToSeller, setSentToSeller] = useState(false);
   const [supportEmail, setSupportEmail] = useState("");
 
   useEffect(() => {
@@ -44,14 +56,20 @@ export function SupportPage() {
     if (name.trim().length < 2) errs.name = "יש להזין שם";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = "יש להזין כתובת אימייל תקינה";
     if (message.trim().length < 10) errs.message = "כתבו לנו כמה מילים על הפנייה (לפחות 10 תווים)";
+    const scope = DEAL_SCOPE.get(category) || "none";
+    if (scope === "required" && !UUID_ANYWHERE.test(deal.trim())) {
+      errs.deal = "הדביקו את הקישור לעסקה כדי שנוכל להעביר את הפנייה למוכר הנכון";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
     setBusy(true); setError("");
     try {
       const r = await api.supportContact({
         name: name.trim(), email: email.trim(), phone: phone.trim() || undefined,
-        category, message: message.trim(), website
+        category, message: message.trim(), website,
+        ...(scope === "none" ? {} : { deal_ref: deal.trim() || undefined })
       });
+      setSentToSeller(Boolean(r.thread_id));
       setSentCase(String(r.case_id || "נקלטה"));
     } catch (err: any) {
       setError(hebrewError(err));
@@ -63,9 +81,13 @@ export function SupportPage() {
     return (
       <div style={{ maxWidth: 560, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }}>
-          <div style={{ fontSize: "2.2rem" }}>✅</div>
-          <h2>{copy.sent_title}</h2>
+            <h2>{copy.sent_title}</h2>
           <p className="muted">{copy.sent_body}</p>
+          {sentToSeller ? (
+            <p className="muted small" data-testid="support-sent-to-seller">
+              הפנייה שויכה לעסקה שציינתם והועברה גם למוכר שלה. אפשר להמשיך את השיחה מדף העסקה, תחת ״הפניות שלי״.
+            </p>
+          ) : null}
           <a className="btn btn-primary" href="#/">חזרה לדף הבית</a>
         </div>
       </div>
@@ -103,6 +125,19 @@ export function SupportPage() {
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
             </select>
           </div>
+          {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
+            <div className="field" data-testid="support-deal-field">
+              <label>
+                קישור לעסקה {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">(לא חובה)</span>}
+              </label>
+              <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
+                placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />
+              <span className="hint">
+                מדביקים את הקישור של העסקה מדף העסקה או מהודעת האישור. כך הפנייה מגיעה גם למוכר של אותה עסקה — ולא לאף מוכר אחר.
+              </span>
+              {fieldErrors.deal ? <span className="field-error">{fieldErrors.deal}</span> : null}
+            </div>
+          ) : null}
           <div className="field">
             <label>תוכן הפנייה <span className="req">*</span></label>
             <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />

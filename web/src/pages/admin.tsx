@@ -213,7 +213,7 @@ function BuyerFeedbackSummary({ feedback }: { feedback: Json | undefined }) {
   const recent: Json[] = Array.isArray(feedback?.recent) ? feedback!.recent : [];
   return (
     <div className="feedback-summary" data-testid="pilot-feedback" data-total={total} style={{ marginTop: 14, borderTop: "1px dashed var(--line-strong)", paddingTop: 12 }}>
-      <div style={{ fontWeight: 800, marginBottom: 6 }}>🗣️ משוב קונים — ״היה משהו שלא היה ברור?״ ({num(total)})</div>
+      <div style={{ fontWeight: 800, marginBottom: 6 }}>משוב קונים — ״היה משהו שלא היה ברור?״ ({num(total)})</div>
       {total === 0 ? (
         <p className="muted small" style={{ margin: 0 }}>עדיין אין משובים בחלון הזה. השאלה מוצגת לקונים אחרי ההצטרפות ובמסך המעקב.</p>
       ) : (
@@ -451,8 +451,8 @@ function ViralTab({ dealId, dealTitle, vm, viralRes, onRecompute }: { dealId: st
   return (
     <>
       <div className="mode-toggle">
-        <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>🌳 עץ הפצה</button>
-        <button className={mode === "analytics" ? "active" : ""} onClick={() => setMode("analytics")}>📊 אנליטיקה</button>
+        <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>עץ הפצה</button>
+        <button className={mode === "analytics" ? "active" : ""} onClick={() => setMode("analytics")}>אנליטיקה</button>
       </div>
       {mode === "tree" ? (
         <div className="panel">
@@ -880,7 +880,7 @@ function BuyersScreen() {
       <input placeholder="חיפוש שם / טלפון / אימייל…" value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
       <Err msg={error} />
       {!data ? <Spinner /> : buyers.length === 0 ? (
-        <EmptyState icon="👤" title="אין קונים תואמים" body={q ? "נסו חיפוש אחר." : "עדיין אין השתתפויות במערכת."} />
+        <EmptyState title="אין קונים תואמים" body={q ? "נסו חיפוש אחר." : "עדיין אין השתתפויות במערכת."} />
       ) : (
         <div className="table-wrap">
           <table className="data">
@@ -1059,7 +1059,7 @@ function OperationsScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState icon="⚙️" title="אין מופעי Worker מדווחים" body="אם ה־Worker רץ, ה־heartbeat יופיע תוך שניות." />}
+        ) : <EmptyState title="אין מופעי Worker מדווחים" body="אם ה־Worker רץ, ה־heartbeat יופיע תוך שניות." />}
       </div>
       {dlq > 0 ? <div className="notice err">יש {num(dlq)} עבודות ב־DLQ — נדרשת בדיקה ידנית. ה־Worker ריבוני; אין פעולות המשנות DealState כאן.</div> : null}
     </>
@@ -1201,7 +1201,7 @@ function NotificationsScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState icon="🔔" title="אין אירועי התראה" body="התראות נוצרות אוטומטית מאירועי עסקה." />}
+        ) : <EmptyState title="אין אירועי התראה" body="התראות נוצרות אוטומטית מאירועי עסקה." />}
       </div>
     </>
   );
@@ -1379,7 +1379,7 @@ function SupportScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState icon="✅" title="אין פניות פתוחות" />}
+        ) : <EmptyState title="אין פניות פתוחות" />}
       </>
     );
   }} />;

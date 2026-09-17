@@ -10,21 +10,97 @@ export const RECEIPT_LABELS: Record<ReceiptMethod, string> = {
   instructions: "המוכר יספק הוראות מימוש לאחר השלמת העסקה"
 };
 export function failure(code: string, statusCode = 400): never { throw Object.assign(new Error(code), { code, statusCode }); }
-export function receiptConfig(row: any): { method: ReceiptMethod; instructions: string; url: string } {
-  const c = row.receipt_config;
-  return c || { method: row.deal_type === "voucher" ? "code" : "qr", instructions: "", url: "" };
+
+// ── UX CLOSEOUT (Issue #39, item 3) — MANY methods, ONE entitlement ────────
+//
+// "איך הקונה יקבל את מה ששילם עליו?" is a set, not a single choice: the same
+// purchase may be shown as a QR at the counter AND read out as a code AND
+// backed by name+phone when the phone is flat. What multiplies is the
+// REPRESENTATION, never the entitlement:
+//
+//   * the fulfillment_units rows are untouched — one per unit, as before;
+//   * the 128-bit receipt_code is still minted once per participant and is the
+//     same string behind the QR, the typed code and the {code} link;
+//   * redemption still redeems the PARTICIPANT's units, so presenting the QR
+//     and then reading the code out loud cannot redeem twice;
+//   * eligibility is unchanged — no representation exists for a participant
+//     who is not ChargedSuccess / RecoveredCharge on a Completed deal;
+//   * fulfillment (delivery / pickup) stays a separate path and is not a
+//     redemption method here.
+//
+// Storage is versioned JSON inside the existing siton.deals.receipt_config
+// JSONB column, so there is no migration and no collision with 071 / 072. A v1
+// document ({ method }) reads as the one-element set [method]; a v2 document
+// carries "methods" and keeps "method" as the primary for any older reader.
+export type ReceiptConfigValue = {
+  version: 2;
+  method: ReceiptMethod;
+  methods: ReceiptMethod[];
+  instructions: string;
+  url: string;
+};
+
+function defaultMethods(dealType: unknown): ReceiptMethod[] {
+  return [dealType === "voucher" ? "code" : "qr"];
 }
-export function validateReceiptConfig(body: any) {
-  if (!body || !RECEIPT_METHODS.includes(body.method)) failure("invalid_receipt_method");
+
+/** Distinct, canonical-ordered, valid subset — never empty. */
+function normalizeMethods(value: unknown, fallback: ReceiptMethod[]): ReceiptMethod[] {
+  const raw = Array.isArray(value) ? value : [value];
+  const seen = new Set<ReceiptMethod>();
+  for (const entry of raw) {
+    if (RECEIPT_METHODS.includes(entry as ReceiptMethod)) seen.add(entry as ReceiptMethod);
+  }
+  const chosen = RECEIPT_METHODS.filter((m) => seen.has(m));
+  return chosen.length ? chosen : fallback;
+}
+
+export function receiptConfig(row: any): ReceiptConfigValue {
+  const c = row.receipt_config;
+  const fallback = defaultMethods(row.deal_type);
+  const methods = c ? normalizeMethods(c.methods ?? c.method, fallback) : fallback;
+  return {
+    version: 2,
+    method: methods[0]!,
+    methods,
+    instructions: typeof c?.instructions === "string" ? c.instructions : "",
+    url: typeof c?.url === "string" ? c.url : ""
+  };
+}
+
+/** The buyer-facing sentence for a whole method set, in canonical order. */
+export function receiptMethodsLabel(methods: readonly ReceiptMethod[]): string {
+  const parts = methods.map((m) => RECEIPT_LABELS[m]).filter(Boolean);
+  if (parts.length <= 1) return parts[0] || "";
+  return `${parts.slice(0, -1).join(" · ")} · ${parts[parts.length - 1]}`;
+}
+
+export function validateReceiptConfig(body: any): ReceiptConfigValue {
+  if (!body) failure("invalid_receipt_method");
+  // A caller may send "methods: [...]" (canonical) or the legacy single "method".
+  const requested: unknown[] | null = Array.isArray(body.methods)
+    ? body.methods
+    : body.method === undefined ? null : [body.method];
+  if (!requested || !requested.length) failure("invalid_receipt_method");
+  if (requested.length > RECEIPT_METHODS.length) failure("invalid_receipt_method");
+  if (!requested.every((m) => RECEIPT_METHODS.includes(m as ReceiptMethod))) failure("invalid_receipt_method");
+  if (new Set(requested).size !== requested.length) failure("duplicate_receipt_method");
+  const methods = RECEIPT_METHODS.filter((m) => requested.includes(m));
   const instructions = body.instructions ?? "";
   const url = body.url ?? "";
   if (typeof instructions !== "string" || instructions.length > 1000 || typeof url !== "string" || url.length > 2000) failure("invalid_receipt_details");
-  if (body.method === "instructions" && !instructions.trim()) failure("receipt_instructions_required");
-  if (body.method === "digital_link") {
+  if (methods.includes("instructions") && !instructions.trim()) failure("receipt_instructions_required");
+  if (methods.includes("digital_link")) {
     let parsed: URL; try { parsed = new URL(url.replaceAll("{code}", "example")); } catch { return failure("invalid_receipt_url"); }
     if (parsed.protocol !== "https:" || parsed.username || parsed.password) failure("invalid_receipt_url");
   }
-  return { method: body.method as ReceiptMethod, instructions: instructions.trim(), url: body.method === "digital_link" ? url.trim() : "" };
+  return {
+    version: 2,
+    method: methods[0]!,
+    methods,
+    instructions: instructions.trim(),
+    url: methods.includes("digital_link") ? url.trim() : ""
+  };
 }
 export function eligible(row: any) {
   return decideFulfillmentIssuance({ dealState: row.deal_state, buyerState: row.buyer_state, moneyState: row.money_state }).shouldIssue;
@@ -52,13 +128,15 @@ export async function receiptForOrder(c: Db, row: any) {
     await c.query(`UPDATE siton.fulfillment_units SET metadata_jsonb=metadata_jsonb || jsonb_build_object('receipt_code',$2::text), updated_at=now() WHERE participant_id=$1`, [row.participant_id, code]);
   }
   const cfg = receiptConfig(row);
-  return { entitlement_id: units[0].fulfillment_unit_id, method: cfg.method, title: row.title, quantity: row.qty,
+  // ONE code, projected through every method the seller enabled. "method" stays
+  // the primary so existing readers keep working; "methods" is the full set.
+  return { entitlement_id: units[0].fulfillment_unit_id, method: cfg.method, methods: cfg.methods, title: row.title, quantity: row.qty,
     remaining_quantity: units.filter((u: any) => u.status !== "Redeemed").length,
     status: units.every((u: any) => u.status === "Redeemed") ? "redeemed" : "valid",
     redeemed_at: units.find((u: any) => u.redeemed_at)?.redeemed_at || null,
-    code: ["qr", "code"].includes(cfg.method) ? code : null,
+    code: cfg.methods.some((m) => m === "qr" || m === "code") ? code : null,
     instructions: cfg.instructions,
-    url: cfg.method === "digital_link" ? cfg.url.replaceAll("{code}", encodeURIComponent(code)) : null };
+    url: cfg.methods.includes("digital_link") ? cfg.url.replaceAll("{code}", encodeURIComponent(code)) : null };
 }
 export async function redeemReceipt(c: Db, sellerId: string, participantId: string, actor: string) {
   const row = await loadReceiptOrder(c, participantId, true);

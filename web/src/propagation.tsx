@@ -294,7 +294,7 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                 return (
                   <g key={n.id} transform={`translate(${n.x - n.w / 2},${n.y})`} className={`prop-node-deal${onPath ? " on-path" : ""}`}>
                     <rect width={n.w} height={n.h} rx={14} />
-                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">🌳 {String(n.data.title || "העסקה").slice(0, 20)}</text>
+                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">{String(n.data.title || "העסקה").slice(0, 20)}</text>
                     <text x={n.w / 2} y={54} textAnchor="middle" className="t2">שורש ההפצה</text>
                   </g>
                 );
@@ -421,7 +421,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
         {stack.map((crumb, i) => (
           <button key={i} className={`prop-crumb${i === stack.length - 1 ? " current" : ""}`}
             onClick={() => setStack((s) => s.slice(0, i + 1))}>
-            {crumb.kind === "sources" ? `🌳 ${dealTitle || "העסקה"}` : crumb.kind === "roots" ? crumb.source.label : crumb.parent.display}
+            {crumb.kind === "sources" ? `${dealTitle || "העסקה"}` : crumb.kind === "roots" ? crumb.source.label : crumb.parent.display}
           </button>
         ))}
       </nav>
@@ -495,7 +495,7 @@ export function PropagationTree({ dealId, dealTitle, fetchers }: {
   if (!data.state.sources.length) {
     return (
       <div className="prop-empty" data-testid="prop-empty">
-        <div className="prop-empty-root">🌳 {dealTitle || "העסקה"}</div>
+        <div className="prop-empty-root">{dealTitle || "העסקה"}</div>
         <p className="muted" style={{ margin: "10px 0 0" }}>עדיין לא נוצרה שרשרת הפצה לעסקה הזו.</p>
         <p className="muted small" style={{ margin: "4px 0 0" }}>כל מצטרף מקבל קישור אישי — ההפצה תופיע כאן ברגע שחברים יצטרפו דרכו.</p>
       </div>

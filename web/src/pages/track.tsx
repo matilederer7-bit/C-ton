@@ -81,7 +81,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
 
   if (error) {
     return (
-      <EmptyState icon={error.kind === "network" ? "📡" : error.kind === "busy" ? "⏳" : "🔒"}
+      <EmptyState
         title={error.kind === "network" ? trackCopy.networkTitle : error.kind === "busy" ? trackCopy.busyTitle : trackCopy.noAccessTitle} body={error.message}
         action={
           <div className="row" style={{ justifyContent: "center" }}>
@@ -180,7 +180,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
               <a className="btn btn-ghost btn-sm" data-testid="track-deal-link" href={dealHash}>לדף העסקה ←</a>
             </div>
             <div className="track-ask" style={{ marginTop: 12 }}>
-              <a className="btn btn-primary btn-sm" data-testid="track-ask-seller" href={askHash}>✉️ שאלה למוכר</a>
+              <a className="btn btn-primary btn-sm" data-testid="track-ask-seller" href={askHash}>שאלה למוכר</a>
               <p className="muted small" style={{ margin: "6px 0 0" }}>{INQUIRY_PRIVACY_LINE} התשובה מופיעה בדף העסקה תחת ״הפניות שלי״.</p>
             </div>
           </div>
@@ -214,7 +214,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
                 </div>
                 {Number(impact.descendants) > 0 ? (
                   <p className="muted small" style={{ marginTop: 10, textAlign: "center" }}>
-                    בסך הכול {num(impact.descendants)} מצטרפים בענף שלך 🎉
+                    בסך הכול {num(impact.descendants)} מצטרפים בענף שלך
                   </p>
                 ) : (
                   <p className="muted small" style={{ marginTop: 10, textAlign: "center" }}>

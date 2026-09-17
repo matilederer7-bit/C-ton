@@ -215,7 +215,6 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
 
       {!hasLinks && !creating ? (
         <EmptyState
-          icon="🔗"
           title="עדיין לא יצרת לינקי הפצה"
           body={dealOpen ? "צרו לינק לכל ערוץ (קבוצת וואטסאפ, קמפיין, משפיען) ותראו בדיוק מה כל אחד הביא." : "לינקים חדשים אפשר ליצור רק בזמן שהעסקה פתוחה להצטרפות."}
           action={dealOpen ? <button type="button" className="btn btn-primary" data-testid="distribution-create-first" onClick={() => setCreating(true)}>צור לינק ראשון</button> : undefined}
@@ -400,7 +399,7 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [dealId, linkId, range]);
 
   const back = <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>→ לעסקה</a>;
-  if (error) return <>{back}<EmptyState icon="⚠️" title="לא ניתן לטעון את דשבורד הלינק" body={error} /></>;
+  if (error) return <>{back}<EmptyState title="לא ניתן לטעון את דשבורד הלינק" body={error} /></>;
   if (!payload) return <>{back}<BrandLoader label="טוענים את דשבורד הלינק…" minHeight={320} /></>;
 
   const link = payload.link || {};

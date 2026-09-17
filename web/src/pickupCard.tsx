@@ -104,7 +104,7 @@ export function PickupCard({ pickup }: { pickup: Json | null | undefined }) {
           {location && pickup.pickup_navigation ? (
             <PickupNavActions navigation={pickup.pickup_navigation} testIdPrefix="track-pickup-nav" />
           ) : location && pickup.pickup_map_url ? (
-            <a className="pickup-map-link" href={pickup.pickup_map_url} target="_blank" rel="noreferrer">📍 פתיחה במפה</a>
+            <a className="pickup-map-link" href={pickup.pickup_map_url} target="_blank" rel="noreferrer">פתיחה במפה</a>
           ) : null}
         </div>
         <div className="pickup-cred">

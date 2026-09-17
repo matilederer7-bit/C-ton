@@ -96,7 +96,7 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
       ) : null}
       <input type="text" className="hp-field" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
       <button type="button" className="feedback-clear" data-testid="feedback-all-clear" disabled={busy} onClick={() => send(FEEDBACK_ALL_CLEAR)}>
-        הכול היה ברור 👍
+        הכול היה ברור
       </button>
       {error ? <div className="notice err" style={{ margin: "8px 0 0" }} data-testid="feedback-error">{error}</div> : null}
     </div>

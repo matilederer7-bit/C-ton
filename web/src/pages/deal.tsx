@@ -10,7 +10,7 @@ import { LiveCountdown } from "../livecountdown";
 import { PUBLIC_DEAL_POLL, TERMINAL_DEAL_STATES, classifyPollError } from "../polling";
 import { usePoller } from "../usePoller";
 import { hebrewError } from "../he";
-import { buyerStateStory, dealTypeIcon, dealTypeLabel, fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
+import { buyerStateStory, dealTypeLabel, fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId, visitorId } from "../viral";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, seller
 // payload, public payload): the buyer preview IS this page, so what a seller
@@ -64,8 +64,8 @@ export function PickupNavActions({ navigation, testIdPrefix = "pickup-nav" }: { 
   if (!navigation) return null;
   return (
     <span className="pickup-nav-actions" data-testid={`${testIdPrefix}-actions`} data-mode={navigation.mode}>
-      <a className="btn btn-ghost btn-sm" data-testid={testIdPrefix} href={navigation.google_maps_url} target="_blank" rel="noreferrer">🧭 Google Maps</a>
-      <a className="btn btn-ghost btn-sm" data-testid={`${testIdPrefix}-waze`} href={navigation.waze_url} target="_blank" rel="noreferrer">🚗 Waze</a>
+      <a className="btn btn-ghost btn-sm" data-testid={testIdPrefix} href={navigation.google_maps_url} target="_blank" rel="noreferrer">Google Maps</a>
+      <a className="btn btn-ghost btn-sm" data-testid={`${testIdPrefix}-waze`} href={navigation.waze_url} target="_blank" rel="noreferrer">Waze</a>
       <span className="muted small pickup-nav-mode" data-testid={`${testIdPrefix}-mode`}>{PICKUP_NAV_MODE_COPY[navigation.mode]}</span>
     </span>
   );
@@ -79,11 +79,11 @@ function PickupLocationLine({ option, showNav }: { option: DeliveryOption; showN
   return (
     <div className="pickup-location" data-testid="pickup-location" data-option-type={option.option_type} data-has-location={usable ? "1" : "0"}>
       {text ? (
-        <span className="pickup-location-text" data-testid="pickup-location-text">📍 {text}</span>
+        <span className="pickup-location-text" data-testid="pickup-location-text">{text}</span>
       ) : navigation ? (
-        <span className="pickup-location-text" data-testid="pickup-location-text">📍 נקודת האיסוף מסומנת במפה</span>
+        <span className="pickup-location-text" data-testid="pickup-location-text">נקודת האיסוף מסומנת במפה</span>
       ) : (
-        <span className="pickup-location-text muted" data-testid="pickup-location-fallback">📍 המוכר טרם פרסם כתובת לנקודת האיסוף — אפשר לשאול דרך ״פנייה למוכר״</span>
+        <span className="pickup-location-text muted" data-testid="pickup-location-fallback">המוכר טרם פרסם כתובת לנקודת האיסוף — אפשר לשאול דרך ״פנייה למוכר״</span>
       )}
       {showNav ? <PickupNavActions navigation={navigation} /> : null}
     </div>
@@ -118,7 +118,7 @@ function Gallery({ images, title, type }: { images: { url: string }[]; title: st
       <div className="deal-gallery-main">
         {current
           ? <ProductImg src={current.url} alt={title} />
-          : <div className="placeholder">{dealTypeIcon(type)}</div>}
+          : <div className="placeholder">{dealTypeLabel(type)}</div>}
       </div>
       {images.length > 1 ? (
         <div className="deal-thumbs">
@@ -221,15 +221,15 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
               <div className="chat-actions">
                 <button type="button" className={`chat-action${m.viewer_reaction === "like" ? " active" : ""}`}
                   aria-pressed={m.viewer_reaction === "like"} aria-label="אהבתי" onClick={() => react(m, "like")}>
-                  👍 {Number(m.likes || 0) > 0 ? num(m.likes) : ""}
+                  אהבתי {Number(m.likes || 0) > 0 ? num(m.likes) : ""}
                 </button>
                 <button type="button" className={`chat-action dislike${m.viewer_reaction === "dislike" ? " active" : ""}`}
                   aria-pressed={m.viewer_reaction === "dislike"} aria-label="לא אהבתי" onClick={() => react(m, "dislike")}>
-                  👎 {Number(m.dislikes || 0) > 0 ? num(m.dislikes) : ""}
+                  לא אהבתי {Number(m.dislikes || 0) > 0 ? num(m.dislikes) : ""}
                 </button>
                 {canWrite ? (
                   <button type="button" className="chat-action" onClick={() => { setReplyTo(m); composerRef.current?.focus(); }}>
-                    ↩ תגובה
+                    תגובה
                   </button>
                 ) : null}
                 <span className="chat-time" style={{ marginInlineStart: "auto" }}>{timeAgo(m.created_at)}</span>
@@ -347,7 +347,6 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
     return (
       <Modal title="" onClose={onClose}>
         <div className="share-moment" data-testid="inquiry-success">
-          <div style={{ fontSize: "2.2rem" }}>✅</div>
           <h3>הפנייה נשלחה למוכר דרך {PRODUCT_NAME_HE}.</h3>
           <p>
             המוכר קיבל התראה ויענה לך כאן, בדף העסקה, תחת ״הפניות שלי״.
@@ -499,7 +498,7 @@ function SellerContactPanel({ seller, onOpen, dealId, refreshKey, preview }: {
       ) : null}
       <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 12 }}>
         <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen} disabled={preview}
-          title={preview ? "מושבת בתצוגה מקדימה" : undefined}>✉️ פנייה למוכר</button>
+          title={preview ? "מושבת בתצוגה מקדימה" : undefined}>פנייה למוכר</button>
       </div>
       <p className="muted small" style={{ margin: "8px 0 0" }}>
         {preview
@@ -690,7 +689,7 @@ function JoinModal(props: {
           <div className="order-row"><span>{deal.title}</span><span>{num(qty)} × {ils(deal.price_per_unit)}</span></div>
           {delivery ? <div className="order-row"><span>{DELIVERY_NAMES[delivery.option_type] || delivery.label}</span><span>{delivery.cost ? ils(delivery.cost) : "חינם"}</span></div> : null}
           {delivery && isPickupOptionType(delivery.option_type) && pickupLocationText(delivery) ? (
-            <div className="order-row"><span className="muted small">📍 {pickupLocationText(delivery)}</span><span /></div>
+            <div className="order-row"><span className="muted small">{pickupLocationText(delivery)}</span><span /></div>
           ) : null}
           <div className="order-row total"><span>סה״כ לתפיסת מסגרת</span><span>{ils(total)}</span></div>
         </div>
@@ -719,7 +718,7 @@ function JoinModal(props: {
         <div className="pay-methods" role="tablist" aria-label="אמצעי תשלום">
           <button type="button" role="tab" aria-selected={payMethod === "credit_card"} data-testid="pay-credit"
             className={`pay-method${payMethod === "credit_card" ? " active" : ""}`} onClick={() => setPayMethod("credit_card")}>
-            💳 כרטיס אשראי
+            כרטיס אשראי
           </button>
           <button type="button" role="tab" aria-selected={payMethod === "bit"} data-testid="pay-bit"
             className={`pay-method${payMethod === "bit" ? " active" : ""}`} onClick={() => setPayMethod("bit")}>
@@ -738,11 +737,11 @@ function JoinModal(props: {
               <div className="field" style={{ marginBottom: 0 }}><label>קוד אבטחה</label><input dir="ltr" disabled placeholder="•••" /></div>
               <div className="field" style={{ marginBottom: 0 }}><label>ת״ז</label><input dir="ltr" disabled placeholder="•••••••••" /></div>
             </div>
-            <div className="pay-secure-note">🔒 פרטי הכרטיס מוזנים ישירות בסביבת הסליקה המאובטחת בעת סגירת העסקה — הם אינם נשמרים ואינם עוברים דרך C-ton.</div>
+            <div className="pay-secure-note">פרטי הכרטיס מוזנים ישירות בסביבת הסליקה המאובטחת בעת סגירת העסקה — הם אינם נשמרים ואינם עוברים דרך C-ton.</div>
           </div>
         ) : (
           <div className="pay-secure-slot" data-testid="pay-slot-bit">
-            <div className="pay-secure-note">🔒 בקשת תשלום ב-bit תישלח למספר הנייד שהזנתם דרך סביבת הסליקה המאובטחת, רק אם העסקה תיסגר בהצלחה. לא מתבצע חיוב עכשיו.</div>
+            <div className="pay-secure-note">בקשת תשלום ב-bit תישלח למספר הנייד שהזנתם דרך סביבת הסליקה המאובטחת, רק אם העסקה תיסגר בהצלחה. לא מתבצע חיוב עכשיו.</div>
           </div>
         )}
 
@@ -799,7 +798,6 @@ function JoinSuccess(props: {
   return (
     <Modal title="" onClose={props.onClose}>
       <div className="share-moment success-moment" data-testid="join-success">
-        <div style={{ fontSize: "2.4rem" }}>🎉</div>
         <h3>הצטרפת בהצלחה!</h3>
         <div className="success-facts" data-testid="join-success-facts">
           <div><b>{num(qty)}</b> {qty === 1 ? "יחידה" : "יחידות"} · <b>{ils(total)}</b></div>
@@ -1010,7 +1008,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     const network = errorKind === "network";
     const busy = errorKind === "busy";
     return (
-      <EmptyState icon={network ? "📡" : busy ? "⏳" : "🕐"}
+      <EmptyState
         title={preview ? "לא ניתן להציג תצוגה מקדימה" : network ? "בעיית תקשורת" : busy ? "עומס רגעי — נסו שוב בעוד רגע" : "העסקה אינה זמינה"}
         body={preview
           ? "העסקה לא נמצאה או שאינה שייכת לחשבון המוכר הזה."
@@ -1089,7 +1087,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             <p className="deal-explainer" data-testid="deal-explainer">{dealCopy.explainer}</p>
             {seller.business_name ? (
               <div className="deal-seller-line" data-testid="deal-seller-line">
-                <span>🏪 {seller.business_name}</span>
+                <span>{seller.business_name}</span>
                 {seller.approved ? <span className="trust-badge" data-testid="seller-approved" title="המוכר אושר לפרסום על ידי צוות סיטון">✓ מוכר מאושר</span> : null}
                 {preview ? null : <button type="button" className="linklike" data-testid="inquiry-open-top" onClick={startInquiry}>שאלה למוכר</button>}
               </div>
@@ -1165,7 +1163,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                       <label className={`choice-card delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type} data-selected={o.option_id === deliveryId ? "1" : "0"}>
                         <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
                         <span className="choice-ind choice-dot" aria-hidden="true" />
-                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span>{o.estimate_text ? <span className="choice-sub muted small" data-testid="delivery-estimate">⏱ {o.estimate_text}</span> : null}</span>
+                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span>{o.estimate_text ? <span className="choice-sub muted small" data-testid="delivery-estimate">{o.estimate_text}</span> : null}</span>
                         <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : "חינם"}</span>
                       </label>
                       {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}
@@ -1181,7 +1179,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 <div className="order-row total"><span>סה״כ לתפיסת מסגרת</span><span>{ils(total)}</span></div>
               </div>
               <div className="order-note" style={{ margin: "12px 0" }}>
-                💳 <b>לא משלמים עכשיו.</b> הסכום תופס מסגרת אשראי בלבד; החיוב מתבצע רק אם
+                <b>לא משלמים עכשיו.</b> הסכום תופס מסגרת אשראי בלבד; החיוב מתבצע רק אם
                 העסקה נסגרת בהצלחה, ואם לא — המסגרת משתחררת אוטומטית.
               </div>
               <button className="btn btn-join btn-block" data-testid="join-open" disabled={preview} ref={setCtaEl}

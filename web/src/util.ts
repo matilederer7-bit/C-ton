@@ -21,13 +21,9 @@ export function dealTypeLabel(type: string): string {
   }
 }
 
-export function dealTypeIcon(type: string): string {
-  switch (type) {
-    case "voucher": return "🎁";
-    case "ticket": return "🎟️";
-    default: return "📦";
-  }
-}
+// MATURE UI (Issue #39, item 2): the image placeholder is the deal type spelled
+// out, styled by `.sd-thumb`/`.placeholder`, not a gift/ticket/parcel emoji.
+// `dealTypeIcon` is gone; call sites use `dealTypeLabel` directly.
 
 // Canonical deal-state Hebrew labels (all nine states).
 export const DEAL_STATE_LABELS: Record<string, string> = {

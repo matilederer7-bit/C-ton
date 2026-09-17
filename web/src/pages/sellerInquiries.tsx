@@ -94,7 +94,7 @@ export function SellerInquiriesPage({ navigate }: { navigate: (h: string) => voi
       {error ? <div className="notice err">{error}</div>
         : !data ? <BrandLoader label="טוענים פניות…" minHeight={240} />
         : threads.length === 0 ? (
-          <EmptyState icon="💬" title={scope === "open" ? "אין פניות פתוחות" : "עדיין אין פניות"}
+          <EmptyState title={scope === "open" ? "אין פניות פתוחות" : "עדיין אין פניות"}
             body="כשלקוח ילחץ על ״פנייה למוכר״ בדף העסקה, הפנייה תופיע כאן — והמייל שתקבלו רק מפנה לכאן." />
         ) : (
           <div className="panel">
@@ -131,7 +131,7 @@ export function SellerInquiryThreadPage({ threadId, navigate }: { threadId: stri
     setBusy(false);
   };
 
-  if (error) return <EmptyState icon="⚠️" title="הפנייה לא נמצאה" body={error} action={<button className="btn btn-primary" onClick={() => navigate("#/seller/inquiries")}>לכל הפניות</button>} />;
+  if (error) return <EmptyState title="הפנייה לא נמצאה" body={error} action={<button className="btn btn-primary" onClick={() => navigate("#/seller/inquiries")}>לכל הפניות</button>} />;
   if (!data?.thread) return <BrandLoader label="טוענים את הפנייה…" minHeight={320} />;
   const t = data.thread;
   const messages: Json[] = data.messages || [];
