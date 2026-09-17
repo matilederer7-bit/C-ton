@@ -17,6 +17,8 @@
 			<array><string>siton</string></array>
 		</dict>
 	</array>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Your location is used only when you choose to set or check a pickup location.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>Siton משתמשת במצלמה רק כדי להוסיף תמונות לעסקה שבחרת לערוך.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

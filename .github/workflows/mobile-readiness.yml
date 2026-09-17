@@ -1,0 +1,25 @@
+name: Mobile canonical bundle and static readiness
+on:
+  pull_request:
+    paths: ['web/**', 'mobile/**', 'android/**', 'ios/**', 'capacitor.config.ts', 'scripts/*mobile*', 'package*.json', '.github/workflows/mobile-readiness.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-readiness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: web
+      - run: npm run mobile:sync
+      - run: npm run test:mobile-readiness
+      - run: git diff --exit-code -- android ios

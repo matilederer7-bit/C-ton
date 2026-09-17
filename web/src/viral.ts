@@ -1,3 +1,4 @@
+import { publicWebOrigin } from "./mobileUrls";
 // Browser-side attribution capture for the Siton commerce viral graph.
 //
 // Captures ?ref= share codes into a BOUNDED local history (first touch, last
@@ -183,7 +184,8 @@ export function recordShareVisit(dealId: string, code: string | null): void {
 // the personal ?ref= code.
 export function absoluteShareUrl(dealId: string, code: string | null): string {
   const ref = code ? `?ref=${encodeURIComponent(code)}` : "";
-  return `${window.location.origin}/d/${dealId}${ref}`;
+  // native shells share the PUBLIC host, never the packaged local origin
+  return `${publicWebOrigin()}/d/${dealId}${ref}`;
 }
 
 export interface ShareTarget {

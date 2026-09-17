@@ -1,3 +1,4 @@
+import { publicWebOrigin } from "./mobileUrls";
 // Same-origin API client for the canonical Fastify service.
 //
 // ONE Supabase session (access + refresh token, see session.ts) may carry more
@@ -220,8 +221,11 @@ export const api = {
 // ── Supabase auth (password grant / signup / resend / recovery) ─────────────
 export interface SupabaseCfg { supabase_url: string; supabase_anon_key: string }
 
+// Native shells (Capacitor) run from a local origin: auth e-mails must point
+// back at the PUBLIC web host, never at the packaged asset origin. Ordinary web
+// builds keep the same-origin behaviour (web/src/mobileUrls.ts).
 function authRedirectTo(): string {
-  return `${window.location.origin}/preview/`;
+  return `${publicWebOrigin()}/preview/`;
 }
 
 async function authPost(cfg: SupabaseCfg, path: string, payload: Json): Promise<{ res: Response; body: Json }> {
