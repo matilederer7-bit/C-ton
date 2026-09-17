@@ -2,8 +2,8 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `45f349f728ab1f6881309e0f52589a8056d4017a` (PR #45)
-Render staging: LIVE on that SHA (`dep-dam18a3l550s73fc4cg0`)
+Current merged baseline: `5a581472a950fab0bd386e623f58547e02890b08` (PR #46)
+Render staging: LIVE on that SHA (`dep-dam1sl4s728c738v12p0`)
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -81,6 +81,21 @@ Run in a real browser against `https://siton-staging-web.onrender.com` (an agent
 - Money stayed at zero throughout: 0 payment attempts and 0 platform-fee money events created in the smoke window, 0 participants on the smoke deal.
 
 Smoke fixtures left on staging, deliberately, as evidence: seller `s-siton-smoke-20260917-3466709f`, product `2c0c4720-f44d-49ac-ba57-f0b7f3872587`, deal `6e35c4f3-3701-5874-9f6c-13a2693f87cc` (PendingTarget, 60-day horizon).
+
+#### POST-MERGE SPOT SMOKE, master `5a581472`
+
+Re-checked after the final merge: `/readiness` 200 with `database: connected` and `runtime_role: siton_web_runtime`; home page renders with C-ton branding and the closed-pilot notice "פיילוט סגור — בשלב זה לא מתבצעים חיובים אמיתיים"; the published smoke deal still counts down (59 days remaining on its 60-day horizon) and still renders both Google Maps and Waze plus the 3–7 business-day estimate; `#/seller`, `#/seller/products`, `#/content/legal_terms` and `#/support` all load with zero 401/403/404/500 on any `/api/` call. Nothing regressed.
+
+#### REPOSITORY-WIDE SEVEN-DAY SWEEP, 2026-09-17
+
+Swept every Markdown file, spec, constitution, UX document, README, test description, code comment and UI string for a seven-day cap on **deal duration**, deliberately excluding the unrelated seven-day facts: a product's delivery estimate (for example 3–7 business days), Grow's documented J5 authorization-hold validity, admin authorization-age alert thresholds, Freeze-Payouts approval validity, the Low-priority support SLA and `7d` analytics windows.
+
+Result: the code, the shipped UI copy and all Markdown were already reconciled — every textual occurrence sits under an OBSOLETE, DEPRECATED, RESOLVED or CLOSED marker, or is explicitly qualified ("template choice, not a platform limit"). Two real documentation gaps were found and fixed:
+
+1. **Unmarked `.docx` copies in `docs/`.** PR #44 marked the four documents inside `docs/foundation-canonical-2026-04-18/`, but loose copies of several of them sit directly in `docs/` — plus `docs/חוקה לסיטון.docx`, which is not part of that pack at all — and carried the cap with no obsolescence notice anywhere near them. **Six** stale deal-cap statements across **four** documents: `חוקה וצקליסט לסיטון.docx` ("דדליין מקסימום 7 ימים"), `חוקה לסיטון.docx` (same), `סיטון אפיון מוצר מלא.docx` (three: "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום", "דדליין עד 7 ימים", "מקסימום עד שבעה ימים קלנדריים") and `UX סיטון.docx` ("דדליין עד 7 ימים"). Fixed by `docs/SOURCE_DOCX_OBSOLETE_RULES.md`, following the established mark-don't-rewrite precedent: the binaries stay verbatim, the marker quotes every occurrence and names the current rule. Three further seven-day values inside `UX סיטון.docx` are the authorization-age alert threshold (twice) and Freeze-Payouts validity, and are called out there as legitimate.
+2. **`docs/SPEC_DRIFT_MAP_2026-04-19.md` closure summary omitted D3.** The header lists D1, D2, D4 and D5 as resolved but skipped D3 (deadline bounds), so a reader of the summary alone would not learn that the seven-day maximum was cancelled rather than implemented. The summary now records D3 explicitly, including that the proposed DB trigger was never built and never will be.
+
+A repeatable classifier now backs this: it flags any line asserting a seven-day bound in a deal-deadline context that lacks a reconciliation marker within six lines, while ignoring the unrelated seven-day facts above. It reports **0** unreconciled hits on this tree.
 
 ### OPEN MERGE / EXECUTION QUEUE
 

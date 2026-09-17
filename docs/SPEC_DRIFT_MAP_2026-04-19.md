@@ -3,6 +3,7 @@
 > **STATUS: CLOSED 2026-04-22.** This document is historical only. Every drift item below has since been resolved by Waves 2, 2.5, and 3. Do NOT read this as an open punch-list. See [PROJECT_STATUS.md](../PROJECT_STATUS.md) (Wave 4 Final Audit section) for the canonical current state. Summary of closure:
 > - **D1** (completion window 15m→24h) — resolved.
 > - **D2** (fee default 0 → const 8%) — resolved Wave 2; `SITON_PLATFORM_FEE_RATE = 0.08` hardcoded in `src/platform_fee_money.ts`.
+> - **D3** (deadline bounds) — resolved, but **not as D3 proposed**. The 2-hour minimum was implemented; the 7-day maximum and the DB trigger enforcing it were **cancelled** by the owner decision of 2026-09-16 (LONG_HORIZON_DEALS) and were never built. There is no fixed maximum deal duration; `src/deadline_policy.ts` is the single source of truth. See the update at the end of D3 and `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
 > - **D4** (distributor commission/payout subsystem) — resolved Wave 2.5 migration `020_drop_affiliate_legacy_columns.sql`; distributors are attribution-only.
 > - **D5** (affiliate PII exposure) — resolved; affiliate surfaces are aggregate-only.
 > - All remaining P0/P1/P2 items either resolved or deliberately deferred with documentation in `PROJECT_STATUS.md`.
