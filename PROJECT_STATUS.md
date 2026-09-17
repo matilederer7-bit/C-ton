@@ -2,113 +2,59 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `17035f900ccaebf185b2cb806fd28acf872d3a6a`
-
-## AGENT WORKFLOW V5 REFRESH — 2026-09-17
-
-### COMPLETED
-
-- Re-applied the useful workflow-v5 changes from PR #32 on top of the current post-PR-31 baseline without carrying stale status content.
-- Repeated task names allocate the first free `-rN` branch suffix instead of dead-ending on an old local or remote branch.
-- Task packets include only the active agent's isolated `PROJECT_STATUS.md` slot instead of generic status lines.
-- Task start now proves GitHub write access by pushing the new branch and verifying the remote SHA before substantial work begins.
-- Release-tool contract coverage includes all three v5 behaviors.
-- Stale duplicate PR #28 was closed as superseded.
-
-### TESTED / CHECKED
-
-- The v5 implementation previously passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates on PR #32 head `d7b1676cda510330ab06de1b2abc1237fe1380cc`.
-- This refresh preserves those workflow and test files while replacing only stale `PROJECT_STATUS.md` content with the current master status.
-- Fresh GitHub CI on this refreshed branch is the final merge authority.
-- No product runtime, database, auth, payments, Grow, Render, Supabase, or real-money behavior is changed.
-
-### OPEN
-
-- Fresh CI must pass on the refreshed branch before merge.
-- Owner-machine worktrees still need one setup/doctor verification after the next local sync.
-
-### PERCENTAGE
-
-- Agent workflow v5 repository implementation: 95% pending fresh CI and merge.
-
-### NEXT STEP
-
-1. Open refreshed PR against current master.
-2. Require Backend, Release readiness, and Web runtime depth gates green.
-3. Merge only after green CI, then close the older PR #32 as superseded.
-4. Re-run owner-machine agent doctor after local sync.
-
-## DISTRIBUTOR ATTRIBUTION-ONLY GUARD — 2026-09-17
-
-### COMPLETED
-
-- PR #31 merged to `master` at `17035f900ccaebf185b2cb806fd28acf872d3a6a`.
-- Added fail-closed CI enforcement for the canonical rule that distributor/affiliate behavior is attribution and measurement only, never an in-platform money entitlement.
-- The guard rejects distributor/affiliate commission, payout, withdrawal, balance, earnings, entitlement, invoice, fee and reward identifiers while preserving ordinary sharing and attribution measurement.
-- The guard includes multi-line SQL regression protection and prevents migration 020 from recreating removed distributor financial fields.
-
-### TESTED / CHECKED
-
-- Verified head `df2a05bea8375277178e6400670930bf9b078fb8` passed all three GitHub workflows before merge: Backend and deployment quality gates, Release readiness, and Web runtime depth gates.
-- Backend coverage included TypeScript, lint/enforcement scans, distributor self-test/live scan, payment/raw-card compliance, runtime DDL, integrity checks, unit, integration, database, API, worker, payment, authorization, security, concurrency, failure-injection, E2E, and extended Docker smoke.
-- Real money remains 0. Grow remains untouched and unactivated.
-
-### OPEN
-
-- Broader removal of legacy distributor/session/routes/UI/schema surfaces remains a separate cleanup task; ordinary sharing and role-neutral attribution analytics must remain intact.
-- Fixed 24-hour Completion Window hardening remains separate because `src/app.ts` overlaps the active duration workstream.
-
-### PERCENTAGE
-
-- Distributor no-money regression protection: 100% merged and verified.
-- Broader canonical product-policy runtime cleanup: incomplete.
-
-### NEXT STEP
-
-- Continue separate runtime cleanup only on an isolated branch after checking active scopes.
+Current merged baseline: `18ba51985f71ebf83563216ec22f88aaa7c023f0`
 
 ## CURRENT SNAPSHOT
 
 ### COMPLETED
 
-- PR #19 merged to `master`: adversarial production hardening plus seller-to-buyer product-path closeout.
-- PR #22 merged to `master`: affiliate visit acknowledgement is emitted only after the recording transaction commits, with deterministic regression coverage.
-- PR #23 merged to `master`: agent efficiency v3 with isolated Claude/Codex status writes, branch retention while PRs remain open, and streamlined aggregate test execution.
-- PR #26 merged to `master`: canonical product policy amendment 2026-09-16.
-- PR #27 merged to `master` at `7c975d062eecc02faf1c3ab48909b7f05043c7a8`: agent efficiency v4 with root `CLAUDE.md`, no-loop Git authorization fallback, push-checkpoint discipline, and release-tool contract coverage.
-- PR #31 merged to `master` at `17035f900ccaebf185b2cb806fd28acf872d3a6a`: distributor attribution-only financial-regression guard.
-- Repository-side agent workflow is merged through v4; v5 refresh is in progress.
+- PR #19 merged: adversarial production hardening plus seller-to-buyer product-path closeout.
+- PR #22 merged: affiliate visit acknowledgement is emitted only after the recording transaction commits.
+- PR #23 merged: isolated Claude/Codex status slots and agent-efficiency v3.
+- PR #26 merged: canonical product policy amendment covering finite `max_units`, fixed 24-hour Completion Window, fixed 8% Siton fee, no distributor product role, and no seven-day deal cap.
+- PR #27 merged: Claude repository entry point and no-loop Git authorization fallback.
+- PR #31 merged: fail-closed distributor attribution-only financial regression guard.
+- PR #33 merged: agent workflow v5 refresh with repeated-task branch allocation, focused packets, and start-time push/SHA checkpoint.
+- PR #34 merged at `18ba51985f71ebf83563216ec22f88aaa7c023f0`: block-based Site CMS and editable product copy across deal, tracking, seller and support surfaces.
+- Render staging auto-deployed PR #34 and reported deploy `dep-dalqc695efls73bnm0v0` LIVE.
+- Legacy PRs #2, #4 and #5 were closed as archival/superseded paths rather than active merge candidates.
+- Shelf-integration work started: Cloud Agent Manager v1 has been ported onto current master on `chatgpt/integrate-cloud-agent-manager-20260917` without carrying stale product-policy text.
 
 ### TESTED / CHECKED
 
-- `AGENTS.md` declares the no-seven-day-cap product invariant and source-of-truth precedence rules.
-- `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` records the no-seven-day-cap decision as binding and marks older seven-day references as historical.
-- Current `src/app.ts` still contains the legacy seven-day runtime maximum. This is implementation drift, not current product policy.
-
-### OPEN
-
-- LONG_HORIZON_DEALS remains open in runtime. The legacy seven-day maximum still exists in `src/app.ts` and must not be removed as an isolated two-line change if the durable future-charge/payment semantics are not landed with it.
-- Runtime product-policy cleanup remains required for the fixed 24-hour Completion Window and legacy distributor/affiliate surfaces, without touching ordinary sharing or role-neutral viral analytics.
-- CMS/content-management work is active in parallel and must remain isolated from unrelated cleanup.
-- Owner-machine agent worktrees should be rechecked after the next local sync with `node scripts/agent.cjs setup` or `node scripts/agent.cjs doctor`.
-- Hosted/runtime readiness remains open for the existing Render worker/Blueprint, hosted OTP secret, external payment-provider semantics, production image pruning, architecture decision, and legacy recovery-URL cleanup tracks.
+- PR #34 head passed Backend and deployment quality gates, Release readiness, and Web runtime depth gates before merge.
+- Render confirmed the exact merge SHA `18ba51985f71ebf83563216ec22f88aaa7c023f0` as LIVE.
+- Open shelf was inventoried across open PRs and divergent branches; branches already fully behind master are not treated as active backlog.
+- Cloud Agent Manager source blobs are preserved from the previously reviewed PR #25 implementation; current-master integration receives fresh CI before merge.
 - REAL MONEY remains 0. Grow remains untouched and unactivated.
+
+### OPEN MERGE QUEUE
+
+1. Cloud Agent Manager current-master integration: fresh CI, merge, then one-time credential activation and harmless cloud smoke task.
+2. PR #24 LONG_HORIZON_DEALS: re-integrate on current master, renumber its conflicting migration 069 now that CMS migration 069 is merged, resolve overlapping runtime files, run fresh CI, then merge.
+3. PR #7 launch integration: do not merge stale branch wholesale. Extract only still-missing communications/runtime value onto current master and close the obsolete PR.
+4. Divergent shelf branches requiring reconciliation rather than blind cherry-pick: authenticated UI acceptance harness, pre-financial resilience, CI request-id flake repair, closed-pilot war game, mobile release readiness, Amazon/product-catalog work, and visual C-ton rebrand.
+5. Older planning-only branches may be archived after confirming no unique executable value remains.
+6. Hosted/runtime readiness remains open for external payment-provider semantics, hosted OTP secret, production image pruning, architecture decision, and remaining legacy recovery/runtime cleanup.
 
 ### PERCENTAGE
 
-- Canonical product-policy decision and source-of-truth alignment: 100%.
-- Runtime implementation alignment for the current product-policy set: incomplete.
+- Agent workflow v5: 100% merged repository-side.
+- CMS/product-copy integration: 100% merged and live on staging.
+- Shelf cleanup and integration: in progress; the active queue is now explicit and being reduced item by item.
+- Cloud Agent Manager repository integration: 95% pending fresh current-master CI and merge; activation credentials and smoke proof remain afterward.
 - Long-horizon runtime integration: not complete on `master`.
+- Real-money readiness: intentionally blocked.
 
 ### NEXT STEP
 
-1. Close the workflow-v5 refresh after green CI and merge.
-2. Review the complete long-horizon implementation against current `master` rather than deleting only the seven-day validator.
-3. Continue separate canonical policy runtime cleanup without colliding with CMS or duration work.
-4. Re-run owner-machine agent doctor after local sync.
-5. Keep real money disabled until provider-readiness gates are explicitly cleared.
+1. Finish Cloud Agent Manager current-master PR through fresh CI and merge.
+2. Rebuild PR #24 on the resulting master, renumber migration 069, resolve overlaps, and qualify it through CI.
+3. Extract still-unique communications work from PR #7 and close the stale integration path.
+4. Reconcile remaining divergent shelf branches in risk/value order, merging only unique current-compatible changes.
+5. Keep every accepted item moving through PR, green CI, master, Render staging where applicable, and smoke evidence; archive rejected/superseded items explicitly.
 
-## PRODUCT POLICY ALIGNMENT — 2026-09-16
+## PRODUCT POLICY ALIGNMENT
 
 The binding policy source is `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md`.
 
@@ -118,7 +64,7 @@ Current invariants:
 - Completion Window is exactly 24 hours and exists only for failed-charge recovery by eligible participants.
 - Siton fee is fixed at 8% of all purchase money actually collected through Siton, including shipping/delivery and other applicable purchase charges, excluding the customer VAT component.
 - There is no per-deal fee override.
-- There is no distributor/affiliate user role or distributor product module. Ordinary sharing remains role-neutral.
+- There is no distributor/affiliate user role or distributor product module. Ordinary sharing and role-neutral attribution measurement remain allowed without distributor identity, permissions, economics, or payout rights.
 - There is no fixed seven-day maximum deal duration. Older seven-day product-deadline references are historical.
 - Current legal material remains unchanged unless the owner explicitly changes it.
 
@@ -127,7 +73,7 @@ Current invariants:
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone
 
-- UPDATED: not yet written by v3 workflow
+- UPDATED: not yet written by current workflow
 - BRANCH: none
 - COMPLETED: none
 - TESTED: none
@@ -142,13 +88,27 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 ### Codex latest milestone
 
 - UPDATED: 2026-09-17
-- BRANCH: `chatgpt/agent-workflow-v5-refresh-r2`
-- COMPLETED: refreshed agent-workflow v5 onto the current post-PR-31 master baseline, preserving the repeated-task branch allocator, focused task packets, and start-time push/SHA checkpoint while removing stale status conflict.
-- TESTED: source PR #32 implementation was green in Backend, Release readiness, and Web runtime workflows; fresh CI on this branch is the final merge authority.
-- OPEN: fresh CI and merge remain; owner-machine doctor remains after local sync.
-- PERCENTAGE: 95%.
-- NEXT STEP: open refreshed PR, require all three CI workflows green, merge, close PR #32 as superseded, then run owner-machine doctor after sync.
+- BRANCH: `chatgpt/integrate-cloud-agent-manager-20260917`
+- COMPLETED: shelf inventory completed; PR #34 merged and confirmed live; archival PRs #2/#4/#5 closed; Cloud Agent Manager ported onto current master with current product invariants preserved.
+- TESTED: source Cloud Agent Manager implementation retained its reviewed files; fresh GitHub CI on the new current-master integration branch is the merge authority.
+- OPEN: fresh CI and merge for Cloud Agent Manager; PR #24, PR #7 extraction, and remaining divergent shelf branches follow.
+- PERCENTAGE: shelf cleanup in progress; Cloud Agent Manager integration 95% pending CI/merge.
+- NEXT STEP: open current-master Cloud Agent Manager PR, require all repository gates green, merge, then continue immediately to PR #24.
 <!-- AGENT_STATUS:codex:END -->
+
+<!-- AGENT_STATUS:cloud-manager:START -->
+### Cloud Agent Manager latest milestone
+
+- UPDATED: 2026-09-17
+- BRANCH: `chatgpt/integrate-cloud-agent-manager-20260917`
+- BUILDER: manager infrastructure ported from PR #25
+- REVIEWER: fresh repository CI pending
+- COMPLETED: GitHub-hosted orchestration, serialized writer queue, provider selection, task packets, builder lifecycle/control-plane guards, bounded review/fix cycle, canonical verification, dedicated autonomous Git lifecycle token, isolated status ownership and PR creation are present on the current-master integration branch.
+- TESTED: original PR #25 implementation carried dedicated contract coverage; current-master integration requires fresh CI before merge.
+- OPEN: fresh CI, merge, one-time `SITON_AGENT_GITHUB_TOKEN` plus coding-agent credential activation, and harmless computer-off smoke proof.
+- PERCENTAGE: 95%
+- NEXT STEP: pass current-master CI, merge, configure minimal credentials, then execute a harmless cloud smoke task.
+<!-- AGENT_STATUS:cloud-manager:END -->
 
 ## STANDING SAFETY AND COMMERCIAL INVARIANTS
 
@@ -156,7 +116,7 @@ Agent slots are intentionally independent. Each coding agent may replace only it
 - No per-deal commission-rate override.
 - Every publishable deal has a finite mandatory `max_units`; no unlimited or `NULL` capacity.
 - Completion Window is fixed at exactly 24 hours and only serves failed-charge recovery for `ChargeFailedCompletion` participants.
-- No distributor/affiliate user role or distributor product module. Ordinary sharing remains role-neutral.
+- No distributor/affiliate user role, commission, balance, payout rail, or separate distributor product module. Ordinary role-neutral sharing/attribution remains allowed.
 - No fixed seven-day maximum deal duration.
 - Existing state-machine, idempotency, atomicity, audit, outbox, inventory, security, and 90% success rules remain safety boundaries.
 - Real money must remain disabled unless explicitly authorized by the owner.
