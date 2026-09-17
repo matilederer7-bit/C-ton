@@ -1,4 +1,4 @@
--- Apply after canonical migration 071 (product catalog). The web runtime is an
+-- Apply after canonical migration 072 (product catalog). The web runtime is an
 -- authenticated server role; seller ownership is additionally enforced in
 -- every API query. No anon/authenticated Data API grants are introduced.
 -- Products are archived, never deleted, by the web runtime.
@@ -7,7 +7,7 @@ DO $$
 BEGIN
   IF to_regclass('siton.products') IS NULL
      OR to_regclass('siton.product_images') IS NULL THEN
-    RAISE EXCEPTION 'run migration 071 before this grant file';
+    RAISE EXCEPTION 'run migration 072 before this grant file';
   END IF;
 END
 $$;
