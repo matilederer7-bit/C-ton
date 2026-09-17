@@ -13,18 +13,29 @@ same job for the copies that sit directly in `docs/`, which that README does
 not cover — including `חוקה לסיטון.docx`, which is not part of the foundation
 pack at all.
 
-## OBSOLETE rule in these documents: the seven-day deal-deadline maximum
+## The seven-day deal-deadline maximum — CORRECTED IN THE DOCUMENTS THEMSELVES
 
-These documents state a **maximum deal deadline of seven days**. That rule is
-**OBSOLETE / HISTORICAL and must not be implemented, reintroduced or cited as
-active policy.** Every occurrence, verbatim:
+These documents used to state a **maximum deal deadline of seven days**. That
+text is **gone**: on 2026-09-17 the `.docx` files were edited in place so the
+rule no longer appears in any of them. This file is now a record of what was
+changed, not a warning about text that is still there.
 
-| Document | Obsolete text (verbatim) |
-|---|---|
-| `docs/חוקה וצקליסט לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" |
-| `docs/חוקה לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" |
-| `docs/סיטון אפיון מוצר מלא.docx` | "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום" · "דדליין עד 7 ימים" · "מקסימום עד שבעה ימים קלנדריים, מינימום החל מ‑2 שעות" |
-| `docs/UX סיטון.docx` שלב 1 – פרטי בסיס | "דדליין עד 7 ימים" |
+| Document | Was (verbatim) | Now reads |
+|---|---|---|
+| `docs/חוקה וצקליסט לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" | "דדליין מינימום 2 שעות, ללא מגבלת מקסימום מוצרית קבועה" |
+| `docs/חוקה לסיטון.docx` §3.3 "כללים עסקיים מחייבים" | "דדליין מקסימום 7 ימים" | "דדליין מינימום 2 שעות, ללא מגבלת מקסימום מוצרית קבועה" |
+| `docs/סיטון אפיון מוצר מלא.docx` | "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום." | "דדליין לעיסקה: מינימום 2 שעות ממועד הפרסום. אין מגבלת מקסימום מוצרית קבועה; קיימת תקרת מערכת טכנית בלבד למניעת שגיאות קלט." |
+| `docs/סיטון אפיון מוצר מלא.docx` שלב 1 | "דדליין עד 7 ימים" | "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" |
+| `docs/סיטון אפיון מוצר מלא.docx` שדות ניתנים לעריכה | "(מקסימום עד שבעה ימים קלנדריים, מינימום החל מ 2 שעות)" | "(מינימום החל מ 2 שעות, ללא מגבלת מקסימום קבועה)" |
+| `docs/UX סיטון.docx` שלב 1 – פרטי בסיס | "דדליין עד 7 ימים" | "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" |
+
+The same three files exist as historical copies under
+`docs/foundation-canonical-2026-04-18/` and were corrected identically, so no
+copy of the rule survives anywhere in the repository.
+
+Only `word/document.xml` was rewritten inside each archive. Styles, numbering,
+fonts, relationships and content types are byte-identical, and the replacement
+text inherits the formatting of the run it replaced.
 
 **Current binding rule (LONG_HORIZON_DEALS, owner decision 2026-09-16):**
 there is **no fixed maximum deal duration**. A deal's lifetime is a product

@@ -2,8 +2,8 @@
 
 Updated: 2026-09-17
 Canonical branch: `master`
-Current merged baseline: `70daf3bcfa8f257fb1ee9a47a0e93acf78ce46ed` (PR #47)
-Render staging: LIVE on that SHA (`dep-dam2k0jm8hqs738qlij0`)
+Current merged baseline: `04a40d892cca84ff910ec7936eeb4ce1831d4953` (PR #48)
+Render staging: LIVE on that SHA (`dep-dam2virl550s73fevarg`)
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -104,6 +104,29 @@ Run in a real browser against `https://siton-staging-web.onrender.com` after the
 - Money stayed at zero: 0 payment attempts and 0 platform-fee money events in the run window.
 - `npm run gate:seven-day-cap` passes on this exact master, and its self-test passes.
 
+#### SEVEN-DAY CAP REMOVED FROM THE .DOCX DOCUMENTS THEMSELVES, 2026-09-17
+
+The earlier sweep (PR #47) marked the rule obsolete in an external Markdown file but left the Word documents untouched, so a reader opening the constitution still met an active instruction capping a deal at seven days. That is now fixed at the source.
+
+**What changed.** Eleven statements of the cap were removed from seven `.docx` files by editing `word/document.xml` inside each archive:
+
+| Document | Was | Now |
+|---|---|---|
+| `docs/חוקה וצקליסט לסיטון.docx` §3.3 | "דדליין מקסימום 7 ימים" | "דדליין מינימום 2 שעות, ללא מגבלת מקסימום מוצרית קבועה" |
+| `docs/חוקה לסיטון.docx` §3.3 | same | same |
+| `docs/סיטון אפיון מוצר מלא.docx` | "דדליין לעיסקה לא יעלה על 7 ימים ממועד הפרסום." | "דדליין לעיסקה: מינימום 2 שעות ממועד הפרסום. אין מגבלת מקסימום מוצרית קבועה; קיימת תקרת מערכת טכנית בלבד למניעת שגיאות קלט." |
+| `docs/סיטון אפיון מוצר מלא.docx` שלב 1 | "דדליין עד 7 ימים" | "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" |
+| `docs/סיטון אפיון מוצר מלא.docx` שדות עריכה | "(מקסימום עד שבעה ימים קלנדריים, מינימום החל מ 2 שעות)" | "(מינימום החל מ 2 שעות, ללא מגבלת מקסימום קבועה)" |
+| `docs/UX סיטון.docx` שלב 1 | "דדליין עד 7 ימים" | "דדליין (מינימום 2 שעות, ללא מקסימום קבוע)" |
+
+The three historical copies under `docs/foundation-canonical-2026-04-18/` carried the same statements and were corrected identically, so no copy survives. That directory's "kept verbatim, never edited" convention was deliberately overridden by the owner for this correction.
+
+**How the edit was made.** Word splits one logical sentence across many `<w:t>` runs, so a plain string replace on `document.xml` finds nothing — which is why the text survived earlier passes. The edit joins runs per paragraph, locates the phrase in the joined text, writes the replacement into the first overlapping run and clears the overlap from the rest, exactly as Word does when you select a phrase and type over it. Verified by hashing every zip entry before and after: **only `word/document.xml` differs** in each file; styles, numbering, fonts, relationships and content types are byte-identical, with no entries added or removed.
+
+**What was deliberately left alone.** Six other seven-day values remain untouched because they are different facts: `Authorization > 7 ימים` (admin alert threshold, twice) and `תוקף 7 ימים` (Freeze-Payouts validity) in each of the two UX documents. Delivery estimates such as 3–7 business days, Grow's J5 hold validity, the Low-priority support SLA and `7d` analytics windows were likewise out of scope and unchanged.
+
+**Verification.** Re-extracting the text of all eleven `.docx` in the repository now returns only those six legitimate occurrences and zero deal-cap statements. All eleven files pass a zip integrity check, every XML part parses, and the required package parts are present. `npm run gate:seven-day-cap` was upgraded to extract and scan `.docx` content rather than Markdown alone, and now runs in CI as its own step. Its self-test builds real `.docx` fixtures with run-split text and asserts both directions. Proven end to end on a real repository document: planting "דדליין מקסימום 7 ימים" back into `docs/חוקה לסיטון.docx` makes the gate exit 1 and name the file, paragraph and text; restoring the file makes it exit 0.
+
 #### REPOSITORY-WIDE SEVEN-DAY SWEEP, 2026-09-17
 
 Swept every Markdown file, spec, constitution, UX document, README, test description, code comment and UI string for a seven-day cap on **deal duration**, deliberately excluding the unrelated seven-day facts: a product's delivery estimate (for example 3–7 business days), Grow's documented J5 authorization-hold validity, admin authorization-age alert thresholds, Freeze-Payouts approval validity, the Low-priority support SLA and `7d` analytics windows.
@@ -135,7 +158,7 @@ The classifier is now a repository gate rather than a one-off: `scripts/seven_da
 - Seller self-service onboarding: 100% on this defect. The first-login 500 is fixed, merged (`45f349f7`), applied to staging and re-verified live; a regression test now pins the grant.
 - Hosted UX reality closeout: scoped and queued as Issue #39; implementation not yet merged. 0%.
 - PR #7 shelf item: audited against current master and rescoped. Its communications deliverable is 100% superseded; the residual admin growth-window / buyer-search-intent slice is 0% merged.
-- Seven-day deal-cap reconciliation: **100%**. Code, shipped UI copy and Markdown were already clean; the unmarked `.docx` copies in `docs/` and the drift-map D3 omission are fixed, and `npm run gate:seven-day-cap` now guards the rule permanently.
+- Seven-day deal-cap reconciliation: **100%, now at the source**. Code, shipped UI copy and Markdown were already clean; the eleven statements inside the `.docx` constitution, product spec and UX documents have been removed from the documents themselves, and `npm run gate:seven-day-cap` reads `.docx` content in CI so the rule cannot return in any format.
 - **Deployment chain end to end: 100% and verified in the browser.** Merged master `70daf3b` is LIVE on Render, and the full seller journey — sign-in, bootstrap, Product Library, create Draft, edit Draft, publish, listing, public deal page — was exercised on that deployed build with zero new 401/403/404/500 and money at zero.
 - Real-money readiness: intentionally blocked.
 

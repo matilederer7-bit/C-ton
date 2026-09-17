@@ -79,6 +79,14 @@ jobs:
       - name: Runtime DDL scan
         run: npm run scan:runtime-ddl 2>&1 | tee .ci-artifacts/runtime-ddl-scan.log
 
+      # Reads the real text inside the .docx constitution/spec/UX documents, not
+      # just Markdown, because that is where the retired seven-day deal cap hid.
+      - name: Seven-day deal-cap contract
+        run: |
+          set -o pipefail
+          node scripts/seven_day_cap_sweep.cjs --self-test 2>&1 | tee .ci-artifacts/seven-day-cap.log
+          npm run gate:seven-day-cap 2>&1 | tee -a .ci-artifacts/seven-day-cap.log
+
       - name: Base44 canonical integrity and legacy caller gate
         run: |
           set -o pipefail
