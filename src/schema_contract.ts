@@ -33,7 +33,8 @@ export const REQUIRED_TABLES = [
   "storage_orphan_reports", "operational_cases", "operational_case_events",
   "deal_voucher_terms", "deal_ticket_terms", "fulfillment_units", "migration_ledger", "worker_heartbeats",
   "storage_cleanup_tasks", "operational_recovery_audit", "buyer_sessions", "buyer_resume_contexts",
-  "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content"
+  "discovery_events", "viral_attributions", "viral_events", "viral_metrics_cache", "content_assets", "site_content",
+  "products", "product_images"
 ] as const;
 
 export const REQUIRED_MIGRATION_IDS = [

@@ -189,6 +189,7 @@ import {
   csvSafeCell,
   type DealType
 } from "./deal_types.js";
+import { describeDeliveryEstimate, ensureProductCatalogTables, productDealRevisionStatus } from "./product_catalog.js";
 import {
   buyerPickupProjection,
   dealFulfillmentSnapshot,
@@ -2918,11 +2919,28 @@ export function registerFrontendExperience(
   // the preview to the seller's OWN deals (foreign = 404, like missing).
   // The seller's e-mail and phone are NEVER part of this projection: buyer→seller
   // contact is the internal inquiry rail ("פנייה למוכר").
+  // Product catalog (071): buyer-safe projection of a frozen Product snapshot.
+  function productSnapshotProjection(snapshot: any) {
+    if (!snapshot || typeof snapshot !== "object") return null;
+    return {
+      product_id: String(snapshot.product_id || ""),
+      revision: Number(snapshot.product_revision || 1),
+      name: String(snapshot.name || ""),
+      short_description: String(snapshot.short_description || ""),
+      long_description: String(snapshot.long_description || ""),
+      product_type: String(snapshot.product_type || "physical_product"),
+      category: String(snapshot.category || ""),
+      type_attributes: snapshot.type_attributes && typeof snapshot.type_attributes === "object" ? snapshot.type_attributes : {},
+      fulfillment_defaults: snapshot.fulfillment_defaults && typeof snapshot.fulfillment_defaults === "object" ? snapshot.fulfillment_defaults : {},
+      content_hash: snapshot.content_hash ? String(snapshot.content_hash) : null
+    };
+  }
+
   async function buildPublicDealPayload(c: any, dealId: string, options: { requirePublished: boolean; sellerId?: string | null }) {
     const dealResult = await c.query(
       `SELECT d.deal_id, d.title, d.description, d.description_short, d.state, d.price_per_unit, d.list_price_per_unit, d.min_units, d.max_units,
               d.threshold_units, d.deadline, d.published_at, d.completion_window_until,
-              d.created_at, d.seller_id, d.deal_type,
+              d.created_at, d.seller_id, d.deal_type, d.product_id, d.product_snapshot_jsonb,
               sa.business_name, sa.business_description, sa.verification_status,
               -- ROUND 2 (UX-5): the seller's PUBLIC profile identity, from the ONE
               -- canonical seller_accounts row (migration 066). No second model,
@@ -2952,7 +2970,8 @@ export function registerFrontendExperience(
       [dealId]
     );
     const deliveryOptions = await c.query(
-      `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
+      `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude,
+              estimated_min_business_days, estimated_max_business_days
        FROM siton.deal_delivery_options
        WHERE deal_id=$1
        ORDER BY sort_order ASC, created_at ASC`,
@@ -3002,6 +3021,11 @@ export function registerFrontendExperience(
         description_short: (deal as any).description_short || "",
         state: deal.state,
         deal_type: dealType,
+        // Product catalog (071): the frozen Product snapshot this Deal was
+        // created from (null for legacy/direct Deals — their own fields stay
+        // the presentation truth). Only presentation fields are projected.
+        product_id: (deal as any).product_id ?? null,
+        product: productSnapshotProjection((deal as any).product_snapshot_jsonb),
         price_per_unit: Number(deal.price_per_unit),
         // LAUNCH MODE — the seller's regular price (null when not provided) so
         // the buyer can SEE the group saving instead of guessing it.
@@ -3025,7 +3049,9 @@ export function registerFrontendExperience(
               latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
               longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
               // P0.7 — canonical pickup location projection (shared rule with the seller payload)
-              ...describePickupLocation(row)
+              ...describePickupLocation(row),
+              // 071 — optional fulfillment estimate (business days from Deal completion)
+              ...describeDeliveryEstimate(row)
             }))
           : [],
         voucher_terms: voucherTerms
@@ -3939,6 +3965,116 @@ export function registerFrontendExperience(
     });
   });
 
+  // ── Product catalog (071): seller product library reads ────────────────────
+  app.get("/api/seller/products", async (req: any, reply: any) => {
+    await ensureProductCatalogTables(deps.withTx);
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      const status = String(req.query?.status || "active").trim();
+      if (!["active", "archived", "all"].includes(status)) {
+        return reply.code(400).send({ ok: false, code: "product_status_invalid", error: "invalid product status" });
+      }
+      const q = String(req.query?.q || "").trim().slice(0, 120);
+      const result = await c.query(
+        `SELECT p.product_id, p.name, p.short_description, p.long_description, p.product_type,
+                p.category, p.type_attributes, p.fulfillment_defaults, p.status, p.revision,
+                p.created_at, p.updated_at,
+                COUNT(d.deal_id)::int AS deals_count,
+                img.product_image_id AS primary_image_id,
+                img.public_url AS primary_image_public_url,
+                img.mime_type AS primary_image_mime_type
+           FROM siton.products p
+           LEFT JOIN siton.deals d ON d.product_id=p.product_id AND d.seller_id=p.seller_id
+           LEFT JOIN LATERAL (
+             SELECT product_image_id, public_url, mime_type
+               FROM siton.product_images
+              WHERE product_id=p.product_id
+              ORDER BY is_primary DESC, sort_order ASC, created_at ASC LIMIT 1
+           ) img ON true
+          WHERE p.seller_id=$1
+            AND ($2='all' OR p.status=$2)
+            AND ($3='' OR p.name ILIKE '%' || $3 || '%' OR p.category ILIKE '%' || $3 || '%')
+          GROUP BY p.product_id, img.product_image_id, img.public_url, img.mime_type
+          ORDER BY p.updated_at DESC
+          LIMIT 200`,
+        [sellerContext.seller_id, status, q]
+      );
+      return {
+        ok: true,
+        products: result.rows.map((row: any) => ({
+          ...row,
+          revision: Number(row.revision || 1),
+          deals_count: Number(row.deals_count || 0),
+          primary_image_url: row.primary_image_id
+            ? (row.primary_image_public_url || `/api/seller/product-images/${row.primary_image_id}`)
+            : null
+        })),
+        seller_auth: sellerAuthSummary(sellerContext)
+      };
+    });
+  });
+
+  app.get("/api/seller/products/:productId", async (req: any, reply: any) => {
+    await ensureProductCatalogTables(deps.withTx);
+    const productId = String(req.params.productId || "");
+    return deps.withTx(async (c) => {
+      const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!sellerContext) return reply;
+      requireUuid(productId, "product_id"); // after the guard: authorization precedes observation
+      const result = await c.query(
+        `SELECT product_id, seller_id, name, short_description, long_description, product_type,
+                category, type_attributes, fulfillment_defaults, status, revision, created_at, updated_at
+           FROM siton.products WHERE product_id=$1 AND seller_id=$2 LIMIT 1`,
+        [productId, sellerContext.seller_id]
+      );
+      if (!result.rowCount) {
+        return reply.code(404).send({ ok: false, code: "product_not_found", error: "product not found" });
+      }
+      const images = await c.query(
+        `SELECT product_image_id, public_url, mime_type, size_bytes, is_primary, sort_order
+           FROM siton.product_images WHERE product_id=$1
+          ORDER BY is_primary DESC, sort_order ASC, created_at ASC`,
+        [productId]
+      );
+      const deals = await c.query(
+        `SELECT deal_id, title, state, price_per_unit, min_units, max_units, deadline,
+                created_at, published_at, product_snapshot_jsonb
+           FROM siton.deals WHERE product_id=$1 AND seller_id=$2 ORDER BY created_at DESC`,
+        [productId, sellerContext.seller_id]
+      );
+      const currentRevision = Number(result.rows[0].revision || 1);
+      return {
+        ok: true,
+        product: {
+          ...result.rows[0],
+          revision: currentRevision,
+          images: images.rows.map((row: any) => ({
+            product_image_id: row.product_image_id,
+            url: row.public_url || `/api/seller/product-images/${row.product_image_id}`,
+            mime_type: row.mime_type,
+            size_bytes: Number(row.size_bytes || 0),
+            is_primary: Boolean(row.is_primary),
+            sort_order: Number(row.sort_order || 0)
+          })),
+          deals: deals.rows.map((row: any) => ({
+            deal_id: row.deal_id,
+            title: row.title,
+            state: row.state,
+            price_per_unit: row.price_per_unit,
+            min_units: row.min_units,
+            max_units: row.max_units,
+            deadline: row.deadline,
+            created_at: row.created_at,
+            published_at: row.published_at,
+            ...productDealRevisionStatus(row.product_snapshot_jsonb?.product_revision, currentRevision)
+          }))
+        },
+        seller_auth: sellerAuthSummary(sellerContext)
+      };
+    });
+  });
+
   app.get("/api/seller/deals", async (req: any, reply: any) => {
     await ensureProductSurfaces();
     return deps.withTx(async (c) => {
@@ -3960,6 +4096,7 @@ export function registerFrontendExperience(
            d.published_at,
            d.completion_window_until,
            d.created_at,
+           d.product_id,
            ${SITON_PLATFORM_FEE_RATE}::numeric AS platform_fee_rate,
            img.image_id AS primary_image_id,
            img.public_url AS primary_image_public_url,
@@ -3995,6 +4132,7 @@ export function registerFrontendExperience(
       // and the deal-volume figures alongside the shared projection.
       const deals = (result.rows as DealListRow[]).map((row: any) => ({
         ...mapDealListRow(row),
+        product_id: row.product_id ?? null,
         last_update_at: row.last_update_at ?? row.created_at,
         money: {
           charged_units: Number(row.charged_units || 0),
@@ -4066,14 +4204,15 @@ export function registerFrontendExperience(
     const dealId = String(req.params.id);
     await ensureProductSurfaces();
     await ensureDealTypeTables(deps.withTx);
+    await ensureProductCatalogTables(deps.withTx);
 
     return deps.withTx(async (c) => {
       const sellerContext = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!sellerContext) return reply;
       requireUuid(dealId, "deal_id"); // after the guard: authorization precedes observation
       const result = await c.query(
-        `SELECT deal_id, seller_id, state, title, description, price_per_unit, list_price_per_unit,
-                min_units, max_units, threshold_units, deadline, deal_type,
+        `SELECT deal_id, seller_id, state, title, description, description_short, price_per_unit, list_price_per_unit,
+                min_units, max_units, threshold_units, deadline, deal_type, product_id, product_snapshot_jsonb,
                 created_at, updated_at
          FROM siton.deals
          WHERE deal_id=$1 AND seller_id=$2
@@ -4089,7 +4228,8 @@ export function registerFrontendExperience(
       }
       const [deliveryOptions, images] = await Promise.all([
         c.query(
-          `SELECT option_id, option_type, label, cost, sort_order
+          `SELECT option_id, option_type, label, cost, sort_order,
+                  estimated_min_business_days, estimated_max_business_days
            FROM siton.deal_delivery_options
            WHERE deal_id=$1
            ORDER BY sort_order ASC, created_at ASC`,
@@ -4112,6 +4252,7 @@ export function registerFrontendExperience(
           state: "Draft",
           title: String(draft.title || ""),
           description: String(draft.description || ""),
+          description_short: String(draft.description_short || ""),
           price_per_unit: Number(draft.price_per_unit),
           list_price_per_unit: draft.list_price_per_unit == null ? null : Number(draft.list_price_per_unit),
           min_units: Number(draft.min_units),
@@ -4119,12 +4260,16 @@ export function registerFrontendExperience(
           threshold_units: Number(draft.threshold_units),
           deadline: String(draft.deadline),
           deal_type: dealType,
+          // 071 — Product-backed Drafts: presentation fields are snapshot-owned
+          product_id: draft.product_id ?? null,
+          product_snapshot: draft.product_snapshot_jsonb ?? null,
           delivery_options: deliveryOptions.rows.map((row: any) => ({
             option_id: row.option_id,
             option_type: row.option_type,
             label: row.label,
             cost: Number(row.cost || 0),
-            sort_order: Number(row.sort_order || 0)
+            sort_order: Number(row.sort_order || 0),
+            ...describeDeliveryEstimate(row)
           })),
           voucher_terms: dealType === "voucher" ? await readVoucherTerms(c, dealId) : null,
           ticket_terms: dealType === "ticket" ? await readTicketTerms(c, dealId) : null,
@@ -4159,6 +4304,8 @@ export function registerFrontendExperience(
            d.description,
            d.description_short,
            d.deal_type,
+           d.product_id,
+           d.product_snapshot_jsonb,
            d.state,
            d.close_reason,
            d.price_per_unit,
@@ -4208,7 +4355,8 @@ export function registerFrontendExperience(
         [dealId]
       );
       const deliveryOptions = await c.query(
-        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude
+        `SELECT option_id, option_type, label, cost, sort_order, latitude, longitude,
+                estimated_min_business_days, estimated_max_business_days
          FROM siton.deal_delivery_options
          WHERE deal_id = $1
          ORDER BY sort_order ASC, created_at ASC`,
@@ -4249,6 +4397,9 @@ export function registerFrontendExperience(
       (deal as any).description = (dealResult.rows[0] as any).description || "";
       (deal as any).description_short = (dealResult.rows[0] as any).description_short || "";
       (deal as any).deal_type = (dealResult.rows[0] as any).deal_type || "physical_product";
+      // 071 — Product association + frozen snapshot for the management screen
+      (deal as any).product_id = (dealResult.rows[0] as any).product_id || null;
+      (deal as any).product_snapshot = (dealResult.rows[0] as any).product_snapshot_jsonb || null;
       (deal as any).updated_at = (dealResult.rows[0] as any).updated_at || null;
       (deal as any).close_reason = (dealResult.rows[0] as any).close_reason || null;
       // P0.4-4 — create↔edit parity: type-specific terms are part of the deal
@@ -4351,7 +4502,8 @@ export function registerFrontendExperience(
           sort_order: Number(row.sort_order || 0),
           latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
           longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
-          ...describePickupLocation(row)
+          ...describePickupLocation(row),
+          ...describeDeliveryEstimate(row)
         })),
         participants: participants.rows,
         payment_attempts: attempts.rows,

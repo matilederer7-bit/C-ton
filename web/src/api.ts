@@ -140,6 +140,16 @@ export const api = {
     req(`/api/deals/${id}/cancel`, { method: "POST", headers: { "idempotency-key": `preview-cancel-${intentKey}` }, body: JSON.stringify({}) }, "seller"),
   deleteDeal: (id: string) =>
     req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
+  // Product catalog (071) — seller product library (server-scoped to the seller)
+  sellerProducts: (status: "active" | "archived" | "all" = "active", q = "") =>
+    req(`/api/seller/products?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ""}`, {}, "seller"),
+  sellerProduct: (id: string) => req(`/api/seller/products/${id}`, {}, "seller"),
+  createProduct: (payload: Json) =>
+    req(`/api/seller/products`, { method: "POST", body: JSON.stringify(payload) }, "seller"),
+  updateProduct: (id: string, payload: Json) =>
+    req(`/api/seller/products/${id}`, { method: "PATCH", body: JSON.stringify(payload) }, "seller"),
+  promoteDealToProduct: (dealId: string, payload: Json = {}) =>
+    req(`/api/seller/deals/${dealId}/product`, { method: "POST", body: JSON.stringify(payload) }, "seller"),
   sellerBusinessProfile: () => req(`/api/seller/business-profile`, {}, "seller"),
   saveSellerBusinessProfile: (payload: Json) =>
     req(`/api/seller/business-profile`, { method: "PUT", body: JSON.stringify(payload) }, "seller"),

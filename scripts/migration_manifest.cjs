@@ -69,7 +69,11 @@ const MIGRATIONS = [
   ["066", "066_receipt_trust_content.sql"],
   ["067", "067_payment_operation_lifecycle.sql"],
   ["068", "068_payment_settlement_horizon.sql"],
-  ["069", "069_site_content_drafts_media.sql"]
+  ["069", "069_site_content_drafts_media.sql"],
+  // 070 is reserved for the long-horizon authorization-renewal migration that
+  // PR #24 renumbers from 069; the product catalog appends after it as 071 so
+  // the two shelf integrations never collide on a filename.
+  ["071", "071_product_catalog_and_fulfillment_estimates.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };

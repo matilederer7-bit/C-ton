@@ -37,6 +37,8 @@ type DeliveryOption = {
   option_id: string; option_type: string; label: string; cost: number;
   latitude?: number | null; longitude?: number | null;
   location_text?: string | null; has_location?: boolean; map_url?: string | null;
+  // 071 — optional fulfillment estimate projected by the server
+  estimated_min_business_days?: number | null; estimated_max_business_days?: number | null; estimate_text?: string | null;
 };
 
 const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
@@ -1148,7 +1150,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                       <label className={`choice-card delivery-option${o.option_id === deliveryId ? " selected" : ""}`} data-testid="delivery-option" data-option-type={o.option_type} data-selected={o.option_id === deliveryId ? "1" : "0"}>
                         <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
                         <span className="choice-ind choice-dot" aria-hidden="true" />
-                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span></span>
+                        <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span>{o.estimate_text ? <span className="choice-sub muted small" data-testid="delivery-estimate">⏱ {o.estimate_text}</span> : null}</span>
                         <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : "חינם"}</span>
                       </label>
                       {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}

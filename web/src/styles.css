@@ -1558,3 +1558,11 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 .landing-pilot { display: block; margin-top: 16px; }
 .legal-nav { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
 .legal-nav .chip { text-decoration: none; }
+
+/* ── 071 — seller Product Library (mobile: one-column cards, never a desktop table) ── */
+.product-library-controls { margin-bottom: 14px; }
+.product-locked-summary b { color: var(--ink); }
+.choice-sub { display: block; margin-top: 2px; }
+@media (max-width: 680px) {
+  .product-library-controls .row, .product-library-card .row, .product-detail-header, .product-history-row { flex-direction: column; align-items: stretch; }
+}
