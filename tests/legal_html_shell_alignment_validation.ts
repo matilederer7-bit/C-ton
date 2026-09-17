@@ -66,6 +66,59 @@ try {
     assert.ok(!/<script>/i.test(res.body.replace(/<\/?script[^>]*>/gi, (m) => (m.includes("preview") ? "" : m))), "no inline script in the document");
   });
 
+  // ── CI FAILURE 2026-09-17 (backend-gates, mobile browser smoke) ──────────
+  // /legal/terms measured window.innerWidth 548 at a 390px viewport: the
+  // wordmark <img> carried no width/height, so until the (external) stylesheet
+  // applied it laid out at its intrinsic 540px, overflowed the phone viewport
+  // and made the browser zoom the whole page out. Every image in the
+  // server-rendered shell must therefore declare its rendered size, and that
+  // size must fit the narrowest supported viewport.
+  await run("every image in the legal shell declares a rendered size that fits a phone", async () => {
+    const res = await app.inject({ method: "GET", url: "/legal/terms" });
+    const images = [...res.body.matchAll(/<img\b[^>]*>/g)].map((m) => m[0]);
+    assert.ok(images.length >= 2, `expected the shell images, saw ${images.length}`);
+    for (const img of images) {
+      const width = img.match(/\bwidth="(\d+)"/)?.[1];
+      const height = img.match(/\bheight="(\d+)"/)?.[1];
+      assert.ok(width && height, `image without an intrinsic size: ${img}`);
+      assert.ok(Number(width) <= 390, `${img} lays out wider than a 390px phone viewport before CSS applies`);
+    }
+    // and the build-absent path (fallback <style>) caps images too — asserted at
+    // the source, because with web/dist present the page links the real sheet.
+    const runtimeSource = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
+    assert.match(runtimeSource, /const fallbackCss = "<style>img\{max-width:100%\}/,
+      "the fallback stylesheet must also cap image width, for the build-absent path");
+  });
+
+  // The React product answers the same rule from its own component.
+  await run("the React topbar wordmark declares the same rendered size", async () => {
+    const brand = readFileSync(join(process.cwd(), "web", "src", "brand.tsx"), "utf8");
+    assert.match(brand, /className="brand-word-img"[\s\S]*?width=\{85\}[\s\S]*?height=\{22\}/,
+      "BrandWordmark must carry width/height attributes");
+  });
+
+  // HOSTED FINDING (night closeout): the footer must not link a document page
+  // that has a heading and nothing under it. The React footer already drops it
+  // (web/src/siteContent.ts#contentPageHasBody); the server-rendered legal
+  // footer reads the same rule instead of hard-coding the link.
+  await run("the legal footer drops the About link while the About page has no body", async () => {
+    const res = await app.inject({ method: "GET", url: "/legal/terms" });
+    const runtime = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
+    assert.match(runtime, /const aboutLink = aboutHasBody \?/,
+      "the About link must be conditional, never hard-coded");
+    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body! \}, contentPageHasBody\(content\["about"\]\)\)/,
+      "and the condition must be the live CMS content, read per request");
+    // and the served page agrees with the RULE as the content stands right now —
+    // this deliberately does not freeze About as empty: the day the owner writes
+    // the copy, the link simply returns and this assertion still holds.
+    const site = await app.inject({ method: "GET", url: "/api/site-content" });
+    const about = JSON.parse(site.body)?.content?.about;
+    const block = Array.isArray(about?.blocks) ? about.blocks[0] : null;
+    const body = String((block ? block?.fields?.body : about?.body) || "").replace(/^# [^\n]+\r?\n/, "").trim();
+    assert.equal(res.body.includes('href="/preview/#/content/about"'), body.length > 0,
+      `the footer must link the About page exactly when it has a body (body length ${body.length})`);
+  });
+
   await run("with the React build present the legal page uses the very same stylesheet as the product", async () => {
     const index = join(process.cwd(), "web", "dist", "index.html");
     if (!existsSync(index)) {

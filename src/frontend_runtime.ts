@@ -400,8 +400,22 @@ function renderLegalMarkdown(markdown: string) {
 // src/legal_pages.ts; only the chrome around it is aligned.
 const LEGAL_HTML_NAV: LegalPageSlug[] = ["terms", "privacy", "refunds", "payments"];
 
-async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: string; body: string }) {
+// The server-rendered footer reads the SAME emptiness test as the React footer:
+// a CMS document page with a heading and nothing under it must not be linked.
+// Both the block shape ({ blocks: [{ fields: { body } }] }) and the legacy flat
+// shape ({ body }) are accepted, because the CMS serves both.
+function contentPageHasBody(section: any): boolean {
+  const value = section?.value ?? section;
+  const block = Array.isArray(value?.blocks) ? value.blocks[0] : null;
+  const body = block ? block?.fields?.body : value?.body;
+  return String(body || "").replace(/^# [^\n]+\r?\n/, "").trim().length > 0;
+}
+
+async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: string; body: string }, aboutHasBody = false) {
   const page = { ...LEGAL_PAGES[slug], ...override };
+  // Same emptiness rule as the React footer (web/src/siteContent.ts#contentPageHasBody):
+  // a #/content link whose page has no body is not a link, it is a dead end.
+  const aboutLink = aboutHasBody ? '<a href="/preview/#/content/about">אודות</a>' : "";
   let stylesheet = "";
   if (previewDir) {
     const index = await readFile(join(previewDir, "index.html"), "utf8");
@@ -409,7 +423,7 @@ async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: stri
   }
   const chips = LEGAL_HTML_NAV.map((key) =>
     `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(LEGAL_PAGES[key].navLabel)}</a>`).join("");
-  const fallbackCss = "<style>body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}</style>";
+  const fallbackCss = "<style>img{max-width:100%}body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}</style>";
   return `<!doctype html><html lang="he" dir="rtl"><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#17181b">
@@ -418,14 +432,14 @@ async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: stri
     ${stylesheet ? '<link rel="stylesheet" href="' + escapeHtml(stylesheet) + '">' : fallbackCss}
   </head><body><div class="app">
     <header class="topbar"><div class="topbar-inner">
-      <a class="brand" href="/preview/"><img class="brand-mark-img" src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="38" height="38"><span><img class="brand-word-img" src="/preview/brand/c-ton-wordmark.png" alt="C-ton"><div class="brand-sub">קונים ביחד · משלמים פחות</div></span></a>
+      <a class="brand" href="/preview/"><img class="brand-mark-img" src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="38" height="38"><span><img class="brand-word-img" src="/preview/brand/c-ton-wordmark.png" alt="C-ton" width="85" height="22"><div class="brand-sub">קונים ביחד · משלמים פחות</div></span></a>
       <nav class="nav-links" aria-label="ניווט ראשי"><a class="nav-link" href="/preview/#/seller">אזור המוכרים</a></nav>
     </div></header>
     <main class="container">
       <nav class="legal-nav" aria-label="מסמכים משפטיים">${chips}</nav>
       <article class="panel content-doc" data-section="legal_${slug}"><div class="notice info">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
     </main>
-    <footer class="footer"><div><a href="/preview/#/support">תמיכה ויצירת קשר</a><a href="/preview/#/content/about">אודות</a><a href="/legal/terms">תקנון ותנאי שימוש</a><a href="/legal/privacy">פרטיות</a><a href="/legal/refunds">מדיניות ביטולים והחזרים</a></div><div style="margin-top:8px">C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)</div></footer>
+    <footer class="footer"><div><a href="/preview/#/support">תמיכה ויצירת קשר</a>${aboutLink}<a href="/legal/terms">תקנון ותנאי שימוש</a><a href="/legal/privacy">פרטיות</a><a href="/legal/refunds">מדיניות ביטולים והחזרים</a></div><div style="margin-top:8px">C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)</div></footer>
   </div></body></html>`;
 }
 
@@ -12296,7 +12310,7 @@ export function registerFrontendExperience(
     }
     const content = await deps.withTx(c => readContent(c));
     const value = content["legal_" + slug]!.value;
-    return reply.type("text/html; charset=utf-8").send(await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }));
+    return reply.type("text/html; charset=utf-8").send(await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }, contentPageHasBody(content["about"])));
   });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);

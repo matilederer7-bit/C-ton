@@ -25,12 +25,18 @@ export function BrandMark({ size = 38 }: { size?: number }) {
 // web/public/brand/c-ton-logo.png) — never a text reconstruction of it.
 const BRAND_WORDMARK_URL = `${(import.meta as any).env?.BASE_URL || "/"}brand/c-ton-wordmark.png`;
 
+// The wordmark carries its RENDERED size as attributes (the 540x140 source
+// at the CSS height of 22px). Without them the image lays out at its
+// intrinsic 540px until the stylesheet applies, which overflows a 390px
+// phone viewport and makes the browser zoom the whole page out.
 export function BrandWordmark() {
   return (
     <img
       className="brand-word-img"
       src={BRAND_WORDMARK_URL}
       alt={BRAND_NAME}
+      width={85}
+      height={22}
       draggable={false}
     />
   );
