@@ -11,6 +11,10 @@ import { PUBLIC_DEAL_POLL, TERMINAL_DEAL_STATES, classifyPollError } from "../po
 import { usePoller } from "../usePoller";
 import { hebrewError } from "../he";
 import { buyerStateStory, dealTypeLabel, fmtDate, formatIsraelDateTime, ils, initialOf, num, timeAgo } from "../util";
+// SHELF REINTEGRATION (PR #7 residual slice) — recognizable navigation-app
+// glyphs as monochrome SVG (currentColor), replacing the compass/car emoji the
+// mature-UI sweep removed. The text label still carries the app name.
+import { GoogleMapsIcon, WazeIcon } from "../navIcons";
 import { attributionHints, currentRef, recordShareVisit, sendFunnelEvent, sessionId, visitorId } from "../viral";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, seller
 // payload, public payload): the buyer preview IS this page, so what a seller
@@ -64,8 +68,8 @@ export function PickupNavActions({ navigation, testIdPrefix = "pickup-nav" }: { 
   if (!navigation) return null;
   return (
     <span className="pickup-nav-actions" data-testid={`${testIdPrefix}-actions`} data-mode={navigation.mode}>
-      <a className="btn btn-ghost btn-sm" data-testid={testIdPrefix} href={navigation.google_maps_url} target="_blank" rel="noreferrer">Google Maps</a>
-      <a className="btn btn-ghost btn-sm" data-testid={`${testIdPrefix}-waze`} href={navigation.waze_url} target="_blank" rel="noreferrer">Waze</a>
+      <a className="btn btn-ghost btn-sm" data-testid={testIdPrefix} href={navigation.google_maps_url} target="_blank" rel="noreferrer"><GoogleMapsIcon /> Google Maps</a>
+      <a className="btn btn-ghost btn-sm" data-testid={`${testIdPrefix}-waze`} href={navigation.waze_url} target="_blank" rel="noreferrer"><WazeIcon /> Waze</a>
       <span className="muted small pickup-nav-mode" data-testid={`${testIdPrefix}-mode`}>{PICKUP_NAV_MODE_COPY[navigation.mode]}</span>
     </span>
   );

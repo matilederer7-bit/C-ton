@@ -64,6 +64,11 @@ import {
 import {
   extractDealReference, isDealScopedSupportCategory, supportCategoryRequiresDeal
 } from "./support_deal_context.js";
+// SHELF REINTEGRATION (PR #7 residual slice) — the admin growth window and the
+// intent-sensitive buyer search, carried onto current master.
+import { buyerNameRankSql, buyerSearchPredicateSql, classifyBuyerSearch } from "./buyer_search_intent.js";
+import { resolveGrowthWindow } from "./growth_window.js";
+import { computeGrowthWindowMetrics } from "./growth_metrics.js";
 import {
   buildOtpProvider,
   ensureOtpRailTables,
@@ -11029,28 +11034,30 @@ export function registerFrontendExperience(
     });
   });
 
+  // SHELF REINTEGRATION (PR #7 residual slice) — the virality dashboard is
+  // WINDOWED: default last 7 days, presets 7/30/90, a custom [from,to) range
+  // (UTC instants; the UI enters Israel-local days) or all time. The window
+  // drives every number in `windowed` (src/growth_metrics.ts computes them
+  // live), not just a label. The lifetime rollup stays a separate, explicitly
+  // labelled block. The old hardcoded `last_7_days` card is GONE: it mixed a
+  // fixed seven-day number into a screen whose other numbers followed the
+  // selected range, which is exactly the kind of quiet lie this rewrite exists
+  // to remove.
   app.get("/api/admin/growth", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
+    const resolved = resolveGrowthWindow(req.query || {});
+    if (!resolved.ok) return reply.code(400).send({ ok: false, error: resolved.error, message: resolved.message_he });
+    const window = resolved.window;
     return deps.withTx(async (c) => {
       const platform = await readViralMetricsCache(c, "platform", "global");
-      const recentEvents = await c.query(
-        `SELECT event_type, COUNT(*)::int AS cnt
-         FROM siton.viral_events
-         WHERE created_at > now() - interval '7 days'
-         GROUP BY event_type`
-      );
-      const recentAttributed = await c.query(
-        `SELECT COUNT(*)::int AS cnt
-         FROM siton.viral_attributions
-         WHERE origin_ref_type <> 'none' AND created_at > now() - interval '7 days'`
-      );
+      const windowed = await computeGrowthWindowMetrics(c, window);
       return {
         ok: true,
-        platform,
-        last_7_days: {
-          funnel_events: Object.fromEntries(recentEvents.rows.map((r: any) => [String(r.event_type), Number(r.cnt)])),
-          attributed_joins: Number(recentAttributed.rows[0]?.cnt || 0)
-        }
+        window,
+        windowed,
+        lifetime: { ...platform, label_he: "מצטבר מאז ההשקה (כל הזמן)" },
+        // kept for older readers of this payload; identical to `lifetime`
+        platform
       };
     });
   });
@@ -11878,33 +11885,45 @@ export function registerFrontendExperience(
   });
 
   // Admin: buyers/participants roster (aggregated by buyer identity).
+  // SHELF REINTEGRATION (PR #7 residual slice) — intent-sensitive search
+  // (src/buyer_search_intent.ts): letters go to the NAME only, digits to the
+  // phone, "@" to the e-mail, CT-… to the order code, a uuid to technical ids.
+  // The old roster searched four hidden fields at once and then DISPLAYED a
+  // different aggregate value, so typing "ש" could return a buyer whose visible
+  // name had no ש. The predicate now runs on the DISPLAYED values of the
+  // aggregated row and every hit says why it matched.
   app.get("/api/admin/r6/buyers", async (req: any, reply: any) => {
     if (!(await requireAdminRead(req, reply))) return;
-    const q = String(req.query?.q || "").trim().slice(0, 120);
+    const plan = classifyBuyerSearch(req.query?.q);
+    const rank = buyerNameRankSql(plan, "p", 1);
+    const predicate = buyerSearchPredicateSql(plan, "agg", 1 + rank.params.length);
     return deps.withTx(async (c) => {
       const rows = await c.query(
-        `SELECT p.buyer_id,
-                MAX(p.buyer_name) AS buyer_name,
-                MAX(p.buyer_phone) AS buyer_phone,
-                MAX(p.buyer_email) AS buyer_email,
-                COUNT(*)::int AS participations,
-                COUNT(DISTINCT p.deal_id)::int AS deals,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
-                COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
-                COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
-                  FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
-                COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
-                (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
-                (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
-                MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
-                MAX(p.created_at) AS last_join_at
-         FROM siton.participants p
-         JOIN siton.deals d ON d.deal_id = p.deal_id
-         WHERE ($1 = '' OR p.buyer_id ILIKE '%' || $1 || '%' OR p.buyer_name ILIKE '%' || $1 || '%' OR p.buyer_email ILIKE '%' || $1 || '%' OR p.buyer_phone ILIKE '%' || $1 || '%')
-         GROUP BY p.buyer_id
+        `WITH agg AS (
+           SELECT p.buyer_id,
+                  (ARRAY_AGG(p.buyer_name ORDER BY (p.buyer_name IS NOT NULL) DESC, ${rank.sql}p.created_at DESC))[1] AS buyer_name,
+                  (ARRAY_AGG(p.buyer_phone ORDER BY (p.buyer_phone IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_phone,
+                  (ARRAY_AGG(p.buyer_email ORDER BY (p.buyer_email IS NOT NULL) DESC, p.created_at DESC))[1] AS buyer_email,
+                  COUNT(*)::int AS participations,
+                  COUNT(DISTINCT p.deal_id)::int AS deals,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.buyer_state NOT IN ('NotJoined','DealFailed','Dropped')),0)::int AS units_joined,
+                  COALESCE(SUM(p.qty) FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::int AS units_charged,
+                  COALESCE(SUM(p.qty * d.price_per_unit + p.delivery_cost)
+                    FILTER (WHERE p.money_state IN ('ChargedSuccess','RecoveredCharge')),0)::numeric(14,2) AS charged_gross,
+                  COUNT(*) FILTER (WHERE p.money_state='ChargeFailedRecovery')::int AS in_recovery,
+                  (ARRAY_AGG(p.buyer_state ORDER BY p.updated_at DESC))[1] AS latest_buyer_state,
+                  (ARRAY_AGG(p.money_state ORDER BY p.updated_at DESC))[1] AS latest_money_state,
+                  MAX(GREATEST(p.created_at, p.updated_at)) AS last_activity_at,
+                  MAX(p.created_at) AS last_join_at
+           FROM siton.participants p
+           JOIN siton.deals d ON d.deal_id = p.deal_id
+           GROUP BY p.buyer_id
+         )
+         SELECT * FROM agg
+         WHERE ${predicate.sql}
          ORDER BY last_join_at DESC
          LIMIT 200`,
-        [q]
+        [...rank.params, ...predicate.params]
       );
       // Verification is REAL, never fabricated: a contact is verified ONLY if a
       // verified OTP challenge exists for its normalized-destination hash (same
@@ -11931,9 +11950,15 @@ export function registerFrontendExperience(
       const buyers = rows.rows.map((b: any) => ({
         ...b,
         email_verified: emailHashes.has(String(b.buyer_id)) && verified.has(`email:${emailHashes.get(String(b.buyer_id))}`),
-        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`)
+        phone_verified: phoneHashes.has(String(b.buyer_id)) && verified.has(`sms:${phoneHashes.get(String(b.buyer_id))}`),
+        match: plan.intent === "empty" ? null : { field: plan.intent, label_he: plan.match_label_he }
       }));
-      return { ok: true, buyers, contact_privacy: "admin_only" };
+      return {
+        ok: true,
+        buyers,
+        contact_privacy: "admin_only",
+        search: { intent: plan.intent, label_he: plan.label_he, normalized: plan.normalized, tokens: plan.tokens }
+      };
     });
   });
 

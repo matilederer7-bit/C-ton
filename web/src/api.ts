@@ -205,7 +205,12 @@ export const api = {
   adminSellerDetail: (id: string) => req(`/api/admin/r6/sellers/${encodeURIComponent(id)}`, {}, "admin"),
   adminSellerViral: (id: string) => req(`/api/admin/sellers/${encodeURIComponent(id)}/viral`, {}, "admin"),
   adminBuyers: (q = "") => req(`/api/admin/r6/buyers?q=${encodeURIComponent(q)}`, {}, "admin"),
-  adminGrowth: () => req(`/api/admin/growth`, {}, "admin"),
+  // SHELF REINTEGRATION (PR #7 residual slice) — windowed virality:
+  // ?days=N | ?from=ISO&to=ISO | ?range=all (default: last 7 days)
+  adminGrowth: (params: Record<string, string> = {}) => {
+    const qs = new URLSearchParams(params).toString();
+    return req(`/api/admin/growth${qs ? `?${qs}` : ""}`, {}, "admin");
+  },
   // LAUNCH MODE — pilot funnel + seller approval (closed-market gate)
   adminPilotMetrics: (days = 30) => req(`/api/admin/pilot-metrics?days=${encodeURIComponent(String(days))}`, {}, "admin"),
   adminSellerKycDecision: (sellerId: string, decision: "approve" | "reject", adminNote = "") =>
