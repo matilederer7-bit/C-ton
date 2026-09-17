@@ -160,7 +160,7 @@ export const api = {
     req(`/api/deals/${id}/cancel`, { method: "POST", headers: { "idempotency-key": `preview-cancel-${intentKey}` }, body: JSON.stringify({}) }, "seller"),
   deleteDeal: (id: string) =>
     req(`/api/seller/deals/${id}`, { method: "DELETE" }, "seller"),
-  // Product catalog (071) — seller product library (server-scoped to the seller)
+  // Product catalog (072) — seller product library (server-scoped to the seller)
   sellerProducts: (status: "active" | "archived" | "all" = "active", q = "") =>
     req(`/api/seller/products?status=${status}${q ? `&q=${encodeURIComponent(q)}` : ""}`, {}, "seller"),
   sellerProduct: (id: string) => req(`/api/seller/products/${id}`, {}, "seller"),

@@ -1,4 +1,4 @@
-// Product catalog (migration 071) — API + database proof.
+// Product catalog (migration 072) — API + database proof.
 //
 // Drives the real Fastify app (demo-preview seller authority) against the
 // isolated test database: Product writers, Deal-from-Product creation with a

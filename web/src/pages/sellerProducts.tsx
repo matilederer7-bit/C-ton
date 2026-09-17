@@ -1,4 +1,4 @@
-// Product catalog (071) — the seller Product Library inside the canonical
+// Product catalog (072) — the seller Product Library inside the canonical
 // seller command center: reusable Products (name, copy, category, typed
 // attributes, fulfillment defaults) that Deals are created FROM. A Deal
 // freezes the Product presentation it was created with; editing a Product

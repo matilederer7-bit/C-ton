@@ -1,11 +1,11 @@
-// Product catalog (migration 071) — static + pure-rule validation.
+// Product catalog (migration 072) — static + pure-rule validation.
 //
 // Ported from the shelf branch codex/amazon-benchmark-upgrade
 // (tests/amazon_product_catalog_validation.ts) onto current master: the
 // Base44 / legacy-frontend assertions of the original were dropped; the React
 // web app (web/src) is the canonical frontend and is asserted instead.
 //
-//   • migration 071 is registered after 069 (070 reserved for PR #24) and
+//   • migration 072 is registered after 069 (070 reserved for PR #24) and
 //     creates products / product_images / deals.product_id + snapshot + trigger
 //     + delivery estimate columns, without a fourth deal type
 //   • product_catalog rules: typed attributes, fulfillment defaults, deterministic
@@ -34,7 +34,7 @@ async function runTest(name: string, fn: () => Promise<void> | void) {
 }
 
 const [migration, manifest, schema, app, runtime, dealTypes, sellerPage, productsPage, dealPage, apiClient, styles, grants] = await Promise.all([
-  readFile("src/migrations/071_product_catalog_and_fulfillment_estimates.sql", "utf8"),
+  readFile("src/migrations/072_product_catalog_and_fulfillment_estimates.sql", "utf8"),
   readFile("scripts/migration_manifest.cjs", "utf8"),
   readFile("src/schema_contract.ts", "utf8"),
   readFile("src/app.ts", "utf8"),
@@ -50,7 +50,7 @@ const [migration, manifest, schema, app, runtime, dealTypes, sellerPage, product
 
 await runTest("migration_071_registered_after_069_without_renumbering", async () => {
   const names = await readdir("src/migrations");
-  assert.ok(names.includes("071_product_catalog_and_fulfillment_estimates.sql"));
+  assert.ok(names.includes("072_product_catalog_and_fulfillment_estimates.sql"));
   assert.equal(names.some((n) => /^06[2-4]_.*product/.test(n) || /^070_/.test(n)), false, "071 does not squat on 062-064 or on the 070 slot reserved for PR #24");
   const ids = [...manifest.matchAll(/\["(\d{3}a?)", "/g)].map((m) => m[1]);
   assert.equal(ids[ids.length - 1], "071", "071 is the last manifest position");
@@ -77,7 +77,7 @@ await runTest("migration_071_shape_and_constraints", () => {
 });
 
 await runTest("staging_grants_follow_the_web_runtime_only_rule", () => {
-  assert.match(grants, /run migration 071 before this grant file/);
+  assert.match(grants, /run migration 072 before this grant file/);
   assert.match(grants, /GRANT SELECT, INSERT, UPDATE ON siton\.products TO siton_web_runtime/);
   assert.doesNotMatch(grants, /GRANT[^;]+\b(?:anon|authenticated)\b/i, "no Data API exposure");
   assert.match(grants, /products must be archived, not deleted by the web runtime/);

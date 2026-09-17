@@ -5103,7 +5103,7 @@ export async function processStorageCleanupBatch(limit = 10, leaseMs = 60_000) {
         }
         throw Object.assign(new Error("storage_cleanup_provider_mismatch"), { code: "storage_cleanup_provider_mismatch" });
       }
-      // Product catalog (071): a storage object may be shared between a
+      // Product catalog (072): a storage object may be shared between a
       // Product and the Deals created from it. Delete the blob only when no
       // metadata row references it any more; the task still completes.
       const references = await pool.query(
@@ -5685,7 +5685,7 @@ app.get("/api/deal-images/:imageId", async (req: any, reply: any) => {
     .send(file);
 });
 
-// ── Product catalog (migration 071) ─────────────────────────────────────────
+// ── Product catalog (migration 072) ─────────────────────────────────────────
 // A seller-owned reusable Product: the presentation truth (name, copy,
 // category, typed attributes, imagery, fulfillment defaults) maintained once
 // and frozen into every Deal created from it. Read routes live in
@@ -5903,7 +5903,7 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   // validation answer becomes visible.
   await withTx(async (c) => { await requireSellerAuthority(req, c); });
   const body = req.body || {};
-  // Product catalog (071): a Deal created FROM a Product takes every
+  // Product catalog (072): a Deal created FROM a Product takes every
   // Product-owned presentation field from the server-loaded snapshot.
   const productId = String(body.product_id || "").trim();
   if (productId) requireUuid(productId, "product_id");
@@ -6199,7 +6199,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (String(current.state) !== "Draft") {
       throw Object.assign(new Error("only a Draft can be edited"), { statusCode: 409, code: "DEAL_NOT_EDITABLE" });
     }
-    // Product catalog (071): presentation fields of a Product-backed Draft are
+    // Product catalog (072): presentation fields of a Product-backed Draft are
     // owned by the frozen snapshot — edit the Product (new revision) and
     // re-create the Draft instead of diverging the two.
     if (current.product_id && (hasTitle || hasOwn("description") || hasOwn("description_short") || hasOwn("deal_type"))) {
@@ -6791,7 +6791,7 @@ app.delete("/api/seller/deals/:dealId/images/:imageId", async (req: any, reply: 
         [dealId]
       );
     }
-    // Product catalog (071): the same storage object may back a Product image
+    // Product catalog (072): the same storage object may back a Product image
     // or another Deal's image; the blob is deleted only when nothing else
     // references it any more.
     const shared = await c.query(
@@ -6865,7 +6865,7 @@ app.delete("/api/seller/deals/:dealId", async (req: any, reply: any) => {
       });
     }
     // Storage objects: schedule canonical cleanup for every image blob.
-    // Product catalog (071): blobs still referenced by a Product image or by
+    // Product catalog (072): blobs still referenced by a Product image or by
     // another Deal are never scheduled for cleanup.
     const images = await c.query(
       `SELECT i.storage_provider, i.storage_key FROM siton.deal_images i
@@ -6948,7 +6948,7 @@ app.post("/deals/:id/publish", SELLER_AUTHORITY_ROUTE, async (req: any) => {
       err.statusCode = 404;
       throw err;
     }
-    // Product catalog (071): a Product-backed Deal publishes only with a
+    // Product catalog (072): a Product-backed Deal publishes only with a
     // complete frozen snapshot, at least one image, and (physical) delivery
     // options that each carry a fulfillment estimate. Legacy Deals (no
     // product_id) keep their existing publish rules unchanged.

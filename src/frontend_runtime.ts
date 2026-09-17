@@ -2937,7 +2937,7 @@ export function registerFrontendExperience(
   // the preview to the seller's OWN deals (foreign = 404, like missing).
   // The seller's e-mail and phone are NEVER part of this projection: buyer→seller
   // contact is the internal inquiry rail ("פנייה למוכר").
-  // Product catalog (071): buyer-safe projection of a frozen Product snapshot.
+  // Product catalog (072): buyer-safe projection of a frozen Product snapshot.
   function productSnapshotProjection(snapshot: any) {
     if (!snapshot || typeof snapshot !== "object") return null;
     return {
@@ -3039,7 +3039,7 @@ export function registerFrontendExperience(
         description_short: (deal as any).description_short || "",
         state: deal.state,
         deal_type: dealType,
-        // Product catalog (071): the frozen Product snapshot this Deal was
+        // Product catalog (072): the frozen Product snapshot this Deal was
         // created from (null for legacy/direct Deals — their own fields stay
         // the presentation truth). Only presentation fields are projected.
         product_id: (deal as any).product_id ?? null,
@@ -3983,7 +3983,7 @@ export function registerFrontendExperience(
     });
   });
 
-  // ── Product catalog (071): seller product library reads ────────────────────
+  // ── Product catalog (072): seller product library reads ────────────────────
   app.get("/api/seller/products", async (req: any, reply: any) => {
     await ensureProductCatalogTables(deps.withTx);
     return deps.withTx(async (c) => {
@@ -8086,7 +8086,7 @@ export function registerFrontendExperience(
              FROM siton.worker_heartbeats
             ORDER BY heartbeat_at DESC`
         ),
-        // LONG_HORIZON_DEALS — payment-maintenance signal (migration 071)
+        // LONG_HORIZON_DEALS — payment-maintenance signal (migration 072)
         c.query(
           `SELECT
              COUNT(*) FILTER (WHERE b.expires_at IS NOT NULL AND b.expires_at <= now()

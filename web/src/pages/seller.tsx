@@ -38,7 +38,7 @@ import { DealPage } from "./deal";
 import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./sellerInquiries";
 // LAUNCH SPRINT 3 — physical pickup handoff (scanner + per-deal fulfillment list)
 import { SellerFulfillmentPage, SellerPickupPage } from "./sellerPickup";
-// Product catalog (071) — seller Product Library + create-a-Deal-from-a-Product
+// Product catalog (072) — seller Product Library + create-a-Deal-from-a-Product
 import { SellerProductCreatePage, SellerProductLibraryPage, SellerProductPage } from "./sellerProducts";
 import { deliveryEstimateText, validateEstimateRange } from "../productLibrary";
 // P0.7 — ONE pickup-location rule shared with the server (publish gate, public renderer)
