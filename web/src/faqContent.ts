@@ -3,21 +3,15 @@
 // Owner intent: the admin CMS should manage the FAQ — add / edit / remove /
 // reorder questions, persisted and reloaded safely.
 //
-// BACKEND GAP (documented, deliberately NOT implemented in this task):
-// siton.site_content stores one JSONB object per content_key, and
-// validateContent() in src/site_content.ts accepts ONLY a flat
-// Record<string, string> against a fixed per-section field list — every value
-// must be a string of a declared field, so an ordered array of {q, a} pairs is
-// rejected before it reaches the database. Supporting the FAQ therefore needs a
-// new persistence contract for list-valued content (validation, revisioning and
-// the admin editor), which belongs after the financial merge.
-// See docs/UX_NIGHT_REINTEGRATION.md.
+// GAP CLOSED (SITE CMS): the FAQ is a `faq` block of the `home` page — an
+// ordered {q, a} collection persisted in siton.site_content through the shared
+// template schema (web/src/content/cmsTemplates.ts), edited in the admin
+// content editor (add / edit / delete / reorder / hide) and published only
+// through the draft → publish workflow. See docs/SITE_CMS.md.
 //
-// What this module does today: it is the ONE place the landing reads its FAQ
-// from. It already accepts the eventual CMS shape (an ordered array, or the
-// legacy `faq_1_q` / `faq_1_a` flat pairs a string-only store could carry) and
-// falls back to the canonical Hebrew list. When the backend gains the contract,
-// the landing needs no change — only this resolver's input does.
+// This module stays the ONE place the landing reads its FAQ from: it accepts
+// the persisted block items (or the legacy flat pairs) and falls back to the
+// canonical Hebrew list, so corrupt or empty data can never blank the section.
 //
 // Pure module (no DOM, no React) so the ordering/validation rule is testable.
 

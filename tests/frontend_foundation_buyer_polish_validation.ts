@@ -12,6 +12,10 @@
 //  * landing carries the buyer entry + pilot disclosure and no legacy reference
 import { strict as assert } from "node:assert";
 import { readFile } from "node:fs/promises";
+// The fixed deal-page sentences are CMS content now; the resolver's fallback is
+// the canonical constant, so both are pinned here.
+import { resolveDealCopy } from "../web/src/productCopy.js";
+import { AFTER_TAP_LINE, DEAL_EXPLAINER, HOW_IT_WORKS, WHY_GROUP_PRICE } from "../web/src/buyerCopy.js";
 
 let passed = 0;
 let failed = 0;
@@ -37,9 +41,12 @@ const [dealPage, trackPage, landingPage, landingHe, appTsx, components, feedback
 ]);
 
 run("P1: the deal page answers WHAT/WHY/WHAT-IF at the top and the needed/deadline facts from canonical fields", () => {
-  assert.match(dealPage, /data-testid="deal-explainer">\{DEAL_EXPLAINER\}/);
+  assert.match(dealPage, /data-testid="deal-explainer">\{dealCopy\.explainer\}/);
+  assert.match(dealPage, /const dealCopy = resolveDealCopy\(useSiteContent\(\)\);/);
   assert.match(buyerCopy, /DEAL_EXPLAINER = "קנייה קבוצתית: המחיר הקבוצתי תקף רק אם מספיק אנשים מצטרפים עד מועד הסיום\. לא הגיעו ליעד — אף אחד לא משלם\."/);
-  assert.match(dealPage, /data-testid="deal-why">\{WHY_GROUP_PRICE\}/);
+  assert.equal(resolveDealCopy(null).explainer, DEAL_EXPLAINER, "an unavailable CMS must render the canonical explainer");
+  assert.equal(resolveDealCopy(null).whyGroupPrice, WHY_GROUP_PRICE);
+  assert.match(dealPage, /data-testid="deal-why">\{dealCopy\.whyGroupPrice\}/);
   assert.match(dealPage, /price-was-label">מחיר רגיל</, "the strike-through price is labelled");
   assert.match(dealPage, /data-testid="deal-saving-amount">חוסכים \{ils\(listPrice - Number\(deal\.price_per_unit\)\)\} ליחידה/);
   assert.match(dealPage, /const hasSaving = listPrice > Number\(deal\.price_per_unit\);/, "saving shown only when the seller gave a higher regular price");
@@ -49,6 +56,7 @@ run("P1: the deal page answers WHAT/WHY/WHAT-IF at the top and the needed/deadli
   assert.match(dealPage, /const deadlineText = formatIsraelDateTime\(deal\.deadline\);/, "absolute deadline in Israel time next to the countdown");
   assert.match(dealPage, /data-testid="how-it-works"/);
   assert.equal((buyerCopy.match(/\{ n: "\d", title:/g) || []).length, 3, "three how-it-works steps");
+  assert.deepEqual(resolveDealCopy(null).howSteps.map(s => s.title), HOW_IT_WORKS.map(s => s.title), "the CMS default steps are the canonical ones");
   assert.match(buyerCopy, /לא הגיעו ליעד\?.*המסגרת של כולם משתחררת אוטומטית\. אף אחד לא משלם\./);
 });
 
@@ -101,7 +109,8 @@ run("P3: join sheet — required markers, per-field Hebrew errors, plausible-pho
   assert.match(dealPage, /export function isPlausiblePhone\(raw: string\): boolean \{\s*\n\s*const p = normalizePhone\(raw\);\s*\n\s*return \/\^0\\d\{8,9\}\$\/\.test\(p\) \|\| \/\^\\\+\?972\\d\{8,9\}\$\/\.test\(p\);/);
   assert.match(dealPage, /data-testid="join-what-next"/);
   assert.match(buyerCopy, /AFTER_TAP_LINE = "בלחיצה נפתח טופס קצר \(שם וטלפון\)\. נתפסת מסגרת בלבד — לא חיוב\. מיד אחר כך מקבלים קישור למסך מעקב אישי\."/);
-  assert.match(dealPage, /data-testid="after-tap">\{AFTER_TAP_LINE\}/);
+  assert.match(dealPage, /data-testid="after-tap">\{dealCopy\.afterTap\}/);
+  assert.equal(resolveDealCopy(null).afterTap, AFTER_TAP_LINE, "an unavailable CMS must render the canonical after-tap line");
   // refusal kinds each carry a what-next, and the form is NOT reset on failure
   for (const kind of ["stock", "state", "network", "other", "fields"]) assert.match(dealPage, new RegExp(`kind: "${kind}"`), `refusal kind ${kind}`);
   assert.match(dealPage, /data-testid="join-refusal-refresh"/);

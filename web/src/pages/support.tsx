@@ -2,6 +2,8 @@ import React, { useEffect, useState } from "react";
 import { api } from "../api";
 import { hebrewError } from "../he";
 import { getPreviewMeta } from "../previewMeta";
+import { resolveSupportCopy } from "../productCopy";
+import { useSiteContent } from "../siteContent";
 
 // ── Public Support / Contact center (P0.2-S) ────────────────────────────────
 // The form creates a canonical support case the Admin Support screen sees —
@@ -18,6 +20,7 @@ const CATEGORIES: { key: string; label: string }[] = [
 ];
 
 export function SupportPage() {
+  const copy = resolveSupportCopy(useSiteContent());
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
@@ -61,10 +64,8 @@ export function SupportPage() {
       <div style={{ maxWidth: 560, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }}>
           <div style={{ fontSize: "2.2rem" }}>✅</div>
-          <h2>הפנייה נקלטה</h2>
-          <p className="muted">
-            הפנייה שלכם נפתחה במערכת התמיכה של C-ton והצוות יטפל בה.
-          </p>
+          <h2>{copy.sent_title}</h2>
+          <p className="muted">{copy.sent_body}</p>
           <a className="btn btn-primary" href="#/">חזרה לדף הבית</a>
         </div>
       </div>
@@ -74,9 +75,9 @@ export function SupportPage() {
   return (
     <div style={{ maxWidth: 560, margin: "24px auto" }}>
       <div className="panel">
-        <h2>תמיכה ויצירת קשר</h2>
+        <h2>{copy.title}</h2>
         <p className="muted small">
-          נתקלתם בבעיה או שיש לכם שאלה? מלאו את הטופס והפנייה תיפתח ישירות אצל צוות C-ton.
+          {copy.intro}
           {supportEmail ? <> אפשר גם לכתוב לנו ל-<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
         </p>
         <form onSubmit={submit} noValidate>

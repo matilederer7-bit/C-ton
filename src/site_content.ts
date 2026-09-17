@@ -1,40 +1,79 @@
+// ── Site content (CMS) — server authority over the template-driven pages ────
+//
+// Persistence stays siton.site_content (one row per page key, value_jsonb).
+// value_jsonb is the PUBLISHED page; draft_jsonb (migration 069) is the
+// owner's unpublished working copy. The public site reads only value_jsonb;
+// preview reads draft ?? published behind the admin guard. Every stored page is
+// a template page ({ blocks: [...] }) validated by the ONE shared schema in
+// web/src/content/cmsTemplates.ts. Rows written before the block model (flat
+// { title, sub, ... }) are converted deterministically on read and the next
+// write stores the block shape.
 import { LEGAL_PAGES } from "./legal_pages.js";
-import { LANDING_HE } from "../web/src/content/landing.he.js";
+import {
+  PAGE_CONTRACTS, legalPageContract, validatePage, normalizePage, projectLegacy, assetRefs, CmsValidationError,
+  type PageContract, type PageContent
+} from "../web/src/content/cmsTemplates.js";
 import { failure, type Db } from "./receipt_trust.js";
 
-type Field = { label: string; max: number; multiline?: boolean; image?: boolean };
-export const CONTENT_SECTIONS: Record<string, { label: string; fields: Record<string, Field>; defaults: Record<string, string> }> = {
-  home: { label: "דף הבית", fields: {
-    title: { label: "כותרת ראשית", max: 120 }, sub: { label: "כותרת משנה", max: 1000, multiline: true },
-    intro: { label: "טקסט פתיחה", max: 1000, multiline: true }, image: { label: "תמונת פתיחה", max: 100, image: true },
-    login_cta: { label: "כפתור כניסה", max: 60 }, signup_cta: { label: "כפתור הרשמה", max: 60 }
-  }, defaults: { title: LANDING_HE.hero.title, sub: LANDING_HE.hero.sub, intro: LANDING_HE.hero.note, image: "", login_cta: "התחברות מוכר", signup_cta: "פתיחת חשבון מוכר" } },
-  about: { label: "אודות", fields: { title: { label: "כותרת", max: 120 }, body: { label: "תוכן", max: 10000, multiline: true } }, defaults: { title: "אודות C-ton", body: LANDING_HE.about.body } },
-  footer: { label: "תחתית האתר", fields: { text: { label: "טקסט", max: 500, multiline: true } }, defaults: { text: "C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)" } },
-  ...Object.fromEntries(Object.entries(LEGAL_PAGES).map(([key, page]) => [`legal_${key}`, {
-    label: page.navLabel, fields: { title: { label: "כותרת", max: 160 }, body: { label: "תוכן", max: 60000, multiline: true } }, defaults: { title: page.title, body: page.body }
-  }]))
+export const CONTENT_SECTIONS: Record<string, PageContract> = {
+  ...PAGE_CONTRACTS,
+  ...Object.fromEntries(Object.entries(LEGAL_PAGES).map(([key, page]) => [`legal_${key}`, legalPageContract(page.navLabel, { title: page.title, body: page.body })]))
 };
-export function validateContent(key: string, value: any) {
-  const section = Object.hasOwn(CONTENT_SECTIONS, key) ? CONTENT_SECTIONS[key] : undefined;
-  if (!section || !value || typeof value !== "object" || Array.isArray(value)) failure("invalid_content");
-  if (Object.keys(value).some(k => !Object.hasOwn(section.fields, k))) failure("invalid_content_field");
-  const out: Record<string, string> = {};
-  for (const [key, field] of Object.entries(section.fields)) {
-    const text = value[key];
-    if (typeof text !== "string" || text.length > field.max) failure("invalid_content_length");
-    // Plain text only; no raw HTML, executable URLs, or HTML editor mode.
-    if (/<\s*\/?[a-z!]/i.test(text) || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(text)) failure("content_html_not_allowed");
-    if (field.image && text && !/^\/api\/content-assets\/[0-9a-f-]{36}$/.test(text)) failure("invalid_content_image");
-    out[key] = text;
-  }
-  return out;
+
+export function contractOf(key: string): PageContract {
+  if (!Object.hasOwn(CONTENT_SECTIONS, key)) failure("invalid_content");
+  return CONTENT_SECTIONS[key]!;
 }
-export async function readContent(c: Db) {
-  const rows = (await c.query(`SELECT content_key, value_jsonb, revision, updated_at, updated_by FROM siton.site_content`)).rows;
-  return Object.fromEntries(Object.entries(CONTENT_SECTIONS).map(([key, section]) => {
+
+/** Strict validation of a page payload (draft or publish). Rejects malformed structure, HTML, bad links, foreign assets. */
+export function validateContent(key: string, value: unknown): PageContent {
+  const contract = contractOf(key);
+  try { return validatePage(value, contract); }
+  catch (err) { if (err instanceof CmsValidationError) failure(err.code); throw err; }
+}
+
+/** Every referenced asset must be an admin upload of the kind the field expects. */
+export async function verifyContentAssets(c: Db, page: PageContent) {
+  for (const ref of assetRefs(page)) {
+    const id = ref.url.split("/").pop();
+    const asset = (await c.query(`SELECT mime_type FROM siton.content_assets WHERE asset_id=$1 AND owner_ref LIKE 'admin:%'`, [id])).rows[0];
+    if (!asset) failure(ref.kind === "image" ? "invalid_content_image" : "invalid_content_video");
+    if (!String(asset.mime_type).startsWith(`${ref.kind}/`)) failure(ref.kind === "image" ? "invalid_content_image" : "invalid_content_video");
+  }
+}
+
+export type SectionState = {
+  label: string; description: string;
+  contract: { locked: PageContract["locked"]; addable: PageContract["addable"]; maxBlocks: number };
+  published: PageContent; draft: PageContent | null;
+  /** normalized draft when one is stored — the raw stored draft is re-validated at publish time */
+  revision: number; updated_at: string | null; updated_by: string | null;
+  draft_updated_at: string | null; draft_updated_by: string | null; published_at: string | null;
+  /** compatibility: the flat legacy projection of the PUBLISHED page (the pre-block `value` shape the server-rendered legal route and older clients read) */
+  value: Record<string, string>;
+};
+
+export async function readContent(c: Db): Promise<Record<string, SectionState>> {
+  const rows = (await c.query(`SELECT content_key, value_jsonb, draft_jsonb, revision, updated_at, updated_by, draft_updated_at, draft_updated_by, published_at FROM siton.site_content`)).rows;
+  return Object.fromEntries(Object.entries(CONTENT_SECTIONS).map(([key, contract]) => {
     const row = rows.find((r: any) => r.content_key === key);
-    return [key, { ...section, value: row?.value_jsonb || section.defaults, revision: row?.revision || 0,
-      updated_at: row?.updated_at || null, updated_by: row?.updated_by || null }];
+    const published = normalizePage(row?.value_jsonb, contract);
+    const draft = row?.draft_jsonb ? normalizePage(row.draft_jsonb, contract) : null;
+    const state: SectionState = {
+      label: contract.label, description: contract.description,
+      contract: { locked: contract.locked, addable: contract.addable, maxBlocks: contract.maxBlocks },
+      published, draft, value: projectLegacy(published, contract),
+      revision: row?.revision || 0, updated_at: row?.updated_at || null, updated_by: row?.updated_by || null,
+      draft_updated_at: row?.draft_updated_at || null, draft_updated_by: row?.draft_updated_by || null, published_at: row?.published_at || null
+    };
+    return [key, state];
+  }));
+}
+
+/** The public projection: ENABLED blocks only (hidden content never leaves the server) plus the flat legacy fields older bundles still read. */
+export function publicContent(sections: Record<string, SectionState>, mode: "published" | "preview" = "published") {
+  return Object.fromEntries(Object.entries(sections).map(([key, s]) => {
+    const page = mode === "preview" ? (s.draft || s.published) : s.published;
+    return [key, { ...projectLegacy(page, CONTENT_SECTIONS[key]!), blocks: page.blocks.filter(b => b.enabled) }];
   }));
 }

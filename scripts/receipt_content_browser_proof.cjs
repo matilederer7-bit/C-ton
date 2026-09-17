@@ -15,14 +15,14 @@ import {ChatPanel} from './src/pages/deal';
 import {ReceiptFields, ContentAdmin, PublicSellerPage, BuyerEntitlement, SellerReceipts, PublicProfileEditor, ContentPage} from './src/receiptContent';
 const seller = {id:'11111111-1111-4111-8111-111111111111',name:'חנות הספרים',about:'ספרים ושירות אישי לכל הקונים.',stats:{published:3,completed:2,success_rate:67},deals:[{deal_id:'11111111-1111-4111-8111-111111111111',title:'ספר לקבוצה',state:'Completed',price_per_unit:60}]};
 const entitlement={entitlement_id:'fixture',method:'qr',title:'ספר לקבוצה',quantity:2,remaining_quantity:2,status:'valid',code:'ABCD-1234-ABCD-1234-ABCD-1234-ABCD-1234',instructions:'הציגו למוכר את הקוד'};
-const section={label:'דף הבית',fields:{title:{label:'כותרת ראשית',max:120},sub:{label:'כותרת משנה',max:1000,multiline:true},image:{label:'תמונה',max:100,image:true}},value:{title:'כותרת קיימת',sub:'תוכן קיים לעריכה',image:''},revision:0};
+const section={label:'דף הבית',fields:{title:{label:'כותרת ראשית',max:120},sub:{label:'כותרת משנה',max:1000,multiline:true},image:{label:'תמונה',max:100,image:true}},value:{title:'כותרת קיימת',sub:'תוכן קיים לעריכה',image:''},revision:0}; // legacy admin shape: the editor must still load it
 window.saved=[];
 window.fetch=async (url,init={})=>{
  let data={ok:true}; const p=String(url); const body=init.body?JSON.parse(init.body):{};
  if(init.method==='PUT'||init.method==='POST')window.saved.push({url:p,body});
  if(p==='/api/admin/site-content')data={ok:true,sections:{home:section}};
  else if(p==='/api/site-content')data={ok:true,content:{legal_terms:{title:'תנאי שימוש',body:'# תנאי שימוש\\n\\n## מידע לקונים\\n\\nתוכן משפטי בתוך עיצוב האתר'}}};
- else if(p==='/api/admin/site-content/home'){section.value=body.value;section.revision++;data={ok:true,sections:{home:section}};}
+ else if(p==='/api/admin/site-content/home'||p==='/api/admin/site-content/home/draft'){section.draft=body.value;section.revision++;data={ok:true,sections:{home:section}};}
  else if(p==='/api/seller/public-profile')data={ok:true,profile:seller};
  else if(p.startsWith('/api/public-sellers'))data={ok:true,seller};
  else if(p.includes('/entitlement'))data={ok:true,configured:true,entitlement,public_name_opt_in:false};
@@ -51,7 +51,7 @@ async function main() {
   const html = '<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="/style.css"><div id="root"></div><script src="/fixture.js"></script></html>';
   const server = createServer((req,res) => {
     if(req.url==='/brand/c-ton-logo-1024.jpg'){ res.setHeader('Content-Type','image/jpeg'); return res.end(fs.readFileSync('web/public/brand/c-ton-logo-1024.jpg')); }
-    const type = req.url==='/fixture.js'?'application/javascript':req.url==='/style.css'?'text/css':'text/html'; res.setHeader('Content-Type',type+'; charset=utf-8'); res.end(req.url==='/fixture.js'?js:req.url==='/style.css'?fs.readFileSync('web/src/styles.css'):html);
+    const type = req.url==='/fixture.js'?'application/javascript':req.url==='/style.css'?'text/css':'text/html'; res.setHeader('Content-Type',type+'; charset=utf-8'); res.end(req.url==='/fixture.js'?js:req.url==='/style.css'?Buffer.concat([fs.readFileSync('web/src/styles.css'),fs.readFileSync('web/src/cms.css')]):html);
   });
   await new Promise(r=>server.listen(0,'127.0.0.1',r));
   const port = server.address().port;
@@ -83,7 +83,7 @@ async function main() {
           await evaluate(`document.querySelectorAll('[name="receipt-method"]')[3].click()`);await wait(30);
           assert.equal(await evaluate(`!!document.querySelector('input[type="url"]')`),true);
         }
-        if(view==='cms') assert.equal(await evaluate('document.querySelector("form img").naturalWidth>0'),true,'CMS previews the actual existing hero image');
+        if(view==='cms') assert.equal(await evaluate('document.querySelector(".cms-media-preview").naturalWidth>0'),true,'CMS previews the actual existing hero image');
         if(view==='legal') {
           assert.equal(await evaluate('document.querySelectorAll("h1").length'),1,'legal page has one title');
           assert.equal(await evaluate('document.querySelectorAll("h2").length'),1,'legal body renders section headings');
@@ -93,11 +93,12 @@ async function main() {
       console.log(`PASS ${width}px: vertical chat, enforced maxlength, five methods, all eight screens without overflow`);
     }
     await evaluate('window.show("cms")');await wait(100);
-    assert.equal(await evaluate('document.querySelector("form input").value'),'כותרת קיימת');
-    await evaluate(`(()=>{const el=document.querySelector('form input');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'כותרת מעודכנת');el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
-    await evaluate('document.querySelector("form button").click()');await wait(150);
-    assert.equal(await evaluate('window.saved.at(-1).body.value.title'),'כותרת מעודכנת');
-    console.log('PASS CMS existing content preloaded and edited value submitted; screenshots captured');
+    assert.equal(await evaluate('document.querySelector(\'[data-testid="cms-field-hero-title"]\').value'),'כותרת קיימת','legacy flat content preloads into the hero block');
+    await evaluate(`(()=>{const el=document.querySelector('[data-testid="cms-field-hero-title"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(el,'כותרת מעודכנת');el.dispatchEvent(new Event('input',{bubbles:true}));})()`);
+    await evaluate('document.querySelector(\'[data-testid="cms-save-draft"]\').click()');await wait(200);
+    assert.equal(await evaluate('window.saved.at(-1).url'),'/api/admin/site-content/home/draft','edits are saved as a DRAFT, never straight to the public site');
+    assert.equal(await evaluate('window.saved.at(-1).body.value.blocks[0].fields.title'),'כותרת מעודכנת');
+    console.log('PASS CMS existing content preloaded and edited value submitted as a draft; screenshots captured');
   } finally { if(ws)ws.close();browser.kill();await new Promise(r=>server.close(r)); }
 }
 main().catch(e=>{console.error(e);process.exitCode=1;});

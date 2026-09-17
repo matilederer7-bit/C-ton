@@ -2,10 +2,12 @@ import React, { useEffect, useRef, useState } from "react";
 import { productRequest as request, type Json } from "./api";
 import { QrCode } from "./qrcode";
 import { PickupCard } from "./pickupCard";
-import { optimizeImageFile } from "./images";
+import { uploadImageAsset } from "./contentAssets";
+import { pageOf, useSiteContentState } from "./siteContent";
+export { useSiteContent, useSiteContentState } from "./siteContent";
+export { ContentAdmin } from "./pages/contentAdmin";
 import { ChoiceCard, StatusPill } from "./components";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "./pickupScan";
-import { BRAND_LOGO_URL } from "./config";
 import { attention as fieldAttention, focusField } from "./fieldAttention";
 
 export type ReceiptConfig = { method: string; instructions: string; url: string };
@@ -160,11 +162,7 @@ export function SellerReceipts({ initialCode = "" }: { initialCode?: string }) {
       {o.status !== "redeemed" ? <button className="btn btn-primary" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/seller/receipts/${o.participant_id}/redeem`, { method: "POST", body: "{}" }, "seller"); await search(); setMessage("המימוש נרשם"); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } }}>אישור מימוש — {o.remaining_quantity} יחידות</button> : null}
     </section>)}</div></>;
 }
-async function upload(file: File, scope: "seller" | "admin") {
-  const img = await optimizeImageFile(file);
-  try { return await request(`/api/${scope}/content-assets`, { method: "POST", body: JSON.stringify({ filename: img.name, mime_type: img.mime, base64_data: img.b64 }) }, scope); }
-  finally { URL.revokeObjectURL(img.previewUrl); }
-}
+const upload = uploadImageAsset;
 export function PublicProfileEditor() {
   const [value, setValue] = useState<Json | null>(null), [message, setMessage] = useState("");
   const [nameInvalid, setNameInvalid] = useState(false);
@@ -177,13 +175,6 @@ export function PublicProfileEditor() {
     <button className="btn btn-primary">שמירת הפרופיל</button>
   </form> : null}<p role="status">{message}</p></section>;
 }
-function useSiteContentState() {
-  const [content, setContent] = useState<Json>({});
-  const [loading, setLoading] = useState(true), [error, setError] = useState(false);
-  useEffect(() => { let alive = true; const load = () => request("/api/site-content").then(r => { if (alive) { setContent(r.content || {}); setError(false); } }).catch(() => { if (alive) setError(true); }).finally(() => { if (alive) setLoading(false); }); void load(); window.addEventListener("site-content-updated", load); return () => { alive = false; window.removeEventListener("site-content-updated", load); }; }, []);
-  return { content, loading, error };
-}
-export function useSiteContent() { return useSiteContentState().content; }
 // ROUND 2 (UX-9) — the legal / content documents read as part of C-ton instead
 // of as a bare dump: the Siton document shell (orange section markers, a
 // measured line length, RTL-safe wrapping) plus a chip strip so a reader can
@@ -199,7 +190,13 @@ const LEGAL_NAV: [string, string][] = [
 export function ContentPage({ section }: { section: string }) {
   const { content: all, loading, error } = useSiteContentState();
   const content = all[section];
-  const blocks = String(content?.body || "").replace(/^# [^\n]+\r?\n/, "").trim().split(/\n\s*\n/);
+  // SITE CMS — the document is the page's single locked block (`about` or
+  // `legal`), normalized through the shared template schema; the body stays
+  // plain text rendered by React (no HTML execution), with the light
+  // "## heading" / "- item" structure the legal documents already use.
+  const doc = content ? pageOf(all, section).blocks[0] : undefined;
+  const title = doc?.fields.title || "";
+  const blocks = String(doc?.fields.body || "").replace(/^# [^\n]+\r?\n/, "").trim().split(/\n\s*\n/);
   const isLegal = section.startsWith("legal_");
   return <>
     {isLegal ? <nav className="legal-nav" aria-label="מסמכים משפטיים">
@@ -208,8 +205,9 @@ export function ContentPage({ section }: { section: string }) {
       ))}
     </nav> : null}
     <article className="panel content-doc" data-testid="content-doc" data-section={section}>
-      <h1>{content?.title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
+      <h1>{title || (loading ? "טוענים…" : "תוכן האתר")}</h1>
       {!content && !loading ? <p role="status">{error ? "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד." : "העמוד המבוקש אינו זמין כרגע."}</p> : null}
+      {doc?.fields.image ? <img className="content-doc-image" src={doc.fields.image} alt="" loading="lazy" /> : null}
       {blocks.map((block, i) => {
         if (/^#{1,3} /.test(block)) return <h2 key={i}>{block.replace(/^#{1,3} /, "")}</h2>;
         if (block.split("\n").every(line => line.startsWith("- "))) return <ul key={i}>{block.split("\n").map((line, j) => <li key={j}>{line.slice(2)}</li>)}</ul>;
@@ -217,18 +215,4 @@ export function ContentPage({ section }: { section: string }) {
       })}
     </article>
   </>;
-}
-export function ContentAdmin() {
-  const [sections, setSections] = useState<Json>({}), [key, setKey] = useState("home"), [value, setValue] = useState<Json>({}), [message, setMessage] = useState("");
-  const [busy, setBusy] = useState(false);
-  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => { const next = r.sections || {}; const first = next.home ? "home" : Object.keys(next)[0]; setSections(next); if (first) { setKey(first); setValue(next[first].value); } else setMessage("אין כרגע אזורי תוכן לעריכה."); }).catch(() => setMessage("לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד.")); }, []);
-  const section = sections[key];
-  return <><h1>ניהול תוכן האתר</h1><p>עדכון התוכן בתוך מבנה העמודים הקיים.</p>
-    <label>עמוד או אזור<select value={key} disabled={busy} onChange={e => { setKey(e.target.value); setValue(sections[e.target.value].value); setMessage(""); }}>{Object.entries(sections).map(([k, s]) => <option value={k} key={k}>{s.label}</option>)}</select></label>
-    {section ? <form className="panel stack" onSubmit={async e => { e.preventDefault(); setBusy(true); try { const r = await request(`/api/admin/site-content/${key}`, { method: "PUT", body: JSON.stringify({ value, revision: section.revision }) }, "admin"); setSections(r.sections); window.dispatchEvent(new Event("site-content-updated")); setMessage("התוכן נשמר ויוצג באתר"); } catch (e: any) { setMessage(e.status === 409 ? "התוכן עודכן בידי מנהל אחר. רעננו את העמוד לפני השמירה." : e.message); } finally { setBusy(false); } }}>
-      {Object.entries(section.fields).map(([field, raw]) => { const f = raw as Json; return <label key={field}>{f.label}
-        {f.image ? <><img src={value[field] || BRAND_LOGO_URL} alt="תמונה נוכחית" style={{ maxWidth: "100%", maxHeight: 220 }} /><input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={async e => { if (!e.target.files?.[0]) return; setBusy(true); try { const img = await upload(e.target.files[0], "admin"); setValue(v => ({ ...v, [field]: img.url })); } catch (err: any) { setMessage(err.message); } finally { setBusy(false); } }} /></> : f.multiline ? <textarea rows={field === "body" ? 16 : 4} value={value[field] || ""} maxLength={f.max} onChange={e => setValue({ ...value, [field]: e.target.value })} /> : <input value={value[field] || ""} maxLength={f.max} onChange={e => setValue({ ...value, [field]: e.target.value })} />}
-      </label>; })}
-      <button className="btn btn-primary" disabled={busy}>שמירה</button><p className="muted small">{section.updated_at ? `עודכן: ${new Date(section.updated_at).toLocaleString("he-IL")}` : "התוכן המקורי של האתר"}</p>
-    </form> : null}<p role="status">{message}</p></>;
 }
