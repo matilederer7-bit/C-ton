@@ -4,6 +4,48 @@ Updated: 2026-09-17
 Canonical branch: `master`
 Current merged baseline: `17035f900ccaebf185b2cb806fd28acf872d3a6a`
 
+## SELLER DISTRIBUTION HUB — 2026-09-17
+
+Branch: `claude/blissful-pasteur-c1qhiz` (from `master` `18ba51985f71ebf83563216ec22f88aaa7c023f0`). Design note: `docs/SELLER_DISTRIBUTION_HUB_2026-09-17.md`.
+
+### COMPLETED
+
+- Seller distribution links per deal, reusing the canonical rails instead of a parallel system: `siton.affiliate_links` (`origin_type='seller'`, new optional `channel`), `siton.affiliate_link_events` (entries; new opaque `visitor_id` for unique visitors), `siton.viral_attributions.parent_link_id` (join attribution by the existing last-touch resolution inside the Join transaction), `participants.money_state` + `platform_fee_money_events` (final charged units and gross actually collected).
+- One documented attribution rule: Last Eligible Distribution Link before Join (same deal, active at Join time). Disabled, foreign or unknown codes degrade to an unattributed Join. Disabling a link keeps its history.
+- Migration `070_seller_distribution_links.sql` (manifest + schema contract updated): link channel, visitor id on link events, and the scoped read-only external link viewer (`distribution_link_viewers`, `_grants`, `_sessions`, `_login_attempts`; scrypt-hashed passwords, identity/grant split for future multi-link identities).
+- Backend module `src/distribution_hub.ts`: seller routes (list + totals, create, rename/channel/disable, per-link dashboard with 24h/7d/30d/all series, external-access enable/disable/reset) and the external `/api/link-viewer/*` surface (login with per-address and per-username rate limit, state probe, logout, aggregates-only dashboard scoped to the session's grants; a link id in the query is a selector among own grants, anything else is 403).
+- `/api/affiliate/links/visit` accepts the opaque `visitor_id`; the browser sends it (`web/src/viral.ts`).
+- Seller UI: distribution panel embedded in the deal screen (empty state, first-link CTA, create form, sortable comparison table, copy/share/WhatsApp/rename/performance/disable), per-link dashboard page with metric tiles, windowed totals, metric + range chart and external-access management (one-time credentials, copy login URL, reset, revoke, created/last-login). External `#/link-dashboard` page: login, deal + link name, status, metrics, chart, permanent measurement-only disclaimer, no seller navigation.
+- Buyer experience unchanged: same `/d/:dealId?ref=` share route, same page, no distributor/referral/commission wording; `acquisition_source` stays `direct` for seller links.
+- Route gates: `/api/link-viewer/` added to `PROTECTED_NAMESPACES`, `requireLinkViewer(` and `requireSellerOperate(` recognised as refusing guards, three reviewed anonymous-by-design entries (session probe, login, logout) pinned in policy and gate; `src/distribution_hub.ts` added to the static route inventory sources.
+- No commission, balance, payout, invoice or entitlement for any link holder; Siton's 8% fee logic untouched; no DealState/BuyerState/MoneyState/transition change.
+
+### TESTED / CHECKED
+
+- `npx tsc --noEmit` PASS; `web` `tsc -b` + `vite build` PASS.
+- `npm run lint`, `scan:backend`, distributor attribution-only gate (self-test + scan), `scan:payment`, `scan:runtime-ddl`: PASS.
+- `scripts/web_route_inventory.cjs`: UNGUARDED_PROTECTED_ROUTES=0 (226 routes, 140 protected, 13 anonymous by design).
+- `scripts/migration_preflight.cjs`: PASS (63 migrations, high-water 070, fresh install, upgrade from origin/master, partial ledger, atomicity).
+- New proofs PASS on the isolated runner: `seller_distribution_hub_validation` (22 checks: links, visits + refresh dedupe + unique visitors, join attribution, replay, disabled/foreign codes, final charge + money-event gross, series for every range, seller A/B isolation, external access lifecycle, A1-only scope, PII isolation, revocation/reset/logout, rate limit), `distribution_otp_join_attribution_validation` (OTP-required Join keeps attribution through request → verify → resume → Join), `link_viewer_authority_validation` (internal-runtime: viewer credential refused on every seller/admin/affiliate/distributor route, A1 never reads A2, revocation kills sessions), `frontend_foundation_distribution_hub_validation` (browser wiring contract).
+- Regression PASS on the isolated runner: `protected_route_authorization_gate`, `seller_route_auth_coverage`, `admin_route_auth_coverage`, `seller_lifecycle_route_authority`, `r6_viral_graph`, `affiliate_visit_response_after_commit`, `stage32c_product_surface_closure`, `stage32d_identity_resume`, `p05_admin_viral_support`, `p07b_seller_draft_preview`, `admin_affiliate_no_commission_regression`, `seller_analytics`, `p04_seller_command_delivery`, `security_identity_tracking`, `r5_guest_join_safety`, `otp_rail`, `buyer_verification_policy`, `frontend_flow`, `frontend_foundation_rtl_accessibility`.
+- NOT RUN: the full grouped `npm test`; GitHub CI on the PR is the final authority.
+
+### OPEN
+
+- `docs/CANONICAL_PRODUCT_POLICY_AMENDMENT_2026-09-16.md` §4 says "no distributor login/dashboard"; the owner's 2026-09-17 task adds a scoped read-only link-dashboard credential with no economics. The amendment wording should be updated by the owner to name this scoped viewer explicitly (implementation follows the owner's explicit task per the source-of-truth order).
+- Hosted runtimes: `LINK_VIEWER_SESSION_SECRET` is optional (falls back to `BUYER_SESSION_SECRET` / `OTP_TOKEN_SECRET`); production-like runtimes without any of them answer 503 on external login. Migration 070 must be applied by the normal deploy path before the hub is used on staging.
+- Unique visitors count only entries recorded after this change (older entries carry no visitor id).
+
+### PERCENTAGE
+
+- Seller distribution hub (backend, migration, seller UI, external dashboard, authorization, PII isolation, proofs): 100% on the branch pending CI and merge.
+
+### NEXT STEP
+
+1. Open the PR against `master`, require Backend, Release readiness and Web runtime depth gates green, merge.
+2. Owner: amend the 2026-09-16 policy wording for the scoped link viewer.
+3. After merge: apply migration 070 on staging through the normal deploy path and smoke the seller panel + `#/link-dashboard` once.
+
 ## AGENT WORKFLOW V5 REFRESH — 2026-09-17
 
 ### COMPLETED
@@ -127,13 +169,13 @@ Current invariants:
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone
 
-- UPDATED: not yet written by v3 workflow
-- BRANCH: none
-- COMPLETED: none
-- TESTED: none
-- OPEN: none
-- PERCENTAGE: not set
-- NEXT STEP: use this slot only from Claude Code finish
+- UPDATED: 2026-09-17
+- BRANCH: `claude/blissful-pasteur-c1qhiz`
+- COMPLETED: seller distribution hub — per-deal distribution links on the canonical affiliate_links / link-events / viral_attributions rails, migration 070, distribution_hub route module, seller panel + per-link dashboard, external scoped read-only `#/link-dashboard`, route-gate coverage, docs and proofs.
+- TESTED: tsc, web build, lint/backend/payment/runtime-DDL scans, distributor attribution-only gate, route inventory (0 unguarded), migration preflight, four new proofs and the targeted regression set on the isolated runner (see the SELLER DISTRIBUTION HUB section).
+- OPEN: PR + CI; owner wording update of amendment 2026-09-16 §4 for the scoped viewer; staging migration 070 via the normal deploy path.
+- PERCENTAGE: 100% on branch pending CI and merge.
+- NEXT STEP: open PR, keep CI green, merge.
 <!-- AGENT_STATUS:claude:END -->
 
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.

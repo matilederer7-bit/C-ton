@@ -94,7 +94,7 @@ await run("the external link dashboard is its own minimal route: session-gated, 
 
 await run("the buyer deal page shows no distributor/affiliate/commission wording and no different UI per entry path", () => {
   assert.ok(!/מפיץ|עמלה|affiliate|referral/i.test(deal.replace(/affiliate_ref/g, "")), "buyer page never mentions distributors, commissions or referrals");
-  assert.ok(!deal.includes("distribution"), "the buyer page does not import the distribution module");
+  assert.ok(!deal.includes('from "./distribution"'), "the buyer page does not import the distribution module");
 });
 
 console.log(`\nfrontend distribution hub wiring: ${passed} checks passed`);

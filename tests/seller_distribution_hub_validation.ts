@@ -517,8 +517,10 @@ await run("the external credential cannot reach seller, distributor, affiliate, 
     { method: "GET", url: `/api/distributor/session` },
     { method: "GET", url: `/api/admin/r6/overview` },
     { method: "GET", url: `/api/admin/deals/${dealA}/viral` },
-    { method: "GET", url: `/api/participants/${pid("a")}/tracking` },
-    { method: "GET", url: `/api/participants/${pid("a")}/impact` },
+    // /api/participants/* is deliberately NOT probed here: demo-preview keeps
+    // the legacy token-less tracking link tolerance for demo buyers, so its
+    // answer says nothing about this credential. The non-demo refusal is
+    // proven in link_viewer_authority_validation.ts (internal-runtime).
     { method: "POST", url: `/api/seller/deals/${dealA}/distribution/links`, payload: { internal_name: "viewer minted" } },
     { method: "PATCH", url: `/api/seller/deals/${dealA}/distribution/links/${L1.link_id}`, payload: { status: "disabled" } }
   ];
@@ -540,9 +542,6 @@ await run("the external credential cannot reach seller, distributor, affiliate, 
     // Demo-preview opens seller/admin read surfaces to the demo workspace by
     // design; the strict non-demo authority proof for this credential lives in
     // link_viewer_authority_validation.ts (internal-runtime).
-    if (probe.url.startsWith("/api/participants/")) {
-      assert.ok(res.statusCode === 401 || res.statusCode === 403, `${probe.method} ${probe.url} -> ${res.statusCode}`);
-    }
   }
   const stillOne = (await distribution(SELLER_A, dealA)).body.links.filter((l: any) => l.internal_name === "viewer minted");
   assert.equal(stillOne.length, 0, "the viewer credential created nothing");
