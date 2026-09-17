@@ -45,6 +45,10 @@ const grants = await adminPool.query(`
     has_table_privilege('siton_web_runtime','siton.deal_ticket_terms','UPDATE') AS web_ticket_terms_upsert,
     has_table_privilege('siton_web_runtime','siton.deal_voucher_terms','UPDATE') AS web_voucher_terms_upsert,
     has_table_privilege('siton_web_runtime','siton.invoice_document_attempts','UPDATE') AS web_invoice_attempt_upsert,
+    has_table_privilege('siton_web_runtime','siton.seller_security_events','INSERT') AS web_seller_security_append,
+    has_table_privilege('siton_web_runtime','siton.seller_security_events','SELECT') AS web_seller_security_read,
+    has_table_privilege('siton_web_runtime','siton.seller_security_events','UPDATE') AS web_seller_security_update,
+    has_table_privilege('siton_web_runtime','siton.seller_security_events','DELETE') AS web_seller_security_delete,
     has_table_privilege('siton_worker_runtime','siton.outbox_events','UPDATE') AS worker_outbox_update,
     has_table_privilege('siton_worker_runtime','siton.fulfillment_units','SELECT,INSERT') AS worker_fulfillment_issue,
     has_table_privilege('siton_worker_runtime','siton.invoice_document_attempts','UPDATE') AS worker_invoice_attempt_upsert,
@@ -70,6 +74,15 @@ assert.equal(grants.rows[0].web_payment_method_upsert, true);
 assert.equal(grants.rows[0].web_ticket_terms_upsert, true);
 assert.equal(grants.rows[0].web_voucher_terms_upsert, true);
 assert.equal(grants.rows[0].web_invoice_attempt_upsert, true);
+// The seller self-signup hourly cap counts 'seller.self_signup.bound' rows on
+// this rail, so the web runtime must be able to read it as well as append to
+// it. Without SELECT the first login of a new seller fails the whole binding
+// transaction with "permission denied" and the API answers 500. The rail stays
+// append-only for the web runtime: no UPDATE, no DELETE.
+assert.equal(grants.rows[0].web_seller_security_append, true);
+assert.equal(grants.rows[0].web_seller_security_read, true);
+assert.equal(grants.rows[0].web_seller_security_update, false);
+assert.equal(grants.rows[0].web_seller_security_delete, false);
 assert.equal(grants.rows[0].worker_outbox_update, true);
 assert.equal(grants.rows[0].worker_fulfillment_issue, true);
 assert.equal(grants.rows[0].worker_invoice_attempt_upsert, true);
