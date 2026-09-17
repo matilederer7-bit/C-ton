@@ -30,12 +30,14 @@ const PROTECTED_NAMESPACES = [
   "/api/admin/",
   "/api/seller/",
   "/api/affiliate/",
-  "/api/distributor/"
+  "/api/distributor/",
+  // Scoped read-only external link dashboard (seller distribution hub).
+  "/api/link-viewer/"
 ];
 
 // Route metadata values (Fastify `config.authority`) that mark a route as
 // protected regardless of its path.
-const PROTECTED_AUTHORITIES = ["seller", "admin", "distributor"];
+const PROTECTED_AUTHORITIES = ["seller", "admin", "distributor", "link_viewer"];
 
 // Response bodies that are ONLY a guard refusal. An allowlisted route whose
 // anonymous answer is one of these is not "anonymous by design" - it is a
@@ -50,6 +52,8 @@ const GUARD_REFUSAL_ERRORS = [
   "seller_auth_expired",
   "distributor_auth_required",
   "distributor_auth_unavailable",
+  "link_viewer_auth_required",
+  "link_viewer_auth_unavailable",
   "forbidden"
 ];
 
@@ -126,6 +130,25 @@ const ANONYMOUS_BY_DESIGN = [
     reason: "Idempotent session teardown. No distributor data in the response.",
     probe: { method: "POST", payload: {} },
     expect: { status: [200], marker: /"ok":true/ }
+  },
+  {
+    path: "/api/link-viewer/session",
+    reason: "Auth-state probe of the external link dashboard: reports the signed-out state and returns no link, seller or buyer data when unauthenticated.",
+    state_probe: true,
+    probe: { method: "GET" },
+    expect: { status: [200, 401], marker: /"authenticated":false/ }
+  },
+  {
+    path: "/api/link-viewer/session/login",
+    reason: "Credential entry point for the external link dashboard. Unknown users and wrong passwords answer identically, attempts are rate limited server-side.",
+    probe: { method: "POST", payload: {} },
+    expect: { status: [400, 401], marker: /link_viewer_credentials_required|link_viewer_auth_invalid_credentials/ }
+  },
+  {
+    path: "/api/link-viewer/session/logout",
+    reason: "Idempotent session teardown. No viewer or link data in the response.",
+    probe: { method: "POST", payload: {} },
+    expect: { status: [200], marker: /"authenticated":false/ }
   },
   {
     path: "/api/affiliate/links/visit",

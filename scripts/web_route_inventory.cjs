@@ -10,7 +10,7 @@ fs.mkdirSync(artifacts, { recursive: true });
 // report and the behavioural proof can never disagree about what is protected.
 const policy = require(path.join(root, "scripts", "protected_route_policy.cjs"));
 
-const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts"];
+const sources = ["src/app.ts", "src/frontend_runtime.ts", "src/receipt_content_routes.ts", "src/distribution_hub.ts"];
 const routePattern = /\bapp\.(get|post|put|patch|delete|options|head)\(\s*["'`]([^"'`]+)["'`]/g;
 const frontendPattern = /\b(?:fetch|api)\(\s*([`"'])(\/[^`"']+)\1\s*(?:,\s*\{([\s\S]{0,500}?)\})?/g;
 
@@ -46,14 +46,17 @@ function classify(routePath) {
 const GUARD_CALL_PATTERNS = {
   admin: /\b(?:requireAdminAuthContext|requireAdminRead|requireAdminMutation|requireAdminKey|requireAdminPermission)\s*\(/,
   // rejectManualSellerContextSwitch: the demo-only context switch refuses outright outside demo-preview.
-  seller: /\b(?:requireSellerAuthority|requireSellerAuthorityWithoutBody|resolveRequiredSellerContext|requireSeller|rejectManualSellerContextSwitch)\s*\(/,
-  distributor: /\b(?:resolveDistributorContext|requireDistributor\w*)\s*\(/
+  seller: /\b(?:requireSellerAuthority|requireSellerAuthorityWithoutBody|resolveRequiredSellerContext|requireSellerOperate|requireSeller|rejectManualSellerContextSwitch)\s*\(/,
+  distributor: /\b(?:resolveDistributorContext|requireDistributor\w*)\s*\(/,
+  // Scoped read-only external link dashboard: requireLinkViewer refuses (401/503) before any input is read.
+  link_viewer: /\brequireLinkViewer\s*\(/
 };
 
 function principalFor(routePath, config) {
   if (config && typeof config.authority === "string") return config.authority;
   if (routePath.startsWith("/api/admin/")) return "admin";
   if (routePath.startsWith("/api/seller/")) return "seller";
+  if (routePath.startsWith("/api/link-viewer/")) return "link_viewer";
   return "distributor";
 }
 

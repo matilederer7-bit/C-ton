@@ -29,6 +29,8 @@ import { attention, attentionBlock, focusField, sameErrors, settleErrors } from 
 import { DraftImageManager, LocalImageManager, uploadDealImage, type LocalImage, type ServerImage } from "../images";
 import { ActionCenterPanel, ActivityPanel, ChartsPanel, FunnelPanel, KpiStrip, MoneyPanel, ViralPanel } from "./sellerCommand";
 import { PropagationTree } from "../propagation";
+// SELLER DISTRIBUTION HUB — per-deal distribution links + per-link dashboard
+import { DistributionPanel, SellerLinkDashboardPage } from "./distribution";
 // P0.7 polish — the buyer preview IS the public deal renderer (preview mode)
 import { DealPage } from "./deal";
 import { InquiriesPanel, SellerInquiriesPage, SellerInquiryThreadPage } from "./sellerInquiries";
@@ -1922,6 +1924,10 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       ) : null}
 
       {!isDraft ? (
+        <DistributionPanel dealId={dealId} dealTitle={String(deal.title || "")} dealOpen={isOpen} navigate={navigate} />
+      ) : null}
+
+      {!isDraft ? (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
             <div className="panel-title" style={{ marginBottom: 0 }}>הפצה ויראלית של העסקה</div>
@@ -2244,6 +2250,7 @@ export function SellerArea({ sub, query, navigate }: { sub: string[]; query?: UR
   if (sub[0] === "receipts") return <SellerReceipts initialCode={query?.get("code") || ""} />;
   if (sub[0] === "profile") return <><PublicProfileEditor /><BusinessProfilePage navigate={navigate} /></>;
   if (sub[0] === "deal" && sub[1] && sub[2] === "viral") return <SellerViralTreePage dealId={sub[1]} navigate={navigate} />;
+  if (sub[0] === "deal" && sub[1] && sub[2] === "distribution" && sub[3]) return <SellerLinkDashboardPage dealId={sub[1]} linkId={sub[3]} navigate={navigate} />;
   // P0.7 polish — seller-authorized buyer preview (Draft included): SAME renderer, read-only mode
   if (sub[0] === "deal" && sub[1] && sub[2] === "preview") return <DealPage dealId={sub[1]} navigate={navigate} preview />;
   if (sub[0] === "deal" && sub[1]) return <SellerDealScreen dealId={sub[1]} navigate={navigate} />;
