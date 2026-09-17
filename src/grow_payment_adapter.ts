@@ -26,7 +26,14 @@ import {
 // - createPaymentProcess       POST form  {pageCode,userId,sum,chargeType,...}
 //   chargeType=2 is the documented "Suspended Charge" (J5 authorization; the
 //   J5 hold is documented as valid for up to 7 days, auto-released after ~10
-//   days when no J4 is performed).
+//   days when no J4 is performed). LONG_HORIZON_DEALS: that window is a
+//   property of the authorization INSTRUMENT (recorded on the binding as
+//   expires_at), never a bound on the deal's lifetime; a lapsed hold is
+//   renewed at the charging boundary once a Grow stored-instrument
+//   re-authorization (chargeType=3 token + merchant-initiated charge) is proven
+//   in sandbox — until then this adapter exposes no `reauthorize` and Grow
+//   decides on the original hold at settle (documented adapter gap,
+//   docs/LONG_HORIZON_AUTHORIZATION_ARCHITECTURE.md §7).
 // - getPaymentProcessInfo      POST form  {pageCode,processId,processToken}
 //   Response nests transactions under data.transactions[] (array).
 // - getTransactionInfo         POST form  {pageCode,transactionId,transactionToken}

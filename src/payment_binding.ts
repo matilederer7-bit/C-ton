@@ -29,7 +29,14 @@ export type PaymentAuthorizationBinding = {
   correlation_id: string;
   consumed_by_participant_id: string | null;
   consumed_at: string | null;
+  /** provider-declared validity of the CURRENT authorization (technical instrument property, never a deal bound) */
   expires_at: string | null;
+  // LONG_HORIZON_DEALS (migration 071) — renewal metadata of the current instrument
+  payment_method_ref: string | null;
+  authorization_established_at: string;
+  renewal_count: number;
+  renewed_at: string | null;
+  replaced_authorization_id: string | null;
 };
 
 export class PaymentBindingError extends Error {
@@ -44,14 +51,16 @@ const BINDING_COLUMNS = `
   authorization_id, provider_reference, deal_id, buyer_id,
   qty, amount_minor, currency, delivery_option_id, delivery_cost,
   status, status_reason, correlation_id,
-  consumed_by_participant_id, consumed_at, expires_at`;
+  consumed_by_participant_id, consumed_at, expires_at,
+  payment_method_ref, authorization_established_at, renewal_count, renewed_at, replaced_authorization_id`;
 
 function toBinding(row: any): PaymentAuthorizationBinding {
   return {
     ...row,
     qty: Number(row.qty),
     amount_minor: Number(row.amount_minor),
-    delivery_cost: Number(row.delivery_cost || 0)
+    delivery_cost: Number(row.delivery_cost || 0),
+    renewal_count: Number(row.renewal_count || 0)
   } as PaymentAuthorizationBinding;
 }
 
@@ -80,6 +89,8 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     status: "pending_provider_confirmation" | "authorized";
     correlation_id: string;
     expires_at?: Date | string | null;
+    /** provider-side stored payment-method reference (opaque; never card data) — lets the worker renew the authorization later */
+    payment_method_ref?: string | null;
   }): Promise<PaymentAuthorizationBinding> {
     return deps.withTx(async (c) => {
       const inserted = await c.query(
@@ -87,9 +98,9 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
            provider_code, provider_mode, provider_environment,
            authorization_id, provider_reference, deal_id, buyer_id,
            qty, amount_minor, currency, delivery_option_id, delivery_cost,
-           status, correlation_id, expires_at
+           status, correlation_id, expires_at, payment_method_ref
          )
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          ON CONFLICT (correlation_id) DO NOTHING
          RETURNING ${BINDING_COLUMNS}`,
         [
@@ -107,7 +118,8 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
           Number(input.delivery_cost || 0),
           input.status,
           input.correlation_id,
-          input.expires_at ? new Date(input.expires_at).toISOString() : null
+          input.expires_at ? new Date(input.expires_at).toISOString() : null,
+          String(input.payment_method_ref || "").trim().slice(0, 200) || null
         ]
       );
       if (inserted.rowCount) return toBinding(inserted.rows[0]);
@@ -255,9 +267,14 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
       );
     }
     if (binding.expires_at && new Date(binding.expires_at).getTime() <= Date.now()) {
-      // Enforced at consume time on every attempt. (No status write here: the
-      // surrounding Join transaction is about to roll back, so a persisted
-      // update would be lost anyway.)
+      // PRE-commitment only: an authorization that lapsed before the buyer ever
+      // joined cannot back a new commitment — the buyer re-authorizes and joins
+      // again. This is NOT the long-horizon rule: once a participant is
+      // committed, expiry of its authorization is a payment-maintenance event
+      // handled by the worker (renewal at the charging boundary), never a
+      // reason to drop the participant (migration 071).
+      // (No status write here: the surrounding Join transaction is about to
+      // roll back, so a persisted update would be lost anyway.)
       throw new PaymentBindingError("payment_authorization_expired", "authorization expired before join", 402);
     }
     if (binding.provider_code !== input.expected_provider_code) {
@@ -368,6 +385,128 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     });
   }
 
+  // -------------------------------------------------------------------------
+  // LONG_HORIZON_DEALS — renewal of the CURRENT authorization instrument.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Where a renewal can draw its stored instrument from: the binding's own
+   * payment_method_ref (recorded at authorize time), else the buyer's newest
+   * active stored method for the same provider (e.g. one supplied through the
+   * recovery route). Null when nothing tokenized is known — the worker then
+   * lets the provider decide on the original authorization.
+   */
+  async function resolveRenewalSourceForParticipant(participantId: string, providerCode: string): Promise<{
+    binding: PaymentAuthorizationBinding | null;
+    payment_method_ref: string | null;
+    source: "binding" | "buyer_payment_methods" | null;
+  }> {
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `SELECT ${BINDING_COLUMNS}
+         FROM siton.payment_authorization_bindings
+         WHERE consumed_by_participant_id=$1`,
+        [participantId]
+      );
+      const binding = r.rowCount ? toBinding(r.rows[0]) : null;
+      if (!binding) return { binding: null, payment_method_ref: null, source: null };
+      if (binding.payment_method_ref) return { binding, payment_method_ref: binding.payment_method_ref, source: "binding" as const };
+      const stored = await c.query(
+        `SELECT provider_payment_method_id
+         FROM siton.buyer_payment_methods
+         WHERE buyer_id=$1 AND provider_code=$2 AND status='active'
+         ORDER BY COALESCE(last_authorized_at, created_at) DESC, created_at DESC
+         LIMIT 1`,
+        [binding.buyer_id, providerCode]
+      ).catch(() => ({ rowCount: 0, rows: [] as any[] }));
+      const ref = stored.rowCount ? String(stored.rows[0].provider_payment_method_id || "").trim() : "";
+      return { binding, payment_method_ref: ref || null, source: ref ? ("buyer_payment_methods" as const) : null };
+    });
+  }
+
+  /**
+   * Replace the participant's current authorization with a freshly established
+   * one, in the caller's transaction (the same one that settles the
+   * 'reauthorize' identity as success — atomic: either both commit or neither).
+   * Idempotent: a replay carrying the authorization already current is a no-op.
+   * The previous instrument is recorded (replaced_authorization_id) and the
+   * complete chain stays in siton.payment_attempts.
+   */
+  async function applyAuthorizationRenewalInTx(c: any, input: {
+    participant_id: string;
+    new_authorization_id: string;
+    new_provider_reference: string;
+    expires_at?: Date | string | null;
+    correlation_id: string;
+  }): Promise<"renewed" | "already_current" | "missing"> {
+    const found = await c.query(
+      `SELECT ${BINDING_COLUMNS}
+       FROM siton.payment_authorization_bindings
+       WHERE consumed_by_participant_id=$1
+       FOR UPDATE`,
+      [input.participant_id]
+    );
+    if (!found.rowCount) return "missing";
+    const current = toBinding(found.rows[0]);
+    if (current.authorization_id === input.new_authorization_id) return "already_current";
+    await c.query(
+      `UPDATE siton.payment_authorization_bindings
+       SET replaced_authorization_id=authorization_id,
+           authorization_id=$2,
+           provider_reference=$3,
+           expires_at=$4,
+           authorization_established_at=now(),
+           renewal_count=renewal_count+1,
+           renewed_at=now(),
+           status_reason=$5
+       WHERE binding_id=$1`,
+      [
+        current.binding_id,
+        input.new_authorization_id,
+        input.new_provider_reference || input.new_authorization_id,
+        input.expires_at ? new Date(input.expires_at).toISOString() : null,
+        `authorization_renewed:${String(input.correlation_id).slice(0, 160)}`
+      ]
+    );
+    return "renewed";
+  }
+
+  /**
+   * The provider declared the CURRENT authorization unusable (expired / voided)
+   * in its answer to a capture-side request: record that the instrument is not
+   * valid past now, so a retry after a crash renews first instead of
+   * dispatching the same doomed capture again. Never touches the participant.
+   */
+  async function markAuthorizationUnusableInTx(c: any, participantId: string, reason: string): Promise<boolean> {
+    const r = await c.query(
+      `UPDATE siton.payment_authorization_bindings
+       SET expires_at=LEAST(COALESCE(expires_at, now()), now()),
+           status_reason=$2
+       WHERE consumed_by_participant_id=$1`,
+      [participantId, `authorization_unusable:${String(reason || "provider_declared").slice(0, 160)}`]
+    );
+    return Number(r.rowCount || 0) === 1;
+  }
+
+  /**
+   * Payment-maintenance observability (never a product state): committed
+   * participants whose CURRENT authorization is past its declared validity.
+   * They are renewal candidates at the charging boundary; the count is a
+   * maintenance signal for admins, not an alert that a deal is invalid.
+   */
+  async function countCommittedPastDeclaredValidity(): Promise<number> {
+    return deps.withTx(async (c) => {
+      const r = await c.query(
+        `SELECT count(*)::int AS n
+         FROM siton.payment_authorization_bindings b
+         JOIN siton.participants p ON p.participant_id = b.consumed_by_participant_id
+         WHERE b.status='consumed' AND b.expires_at IS NOT NULL AND b.expires_at <= now()
+           AND p.money_state IN ('AuthHeld','AuthLocked','ChargeAttempt','ChargeFailedRecovery')`
+      );
+      return Number(r.rows[0]?.n || 0);
+    });
+  }
+
   return {
     ensureStorage,
     createBinding,
@@ -376,6 +515,10 @@ export function buildPaymentAuthorizationBindings(deps: { withTx: WithTx }) {
     getBindingByCorrelation,
     getConsumedBindingForParticipant,
     updateProviderReferenceForParticipant,
-    markBindingReleasedForParticipant
+    markBindingReleasedForParticipant,
+    resolveRenewalSourceForParticipant,
+    applyAuthorizationRenewalInTx,
+    markAuthorizationUnusableInTx,
+    countCommittedPastDeclaredValidity
   };
 }

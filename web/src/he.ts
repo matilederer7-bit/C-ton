@@ -12,7 +12,7 @@ export interface ApiErrorLike {
   body?: { code?: string; error?: string; message?: string };
 }
 
-const CODE_MESSAGES: Record<string, string> = {
+export const CODE_MESSAGES: Record<string, string> = {
   // product / canonical API codes
   max_units_exceeded: "המלאי אזל בזמן ההצטרפות — נסו כמות קטנה יותר",
   seller_auth_invalid_credentials: "אימייל או סיסמה שגויים",
@@ -31,7 +31,7 @@ const CODE_MESSAGES: Record<string, string> = {
   DEAL_NOT_EDITABLE: "אפשר לערוך רק טיוטה — עסקה שפורסמה נעולה לשינויים",
   DRAFT_EDITOR_STALE: "הטיוטה השתנתה בינתיים — רעננו את המסך ונסו שוב",
   deadline_below_minimum: "מועד הסיום חייב להיות לפחות שעתיים מעכשיו",
-  deadline_above_maximum: "מועד הסיום יכול להיות עד 7 ימים קדימה",
+  deadline_above_maximum: "מועד הסיום רחוק מדי — המערכת תומכת בעסקאות עד 20 שנים קדימה",
   deadline_invalid: "יש לבחור תאריך ושעה תקינים",
   description_too_long: "התיאור המלא ארוך מדי (עד 4000 תווים)",
   description_short_too_long: "התיאור הקצר ארוך מדי (עד 200 תווים)",
@@ -87,6 +87,8 @@ const CODE_MESSAGES: Record<string, string> = {
   invalid_delivery_option: "אפשרות האספקה שנבחרה כבר אינה זמינה — רעננו את הדף ובחרו שוב",
   payment_disclosure_required: "נדרש אישור הבהרת התשלום",
   payment_authorization_required: "לא ניתן להשלים את ההצטרפות כרגע — נסו שוב בעוד רגע",
+  payment_authorization_expired: "אישור התשלום פג תוקף לפני שההצטרפות הושלמה — אשרו את אמצעי התשלום מחדש והצטרפו שוב",
+  payment_authorization_not_consumable: "אישור התשלום כבר אינו בתוקף — אשרו את אמצעי התשלום מחדש והצטרפו שוב",
   delivery_notes_too_long: "ההערות ארוכות מדי (עד 200 תווים)",
   // LAUNCH POLISH 2 — buyer feedback
   feedback_category_invalid: "יש לבחור אחת מהאפשרויות",

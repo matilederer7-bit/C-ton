@@ -135,7 +135,7 @@ Record in your pilot sheet: seller name, e-mail, seller_id, date, template used.
 | 1 פרטי העסקה | type (מוצר / שובר / כרטיס), title, **short description** (the sentence that sells), full description, **group price**, **regular price** (optional, must be higher — buyers then see "חיסכון X%"), 1–12 photos | photos upload after "שמירה"; a failed upload keeps the Draft and can be retried from the deal screen |
 | 2 כמויות | minimum (the goal) and maximum (stock) | success threshold = 90 % of minimum, auto |
 | 3 אספקה / מימוש | physical: at least one option; pickup/distribution point **must carry a full address or GPS** ("השתמש במיקום שלי"); voucher/ticket: all term fields | the publish button is blocked without a pickup address |
-| 4 מועד סיום | date + hour, Israel time, 2 h … 7 days ahead | pick an evening after a weekend |
+| 4 מועד סיום | date + hour, Israel time, at least 2 h ahead (no 7-day cap — LONG_HORIZON_DEALS; a notice appears above one year) | pick an evening after a weekend |
 | 5 סיכום | save as Draft | |
 
 ### 2.2 Before publish — the owner's checks (2 minutes)

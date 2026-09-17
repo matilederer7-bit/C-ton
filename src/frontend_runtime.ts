@@ -1,4 +1,5 @@
 import { registerReceiptContentRoutes } from "./receipt_content_routes.js";
+import { registerDistributionHubRoutes } from "./distribution_hub.js";
 import { readContent } from "./site_content.js";
 import { assertRequiredTables } from "./schema_contract.js";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
@@ -1756,6 +1757,23 @@ export function registerFrontendExperience(
   registerReceiptContentRoutes(app, {
     withTx: deps.withTx, requireAdminRead, requireAdminMutation,
     requireSeller: async (req, reply, c) => {
+      reply.header("Cache-Control", "no-store");
+      const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      if (!seller || !(await ensureSellerActionAllowed(c, seller.seller_id, "operate", reply))) return null;
+      return seller;
+    }
+  });
+  // SELLER DISTRIBUTION HUB — per-deal distribution links, attribution
+  // analytics and the scoped read-only external link dashboard. Reads need
+  // the seller capability; mutations also pass seller enforcement.
+  registerDistributionHubRoutes(app, {
+    withTx: deps.withTx,
+    requireSeller: async (req, reply, c) => {
+      reply.header("Cache-Control", "no-store");
+      const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
+      return seller || null;
+    },
+    requireSellerOperate: async (req, reply, c) => {
       reply.header("Cache-Control", "no-store");
       const seller = await resolveRequiredSellerContext(req, reply, c, { autoCreate: true });
       if (!seller || !(await ensureSellerActionAllowed(c, seller.seller_id, "operate", reply))) return null;
@@ -8039,7 +8057,7 @@ export function registerFrontendExperience(
     if (!(await requireAdminRead(req, reply))) return;
     const stuckTimeoutMs = deps.workerStuckTimeoutMs ?? 60_000;
     return deps.withTx(async (c) => {
-      const [outbox, dlq, workers] = await Promise.all([
+      const [outbox, dlq, workers, maintenance] = await Promise.all([
         c.query(
           `SELECT
              COUNT(*)                                              FILTER (WHERE status='pending')    AS pending_count,
@@ -8067,6 +8085,16 @@ export function registerFrontendExperience(
                   (heartbeat_at > now() - interval '30 seconds') AS fresh
              FROM siton.worker_heartbeats
             ORDER BY heartbeat_at DESC`
+        ),
+        // LONG_HORIZON_DEALS — payment-maintenance signal (migration 071)
+        c.query(
+          `SELECT
+             COUNT(*) FILTER (WHERE b.expires_at IS NOT NULL AND b.expires_at <= now()
+                              AND p.money_state IN ('AuthHeld','AuthLocked','ChargeAttempt','ChargeFailedRecovery')) AS past_validity,
+             COUNT(*) FILTER (WHERE b.renewal_count > 0) AS renewed
+           FROM siton.payment_authorization_bindings b
+           JOIN siton.participants p ON p.participant_id = b.consumed_by_participant_id
+           WHERE b.status='consumed'`
         )
       ]);
       const o = outbox.rows[0];
@@ -8094,6 +8122,15 @@ export function registerFrontendExperience(
           running: workers.rows.some((row: any) => row.fresh && row.status === "ready"),
           active_count: workers.rows.filter((row: any) => row.fresh && row.status === "ready").length,
           instances: workers.rows
+        },
+        // LONG_HORIZON_DEALS — a payment-MAINTENANCE signal, not a product state
+        // and not an alert: committed participants whose CURRENT authorization
+        // is past its declared validity are renewal candidates at the charging
+        // boundary. Deal lifetime is independent of authorization lifetime.
+        payment_maintenance: {
+          authorizations_past_declared_validity: Number((maintenance.rows[0] as any)?.past_validity ?? 0),
+          authorizations_renewed: Number((maintenance.rows[0] as any)?.renewed ?? 0),
+          deal_lifetime_bounded_by_authorization: false
         }
       };
     });
@@ -10364,7 +10401,13 @@ export function registerFrontendExperience(
         delivery_option_id: dealAuthorizationContext.delivery_option_id,
         delivery_cost: dealAuthorizationContext.delivery_cost,
         status: result.authorization === "authorized" ? "authorized" : "pending_provider_confirmation",
-        correlation_id: result.correlation_id
+        correlation_id: result.correlation_id,
+        // LONG_HORIZON_DEALS — the instrument's provider-declared validity and
+        // the opaque stored payment-method reference: what the worker needs to
+        // re-establish the authorization at the charging boundary, long after
+        // this hold may have lapsed. Never raw card data.
+        expires_at: result.expires_at ?? null,
+        payment_method_ref: body.payment_method_id ? String(body.payment_method_id) : null
       });
     }
     if (body.buyer_id && body.payment_method_id) {
@@ -10495,6 +10538,9 @@ export function registerFrontendExperience(
     const sourceCode = String(body.source_code || "").trim().slice(0, 64);
     const clickId = String(body.click_id || "").trim().slice(0, 100);
     const entryId = String(body.entry_id || "").trim().slice(0, 100);
+    // Opaque anonymous browser id (same one the viral funnel uses) so unique
+    // visitors can be counted per link. Never an identity, never required.
+    const visitorId = String(body.visitor_id || "").trim().slice(0, 64) || null;
     requireUuid(dealId, "deal_id");
     if (!sourceCode || clickId.length < 8 || entryId.length < 8) {
       return reply.code(400).send({ error: "affiliate_visit_invalid" });
@@ -10511,10 +10557,10 @@ export function registerFrontendExperience(
       );
       if (!link.rows[0]) return { recorded: false };
       await c.query(
-        `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id)
-         VALUES ($1,'click',$2),($1,'entry',$3)
+        `INSERT INTO siton.affiliate_link_events (link_id, event_type, client_event_id, visitor_id)
+         VALUES ($1,'click',$2,$4),($1,'entry',$3,$4)
          ON CONFLICT (link_id, event_type, client_event_id) DO NOTHING`,
-        [link.rows[0].link_id, clickId, entryId]
+        [link.rows[0].link_id, clickId, entryId, visitorId]
       );
       return { recorded: true };
     });

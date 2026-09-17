@@ -172,7 +172,9 @@ export function recordShareVisit(dealId: string, code: string | null): void {
     void fetch("/api/affiliate/links/visit", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ deal_id: dealId, source_code: code, click_id: randomId("ck"), entry_id: entryId }),
+      // visitor_id is the same opaque anonymous id the funnel uses — it lets a
+      // distribution link count unique visitors without identifying anyone.
+      body: JSON.stringify({ deal_id: dealId, source_code: code, click_id: randomId("ck"), entry_id: entryId, visitor_id: visitorId() }),
       keepalive: true
     }).catch(() => undefined);
   } catch { /* best effort */ }

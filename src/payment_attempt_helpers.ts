@@ -8,7 +8,9 @@ export type AttemptType =
   | "refund"
   | "deadline_check"
   | "cancel_refund"
-  | "release";
+  | "release"
+  /** LONG_HORIZON_DEALS (071) — re-establishment of the authorization instrument from the stored payment method; never a charge attempt */
+  | "reauthorize";
 
 /**
  * R9C — durable dispatch lifecycle of ONE logical money operation
@@ -49,7 +51,7 @@ export type DispatchState = "recorded" | "dispatching" | "responded";
  */
 export type FailureEvidence = "dispatch_response" | "status_inference" | "provider_event" | "operator";
 
-export const MONEY_ATTEMPT_TYPES: ReadonlyArray<AttemptType> = ["charge_start", "recovery", "refund", "cancel_refund", "release"];
+export const MONEY_ATTEMPT_TYPES: ReadonlyArray<AttemptType> = ["charge_start", "recovery", "refund", "cancel_refund", "release", "reauthorize"];
 
 export type PaymentAttemptLifecycleRow = {
   attempt_type: AttemptType;
@@ -370,9 +372,11 @@ export function buildPaymentAttemptHelpers(deps: {
       // never-dispatched release does not block a capture. They are retired in
       // this same transaction (the 067/068 INSERT guards test result_class), so
       // the superseding identity is admitted atomically with their retirement.
-      const conflicting: ReadonlyArray<AttemptType> = args.attempt_type === "charge_start" || args.attempt_type === "recovery"
-        ? ["release"]
-        : ["charge_start", "recovery"];
+      const conflicting: ReadonlyArray<AttemptType> = args.attempt_type === "reauthorize"
+        ? []
+        : args.attempt_type === "charge_start" || args.attempt_type === "recovery"
+          ? ["release"]
+          : ["charge_start", "recovery"];
       const superseded = await retireNeverDispatchedInTx(c, { participant_id: args.participant_id, deal_id: args.deal_id, attempt_types: conflicting, reason: `superseded_by_${args.attempt_type}` });
       if (superseded.length) rows = await loadRows(c, args.participant_id, args.deal_id);
 
@@ -387,7 +391,24 @@ export function buildPaymentAttemptHelpers(deps: {
         ? rows.find((row) => row.attempt_type === "release" && row.result_class === "success")
           || rows.find((row) => row.attempt_type === "release" && row.result_class === "unknown")
         : undefined;
-      if (releaseConflict) {
+      // LONG_HORIZON_DEALS (071) — while a re-authorization is unresolved the
+      // CURRENT authorization of the participant is not known: no capture, no
+      // recovery, no release may start (the DB INSERT guard backstops this).
+      // Conversely a renewal never starts while a capture-side operation of the
+      // same obligation is unresolved (money may already have moved).
+      const unresolvedReauthorization = args.attempt_type !== "reauthorize"
+        ? rows.find((row) => row.attempt_type === "reauthorize" && row.result_class === "unknown")
+        : undefined;
+      const reauthorizationBlockedByCapture = args.attempt_type === "reauthorize"
+        ? captureSide.find((row) => row.result_class === "unknown")
+        : undefined;
+      if (unresolvedReauthorization && (args.attempt_type === "charge_start" || args.attempt_type === "recovery" || args.attempt_type === "release")) {
+        blocking = unresolvedReauthorization;
+        reason = `${args.attempt_type === "release" ? "release" : "capture"}_blocked_by_unresolved_reauthorization`;
+      } else if (reauthorizationBlockedByCapture) {
+        blocking = reauthorizationBlockedByCapture;
+        reason = "reauthorization_blocked_by_unresolved_capture";
+      } else if (releaseConflict) {
         blocking = releaseConflict;
         reason = releaseConflict.result_class === "success" ? "capture_blocked_by_released_authorization" : "capture_blocked_by_unresolved_release";
       } else if (args.attempt_type === "recovery") {
@@ -426,7 +447,11 @@ export function buildPaymentAttemptHelpers(deps: {
       }
 
       const sameType = rows.filter((row) => row.attempt_type === args.attempt_type);
-      const unresolved = [...sameType].reverse().find((row) => row.result_class === "unknown" || row.result_class === "success");
+      // A renewal that SUCCEEDED is complete (its effect — the current
+      // authorization — commits in the same transaction as the settle); only an
+      // UNKNOWN renewal is unresolved. Every other money type also treats an
+      // executed-but-unpersisted success as unresolved.
+      const unresolved = [...sameType].reverse().find((row) => row.result_class === "unknown" || (row.result_class === "success" && args.attempt_type !== "reauthorize"));
       if (unresolved) {
         if (unresolved.result_class === "unknown" && unresolved.dispatch_state === "dispatching" && unresolved.in_flight) {
           return {
@@ -578,6 +603,13 @@ export function buildPaymentAttemptHelpers(deps: {
     outcome: ProviderDispatchOutcome;
     provider_reference?: string | null;
     note?: string | null;
+    /**
+     * LONG_HORIZON_DEALS — durable effects that must commit ATOMICALLY with a
+     * settled outcome (the renewed authorization on the binding, the "instrument
+     * unusable" mark). Runs on the settle transaction only when the outcome was
+     * actually written by this owner; never for a refused or pre-dispatch settle.
+     */
+    inside?: (c: any) => Promise<void>;
   }): Promise<SettleDispatchResult> {
     const setting = ownerSetting({ event_uuid: args.owner.event_uuid, lease_generation: Number(args.owner.lease_generation) });
     return deps.withTx(async (c) => {
@@ -621,7 +653,10 @@ export function buildPaymentAttemptHelpers(deps: {
            )`,
         [args.participant_id, args.deal_id, args.attempt_type, args.correlation_id, resultClass, args.provider_reference ?? null, args.note ?? null, args.owner.event_uuid, Number(args.owner.lease_generation)]
       );
-      if (Number(updated.rowCount || 0) === 1) return "settled" as const;
+      if (Number(updated.rowCount || 0) === 1) {
+        if (args.inside) await args.inside(c);
+        return "settled" as const;
+      }
       return classifySettleRefusal(c, args);
     });
   }

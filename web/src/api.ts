@@ -113,6 +113,25 @@ export const api = {
     return req(`/api/seller/deals/${id}/viral-tree?${q.toString()}`, {}, "seller");
   },
   sellerDealPropagation: (id: string) => req(`/api/seller/deals/${id}/propagation`, {}, "seller"),
+  // SELLER DISTRIBUTION HUB — per-deal distribution links (attribution +
+  // analytics only; the server owns ownership, eligibility and every number)
+  sellerDistribution: (id: string) => req(`/api/seller/deals/${id}/distribution`, {}, "seller"),
+  createDistributionLink: (id: string, payload: Json) =>
+    req(`/api/seller/deals/${id}/distribution/links`, { method: "POST", body: JSON.stringify(payload) }, "seller"),
+  updateDistributionLink: (id: string, linkId: string, payload: Json) =>
+    req(`/api/seller/deals/${id}/distribution/links/${linkId}`, { method: "PATCH", body: JSON.stringify(payload) }, "seller"),
+  sellerDistributionLink: (id: string, linkId: string, range = "7d") =>
+    req(`/api/seller/deals/${id}/distribution/links/${linkId}?range=${encodeURIComponent(range)}`, {}, "seller"),
+  distributionExternalAccess: (id: string, linkId: string, action: "enable" | "disable" | "reset_password") =>
+    req(`/api/seller/deals/${id}/distribution/links/${linkId}/external-access`, { method: "POST", body: JSON.stringify({ action }) }, "seller"),
+
+  // ── external link viewer (HttpOnly cookie session, scoped to granted links) ─
+  linkViewerSession: () => req(`/api/link-viewer/session`),
+  linkViewerLogin: (username: string, password: string) =>
+    req(`/api/link-viewer/session/login`, { method: "POST", body: JSON.stringify({ username, password }) }),
+  linkViewerLogout: () => req(`/api/link-viewer/session/logout`, { method: "POST", body: JSON.stringify({}) }),
+  linkViewerDashboard: (range = "7d", link = "") =>
+    req(`/api/link-viewer/dashboard?range=${encodeURIComponent(range)}${link ? `&link=${encodeURIComponent(link)}` : ""}`),
   // P0.7 — seller command center: customer inquiries (seller-scoped server-side)
   sellerInquiries: (scope: "open" | "all" = "open") => req(`/api/seller/inquiries?scope=${scope}`, {}, "seller"),
   sellerInquiry: (threadId: string) => req(`/api/seller/inquiries/${threadId}`, {}, "seller"),
