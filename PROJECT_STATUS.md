@@ -1,9 +1,9 @@
 # SITON PROJECT STATUS
 
-Updated: 2026-09-17
+Updated: 2026-09-18
 Canonical branch: `master`
-Current merged baseline: `ad2007171b9a21a92ca7714c45226b4ac1bf8a17` (PR #49)
-Render staging: LIVE on that SHA (`dep-dam3hfp7lnhs73fuldfg`)
+Current merged baseline: `2e32f436d809a330c8a2189994362cc9f459b009` (PR #53)
+Render staging: LIVE on that SHA — web `dep-dame6v0u01pc738qrku0`, worker `dep-dame6v0u01pc738qrlb0`
 Supabase staging: migration high-water **072**, grants through `staging_026`
 
 ## CURRENT SNAPSHOT
@@ -43,6 +43,9 @@ Supabase staging: migration high-water **072**, grants through `staging_026`
 - **NIGHT CLOSEOUT 2026-09-17 — a LIVE 500 found by opening the deployed seller UI, root-caused and repaired.** `GET /api/seller/deals/:id/distribution` answered 500 for every seller on every deal since the Seller Distribution Hub shipped: canonical migration 070 created the four `distribution_link_viewer_*` tables and **nothing ever granted the web runtime anything on them**, so the query joining `distribution_link_viewer_grants` raised `permission denied for table` (42501). The Render logs show the owner's own IP hitting it four times today. This is the same shape as the PR #45 gap, and invisible to CI for the same reason: the suites drive these routes as the owning superuser, where table privileges never apply. An audit of every `siton` table the Fastify app reaches against what the boundary grants it found one more real gap — `affiliate_links` had SELECT and INSERT but no UPDATE, so renaming, re-channelling or disabling a distribution link also 500ed. Both are repaired in the canonical boundary and in `supabase/staging/026_distribution_link_viewer_grants.sql`, applied to staging and re-verified live: the route now answers 200 with its attribution rule and distributor disclaimer.
 - **NIGHT CLOSEOUT 2026-09-17 — a near-miss recorded rather than shipped.** The same audit flagged `seller_business_profiles` as missing SELECT. It is **not** a gap: staging file 019 deliberately revokes table-level access and re-grants COLUMN-level SELECT excluding `bank_account_number`, so the web runtime can read `bank_account_last4` and never the full number. Granting it would have handed the web runtime the raw bank account number, and adding the table to the boundary's select list would have let any boundary re-run silently undo 019. Both files now say so in place, and `026` asserts the column restriction still holds after it runs.
 - **NIGHT CLOSEOUT 2026-09-17 — the footer no longer leads to an empty page.** Browsing the deployed build found "אודות" in the footer of every page leading to a document with a heading and nothing under it. The landing page already hides its About section while the body is empty (the final copy is the owner's to write — `ABOUT_CONTENT_PENDING_OWNER`); the standalone page and the footer did not follow that rule. One emptiness test (`contentPageHasBody`) is now read by both: the footer drops a `#/content` link whose page has no body, and a direct visit explains itself instead of rendering a lone heading. No copy was invented on the owner's behalf.
+- **NIGHT CLOSEOUT 2026-09-18 — a mobile layout break on the page that gets shared externally.** The CI browser smoke failed with `/legal/terms should render at the requested viewport width, 548 !== 390`. Root cause: the topbar wordmark `<img>` carried no `width`/`height`, so until the external stylesheet applied it laid out at its intrinsic **540px**; the document measured 556px wide at a 390px viewport, the browser shrank the page to fit, and `window.innerWidth` reported the zoomed-out visual viewport. Reproduced outside the suite in a real Chromium at 390px and proven in both directions on the same page: 556 without the stylesheet, **390 after declaring the rendered size as attributes**. This was never only a test problem — on a real phone the legal document (the page linked from the join consent line and shared externally) rendered zoomed out until its stylesheet arrived. Fixed in the server-rendered legal shell and in `web/src/brand.tsx`, with the build-absent fallback stylesheet also capping image width. `tests/legal_html_shell_alignment_validation.ts` now requires every image in the legal shell to declare a rendered size that fits a 390px viewport.
+- **NIGHT CLOSEOUT 2026-09-18 — the server-rendered legal footer followed the About rule too.** It was still hard-coding the "אודות" link that the React footer already drops; it now reads the same `contentPageHasBody` rule per request, asserted as the rule (link exactly when the page has a body) rather than as frozen content.
+- **NIGHT CLOSEOUT 2026-09-18 — four surfaces opened with no top-level heading, and two legal documents had three.** Found by opening the deployed build at 390px and reading each screen's heading structure. The shared login surface (`AuthPanel`) rendered one heading and it was an `h2`, so `#/seller` and `#/admin` were routes with no `h1` at all; and where an `EmptyState` is the whole page (`#/deal/<missing>`, `#/track/<missing>`) the page started at `h3`. All four now carry the page's `h1`, and each keeps the exact size it shipped at (`.auth-title` 1.5rem, `.empty-state-title` 1.17rem) — the heading LEVEL was the defect, not the type scale, and the sizes are pinned in the test so a future level change cannot silently become a visual one. Re-checking the deployed build after that merge caught two more: the **admin** entry screen is its own component (`adminStepUp.tsx`), not the shared panel, so the first fix missed it; and `/legal/refunds` and `/legal/payments` were rendering **two and three** `h1`s, because the server-rendered body mapped a CMS `# ` heading to `<h1>` while the in-app `ContentPage` renderer maps every level to `<h2>` — the document title is the page's only top-level heading. Both fixed, and `tests/legal_html_shell_alignment_validation.ts` now requires exactly one `<h1>` per legal document.
 - **NIGHT CLOSEOUT 2026-09-17 — shelf swept to empty.** Open pull requests: only PR #7, now resolved by the slice above. Open issues: #39 delivered, #40 and #41 closed with their merge/deploy evidence (they described work finished in PR #42 and were open only because nobody closed them). The remaining 100 remote branches are historical provenance — none carries a deliverable missing from `master`.
 
 
@@ -153,7 +156,112 @@ The classifier is now a repository gate rather than a one-off: `scripts/seven_da
 4. ~~Issue #39 — Claude UX/support lane~~ **DELIVERED 2026-09-17 (night closeout):** terminal-deal archive, decorative-glyph removal across the whole active product UI, multi-method receipt/redemption, removal of the standalone preview journey stage, and support unified with deal/seller context. Implemented against current `master`, not an old UX branch, with `tests/ux_closeout_issue39_validation.ts` (22 checks) as the repeatable proof.
 5. ~~PR #7 — rescoped residual slice~~ **DELIVERED 2026-09-17 (night closeout):** `src/growth_window.ts`, `src/growth_metrics.ts`, `src/buyer_search_intent.ts`, `web/src/growthRange.ts` and `web/src/navIcons.tsx` carried onto current master with both of their tests, wired into `GET /api/admin/growth`, `GET /api/admin/r6/buyers`, the admin growth screen and the pickup-navigation buttons. `web/src/pages/legal.tsx` was **deliberately left behind as OBSOLETE**: master serves the legal documents through the CMS-backed `ContentPage` with the canonical `src/legal_pages.ts` projection and the legal-nav chip strip, so the branch version would be a regression. The rest of PR #7 (communications, the `vtree.tsx` deletion, the colliding `023_` grant file) remains superseded by the 2026-09-17 audit.
 
+6. ~~The four hosted defects of the night of 2026-09-17/18~~ **CLOSED:** PR #51 (`5491667c`) repaired the Seller Distribution Hub's ungranted viewer tables (a 500 on every seller, every deal), the footer link to a body-less About page, the `--ink-faint` WCAG AA miss and the support route's missing `h1`, plus the mobile layout break on `/legal/*`. PR #52 (`df9ec53b`) and PR #53 (`2e32f436`) closed the remaining heading defects — the shared login surface, the full-page empty states, the admin entry screen and the legal documents' extra `h1`s. All merged with 7/7 checks green, deployed, and re-verified in a browser on the deployed build.
+
 **The shelf is empty of relevant work.** There is no open pull request carrying an unmerged feature, no open issue describing unbuilt product work, and no branch holding a deliverable that has not reached `master`. The remaining 100 branches are historical (squashed or superseded provenance).
+
+## NIGHT CLOSEOUT — 2026-09-18
+
+Scope of the run: sweep the shelf, fix what is broken, merge, deploy and verify
+in a browser. Not a report-only pass.
+
+- **Date:** 2026-09-18 (work ran through the night of 2026-09-17/18, UTC)
+- **Master SHA at the end of the code work:** `2e32f436d809a330c8a2189994362cc9f459b009` (merge of PR #53).
+  The documentation commit that carries this closeout follows it and changes no
+  runtime code.
+- **Deployment SHA:** `2e32f436d809a330c8a2189994362cc9f459b009` — Render `siton-staging-web`
+  (`dep-dame6v0u01pc738qrku0`) and `siton-staging-worker` (`dep-dame6v0u01pc738qrlb0`) both LIVE
+  on it. Canonical environment identified from `render.yaml`, the Render
+  workspace and the services' own `autoDeploy: commit` on `master`, not from
+  documentation: `https://siton-staging-web.onrender.com`.
+- **Merged tonight:** PR #50 (`23c52415`) — Issue #39 UX lane plus the PR #7
+  residual slice; PR #51 (`5491667c`) — the live distribution 500, the empty
+  About page, the WCAG AA contrast miss and the mobile legal-page layout break;
+  PR #52 (`df9ec53b`) — the login surface and the full-page empty states opened
+  with no top-level heading; PR #53 (`2e32f436`) — the admin entry screen
+  (its own component, missed by the shared fix) and the legal documents minting
+  extra `h1`s from CMS body copy.
+- **Applied migrations:** none tonight. Supabase staging high-water stays
+  **072**, ledger 65 rows, 0 non-succeeded, 0 gaps, DRIFT=0 against
+  `scripts/migration_manifest.cjs`. The database work tonight was a GRANT
+  repair, `supabase/staging/026_distribution_link_viewer_grants.sql`, which
+  creates no schema objects.
+
+### Results
+
+| Gate | Result |
+| --- | --- |
+| Unit | 17/17 files PASS |
+| Integration | 44/44 files PASS |
+| Database | 8/8 files PASS |
+| API | 49/49 files PASS |
+| Workers | 15/15 files PASS |
+| Payments | 44/44 files PASS |
+| Security | 44/44 files PASS |
+| Concurrency | 9/9 files PASS |
+| Failure injection | 9/9 files PASS |
+| E2E (incl. browser smoke) | 14/14 files PASS |
+| **Whole repository** | **253/253 files, 10/10 groups, exit 0** |
+| Regression tests written tonight | 4 files extended/added, every defect proven in both directions |
+| Static gates / release preflight | `pass=16 fail=0 warning=4`, exit 0 |
+| CI | 7/7 checks green on each merged head |
+| Migrations | high-water 072, 65 ledger rows, drift 0 |
+| Browser smoke (deployed) | 13 routes x desktop 1440 + mobile 390 = 26 screen loads, every one with exactly one `h1`, no raw JSON, no placeholder text, 0 failed requests |
+| Mobile | every route `innerWidth == 390` with no horizontal overflow |
+| Sentry / logs | Sentry org has zero projects and the app wires no SDK; Render app logs are the runtime truth — zero errors and zero warnings (beyond a Vite chunk-size build note) since the final deploy |
+
+### Verified by eye on the deployed build
+
+**On the final deployment (`2e32f436`), at desktop 1440 and mobile 390:**
+`/readiness` 200 (`database: connected`, `runtime_role: siton_web_runtime`) and
+`/health` 200; home; the mall; the seller entry screen; the admin entry screen;
+the support form; `#/content/about`; all four legal documents at `/legal/*`;
+and the missing-deal, missing-tracking and unknown-route surfaces. Every one of
+those 26 screen loads carries exactly one `h1`, none overflows a 390px viewport,
+none shows raw JSON or placeholder text, and there were zero failed requests.
+The only non-2xx responses in the whole pass are the app's own
+`404 /api/deals/<zero-uuid>/public|activity` and
+`404 /api/participants/<zero-uuid>/tracking|impact` — the correct answer for a
+deliberately non-existent id, with the honest empty state rendered above it.
+
+**Earlier the same night, on the `23c52415` and `5491667c` deployments:** the
+full seller journey (sign-up through the real form, e-mail confirmation, login,
+Draft, edit, cancel, archive), the seller dashboard, product library and
+create-deal wizard, a complete buyer journey (join two units, mock
+authorization, meter 0/9 → 2/9, tracking screen, ₪98 held as a frame) with
+`buyer_state=JoinedAuthorized`, `money_state=AuthHeld` and **0 payment attempts
+and 0 platform-fee money events**, a deal-scoped support inquiry binding deal to
+seller server-side, and the repaired
+`GET /api/seller/deals/:id/distribution` answering **200** for an authenticated
+seller (401, not 500, unauthenticated). The lifted `--ink-faint: #8b929d` is the
+value the deployed stylesheet actually serves.
+
+### Known issues
+
+1. `OTP_HASH_SALT` is still absent from both Render services — an owner /
+   Render-console action, already tracked in `scripts/release_checklist.cjs`.
+   Production refuses to boot without it; staging currently hashes OTP codes
+   with the salt published in this repository. Deliberately not changed from a
+   coding session.
+2. The `deal_page` CMS section on staging holds an **unpublished draft** with
+   two punctuation edits ("איך זה עובד" → "איך זה עובד?" and an added "עכשיו!").
+   One click in the CMS publishes it; it is the owner's copy, so it was not
+   published on their behalf.
+3. The Seller Distribution Hub's **external link-viewer login journey** is still
+   unproven end to end. Its seller-side panel is repaired and live, and the
+   viewer tables now carry their grants, so it is unblocked.
+4. The smoke seller's business profile and bank details were completed directly
+   in the staging database in an earlier run, so that publish-readiness path is
+   still not exercised by a real user flow.
+5. An unknown hash route (`#/does-not-exist`) renders the landing page rather
+   than a dedicated 404 surface. This is the router's explicit, deliberate
+   fallback in `web/src/App.tsx`, recorded here as a product decision rather
+   than a defect.
+
+No open P0 or P1 defect is known in the executed test scope. No known 500. No
+unexpected 401/403/404 on a critical flow. No relevant pull request awaits
+merge, no relevant branch holds a feature missing from `master`, and the
+repository is clean.
 
 ### PERCENTAGE
 
@@ -172,6 +280,7 @@ The classifier is now a repository gate rather than a one-off: `scripts/seven_da
 
 ### NEXT STEP
 
+0. Owner action: publish the `deal_page` CMS draft on staging (two punctuation edits, one click) — it is the owner's copy, so it was not published on their behalf.
 1. Run an authenticated external-link-viewer smoke for the Seller Distribution Hub. Its seller-side panel is repaired and verified live; the external viewer's own login journey is the one PR #37 surface still unproven end to end, and it is now unblocked because the viewer tables finally carry their grants.
 2. Complete the seller business profile and bank details through the seller UI rather than directly in the database, so the publish-readiness path is exercised end to end by a real user flow.
 3. Owner action, unchanged and still open: add `OTP_HASH_SALT` (generateValue) to both Render services. Production already refuses to boot without it; staging currently hashes OTP codes with the salt published in this repository. This is a warning, not a failure, on a synthetic staging environment, and it is tracked in `scripts/release_checklist.cjs` as an owner/Render-console item — it is deliberately not changed from a coding session.
@@ -197,13 +306,13 @@ Current invariants:
 <!-- AGENT_STATUS:claude:START -->
 ### Claude Code latest milestone
 
-- UPDATED: 2026-09-17
-- BRANCH: `claude/eloquent-dijkstra-xlmlo2` (night closeout; PR #50 merged at `23c52415`, then the grant repair above). Earlier in the same day: `claude/optimistic-meitner-qasx1a` (PR #45, merged) and `claude/shelf-heavy-closeout-20260917` (PR #38, merged).
-- COMPLETED: **The shelf is empty and the two remaining product lanes are built.** (a) **Issue #39** closed on current master: terminal Completed/Failed/Cancelled deals leave the primary seller dashboard for a collapsed, counted archive of compact rows that keeps the summary, fulfilment-list and duplicate actions; every decorative pictograph is gone from the shipped React and CSS surfaces (100 occurrences across 21 files) with meaning carried by treatments that were already in the stylesheet — the Action Center's severity border, a hairline EmptyState that no longer accepts an icon, a colour-keyed delivery-type bar, and the deal type spelled out in the image placeholder; `receipt_config` becomes a versioned SET of redemption methods where the representation multiplies but the entitlement does not (same units, same 128-bit code behind the QR, the typed code and the `{code}` link, same single redemption) with **no migration** and therefore no collision with 071/072; the standalone "תצוגה מקדימה" journey stage is removed (the preview ACTION is untouched); and a deal-scoped support inquiry now carries a deal REFERENCE the server resolves against `siton.deals`, taking the seller from the deal row, becoming the canonical seller inquiry thread AND the admin operational case — one inquiry, two projections, not a third support universe. (b) **The PR #7 residual slice** is carried onto current master file by file: the windowed admin growth dashboard (presets, Israel-local custom range, all-time), the intent-sensitive buyer search that fixes the owner's ש reproduction, the range module and the monochrome navigation glyphs, which land exactly where the glyph sweep removed the compass/car emoji. `web/src/pages/legal.tsx` is recorded OBSOLETE rather than merged, because master's CMS-backed `ContentPage` supersedes it. (c) GitHub issues #40 and #41 were closed with their merge/deploy evidence — they described work finished in PR #42 and were open only because nobody closed them.
-- TESTED: Full local suite on a disposable PostgreSQL 16 — **251/251 test files PASS**, ten groups green, no test weakened. New: `tests/ux_closeout_issue39_validation.ts` (22 checks) proving each Issue #39 item, including a repeatable pictograph scan of `web/src`, redemption idempotency through the real HTTP API (presenting the QR then reading the code aloud redeems once; a refunded buyer gets no credential through any method; a foreign seller is refused), and the support authorization/PII regression in both directions — the owning seller sees the inquiry, an unrelated seller does not, the seller projection carries neither the buyer's e-mail nor the phone they gave support, and the admin case keeps both. Carried across and passing on current master: `tests/admin_growth_window_validation.ts` (6) and `tests/admin_buyer_search_intent_validation.ts` (8). Static gates PASS: `tsc --noEmit`, backend enforcement, payment compliance, runtime DDL, seven-day cap (including its self-test), Base44 canonical integrity, architecture contract, demo build, `ci:migrations` at high_water 072 over 65 migrations, route-authorization, the web route/frontend-backend contract with 232 routes and zero unclassified sensitive routes, `mobile:verify`, and the static release preflight. The preflight's one FAIL was real and is fixed rather than excused: a throwaway uuid in the new test read as a card PAN to the secret/PII scanner.
-- OPEN: Sentry is connected as an organization but holds **zero projects**, and the application wires no Sentry SDK at all, so it is not a source of runtime truth for this product — the Render service logs are, and that is where the distribution 500 was found. `ci:web-runtime` and `ci:docker-smoke` were not run locally (they need Docker); repository CI covers both. `OTP_HASH_SALT` is still absent from the Render services — a long-standing owner/Render-console item already tracked in `scripts/release_checklist.cjs`, a warning on synthetic staging and a hard production boot refusal, deliberately not changed from a coding session. The smoke seller's business profile and bank details were completed directly in the staging database in an earlier run, so that publish-readiness path is still not exercised by a real user flow. The Seller Distribution Hub's external-link-viewer journey is still unproven end to end. Agent containers remain denied CONNECT to `*.onrender.com`; hosted verification goes through a browser session outside that egress policy.
-- VERIFIED IN THE BROWSER, ON THE DEPLOYED BUILD: a seller account created through the real sign-up form, e-mail confirmed and logged in (the PR #45 500 stays fixed); the journey strip rendering **four** steps in four columns with no preview stage and stage 1 lit on a draft that has images; the preview ACTION still offered; the redemption picker as a genuine five-option checkbox multi-select where three can be held at once and the last one cannot be switched off; a voucher draft saved with `{"version":2,"method":"qr","methods":["qr","code"]}` read back out of the live staging database; a 45-day horizon with the deadline step reading "אפשר לפתוח עסקה לימים, שבועות או חודשים"; the deal cancelled through the real UI and the dashboard then showing the archive collapsed at (1) with a 54px compact row, its actions, and the honest "אין עסקאות פעילות כרגע" notice where the card grid used to be; the support form hiding the deal field for a general question, requiring it for a deal question with the Hebrew field error, and offering it as optional for a payment question; and eight public screens with zero decorative glyphs, zero console errors and zero failed requests. The one failure the run found — the distribution 500 — was root-caused, repaired, applied to staging and re-verified at 200.
-- PERCENTAGE: Issue #39 100% implemented, tested and verified on the deployed build. PR #7 residual slice 100% carried. Shelf sweep 100% — no open PR, issue or branch holds relevant unmerged work. Seller Distribution Hub seller-side panel 100% repaired and live.
+- UPDATED: 2026-09-18
+- BRANCH: `claude/eloquent-dijkstra-xlmlo2`. Merged tonight from it: PR #50 (`23c52415`), PR #51 (`5491667c`) and PR #52 (`2e32f436d809a330c8a2189994362cc9f459b009`). Earlier the same day: `claude/optimistic-meitner-qasx1a` (PR #45) and `claude/shelf-heavy-closeout-20260917` (PR #38).
+- COMPLETED: **The shelf is empty, the two remaining product lanes are built, and four defects the deployed product was actually carrying are fixed.** (a) **Issue #39** closed on current master: terminal deals leave the primary seller dashboard for a collapsed, counted archive; every decorative pictograph is gone from the shipped React and CSS surfaces, carried instead by treatments already in the stylesheet; `receipt_config` becomes a versioned SET of redemption methods where the representation multiplies but the entitlement does not, with **no migration**; the standalone "תצוגה מקדימה" journey stage is removed while the preview ACTION stays; and a deal-scoped support inquiry carries a deal REFERENCE the server resolves against `siton.deals`, taking the seller from the deal row and becoming both the canonical seller inquiry thread and the admin operational case. (b) **The PR #7 residual slice** is carried onto current master file by file; `web/src/pages/legal.tsx` is recorded OBSOLETE rather than merged. (c) **Four hosted defects, none of them found by a test:** the Seller Distribution Hub's four viewer tables were never granted to the web runtime, so `GET /api/seller/deals/:id/distribution` answered 500 for every seller on every deal since it shipped (plus a second real gap, `affiliate_links` missing UPDATE) — repaired in the canonical boundary and in `supabase/staging/026`, applied and re-verified live at 200, with a near-miss on `seller_business_profiles` deliberately NOT granted because staging 019 restricts it to column-level SELECT excluding `bank_account_number`; the footer led to a body-less About page, now governed by one emptiness rule read by both the React footer and the server-rendered legal footer; `--ink-faint` sat below the 4.5:1 WCAG AA floor on all four canonical surfaces and the support route had no `h1`; and the topbar wordmark carried no intrinsic size, so the server-rendered legal document — the page shared externally — rendered zoomed out on a phone until its stylesheet arrived (548px measured at a 390px viewport). Two more routes with no top-level heading (`#/seller`, `#/admin` and the full-page empty states) were found the same way and fixed at the same size they shipped at. (d) GitHub issues #40 and #41 closed with their merge/deploy evidence.
+- TESTED: Full local suite on a disposable PostgreSQL 16 — **253/253 test files PASS, 10/10 groups, exit 0**, re-run on the final tree. No test weakened. New or extended tonight: `tests/ux_closeout_issue39_validation.ts` (Issue #39 plus three hosted findings, including redemption idempotency through the real HTTP API and the support authorization/PII regression in both directions), `tests/canonical_postgres_runtime_boundary_validation.ts` (the four viewer tables' privileges in both directions, `affiliate_links` UPDATE, negative assertions on settlements/payout batches/notification attempts, and `GET /distribution` driven through the real app **as** `siton_web_runtime`), `tests/visual_brand_consistency_validation.ts` (WCAG contrast computed from the tokens themselves, every ink token on every surface, plus an ordered ink ramp) and `tests/legal_html_shell_alignment_validation.ts` (every image in the legal shell must declare a rendered size that fits a 390px viewport; the footer links About exactly when it has a body). Static gates PASS including `ci:migrations` at high-water 072 over 65 migrations, route-authorization, `mobile:verify` and the static release preflight (`pass=16 fail=0 warning=4`). CI: **7/7 checks green on each merged head**.
+- OPEN: `OTP_HASH_SALT` is still absent from both Render services — an owner/Render-console item tracked in `scripts/release_checklist.cjs`. The staging `deal_page` CMS section holds an unpublished draft with two punctuation edits; it is the owner's copy and was not published on their behalf. Sentry is connected as an organization but holds **zero projects** and the app wires no Sentry SDK, so the Render service logs are the runtime truth — and that is where the distribution 500 was found. The Seller Distribution Hub's external link-viewer journey is still unproven end to end. The smoke seller's business profile was completed directly in the staging database in an earlier run. Agent containers remain denied CONNECT to `*.onrender.com`; hosted verification goes through a browser session outside that egress policy.
+- VERIFIED IN THE BROWSER, ON THE DEPLOYED BUILD: `/readiness` 200 with `runtime_role: siton_web_runtime` and `/health` 200; home, the mall, a public deal page, the seller entry screen, the seller dashboard/product library/create wizard/draft/archive, the support form in all three deal-scopes, `#/content/about` showing its "not yet published" notice instead of a lone heading, all four `/legal/*` documents, the admin entry screen, and the missing-deal, missing-tracking and unknown-route surfaces — at 1440 and at 390, with **zero console errors and zero failed requests**. Every checked route measures `innerWidth == 390` with no horizontal overflow. The deployed stylesheet actually serves `--ink-faint: #8b929d`. A complete buyer journey (join two units, mock authorization, meter 0/9 → 2/9, tracking screen, ₪98 held as a frame) with `buyer_state=JoinedAuthorized`, `money_state=AuthHeld`, **0 payment attempts and 0 platform-fee money events**. Render app logs show zero errors and zero warnings since the final deploy, beyond a Vite chunk-size build note.
+- PERCENTAGE: Issue #39 100%. PR #7 residual slice 100%. Shelf sweep 100% — no open PR, issue or branch holds relevant unmerged work. Seller Distribution Hub seller-side panel 100% repaired and live. Deployment chain 100%: the final master is the deployed SHA and was verified in a browser.
 - NEXT STEP: Run the authenticated external-link-viewer smoke, now unblocked by the viewer-table grants, and complete a seller business profile through the UI rather than the database.
 <!-- AGENT_STATUS:claude:END -->
 
