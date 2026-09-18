@@ -355,10 +355,15 @@ export function SkeletonCards({ count = 6 }: { count?: number }) {
 // MATURE UI (Issue #39, item 2): an empty state is carried by typography and
 // spacing, not by a 2.6rem emoji. The rule above the title is a CSS hairline,
 // so the component no longer takes — or renders — a decorative glyph.
-export function EmptyState(props: { title: string; body?: string; action?: React.ReactNode }) {
+// `level` exists for the surfaces where the empty state IS the whole page (a
+// deal link that no longer resolves, a tracking link with no access): there its
+// title is the page's top-level heading, so the route does not start at h3 with
+// no h1 above it. Inside a dashboard that already has an h1 the default stands.
+export function EmptyState(props: { title: string; body?: string; action?: React.ReactNode; level?: 1 | 3 }) {
+  const Title = props.level === 1 ? "h1" : "h3";
   return (
     <div className="center empty-state" data-testid="empty-state">
-      <h3 className="empty-state-title">{props.title}</h3>
+      <Title className="empty-state-title">{props.title}</Title>
       {props.body ? <p className="muted">{props.body}</p> : null}
       {props.action}
     </div>

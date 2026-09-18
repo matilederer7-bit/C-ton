@@ -163,7 +163,10 @@ export function AuthPanel(props: {
     <div style={{ maxWidth: 420, margin: "40px auto" }}>
       <div className="panel">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
-        <h2 style={{ textAlign: "center" }}>{props.title}</h2>
+        {/* the login surface IS the page while it is shown (the seller and admin
+            dashboards replace it once authenticated), so its title is the page's
+            h1 — it was an h2, which left those routes with no top-level heading */}
+        <h1 className="auth-title">{props.title}</h1>
         {mode === "signup" ? (
           <p className="muted small" style={{ textAlign: "center" }}>פתיחת חשבון חדש. כבר נרשמתם? <a href="#" onClick={(e) => { e.preventDefault(); switchMode("login"); }}>להתחברות</a></p>
         ) : props.subtitle ? (

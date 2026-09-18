@@ -82,6 +82,7 @@ export function TrackPage({ participantId, token }: { participantId: string; tok
   if (error) {
     return (
       <EmptyState
+        level={1}
         title={error.kind === "network" ? trackCopy.networkTitle : error.kind === "busy" ? trackCopy.busyTitle : trackCopy.noAccessTitle} body={error.message}
         action={
           <div className="row" style={{ justifyContent: "center" }}>

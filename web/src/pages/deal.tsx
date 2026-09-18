@@ -1013,6 +1013,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     const busy = errorKind === "busy";
     return (
       <EmptyState
+        level={1}
         title={preview ? "לא ניתן להציג תצוגה מקדימה" : network ? "בעיית תקשורת" : busy ? "עומס רגעי — נסו שוב בעוד רגע" : "העסקה אינה זמינה"}
         body={preview
           ? "העסקה לא נמצאה או שאינה שייכת לחשבון המוכר הזה."

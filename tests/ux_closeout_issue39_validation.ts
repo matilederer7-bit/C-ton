@@ -411,6 +411,38 @@ try {
     assert.equal(withoutDeal.json().deal_id, null);
   });
 
+  // ── HOSTED FINDING (night closeout) — every page opens with an h1 ─────────
+  // Opening the deployed build at 390px found the seller entry screen rendering
+  // ONE heading, an h2, so a screen-reader user landed on a route with no
+  // top-level heading — the same defect as the support route. The login surface
+  // IS the page while it is shown (the dashboards replace it once
+  // authenticated), so its title is the page h1. The LEVEL was the defect, not
+  // the type scale: `.auth-title` keeps the size it rendered at as an h2, so
+  // nothing about the screen looks different.
+  await run("hosted finding: the shared login surface opens with an h1, at its original size", async () => {
+    const auth = await readFile("web/src/auth.tsx", "utf8");
+    assert.match(auth, /<h1 className="auth-title">\{props\.title\}<\/h1>/,
+      "the login panel title must be the page h1");
+    assert.doesNotMatch(auth, /<h2[^>]*>\{props\.title\}/, "and must not also be an h2");
+    const css = await readFile("web/src/styles.css", "utf8");
+    assert.match(css, /\.auth-title \{[^}]*font-size: 1\.5rem/,
+      "the h1 must keep the 1.5rem size the h2 rendered at — an accessibility fix, not a redesign");
+    // and where an empty state IS the whole page, its title is that page's h1
+    const components = await readFile("web/src/components.tsx", "utf8");
+    assert.match(components, /const Title = props\.level === 1 \? "h1" : "h3";/,
+      "EmptyState must be able to carry the page's top-level heading");
+    for (const file of ["web/src/pages/deal.tsx", "web/src/pages/track.tsx"]) {
+      assert.match(await readFile(file, "utf8"), /<EmptyState\n\s+level=\{1\}/,
+        `${file} renders a full-page empty state, so it must pass level={1}`);
+    }
+    assert.match(css, /\.empty-state-title \{[^}]*font-size: 1\.17rem/,
+      "the empty-state title size is pinned, so the level can change without the type scale moving");
+    // the support route's own h1, found the same way earlier tonight, stays
+    const support = await readFile("web/src/pages/support.tsx", "utf8");
+    assert.match(support, /<h1>\{copy\.title\}<\/h1>/, "the support form keeps its h1");
+    assert.match(support, /<h1>\{copy\.sent_title\}<\/h1>/, "and so does its confirmation");
+  });
+
   await run("item 5: the honeypot and the existing contact validation are unchanged", async () => {
     const bot = await contact({ name: "bot", email: "bot@example.invalid", category: "deal", message: "spam spam spam", website: "http://spam" });
     assert.equal(bot.status, 200, bot.body);
