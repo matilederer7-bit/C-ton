@@ -318,6 +318,19 @@ Current invariants:
 
 Agent slots are intentionally independent. Each coding agent may replace only its own marked block.
 
+<!-- AGENT_STATUS:chatgpt:START -->
+### ChatGPT latest milestone
+
+- UPDATED: 2026-09-18
+- BRANCH: `chatgpt/payment-activation-source-of-truth-20260918`
+- COMPLETED: payment-provider documentation reconciled so the repository has one current activation source of truth. `docs/PAYMENT_ACTIVATION_SOURCE_OF_TRUTH.md` now records Grow / Meshulam as the intended next payment provider candidate, keeps Stripe as an isolated historical adapter/proof surface, preserves `REAL_MONEY_ALLOWED=false`, and defines the exact external Grow facts, Sandbox proof sequence, controlled real-money sequence and authoritative files. The two Stripe-first readiness documents are explicitly marked historical rather than silently rewritten.
+- TESTED: documentation-only scope; no runtime, database, Render, Supabase, Grow credentials, payment state or release-governance flag changed. Commercial invariant remains Siton 8% of the full collected purchase amount including delivery and other applicable purchase charges, excluding VAT; distributor commission remains zero.
+- OPEN: obtain Grow Sandbox `userId` / `pageCode` and provisioned J4/J5 contract facts, then execute the existing hosted Grow Sandbox runbook. Adversarial financial review and explicit owner production activation remain required before real money.
+- PERCENTAGE: internal payment activation documentation/preparation 100%; external provider activation 0% until Grow credentials and contract confirmation exist.
+- NEXT STEP: run the Grow Sandbox proof against the exact deployed release once credentials are available; do not enable real money before the governance blockers are cleared.
+<!-- AGENT_STATUS:chatgpt:END -->
+
+
 <!-- AGENT_STATUS:codex:START -->
 ### Codex latest milestone
 
