@@ -155,10 +155,27 @@ Two hits, one of them a false positive:
   "fix" it.
 - **12 keys interpolate a count into a hard-coded English plural** — `{qty} units` renders
   **"1 units"** at quantity 1, reachable from the pickup card whenever a buyer joins with a
-  single unit. Hebrew has the mirror defect (`1 יחידות`). This is a real violation of the
-  "professional, natural English" requirement and is **still open** — see below.
+  single unit. Hebrew has the mirror defect (`1 יחידות`). **Fixed**: a key may declare a
+  singular under `<key>#one`, chosen when exactly one count is passed and it is 1. Counts
+  arrive as locale-formatted STRINGS (`num()` returns `"1,234"`), so testing for a JavaScript
+  number would have made the mechanism dead code. A sentence carrying two independent counts
+  is split into two keys rather than given one variant, and a contract test enforces that.
 
 ---
+
+## §2.5 — Cross-role escalation: attacked, found sound
+
+Every registered `/api/admin/*` route was enumerated from the live router and probed with a
+**valid, live seller session** — 71 endpoints across 68 routes, behind a vacuity guard proving
+the session really worked on its own surface first. **Zero 2xx.** No escalation.
+
+The existing suites cover the neighbouring cases well: `admin_route_auth_coverage_validation`
+enumerates every admin route against an anonymous caller, and
+`cross_principal_authorization_isolation_validation` covers seller-A-versus-seller-B IDOR
+including the 403-versus-404 existence oracle. The one gap is coverage, not behaviour: that
+file's admin-escalation probe uses **4 hand-listed paths** while its seller side is enumerated
+from the live router, so a new admin route is covered against anonymous callers but not
+against a valid seller session. Worth closing; no defect behind it.
 
 ## §2.8 — Concurrency: attacked, found sound
 
@@ -169,19 +186,51 @@ coverage is real. No defect found, and none manufactured to look productive.
 
 ---
 
+## §2.12 — Hosted reality: one service has been failing to boot
+
+`siton-demo-preview` (`srv-d77p6tgule4c73denj7g`) is the only hosted service that runs in
+`demo-preview` mode, which is what makes unauthenticated deal creation — and therefore a
+hosted test of the money-input guards — possible. It does not boot:
+
+```
+external storage runtime guard failed: APP_DEPLOYMENT_MODE=demo-preview
+is a demo/preview mode and cannot run on a hosted deployment
+    at assertProductionRuntimeGuards (src/production_guards.js:148)
+```
+
+and separately its database no longer resolves:
+
+```
+Error: getaddrinfo ENOTFOUND dpg-d77p6boule4c73denbjg-a
+```
+
+Neither is caused by this work, and the first is a **safety guard doing its job** — the
+service is configured to run a mode the guard forbids hosting. It is recorded here, not
+"fixed": the correct resolutions are to retire the service or to give it a non-demo
+deployment mode and a live database, and both are owner decisions. Weakening
+`production_guards.ts` to make a test pass would be exactly the move this review exists to
+catch.
+
+The consequence is stated plainly in the open list below: the money-input findings are
+verified against a running server locally, in CI, and by the deployed SHA matching master —
+but **not** by a hosted HTTP request.
+
 ## Still open
 
-1. **Plural agreement (`"1 units"` / `"1 יחידות"`)** — proven, user-visible, in both
-   languages, 12 keys. Not fixed in this pass: the dictionaries are generated artefacts and
-   the translator needs a plural-selection rule, which is a change to the i18n contract
-   rather than a patch. Scoped, not started.
-2. **Silent clamping of integral out-of-range unit counts** — `min_units: -5` still becomes
+1. **Hosted verification of the money-input guards.** Verified against a running server
+   locally (failing before the fix, passing after), by CI, and by the deployed SHA matching
+   master — but not by a hosted HTTP request, because both hosted paths are blocked:
+   staging runs `internal-runtime` and needs a seller session that was not provisioned, and
+   `siton-demo-preview` does not boot (above). Owner action.
+2. **The plural singulars are not observable on staging.** There are no live deals and no
+   single-unit participants, so no count-bearing copy renders. Verified locally in a real
+   browser and by direct rendering in both languages instead.
+3. **Silent clamping of integral out-of-range unit counts** — `min_units: -5` still becomes
    `1` without an error. Deliberately preserved: it is long-standing behaviour the create
    defaults rely on, and changing it is a product decision, not a bug fix.
-3. **Sections not attacked in this pass**, and therefore claiming nothing: §2.9 workers and
-   outbox beyond what the suite already covers, §2.10 migrations, §2.12 Render, §2.13
-   Supabase, §2.14 general security, and cross-role authorization escalation (§2.5) beyond
-   the database privilege boundary above.
+4. **Sections not attacked in this pass**, and therefore claiming nothing: §2.9 workers and
+   outbox beyond what the suite already covers, §2.10 migrations, §2.13 Supabase and §2.14
+   general security.
 
 ## Activation consequence
 
