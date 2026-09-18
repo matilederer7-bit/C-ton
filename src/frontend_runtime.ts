@@ -10526,7 +10526,7 @@ export function registerFrontendExperience(
           message: "A stable idempotency key (8-160 safe characters) is required for Grow authorization."
         });
       }
-      const correlationId = `grow-auth:${createHash("sha256")
+      const correlationId = `growauth${createHash("sha256")
         .update(dealAuthorizationContext.deal_id)
         .update("\0")
         .update(dealAuthorizationContext.buyer_id)
