@@ -146,6 +146,32 @@ try {
     }
   });
 
+  // ── §2.2 Unit counts are integer columns, and the 90% target derives from
+  // whatever ends up stored. A fractional min_units used to reach PostgreSQL
+  // and come back as a 500, while the draft-patch path already answered 400.
+  await run("a fractional or oversized unit count is a 400, never a leaked 22P02", async () => {
+    for (const minUnits of [10.4, 20.6, 3.7, 1e12, "10.4"]) {
+      const res = await createDeal({ min_units: minUnits, max_units: 2000 });
+      assert.ok(res.statusCode < 500,
+        `min_units=${minUnits} returned ${res.statusCode} — an integer column must be guarded before the insert`);
+      assert.equal(res.statusCode, 400, `and it must be a validation error, got ${res.statusCode}`);
+    }
+    const okRes = await createDeal({ min_units: 20, max_units: 2000 });
+    assert.equal(okRes.statusCode, 200, "a whole unit count must still be accepted");
+  });
+
+  await run("the stored 90% target always matches the stored min_units", async () => {
+    for (const minUnits of [10, 20, 21, 100, 1]) {
+      const res = await createDeal({ min_units: minUnits, max_units: 2000 });
+      assert.equal(res.statusCode, 200, res.body.slice(0, 160));
+      const row = await pool.query(
+        "SELECT min_units, threshold_units FROM siton.deals WHERE deal_id=$1", [res.json().deal_id]);
+      const storedMin = Number(row.rows[0].min_units);
+      assert.equal(Number(row.rows[0].threshold_units), Math.ceil(0.9 * storedMin),
+        `threshold ${row.rows[0].threshold_units} is not 90% of the stored min_units ${storedMin}`);
+    }
+  });
+
   // ── §2.7 The fee engine must fail closed, never quietly bill nothing ──────
   await run("the platform fee engine refuses a non-finite amount instead of returning zero", async () => {
     const { calculatePlatformFeeMoney } = await import("../src/platform_fee_money.js");

@@ -5967,9 +5967,9 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
   // ABOVE the group price, otherwise the shown saving would be a lie.
   const listPrice = readListPricePerUnit(body.list_price_per_unit, priceRaw);
   const requestedMinUnitsRaw = body.min_units ?? body.threshold_units ?? 10;
-  const minUnits = Math.max(1, Number(requestedMinUnitsRaw || 10));
+  const minUnits = readUnitCount(requestedMinUnitsRaw, "min_units", 10);
   const requestedMaxUnitsRaw = body.max_units ?? Math.max(minUnits, 20);
-  const maxUnits = Math.max(minUnits, Number(requestedMaxUnitsRaw || 20));
+  const maxUnits = Math.max(minUnits, readUnitCount(requestedMaxUnitsRaw, "max_units", 20));
   const draftThreshold = Math.ceil(0.9 * minUnits);
   const deliveryOptions = Array.isArray(body.delivery_options)
     ? body.delivery_options
@@ -6432,6 +6432,34 @@ function normalizeDeliveryCoordinates(option: any): { latitude: number | null; l
 // displayed saving can never be fabricated. `tolerateInvalid` is used when
 // re-validating a stored value against a NEW group price on a Draft edit:
 // a now-invalid stored anchor is dropped (null) rather than blocking the edit.
+// RED TEAM FIX (Phase 2 §2.2) — unit counts are integer columns.
+// `Math.max(1, Number(raw))` happily produced 10.4 and 1e12, which PostgreSQL
+// rejected with 22P02 / 22003 AFTER the transaction had started, so the seller
+// got a 500 `internal_error` for what is plainly a bad request. The draft-patch
+// path already validated this with Number.isInteger and answered 400; the
+// create path is brought up to the same standard. The historical clamp of an
+// out-of-range-but-integral value to the floor is preserved deliberately —
+// only the values the column cannot hold at all are now refused.
+const UNIT_COUNT_MAX = 2_147_483_647; // int4
+
+function readUnitCount(raw: unknown, field: string, fallback: number): number {
+  if (raw === undefined || raw === null || raw === "" || Number(raw) === 0) return fallback;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || !Number.isInteger(value)) {
+    throw Object.assign(new Error(`${field} must be a whole number of units`), {
+      statusCode: 400,
+      code: `${field}_invalid`
+    });
+  }
+  if (value > UNIT_COUNT_MAX) {
+    throw Object.assign(new Error(`${field} must be at most ${UNIT_COUNT_MAX}`), {
+      statusCode: 400,
+      code: `${field}_invalid`
+    });
+  }
+  return Math.max(1, value);
+}
+
 function readListPricePerUnit(raw: unknown, groupPrice: number, opts: { tolerateInvalid?: boolean } = {}): number | null {
   if (raw === undefined || raw === null || String(raw).trim() === "") return null;
   // Both sides are compared as numeric(12,2) will hold them: a "regular" price
