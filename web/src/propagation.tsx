@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Json } from "./api";
 import { ils, num } from "./util";
-import { t } from "./i18n";
+import { t, Tx } from "./i18n";
 
 // ── TRUE VIRAL PROPAGATION TREE (P0.5-2) ────────────────────────────────────
 // A visual map of HOW THE DEAL SPREAD FROM PERSON TO PERSON:
@@ -422,7 +422,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
         {stack.map((crumb, i) => (
           <button key={i} className={`prop-crumb${i === stack.length - 1 ? " current" : ""}`}
             onClick={() => setStack((s) => s.slice(0, i + 1))}>
-            {crumb.kind === "sources" ? `${dealTitle || "העסקה"}` : crumb.kind === "roots" ? crumb.source.label : crumb.parent.display}
+            {crumb.kind === "sources" ? String(dealTitle || t("propagation.deal_fallback")) : crumb.kind === "roots" ? crumb.source.label : crumb.parent.display}
           </button>
         ))}
       </nav>
@@ -437,7 +437,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
             <button key={String(src.source_key)} className="prop-row source" onClick={() => { void openRoots(src); }}>
               <span className="grow" style={{ textAlign: "start" }}>
                 <b>{src.label}</b>
-                <span className="small block">{num(src.direct_joins)} הצטרפו ישירות · {Number(src.propagators) > 0 ? t("propagation.4d2600ea", { propagators: num(src.propagators) }) : t("propagation.7ea0c7f5")}</span>
+                <span className="small block">{t("propagation.source_summary", { joins: num(src.direct_joins), propagators: Number(src.propagators) > 0 ? t("propagation.4d2600ea", { propagators: num(src.propagators) }) : t("propagation.7ea0c7f5") })}</span>
                 <span className="small block muted">{t("propagation.92b144b8", { branch_joins: num(src.branch_joins), max_depth: num(src.max_depth) })}</span>
               </span>
               <span aria-hidden="true">←</span>
@@ -448,7 +448,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
         <div className="stack" style={{ gap: 8 }}>
           {top.kind === "children" ? (
             <div className="prop-parent-card">
-              <b>{top.parent.display}</b> · דור {num(top.parent.generation)} · הביא/ה {num(top.parent.direct_children)}
+              <Tx k="propagation.top_parent" vars={{ who: <b>{top.parent.display}</b>, generation: num(top.parent.generation), brought: num(top.parent.direct_children) }} />
             </div>
           ) : null}
           {rows.length === 0 ? <p className="muted small">{t("propagation.53de946e")}</p> : rows.map((p) => {

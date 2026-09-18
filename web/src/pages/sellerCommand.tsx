@@ -1,7 +1,7 @@
 import React from "react";
 import { Json } from "../api";
 import { ils, num } from "../util";
-import { t } from "../i18n";
+import { t, tKey } from "../i18n";
 
 // ── Seller Command Center panels (P0.4-2) ───────────────────────────────────
 // Every figure comes from the canonical /api/seller/analytics payload — no
@@ -211,8 +211,8 @@ export function FunnelPanel({ analytics }: { analytics: Json }) {
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
-  whatsapp: "וואטסאפ", telegram: "טלגרם", facebook: "פייסבוק", x: "X",
-  email: "אימייל", copy: "העתקת קישור", native: "שיתוף מהמכשיר", other: "אחר"
+  whatsapp: "seller_command.channel_labels.whatsapp", telegram: "seller_command.channel_labels.telegram", facebook: "seller_command.channel_labels.facebook", x: "X",
+  email: "seller_command.channel_labels.email", copy: "seller_command.channel_labels.copy", native: "seller_command.channel_labels.native", other: "seller_command.channel_labels.other"
 };
 
 export function ViralPanel({ analytics, dealScope, navigate }: { analytics: Json; dealScope: string; navigate: (h: string) => void }) {
@@ -270,7 +270,7 @@ export function ViralPanel({ analytics, dealScope, navigate }: { analytics: Json
             <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
               {channels.map((ch) => (
                 <span key={String(ch.channel)} className="channel-chip">
-                  {CHANNEL_LABELS[String(ch.channel)] || String(ch.channel)} · {num(ch.clicks)}
+                  {tKey(CHANNEL_LABELS[String(ch.channel)], ch.channel)} · {num(ch.clicks)}
                 </span>
               ))}
             </div>

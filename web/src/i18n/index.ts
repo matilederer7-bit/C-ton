@@ -9,9 +9,12 @@ export {
 } from "./locale";
 export {
   type Dictionary, type TranslationVars, dictionaryFor, interpolate,
-  translateIn, t, hasTranslation, missingTranslationKeys,
+  translateIn, templateIn, splitTemplate, t, tKey, hasTranslation, missingTranslationKeys,
   fallbackTranslationKeys, __resetTranslationReportForTests
 } from "./translate";
 export { HE } from "./dictionaries/he";
 export { EN } from "./dictionaries/en";
+export { Tx } from "./Tx";
+export { useLocale } from "./useLocale";
+export { LanguageSwitch } from "./LanguageSwitch";
 export { GLOSSARY, type GlossaryEntry } from "./glossary";

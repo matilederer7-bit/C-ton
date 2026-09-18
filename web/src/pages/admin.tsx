@@ -11,7 +11,7 @@ import { PropagationTree } from "../propagation";
 import { buyerStateLabel, fmtDate, ils, israelPartsToUtcIso, moneyStateLabel, notificationStatusLabel, num, pct, stateLabel, timeAgo } from "../util";
 // SHELF REINTEGRATION (PR #7 residual slice) — the admin virality time range.
 import { DEFAULT_GROWTH_RANGE, GROWTH_RANGE_PRESETS, growthRangeLabel, growthRangeParams, validateCustomRange, type GrowthRange } from "../growthRange";
-import { t } from "../i18n";
+import { t, tKey } from "../i18n";
 
 // ── login (the shared truthful auth panel + server-side admin verification) ─
 function AdminLogin({ onDone }: { onDone: () => void }) {
@@ -163,7 +163,7 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
   const pctText = (v: unknown) => (v === null || v === undefined ? "—" : `${v}%`);
   return (
     <div className="panel" data-testid="pilot-metrics">
-      <div className="panel-title">מדדי פיילוט — {num(days)} הימים האחרונים
+      <div className="panel-title">{t("admin.pilot_metrics.title", { days: num(days) })}
         <span className="row" style={{ marginInlineStart: "auto", gap: 6 }}>
           {[7, 30, 90].map((d) => <button key={d} className={`btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}`} onClick={() => setDays(d)}>{t("pages.admin.fe798f56", { d: d })}</button>)}
         </span>
@@ -196,7 +196,7 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
       </div>
       {(m.per_seller || []).some((r: Json) => r.verification_status === "pending") ? (
         <p className="small" style={{ marginTop: 10 }}>
-          יש מוכרים שממתינים לאישור —{" "}
+          {t("admin.sellers_awaiting_approval")}{" "}
           <a href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>{t("pages.admin.dba4e172")}</a>
         </p>
       ) : null}
@@ -207,8 +207,8 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
 }
 
 const FEEDBACK_LABEL_HE: Record<string, string> = {
-  how_it_works: "איך העסקה עובדת", price: "המחיר / ההנחה", target: "מה קורה אם לא מגיעים ליעד",
-  payment: "תשלום", delivery: "משלוח / איסוף", other: "משהו אחר", all_clear: "הכול היה ברור", unknown: "לא ידוע"
+  how_it_works: "admin.feedback_label_he.how_it_works", price: "admin.feedback_label_he.price", target: "admin.feedback_label_he.target",
+  payment: "admin.feedback_label_he.payment", delivery: "admin.feedback_label_he.delivery", other: "admin.feedback_label_he.other", all_clear: "admin.feedback_label_he.all_clear", unknown: "admin.feedback_label_he.unknown"
 };
 function BuyerFeedbackSummary({ feedback }: { feedback: Json | undefined }) {
   const total = Number(feedback?.total || 0);
@@ -224,14 +224,14 @@ function BuyerFeedbackSummary({ feedback }: { feedback: Json | undefined }) {
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
             {rows.map((r) => (
               <span key={String(r.category)} className={`chip${r.category === "all_clear" ? " active" : ""}`} data-testid={`pilot-feedback-${String(r.category)}`}>
-                {FEEDBACK_LABEL_HE[String(r.category)] || String(r.category)} · {num(r.count)}
+                {tKey(FEEDBACK_LABEL_HE[String(r.category)], String(r.category))} · {num(r.count)}
               </span>
             ))}
           </div>
           {recent.length ? (
             <ul className="small" style={{ margin: "10px 0 0", paddingInlineStart: 18, color: "var(--ink-soft)" }}>
               {recent.slice(0, 6).map((r, i) => (
-                <li key={i}><b>{FEEDBACK_LABEL_HE[String(r.category)] || String(r.category)}:</b> {String(r.text || "")} <span className="muted">· {fmtDate(r.at)}</span></li>
+                <li key={i}><b>{tKey(FEEDBACK_LABEL_HE[String(r.category)], String(r.category))}:</b> {String(r.text || "")} <span className="muted">· {fmtDate(r.at)}</span></li>
               ))}
             </ul>
           ) : null}
@@ -440,7 +440,7 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
       ) : null}
       {stale !== undefined ? (
         <p className="muted small">
-          חושב ברקע ע״י ה־Worker · עודכן {computedAt ? fmtDate(computedAt) : "—"} {stale ? t("pages.admin.9c78f699") : ""}
+          {t("admin.computed_by_worker", { at: computedAt ? fmtDate(computedAt) : "—" })} {stale ? t("pages.admin.9c78f699") : ""}
           {onRecompute ? <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: 8 }} onClick={onRecompute}>{t("pages.admin.1829ac44")}</button> : null}
         </p>
       ) : null}
@@ -644,7 +644,7 @@ function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]
             <b>{s.business_name || s.display_name || s.seller_id}</b>
             <span className="small" dir="ltr">{s.login_email || s.seller_id}</span>
             <div className="small">
-              נרשם {s.created_at ? timeAgo(s.created_at) : "—"} · {s.supabase_bound ? t("pages.admin.297d12f7") : t("pages.admin.30707b98")} · טיוטות: {num(s.deals_total || 0)}
+              {t("admin.seller_row_meta", { registered: s.created_at ? timeAgo(s.created_at) : "—", bound: s.supabase_bound ? t("pages.admin.297d12f7") : t("pages.admin.30707b98"), drafts: num(s.deals_total || 0) })}
             </div>
           </div>
           <div className="acts">
@@ -1049,7 +1049,7 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
               </div>
               {(data as Json)?.lifetime?.computed_at ? (
                 <p className="muted small" style={{ marginBottom: 0 }}>
-                  חושב לאחרונה: {fmtDate(String((data as Json).lifetime.computed_at))}{(data as Json).lifetime.stale ? t("pages.admin.04892ad9") : ""}
+                  {t("admin.computed_last_at", { at: fmtDate(String((data as Json).lifetime.computed_at)) })}{(data as Json).lifetime.stale ? t("pages.admin.04892ad9") : ""}
                 </p>
               ) : null}
             </>
@@ -1276,27 +1276,27 @@ function NotificationsScreen() {
 }
 
 const CASE_TYPE_HE: Record<string, string> = {
-  RefundRequest: "בקשת החזר",
-  DeliveryIssue: "בעיית אספקה",
-  SellerRisk: "סיכון מוכר",
-  BuyerComplaint: "פניית קונה",
-  PaymentMismatch: "אי-התאמת תשלום",
-  InvoiceIssue: "בעיית חשבונית",
-  ContentReport: "דיווח על תוכן",
-  SystemException: "חריגת מערכת",
-  Other: "אחר"
+  RefundRequest: "admin.case_type_he.refund_request",
+  DeliveryIssue: "admin.case_type_he.delivery_issue",
+  SellerRisk: "admin.case_type_he.seller_risk",
+  BuyerComplaint: "admin.case_type_he.buyer_complaint",
+  PaymentMismatch: "admin.case_type_he.payment_mismatch",
+  InvoiceIssue: "admin.case_type_he.invoice_issue",
+  ContentReport: "admin.case_type_he.content_report",
+  SystemException: "admin.case_type_he.system_exception",
+  Other: "admin.case_type_he.other"
 };
 const CASE_STATUS_HE: Record<string, string> = {
-  Open: "חדש",
-  NeedsSeller: "ממתין למוכר",
-  NeedsAdmin: "בטיפול",
+  Open: "admin.case_status_he.open",
+  NeedsSeller: "admin.case_status_he.needs_seller",
+  NeedsAdmin: "admin.case_status_he.needs_admin",
   // P0.5: an admin customer-reply moves the case here — presented as answered
-  WaitingExternal: "נענה — ממתין לפונה",
-  Resolved: "נסגר בהצלחה",
-  Closed: "נסגר"
+  WaitingExternal: "admin.case_status_he.waiting_external",
+  Resolved: "admin.case_status_he.resolved",
+  Closed: "admin.case_status_he.closed"
 };
-const CASE_PRIORITY_HE: Record<string, string> = { Low: "נמוכה", Normal: "רגילה", High: "גבוהה", Urgent: "דחופה" };
-const CASE_SOURCE_HE: Record<string, string> = { Admin: "צוות", Buyer: "קונה", Seller: "מוכר", System: "מערכת" };
+const CASE_PRIORITY_HE: Record<string, string> = { Low: "admin.case_priority_he.low", Normal: "admin.case_priority_he.normal", High: "admin.case_priority_he.high", Urgent: "admin.case_priority_he.urgent" };
+const CASE_SOURCE_HE: Record<string, string> = { Admin: "admin.case_source_he.admin", Buyer: "admin.case_source_he.buyer", Seller: "admin.case_source_he.seller", System: "admin.case_source_he.system" };
 
 // P0.5-3 — a support case is a conversation: open a case → see the customer's
 // original message + the full thread → reply. A saved reply is presented
@@ -1345,14 +1345,14 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
           <h2 style={{ margin: 0 }}>{c.subject || t("pages.admin.bda8cda8")}</h2>
           <span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "WaitingExternal" ? "TargetReached" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`} data-testid="case-status">
-            {CASE_STATUS_HE[String(c.status)] || c.status}
+            {tKey(CASE_STATUS_HE[String(c.status)], c.status)}
           </span>
         </div>
         <div className="kv" style={{ marginTop: 10 }}>
           <span className="k">{t("pages.admin.5b02a330")}</span><span className="v" dir="ltr">{String(c.case_id || "").slice(0, 8)}</span>
-          <span className="k">{t("pages.admin.b593ae97")}</span><span className="v">{CASE_TYPE_HE[String(c.case_type)] || c.case_type}</span>
-          <span className="k">{t("pages.admin.b691468d")}</span><span className="v">{CASE_SOURCE_HE[String(c.source)] || c.source}</span>
-          <span className="k">{t("pages.admin.6727cbf0")}</span><span className="v">{CASE_PRIORITY_HE[String(c.priority)] || c.priority}</span>
+          <span className="k">{t("pages.admin.b593ae97")}</span><span className="v">{tKey(CASE_TYPE_HE[String(c.case_type)], c.case_type)}</span>
+          <span className="k">{t("pages.admin.b691468d")}</span><span className="v">{tKey(CASE_SOURCE_HE[String(c.source)], c.source)}</span>
+          <span className="k">{t("pages.admin.6727cbf0")}</span><span className="v">{tKey(CASE_PRIORITY_HE[String(c.priority)], c.priority)}</span>
           {c.buyer_ref ? (<><span className="k">{t("pages.admin.ff1d66dd")}</span><span className="v" dir="ltr">{c.buyer_ref}</span></>) : null}
           {c.deal_title ? (<><span className="k">{t("pages.admin.a559f0b8")}</span><span className="v">{c.deal_title}</span></>) : null}
           <span className="k">{t("pages.admin.aad7941e")}</span><span className="v">{fmtDate(c.created_at)}</span>
@@ -1436,10 +1436,10 @@ function SupportScreen() {
             <tbody>{cases.map((c, i) => (
               <tr key={c.case_id || i} className="case-row" onClick={() => setOpenCaseId(String(c.case_id))} style={{ cursor: "pointer" }}>
                 <td><b>{c.subject || "—"}</b>{c.buyer_ref ? <div className="muted small" dir="ltr">{c.buyer_ref}</div> : null}</td>
-                <td>{CASE_TYPE_HE[String(c.case_type)] || c.case_type}</td>
-                <td>{CASE_SOURCE_HE[String(c.source)] || c.source}</td>
-                <td>{CASE_PRIORITY_HE[String(c.priority)] || c.priority}</td>
-                <td><span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`}>{CASE_STATUS_HE[String(c.status)] || c.status}</span></td>
+                <td>{tKey(CASE_TYPE_HE[String(c.case_type)], c.case_type)}</td>
+                <td>{tKey(CASE_SOURCE_HE[String(c.source)], c.source)}</td>
+                <td>{tKey(CASE_PRIORITY_HE[String(c.priority)], c.priority)}</td>
+                <td><span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`}>{tKey(CASE_STATUS_HE[String(c.status)], c.status)}</span></td>
                 <td className="small" style={{ maxWidth: 340, whiteSpace: "pre-wrap" }}>{String(c.description || "").slice(0, 220)}</td>
                 <td>{fmtDate(c.created_at)}</td>
                 <td><button className="btn btn-sm btn-ghost" data-testid="case-open" onClick={(e) => { e.stopPropagation(); setOpenCaseId(String(c.case_id)); }}>{t("pages.admin.ff7eafc2")}</button></td>
@@ -1580,12 +1580,13 @@ function SystemScreen() {
 // ── shell ──────────────────────────────────────────────────────────────────
 // Grouped IA: commerce first (the operator's daily work), growth second,
 // platform plumbing last.
+// Group label and item label are TRANSLATION KEYS (module-level constant).
 const NAV_GROUPS: { label: string; items: [string, string][] }[] = [
-  { label: "", items: [["overview", "תמונת מצב"]] },
-  { label: "מסחר", items: [["deals", "עסקאות"], ["sellers", "מוכרים"], ["buyers", "קונים"]] },
-  { label: "צמיחה", items: [["growth", "ויראליות"]] },
-  { label: "תפעול", items: [["operations", "תור ו-Worker"], ["payments", "תשלומים"], ["notifications", "התראות"], ["support", "תמיכה"]] },
-  { label: "מערכת", items: [["content", "ניהול תוכן האתר"], ["audit", "יומן פעולות"], ["system", "בריאות מערכת"]] }
+  { label: "", items: [["overview", "admin.nav_groups.items"]] },
+  { label: "admin.nav_groups.label", items: [["deals", "admin.nav_groups.items_2"], ["sellers", "admin.nav_groups.items_3"], ["buyers", "admin.nav_groups.items_4"]] },
+  { label: "admin.nav_groups.label_2", items: [["growth", "admin.nav_groups.items_5"]] },
+  { label: "admin.nav_groups.label_3", items: [["operations", "admin.nav_groups.items_6"], ["payments", "admin.nav_groups.items_7"], ["notifications", "admin.nav_groups.items_8"], ["support", "admin.nav_groups.items_9"]] },
+  { label: "admin.nav_groups.label_4", items: [["content", "admin.nav_groups.items_10"], ["audit", "admin.nav_groups.items_11"], ["system", "admin.nav_groups.items_12"]] }
 ];
 
 export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: string) => void }) {
@@ -1614,10 +1615,10 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
         <div className="admin-nav-title"><BrandMark size={26} />  {t("pages.admin.330731fa")}</div>
         {NAV_GROUPS.map((group) => (
           <React.Fragment key={group.label || "root"}>
-            {group.label ? <div className="admin-nav-group">{group.label}</div> : null}
+            {group.label ? <div className="admin-nav-group">{t(group.label)}</div> : null}
             {group.items.map(([key, label]) => (
               <button key={key} className={screen.startsWith(key) || (key === "deals" && screen === "deal") || (key === "sellers" && screen === "seller") ? "active" : ""} onClick={() => navigate(`#/admin/${key}`)}>
-                {label}
+                {t(label)}
               </button>
             ))}
           </React.Fragment>

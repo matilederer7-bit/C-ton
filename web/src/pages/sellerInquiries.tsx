@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, EmptyState, Toast, useToast } from "../components";
 import { num, timeAgo } from "../util";
-import { t } from "../i18n";
+import { t, tKey, Tx } from "../i18n";
 
 // ── P0.7 — seller command center: customer inquiries ("פניות מלקוחות") ──────
 // The authoritative conversation lives in the product. The dashboard panel,
@@ -11,7 +11,7 @@ import { t } from "../i18n";
 // is a 404 exactly like a missing one. Replies are stored in the product; the
 // customer reads them on the deal page ("הפניות שלי").
 
-const STATUS_LABEL: Record<string, string> = { Open: "ממתינה לתשובה", Answered: "נענתה", Closed: "סגורה" };
+const STATUS_LABEL: Record<string, string> = { Open: "seller_inquiries.status_label.open", Answered: "seller_inquiries.status_label.answered", Closed: "seller_inquiries.status_label.closed" };
 
 function fmtWhen(iso: unknown): string {
   const ms = Date.parse(String(iso || ""));
@@ -30,7 +30,7 @@ export function InquiryRow({ inquiry, navigate }: { inquiry: Json; navigate: (h:
         <span className="inq-preview">{inquiry.last_sender_type === "Seller" ? t("pages.seller_inquiries.54ebb8ab") : ""}{inquiry.last_message_preview}</span>
       </span>
       <span className="inq-meta">
-        <span className={`inq-status ${String(inquiry.status)}`}>{STATUS_LABEL[String(inquiry.status)] || String(inquiry.status)}</span>
+        <span className={`inq-status ${String(inquiry.status)}`}>{tKey(STATUS_LABEL[String(inquiry.status)], inquiry.status)}</span>
         <span className="muted small">{timeAgo(inquiry.last_message_at)}</span>
       </span>
     </button>
@@ -43,7 +43,7 @@ export function InquiriesPanel({ data, error, navigate }: { data: Json | null; e
   return (
     <div className="panel" data-testid="inquiries-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>פניות מלקוחות
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("seller_inquiries.panel_title")}
           {unread > 0 ? <span className="inq-badge" data-testid="inquiries-unread" aria-label={t("pages.seller_inquiries.f4f6c375", { unread: num(unread) })}>{num(unread)}</span> : null}
         </div>
         <button className="btn btn-sm btn-ghost" data-testid="inquiries-open-all" onClick={() => navigate("#/seller/inquiries")}>{t("pages.seller_inquiries.4cfb750b")}</button>
@@ -142,11 +142,11 @@ export function SellerInquiryThreadPage({ threadId, navigate }: { threadId: stri
           <div>
             <h1 style={{ margin: 0, fontSize: "1.25rem" }}>{t("pages.seller_inquiries.086b64cf", { customer_name: thread.customer_name })}</h1>
             <div className="muted small" style={{ marginTop: 4 }}>
-              <span dir="ltr" data-testid="inquiry-customer-email">{thread.customer_email_masked}</span> · נפתחה {fmtWhen(thread.created_at)}
+              <Tx k="seller_inquiries.email_and_opened" vars={{ email: <span dir="ltr" data-testid="inquiry-customer-email">{thread.customer_email_masked}</span>, when: fmtWhen(thread.created_at) }} />
             </div>
           </div>
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            <span className={`inq-status ${String(thread.status)}`} data-testid="inquiry-status">{STATUS_LABEL[String(thread.status)] || String(thread.status)}</span>
+            <span className={`inq-status ${String(thread.status)}`} data-testid="inquiry-status">{tKey(STATUS_LABEL[String(thread.status)], thread.status)}</span>
             <a className="btn btn-sm btn-ghost" href={`#/seller/deal/${thread.deal_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${thread.deal_id}`); }}>{t("pages.seller_inquiries.15a0e679", { deal_title: thread.deal_title })}</a>
           </div>
         </div>

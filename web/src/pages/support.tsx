@@ -20,11 +20,11 @@ import { t } from "../i18n";
 // admin-only queue. Nothing here names a seller — the browser cannot.
 
 const CATEGORIES: { key: string; label: string; deal: "required" | "optional" | "none" }[] = [
-  { key: "general", label: "שאלה כללית", deal: "none" },
-  { key: "deal", label: "בעיה בעסקה שהצטרפתי אליה", deal: "required" },
-  { key: "payment", label: "תשלומים וחיובים", deal: "optional" },
-  { key: "seller", label: "שאלת מוכר", deal: "none" },
-  { key: "report", label: "דיווח על תוכן", deal: "optional" }
+  { key: "general", label: "support.categories.label", deal: "none" },
+  { key: "deal", label: "support.categories.label_2", deal: "required" },
+  { key: "payment", label: "support.categories.label_3", deal: "optional" },
+  { key: "seller", label: "support.categories.label_4", deal: "none" },
+  { key: "report", label: "support.categories.label_5", deal: "optional" }
 ];
 
 const DEAL_SCOPE = new Map(CATEGORIES.map((c) => [c.key, c.deal]));
@@ -123,13 +123,13 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           <div className="field">
             <label>{t("pages.support.6f1fefdc")}</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
-              {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{t(c.label)}</option>)}
             </select>
           </div>
           {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
             <div className="field" data-testid="support-deal-field">
               <label>
-                קישור לעסקה {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("pages.support.9fbd1f49")}</span>}
+                {t("support.deal_link_label")} {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("pages.support.9fbd1f49")}</span>}
               </label>
               <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
                 placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />

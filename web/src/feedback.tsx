@@ -12,12 +12,12 @@ import { t } from "./i18n";
 // operational-cases rail (closed, low priority) and the owner reads the
 // aggregate in מדדי פיילוט.
 export const FEEDBACK_CATEGORIES: { key: string; label: string }[] = [
-  { key: "how_it_works", label: "איך העסקה עובדת" },
-  { key: "price", label: "המחיר / ההנחה" },
-  { key: "target", label: "מה קורה אם לא מגיעים ליעד" },
-  { key: "payment", label: "תשלום" },
-  { key: "delivery", label: "משלוח / איסוף" },
-  { key: "other", label: "משהו אחר" }
+  { key: "how_it_works", label: "feedback.feedback_categories.label" },
+  { key: "price", label: "feedback.feedback_categories.label_2" },
+  { key: "target", label: "feedback.feedback_categories.label_3" },
+  { key: "payment", label: "feedback.feedback_categories.label_4" },
+  { key: "delivery", label: "feedback.feedback_categories.label_5" },
+  { key: "other", label: "feedback.feedback_categories.label_6" }
 ];
 export const FEEDBACK_ALL_CLEAR = "all_clear";
 export const FEEDBACK_TEXT_MAX = 280;
@@ -81,7 +81,7 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
           <button type="button" key={c.key} className={`chip${category === c.key ? " active" : ""}`}
             data-testid={`feedback-chip-${c.key}`} aria-pressed={category === c.key}
             onClick={() => setCategory((cur) => (cur === c.key ? "" : c.key))}>
-            {c.label}
+            {t(c.label)}
           </button>
         ))}
       </div>

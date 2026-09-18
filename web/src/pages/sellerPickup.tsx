@@ -15,31 +15,31 @@ import { t } from "../i18n";
 //   (409 qty mismatch / not ready) and shown verbatim in product Hebrew.
 
 const SELLER_PICKUP_COPY = {
-  title: "סריקת איסוף",
-  subtitle: "סרקו את קוד ה-QR של הקונה, הקלידו את הקוד או חפשו לפי טלפון/שם. המערכת מאמתת מול השרת שההזמנה שולמה ושייכת לכם.",
-  tabScan: "סריקה",
-  tabType: "הקלדת קוד",
-  tabSearch: "חיפוש",
-  startCamera: "הפעלת מצלמה",
-  stopCamera: "כיבוי מצלמה",
-  typeLabel: "קוד האיסוף (8 ספרות)",
-  typeHint: "הקונה רואה את הקוד במסך המעקב, לדוגמה CT-4839-2175",
-  typeSubmit: "אימות הקוד",
-  searchLabel: "טלפון או שם הקונה",
-  searchSubmit: "חיפוש",
-  searchEmpty: "לא נמצאו הזמנות ששולמו עבור החיפוש הזה בעסקאות שהושלמו שלכם.",
-  green: "מוכן למסירה",
-  amber: "כבר נמסר",
-  red: "אין למסור את ההזמנה",
-  notFound: "הקוד אינו תקין",
-  notFoundBody: "לא נמצאה הזמנה עם הקוד הזה בעסקאות שלכם. בדקו את הספרות מול הקונה, או חפשו לפי שם/טלפון.",
-  confirm: "אישור מסירה",
-  back: "חזרה",
-  done: "נמסר",
-  scanAgain: "סריקה נוספת",
-  showPhone: "הצגת טלפון",
-  hidePhone: "הסתרת טלפון",
-  mock: "סביבת הדגמה — אין חיוב אמיתי"
+  title: "seller_pickup.seller_pickup_copy.title",
+  subtitle: "seller_pickup.seller_pickup_copy.subtitle",
+  tabScan: "seller_pickup.seller_pickup_copy.tab_scan",
+  tabType: "seller_pickup.seller_pickup_copy.tab_type",
+  tabSearch: "seller_pickup.seller_pickup_copy.tab_search",
+  startCamera: "seller_pickup.seller_pickup_copy.start_camera",
+  stopCamera: "seller_pickup.seller_pickup_copy.stop_camera",
+  typeLabel: "seller_pickup.seller_pickup_copy.type_label",
+  typeHint: "seller_pickup.seller_pickup_copy.type_hint",
+  typeSubmit: "seller_pickup.seller_pickup_copy.type_submit",
+  searchLabel: "seller_pickup.seller_pickup_copy.search_label",
+  searchSubmit: "seller_pickup.seller_pickup_copy.search_submit",
+  searchEmpty: "seller_pickup.seller_pickup_copy.search_empty",
+  green: "seller_pickup.seller_pickup_copy.green",
+  amber: "seller_pickup.seller_pickup_copy.amber",
+  red: "seller_pickup.seller_pickup_copy.red",
+  notFound: "seller_pickup.seller_pickup_copy.not_found",
+  notFoundBody: "seller_pickup.seller_pickup_copy.not_found_body",
+  confirm: "seller_pickup.seller_pickup_copy.confirm",
+  back: "seller_pickup.seller_pickup_copy.back",
+  done: "seller_pickup.seller_pickup_copy.done",
+  scanAgain: "seller_pickup.seller_pickup_copy.scan_again",
+  showPhone: "seller_pickup.seller_pickup_copy.show_phone",
+  hidePhone: "seller_pickup.seller_pickup_copy.hide_phone",
+  mock: "seller_pickup.seller_pickup_copy.mock"
 } as const;
 
 function verdictTone(verdict: string): "ready" | "already" | "blocked" {
@@ -55,7 +55,7 @@ function OrderFacts({ order, revealPhone, onTogglePhone }: { order: Json; reveal
       <span className="k">{t("pages.seller_pickup.737232c2")}</span>
       <span className="v" dir="ltr">
         {revealPhone && order.buyer_phone ? order.buyer_phone : (order.buyer_phone_masked || "—")}
-        {order.buyer_phone ? <button type="button" className="chip-btn" style={{ marginInlineStart: 8 }} onClick={onTogglePhone}>{revealPhone ? SELLER_PICKUP_COPY.hidePhone : SELLER_PICKUP_COPY.showPhone}</button> : null}
+        {order.buyer_phone ? <button type="button" className="chip-btn" style={{ marginInlineStart: 8 }} onClick={onTogglePhone}>{revealPhone ? t(SELLER_PICKUP_COPY.hidePhone) : t(SELLER_PICKUP_COPY.showPhone)}</button> : null}
       </span>
       <span className="k">{t("pages.seller_pickup.80a08f9c")}</span><span className="v" data-testid="handoff-product">{order.product_title}</span>
       <span className="k">{t("pages.seller_pickup.d4e2d05b")}</span><span className="v handoff-qty" data-testid="handoff-qty">{t("pages.seller_pickup.53ab3dca", { qty: num(order.qty) })}</span>
@@ -99,12 +99,12 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
     <div className={`panel handoff-card handoff-${tone}`} data-testid="handoff-result" data-state={tone} data-verdict={String(order.verdict)}>
       <div className="handoff-verdict">
         <span className="handoff-verdict-icon" aria-hidden="true">{tone === "ready" ? "✓" : tone === "already" ? "◑" : "✕"}</span>
-        <span className="handoff-verdict-text" data-testid="handoff-verdict">{tone === "ready" ? SELLER_PICKUP_COPY.green : tone === "already" ? SELLER_PICKUP_COPY.amber : SELLER_PICKUP_COPY.red}</span>
+        <span className="handoff-verdict-text" data-testid="handoff-verdict">{tone === "ready" ? t(SELLER_PICKUP_COPY.green) : tone === "already" ? t(SELLER_PICKUP_COPY.amber) : t(SELLER_PICKUP_COPY.red)}</span>
       </div>
       {tone === "blocked" ? <div className="handoff-reason" data-testid="handoff-reason">{order.not_ready_label || t("pages.seller_pickup.db416784")}</div> : null}
       {tone === "already" && order.fulfilled_at ? <div className="handoff-reason" data-testid="handoff-fulfilled-at">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(order.fulfilled_at)) })}</div> : null}
       <OrderFacts order={order} revealPhone={revealPhone} onTogglePhone={() => setRevealPhone((v) => !v)} />
-      {mockMoney ? <p className="muted small" style={{ margin: "8px 0 0" }}>{SELLER_PICKUP_COPY.mock}</p> : null}
+      {mockMoney ? <p className="muted small" style={{ margin: "8px 0 0" }}>{t(SELLER_PICKUP_COPY.mock)}</p> : null}
       <div className="row" style={{ marginTop: 14, gap: 8 }}>
         {tone === "ready" ? (
           <button type="button" className="btn btn-primary btn-lg btn-block" data-testid="handoff-confirm-open" onClick={openConfirm}>
@@ -112,14 +112,14 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
         ) : null}
       </div>
       <div className="row" style={{ marginTop: 8 }}>
-        <button type="button" className="btn btn-ghost btn-sm" data-testid="handoff-reset" onClick={onReset}>{SELLER_PICKUP_COPY.scanAgain}</button>
+        <button type="button" className="btn btn-ghost btn-sm" data-testid="handoff-reset" onClick={onReset}>{t(SELLER_PICKUP_COPY.scanAgain)}</button>
       </div>
       {confirming ? (
         <Modal title={t("pages.seller_pickup.44291ad2")} onClose={() => { if (!busy) setConfirming(false); }}
           footer={
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="btn btn-ghost" data-testid="handoff-confirm-back" disabled={busy} onClick={() => setConfirming(false)}>{SELLER_PICKUP_COPY.back}</button>
-              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? t("pages.seller_pickup.dcde6a09") : SELLER_PICKUP_COPY.confirm}</button>
+              <button type="button" className="btn btn-ghost" data-testid="handoff-confirm-back" disabled={busy} onClick={() => setConfirming(false)}>{t(SELLER_PICKUP_COPY.back)}</button>
+              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? t("pages.seller_pickup.dcde6a09") : t(SELLER_PICKUP_COPY.confirm)}</button>
             </div>
           }>
           <p className="handoff-confirm-line" data-testid="handoff-confirm-line">
@@ -141,15 +141,15 @@ function HandoffDone({ result, onReset }: { result: Json; onReset: () => void })
     <div className={`panel handoff-card ${refused ? "handoff-blocked" : "handoff-done"}`} data-testid="handoff-done" data-state={refused ? "blocked" : already ? "already" : "done"}>
       <div className="handoff-verdict">
         <span className="handoff-verdict-icon" aria-hidden="true">{refused ? "✕" : "✓"}</span>
-        <span className="handoff-verdict-text" data-testid="handoff-done-text">{refused ? SELLER_PICKUP_COPY.red : already ? SELLER_PICKUP_COPY.amber : SELLER_PICKUP_COPY.done}</span>
+        <span className="handoff-verdict-text" data-testid="handoff-done-text">{refused ? t(SELLER_PICKUP_COPY.red) : already ? t(SELLER_PICKUP_COPY.amber) : t(SELLER_PICKUP_COPY.done)}</span>
       </div>
       <div className="handoff-reason">
-        {refused ? (result.message || order.not_ready_label || "") : `${num(order.qty)} יחידות של ${order.product_title} — ${order.buyer_name || "הקונה"}`}
+        {refused ? (result.message || order.not_ready_label || "") : t("seller_pickup.order_summary", { qty: num(order.qty), product: order.product_title, buyer: order.buyer_name || t("seller_pickup.buyer_fallback") })}
         {result.fulfilled_at ? <div className="small">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(result.fulfilled_at)) })}</div> : null}
       </div>
       {order.order_code ? <div className="pickup-code-inline" dir="ltr" style={{ marginTop: 6 }}>{order.order_code}</div> : null}
       <div className="row" style={{ marginTop: 14 }}>
-        <button type="button" className="btn btn-primary" data-testid="handoff-next" onClick={onReset}>{SELLER_PICKUP_COPY.scanAgain}</button>
+        <button type="button" className="btn btn-primary" data-testid="handoff-next" onClick={onReset}>{t(SELLER_PICKUP_COPY.scanAgain)}</button>
       </div>
     </div>
   );
@@ -187,7 +187,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       setOrder({ ...r.order, __source: source });
     } catch (e: any) {
       const codeName = String(e?.body?.code || "");
-      if (Number(e?.status) === 404 || codeName === "pickup_code_not_found") setNotFound(SELLER_PICKUP_COPY.notFoundBody);
+      if (Number(e?.status) === 404 || codeName === "pickup_code_not_found") setNotFound(t(SELLER_PICKUP_COPY.notFoundBody));
       else setNotFound(String(e?.message || t("pages.seller_pickup.8d30c587")));
     } finally { setResolving(false); }
   };
@@ -237,20 +237,20 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
   return (
     <div className="pickup-page" data-testid="seller-pickup-page">
       <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>{t("pages.seller_pickup.123e15aa")}</a>
-      <h1 style={{ marginBottom: 4 }}>{SELLER_PICKUP_COPY.title}</h1>
-      <p className="muted" style={{ marginTop: 0 }}>{SELLER_PICKUP_COPY.subtitle}</p>
+      <h1 style={{ marginBottom: 4 }}>{t(SELLER_PICKUP_COPY.title)}</h1>
+      <p className="muted" style={{ marginTop: 0 }}>{t(SELLER_PICKUP_COPY.subtitle)}</p>
 
       {done ? <HandoffDone result={done} onReset={resetAll} /> : null}
       {!done && order ? <HandoffResultCard order={order} mockMoney={mockMoney} onConfirmed={(r) => { setDone(r); setOrder(null); }} onReset={resetAll} /> : null}
       {!done && !order && notFound ? (
         <div className="panel handoff-card handoff-blocked" data-testid="handoff-result" data-state="blocked" data-verdict="not_found">
-          <div className="handoff-verdict"><span className="handoff-verdict-icon" aria-hidden="true">✕</span><span className="handoff-verdict-text" data-testid="handoff-verdict">{SELLER_PICKUP_COPY.notFound}</span></div>
+          <div className="handoff-verdict"><span className="handoff-verdict-icon" aria-hidden="true">✕</span><span className="handoff-verdict-text" data-testid="handoff-verdict">{t(SELLER_PICKUP_COPY.notFound)}</span></div>
           <div className="handoff-reason" data-testid="handoff-reason">{notFound}</div>
         </div>
       ) : null}
 
       <div className="pickup-tabs" role="tablist" aria-label={t("pages.seller_pickup.3a8ce242")}>
-        {([["scan", SELLER_PICKUP_COPY.tabScan], ["type", SELLER_PICKUP_COPY.tabType], ["search", SELLER_PICKUP_COPY.tabSearch]] as const).map(([k, l]) => (
+        {([["scan", t(SELLER_PICKUP_COPY.tabScan)], ["type", t(SELLER_PICKUP_COPY.tabType)], ["search", t(SELLER_PICKUP_COPY.tabSearch)]] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={`pickup-tab${tab === k ? " active" : ""}`} data-testid={`pickup-tab-${k}`} onClick={() => { if (k !== "scan") stopCamera(); setTab(k); }}>{l}</button>
         ))}
       </div>
@@ -268,11 +268,11 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
           </p>
           <div className="row" style={{ gap: 8 }}>
             {outcome === "scanning" || outcome === "starting" ? (
-              <button type="button" className="btn btn-ghost" data-testid="pickup-camera-stop" onClick={stopCamera}>{SELLER_PICKUP_COPY.stopCamera}</button>
+              <button type="button" className="btn btn-ghost" data-testid="pickup-camera-stop" onClick={stopCamera}>{t(SELLER_PICKUP_COPY.stopCamera)}</button>
             ) : (
-              <button type="button" className="btn btn-primary" data-testid="pickup-camera-start" disabled={resolving || !support.ok} onClick={startCamera}>{SELLER_PICKUP_COPY.startCamera}</button>
+              <button type="button" className="btn btn-primary" data-testid="pickup-camera-start" disabled={resolving || !support.ok} onClick={startCamera}>{t(SELLER_PICKUP_COPY.startCamera)}</button>
             )}
-            <button type="button" className="btn btn-ghost" data-testid="pickup-switch-type" onClick={() => { stopCamera(); setTab("type"); }}>{SELLER_PICKUP_COPY.tabType}</button>
+            <button type="button" className="btn btn-ghost" data-testid="pickup-switch-type" onClick={() => { stopCamera(); setTab("type"); }}>{t(SELLER_PICKUP_COPY.tabType)}</button>
           </div>
           {!support.ok ? <p className="muted small" style={{ marginTop: 8 }}>{SCAN_OUTCOME_COPY[support.outcome || "unsupported"]}</p> : null}
         </div>
@@ -281,7 +281,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       {tab === "type" ? (
         <form className="panel" data-testid="pickup-type-panel" onSubmit={submitTyped}>
           <label className="field">
-            <span>{SELLER_PICKUP_COPY.typeLabel}</span>
+            <span>{t(SELLER_PICKUP_COPY.typeLabel)}</span>
             <div className="pickup-input-wrap" dir="ltr">
               <span className="pickup-input-prefix">CT-</span>
               <input
@@ -291,16 +291,16 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
                 autoComplete="off"
                 pattern="[0-9\-]*"
                 placeholder="4839-2175"
-                aria-label={SELLER_PICKUP_COPY.typeLabel}
+                aria-label={t(SELLER_PICKUP_COPY.typeLabel)}
                 value={typed}
                 onChange={(e) => setTyped(formatPickupTyping(e.target.value).display)}
                 autoFocus
               />
             </div>
           </label>
-          <p className="muted small" style={{ marginTop: 4 }}>{SELLER_PICKUP_COPY.typeHint}</p>
+          <p className="muted small" style={{ marginTop: 4 }}>{t(SELLER_PICKUP_COPY.typeHint)}</p>
           <button type="submit" className="btn btn-primary btn-lg btn-block" data-testid="pickup-code-submit" disabled={resolving || !formatPickupTyping(typed).complete}>
-            {resolving ? t("pages.seller_pickup.b14aaf63") : SELLER_PICKUP_COPY.typeSubmit}
+            {resolving ? t("pages.seller_pickup.b14aaf63") : t(SELLER_PICKUP_COPY.typeSubmit)}
           </button>
         </form>
       ) : null}
@@ -309,10 +309,10 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
         <div className="panel" data-testid="pickup-search-panel">
           <form onSubmit={submitSearch}>
             <label className="field">
-              <span>{SELLER_PICKUP_COPY.searchLabel}</span>
+              <span>{t(SELLER_PICKUP_COPY.searchLabel)}</span>
               <input data-testid="pickup-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pages.seller_pickup.39f3aeed")} autoComplete="off" />
             </label>
-            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? t("pages.seller_pickup.b89c236a") : SELLER_PICKUP_COPY.searchSubmit}</button>
+            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? t("pages.seller_pickup.b89c236a") : t(SELLER_PICKUP_COPY.searchSubmit)}</button>
           </form>
           {results ? (
             results.length ? (
@@ -321,11 +321,11 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
                   <button key={o.participant_id} type="button" className={`order-row order-${verdictTone(String(o.verdict))}`} data-testid="pickup-search-hit" onClick={() => { setResults(null); setOrder({ ...o, __source: "search" }); }}>
                     <span className="order-row-main"><b>{o.buyer_name || "—"}</b> · {o.product_title}</span>
                     <span className="order-row-sub" dir="ltr">{o.buyer_phone_masked || ""} · {o.order_code || "—"}</span>
-                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? t("pages.seller_pickup.6ee010b2", { green: SELLER_PICKUP_COPY.green, qty: num(o.qty) }) : verdictTone(String(o.verdict)) === "already" ? SELLER_PICKUP_COPY.amber : (o.not_ready_label || SELLER_PICKUP_COPY.red)}</span>
+                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? t("pages.seller_pickup.6ee010b2", { green: t(SELLER_PICKUP_COPY.green), qty: num(o.qty) }) : verdictTone(String(o.verdict)) === "already" ? t(SELLER_PICKUP_COPY.amber) : (o.not_ready_label || t(SELLER_PICKUP_COPY.red))}</span>
                   </button>
                 ))}
               </div>
-            ) : <p className="muted small" style={{ marginTop: 10 }} data-testid="pickup-search-empty">{SELLER_PICKUP_COPY.searchEmpty}</p>
+            ) : <p className="muted small" style={{ marginTop: 10 }} data-testid="pickup-search-empty">{t(SELLER_PICKUP_COPY.searchEmpty)}</p>
           ) : null}
         </div>
       ) : null}

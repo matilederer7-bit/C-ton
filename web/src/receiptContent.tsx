@@ -18,11 +18,11 @@ import { attention as fieldAttention, focusField } from "./fieldAttention";
 export type ReceiptConfig = { method?: string; methods?: string[]; instructions: string; url: string };
 export const RECEIPT_METHOD_ORDER = ["qr", "code", "name_phone", "digital_link", "instructions"] as const;
 const OPTIONS: [string, string, string][] = [
-  ["qr", "QR / ברקוד", "הקונה יקבל קוד סריקה אישי לאחר השלמת העסקה"],
-  ["code", "קוד מימוש", "הקונה יקבל קוד אישי למימוש"],
-  ["name_phone", "שם וטלפון", "המימוש יתבצע לפי שם וטלפון של הקונה"],
-  ["digital_link", "קישור דיגיטלי", "הקונה יקבל קישור לאחר השלמת העסקה"],
-  ["instructions", "הוראות מהמוכר", "הקונה יקבל את הוראות המימוש שתגדירו"]
+  ["qr", "receipt_content.options", "receipt_content.options_2"],
+  ["code", "receipt_content.options_3", "receipt_content.options_4"],
+  ["name_phone", "receipt_content.options_5", "receipt_content.options_6"],
+  ["digital_link", "receipt_content.options_7", "receipt_content.options_8"],
+  ["instructions", "receipt_content.options_9", "receipt_content.options_10"]
 ];
 
 /** Canonical-ordered, distinct, never empty. Accepts v1 and v2 shapes. */
@@ -61,13 +61,13 @@ export function ReceiptFields({ value, onChange, disabled = false, attention }: 
     <p className="muted small" style={{ margin: "0 0 8px" }}>{t("receipt_content.1e3c222a")}</p>
     <div className="choice-group" data-testid="receipt-methods">
       {OPTIONS.map(([key, title, help]) => <ChoiceCard key={key} mode="many" name="receipt-method" value={key}
-        testId="receipt-method-option" checked={has(key)} title={title} help={help}
+        testId="receipt-method-option" checked={has(key)} title={t(title)} help={t(help)}
         onSelect={checked => toggle(key, checked)} />)}
     </div>
     {has("digital_link") ? <label className="field">{t("receipt_content.c768a841")}<input {...fieldAttention(fieldErrors, "receipt")} type="url" dir="ltr" required maxLength={2000} value={value.url} onChange={e => onChange({ ...value, url: e.target.value })} placeholder="https://" />
       <span className="muted small">{t("receipt_content.0a2421fd")}</span>
     </label> : null}
-    {has("instructions") || has("code") || has("qr") ? <label className="field">הוראות מימוש {has("instructions") ? "" : t("receipt_content.9fbd1f49")}
+    {has("instructions") || has("code") || has("qr") ? <label className="field">{t("receipt_content.instructions_label")} {has("instructions") ? "" : t("receipt_content.9fbd1f49")}
       <textarea {...(has("instructions") ? fieldAttention(fieldErrors, "receipt") : {})} rows={3} required={has("instructions")} maxLength={1000} value={value.instructions} onChange={e => onChange({ ...value, instructions: e.target.value })} />
     </label> : null}
   </fieldset>;
@@ -194,7 +194,7 @@ export function SellerReceipts({ initialCode = "" }: { initialCode?: string }) {
     }}>{scanning ? t("receipt_content.42d09f2f") : t("receipt_content.8f37265a")}</button> : null}
     <video ref={video} playsInline muted style={{ display: scanning ? "block" : "none", maxWidth: "100%" }} />
     <p role="status">{message}</p><div className="stack">{orders.map(o => <section className="panel" key={o.participant_id}>
-      <h3>{o.name} · {o.title}</h3><p>{o.phone} · {o.quantity} יחידות · {o.status === "redeemed" ? t("receipt_content.2090a210") : t("receipt_content.58b7a6be")}</p>
+      <h3>{o.name} · {o.title}</h3><p>{t("receipt_content.order_line", { phone: o.phone, quantity: o.quantity, status: o.status === "redeemed" ? t("receipt_content.2090a210") : t("receipt_content.58b7a6be") })}</p>
       {o.status !== "redeemed" ? <button className="btn btn-primary" disabled={busy} onClick={async () => { setBusy(true); try { await request(`/api/seller/receipts/${o.participant_id}/redeem`, { method: "POST", body: "{}" }, "seller"); await search(); setMessage(t("receipt_content.6311b3be")); } catch (e: any) { setMessage(e.message); } finally { setBusy(false); } }}>{t("receipt_content.38d25fbb", { remaining_quantity: o.remaining_quantity })}</button> : null}
     </section>)}</div></>;
 }
@@ -218,10 +218,10 @@ export function PublicProfileEditor() {
 // canonical source is unchanged — the CMS-backed /api/site-content projection
 // of src/legal_pages.ts.
 const LEGAL_NAV: [string, string][] = [
-  ["legal_terms", "תקנון"],
-  ["legal_privacy", "מדיניות פרטיות"],
-  ["legal_refunds", "ביטולים והחזרים"],
-  ["legal_payments", "מדיניות תשלומים"]
+  ["legal_terms", "receipt_content.legal_nav"],
+  ["legal_privacy", "receipt_content.legal_nav_2"],
+  ["legal_refunds", "receipt_content.legal_nav_3"],
+  ["legal_payments", "receipt_content.legal_nav_4"]
 ];
 export function ContentPage({ section }: { section: string }) {
   const { content: all, loading, error } = useSiteContentState();
@@ -242,7 +242,7 @@ export function ContentPage({ section }: { section: string }) {
   return <>
     {isLegal ? <nav className="legal-nav" aria-label={t("receipt_content.e6cf3e1d")}>
       {LEGAL_NAV.filter(([key]) => all[key]).map(([key, label]) => (
-        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{label}</a>
+        <a key={key} className={`chip${key === section ? " active" : ""}`} href={`#/content/${key}`} data-testid={`legal-nav-${key}`}>{t(label)}</a>
       ))}
     </nav> : null}
     <article className="panel content-doc" data-testid="content-doc" data-section={section}>

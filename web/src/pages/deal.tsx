@@ -4,7 +4,7 @@ import { api, Json } from "../api";
 import {
   BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyInput, Toast, copyText, useToast
 } from "../components";
-import { t } from "../i18n";
+import { t, tKey, Tx } from "../i18n";
 import { LiveCountdown } from "../livecountdown";
 // P0.7C — bounded read polling: immediate, never overlapping, paused when hidden,
 // back-off on 429/errors, stopped on terminal states; dedicated server read budget.
@@ -36,7 +36,7 @@ const OPEN_STATES = ["PendingTarget", "TargetReached"];
 
 // P0.7 polish — the visible product name inside Hebrew sentences. The brand
 // mark/wordmark stay C-ton; only sentence-level copy says סיטון.
-const PRODUCT_NAME_HE = "סיטון";
+const PRODUCT_NAME_KEY = "deal.product_name_he";
 
 type DeliveryOption = {
   option_id: string; option_type: string; label: string; cost: number;
@@ -48,13 +48,13 @@ type DeliveryOption = {
   estimated_min_business_days?: number | null; estimated_max_business_days?: number | null; estimate_text?: string | null;
 };
 
-const DELIVERY_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
+const DELIVERY_NAMES: Record<string, string> = { delivery: "deal.delivery_names.delivery", pickup: "deal.delivery_names.pickup", distribution_point: "deal.delivery_names.distribution_point" };
 
 // The option's display name: pickup-type options show the canonical type name
 // ("איסוף עצמי") and their LOCATION underneath; delivery keeps the seller label.
 function deliveryOptionTitle(o: DeliveryOption): string {
-  if (isPickupOptionType(o.option_type)) return DELIVERY_NAMES[o.option_type] || o.label;
-  return o.label || DELIVERY_NAMES[o.option_type] || t("pages.deal.65e1ef42");
+  if (isPickupOptionType(o.option_type)) return tKey(DELIVERY_NAMES[o.option_type], o.label);
+  return o.label || tKey(DELIVERY_NAMES[o.option_type], t("pages.deal.65e1ef42"));
 }
 
 // P0.7 — the pickup location block. Shows ONLY what was configured for THIS
@@ -148,7 +148,7 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
           <div className="ticker-item" key={`${j.at}-${i}`}>
             <span className="ticker-avatar">{initialOf(j.display)}</span>
             <span>
-              <b>{j.display}</b> הצטרף/ה {j.qty > 1 ? <>{t("pages.deal.43fa3ff5")} <b>{t("pages.deal.53ab3dca", { qty: num(j.qty) })}</b></> : t("pages.deal.8d4d7e16")}
+              <Tx k="deal.ticker.joined" vars={{ who: <b>{j.display}</b>, qty: j.qty > 1 ? <>{t("pages.deal.43fa3ff5")} <b>{t("pages.deal.53ab3dca", { qty: num(j.qty) })}</b></> : t("pages.deal.8d4d7e16") }} />
             </span>
             <span className="ticker-time">{timeAgo(j.at)}</span>
           </div>
@@ -217,7 +217,7 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
             <div className="chat-msg" key={m.message_id} data-testid="chat-msg">
               {m.reply_preview ? (
                 <div className="chat-reply-context">
-                  בתגובה ל<b>{m.reply_preview.display_name || t("pages.deal.3cffea29")}</b>: {String(m.reply_preview.body || "").slice(0, 120)}
+                  <Tx k="deal.chat.in_reply_to" vars={{ who: <b>{m.reply_preview.display_name || t("pages.deal.3cffea29")}</b>, body: String(m.reply_preview.body || "").slice(0, 120) }} />
                 </div>
               ) : null}
               <div className="chat-author">{m.display_name}</div>
@@ -226,11 +226,11 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
               <div className="chat-actions">
                 <button type="button" className={`chat-action${m.viewer_reaction === "like" ? " active" : ""}`}
                   aria-pressed={m.viewer_reaction === "like"} aria-label={t("pages.deal.38bf5edd")} onClick={() => react(m, "like")}>
-                  אהבתי {Number(m.likes || 0) > 0 ? num(m.likes) : ""}
+                  {t("deal.chat.like", { count: Number(m.likes || 0) > 0 ? num(m.likes) : "" })}
                 </button>
                 <button type="button" className={`chat-action dislike${m.viewer_reaction === "dislike" ? " active" : ""}`}
                   aria-pressed={m.viewer_reaction === "dislike"} aria-label={t("pages.deal.88cd823a")} onClick={() => react(m, "dislike")}>
-                  לא אהבתי {Number(m.dislikes || 0) > 0 ? num(m.dislikes) : ""}
+                  {t("deal.chat.dislike", { count: Number(m.dislikes || 0) > 0 ? num(m.dislikes) : "" })}
                 </button>
                 {canWrite ? (
                   <button type="button" className="chat-action" onClick={() => { setReplyTo(m); composerRef.current?.focus(); }}>
@@ -247,7 +247,7 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
           {replyTo ? (
             <div className="chat-composing-reply">
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                עונים ל<b>{replyTo.display_name}</b>: {String(replyTo.body || "").slice(0, 60)}
+                <Tx k="deal.chat.replying_to" vars={{ who: <b>{replyTo.display_name}</b>, body: String(replyTo.body || "").slice(0, 60) }} />
               </span>
               <button type="button" className="chat-action x" aria-label={t("pages.deal.6900b198")} onClick={() => setReplyTo(null)}>✕</button>
             </div>
@@ -275,9 +275,9 @@ const INQUIRY_STORE_KEY = "siton_inquiries_v1";
 const INQUIRY_IDENTITY_KEY = "siton_inquiry_identity_v1";
 type StoredInquiry = { thread_id: string; token: string; created_at: string };
 const INQUIRY_STATUS_LABEL: Record<string, string> = {
-  Open: "נשלחה — ממתינה לתשובת המוכר",
-  Answered: "המוכר השיב",
-  Closed: "נסגרה"
+  Open: "deal.inquiry_status_label.open",
+  Answered: "deal.inquiry_status_label.answered",
+  Closed: "deal.inquiry_status_label.closed"
 };
 
 function readStoredInquiries(dealId: string): StoredInquiry[] {
@@ -351,9 +351,9 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
     return (
       <Modal title="" onClose={onClose}>
         <div className="share-moment" data-testid="inquiry-success">
-          <h3>{t("pages.deal.03ddf051", { pRODUCT_NAME_HE: PRODUCT_NAME_HE })}</h3>
+          <h3>{t("pages.deal.03ddf051", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</h3>
           <p>
-            {t("pages.deal.791563ba", { pRODUCT_NAME_HE: PRODUCT_NAME_HE })}</p>
+            {t("pages.deal.791563ba", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
           <p className="muted small">{t(NOTIFICATIONS_OFF_LINE_KEY).replace(t("pages.deal.42e156ea"), t("pages.deal.a1d7b561"))}</p>
           <button className="btn btn-primary btn-block" data-testid="inquiry-done" onClick={onClose}>{t("pages.deal.b728721f")}</button>
         </div>
@@ -375,7 +375,7 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
     >
       <form id="inquiry-form" onSubmit={submit} noValidate>
         <p className="muted small" style={{ marginTop: 0 }}>
-          {t("pages.deal.c8b17b9b", { pRODUCT_NAME_HE: PRODUCT_NAME_HE })}</p>
+          {t("pages.deal.c8b17b9b", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
         <div className="field"><label>{t("pages.deal.8b1aa6b1")} <span className="req" aria-hidden="true">*</span></label><input data-testid="inquiry-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></div>
         <div className="field">
           <label>{t("pages.deal.15dbea0f")} <span className="req" aria-hidden="true">*</span> <span className="hint">{t("pages.deal.9fad6166")}</span></label>
@@ -441,7 +441,7 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
         return (
           <div className="inq-card" key={threadId} data-testid="my-inquiry" data-status={thread.thread.status}>
             <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-              <span className={`inq-status ${String(thread.thread.status)}`}>{INQUIRY_STATUS_LABEL[String(thread.thread.status)] || String(thread.thread.status)}</span>
+              <span className={`inq-status ${String(thread.thread.status)}`}>{tKey(INQUIRY_STATUS_LABEL[String(thread.thread.status)], thread.thread.status)}</span>
               <span className="muted small">{timeAgo(thread.thread.last_message_at)}</span>
             </div>
             <div className="inq-thread">
@@ -503,7 +503,7 @@ function SellerContactPanel({ seller, onOpen, dealId, refreshKey, preview }: {
       </div>
       <p className="muted small" style={{ margin: "8px 0 0" }}>
         {preview
-          ? t("pages.deal.7479d230", { pRODUCT_NAME_HE: PRODUCT_NAME_HE })
+          ? t("pages.deal.7479d230", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })
           : t(INQUIRY_PRIVACY_LINE_KEY, { product: t("buyer_copy.product_name") }) + t("pages.deal.c6fde5b2")}
       </p>
       {preview ? null : <MyInquiries dealId={dealId} refreshKey={refreshKey} />}
@@ -688,7 +688,7 @@ function JoinModal(props: {
       <form id="join-form" onSubmit={submit} noValidate>
         <div className="order-summary" style={{ borderTop: "none", marginTop: 0, paddingTop: 0, marginBottom: 12 }}>
           <div className="order-row"><span>{deal.title}</span><span>{num(qty)} × {ils(deal.price_per_unit)}</span></div>
-          {delivery ? <div className="order-row"><span>{DELIVERY_NAMES[delivery.option_type] || delivery.label}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
+          {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], delivery.label)}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
           {delivery && isPickupOptionType(delivery.option_type) && pickupLocationText(delivery) ? (
             <div className="order-row"><span className="muted small">{pickupLocationText(delivery)}</span><span /></div>
           ) : null}
@@ -806,7 +806,7 @@ function JoinSuccess(props: {
           <GroupMeter joined={joined} threshold={threshold} max={Number(deal.max_units)} showFlag={false} />
           <p style={{ margin: "8px 0 0", fontWeight: 700 }}>
             {toTarget > 0
-              ? <>חסרות עוד <b>{num(toTarget)}</b> יחידות עד {formatIsraelDateTime(deal.deadline)} כדי שהעסקה תצא לפועל.</>
+              ? <Tx k="deal.units_to_target" vars={{ units: <b>{num(toTarget)}</b>, deadline: formatIsraelDateTime(deal.deadline) }} />
               : <>{t("pages.deal.bea161e5", { deadline: formatIsraelDateTime(deal.deadline) })}</>}
           </p>
         </div>
@@ -1065,8 +1065,8 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     <>
       {preview ? (
         <div className="notice info preview-banner" data-testid="preview-banner" role="status">
-          <b>{t("pages.deal.abf9d0c8")}</b> — כך הקונים יראו את העסקה{rawState === "Draft" ? t("pages.deal.292e049c") : ""}.
-          הצטרפות, שיתוף, צ׳אט ופנייה מושבתים כאן ואינם נספרים.{" "}
+          <Tx k="deal.preview_notice" vars={{ badge: <b>{t("pages.deal.abf9d0c8")}</b>, draft: rawState === "Draft" ? t("pages.deal.292e049c") : "" }} />
+          {t("deal.preview_disabled_note")}{" "}
           <a href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.deal.e0f743d7")}</a>
         </div>
       ) : null}
@@ -1091,7 +1091,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               </div>
             ) : null}
             {isOpen && !preview ? <div className="deal-early-action" data-testid="deal-early-action">
-              <p><b>{t("pages.deal.d215517a", { price_per_unit: ils(deal.price_per_unit) })}</b> · יעד הקבוצה: {num(deal.threshold_units)} יחידות</p>
+              <p><Tx k="deal.price_and_target" vars={{ price: <b>{t("pages.deal.d215517a", { price_per_unit: ils(deal.price_per_unit) })}</b>, target: num(deal.threshold_units) }} /></p>
               <button type="button" className="btn btn-join btn-block" data-testid="join-open-summary" onClick={startJoin}>{ctaText}</button>
               <p className="muted small">{dealCopy.afterTap}</p>
             </div> : null}
@@ -1137,7 +1137,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               </div>
             ) : null}
             <p className="deal-facts-line muted small" data-testid="deal-facts-line">
-              {num(participants)} משתתפים · נותרו במלאי <b style={remaining <= 5 ? { color: "var(--pomegranate)" } : undefined}>{num(remaining)}</b> מתוך {num(deal.max_units)}
+              <Tx k="deal.participants_and_stock" vars={{ participants: num(participants), remaining: <b style={remaining <= 5 ? { color: "var(--pomegranate)" } : undefined}>{num(remaining)}</b>, max: num(deal.max_units) }} />
             </p>
           </div>
 
@@ -1173,7 +1173,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               <div className="order-summary">
                 <div className="order-row"><span>{t("pages.deal.86b1b870")}</span><span>{ils(deal.price_per_unit)}</span></div>
                 <div className="order-row"><span>{t("pages.deal.d4e2d05b")}</span><span>× {num(Math.min(qty, maxQty))}</span></div>
-                {delivery ? <div className="order-row"><span>{DELIVERY_NAMES[delivery.option_type] || t("pages.deal.65e1ef42")}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
+                {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], t("pages.deal.65e1ef42"))}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
                 <div className="order-row total"><span>{t("pages.deal.ce13b5b8")}</span><span>{ils(total)}</span></div>
               </div>
               <div className="order-note" style={{ margin: "12px 0" }}>

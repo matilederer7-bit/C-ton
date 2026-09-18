@@ -12,7 +12,7 @@ import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
-import { t } from "../i18n";
+import { t, tKey, Tx } from "../i18n";
 import { LiveCountdown } from "../livecountdown";
 import {
   GEO_OUTCOME_COPY, GEO_OUTCOME_TEST_ID, browserGeoDeps, geoDiagnosticLine, parseManualCoordinates, recordGeoTrace,
@@ -64,22 +64,22 @@ function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?
 // When it refuses (never silently), the reason is explained here instead of
 // bouncing the user back to the login form with no clue.
 const BINDING_HINT_COPY: Record<string, string> = {
-  email_in_use: "כתובת האימייל הזו כבר שייכת לחשבון מוכר קיים ב-C-ton שאינו מקושר להתחברות הזו. לא נפתח חשבון כפול — פנו לתמיכה ונקשר אותו.",
-  seller_id_in_use: "לא הצלחנו לפתוח חשבון מוכר אוטומטית (התנגשות מזהה). פנו לתמיכה ונקשר את החשבון ידנית.",
-  throttled: "נרשמו הרבה מוכרים חדשים בשעה האחרונה. ההרשמה שלכם נשמרה — נסו להתחבר שוב בעוד כמה דקות.",
-  disabled: "פתיחת חשבון מוכר אוטומטית כבויה כרגע. פנו ל-C-ton כדי שנפתח לכם חשבון.",
-  email_required: "לחשבון ההתחברות אין כתובת אימייל מאומתת — נדרשת כתובת אימייל כדי לפתוח חשבון מוכר.",
-  anonymous_identity: "התחברות אנונימית אינה יכולה לפתוח חשבון מוכר. הירשמו עם אימייל וסיסמה."
+  email_in_use: "seller.binding_hint_copy.email_in_use",
+  seller_id_in_use: "seller.binding_hint_copy.seller_id_in_use",
+  throttled: "seller.binding_hint_copy.throttled",
+  disabled: "seller.binding_hint_copy.disabled",
+  email_required: "seller.binding_hint_copy.email_required",
+  anonymous_identity: "seller.binding_hint_copy.anonymous_identity"
 };
 function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
   const hint = readSellerBindingHint();
-  const copy = BINDING_HINT_COPY[hint];
-  if (!copy || !readSession()?.access_token) return null;
+  const copyKey = BINDING_HINT_COPY[hint];
+  if (!copyKey || !readSession()?.access_token) return null;
   return (
     <div style={{ maxWidth: 420, margin: "24px auto -24px" }}>
       <div className="notice err" data-testid="seller-binding-notice" data-binding={hint}>
         <b>{t("pages.seller.97d0c2ce")}</b>
-        <div className="small" style={{ marginTop: 4 }}>{copy}</div>
+        <div className="small" style={{ marginTop: 4 }}>{t(copyKey)}</div>
         <div className="row" style={{ marginTop: 8, gap: 8 }}>
           <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>{t("pages.seller.ed673442")}</button>
           <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("pages.seller.b939061e")}</button>
@@ -103,11 +103,12 @@ function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
 // real deal state; nothing here claims a real payment — the demo disclosure
 // stays on the strip.
 type JourneyStage = 0 | 1 | 2 | 3;
+// Title/body are TRANSLATION KEYS (module-level constant).
 const JOURNEY_STEPS: { t: string; b: string }[] = [
-  { t: "יצירת עסקה", b: "מוצר, מחיר, יעד יחידות, מועד סיום" },
-  { t: "פרסום", b: "מקבלים קישור אחד לשיתוף" },
-  { t: "איסוף משתתפים", b: "קונים מצטרפים ומשתפים — נתפסת מסגרת בלבד, אין חיוב" },
-  { t: "הצלחה / כישלון", b: "הגיעו ליעד → חיוב ואספקה · לא הגיעו → המסגרות משתחררות" }
+  { t: "seller.journey_steps.t", b: "seller.journey_steps.b" },
+  { t: "seller.journey_steps.t_2", b: "seller.journey_steps.b_2" },
+  { t: "seller.journey_steps.t_3", b: "seller.journey_steps.b_3" },
+  { t: "seller.journey_steps.t_4", b: "seller.journey_steps.b_4" }
 ];
 const JOURNEY_TERMINAL_STEP = JOURNEY_STEPS.length - 1;
 function journeyStageOf(deal: Json | null): JourneyStage {
@@ -140,8 +141,8 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
           return (
             <li key={s.t} className={`journey-step ${cls}`} data-testid={`journey-step-${i + 1}`} aria-current={i === stage ? "step" : undefined}>
               <span className="j-n" aria-hidden="true">{done ? "✓" : i + 1}</span>
-              <div className="j-t">{s.t}</div>
-              <div className="j-b">{i === JOURNEY_TERMINAL_STEP && outcome ? outcome : s.b}</div>
+              <div className="j-t">{t(s.t)}</div>
+              <div className="j-b">{i === JOURNEY_TERMINAL_STEP && outcome ? outcome : t(s.b)}</div>
             </li>
           );
         })}
@@ -538,7 +539,8 @@ function validateDeadline(date: string, time: string): { iso: string | null; err
 }
 
 // ── create wizard — saves a Draft and lands INSIDE the deal (P0.2-G) ───────
-const WIZARD_STEPS = ["פרטי העסקה", "כמויות", "אספקה / מימוש", "מועד סיום", "סיכום ושמירה"];
+// Translation keys (module-level constant).
+const WIZARD_STEPS = ["seller.wizard_steps", "seller.wizard_steps_2", "seller.wizard_steps_3", "seller.wizard_steps_4", "seller.wizard_steps_5"];
 // 071 — ISO → the value a datetime-local input expects (local wall clock)
 function toWizardLocalDateTime(iso: unknown): string {
   const ms = Date.parse(String(iso || ""));
@@ -972,7 +974,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         <h2>{t("pages.seller.293ad2e4")}</h2>
         <div className="wizard-steps">
           {WIZARD_STEPS.map((s, i) => (
-            <div key={s} className={`wizard-step${i === step ? " active" : i < step ? " done" : ""}`}>{i + 1}. {s}</div>
+            <div key={s} className={`wizard-step${i === step ? " active" : i < step ? " done" : ""}`}>{i + 1}. {t(s)}</div>
           ))}
         </div>
 
@@ -981,7 +983,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
           : !product ? <div className="notice info">{t("pages.seller.28eb5686")}</div>
           : (
             <div className="notice info product-locked-summary" data-testid="wizard-product-summary">
-              <b>{t("pages.seller.3641471e", { name: product.name })}</b> · {dealTypeLabel(String(product.product_type))} · גרסה {num(product.revision || 1)}
+              <Tx k="seller.product_summary" vars={{ name: <b>{t("pages.seller.3641471e", { name: product.name })}</b>, type: dealTypeLabel(String(product.product_type)), revision: num(product.revision || 1) }} />
               <div className="small muted" style={{ marginTop: 4 }}>{product.short_description}</div>
               <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.09090ea9")} <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>{t("pages.seller.6a6d03cd")}</a></div>
               {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.5da5b83f", { length: num(productImages.length) })}</div> : null}
@@ -1033,7 +1035,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
                 : null}
             </div>
             <div {...attentionBlock(errors, "images", "field")}>
-              <label>תמונות (עד 12) {productImages.length ? <span className="hint">{t("pages.seller.b70f7ace", { length: num(productImages.length) })}</span> : <span className="req">*</span>}</label>
+              <label>{t("seller.images_label")} {productImages.length ? <span className="hint">{t("pages.seller.b70f7ace", { length: num(productImages.length) })}</span> : <span className="req">*</span>}</label>
               <LocalImageManager images={images} onChange={setImages} />
               <FieldError msg={errors.images} />
             </div>
@@ -1059,8 +1061,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
               </div>
             </div>
             <div className="notice info">
-              סף ההצלחה הסופי הוא <b>{t("pages.seller.ac0e625a")}</b> ({num(threshold)} יחידות מחויבות בפועל) —
-              נקבע אוטומטית ואינו ניתן לשינוי.
+              <Tx k="seller.final_success_threshold" vars={{ rule: <b>{t("pages.seller.ac0e625a")}</b>, units: num(threshold) }} />
             </div>
           </>
         ) : null}
@@ -1485,7 +1486,7 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
 // The server decides editability (seller_actions.delivery_editable): Draft
 // always; published only while ZERO buyers ever relied on the options. Locked
 // deals still SHOW everything with an explicit explanation — never hidden.
-const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "משלוח", pickup: "איסוף עצמי", distribution_point: "נקודת חלוקה" };
+const DELIVERY_TYPE_NAMES: Record<string, string> = { delivery: "seller.delivery_type_names.delivery", pickup: "seller.delivery_type_names.pickup", distribution_point: "seller.delivery_type_names.distribution_point" };
 
 function mapsPlaceUrl(lat: number | null, lng: number | null): string | null {
   if (lat == null || lng == null || !Number.isFinite(Number(lat)) || !Number.isFinite(Number(lng))) return null;
@@ -1602,7 +1603,7 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                 <div className="delivery-view-row" key={String(o.option_id)}>
                   <span className="ico" aria-hidden="true" data-option-type={String(o.option_type)} />
                   <span className="grow">
-                    <b>{DELIVERY_TYPE_NAMES[String(o.option_type)] || o.option_type}</b> — {o.label}
+                    <b>{tKey(DELIVERY_TYPE_NAMES[String(o.option_type)], o.option_type)}</b> — {o.label}
                     {isPickupOptionType(o.option_type) ? (
                       hasUsablePickupLocation(o) ? (
                         <span className="pickup-loc" data-testid="seller-pickup-location"> · {pickupLocationText(o) || `${Number(o.latitude).toFixed(4)}, ${Number(o.longitude).toFixed(4)}`}
@@ -1681,8 +1682,8 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
       <div className="panel" data-testid="product-link-panel" data-product-id={String(deal.product_id)}>
         <div className="panel-title">{t("pages.seller.c118a172")}</div>
         <p className="muted small" style={{ margin: 0 }}>
-          העסקה נוצרה מהמוצר <a href={`#/seller/products/${deal.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${deal.product_id}`); }}><b>{snapshot?.name || deal.title}</b></a>
-          {snapshot?.product_revision ? <> {t("pages.seller.0828f33e", { product_revision: num(snapshot.product_revision) })}</> : null}. השם, התיאור והסוג הוקפאו בעסקה ואינם ניתנים לעריכה כאן; עריכת המוצר יוצרת גרסה חדשה לעסקאות הבאות.
+          {t("seller.deal_from_product_prefix")} <a href={`#/seller/products/${deal.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${deal.product_id}`); }}><b>{snapshot?.name || deal.title}</b></a>
+          {snapshot?.product_revision ? <> {t("pages.seller.0828f33e", { product_revision: num(snapshot.product_revision) })}</> : null}{t("seller.deal_from_product_suffix")}
         </p>
       </div>
     );
@@ -1952,7 +1953,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           <div>
             <b>{t("pages.seller.aace8d77")}</b>
             <div className="small">
-              קונים רואים את העסקה אך לא יכולים להצטרף.{" "}
+              {t("seller.paused_joining_note")}{" "}
               {canReopen ? t("pages.seller.8b11cf63") : t("pages.seller.030050bc")}
             </div>
           </div>
@@ -2135,7 +2136,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {closed || inWindow || state === "Charging" ? (
         <div className="panel">
-          <div className="panel-title">קונים {state === "Completed" ? t("pages.seller.2a906eb3") : ""}</div>
+          <div className="panel-title">{t("seller.buyers_panel_title", { suffix: state === "Completed" ? t("pages.seller.2a906eb3") : "" })}</div>
           <div className="table-wrap">
             <table className="data">
               <thead><tr><th>{t("pages.seller.628febf8")}</th><th>{t("pages.seller.737232c2")}</th><th className="num">{t("pages.seller.d4e2d05b")}</th><th>{t("pages.seller.bd008360")}</th><th>{t("pages.seller.e2325f60")}</th></tr></thead>
@@ -2265,7 +2266,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
               {t("pages.seller.448f0c21")}</div>
           </div>
           <p className="muted small">
-            השרת מחליט אם הביטול מותר במצב הנוכחי של העסקה
+            {t("seller.cancel_server_decides")}
             {!isDraft ? t("pages.seller.a9016d29") : "."}
           </p>
           {cancelRefusal ? (
@@ -2317,19 +2318,19 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 // auto-approves anything. The full bank account number is WRITE-ONLY: the
 // server returns only last4, and an empty input keeps the stored number.
 const ENTITY_TYPES: { value: string; label: string }[] = [
-  { value: "osek_patur", label: "עוסק פטור" },
-  { value: "osek_murshe", label: "עוסק מורשה" },
-  { value: "company", label: "חברה בע״מ" },
-  { value: "amuta", label: "עמותה" },
-  { value: "partnership", label: "שותפות" },
-  { value: "other", label: "אחר" }
+  { value: "osek_patur", label: "seller.entity_types.label" },
+  { value: "osek_murshe", label: "seller.entity_types.label_2" },
+  { value: "company", label: "seller.entity_types.label_3" },
+  { value: "amuta", label: "seller.entity_types.label_4" },
+  { value: "partnership", label: "seller.entity_types.label_5" },
+  { value: "other", label: "seller.entity_types.label_6" }
 ];
 
 const VERIFICATION_LABELS: Record<string, string> = {
-  pending: "בבדיקה", approved: "מאומת", verified: "מאומת", rejected: "נדחה"
+  pending: "seller.verification_labels.pending", approved: "seller.verification_labels.approved", verified: "seller.verification_labels.verified", rejected: "seller.verification_labels.rejected"
 };
 const GROW_LABELS: Record<string, string> = {
-  not_started: "טרם החל", in_progress: "בתהליך", completed: "הושלם"
+  not_started: "seller.grow_labels.not_started", in_progress: "seller.grow_labels.in_progress", completed: "seller.grow_labels.completed"
 };
 
 function StatusBadge({ ok, okText, missingText }: { ok: boolean; okText: string; missingText: string }) {
@@ -2391,11 +2392,11 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
           <span className="k">{t("pages.seller.64278e79")}</span>
           <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText={t("pages.seller.8a0c3e3e")} missingText={t("pages.seller.8b2bb096")} /></span>
           <span className="k">{t("pages.seller.f3fa4276")}</span>
-          <span className="v"><span className="status ClosedForJoining">{VERIFICATION_LABELS[String(statuses.verification_status)] || String(statuses.verification_status || t("pages.seller.51a7047c"))}</span></span>
+          <span className="v"><span className="status ClosedForJoining">{tKey(VERIFICATION_LABELS[String(statuses.verification_status)], statuses.verification_status || t("pages.seller.51a7047c"))}</span></span>
           <span className="k">{t("pages.seller.23f4a225")}</span>
           <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText={t("pages.seller.0d74c234")} missingText={t("pages.seller.47b4be61")} /></span>
           <span className="k">{t("pages.seller.b8a4eea9")}</span>
-          <span className="v"><span className="status ClosedForJoining">{GROW_LABELS[String(statuses.grow_onboarding)] || t("pages.seller.9a11e343")}</span></span>
+          <span className="v"><span className="status ClosedForJoining">{tKey(GROW_LABELS[String(statuses.grow_onboarding)], t("pages.seller.9a11e343"))}</span></span>
         </div>
         <p className="muted small" style={{ marginBottom: 0, marginTop: 10 }}>
           {t("pages.seller.92e7564a")}</p>
@@ -2413,7 +2414,7 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
             <label>{t("pages.seller.e5d83e77")}</label>
             <select value={form.entity_type || ""} onChange={set("entity_type")}>
               <option value="">{t("pages.seller.116d3c56")}</option>
-              {ENTITY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              {ENTITY_TYPES.map((opt) => <option key={opt.value} value={opt.value}>{t(opt.label)}</option>)}
             </select>
           </div>
         </div>

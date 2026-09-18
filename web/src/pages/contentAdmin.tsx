@@ -31,8 +31,8 @@ function cmsErrorText(err: unknown): string {
   return t(key) + (path ? ` (${path})` : "");
 }
 
-const LOAD_ERROR = "לא ניתן לטעון את התוכן כרגע. נסו לרענן את העמוד.";
-const CONFLICT = "התוכן עודכן בידי מנהל אחר. רעננו את העמוד לפני השמירה.";
+const LOAD_ERROR_KEY = "content_admin.load_error";
+const CONFLICT_KEY = "content_admin.conflict";
 const PAGE_ORDER = ["home", "deal_page", "seller_area", "support_page", "about", "footer"];
 // Product surfaces have no standalone public URL that shows their copy to an
 // admin (a deal page needs a deal, the seller dashboard needs a seller). They
@@ -83,7 +83,7 @@ export function ContentAdmin() {
     if (!k) { setWorking(null); setMessage({ tone: "info", text: t("pages.content_admin.185c3236") }); return; }
     setKey(k); setWorking(next[k]!.draft || next[k]!.published); setDirty(false);
   };
-  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => adopt(r.sections || {}, "home")).catch(() => setMessage({ tone: "err", text: LOAD_ERROR })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { request("/api/admin/site-content", {}, "admin").then(r => adopt(r.sections || {}, "home")).catch(() => setMessage({ tone: "err", text: t(LOAD_ERROR_KEY) })); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const section = sections[key];
   const contract = section?.contract;
@@ -100,7 +100,7 @@ export function ContentAdmin() {
       setMessage({ tone: "ok", text: okText });
       return r;
     } catch (e: any) {
-      setMessage({ tone: "err", text: e.status === 409 ? (e.body?.error === "no_draft_to_publish" ? t("pages.content_admin.9dcca175") : e.body?.error === "draft_invalid" ? t("pages.content_admin.bce2d441") : CONFLICT) : e.body?.error && /content|block|item|template|field/.test(String(e.body.error)) ? cmsErrorText({ code: e.body.error }) : e.message });
+      setMessage({ tone: "err", text: e.status === 409 ? (e.body?.error === "no_draft_to_publish" ? t("pages.content_admin.9dcca175") : e.body?.error === "draft_invalid" ? t("pages.content_admin.bce2d441") : t(CONFLICT_KEY)) : e.body?.error && /content|block|item|template|field/.test(String(e.body.error)) ? cmsErrorText({ code: e.body.error }) : e.message });
       return null;
     } finally { setBusy(false); }
   };

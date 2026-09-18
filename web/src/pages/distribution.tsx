@@ -13,34 +13,34 @@ import { api, Json } from "../api";
 import { BrandLoader, EmptyState, StatTile, Toast, copyText, useToast } from "../components";
 import { fmtDate, ils, num, pct } from "../util";
 import { BarChart } from "./sellerCommand";
-import { t } from "../i18n";
+import { t, tKey } from "../i18n";
 
 type Range = "24h" | "7d" | "30d" | "all";
 const RANGES: Array<{ key: Range; label: string }> = [
-  { key: "24h", label: "24 שעות" },
-  { key: "7d", label: "7 ימים" },
-  { key: "30d", label: "30 ימים" },
-  { key: "all", label: "כל התקופה" }
+  { key: "24h", label: "distribution.ranges.label" },
+  { key: "7d", label: "distribution.ranges.label_2" },
+  { key: "30d", label: "distribution.ranges.label_3" },
+  { key: "all", label: "distribution.ranges.label_4" }
 ];
 
 type MetricKey = "entries" | "unique_visitors" | "joins" | "joined_units" | "charged_units" | "attributed_gross";
 const METRICS: Array<{ key: MetricKey; label: string; money?: boolean }> = [
-  { key: "entries", label: "כניסות" },
-  { key: "unique_visitors", label: "מבקרים ייחודיים" },
-  { key: "joins", label: "הצטרפויות" },
-  { key: "joined_units", label: "יחידות שהצטרפו" },
-  { key: "charged_units", label: "יחידות שחויבו סופית" },
-  { key: "attributed_gross", label: "ברוטו מיוחס", money: true }
+  { key: "entries", label: "distribution.metrics.label" },
+  { key: "unique_visitors", label: "distribution.metrics.label_2" },
+  { key: "joins", label: "distribution.metrics.label_3" },
+  { key: "joined_units", label: "distribution.metrics.label_4" },
+  { key: "charged_units", label: "distribution.metrics.label_5" },
+  { key: "attributed_gross", label: "distribution.metrics.label_6", money: true }
 ];
 
 const CHANNEL_SUGGESTIONS = ["whatsapp", "facebook", "instagram", "telegram", "newsletter", "sms", "influencer", "paid", "other"];
 const CHANNEL_LABELS: Record<string, string> = {
-  whatsapp: "וואטסאפ", facebook: "פייסבוק", instagram: "אינסטגרם", telegram: "טלגרם", newsletter: "ניוזלטר",
-  sms: "SMS", influencer: "משפיען/ית", paid: "קמפיין ממומן", other: "אחר"
+  whatsapp: "distribution.channel_labels.whatsapp", facebook: "distribution.channel_labels.facebook", instagram: "distribution.channel_labels.instagram", telegram: "distribution.channel_labels.telegram", newsletter: "distribution.channel_labels.newsletter",
+  sms: "SMS", influencer: "distribution.channel_labels.influencer", paid: "distribution.channel_labels.paid", other: "distribution.channel_labels.other"
 };
 function channelLabel(channel: unknown): string {
   const raw = String(channel || "").trim();
-  return raw ? (CHANNEL_LABELS[raw.toLowerCase()] || raw) : "—";
+  return raw ? tKey(CHANNEL_LABELS[raw.toLowerCase()], raw) : "—";
 }
 
 export function absoluteLinkUrl(shareUrl: string): string {
@@ -91,17 +91,17 @@ export function LinkTimeChart({ series, range, onRange, metric, onMetric }: {
         <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.distribution.c200b2ff")}</div>
         <div className="row" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={t("pages.distribution.26c7f2ad")}>
           {RANGES.map((r) => (
-            <button key={r.key} type="button" className={`chip${range === r.key ? " active" : ""}`} data-testid={`range-${r.key}`} onClick={() => onRange(r.key)}>{r.label}</button>
+            <button key={r.key} type="button" className={`chip${range === r.key ? " active" : ""}`} data-testid={`range-${r.key}`} onClick={() => onRange(r.key)}>{t(r.label)}</button>
           ))}
         </div>
       </div>
       <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "10px 0" }} role="group" aria-label={t("pages.distribution.e702a626")}>
         {METRICS.map((m) => (
-          <button key={m.key} type="button" className={`chip${metric === m.key ? " active" : ""}`} data-testid={`metric-${m.key}`} onClick={() => onMetric(m.key)}>{m.label}</button>
+          <button key={m.key} type="button" className={`chip${metric === m.key ? " active" : ""}`} data-testid={`metric-${m.key}`} onClick={() => onMetric(m.key)}>{t(m.label)}</button>
         ))}
       </div>
       <div className="chart-box">
-        <div className="chart-title">{def.label} · {series?.bucket === "hour" ? t("pages.distribution.0b04b3f7") : t("pages.distribution.7c368c6b")} · סה״כ בטווח: {def.money ? ils(total) : num(total)}</div>
+        <div className="chart-title">{t("distribution.chart_title", { metric: t(def.label), bucket: series?.bucket === "hour" ? t("pages.distribution.0b04b3f7") : t("pages.distribution.7c368c6b"), total: def.money ? ils(total) : num(total) })}</div>
         {points.length ? (
           <BarChart points={points} color={def.key === "charged_units" || def.key === "attributed_gross" ? "var(--success)" : "var(--brand)"} height={90} formatValue={def.money ? (v) => ils(v) : undefined} />
         ) : <p className="muted small chart-empty">{t("pages.distribution.6c378795")}</p>}
@@ -231,7 +231,7 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
             <div className="field">
               <label htmlFor="dist-link-channel">{t("pages.distribution.25b5eb11")} <span className="hint">{t("pages.distribution.2127163b")}</span></label>
               <input id="dist-link-channel" data-testid="distribution-link-channel" list="dist-channel-options" value={channel} maxLength={40} placeholder="whatsapp, facebook, newsletter…" onChange={(e) => setChannel(e.target.value)} />
-              <datalist id="dist-channel-options">{CHANNEL_SUGGESTIONS.map((c) => <option key={c} value={c}>{CHANNEL_LABELS[c]}</option>)}</datalist>
+              <datalist id="dist-channel-options">{CHANNEL_SUGGESTIONS.map((c) => <option key={c} value={c}>{tKey(CHANNEL_LABELS[c], c)}</option>)}</datalist>
             </div>
           </div>
           {formError ? <p className="field-error">{formError}</p> : null}
@@ -423,7 +423,7 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
         </div>
         <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.3c743f5c")}</div>
         <LinkMetricTiles metrics={link.metrics} />
-        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: RANGES.find((r) => r.key === range)?.label ?? "" })}</div>
+        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
         <LinkMetricTiles metrics={payload.window} compact />
         <DistributionDisclaimer text={payload.disclaimer_he} />
       </div>
@@ -533,7 +533,7 @@ export function LinkViewerPage() {
           <>
             <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("pages.distribution.3c743f5c")}</div>
             <LinkMetricTiles metrics={dashboard.totals} />
-            <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: RANGES.find((r) => r.key === range)?.label ?? "" })}</div>
+            <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
             <LinkMetricTiles metrics={dashboard.window} compact />
             <DistributionDisclaimer text={dashboard.disclaimer_he} />
           </>

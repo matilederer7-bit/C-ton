@@ -58,9 +58,50 @@ export function translateIn(locale: Locale, key: string, vars?: TranslationVars)
   return key;
 }
 
+/**
+ * The template for `key`, WITHOUT interpolation — the raw string with its
+ * `{placeholders}` intact. `Tx` uses it to substitute React nodes.
+ */
+export function templateIn(locale: Locale, key: string): string {
+  const own = dictionaryFor(locale)[key];
+  if (typeof own === "string") return own;
+  const base = DICTIONARIES[DEFAULT_LOCALE][key];
+  if (typeof base === "string") {
+    if (locale !== DEFAULT_LOCALE) fallbackKeys.add(key);
+    return base;
+  }
+  missingKeys.add(key);
+  return key;
+}
+
+/** Split a template into its literal parts and placeholder names, in order. */
+export function splitTemplate(template: string): { text: string; name?: string }[] {
+  const out: { text: string; name?: string }[] = [];
+  let last = 0;
+  for (const match of template.matchAll(/\{(\w+)\}/g)) {
+    const at = match.index ?? 0;
+    if (at > last) out.push({ text: template.slice(last, at) });
+    out.push({ text: match[0], name: match[1] });
+    last = at + match[0].length;
+  }
+  if (last < template.length) out.push({ text: template.slice(last) });
+  return out;
+}
+
 /** The product-facing translator: resolves against the ACTIVE locale. */
 export function t(key: string, vars?: TranslationVars): string {
   return translateIn(getLocale(), key, vars);
+}
+
+/**
+ * Resolve a label held in a KEY map — `t(MAP[value])` — falling back to the raw
+ * value when the map has no entry for it. The pattern throughout the product is
+ * a canonical backend identifier mapped to product copy; an identifier the map
+ * does not know is shown as-is rather than hidden.
+ */
+export function tKey(key: string | undefined | null, raw?: unknown): string {
+  if (key) return t(key);
+  return raw === undefined || raw === null ? "" : String(raw);
 }
 
 /** True when the key has a real value in this locale (no fallback involved). */

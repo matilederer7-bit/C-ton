@@ -235,7 +235,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
             <rect width={NODE_W} height={NODE_H} rx={14} />
             <text x={NODE_W / 2} y={26} textAnchor="middle" className="t1">{dealTitle ? String(dealTitle).slice(0, 18) : t("vtree.4832d404")}</text>
             <text x={NODE_W / 2} y={46} textAnchor="middle" className="t2">{t("vtree.e2a87fa0")}</text>
-            <text x={NODE_W / 2} y={66} textAnchor="middle" className="t2">{num(directJoins)} מצטרפים ישירים{data.truncated["root"] ? "+" : ""}</text>
+            <text x={NODE_W / 2} y={66} textAnchor="middle" className="t2">{t("vtree.direct_joiners", { count: num(directJoins) })}{data.truncated["root"] ? "+" : ""}</text>
           </g>
 
           {/* participant slots */}
@@ -256,7 +256,7 @@ export function VTreeCanvas({ dealId, roots, rootTruncated, dealTitle, onSelect,
                 <text x={NODE_W - 12} y={22} textAnchor="end" className="t1">{String(n.display || "").slice(0, 16)}</text>
                 <text x={12} y={22} textAnchor="start" className="t3">{t("vtree.669beca1", { generation: num(n.generation) })}</text>
                 <text x={NODE_W - 12} y={43} textAnchor="end" className="t2">
-                  {num(n.direct_units)} יח׳ · {n.charged ? t("vtree.79e91b93") : n.active ? t("vtree.dbfda859") : t("vtree.58c518fb")}
+                  {t("vtree.node_units", { units: num(n.direct_units), status: n.charged ? t("vtree.79e91b93") : n.active ? t("vtree.dbfda859") : t("vtree.58c518fb") })}
                 </text>
                 <text x={NODE_W - 12} y={64} textAnchor="end" className="t3">
                   {hasKids

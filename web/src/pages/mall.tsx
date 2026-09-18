@@ -80,10 +80,10 @@ function DealCard({ deal, onOpen }: { deal: MallDeal; onOpen: () => void }) {
 }
 
 const TYPE_FILTERS = [
-  { key: "", label: "הכל" },
-  { key: "physical_product", label: "מוצרים" },
-  { key: "voucher", label: "שוברים" },
-  { key: "ticket", label: "כרטיסים" }
+  { key: "", label: "mall.type_filters.label" },
+  { key: "physical_product", label: "mall.type_filters.label_2" },
+  { key: "voucher", label: "mall.type_filters.label_3" },
+  { key: "ticket", label: "mall.type_filters.label_4" }
 ];
 
 export function Mall({ navigate }: { navigate: (hash: string) => void }) {
@@ -131,7 +131,7 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
         {liveDeals > 0 ? (
           <div className="hero-live">
             <span className="live-dot" aria-hidden="true" />
-            {num(liveDeals)} עסקאות פתוחות עכשיו · {num(liveUnits)} יחידות כבר הצטרפו
+            {t("mall.live_summary", { deals: num(liveDeals), units: num(liveUnits) })}
           </div>
         ) : null}
       </section>
@@ -139,11 +139,11 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
       <div className="filters" role="tablist" aria-label={t("pages.mall.963c93c4")}>
         {TYPE_FILTERS.map((f) => (
           <button key={f.key} className={`chip${type === f.key ? " active" : ""}`} onClick={() => setType(f.key)}>
-            {f.label}
+            {t(f.label)}
           </button>
         ))}
         <button className={`chip${onlyOpen ? " active" : ""}`} onClick={() => setOnlyOpen((v) => !v)} style={{ marginInlineStart: "auto" }}>
-          {onlyOpen ? "✓ " : ""}פתוחות להצטרפות
+          {onlyOpen ? "✓ " : ""}{t("mall.only_open_filter")}
         </button>
       </div>
 
