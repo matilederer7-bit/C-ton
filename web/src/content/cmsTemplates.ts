@@ -482,6 +482,70 @@ function normalizeBlock(raw: unknown, contract: PageContract, expectedType?: Tem
 }
 
 /**
+ * Fill in the English Siton SHIPS for a value the owner has not changed.
+ *
+ * Content stored before the bilingual layer existed — and content an owner
+ * published by accepting the defaults — holds the shipped Hebrew and no
+ * English sibling at all. Reading that in English would fall back to Hebrew
+ * for a sentence Siton *does* ship in English, which is how the deployed
+ * tracking screen ended up saying "אין גישה למסך המעקב" on an English page.
+ *
+ * So: when a field has no English value AND its Hebrew is still exactly the
+ * shipped Hebrew default, the shipped English default is used. The moment the
+ * owner CHANGES the Hebrew, there is genuinely no English for what they wrote —
+ * the shipped English would now say something different — so it falls back to
+ * their Hebrew and `missingEnglishContent` reports it. Siton never invents a
+ * translation of the owner's words.
+ */
+export function withShippedEnglish(page: PageContent, contract: PageContract): PageContent {
+  const defaults = new Map(contract.defaults().map((b) => [b.id, b]));
+  if (!defaults.size) return page;
+  return {
+    blocks: page.blocks.map((block) => {
+      const shipped = defaults.get(block.id);
+      if (!shipped || shipped.type !== block.type) return block;
+      const template = TEMPLATES[block.type];
+      if (!template) return block;
+      const translatable = Object.entries(template.fields).filter(([, def]) => ENGLISH_FIELD_KINDS.has(def.kind));
+      const fieldsEn: Record<string, string> = { ...(block.fields_en ?? {}) };
+      let changed = false;
+      for (const [key] of translatable) {
+        if (String(fieldsEn[key] ?? "").trim()) continue;
+        const shippedHe = shipped.fields[key];
+        const shippedEn = shipped.fields_en?.[key];
+        if (!shippedEn || !String(shippedEn).trim()) continue;
+        if (block.fields[key] !== shippedHe) continue; // the owner wrote their own
+        fieldsEn[key] = shippedEn;
+        changed = true;
+      }
+      let itemsEn = block.items_en;
+      if (block.items && shipped.items && shipped.items_en && template.items) {
+        const itemFields = Object.entries(template.items.fields).filter(([, def]) => ENGLISH_FIELD_KINDS.has(def.kind));
+        const next = block.items.map((item, index) => {
+          const current = { ...(block.items_en?.[index] ?? {}) };
+          const shippedItem = shipped.items?.[index];
+          const shippedItemEn = shipped.items_en?.[index];
+          if (!shippedItem || !shippedItemEn) return current;
+          for (const [key] of itemFields) {
+            if (String(current[key] ?? "").trim()) continue;
+            if (!String(shippedItemEn[key] ?? "").trim()) continue;
+            if (item[key] !== shippedItem[key]) continue;
+            current[key] = shippedItemEn[key]!;
+            changed = true;
+          }
+          return current;
+        });
+        if (changed) itemsEn = next;
+      }
+      if (!changed) return block;
+      const out: Block = { ...block, fields_en: fieldsEn };
+      if (itemsEn) out.items_en = itemsEn;
+      return out;
+    })
+  };
+}
+
+/**
  * Lenient normalization for RENDERING. Always returns a renderable page:
  * unknown blocks/fields are dropped, unsafe values are blanked, locked blocks
  * are restored from the defaults and pinned first, legacy flat content is
@@ -509,7 +573,7 @@ export function normalizePage(raw: unknown, contract: PageContract): PageContent
     return { ...found, enabled: true };
   });
   const rest = blocks.filter(b => !contract.locked.some(l => l.id === b.id));
-  return { blocks: [...lockedBlocks, ...rest] };
+  return withShippedEnglish({ blocks: [...lockedBlocks, ...rest] }, contract);
 }
 
 /**

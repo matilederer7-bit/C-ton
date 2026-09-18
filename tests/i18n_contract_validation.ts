@@ -282,6 +282,40 @@ run("CMS: the English side is validated but never REQUIRED", () => {
   }, contract), /content_html_not_allowed/, "English content cannot smuggle HTML past the validator");
 });
 
+run("CMS: content stored before the bilingual layer still reads in English where Siton ships English", () => {
+  // Found on the DEPLOYED build: the published `deal_page` row held the shipped
+  // Hebrew defaults and no English sibling at all, so an English visitor was
+  // shown "אין גישה למסך המעקב" — for a sentence Siton does ship in English.
+  const contract = contractFor("deal_page");
+  const shipped = contract.defaults().find((b) => b.id === "track")!;
+  const stored = normalizePage({
+    blocks: contract.defaults().map((b) => ({ id: b.id, type: b.type, enabled: true, fields: { ...b.fields }, ...(b.items ? { items: b.items.map((i) => ({ ...i })) } : {}) }))
+  }, contract);
+  const track = stored.blocks.find((b) => b.id === "track")!;
+  assert.equal(localizedValue(track, "no_access_title", "en"), shipped.fields_en!.no_access_title,
+    "an untouched default reads in the English Siton ships");
+  assert.equal(localizedValue(track, "no_access_title", "he"), shipped.fields.no_access_title);
+  assert.deepEqual(missingEnglishContent(stored).filter((path) => path.startsWith("track.")), [],
+    "and it is no longer counted as missing");
+});
+
+run("CMS: once the OWNER changes the Hebrew, Siton falls back rather than inventing a translation", () => {
+  const contract = contractFor("deal_page");
+  const stored = normalizePage({
+    blocks: contract.defaults().map((b) => ({
+      id: b.id, type: b.type, enabled: true,
+      fields: b.id === "track" ? { ...b.fields, no_access_title: "נוסח משלי" } : { ...b.fields },
+      ...(b.items ? { items: b.items.map((i) => ({ ...i })) } : {})
+    }))
+  }, contract);
+  const track = stored.blocks.find((b) => b.id === "track")!;
+  // The shipped English would now say something the owner did not write.
+  assert.equal(localizedValue(track, "no_access_title", "en"), "נוסח משלי",
+    "the owner's own words fall back rather than being replaced by stale English");
+  assert.ok(missingEnglishContent(stored).includes("track.no_access_title"),
+    "and the gap is reported");
+});
+
 run("CMS: a stored page with no English at all still renders, in Hebrew", () => {
   const page = normalizePage({ blocks: [{ id: "about", type: "about", enabled: true, fields: { title: "אודות", body: "גוף" } }] }, contractFor("about"));
   const english = localizedBlock(page.blocks[0]!, "en");
