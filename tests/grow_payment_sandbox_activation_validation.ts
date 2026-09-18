@@ -172,10 +172,17 @@ async function seedDeal(prefix: string, pricePerUnit = 10) {
   return deal.rows[0].deal_id as string;
 }
 
-async function authorizeGrow(dealId: string, buyerId: string, qty: number, spoofAmountMinor?: number) {
+async function authorizeGrow(
+  dealId: string,
+  buyerId: string,
+  qty: number,
+  spoofAmountMinor?: number,
+  intentKey = `grow-auth-${randomUUID()}`
+) {
   const response = await app.inject({
     method: "POST",
     url: "/api/payments/authorize",
+    headers: { "idempotency-key": intentKey },
     payload: {
       payer_name: "Israel Israeli",
       payer_phone: "0501234567",
@@ -320,6 +327,80 @@ async function feeLedgerRows(participantId: string) {
 }
 
 // ---------------------------------------------------------------------------
+
+await runTest("Grow authorization requires a durable idempotency key before provider I/O", async () => {
+  const dealId = await seedDeal("grow-idem-required", 10);
+  const before = fakeGrow.createCalls;
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/payments/authorize",
+    payload: {
+      payer_name: "Israel Israeli",
+      payer_phone: "0501234567",
+      deal_id: dealId,
+      buyer_id: "grow-idem-required-buyer",
+      qty: 1
+    }
+  });
+  assert.equal(response.statusCode, 400, response.body);
+  assert.equal(response.json().error, "payment_authorization_idempotency_key_required");
+  assert.equal(fakeGrow.createCalls, before, "missing identity must fail before Grow I/O");
+});
+
+await runTest("same Grow authorization intent replays one persisted provider result and never creates twice", async () => {
+  const dealId = await seedDeal("grow-idem-replay", 10);
+  const buyerId = "grow-idem-replay-buyer";
+  const intentKey = "grow-intent-replay-0001";
+  const before = fakeGrow.createCalls;
+  const first = await authorizeGrow(dealId, buyerId, 2, undefined, intentKey);
+  assert.equal(first.statusCode, 200, first.body);
+  const firstBody = first.json() as any;
+  const replay = await authorizeGrow(dealId, buyerId, 2, undefined, intentKey);
+  assert.equal(replay.statusCode, 200, replay.body);
+  const replayBody = replay.json() as any;
+  assert.equal(replayBody.idempotent_replay, true);
+  assert.equal(replayBody.authorization_id, firstBody.authorization_id);
+  assert.equal(replayBody.payment_url, firstBody.payment_url);
+  assert.equal(fakeGrow.createCalls, before + 1, "idempotent replay must not call createPaymentProcess again");
+
+  const rows = await pool.query(
+    `SELECT COUNT(*)::int AS n, max(provider_payment_url) AS provider_payment_url
+     FROM siton.payment_authorization_bindings
+     WHERE deal_id=$1 AND buyer_id=$2`,
+    [dealId, buyerId]
+  );
+  assert.equal(rows.rows[0].n, 1);
+  assert.equal(rows.rows[0].provider_payment_url, firstBody.payment_url);
+});
+
+await runTest("concurrent replay of one Grow intent dispatches at most one createPaymentProcess", async () => {
+  const dealId = await seedDeal("grow-idem-concurrent", 10);
+  const buyerId = "grow-idem-concurrent-buyer";
+  const intentKey = "grow-intent-concurrent-0001";
+  const before = fakeGrow.createCalls;
+  const [a, b] = await Promise.all([
+    authorizeGrow(dealId, buyerId, 1, undefined, intentKey),
+    authorizeGrow(dealId, buyerId, 1, undefined, intentKey)
+  ]);
+  assert.equal(fakeGrow.createCalls, before + 1, "concurrent duplicate must never dispatch a second provider create");
+  assert.equal([200, 503].includes(a.statusCode), true, a.body);
+  assert.equal([200, 503].includes(b.statusCode), true, b.body);
+  const successes = [a, b].filter((response) => response.statusCode === 200);
+  assert.ok(successes.length >= 1);
+});
+
+await runTest("reusing a Grow idempotency key with different money intent fails closed before provider I/O", async () => {
+  const dealId = await seedDeal("grow-idem-mismatch", 10);
+  const buyerId = "grow-idem-mismatch-buyer";
+  const intentKey = "grow-intent-mismatch-0001";
+  const before = fakeGrow.createCalls;
+  const first = await authorizeGrow(dealId, buyerId, 1, undefined, intentKey);
+  assert.equal(first.statusCode, 200, first.body);
+  const mismatch = await authorizeGrow(dealId, buyerId, 2, undefined, intentKey);
+  assert.equal(mismatch.statusCode, 409, mismatch.body);
+  assert.equal(mismatch.json().code ?? mismatch.json().error, "payment_authorization_idempotency_payload_mismatch");
+  assert.equal(fakeGrow.createCalls, before + 1);
+});
 
 await runTest("J5 create maps the official contract with the SERVER-computed amount and an opaque sealed reference", async () => {
   const dealId = await seedDeal("grow-t1", 10);
