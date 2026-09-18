@@ -51,21 +51,21 @@ function verdictTone(verdict: string): "ready" | "already" | "blocked" {
 function OrderFacts({ order, revealPhone, onTogglePhone }: { order: Json; revealPhone: boolean; onTogglePhone: () => void }) {
   return (
     <div className="kv handoff-facts">
-      <span className="k">{t("pages.seller_pickup.628febf8")}</span><span className="v" data-testid="handoff-buyer">{order.buyer_name || "—"}</span>
-      <span className="k">{t("pages.seller_pickup.737232c2")}</span>
+      <span className="k">{t("seller_pickup.buyer")}</span><span className="v" data-testid="handoff-buyer">{order.buyer_name || "—"}</span>
+      <span className="k">{t("seller_pickup.phone")}</span>
       <span className="v" dir="ltr">
         {revealPhone && order.buyer_phone ? order.buyer_phone : (order.buyer_phone_masked || "—")}
         {order.buyer_phone ? <button type="button" className="chip-btn" style={{ marginInlineStart: 8 }} onClick={onTogglePhone}>{revealPhone ? t(SELLER_PICKUP_COPY.hidePhone) : t(SELLER_PICKUP_COPY.showPhone)}</button> : null}
       </span>
-      <span className="k">{t("pages.seller_pickup.80a08f9c")}</span><span className="v" data-testid="handoff-product">{order.product_title}</span>
-      <span className="k">{t("pages.seller_pickup.d4e2d05b")}</span><span className="v handoff-qty" data-testid="handoff-qty">{t("pages.seller_pickup.53ab3dca", { qty: num(order.qty) })}</span>
-      <span className="k">{t("pages.seller_pickup.849f23b3")}</span>
+      <span className="k">{t("seller_pickup.product")}</span><span className="v" data-testid="handoff-product">{order.product_title}</span>
+      <span className="k">{t("seller_pickup.quantity")}</span><span className="v handoff-qty" data-testid="handoff-qty">{t("seller_pickup.qty_units", { qty: num(order.qty) })}</span>
+      <span className="k">{t("seller_pickup.payment")}</span>
       <span className="v" data-testid="handoff-payment">{order.paid ? <span className="status Completed">{order.payment_label} ✓</span> : <span className="status Failed">{order.payment_label}</span>}</span>
-      <span className="k">{t("pages.seller_pickup.bd008360")}</span><span className="v">{order.method_label}</span>
-      {order.method === "pickup" && order.pickup_location ? <><span className="k">{t("pages.seller_pickup.08cb93c0")}</span><span className="v">{order.pickup_location}</span></> : null}
-      {order.method === "delivery" && order.delivery_address ? <><span className="k">{t("pages.seller_pickup.daab1ad0")}</span><span className="v">{order.delivery_address}{order.delivery_city ? `, ${order.delivery_city}` : ""}</span></> : null}
-      {order.delivery_notes ? <><span className="k">{t("pages.seller_pickup.adc51e32")}</span><span className="v">{order.delivery_notes}</span></> : null}
-      <span className="k">{t("pages.seller_pickup.3f8e78d1")}</span><span className="v pickup-code-inline" dir="ltr" data-testid="handoff-code">{order.order_code || "—"}</span>
+      <span className="k">{t("seller_pickup.how_receive")}</span><span className="v">{order.method_label}</span>
+      {order.method === "pickup" && order.pickup_location ? <><span className="k">{t("seller_pickup.pickup_point")}</span><span className="v">{order.pickup_location}</span></> : null}
+      {order.method === "delivery" && order.delivery_address ? <><span className="k">{t("seller_pickup.address")}</span><span className="v">{order.delivery_address}{order.delivery_city ? `, ${order.delivery_city}` : ""}</span></> : null}
+      {order.delivery_notes ? <><span className="k">{t("seller_pickup.note")}</span><span className="v">{order.delivery_notes}</span></> : null}
+      <span className="k">{t("seller_pickup.order_code")}</span><span className="v pickup-code-inline" dir="ltr" data-testid="handoff-code">{order.order_code || "—"}</span>
     </div>
   );
 }
@@ -90,7 +90,7 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
     } catch (e: any) {
       const body = e?.body || {};
       if (body.order) { setConfirming(false); onConfirmed({ ...body, refused: true }); return; }
-      setRefusal(String(e?.message || t("pages.seller_pickup.776da385")));
+      setRefusal(String(e?.message || t("seller_pickup.the_handover_recorded_try_again")));
     } finally {
       setBusy(false);
     }
@@ -101,31 +101,31 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
         <span className="handoff-verdict-icon" aria-hidden="true">{tone === "ready" ? "✓" : tone === "already" ? "◑" : "✕"}</span>
         <span className="handoff-verdict-text" data-testid="handoff-verdict">{tone === "ready" ? t(SELLER_PICKUP_COPY.green) : tone === "already" ? t(SELLER_PICKUP_COPY.amber) : t(SELLER_PICKUP_COPY.red)}</span>
       </div>
-      {tone === "blocked" ? <div className="handoff-reason" data-testid="handoff-reason">{order.not_ready_label || t("pages.seller_pickup.db416784")}</div> : null}
-      {tone === "already" && order.fulfilled_at ? <div className="handoff-reason" data-testid="handoff-fulfilled-at">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(order.fulfilled_at)) })}</div> : null}
+      {tone === "blocked" ? <div className="handoff-reason" data-testid="handoff-reason">{order.not_ready_label || t("seller_pickup.the_order_eligible_handover")}</div> : null}
+      {tone === "already" && order.fulfilled_at ? <div className="handoff-reason" data-testid="handoff-fulfilled-at">{t("seller_pickup.handed_over_fulfilled", { fulfilled_at: formatIsraelDateTime(String(order.fulfilled_at)) })}</div> : null}
       <OrderFacts order={order} revealPhone={revealPhone} onTogglePhone={() => setRevealPhone((v) => !v)} />
       {mockMoney ? <p className="muted small" style={{ margin: "8px 0 0" }}>{t(SELLER_PICKUP_COPY.mock)}</p> : null}
       <div className="row" style={{ marginTop: 14, gap: 8 }}>
         {tone === "ready" ? (
           <button type="button" className="btn btn-primary btn-lg btn-block" data-testid="handoff-confirm-open" onClick={openConfirm}>
-            {t("pages.seller_pickup.6719a2e4", { qty: num(qty) })}</button>
+            {t("seller_pickup.confirm_handover_qty_units", { qty: num(qty) })}</button>
         ) : null}
       </div>
       <div className="row" style={{ marginTop: 8 }}>
         <button type="button" className="btn btn-ghost btn-sm" data-testid="handoff-reset" onClick={onReset}>{t(SELLER_PICKUP_COPY.scanAgain)}</button>
       </div>
       {confirming ? (
-        <Modal title={t("pages.seller_pickup.44291ad2")} onClose={() => { if (!busy) setConfirming(false); }}
+        <Modal title={t("seller_pickup.confirm_handover")} onClose={() => { if (!busy) setConfirming(false); }}
           footer={
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="btn btn-ghost" data-testid="handoff-confirm-back" disabled={busy} onClick={() => setConfirming(false)}>{t(SELLER_PICKUP_COPY.back)}</button>
-              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? t("pages.seller_pickup.dcde6a09") : t(SELLER_PICKUP_COPY.confirm)}</button>
+              <button type="button" className="btn btn-primary btn-lg" data-testid="handoff-confirm" disabled={busy} onClick={confirm}>{busy ? t("seller_pickup.recording") : t(SELLER_PICKUP_COPY.confirm)}</button>
             </div>
           }>
           <p className="handoff-confirm-line" data-testid="handoff-confirm-line">
-            {t("pages.seller_pickup.952d9ba3")} <b>{t("pages.seller_pickup.53ab3dca", { qty: num(qty) })}</b>  {t("pages.seller_pickup.2b6526db")} <b>{order.product_title}</b>  {t("pages.seller_pickup.d67cdc0f")}<b>{order.buyer_name || t("pages.seller_pickup.8f69a20a")}</b>.
+            {t("seller_pickup.you_handing_over_now")} <b>{t("seller_pickup.qty_units", { qty: num(qty) })}</b>  {t("seller_pickup.of")} <b>{order.product_title}</b>  {t("seller_pickup.to")}<b>{order.buyer_name || t("seller_pickup.the_buyer")}</b>.
           </p>
-          {qty > 1 ? <p className="muted small">{t("pages.seller_pickup.e77893e3", { qty: num(qty) })}</p> : null}
+          {qty > 1 ? <p className="muted small">{t("seller_pickup.confirming_handover_marks_all_qty", { qty: num(qty) })}</p> : null}
           {refusal ? <div className="notice err" data-testid="handoff-refused">{refusal}</div> : null}
         </Modal>
       ) : null}
@@ -145,7 +145,7 @@ function HandoffDone({ result, onReset }: { result: Json; onReset: () => void })
       </div>
       <div className="handoff-reason">
         {refused ? (result.message || order.not_ready_label || "") : t("seller_pickup.order_summary", { qty: num(order.qty), product: order.product_title, buyer: order.buyer_name || t("seller_pickup.buyer_fallback") })}
-        {result.fulfilled_at ? <div className="small">{t("pages.seller_pickup.60c4d50c", { fulfilled_at: formatIsraelDateTime(String(result.fulfilled_at)) })}</div> : null}
+        {result.fulfilled_at ? <div className="small">{t("seller_pickup.handed_over_fulfilled", { fulfilled_at: formatIsraelDateTime(String(result.fulfilled_at)) })}</div> : null}
       </div>
       {order.order_code ? <div className="pickup-code-inline" dir="ltr" style={{ marginTop: 6 }}>{order.order_code}</div> : null}
       <div className="row" style={{ marginTop: 14 }}>
@@ -188,7 +188,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
     } catch (e: any) {
       const codeName = String(e?.body?.code || "");
       if (Number(e?.status) === 404 || codeName === "pickup_code_not_found") setNotFound(t(SELLER_PICKUP_COPY.notFoundBody));
-      else setNotFound(String(e?.message || t("pages.seller_pickup.8d30c587")));
+      else setNotFound(String(e?.message || t("seller_pickup.verification_failed_try_again")));
     } finally { setResolving(false); }
   };
 
@@ -207,7 +207,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
   const submitTyped = async (e?: React.FormEvent) => {
     e?.preventDefault();
     const digits = normalizePickupInput(typed);
-    if (!digits) { setNotFound(t("pages.seller_pickup.0ef6598c")); return; }
+    if (!digits) { setNotFound(t("seller_pickup.type_8_digits_example_4839")); return; }
     stopCamera();
     await resolveCode(formatPickupDigits(digits), "manual");
   };
@@ -222,7 +222,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       const r = await api.sellerPickupSearch(q);
       setMockMoney(Boolean(r.mock_money));
       setResults(Array.isArray(r.orders) ? r.orders : []);
-    } catch (e: any) { showToast(String(e?.message || t("pages.seller_pickup.78129d3a"))); }
+    } catch (e: any) { showToast(String(e?.message || t("seller_pickup.the_search_failed"))); }
     finally { setSearching(false); }
   };
 
@@ -236,7 +236,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
 
   return (
     <div className="pickup-page" data-testid="seller-pickup-page">
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>{t("pages.seller_pickup.123e15aa")}</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); stopCamera(); navigate("#/seller"); }}>{t("seller_pickup.to_seller_area")}</a>
       <h1 style={{ marginBottom: 4 }}>{t(SELLER_PICKUP_COPY.title)}</h1>
       <p className="muted" style={{ marginTop: 0 }}>{t(SELLER_PICKUP_COPY.subtitle)}</p>
 
@@ -249,7 +249,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
         </div>
       ) : null}
 
-      <div className="pickup-tabs" role="tablist" aria-label={t("pages.seller_pickup.3a8ce242")}>
+      <div className="pickup-tabs" role="tablist" aria-label={t("seller_pickup.identification_method")}>
         {([["scan", t(SELLER_PICKUP_COPY.tabScan)], ["type", t(SELLER_PICKUP_COPY.tabType)], ["search", t(SELLER_PICKUP_COPY.tabSearch)]] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={tab === k} className={`pickup-tab${tab === k ? " active" : ""}`} data-testid={`pickup-tab-${k}`} onClick={() => { if (k !== "scan") stopCamera(); setTab(k); }}>{l}</button>
         ))}
@@ -258,13 +258,13 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
       {tab === "scan" ? (
         <div className="panel" data-testid="pickup-scan-panel">
           <div className="handoff-scan">
-            <video ref={videoRef} className="handoff-video" playsInline muted aria-label={t("pages.seller_pickup.8733d9b4")} />
+            <video ref={videoRef} className="handoff-video" playsInline muted aria-label={t("seller_pickup.camera_view")} />
             <canvas ref={canvasRef} hidden aria-hidden="true" />
-            {outcome === "idle" || outcome === "stopped" ? <div className="handoff-scan-overlay">{t("pages.seller_pickup.84fb0aed")}</div> : null}
+            {outcome === "idle" || outcome === "stopped" ? <div className="handoff-scan-overlay">{t("seller_pickup.the_camera_off")}</div> : null}
           </div>
           <p className="small" data-testid={SCAN_OUTCOME_TEST_ID[outcome]} data-outcome={outcome} style={{ margin: "10px 0 6px" }}>
             {SCAN_OUTCOME_COPY[outcome]}
-            {outcome === "not_our_code" && outcomeDetail ? <span className="muted"> {t("pages.seller_pickup.e0c3cdd8", { v0: outcomeDetail.slice(0, 40) })}</span> : null}
+            {outcome === "not_our_code" && outcomeDetail ? <span className="muted"> {t("seller_pickup.read_v0", { v0: outcomeDetail.slice(0, 40) })}</span> : null}
           </p>
           <div className="row" style={{ gap: 8 }}>
             {outcome === "scanning" || outcome === "starting" ? (
@@ -300,7 +300,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
           </label>
           <p className="muted small" style={{ marginTop: 4 }}>{t(SELLER_PICKUP_COPY.typeHint)}</p>
           <button type="submit" className="btn btn-primary btn-lg btn-block" data-testid="pickup-code-submit" disabled={resolving || !formatPickupTyping(typed).complete}>
-            {resolving ? t("pages.seller_pickup.b14aaf63") : t(SELLER_PICKUP_COPY.typeSubmit)}
+            {resolving ? t("seller_pickup.verifying") : t(SELLER_PICKUP_COPY.typeSubmit)}
           </button>
         </form>
       ) : null}
@@ -310,9 +310,9 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
           <form onSubmit={submitSearch}>
             <label className="field">
               <span>{t(SELLER_PICKUP_COPY.searchLabel)}</span>
-              <input data-testid="pickup-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("pages.seller_pickup.39f3aeed")} autoComplete="off" />
+              <input data-testid="pickup-search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t("seller_pickup.x_050_1234567_israel_israeli")} autoComplete="off" />
             </label>
-            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? t("pages.seller_pickup.b89c236a") : t(SELLER_PICKUP_COPY.searchSubmit)}</button>
+            <button type="submit" className="btn btn-primary" data-testid="pickup-search-submit" disabled={searching || query.trim().length < 2}>{searching ? t("seller_pickup.searching") : t(SELLER_PICKUP_COPY.searchSubmit)}</button>
           </form>
           {results ? (
             results.length ? (
@@ -321,7 +321,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
                   <button key={o.participant_id} type="button" className={`order-row order-${verdictTone(String(o.verdict))}`} data-testid="pickup-search-hit" onClick={() => { setResults(null); setOrder({ ...o, __source: "search" }); }}>
                     <span className="order-row-main"><b>{o.buyer_name || "—"}</b> · {o.product_title}</span>
                     <span className="order-row-sub" dir="ltr">{o.buyer_phone_masked || ""} · {o.order_code || "—"}</span>
-                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? t("pages.seller_pickup.6ee010b2", { green: t(SELLER_PICKUP_COPY.green), qty: num(o.qty) }) : verdictTone(String(o.verdict)) === "already" ? t(SELLER_PICKUP_COPY.amber) : (o.not_ready_label || t(SELLER_PICKUP_COPY.red))}</span>
+                    <span className="order-row-state">{verdictTone(String(o.verdict)) === "ready" ? t("seller_pickup.green_qty_units", { green: t(SELLER_PICKUP_COPY.green), qty: num(o.qty) }) : verdictTone(String(o.verdict)) === "already" ? t(SELLER_PICKUP_COPY.amber) : (o.not_ready_label || t(SELLER_PICKUP_COPY.red))}</span>
                   </button>
                 ))}
               </div>
@@ -345,42 +345,42 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
   const [toast, showToast] = useToast();
   const load = async () => {
     try { setPayload(await api.sellerDealFulfillment(dealId, { status, q })); setError(""); }
-    catch (e: any) { setError(String(e?.message || t("pages.seller_pickup.8574a044"))); }
+    catch (e: any) { setError(String(e?.message || t("seller_pickup.loading_failed"))); }
   };
   useEffect(() => { void load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [dealId, status]);
-  if (error) return <EmptyState title={t("pages.seller_pickup.353a8367")} body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>{t("pages.seller_pickup.8d4d7e16")}</a>} />;
-  if (!payload) return <BrandLoader label={t("pages.seller_pickup.8e46b6c8")} minHeight={360} />;
+  if (error) return <EmptyState title={t("seller_pickup.the_handover_list_cannot_shown")} body={error} action={<a className="btn btn-ghost" href={`#/seller/deal/${dealId}`}>{t("seller_pickup.to_deal")}</a>} />;
+  if (!payload) return <BrandLoader label={t("seller_pickup.loading_orders_hand_over")} minHeight={360} />;
   const counts = payload.counts || {};
   const orders: Json[] = Array.isArray(payload.orders) ? payload.orders : [];
   return (
     <div className="pickup-page" data-testid="seller-fulfillment-page">
-      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.seller_pickup.fbd4509a")}</a>
+      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("seller_pickup.to_deal_2")}</a>
       <div className="row" style={{ alignItems: "baseline", gap: 10 }}>
-        <h1 style={{ margin: 0 }}>{t("pages.seller_pickup.1ac278ad")}</h1>
+        <h1 style={{ margin: 0 }}>{t("seller_pickup.orders_hand_over")}</h1>
         <span className="muted">{payload.deal?.title}</span>
       </div>
       <div className="stat-row fulfillment-stats">
-        <div className="stat-tile"><div className="num" data-testid="fulfillment-awaiting">{num(counts.awaiting)}</div><div className="lbl">{t("pages.seller_pickup.f1a84bdc")}</div></div>
-        <div className="stat-tile good"><div className="num" data-testid="fulfillment-fulfilled">{num(counts.fulfilled)}</div><div className="lbl">{t("pages.seller_pickup.96ac9ea8")}</div></div>
-        {Number(counts.blocked) > 0 ? <div className="stat-tile bad"><div className="num">{num(counts.blocked)}</div><div className="lbl">{t("pages.seller_pickup.c94e0409")}</div></div> : null}
+        <div className="stat-tile"><div className="num" data-testid="fulfillment-awaiting">{num(counts.awaiting)}</div><div className="lbl">{t("seller_pickup.awaiting_handover_2")}</div></div>
+        <div className="stat-tile good"><div className="num" data-testid="fulfillment-fulfilled">{num(counts.fulfilled)}</div><div className="lbl">{t("seller_pickup.handed_over_2")}</div></div>
+        {Number(counts.blocked) > 0 ? <div className="stat-tile bad"><div className="num">{num(counts.blocked)}</div><div className="lbl">{t("seller_pickup.do_hand_over")}</div></div> : null}
       </div>
       <div className="row" style={{ gap: 8, marginTop: 12 }}>
-        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller_pickup.2d843402")}</button>
-        <a className="btn btn-ghost btn-sm" href={`/api/seller/deals/${dealId}/delivery-handoff/export.xlsx`} target="_blank" rel="noreferrer">{t("pages.seller_pickup.cea01d82")}</a>
+        <button type="button" className="btn btn-primary" data-testid="fulfillment-scan" onClick={() => navigate("#/seller/pickup")}>{t("seller_pickup.pickup_scan")}</button>
+        <a className="btn btn-ghost btn-sm" href={`/api/seller/deals/${dealId}/delivery-handoff/export.xlsx`} target="_blank" rel="noreferrer">{t("seller_pickup.download_logistics_excel")}</a>
       </div>
-      <div className="pickup-tabs" role="tablist" aria-label={t("pages.seller_pickup.371bb0b5")} style={{ marginTop: 12 }}>
-        {([["pending", t("pages.seller_pickup.f1a84bdc")], ["fulfilled", t("pages.seller_pickup.96ac9ea8")], ["all", t("pages.seller_pickup.d0940366")]] as const).map(([k, l]) => (
+      <div className="pickup-tabs" role="tablist" aria-label={t("seller_pickup.filter")} style={{ marginTop: 12 }}>
+        {([["pending", t("seller_pickup.awaiting_handover_2")], ["fulfilled", t("seller_pickup.handed_over_2")], ["all", t("seller_pickup.all")]] as const).map(([k, l]) => (
           <button key={k} type="button" role="tab" aria-selected={status === k} className={`pickup-tab${status === k ? " active" : ""}`} data-testid={`fulfillment-filter-${k}`} onClick={() => setStatus(k)}>{l}</button>
         ))}
       </div>
       <form className="row" style={{ gap: 8, marginTop: 8 }} onSubmit={(e) => { e.preventDefault(); void load(); }}>
-        <input data-testid="fulfillment-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("pages.seller_pickup.e555b927")} aria-label={t("pages.seller_pickup.124fb3bd")} style={{ flex: 1, minWidth: 0 }} />
-        <button type="submit" className="btn btn-ghost btn-sm">{t("pages.seller_pickup.6d6d7964")}</button>
+        <input data-testid="fulfillment-search" value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("seller_pickup.an_order_code_phone_number")} aria-label={t("seller_pickup.find_order")} style={{ flex: 1, minWidth: 0 }} />
+        <button type="submit" className="btn btn-ghost btn-sm">{t("seller_pickup.search")}</button>
       </form>
       {done ? <HandoffDone result={done} onReset={() => { setDone(null); void load(); }} /> : null}
       {active ? <HandoffResultCard order={active} mockMoney={Boolean(payload.mock_money)} onConfirmed={(r) => { setActive(null); setDone(r); void load(); }} onReset={() => setActive(null)} /> : null}
       {!orders.length ? (
-        <p className="muted" style={{ marginTop: 14 }} data-testid="fulfillment-empty">{status === "pending" ? t("pages.seller_pickup.370f6f1d") : status === "fulfilled" ? t("pages.seller_pickup.460e4463") : t("pages.seller_pickup.c4f1adf3")}</p>
+        <p className="muted" style={{ marginTop: 14 }} data-testid="fulfillment-empty">{status === "pending" ? t("seller_pickup.there_orders_awaiting_handover") : status === "fulfilled" ? t("seller_pickup.no_orders_been_handed_over") : t("seller_pickup.no_orders")}</p>
       ) : (
         <div className="stack" style={{ marginTop: 12 }} data-testid="fulfillment-list">
           {orders.map((o) => {
@@ -389,16 +389,16 @@ export function SellerFulfillmentPage({ dealId, navigate }: { dealId: string; na
               <div key={o.participant_id} className={`order-card order-${tone}`} data-testid="fulfillment-row" data-state={tone}>
                 <div className="order-card-head">
                   <span className="pickup-code-inline" dir="ltr">{o.order_code || "—"}</span>
-                  <span className={`status ${tone === "ready" ? "PendingTarget" : tone === "already" ? "Completed" : "Failed"}`}>{tone === "ready" ? t("pages.seller_pickup.a21eb3c2") : tone === "already" ? t("pages.seller_pickup.8b72a1ae") : (o.not_ready_label || t("pages.seller_pickup.c94e0409"))}</span>
+                  <span className={`status ${tone === "ready" ? "PendingTarget" : tone === "already" ? "Completed" : "Failed"}`}>{tone === "ready" ? t("seller_pickup.awaiting_handover") : tone === "already" ? t("seller_pickup.handed_over") : (o.not_ready_label || t("seller_pickup.do_hand_over"))}</span>
                 </div>
                 <div className="order-card-main"><b>{o.buyer_name || "—"}</b> <span dir="ltr" className="muted">{o.buyer_phone || ""}</span></div>
                 <div className="order-card-sub">
-                  <span className="handoff-qty">{t("pages.seller_pickup.ef4c4faf", { qty: num(o.qty) })}</span> · {o.method_label}{o.method === "delivery" && o.delivery_city ? ` · ${o.delivery_city}` : ""} · {o.paid ? t("pages.seller_pickup.c529badd") : o.payment_label}
-                  {tone === "already" && o.fulfilled_at ? t("pages.seller_pickup.b882a3d0", { fulfilled_at: formatIsraelDateTime(String(o.fulfilled_at)) }) : ""}
+                  <span className="handoff-qty">{t("seller_pickup.qty_units_2", { qty: num(o.qty) })}</span> · {o.method_label}{o.method === "delivery" && o.delivery_city ? ` · ${o.delivery_city}` : ""} · {o.paid ? t("seller_pickup.paid") : o.payment_label}
+                  {tone === "already" && o.fulfilled_at ? t("seller_pickup.handed_over_fulfilled_2", { fulfilled_at: formatIsraelDateTime(String(o.fulfilled_at)) }) : ""}
                 </div>
                 {tone === "ready" ? (
                   <button type="button" className="btn btn-primary btn-sm" data-testid="fulfillment-row-confirm" onClick={() => { setDone(null); setActive({ ...o, __source: "list" }); window.scrollTo({ top: 0 }); }}>
-                    {t("pages.seller_pickup.6719a2e4", { qty: num(o.qty) })}</button>
+                    {t("seller_pickup.confirm_handover_qty_units", { qty: num(o.qty) })}</button>
                 ) : null}
               </div>
             );

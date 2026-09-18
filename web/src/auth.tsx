@@ -50,7 +50,7 @@ export function AuthPanel(props: {
 
   const cfg = async (): Promise<SupabaseCfg> => {
     const c = await api.authConfig();
-    if (!c.configured) throw new Error(t("auth.82681f86"));
+    if (!c.configured) throw new Error(t("auth.signing_available_environment"));
     return c;
   };
 
@@ -61,7 +61,7 @@ export function AuthPanel(props: {
     const adoption = await adoptCapabilities(token);
     if (adoption.status !== "ok") {
       setCapsRetryToken(token);
-      setInfo(t("auth.e7fc0c4f"));
+      setInfo(t("auth.sign_succeeded_but_loading_account"));
       setBusy(false);
       return;
     }
@@ -105,7 +105,7 @@ export function AuthPanel(props: {
       const c = await cfg();
       if (mode === "recover") {
         await supabaseRecoverPassword(c, email.trim());
-        setInfo(t("auth.9dd7efa0"));
+        setInfo(t("auth.the_password_reset_request_sent"));
         setMode("login");
         setBusy(false);
         return;
@@ -121,14 +121,14 @@ export function AuthPanel(props: {
         if (r.outcome === "confirmation_requested") {
           setInfo(
             <>
-              {t("auth.1cb055f8")}<br />
-              {t("auth.df3e4272")}</>
+              {t("auth.we_sent_verification_request_address")}<br />
+              {t("auth.open_verification_message_complete_registration")}</>
           );
           setShowResend(true);
         } else {
           // deliberately ambiguous Supabase answer for an existing account —
           // never claim an email was sent; hand the user straight to login
-          setInfo(t("auth.7932f3a2"));
+          setInfo(t("auth.if_already_registered_c_ton"));
           setShowLoginCta(true);
         }
         setMode("login");
@@ -139,7 +139,7 @@ export function AuthPanel(props: {
       await finishSignIn(c);
     } catch (err: any) {
       traceAuth("AUTH_FLOW_ERROR", String(err?.message || err).slice(0, 80));
-      const msg = localizedError(err, mode === "login" ? t("auth.8d72d128") : t("auth.a507230e"));
+      const msg = localizedError(err, mode === "login" ? t("auth.sign_failed_try_again") : t("auth.the_action_failed_try_again"));
       setError(msg);
       if (/טרם אומת/.test(msg)) setShowResend(true);
       setBusy(false);
@@ -147,14 +147,14 @@ export function AuthPanel(props: {
   };
 
   const resend = async () => {
-    if (busy || !email.trim()) { setError(t("auth.a24ade29")); return; }
+    if (busy || !email.trim()) { setError(t("auth.enter_e_mail_address_then")); return; }
     setBusy(true); setError(""); setInfo("");
     try {
       const c = await cfg();
       await supabaseResendConfirmation(c, email.trim());
-      setInfo(t("auth.996b5771"));
+      setInfo(t("auth.the_verification_request_sent_again"));
     } catch (err: any) {
-      setError(localizedError(err, t("auth.9359c63a")));
+      setError(localizedError(err, t("auth.sending_verification_request_failed_try")));
     }
     setBusy(false);
   };
@@ -168,56 +168,56 @@ export function AuthPanel(props: {
             h1 — it was an h2, which left those routes with no top-level heading */}
         <h1 className="auth-title">{props.title}</h1>
         {mode === "signup" ? (
-          <p className="muted small" style={{ textAlign: "center" }}>{t("auth.7846e30c")} <a href="#" onClick={(e) => { e.preventDefault(); switchMode("login"); }}>{t("auth.8a5a5423")}</a></p>
+          <p className="muted small" style={{ textAlign: "center" }}>{t("auth.opening_new_account_already_registered")} <a href="#" onClick={(e) => { e.preventDefault(); switchMode("login"); }}>{t("auth.go_sign")}</a></p>
         ) : props.subtitle ? (
           <p className="muted small" style={{ textAlign: "center" }}>{props.subtitle}</p>
         ) : null}
         <form onSubmit={submit}>
           <div className="field">
-            <label>{t("auth.15dbea0f")}</label>
+            <label>{t("auth.e_mail")}</label>
             <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           </div>
           {mode !== "recover" ? (
             <div className="field">
-              <label>{t("auth.0b490b5e")}</label>
+              <label>{t("auth.password")}</label>
               <input dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === "signup" ? "new-password" : "current-password"} />
             </div>
           ) : (
-            <p className="muted small">{t("auth.d49bd1ab")}</p>
+            <p className="muted small">{t("auth.a_link_set_new_password")}</p>
           )}
           {error ? <div className="notice err">{error}</div> : null}
           {info ? <div className="notice ok">{info}</div> : null}
           {showLoginCta || capsRetryToken ? null : (
             <button className="btn btn-primary btn-block" data-testid="auth-submit" disabled={busy}>
-              {busy ? t("auth.2129ee06")
-                : mode === "login" ? t("auth.254e07f0")
-                : mode === "signup" ? (props.signupLabel || t("auth.070f0a6c"))
-                : t("auth.3d33ff5c")}
+              {busy ? t("auth.one_moment")
+                : mode === "login" ? t("auth.sign")
+                : mode === "signup" ? (props.signupLabel || t("auth.register"))
+                : t("auth.send_reset_link")}
             </button>
           )}
         </form>
         {capsRetryToken ? (
           <button className="btn btn-primary btn-block" data-testid="auth-caps-retry" disabled={busy}
             onClick={() => { void retryCapabilities(); }}>
-            {busy ? t("auth.2129ee06") : t("auth.8c634e7d")}
+            {busy ? t("auth.one_moment") : t("auth.try_again")}
           </button>
         ) : null}
         {showLoginCta ? (
           <button className="btn btn-primary btn-block" data-testid="auth-goto-login" onClick={() => { switchMode("login"); }}>
-            {t("auth.8a5a5423")}</button>
+            {t("auth.go_sign")}</button>
         ) : null}
         <div className="auth-links">
           {mode === "login" ? (
             <>
-              <a href="#" data-testid="auth-goto-signup" onClick={(e) => { e.preventDefault(); switchMode("signup"); }}>{t("auth.d7ac71c3")}</a>
-              <a href="#" onClick={(e) => { e.preventDefault(); switchMode("recover"); }}>{t("auth.cc3c3a9d")}</a>
+              <a href="#" data-testid="auth-goto-signup" onClick={(e) => { e.preventDefault(); switchMode("signup"); }}>{t("auth.i_don_t_account_yet")}</a>
+              <a href="#" onClick={(e) => { e.preventDefault(); switchMode("recover"); }}>{t("auth.i_forgot_my_password")}</a>
             </>
           ) : (
-            <a href="#" onClick={(e) => { e.preventDefault(); switchMode("login"); }}>{t("auth.b8127d46")}</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); switchMode("login"); }}>{t("auth.back_sign")}</a>
           )}
           {showResend ? (
-            <a href="#" onClick={(e) => { e.preventDefault(); void resend(); }}>{t("auth.4bd0e34b")}</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); void resend(); }}>{t("auth.resend_verification")}</a>
           ) : null}
         </div>
       </div>

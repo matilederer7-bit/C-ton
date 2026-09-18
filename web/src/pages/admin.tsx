@@ -18,15 +18,15 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
   return (
     <AuthPanel
       surface="admin"
-      title={t("pages.admin.85534024")}
-      subtitle={t("pages.admin.75538be6")}
-      signupLabel={t("pages.admin.49c2eb34")}
+      title={t("admin.the_c_ton_control_centre")}
+      subtitle={t("admin.system_administrators_only_every_action")}
+      signupLabel={t("admin.initial_setup_owner_account")}
       verify={async () => {
         const me = await api.adminMe().catch((err: any) => {
-          if (err.status === 401 || err.status === 403) { revokeSurface("admin"); throw new Error(t("pages.admin.c8f49c3e")); }
+          if (err.status === 401 || err.status === 403) { revokeSurface("admin"); throw new Error(t("admin.this_account_administrator_permission")); }
           throw err;
         });
-        if (!me?.ok && !me?.identity) { revokeSurface("admin"); throw new Error(t("pages.admin.c8f49c3e")); }
+        if (!me?.ok && !me?.identity) { revokeSurface("admin"); throw new Error(t("admin.this_account_administrator_permission")); }
       }}
       onDone={onDone}
     />
@@ -37,7 +37,7 @@ function AdminLogin({ onDone }: { onDone: () => void }) {
 function useFetch<T = Json>(fn: () => Promise<T>, deps: unknown[] = [], intervalMs = 0): { data: T | null; error: string; reload: () => void } {
   const [data, setData] = useState<T | null>(null);
   const [error, setError] = useState("");
-  const load = () => fn().then((d) => { setData(d); setError(""); }).catch((e: any) => setError(e.message || t("pages.admin.e4cb6506")));
+  const load = () => fn().then((d) => { setData(d); setError(""); }).catch((e: any) => setError(e.message || t("admin.error")));
   useEffect(() => {
     setData(null);
     load();
@@ -63,8 +63,8 @@ function PendingSellersAlert({ navigate }: { navigate: (h: string) => void }) {
   if (!pending.length) return null;
   return (
     <div className="notice err" data-testid="pending-sellers-alert" style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-      <span><b>{t("pages.admin.747c3447", { length: num(pending.length) })}</b> — {pending.slice(0, 3).map((s: Json) => s.business_name || s.display_name || s.seller_id).join(" · ")}{pending.length > 3 ? " …" : ""}</span>
-      <button className="btn btn-sm btn-primary" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/sellers")}>{t("pages.admin.f32e1567")}</button>
+      <span><b>{t("admin.length_sellers_awaiting_approval", { length: num(pending.length) })}</b> — {pending.slice(0, 3).map((s: Json) => s.business_name || s.display_name || s.seller_id).join(" · ")}{pending.length > 3 ? " …" : ""}</span>
+      <button className="btn btn-sm btn-primary" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/sellers")}>{t("admin.to_approve_now")}</button>
     </div>
   );
 }
@@ -83,32 +83,32 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 
   return (
     <>
-      <h1>{t("pages.admin.41d0ac18")}</h1>
+      <h1>{t("admin.overview_whole_system")}</h1>
       <PendingSellersAlert navigate={navigate} />
       <div className="stat-row">
-        <StatTile num={num(d.deals?.active || 0)} label={t("pages.admin.61becaf6")} sub={t("pages.admin.100ff55e", { v0: num(d.deals?.total || 0) })} />
-        <StatTile num={num(d.sellers?.active || 0)} label={t("pages.admin.821f8a1b")} />
-        <StatTile num={num(d.participants?.total || 0)} label={t("pages.admin.cdb972ab")} sub={t("pages.admin.54c0f520", { v0: num(d.participants?.distinct_buyers || 0) })} />
-        <StatTile num={num(d.participants?.units_joined || 0)} label={t("pages.admin.a4bbf059")} />
-        <StatTile num={num(d.participants?.units_charged || 0)} label={t("pages.admin.05ede744")} tone="good" />
+        <StatTile num={num(d.deals?.active || 0)} label={t("admin.active_deals")} sub={t("admin.total_v0", { v0: num(d.deals?.total || 0) })} />
+        <StatTile num={num(d.sellers?.active || 0)} label={t("admin.active_sellers")} />
+        <StatTile num={num(d.participants?.total || 0)} label={t("admin.participations")} sub={t("admin.v0_buyers", { v0: num(d.participants?.distinct_buyers || 0) })} />
+        <StatTile num={num(d.participants?.units_joined || 0)} label={t("admin.units_joined")} />
+        <StatTile num={num(d.participants?.units_charged || 0)} label={t("admin.units_actually_charged")} tone="good" />
       </div>
       <div className="stat-row">
-        <StatTile num={ils(money.potential_gross_volume || 0)} label={t("pages.admin.e8856daf")} />
-        <StatTile num={ils(money.charged_gross_volume || 0)} label={t("pages.admin.e2fca018")} tone="good" />
-        <StatTile num={ils(money.platform_fee_projection || 0)} label={t("pages.admin.e28fa3a8")} />
-        <StatTile num={ils(money.platform_fee_actual || 0)} label={t("pages.admin.3e820184")} tone="good" />
+        <StatTile num={ils(money.potential_gross_volume || 0)} label={t("admin.authorization_volume_potential_revenue")} />
+        <StatTile num={ils(money.charged_gross_volume || 0)} label={t("admin.actually_collected")} tone="good" />
+        <StatTile num={ils(money.platform_fee_projection || 0)} label={t("admin.c_ton_fee_forecast_authorizations")} />
+        <StatTile num={ils(money.platform_fee_actual || 0)} label={t("admin.actual_c_ton_fee_collected")} tone="good" />
       </div>
       <div className="stat-row">
-        <StatTile num={num(ops.outbox_pending || 0)} label={t("pages.admin.547ec252")} tone={Number(ops.outbox_pending) > 20 ? "warn" : undefined} />
+        <StatTile num={num(ops.outbox_pending || 0)} label={t("admin.job_queue")} tone={Number(ops.outbox_pending) > 20 ? "warn" : undefined} />
         <StatTile num={num(ops.dlq_size || 0)} label="DLQ" tone={Number(ops.dlq_size) > 0 ? "bad" : "good"} />
-        <StatTile num={workerOk ? t("pages.admin.91181c78") : t("pages.admin.82be361b")} label="Worker" tone={workerOk ? "good" : "bad"} sub={workerAge !== undefined ? t("pages.admin.d46cbfdb", { workerAge: num(workerAge) }) : ""} />
-        <StatTile num={num(d.participants?.in_recovery || 0)} label={t("pages.admin.23641cbe")} tone={Number(d.participants?.in_recovery) > 0 ? "warn" : undefined} sub={t("pages.admin.ed8eb0ad", { v0: num(d.participants?.units_in_recovery || 0) })} />
-        <StatTile num={num(ops.payment_permanent_failures_24h || 0)} label={t("pages.admin.5bcda986")} tone={Number(ops.payment_permanent_failures_24h) > 0 ? "warn" : undefined} />
-        <StatTile num={num(ops.open_support_tickets || 0) + Number(ops.open_operational_cases || 0)} label={t("pages.admin.820b3cc8")} />
+        <StatTile num={workerOk ? t("admin.active") : t("admin.not_reported")} label="Worker" tone={workerOk ? "good" : "bad"} sub={workerAge !== undefined ? t("admin.heartbeat_workerage_s_ago", { workerAge: num(workerAge) }) : ""} />
+        <StatTile num={num(d.participants?.in_recovery || 0)} label={t("admin.in_completion_window")} tone={Number(d.participants?.in_recovery) > 0 ? "warn" : undefined} sub={t("admin.v0_units", { v0: num(d.participants?.units_in_recovery || 0) })} />
+        <StatTile num={num(ops.payment_permanent_failures_24h || 0)} label={t("admin.final_charge_failures_24h")} tone={Number(ops.payment_permanent_failures_24h) > 0 ? "warn" : undefined} />
+        <StatTile num={num(ops.open_support_tickets || 0) + Number(ops.open_operational_cases || 0)} label={t("admin.open_enquiries_exceptions")} />
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.6334f7c2")}</div>
+        <div className="panel-title">{t("admin.deals_state")}</div>
         <div className="row">
           {stateOrder.filter((s) => d.deals?.by_state?.[s]).map((s) => (
             <button key={s} className="chip" onClick={() => navigate(`#/admin/deals?state=${s}`)}>
@@ -120,12 +120,12 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 
       {viral ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.39f5ce04")} <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/growth")}>{t("pages.admin.6beaa90f")}</button></div>
+          <div className="panel-title">{t("admin.virality_overview")} <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate("#/admin/growth")}>{t("admin.to_full_dashboard")}</button></div>
           <div className="stat-row" style={{ marginBottom: 0 }}>
-            <StatTile num={num(viral.attributed_participants || 0)} label={t("pages.admin.24dc87fc")} />
-            <StatTile num={pct(viral.viral_share_of_joins || 0)} label={t("pages.admin.1840fd30")} />
-            <StatTile num={ils(viral.attributed_charged_gmv || 0)} label={t("pages.admin.907e0c2c")} tone="good" />
-            <StatTile num={num(viral.max_generation || 0)} label={t("pages.admin.67f11bc0")} />
+            <StatTile num={num(viral.attributed_participants || 0)} label={t("admin.joins_sharing")} />
+            <StatTile num={pct(viral.viral_share_of_joins || 0)} label={t("admin.viral_share_all_joins")} />
+            <StatTile num={ils(viral.attributed_charged_gmv || 0)} label={t("admin.charged_gross_originating_sharing")} tone="good" />
+            <StatTile num={num(viral.max_generation || 0)} label={t("admin.maximum_chain_depth")} />
           </div>
         </div>
       ) : null}
@@ -134,10 +134,10 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 
       {ops.recent_dlq?.length ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.6020a1a6")}</div>
+          <div className="panel-title">{t("admin.recent_failures_dlq")}</div>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>{t("pages.admin.f45000d5")}</th><th>{t("pages.admin.7d1d299a")}</th><th>{t("pages.admin.e4cb6506")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+              <thead><tr><th>{t("admin.type")}</th><th>{t("admin.entity")}</th><th>{t("admin.error")}</th><th>{t("admin.when")}</th></tr></thead>
               <tbody>
                 {ops.recent_dlq.map((r: Json, i: number) => (
                   <tr key={i}><td>{r.event_type}</td><td dir="ltr">{String(r.aggregate_id).slice(0, 8)}…</td><td>{r.last_error}</td><td>{fmtDate(r.archived_at)}</td></tr>
@@ -156,7 +156,7 @@ function Overview({ navigate }: { navigate: (h: string) => void }) {
 function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
   const [days, setDays] = useState(30);
   const { data, error } = useFetch(() => api.adminPilotMetrics(days), [days], 60_000);
-  if (error) return <div className="panel"><div className="panel-title">{t("pages.admin.9fa8fe0a")}</div><Err msg={error} /></div>;
+  if (error) return <div className="panel"><div className="panel-title">{t("admin.pilot_metrics")}</div><Err msg={error} /></div>;
   if (!data) return null;
   const m = data as Json;
   const s = m.sellers || {}, dl = m.deals || {}, b = m.buyers || {}, inq = m.inquiries || {};
@@ -165,39 +165,39 @@ function PilotMetricsPanel({ navigate }: { navigate: (h: string) => void }) {
     <div className="panel" data-testid="pilot-metrics">
       <div className="panel-title">{t("admin.pilot_metrics.title", { days: num(days) })}
         <span className="row" style={{ marginInlineStart: "auto", gap: 6 }}>
-          {[7, 30, 90].map((d) => <button key={d} className={`btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}`} onClick={() => setDays(d)}>{t("pages.admin.fe798f56", { d: d })}</button>)}
+          {[7, 30, 90].map((d) => <button key={d} className={`btn btn-sm ${d === days ? "btn-primary" : "btn-ghost"}`} onClick={() => setDays(d)}>{t("admin.d_days", { d: d })}</button>)}
         </span>
       </div>
       <div className="stat-row" style={{ marginBottom: 8 }}>
-        <StatTile num={num(s.signed_up || 0)} label={t("pages.admin.1a05b4cd")} sub={t("pages.admin.608b30b9", { v0: num(s.signed_up_in_window || 0) })} />
-        <StatTile num={num(s.pending_approval || 0)} label={t("pages.admin.5e2bbda8")} tone={Number(s.pending_approval) > 0 ? "warn" : undefined} />
-        <StatTile num={num(s.created_a_deal || 0)} label={t("pages.admin.d7be4181")} />
-        <StatTile num={num(s.published_a_deal || 0)} label={t("pages.admin.721541a5")} />
-        <StatTile num={num(s.repeat_publishers || 0)} label={t("pages.admin.68eb7002")} tone="good" />
+        <StatTile num={num(s.signed_up || 0)} label={t("admin.sellers_registered_total")} sub={t("admin.v0_window", { v0: num(s.signed_up_in_window || 0) })} />
+        <StatTile num={num(s.pending_approval || 0)} label={t("admin.awaiting_approval")} tone={Number(s.pending_approval) > 0 ? "warn" : undefined} />
+        <StatTile num={num(s.created_a_deal || 0)} label={t("admin.sellers_who_created_deal")} />
+        <StatTile num={num(s.published_a_deal || 0)} label={t("admin.sellers_who_published")} />
+        <StatTile num={num(s.repeat_publishers || 0)} label={t("admin.returning_sellers_2_publications")} tone="good" />
       </div>
       <div className="stat-row" style={{ marginBottom: 8 }}>
-        <StatTile num={num(dl.drafts_created || 0)} label={t("pages.admin.aeb3c9a8")} />
-        <StatTile num={num(dl.published || 0)} label={t("pages.admin.afd08972")} />
+        <StatTile num={num(dl.drafts_created || 0)} label={t("admin.drafts_created")} />
+        <StatTile num={num(dl.published || 0)} label={t("admin.published")} />
         {/* LAUNCH POLISH (P7) — what is live RIGHT NOW (open for joining), from the same aggregate */}
-        <StatTile num={num(dl.open_now || 0)} label={t("pages.admin.27eb2fb2")} sub={t("pages.admin.19efc85f", { v0: num(dl.settling || 0) })} />
-        <StatTile num={num(dl.reached_threshold || 0)} label={t("pages.admin.81f59c29")} tone="good" />
-        <StatTile num={num(dl.completed || 0)} label={t("pages.admin.8a0c3e3e")} tone="good" />
-        <StatTile num={num(dl.failed || 0)} label={t("pages.admin.5c4a5721")} tone={Number(dl.failed) > 0 ? "warn" : undefined} />
+        <StatTile num={num(dl.open_now || 0)} label={t("admin.open_joining_now")} sub={t("admin.v0_close_charge", { v0: num(dl.settling || 0) })} />
+        <StatTile num={num(dl.reached_threshold || 0)} label={t("admin.reached_target")} tone="good" />
+        <StatTile num={num(dl.completed || 0)} label={t("admin.completed")} tone="good" />
+        <StatTile num={num(dl.failed || 0)} label={t("admin.failed")} tone={Number(dl.failed) > 0 ? "warn" : undefined} />
       </div>
       <div className="stat-row" style={{ marginBottom: 0 }}>
-        <StatTile num={num(b.deal_views || 0)} label={t("pages.admin.a3e9014b")} sub={t("pages.admin.375677fd", { v0: num(b.unique_visitors || 0) })} />
-        <StatTile num={num(b.join_starts || 0)} label={t("pages.admin.2ad015f0")} sub={t("pages.admin.4801a042", { v0: num(b.join_failures || 0) })} />
-        <StatTile num={num(b.joins || 0)} label={t("pages.admin.150f7b79")} sub={t("pages.admin.54c0f520", { v0: num(b.distinct_buyers || 0) })} tone="good" />
-        <StatTile num={pctText(b.view_to_join_pct)} label={t("pages.admin.7afa69fb")} sub={t("pages.admin.670be9d8", { join_start_to_join_pct: pctText(b.join_start_to_join_pct) })} />
+        <StatTile num={num(b.deal_views || 0)} label={t("admin.deal_views")} sub={t("admin.v0_visitors", { v0: num(b.unique_visitors || 0) })} />
+        <StatTile num={num(b.join_starts || 0)} label={t("admin.join_attempts")} sub={t("admin.v0_rejected", { v0: num(b.join_failures || 0) })} />
+        <StatTile num={num(b.joins || 0)} label={t("admin.actually_joined")} sub={t("admin.v0_buyers", { v0: num(b.distinct_buyers || 0) })} tone="good" />
+        <StatTile num={pctText(b.view_to_join_pct)} label={t("admin.view_join_conversion")} sub={t("admin.attempt_join_join_start_join", { join_start_to_join_pct: pctText(b.join_start_to_join_pct) })} />
         {/* LAUNCH POLISH (P7) — unresolved inquiries are the owner's daily nudge to sellers */}
-        <StatTile num={num(Math.max(0, Number(inq.threads || 0) - Number(inq.answered || 0)))} label={t("pages.admin.ae090f0c")}
-          sub={t("pages.admin.a2e58a84", { v0: num(inq.threads || 0), v1: num(inq.answered || 0) })}
+        <StatTile num={num(Math.max(0, Number(inq.threads || 0) - Number(inq.answered || 0)))} label={t("admin.enquiries_awaiting_reply")}
+          sub={t("admin.v0_total_v1_answered", { v0: num(inq.threads || 0), v1: num(inq.answered || 0) })}
           tone={Number(inq.threads || 0) - Number(inq.answered || 0) > 0 ? "warn" : "good"} />
       </div>
       {(m.per_seller || []).some((r: Json) => r.verification_status === "pending") ? (
         <p className="small" style={{ marginTop: 10 }}>
           {t("admin.sellers_awaiting_approval")}{" "}
-          <a href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>{t("pages.admin.dba4e172")}</a>
+          <a href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>{t("admin.to_seller_list_2")}</a>
         </p>
       ) : null}
       {/* LAUNCH POLISH 2 (P6) — what buyers said was unclear (aggregate, PII-free) */}
@@ -216,9 +216,9 @@ function BuyerFeedbackSummary({ feedback }: { feedback: Json | undefined }) {
   const recent: Json[] = Array.isArray(feedback?.recent) ? feedback!.recent : [];
   return (
     <div className="feedback-summary" data-testid="pilot-feedback" data-total={total} style={{ marginTop: 14, borderTop: "1px dashed var(--line-strong)", paddingTop: 12 }}>
-      <div style={{ fontWeight: 800, marginBottom: 6 }}>{t("pages.admin.53fc6ebf", { total: num(total) })}</div>
+      <div style={{ fontWeight: 800, marginBottom: 6 }}>{t("admin.buyer_feedback_there_anything_wasn", { total: num(total) })}</div>
       {total === 0 ? (
-        <p className="muted small" style={{ margin: 0 }}>{t("pages.admin.4152c349")}</p>
+        <p className="muted small" style={{ margin: 0 }}>{t("admin.no_feedback_window_yet_question")}</p>
       ) : (
         <>
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -249,11 +249,11 @@ function DealsScreen({ navigate, initialState }: { navigate: (h: string) => void
   const states = ["", "PendingTarget", "TargetReached", "Charging", "CompletionWindow", "Completed", "Failed", "Draft", "Cancelled"];
   return (
     <>
-      <h1>{t("pages.admin.4d569790")}</h1>
+      <h1>{t("admin.deals")}</h1>
       <div className="row" style={{ marginBottom: 14 }}>
-        <input placeholder={t("pages.admin.7d4bf5be")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
+        <input placeholder={t("admin.search_name_id_seller")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 280 }} />
         {states.map((s) => (
-          <button key={s || "all"} className={`chip${state === s ? " active" : ""}`} onClick={() => setState(s)}>{s ? stateLabel(s) : t("pages.admin.5f8fb8a5")}</button>
+          <button key={s || "all"} className={`chip${state === s ? " active" : ""}`} onClick={() => setState(s)}>{s ? stateLabel(s) : t("admin.all")}</button>
         ))}
       </div>
       <Err msg={error} />
@@ -261,8 +261,8 @@ function DealsScreen({ navigate, initialState }: { navigate: (h: string) => void
         <div className="table-wrap">
           <table className="data">
             <thead><tr>
-              <th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.abed6512")}</th><th>{t("pages.admin.fcf022d8")}</th><th className="num">{t("pages.admin.80f2e6be")}</th><th className="num">{t("pages.admin.f3b2d408")}</th>
-              <th className="num">{t("pages.admin.6fa4c7f7")}</th><th className="num">{t("pages.admin.3300297e")}</th><th className="num">{t("pages.admin.467f6e47")}</th><th>{t("pages.admin.0202e8b3")}</th>
+              <th>{t("admin.deal")}</th><th>{t("admin.seller")}</th><th>{t("admin.state")}</th><th className="num">{t("admin.joined")}</th><th className="num">{t("admin.charged_2")}</th>
+              <th className="num">{t("admin.potential")}</th><th className="num">{t("admin.collected")}</th><th className="num">{t("admin.viral")}</th><th>{t("admin.deadline")}</th>
             </tr></thead>
             <tbody>
               {((data as Json).deals || []).map((d: Json) => (
@@ -275,7 +275,7 @@ function DealsScreen({ navigate, initialState }: { navigate: (h: string) => void
                   <td className="num">{ils(d.potential_gross)}</td>
                   <td className="num">{ils(d.charged_gross)}</td>
                   <td className="num">{num(d.viral_joins)}</td>
-                  <td><Countdown until={d.deadline} overText={t("pages.admin.8fe6a546")} /></td>
+                  <td><Countdown until={d.deadline} overText={t("admin.passed")} /></td>
                 </tr>
               ))}
             </tbody>
@@ -320,17 +320,17 @@ function TreeBranch({ node, dealId, depth, onSelect, selectedId }: { node: TreeN
           onKeyDown={(e) => { if (e.key === "Enter") onSelect(node); }}
         >
           {node.has_children ? (
-            <button className="vtree-toggle" onClick={(e) => { e.stopPropagation(); void toggle(); }} aria-label={open ? t("pages.admin.8e7e9eef") : t("pages.admin.48e204aa")} aria-expanded={open}>
+            <button className="vtree-toggle" onClick={(e) => { e.stopPropagation(); void toggle(); }} aria-label={open ? t("admin.collapse_branch") : t("admin.expand_branch")} aria-expanded={open}>
               {loading ? "…" : open ? "−" : "+"}
             </button>
           ) : <span className="vtree-leaf-dot" aria-hidden="true">•</span>}
           <span className="vtree-name">{node.display}</span>
-          <span className="vtree-gen">{t("pages.admin.669beca1", { generation: num(node.generation) })}</span>
-          <span className="vtree-badge">{t("pages.admin.5304b9da", { direct_units: num(node.direct_units) })}</span>
-          {node.charged ? <span className="vtree-badge charged">{t("pages.admin.79e91b93")}</span> : node.active ? <span className="vtree-badge">{t("pages.admin.dbfda859")}</span> : <span className="vtree-badge dropped">{t("pages.admin.58c518fb")}</span>}
+          <span className="vtree-gen">{t("admin.generation_generation", { generation: num(node.generation) })}</span>
+          <span className="vtree-badge">{t("admin.direct_units_units", { direct_units: num(node.direct_units) })}</span>
+          {node.charged ? <span className="vtree-badge charged">{t("admin.charged")}</span> : node.active ? <span className="vtree-badge">{t("admin.authorization")}</span> : <span className="vtree-badge dropped">{t("admin.dropped")}</span>}
           {node.has_children ? (
             <span className="vtree-badge branch">
-              {t("pages.admin.dea34cc4", { direct_children: num(node.direct_children), subtree_joins: num(node.subtree_joins), subtree_charged_units: num(node.subtree_charged_units) })}</span>
+              {t("admin.direct_children_direct_branch_subtree", { direct_children: num(node.direct_children), subtree_joins: num(node.subtree_joins), subtree_charged_units: num(node.subtree_charged_units) })}</span>
           ) : null}
         </div>
       </div>
@@ -338,8 +338,8 @@ function TreeBranch({ node, dealId, depth, onSelect, selectedId }: { node: TreeN
         <div className="vtree-children">
           {children.length ? children.map((c) => (
             <TreeBranch key={c.participant_id} node={c} dealId={dealId} depth={depth + 1} onSelect={onSelect} selectedId={selectedId} />
-          )) : <p className="muted small">{t("pages.admin.a081a8b9")}</p>}
-          {truncated ? <p className="muted small">{t("pages.admin.b887d7de")}</p> : null}
+          )) : <p className="muted small">{t("admin.nobody_joined_through_participant_s")}</p>}
+          {truncated ? <p className="muted small">{t("admin.the_first_60_branch_shown")}</p> : null}
         </div>
       ) : null}
     </div>
@@ -377,8 +377,8 @@ function ViralTreeExplorer({ dealId, dealTitle }: { dealId: string; dealTitle?: 
 function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | null; stale?: boolean; computedAt?: string | null; onRecompute?: () => void }) {
   if (!vm) return (
     <div className="row">
-      <p className="muted small grow">{t("pages.admin.50e19b83")}</p>
-      {onRecompute ? <button className="btn btn-sm btn-ghost" onClick={onRecompute}>{t("pages.admin.66647e52")}</button> : null}
+      <p className="muted small grow">{t("admin.virality_data_been_computed_deal")}</p>
+      {onRecompute ? <button className="btn btn-sm btn-ghost" onClick={onRecompute}>{t("admin.compute_now")}</button> : null}
     </div>
   );
   const v = (vm.viral || {}) as Json;
@@ -388,28 +388,28 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
   return (
     <>
       <div className="stat-row">
-        <StatTile num={num(v.attributed_participants || 0)} label={t("pages.admin.24dc87fc")} sub={t("pages.admin.003d8da8", { v0: pct(v.viral_share_of_joins || 0) })} />
-        <StatTile num={num(v.attributed_charged_units || 0)} label={t("pages.admin.7a2638c1")} tone="good" />
-        <StatTile num={ils(v.attributed_charged_gmv || 0)} label={t("pages.admin.49c7de88")} tone="good" />
-        <StatTile num={num(v.personal_links || 0)} label={t("pages.admin.4839dc1a")} />
-        <StatTile num={num(v.sharing_participants || 0)} label={t("pages.admin.42d49199")} sub={t("pages.admin.ff018cc8", { v0: Number(v.avg_children_per_sharer || 0).toFixed(1) })} />
-        <StatTile num={String(v.direct_viral_coefficient ?? 0)} label={t("pages.admin.4afbe5f7")} sub={t("pages.admin.cfb27f4e", { v0: v.charged_viral_coefficient ?? 0 })} />
+        <StatTile num={num(v.attributed_participants || 0)} label={t("admin.joins_sharing")} sub={t("admin.v0_total", { v0: pct(v.viral_share_of_joins || 0) })} />
+        <StatTile num={num(v.attributed_charged_units || 0)} label={t("admin.units_charged_distribution")} tone="good" />
+        <StatTile num={ils(v.attributed_charged_gmv || 0)} label={t("admin.charged_gross_distribution")} tone="good" />
+        <StatTile num={num(v.personal_links || 0)} label={t("admin.personal_links")} />
+        <StatTile num={num(v.sharing_participants || 0)} label={t("admin.active_sharers")} sub={t("admin.v0_children_average", { v0: Number(v.avg_children_per_sharer || 0).toFixed(1) })} />
+        <StatTile num={String(v.direct_viral_coefficient ?? 0)} label={t("admin.viral_coefficient_joins")} sub={t("admin.in_money_v0", { v0: v.charged_viral_coefficient ?? 0 })} />
       </div>
       <div className="stat-row">
-        <StatTile num={num(f.deal_views || 0)} label={t("pages.admin.bd376463")} />
-        <StatTile num={num(f.share_clicks || 0)} label={t("pages.admin.a6c88214")} />
-        <StatTile num={num(f.link_entries || 0)} label={t("pages.admin.51818277")} />
-        <StatTile num={pct(f.visit_to_join_rate || 0)} label={t("pages.admin.70407427")} />
-        <StatTile num={pct(f.shared_visit_to_charged_rate || 0)} label={t("pages.admin.8b120245")} />
+        <StatTile num={num(f.deal_views || 0)} label={t("admin.page_views")} />
+        <StatTile num={num(f.share_clicks || 0)} label={t("admin.share_clicks")} />
+        <StatTile num={num(f.link_entries || 0)} label={t("admin.visits_links")} />
+        <StatTile num={pct(f.visit_to_join_rate || 0)} label={t("admin.conversion_visit_join")} />
+        <StatTile num={pct(f.shared_visit_to_charged_rate || 0)} label={t("admin.conversion_visit_successful_charge")} />
       </div>
       {gens.length ? (
         <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-title">{t("pages.admin.b02af8b1")}</div>
+          <div className="panel-title">{t("admin.generation_distribution")}</div>
           <div className="gen-bars" style={{ paddingTop: 18, paddingBottom: 22 }}>
             {gens.map(([g, n]) => (
               <div key={g} className="gen-bar" style={{ height: `${Math.max(8, (Number(n) / maxGen) * 100)}%` }}>
                 <span className="gen-val">{num(n)}</span>
-                <span className="gen-lbl">{t("pages.admin.2181f7eb", { g: g })}</span>
+                <span className="gen-lbl">{t("admin.generation_g", { g: g })}</span>
               </div>
             ))}
           </div>
@@ -417,15 +417,15 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
       ) : null}
       {(vm.top_sources as Json[])?.length ? (
         <div className="panel" style={{ marginBottom: 16 }}>
-          <div className="panel-title">{t("pages.admin.911da57b")}</div>
+          <div className="panel-title">{t("admin.top_sources_first_last_touch")}</div>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>{t("pages.admin.b691468d")}</th><th>{t("pages.admin.f45000d5")}</th><th className="num">{t("pages.admin.4efdc84e")}</th><th className="num">{t("pages.admin.4173c16c")}</th><th className="num">{t("pages.admin.3f408b4f")}</th><th className="num">{t("pages.admin.f14d7882")}</th><th className="num">{t("pages.admin.0e39abb4")}</th></tr></thead>
+              <thead><tr><th>{t("admin.source")}</th><th>{t("admin.type")}</th><th className="num">{t("admin.clicks")}</th><th className="num">{t("admin.visits")}</th><th className="num">{t("admin.joins_branch")}</th><th className="num">{t("admin.units_charged_2")}</th><th className="num">{t("admin.charged_gross")}</th></tr></thead>
               <tbody>
                 {(vm.top_sources as Json[]).slice(0, 10).map((s) => (
                   <tr key={s.link_id}>
                     <td><b>{s.owner_display || s.internal_name}</b> <span className="muted small" dir="ltr">{s.source_code}</span></td>
-                    <td>{s.origin_type === "participant" ? t("pages.admin.3cffea29") : s.origin_type === "distributor" ? t("pages.admin.760883e6") : s.origin_type}</td>
+                    <td>{s.origin_type === "participant" ? t("admin.participant") : s.origin_type === "distributor" ? t("admin.distributor") : s.origin_type}</td>
                     <td className="num">{num(s.clicks)}</td>
                     <td className="num">{num(s.entries)}</td>
                     <td className="num">{num(s.subtree_joins)}</td>
@@ -440,8 +440,8 @@ function ViralMetricsBlock({ vm, stale, computedAt, onRecompute }: { vm: Json | 
       ) : null}
       {stale !== undefined ? (
         <p className="muted small">
-          {t("admin.computed_by_worker", { at: computedAt ? fmtDate(computedAt) : "—" })} {stale ? t("pages.admin.9c78f699") : ""}
-          {onRecompute ? <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: 8 }} onClick={onRecompute}>{t("pages.admin.1829ac44")}</button> : null}
+          {t("admin.computed_by_worker", { at: computedAt ? fmtDate(computedAt) : "—" })} {stale ? t("admin.may_current") : ""}
+          {onRecompute ? <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: 8 }} onClick={onRecompute}>{t("admin.refresh_computation")}</button> : null}
         </p>
       ) : null}
     </>
@@ -453,12 +453,12 @@ function ViralTab({ dealId, dealTitle, vm, viralRes, onRecompute }: { dealId: st
   return (
     <>
       <div className="mode-toggle">
-        <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>{t("pages.admin.92e7f96c")}</button>
-        <button className={mode === "analytics" ? "active" : ""} onClick={() => setMode("analytics")}>{t("pages.admin.88752b7d")}</button>
+        <button className={mode === "tree" ? "active" : ""} onClick={() => setMode("tree")}>{t("admin.distribution_tree_2")}</button>
+        <button className={mode === "analytics" ? "active" : ""} onClick={() => setMode("analytics")}>{t("admin.analytics")}</button>
       </div>
       {mode === "tree" ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.17681336")}</div>
+          <div className="panel-title">{t("admin.distribution_tree")}</div>
           <ViralTreeExplorer dealId={dealId} dealTitle={dealTitle} />
         </div>
       ) : (
@@ -489,37 +489,37 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
   const ops = (opsRes as Json | null)?.summary || (opsRes as Json | null) || {};
 
   const recompute = async () => {
-    try { await api.adminViralRecompute(dealId); showToast(t("pages.admin.cc171b6f")); setTimeout(reloadViral, 4000); }
-    catch (e: any) { showToast(e.message || t("pages.admin.898d60f3")); }
+    try { await api.adminViralRecompute(dealId); showToast(t("admin.the_virality_computation_been_queued")); setTimeout(reloadViral, 4000); }
+    catch (e: any) { showToast(e.message || t("admin.failed_2")); }
   };
 
   return (
     <>
-      <a className="back" href="#/admin/deals" onClick={(e) => { e.preventDefault(); navigate("#/admin/deals"); }}>{t("pages.admin.f5c87e50")}</a>
+      <a className="back" href="#/admin/deals" onClick={(e) => { e.preventDefault(); navigate("#/admin/deals"); }}>{t("admin.to_deal_list")}</a>
       <div className="row" style={{ marginBottom: 8 }}>
         <h1 style={{ margin: 0 }}>{deal.title}</h1>
         <StatusPill state={String(deal.state)} />
-        <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate(`#/admin/seller/${encodeURIComponent(deal.seller_id)}`)}>{t("pages.admin.4c8b77ee", { seller_id: deal.seller_id })}</button>
-        <a className="btn btn-sm btn-ghost" href={`#/deal/${dealId}`} target="_blank">{t("pages.admin.9a36cda7")}</a>
+        <button className="btn btn-sm btn-ghost" style={{ marginInlineStart: "auto" }} onClick={() => navigate(`#/admin/seller/${encodeURIComponent(deal.seller_id)}`)}>{t("admin.to_seller_seller_id", { seller_id: deal.seller_id })}</button>
+        <a className="btn btn-sm btn-ghost" href={`#/deal/${dealId}`} target="_blank">{t("admin.public_page")}</a>
       </div>
       <div className="stat-row">
-        <StatTile num={`${num(joinedUnits)} / ${num(deal.max_units)}`} label={t("pages.admin.557d6e22")} sub={t("pages.admin.3841bd27", { min_units: num(deal.min_units), threshold_units: num(deal.threshold_units) })} />
-        <StatTile num={num(chargedUnits)} label={t("pages.admin.81161e57")} tone="good" />
-        <StatTile num={ils(potential)} label={t("pages.admin.38fa9b60")} />
-        <StatTile num={ils(gross)} label={t("pages.admin.e2fca018")} tone="good" />
-        <StatTile num={ils(Math.round(gross * 0.08 * 100) / 100)} label={t("pages.admin.680062d4")} />
-        <StatTile num={<Countdown until={deal.completion_window_until || deal.deadline} overText={t("pages.admin.8fe6a546")} />} label={deal.completion_window_until ? t("pages.admin.b13e583d") : t("pages.admin.0202e8b3")} />
+        <StatTile num={`${num(joinedUnits)} / ${num(deal.max_units)}`} label={t("admin.joined_maximum")} sub={t("admin.minimum_min_units_threshold_threshold", { min_units: num(deal.min_units), threshold_units: num(deal.threshold_units) })} />
+        <StatTile num={num(chargedUnits)} label={t("admin.units_actually_charged_2")} tone="good" />
+        <StatTile num={ils(potential)} label={t("admin.potential_authorizations")} />
+        <StatTile num={ils(gross)} label={t("admin.actually_collected")} tone="good" />
+        <StatTile num={ils(Math.round(gross * 0.08 * 100) / 100)} label={t("admin.c_ton_fee_8_what")} />
+        <StatTile num={<Countdown until={deal.completion_window_until || deal.deadline} overText={t("admin.passed")} />} label={deal.completion_window_until ? t("admin.completion_window") : t("admin.deadline")} />
         {/* LAUNCH SPRINT 3 — physical handoff truth for support: awaiting vs handed over (server-computed) */}
         {p.fulfillment?.applicable ? (
           <>
-            <StatTile num={num(p.fulfillment.awaiting)} label={t("pages.admin.f1a84bdc")} tone={Number(p.fulfillment.awaiting) > 0 ? "warn" : undefined} />
-            <StatTile num={num(p.fulfillment.fulfilled)} label={t("pages.admin.96ac9ea8")} tone="good" />
+            <StatTile num={num(p.fulfillment.awaiting)} label={t("admin.awaiting_handover")} tone={Number(p.fulfillment.awaiting) > 0 ? "warn" : undefined} />
+            <StatTile num={num(p.fulfillment.fulfilled)} label={t("admin.handed_over")} tone="good" />
           </>
         ) : null}
       </div>
 
       <div className="tabbar">
-        {[["summary", t("pages.admin.48dcd48e")], ["viral", t("pages.admin.2ac66365")], ["ops", t("pages.admin.259a690e")], ["audit", t("pages.admin.1a2c1593")]].map(([k, l]) => (
+        {[["summary", t("admin.participants_money")], ["viral", t("admin.virality_tree")], ["ops", t("admin.operations_queue")], ["audit", t("admin.audit_log")]].map(([k, l]) => (
           <button key={k} className={`tab${tab === k ? " active" : ""}`} onClick={() => setTab(k!)}>{l}</button>
         ))}
       </div>
@@ -527,13 +527,13 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
       {tab === "summary" ? (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>{t("pages.admin.628febf8")}</th><th>{t("pages.admin.737232c2")}</th><th className="num">{t("pages.admin.d4e2d05b")}</th><th>{t("pages.admin.eb88351a")}</th><th>{t("pages.admin.f9537f97")}</th><th>{t("pages.admin.65e1ef42")}</th><th>{t("pages.admin.b4bba0fb")}</th><th>{t("pages.admin.b691468d")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+            <thead><tr><th>{t("admin.buyer")}</th><th>{t("admin.phone")}</th><th className="num">{t("admin.quantity")}</th><th>{t("admin.buyer_state")}</th><th>{t("admin.money_state")}</th><th>{t("admin.fulfilment")}</th><th>{t("admin.handover")}</th><th>{t("admin.source")}</th><th>{t("admin.when")}</th></tr></thead>
             <tbody>
               {participants.map((x) => {
                 const f = p.fulfillment?.by_participant?.[String(x.participant_id)] || null;
                 const fulfillmentText = !f || f.fulfillment_status === "none" ? "—"
-                  : f.fulfillment_status === "fulfilled" ? t("pages.admin.3057cc2f", { fulfilled_at: fmtDate(f.fulfilled_at), v1: f.order_code_last4 ? ` · •${f.order_code_last4}` : "" })
-                    : f.fulfillment_status === "awaiting" ? t("pages.admin.323b1f37", { v0: f.order_code_last4 ? ` · •${f.order_code_last4}` : "" }) : t("pages.admin.c94e0409");
+                  : f.fulfillment_status === "fulfilled" ? t("admin.handed_over_fulfilled_v1", { fulfilled_at: fmtDate(f.fulfilled_at), v1: f.order_code_last4 ? ` · •${f.order_code_last4}` : "" })
+                    : f.fulfillment_status === "awaiting" ? t("admin.pending_v0", { v0: f.order_code_last4 ? ` · •${f.order_code_last4}` : "" }) : t("admin.do_hand_over");
                 return (
                 <tr key={x.participant_id}>
                   <td>{x.buyer_name || "—"}</td>
@@ -558,10 +558,10 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
       {tab === "ops" ? (
         <>
           <div className="panel">
-            <div className="panel-title">{t("pages.admin.615d5d41")}</div>
+            <div className="panel-title">{t("admin.the_deal_s_job_queue")}</div>
             <div className="table-wrap">
               <table className="data">
-                <thead><tr><th>{t("pages.admin.f45000d5")}</th><th>{t("pages.admin.c184d0ed")}</th><th className="num">{t("pages.admin.ec6ec396")}</th><th>{t("pages.admin.01714400")}</th><th>{t("pages.admin.dad73464")}</th></tr></thead>
+                <thead><tr><th>{t("admin.type")}</th><th>{t("admin.status")}</th><th className="num">{t("admin.attempts")}</th><th>{t("admin.available")}</th><th>{t("admin.created")}</th></tr></thead>
                 <tbody>
                   {(p.outbox || []).map((o: Json, i: number) => (
                     <tr key={i}><td>{o.event_type}</td><td>{o.status}</td><td className="num">{num(o.attempt_count)}</td><td>{fmtDate(o.available_at)}</td><td>{fmtDate(o.created_at)}</td></tr>
@@ -571,10 +571,10 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
             </div>
           </div>
           <div className="panel">
-            <div className="panel-title">{t("pages.admin.1bdbc14f")}</div>
+            <div className="panel-title">{t("admin.charge_attempts")}</div>
             <div className="table-wrap">
               <table className="data">
-                <thead><tr><th>{t("pages.admin.f45000d5")}</th><th>{t("pages.admin.51faaa1f")}</th><th>{t("pages.admin.decc229d")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+                <thead><tr><th>{t("admin.type")}</th><th>{t("admin.result")}</th><th>{t("admin.correlation_id")}</th><th>{t("admin.when")}</th></tr></thead>
                 <tbody>
                   {(p.payment_attempts || []).map((a: Json, i: number) => (
                     <tr key={i}><td>{a.attempt_type}</td><td>{a.result_class}</td><td dir="ltr" className="small">{a.correlation_id}</td><td>{fmtDate(a.created_at)}</td></tr>
@@ -585,7 +585,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
           </div>
           {ops.notifications ? (
             <div className="panel">
-              <div className="panel-title">{t("pages.admin.19fac406")}</div>
+              <div className="panel-title">{t("admin.deal_notifications")}</div>
               <div className="row">{Object.entries(ops.notifications as Record<string, unknown>).map(([k, v]) => <span key={k} className="chip">{k}: {String(v)}</span>)}</div>
             </div>
           ) : null}
@@ -595,7 +595,7 @@ function DealDetail({ dealId, navigate }: { dealId: string; navigate: (h: string
       {tab === "audit" ? (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>{t("pages.admin.7d1d299a")}</th><th>{t("pages.admin.e94abfe2")}</th><th>{t("pages.admin.e5cb2608")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+            <thead><tr><th>{t("admin.entity")}</th><th>{t("admin.change")}</th><th>{t("admin.action")}</th><th>{t("admin.when")}</th></tr></thead>
             <tbody>
               {(p.audit || []).map((a: Json, i: number) => (
                 <tr key={i}>
@@ -622,40 +622,40 @@ function PendingSellersQueue({ pending, navigate, onChanged }: { pending: Json[]
   const [busy, setBusy] = useState("");
   const [confirmReject, setConfirmReject] = useState("");
   const [msg, setMsg] = useState("");
-  if (!pending.length) return <div className="notice ok" data-testid="pending-sellers-empty">{t("pages.admin.14db0037")}</div>;
+  if (!pending.length) return <div className="notice ok" data-testid="pending-sellers-empty">{t("admin.no_sellers_waiting_approval")}</div>;
   const decide = async (s: Json, decision: "approve" | "reject") => {
     if (busy) return;
     setBusy(String(s.seller_id)); setMsg("");
     try {
       await api.adminSellerKycDecision(String(s.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
-      setMsg(decision === "approve" ? t("pages.admin.9359aefb", { display_name: s.business_name || s.display_name }) : t("pages.admin.558613d4", { display_name: s.business_name || s.display_name }));
+      setMsg(decision === "approve" ? t("admin.display_name_approved_they_publish", { display_name: s.business_name || s.display_name }) : t("admin.display_name_rejected", { display_name: s.business_name || s.display_name }));
       setConfirmReject("");
       onChanged();
-    } catch (e: any) { setMsg(e.message || t("pages.admin.d11a2bcd")); }
+    } catch (e: any) { setMsg(e.message || t("admin.the_action_failed")); }
     setBusy("");
   };
   return (
-    <section className="pending-queue" data-testid="pending-sellers-queue" aria-label={t("pages.admin.887448b8")}>
-      <div className="panel-title">{t("pages.admin.5e2bbda8")} <span className="count">({num(pending.length)})</span></div>
-      <p className="small muted" style={{ margin: "0 0 4px" }}>{t("pages.admin.b0c6707d")}</p>
+    <section className="pending-queue" data-testid="pending-sellers-queue" aria-label={t("admin.sellers_awaiting_approval_2")}>
+      <div className="panel-title">{t("admin.awaiting_approval")} <span className="count">({num(pending.length)})</span></div>
+      <p className="small muted" style={{ margin: "0 0 4px" }}>{t("admin.a_seller_who_registered_own")}</p>
       {pending.map((s) => (
         <div className="pending-row" key={s.seller_id} data-testid="pending-seller-row" data-seller-id={s.seller_id}>
           <div className="who">
             <b>{s.business_name || s.display_name || s.seller_id}</b>
             <span className="small" dir="ltr">{s.login_email || s.seller_id}</span>
             <div className="small">
-              {t("admin.seller_row_meta", { registered: s.created_at ? timeAgo(s.created_at) : "—", bound: s.supabase_bound ? t("pages.admin.297d12f7") : t("pages.admin.30707b98"), drafts: num(s.deals_total || 0) })}
+              {t("admin.seller_row_meta", { registered: s.created_at ? timeAgo(s.created_at) : "—", bound: s.supabase_bound ? t("admin.verified_sign") : t("admin.no_sign_link"), drafts: num(s.deals_total || 0) })}
             </div>
           </div>
           <div className="acts">
-            <button className="btn btn-sm btn-ghost" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(String(s.seller_id))}`)}>{t("pages.admin.1a1c4d24")}</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(String(s.seller_id))}`)}>{t("admin.open")}</button>
             {confirmReject === s.seller_id ? (
-              <button className="btn btn-sm btn-danger" data-testid="pending-reject-confirm" disabled={Boolean(busy)} onClick={() => decide(s, "reject")}>{t("pages.admin.05cb2275")}</button>
+              <button className="btn btn-sm btn-danger" data-testid="pending-reject-confirm" disabled={Boolean(busy)} onClick={() => decide(s, "reject")}>{t("admin.confirm_rejection")}</button>
             ) : (
-              <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="pending-reject" disabled={Boolean(busy)} onClick={() => setConfirmReject(String(s.seller_id))}>{t("pages.admin.b4a24d90")}</button>
+              <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="pending-reject" disabled={Boolean(busy)} onClick={() => setConfirmReject(String(s.seller_id))}>{t("admin.reject")}</button>
             )}
             <button className="btn btn-sm btn-primary" data-testid="pending-approve" disabled={Boolean(busy)} onClick={() => decide(s, "approve")}>
-              {busy === s.seller_id ? t("pages.admin.2129ee06") : t("pages.admin.75178c23")}
+              {busy === s.seller_id ? t("admin.one_moment") : t("admin.approve_seller")}
             </button>
           </div>
         </div>
@@ -674,13 +674,13 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
   const pending = sellers.filter((s) => s.verification_status === "pending");
   return (
     <>
-      <h1>{t("pages.admin.86843576")}</h1>
+      <h1>{t("admin.sellers")}</h1>
       <PendingSellersQueue pending={pending} navigate={navigate} onChanged={() => setVersion((v) => v + 1)} />
       <div className="table-wrap">
         <table className="data">
           <thead><tr>
-            <th>{t("pages.admin.abed6512")}</th><th>{t("pages.admin.c184d0ed")}</th><th className="num">{t("pages.admin.4d569790")}</th><th className="num">{t("pages.admin.15ea281e")}</th><th className="num">{t("pages.admin.8a0c3e3e")}</th><th className="num">{t("pages.admin.5c4a5721")}</th>
-            <th className="num">{t("pages.admin.799df175")}</th><th className="num">{t("pages.admin.6fa4c7f7")}</th><th className="num">{t("pages.admin.3300297e")}</th><th className="num">{t("pages.admin.ceed8ca6")}</th><th>{t("pages.admin.bd7c4f06")}</th>
+            <th>{t("admin.seller")}</th><th>{t("admin.status")}</th><th className="num">{t("admin.deals")}</th><th className="num">{t("admin.activity")}</th><th className="num">{t("admin.completed")}</th><th className="num">{t("admin.failed")}</th>
+            <th className="num">{t("admin.units_charged")}</th><th className="num">{t("admin.potential")}</th><th className="num">{t("admin.collected")}</th><th className="num">{t("admin.actual_fee")}</th><th>{t("admin.recent_activity")}</th>
           </tr></thead>
           <tbody>
             {((data as Json).sellers || []).map((s: Json) => (
@@ -690,8 +690,8 @@ function SellersScreen({ navigate }: { navigate: (h: string) => void }) {
                   <span className={`status ${s.seller_status === "Active" ? "Completed" : "Failed"}`}>{s.seller_status}</span>
                   {s.supabase_bound ? <span className="tree-badge charged" style={{ marginInlineStart: 6 }}>Auth✓</span> : null}
                   {/* LAUNCH MODE — who is waiting for the owner's approval */}
-                  {s.verification_status === "pending" ? <span className="tree-badge" style={{ marginInlineStart: 6, background: "var(--amber, #d9931c)", color: "#1b1b1b" }}>{t("pages.admin.c83c4f81")}</span> : null}
-                  {s.verification_status === "rejected" ? <span className="tree-badge" style={{ marginInlineStart: 6 }}>{t("pages.admin.0a4a56cd")}</span> : null}
+                  {s.verification_status === "pending" ? <span className="tree-badge" style={{ marginInlineStart: 6, background: "var(--amber, #d9931c)", color: "#1b1b1b" }}>{t("admin.awaiting_approval_2")}</span> : null}
+                  {s.verification_status === "rejected" ? <span className="tree-badge" style={{ marginInlineStart: 6 }}>{t("admin.rejected")}</span> : null}
                 </td>
                 <td className="num">{num(s.deals_total)}</td>
                 <td className="num">{num(s.deals_active)}</td>
@@ -726,26 +726,26 @@ function SellerApprovalPanel({ seller, onChanged }: { seller: Json; onChanged: (
     setBusy(true); setMsg("");
     try {
       await api.adminSellerKycDecision(String(seller.seller_id), decision, decision === "approve" ? "pilot_approved" : "pilot_rejected");
-      setMsg(decision === "approve" ? t("pages.admin.85d8cd15") : t("pages.admin.d4b20a35"));
+      setMsg(decision === "approve" ? t("admin.the_seller_approved_they_publish") : t("admin.the_seller_rejected"));
       setConfirmReject(false);
       onChanged();
-    } catch (e: any) { setMsg(e.message || t("pages.admin.d11a2bcd")); }
+    } catch (e: any) { setMsg(e.message || t("admin.the_action_failed")); }
     setBusy(false);
   };
   return (
     <div className={`notice ${status === "approved" ? "ok" : status === "rejected" ? "err" : "info"}`} data-testid="seller-approval" data-status={status} style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
       <span>
-        <b>{t("pages.admin.aca3cb05")}</b>{" "}
-        {status === "approved" ? t("pages.admin.8270663e") : status === "rejected" ? t("pages.admin.0a4a56cd") : t("pages.admin.c83c4f81")}
+        <b>{t("admin.seller_approval")}</b>{" "}
+        {status === "approved" ? t("admin.approved") : status === "rejected" ? t("admin.rejected") : t("admin.awaiting_approval_2")}
         {" · "}
-        <b data-testid="seller-can-publish">{status === "approved" ? t("pages.admin.cfbba7c2") : t("pages.admin.688e15d1")}</b>
+        <b data-testid="seller-can-publish">{status === "approved" ? t("admin.can_publish") : t("admin.cannot_publish_drafts_only")}</b>
       </span>
       <span className="row" style={{ marginInlineStart: "auto", gap: 8 }}>
-        {status !== "approved" ? <button className="btn btn-sm btn-primary" data-testid="seller-approve" disabled={busy} onClick={() => decide("approve")}>{t("pages.admin.75178c23")}</button> : null}
+        {status !== "approved" ? <button className="btn btn-sm btn-primary" data-testid="seller-approve" disabled={busy} onClick={() => decide("approve")}>{t("admin.approve_seller")}</button> : null}
         {status !== "rejected" ? (
           confirmReject
-            ? <button className="btn btn-sm btn-danger" data-testid="seller-reject-confirm" disabled={busy} onClick={() => decide("reject")}>{t("pages.admin.05cb2275")}</button>
-            : <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="seller-reject" disabled={busy} onClick={() => setConfirmReject(true)}>{t("pages.admin.fa4e0a1d")}</button>
+            ? <button className="btn btn-sm btn-danger" data-testid="seller-reject-confirm" disabled={busy} onClick={() => decide("reject")}>{t("admin.confirm_rejection")}</button>
+            : <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="seller-reject" disabled={busy} onClick={() => setConfirmReject(true)}>{t("admin.reject_2")}</button>
         ) : null}
       </span>
       {msg ? <span className="small" style={{ flexBasis: "100%" }}>{msg}</span> : null}
@@ -765,39 +765,39 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
   const vm = d.viral?.metrics as Json | null;
   return (
     <>
-      <a className="back" href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>{t("pages.admin.bfa4af2f")}</a>
+      <a className="back" href="#/admin/sellers" onClick={(e) => { e.preventDefault(); navigate("#/admin/sellers"); }}>{t("admin.to_seller_list")}</a>
       <div className="row" style={{ marginBottom: 4 }}>
         <h1 style={{ margin: 0 }}>{s.business_name || s.display_name}</h1>
         <span className={`status ${s.seller_status === "Active" ? "Completed" : "Failed"}`}>{s.seller_status}</span>
-        {s.supabase_bound ? <span className="tree-badge charged">{t("pages.admin.98e7dfa6")}</span> : <span className="tree-badge">{t("pages.admin.2522dfa5")}</span>}
+        {s.supabase_bound ? <span className="tree-badge charged">{t("admin.linked_supabase_identity")}</span> : <span className="tree-badge">{t("admin.no_auth_link")}</span>}
       </div>
       <p className="muted small" dir="ltr">{s.login_email || ""} · {s.seller_id}</p>
       <SellerApprovalPanel seller={s} onChanged={reload} />
       {/* LAUNCH POLISH (P4) — who is this seller, in one glance (no KYC infrastructure: the profile they typed) */}
       <div className="id-block" data-testid="seller-identity">
-        <div><div className="k">{t("pages.admin.06ea2f1a")}</div><div className="v">{s.business_name || t("pages.admin.e17d346f")}</div></div>
-        <div><div className="k">{t("pages.admin.fd01e07f")}</div><div className="v">{s.contact_name || "—"}</div></div>
-        <div><div className="k">{t("pages.admin.737232c2")}</div><div className="v" dir="ltr">{s.support_phone || "—"}</div></div>
-        <div><div className="k">{t("pages.admin.d9107213")}</div><div className="v" dir="ltr">{s.support_email || "—"}</div></div>
-        <div><div className="k">{t("pages.admin.8a5ed50a")}</div><div className="v" dir="ltr">{s.business_identifier || "—"}</div></div>
-        <div><div className="k">{t("pages.admin.dad3a61a")}</div><div className="v">{s.self_signup ? t("pages.admin.f728a70e") : s.admin_note === "owner_email_claim" ? t("pages.admin.98613dfb") : /pilot_manual/.test(String(s.admin_note || "")) ? t("pages.admin.fd1ee984") : s.supabase_bound ? t("pages.admin.19d10084") : t("pages.admin.b97b8787")}</div></div>
-        <div><div className="k">{t("pages.admin.715efb37")}</div><div className="v">{fmtDate(s.created_at)}</div></div>
-        <div><div className="k">{t("pages.admin.87559761")}</div><div className="v">{s.last_login_at ? fmtDate(s.last_login_at) : "—"}</div></div>
-        {s.business_description ? <div style={{ gridColumn: "1 / -1" }}><div className="k">{t("pages.admin.927492f8")}</div><div className="v" style={{ fontWeight: 400 }}>{s.business_description}</div></div> : null}
+        <div><div className="k">{t("admin.business_name")}</div><div className="v">{s.business_name || t("admin.not_filled_yet")}</div></div>
+        <div><div className="k">{t("admin.contact")}</div><div className="v">{s.contact_name || "—"}</div></div>
+        <div><div className="k">{t("admin.phone")}</div><div className="v" dir="ltr">{s.support_phone || "—"}</div></div>
+        <div><div className="k">{t("admin.support_e_mail")}</div><div className="v" dir="ltr">{s.support_email || "—"}</div></div>
+        <div><div className="k">{t("admin.business_id")}</div><div className="v" dir="ltr">{s.business_identifier || "—"}</div></div>
+        <div><div className="k">{t("admin.account_origin")}</div><div className="v">{s.self_signup ? t("admin.registered_own_supabase") : s.admin_note === "owner_email_claim" ? t("admin.the_owner_account") : /pilot_manual/.test(String(s.admin_note || "")) ? t("admin.linked_hand_pilot") : s.supabase_bound ? t("admin.linked_sign") : t("admin.an_account_sign_link")}</div></div>
+        <div><div className="k">{t("admin.registered")}</div><div className="v">{fmtDate(s.created_at)}</div></div>
+        <div><div className="k">{t("admin.last_sign")}</div><div className="v">{s.last_login_at ? fmtDate(s.last_login_at) : "—"}</div></div>
+        {s.business_description ? <div style={{ gridColumn: "1 / -1" }}><div className="k">{t("admin.description")}</div><div className="v" style={{ fontWeight: 400 }}>{s.business_description}</div></div> : null}
       </div>
       {(d.warnings || []).length ? (
-        <div className="notice err"><b>{t("pages.admin.bcb6ad7f")}</b> {(d.warnings as string[]).join(" · ")}</div>
+        <div className="notice err"><b>{t("admin.system_warnings")}</b> {(d.warnings as string[]).join(" · ")}</div>
       ) : null}
       <div className="stat-row">
-        <StatTile num={num((d.deals || []).length)} label={t("pages.admin.4d569790")} />
-        <StatTile num={ils(d.money?.potential_gross || 0)} label={t("pages.admin.38fa9b60")} />
-        <StatTile num={ils(d.money?.charged_gross || 0)} label={t("pages.admin.e2fca018")} tone="good" />
-        <StatTile num={ils(d.money?.platform_fee_actual || 0)} label={t("pages.admin.3b458b4b")} />
-        <StatTile num={ils(d.money?.seller_net_actual || 0)} label={t("pages.admin.66ce824b")} />
+        <StatTile num={num((d.deals || []).length)} label={t("admin.deals")} />
+        <StatTile num={ils(d.money?.potential_gross || 0)} label={t("admin.potential_authorizations")} />
+        <StatTile num={ils(d.money?.charged_gross || 0)} label={t("admin.actually_collected")} tone="good" />
+        <StatTile num={ils(d.money?.platform_fee_actual || 0)} label={t("admin.actual_c_ton_fee")} />
+        <StatTile num={ils(d.money?.seller_net_actual || 0)} label={t("admin.actual_net_seller")} />
       </div>
 
       <div className="tabbar">
-        {[["deals", t("pages.admin.4d569790")], ["viral", t("pages.admin.0ece8804")], ["support", t("pages.admin.027deffc")], ["audit", t("pages.admin.1a2c1593")]].map(([k, l]) => (
+        {[["deals", t("admin.deals")], ["viral", t("admin.virality")], ["support", t("admin.support_fulfilment")], ["audit", t("admin.audit_log")]].map(([k, l]) => (
           <button key={k} className={`tab${tab === k ? " active" : ""}`} onClick={() => setTab(k!)}>{l}</button>
         ))}
       </div>
@@ -805,7 +805,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
       {tab === "deals" ? (
         <div className="table-wrap">
           <table className="data">
-            <thead><tr><th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.fcf022d8")}</th><th className="num">{t("pages.admin.80f2e6be")}</th><th className="num">{t("pages.admin.f3b2d408")}</th><th className="num">{t("pages.admin.ca6b8e91")}</th><th className="num">{t("pages.admin.6fa4c7f7")}</th><th className="num">{t("pages.admin.3300297e")}</th><th>{t("pages.admin.0202e8b3")}</th></tr></thead>
+            <thead><tr><th>{t("admin.deal")}</th><th>{t("admin.state")}</th><th className="num">{t("admin.joined")}</th><th className="num">{t("admin.charged_2")}</th><th className="num">{t("admin.in_completion")}</th><th className="num">{t("admin.potential")}</th><th className="num">{t("admin.collected")}</th><th>{t("admin.deadline")}</th></tr></thead>
             <tbody>
               {(d.deals || []).map((x: Json) => (
                 <tr key={x.deal_id} className="clickable" onClick={() => navigate(`#/admin/deal/${x.deal_id}`)}>
@@ -827,25 +827,25 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
       {tab === "support" ? (
         <>
           <div className="panel">
-            <div className="panel-title">{t("pages.admin.445c135b")}</div>
+            <div className="panel-title">{t("admin.support_enquiries")}</div>
             {(d.support_tickets || []).length ? (
               <div className="table-wrap"><table className="data">
-                <thead><tr><th>{t("pages.admin.550c1f87")}</th><th>{t("pages.admin.6727cbf0")}</th><th>{t("pages.admin.c184d0ed")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+                <thead><tr><th>{t("admin.subject")}</th><th>{t("admin.priority")}</th><th>{t("admin.status")}</th><th>{t("admin.when")}</th></tr></thead>
                 <tbody>{(d.support_tickets as Json[]).map((t) => <tr key={t.ticket_id}><td>{t.title}</td><td>{t.priority}</td><td>{t.status}</td><td>{fmtDate(t.created_at)}</td></tr>)}</tbody>
               </table></div>
-            ) : <p className="muted small">{t("pages.admin.493a33e3")}</p>}
+            ) : <p className="muted small">{t("admin.there_open_enquiries")}</p>}
           </div>
           <div className="panel">
-            <div className="panel-title">{t("pages.admin.d8f8beb1")}</div>
+            <div className="panel-title">{t("admin.fulfilment_status")}</div>
             {Object.keys(d.delivery_status_counts || {}).length ? (
               <div className="row">{Object.entries(d.delivery_status_counts as Record<string, number>).map(([k, v]) => <span className="chip" key={k}>{k}: {num(v)}</span>)}</div>
-            ) : <p className="muted small">{t("pages.admin.666f13f3")}</p>}
+            ) : <p className="muted small">{t("admin.no_fulfilment_data_yet")}</p>}
           </div>
         </>
       ) : null}
       {tab === "audit" ? (
         <div className="table-wrap"><table className="data">
-          <thead><tr><th>{t("pages.admin.7d1d299a")}</th><th>{t("pages.admin.e94abfe2")}</th><th>{t("pages.admin.e5cb2608")}</th><th>{t("pages.admin.b7364c5d")}</th></tr></thead>
+          <thead><tr><th>{t("admin.entity")}</th><th>{t("admin.change")}</th><th>{t("admin.action")}</th><th>{t("admin.when")}</th></tr></thead>
           <tbody>{(d.audit_tail || []).map((a: Json, i: number) => (
             <tr key={i}><td>{a.entity_type}</td><td>{a.from_state} ← {a.to_state}</td><td dir="ltr" className="small">{a.action_name}</td><td>{fmtDate(a.created_at)}</td></tr>
           ))}</tbody>
@@ -857,7 +857,7 @@ function SellerDetail({ sellerId, navigate }: { sellerId: string; navigate: (h: 
 
 // ── buyers ─────────────────────────────────────────────────────────────────
 function VerifyBadge({ value, label }: { value: boolean; label: string }) {
-  return <span className={`vbadge ${value ? "ok" : "no"}`} title={value ? t("pages.admin.6a2b090a", { label: label }) : t("pages.admin.6424b79e", { label: label })}>{value ? "✓" : "○"} {label}</span>;
+  return <span className={`vbadge ${value ? "ok" : "no"}`} title={value ? t("admin.label_verified_2", { label: label }) : t("admin.label_verified", { label: label })}>{value ? "✓" : "○"} {label}</span>;
 }
 
 function BuyersScreen() {
@@ -869,28 +869,28 @@ function BuyersScreen() {
   const inRecovery = buyers.reduce((s, b) => s + Number(b.in_recovery || 0), 0);
   return (
     <>
-      <h1>{t("pages.admin.9416bca9")}</h1>
-      <p className="muted small" style={{ marginTop: -6 }}>{t("pages.admin.9ac36e97")}</p>
+      <h1>{t("admin.buyers_participants")}</h1>
+      <p className="muted small" style={{ marginTop: -6 }}>{t("admin.e_mail_phone_sensitive_information")}</p>
       {data ? (
         <div className="stat-row">
-          <StatTile num={num(buyers.length)} label={t("pages.admin.a8707354")} />
-          <StatTile num={num(totalUnitsCharged)} label={t("pages.admin.05ede744")} tone="good" />
-          <StatTile num={ils(totalCharged)} label={t("pages.admin.e2fca018")} tone="good" />
-          <StatTile num={num(inRecovery)} label={t("pages.admin.4b8f4f3d")} tone={inRecovery > 0 ? "warn" : undefined} />
+          <StatTile num={num(buyers.length)} label={t("admin.unique_buyers")} />
+          <StatTile num={num(totalUnitsCharged)} label={t("admin.units_actually_charged")} tone="good" />
+          <StatTile num={ils(totalCharged)} label={t("admin.actually_collected")} tone="good" />
+          <StatTile num={num(inRecovery)} label={t("admin.completing_charge")} tone={inRecovery > 0 ? "warn" : undefined} />
         </div>
       ) : null}
-      <input placeholder={t("pages.admin.342cceb7")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
+      <input placeholder={t("admin.search_name_phone_e_mail")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
       <Err msg={error} />
       {!data ? <Spinner /> : buyers.length === 0 ? (
-        <EmptyState title={t("pages.admin.c991039d")} body={q ? t("pages.admin.98804942") : t("pages.admin.c0ec14d2")} />
+        <EmptyState title={t("admin.no_matching_buyers")} body={q ? t("admin.try_another_search") : t("admin.there_participations_system_yet")} />
       ) : (
         <div className="table-wrap">
           <table className="data">
             <thead><tr>
-              <th>{t("pages.admin.8b1aa6b1")}</th><th>{t("pages.admin.737232c2")}</th><th>{t("pages.admin.15dbea0f")}</th><th>{t("pages.admin.28a83bd5")}</th>
-              <th className="num">{t("pages.admin.ca50174b")}</th><th className="num">{t("pages.admin.4d569790")}</th>
-              <th className="num">{t("pages.admin.e4d94ea3")}</th><th className="num">{t("pages.admin.799df175")}</th><th className="num">{t("pages.admin.3300297e")}</th>
-              <th>{t("pages.admin.ac4de99e")}</th><th>{t("pages.admin.e93b694f")}</th><th>{t("pages.admin.bd7c4f06")}</th>
+              <th>{t("admin.name")}</th><th>{t("admin.phone")}</th><th>{t("admin.e_mail")}</th><th>{t("admin.verification")}</th>
+              <th className="num">{t("admin.part")}</th><th className="num">{t("admin.deals")}</th>
+              <th className="num">{t("admin.units_joined_2")}</th><th className="num">{t("admin.units_charged")}</th><th className="num">{t("admin.collected")}</th>
+              <th>{t("admin.buyer_status")}</th><th>{t("admin.money_status")}</th><th>{t("admin.recent_activity")}</th>
             </tr></thead>
             <tbody>
               {buyers.map((b: Json) => (
@@ -898,7 +898,7 @@ function BuyersScreen() {
                   <td>{b.buyer_name || "—"}</td>
                   <td dir="ltr">{b.buyer_phone || (String(b.buyer_id).match(/^[0-9+]/) ? b.buyer_id : "—")}</td>
                   <td dir="ltr" className="small">{b.buyer_email || <span className="muted">—</span>}</td>
-                  <td><VerifyBadge value={Boolean(b.phone_verified)} label={t("pages.admin.737232c2")} /> <VerifyBadge value={Boolean(b.email_verified)} label={t("pages.admin.81f4d41a")} /></td>
+                  <td><VerifyBadge value={Boolean(b.phone_verified)} label={t("admin.phone")} /> <VerifyBadge value={Boolean(b.email_verified)} label={t("admin.e_mail_2")} /></td>
                   <td className="num">{num(b.participations)}</td>
                   <td className="num">{num(b.deals)}</td>
                   <td className="num">{num(b.units_joined)}</td>
@@ -922,7 +922,7 @@ function MoneyPill({ state, recovery }: { state: string; recovery: number }) {
   const risk = state === "ChargeFailedRecovery";
   return (
     <span className={`status small ${good ? "Completed" : risk ? "CompletionWindow" : "ClosedForJoining"}`}>
-      {state ? moneyStateLabel(state) : "—"}{recovery > 0 && !risk ? t("pages.admin.52c514a7", { recovery: num(recovery) }) : ""}
+      {state ? moneyStateLabel(state) : "—"}{recovery > 0 && !risk ? t("admin.recovery_completion", { recovery: num(recovery) }) : ""}
     </span>
   );
 }
@@ -946,10 +946,10 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
   const windowLabel = growthRangeLabel(range);
   return (
     <>
-      <h1>{t("pages.admin.0ece8804")}</h1>
+      <h1>{t("admin.virality")}</h1>
       <div className="panel" data-testid="growth-range">
         <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <span className="small muted">{t("pages.admin.19315420")}</span>
+          <span className="small muted">{t("admin.time_range")}</span>
           {GROWTH_RANGE_PRESETS.map((p) => (
             <button key={p.days} type="button" className={`chip-btn${range.kind === "days" && range.days === p.days ? " active" : ""}`}
               data-testid={`growth-range-${p.days}`} onClick={() => { setCustomOpen(false); setRange({ kind: "days", days: p.days }); }}>
@@ -957,27 +957,27 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
             </button>
           ))}
           <button type="button" className={`chip-btn${range.kind === "custom" || customOpen ? " active" : ""}`} data-testid="growth-range-custom"
-            onClick={() => setCustomOpen((v) => !v)}>{t("pages.admin.0d668b40")}</button>
+            onClick={() => setCustomOpen((v) => !v)}>{t("admin.custom_range")}</button>
           <button type="button" className={`chip-btn${range.kind === "all" ? " active" : ""}`} data-testid="growth-range-all"
-            onClick={() => { setCustomOpen(false); setRange({ kind: "all" }); }}>{t("pages.admin.b45e8f7c")}</button>
+            onClick={() => { setCustomOpen(false); setRange({ kind: "all" }); }}>{t("admin.all_time")}</button>
         </div>
         {customOpen ? (
           <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end", marginTop: 10 }} data-testid="growth-custom-range">
             <div className="field" style={{ marginBottom: 0, flex: "1 1 150px" }}>
-              <label>{t("pages.admin.a1719662")}</label>
+              <label>{t("admin.from_date")}</label>
               <input type="date" dir="ltr" data-testid="growth-custom-from" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} />
             </div>
             <div className="field" style={{ marginBottom: 0, flex: "1 1 150px" }}>
-              <label>{t("pages.admin.e6ac04d9")}</label>
+              <label>{t("admin.to_date")}</label>
               <input type="date" dir="ltr" data-testid="growth-custom-to" value={customTo} onChange={(e) => setCustomTo(e.target.value)} />
             </div>
-            <button type="button" className="btn btn-sm btn-primary" data-testid="growth-custom-apply" onClick={applyCustom}>{t("pages.admin.3cc61391")}</button>
+            <button type="button" className="btn btn-sm btn-primary" data-testid="growth-custom-apply" onClick={applyCustom}>{t("admin.show")}</button>
             {customError ? <span className="small" style={{ color: "var(--pomegranate)", flexBasis: "100%" }} data-testid="growth-custom-error">{customError}</span> : null}
-            <span className="hint" style={{ flexBasis: "100%" }}>{t("pages.admin.b43e783f")}</span>
+            <span className="hint" style={{ flexBasis: "100%" }}>{t("admin.whole_days_israel_time")}</span>
           </div>
         ) : null}
         <p className="small muted" style={{ marginTop: 8, marginBottom: 0 }} data-testid="growth-window-label" data-window-kind={range.kind}>
-          {t("pages.admin.7b6b0591")} <b>{windowLabel}</b>
+          {t("admin.showing")} <b>{windowLabel}</b>
         </p>
       </div>
       {error ? <Err msg={error} /> : null}
@@ -985,26 +985,26 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
       {w ? (
         <>
           <div className="stat-row" data-testid="growth-windowed">
-            <StatTile num={num(w.joins || 0)} label={t("pages.admin.82514d66", { windowLabel: windowLabel })} />
-            <StatTile num={num(w.attributed_joins || 0)} label={t("pages.admin.24dc87fc")} tone="good" />
-            <StatTile num={String(w.viral_coefficient ?? 0)} label={t("pages.admin.b51c5113")} />
-            <StatTile num={pct(w.viral_share_of_joins || 0)} label={t("pages.admin.c1b9dc8c")} />
-            <StatTile num={ils(w.attributed_charged_gmv || 0)} label={t("pages.admin.8ffec168")} tone="good" />
-            <StatTile num={num(w.attributed_charged_units || 0)} label={t("pages.admin.c1d69cb3")} />
+            <StatTile num={num(w.joins || 0)} label={t("admin.joins_windowlabel", { windowLabel: windowLabel })} />
+            <StatTile num={num(w.attributed_joins || 0)} label={t("admin.joins_sharing")} tone="good" />
+            <StatTile num={String(w.viral_coefficient ?? 0)} label={t("admin.viral_coefficient_range")} />
+            <StatTile num={pct(w.viral_share_of_joins || 0)} label={t("admin.share_joins_sharing")} />
+            <StatTile num={ils(w.attributed_charged_gmv || 0)} label={t("admin.charged_gmv_originating_sharing")} tone="good" />
+            <StatTile num={num(w.attributed_charged_units || 0)} label={t("admin.units_charged_sharing")} />
           </div>
           <div className="stat-row">
-            <StatTile num={num(w.personal_links || 0)} label={t("pages.admin.23a79867")} />
-            <StatTile num={num(w.sharing_participants || 0)} label={t("pages.admin.398a032a")} />
-            <StatTile num={num(w.share_button_clicks || 0)} label={t("pages.admin.c823e08c")} />
-            <StatTile num={num(w.link_entries || 0)} label={t("pages.admin.51818277")} />
-            <StatTile num={num(w.deal_views || 0)} label={t("pages.admin.a3e9014b")} />
-            <StatTile num={num(w.max_generation || 0)} label={t("pages.admin.fed70505")} />
+            <StatTile num={num(w.personal_links || 0)} label={t("admin.personal_links_created")} />
+            <StatTile num={num(w.sharing_participants || 0)} label={t("admin.participants_who_brought_friends")} />
+            <StatTile num={num(w.share_button_clicks || 0)} label={t("admin.share_button_clicks")} />
+            <StatTile num={num(w.link_entries || 0)} label={t("admin.visits_links")} />
+            <StatTile num={num(w.deal_views || 0)} label={t("admin.deal_views")} />
+            <StatTile num={num(w.max_generation || 0)} label={t("admin.chain_depth_range")} />
           </div>
           {(w.top_deals as Json[])?.length ? (
             <div className="panel">
-              <div className="panel-title">{t("pages.admin.0a96bff9", { windowLabel: windowLabel })}</div>
+              <div className="panel-title">{t("admin.most_viral_deals_windowlabel", { windowLabel: windowLabel })}</div>
               <div className="table-wrap"><table className="data">
-                <thead><tr><th>{t("pages.admin.a559f0b8")}</th><th className="num">{t("pages.admin.24dc87fc")}</th><th className="num">{t("pages.admin.f14d7882")}</th><th className="num">{t("pages.admin.fb111f0f")}</th><th className="num">{t("pages.admin.038da02c")}</th></tr></thead>
+                <thead><tr><th>{t("admin.deal")}</th><th className="num">{t("admin.joins_sharing")}</th><th className="num">{t("admin.units_charged_2")}</th><th className="num">{t("admin.charged_gmv")}</th><th className="num">{t("admin.depth")}</th></tr></thead>
                 <tbody>{(w.top_deals as Json[]).map((t) => (
                   <tr key={t.deal_id} className="clickable" onClick={() => navigate(`#/admin/deal/${t.deal_id}`)}>
                     <td><b>{t.deal_title || t.deal_id}</b></td>
@@ -1016,12 +1016,12 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
                 ))}</tbody>
               </table></div>
             </div>
-          ) : <p className="muted small" data-testid="growth-window-empty">{t("pages.admin.0b08aad6")}</p>}
+          ) : <p className="muted small" data-testid="growth-window-empty">{t("admin.no_joins_sharing_selected_range")}</p>}
           {(w.top_sellers as Json[])?.length ? (
             <div className="panel">
-              <div className="panel-title">{t("pages.admin.8b37a1af", { windowLabel: windowLabel })}</div>
+              <div className="panel-title">{t("admin.most_viral_sellers_windowlabel", { windowLabel: windowLabel })}</div>
               <div className="table-wrap"><table className="data">
-                <thead><tr><th>{t("pages.admin.abed6512")}</th><th className="num">{t("pages.admin.24dc87fc")}</th><th className="num">{t("pages.admin.703edff7")}</th><th className="num">{t("pages.admin.4d569790")}</th></tr></thead>
+                <thead><tr><th>{t("admin.seller")}</th><th className="num">{t("admin.joins_sharing")}</th><th className="num">{t("admin.charged_gmv_sharing")}</th><th className="num">{t("admin.deals")}</th></tr></thead>
                 <tbody>{(w.top_sellers as Json[]).map((t) => (
                   <tr key={t.seller_id} className="clickable" onClick={() => navigate(`#/admin/seller/${encodeURIComponent(t.seller_id)}`)}>
                     <td><b>{t.seller_name || t.seller_id}</b></td>
@@ -1037,19 +1037,19 @@ function GrowthScreen({ navigate }: { navigate: (h: string) => void }) {
       ) : null}
       {data ? (
         <div className="panel" data-testid="growth-lifetime">
-          <div className="panel-title">{t("pages.admin.a385c75f")}</div>
-          {!lifetime ? <p className="muted small">{t("pages.admin.3f95daae")}</p> : (
+          <div className="panel-title">{t("admin.cumulative_since_launch_all_time")}</div>
+          {!lifetime ? <p className="muted small">{t("admin.there_cumulative_virality_data_yet")}</p> : (
             <>
               <div className="stat-row">
-                <StatTile num={String(lifetime.viral_coefficient ?? 0)} label={t("pages.admin.9dbe723e")} />
-                <StatTile num={pct(lifetime.viral_share_of_joins || 0)} label={t("pages.admin.c50df346")} />
-                <StatTile num={pct(lifetime.viral_share_of_charged || 0)} label={t("pages.admin.353b36be")} />
-                <StatTile num={ils(lifetime.attributed_charged_gmv || 0)} label={t("pages.admin.930afea4")} />
-                <StatTile num={num(lifetime.max_generation || 0)} label={t("pages.admin.76b87452")} />
+                <StatTile num={String(lifetime.viral_coefficient ?? 0)} label={t("admin.viral_coefficient_all_time")} />
+                <StatTile num={pct(lifetime.viral_share_of_joins || 0)} label={t("admin.share_joins_sharing_all_time")} />
+                <StatTile num={pct(lifetime.viral_share_of_charged || 0)} label={t("admin.charge_rate_sharing_all_time")} />
+                <StatTile num={ils(lifetime.attributed_charged_gmv || 0)} label={t("admin.charged_gmv_sharing_all_time")} />
+                <StatTile num={num(lifetime.max_generation || 0)} label={t("admin.maximum_chain_depth_all_time")} />
               </div>
               {(data as Json)?.lifetime?.computed_at ? (
                 <p className="muted small" style={{ marginBottom: 0 }}>
-                  {t("admin.computed_last_at", { at: fmtDate(String((data as Json).lifetime.computed_at)) })}{(data as Json).lifetime.stale ? t("pages.admin.04892ad9") : ""}
+                  {t("admin.computed_last_at", { at: fmtDate(String((data as Json).lifetime.computed_at)) })}{(data as Json).lifetime.stale ? t("admin.awaiting_recomputation") : ""}
                 </p>
               ) : null}
             </>
@@ -1075,15 +1075,15 @@ function JsonStatScreen({ title, fetcher, render }: { title: string; fetcher: ()
 function ageLabel(seconds: number | null | undefined): string {
   if (seconds === null || seconds === undefined) return "—";
   const s = Number(seconds);
-  if (s < 60) return t("pages.admin.09e59234", { s: Math.round(s) });
-  if (s < 3600) return t("pages.admin.bd4988c9", { v0: Math.round(s / 60) });
-  return t("pages.admin.b17240f6", { v0: (s / 3600).toFixed(1) });
+  if (s < 60) return t("admin.s_s", { s: Math.round(s) });
+  if (s < 3600) return t("admin.v0_m", { v0: Math.round(s / 60) });
+  return t("admin.v0_h", { v0: (s / 3600).toFixed(1) });
 }
 
 function OperationsScreen() {
   const { data, error, reload } = useFetch(() => api.adminOutboxStatus(), [], 15_000);
-  if (error) return <><h1>{t("pages.admin.1e8c797b")}</h1><Err msg={error} /></>;
-  if (!data) return <><h1>{t("pages.admin.1e8c797b")}</h1><Spinner /></>;
+  if (error) return <><h1>{t("admin.operations_queue_worker")}</h1><Err msg={error} /></>;
+  if (!data) return <><h1>{t("admin.operations_queue_worker")}</h1><Spinner /></>;
   const d = data as Json;
   const o = d.outbox || {};
   const w = d.worker || {};
@@ -1093,51 +1093,51 @@ function OperationsScreen() {
   return (
     <>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <h1>{t("pages.admin.1e8c797b")}</h1>
-        <button className="btn btn-sm btn-ghost" onClick={reload}>{t("pages.admin.563d20eb")}</button>
+        <h1>{t("admin.operations_queue_worker")}</h1>
+        <button className="btn btn-sm btn-ghost" onClick={reload}>{t("admin.refresh")}</button>
       </div>
       <div className="stat-row">
-        <StatTile num={w.running ? t("pages.admin.91181c78") : t("pages.admin.82be361b")} label="Worker" tone={w.running ? "good" : "bad"} sub={t("pages.admin.9fa218cf", { v0: num(w.active_count || 0) })} />
-        <StatTile num={num(o.due_now ?? o.pending ?? 0)} label={t("pages.admin.745d2065")} tone={Number(o.due_now ?? 0) > 20 ? "warn" : undefined} />
-        <StatTile num={num(o.scheduled_future ?? 0)} label={t("pages.admin.e93a11be")} sub={o.next_scheduled_in_s != null ? t("pages.admin.99eceb4d", { next_scheduled_in_s: ageLabel(o.next_scheduled_in_s) }) : t("pages.admin.ea12a4ba")} />
-        <StatTile num={num(o.processing || 0)} label={t("pages.admin.e15ec0bd")} />
-        <StatTile num={num(o.sent || 0)} label={t("pages.admin.8a0c3e3e")} tone="good" />
+        <StatTile num={w.running ? t("admin.active") : t("admin.not_reported")} label="Worker" tone={w.running ? "good" : "bad"} sub={t("admin.v0_instances", { v0: num(w.active_count || 0) })} />
+        <StatTile num={num(o.due_now ?? o.pending ?? 0)} label={t("admin.to_run_now_active_queue")} tone={Number(o.due_now ?? 0) > 20 ? "warn" : undefined} />
+        <StatTile num={num(o.scheduled_future ?? 0)} label={t("admin.scheduled_future")} sub={o.next_scheduled_in_s != null ? t("admin.next_next_scheduled_s", { next_scheduled_in_s: ageLabel(o.next_scheduled_in_s) }) : t("admin.none")} />
+        <StatTile num={num(o.processing || 0)} label={t("admin.being_processed_now")} />
+        <StatTile num={num(o.sent || 0)} label={t("admin.completed")} tone="good" />
       </div>
       <div className="stat-row">
-        <StatTile num={num(o.failed || 0)} label={t("pages.admin.5c4a5721")} tone={Number(o.failed) > 0 ? "warn" : undefined} />
-        <StatTile num={num(dlq)} label={t("pages.admin.e29046f2")} tone={dlq > 0 ? "bad" : "good"} />
-        <StatTile num={num(stuck)} label={t("pages.admin.ef2fc32f")} tone={stuck > 0 ? "warn" : "good"} sub={t("pages.admin.1889c1ee", { v0: num((o.stuck_timeout_ms || 0) / 1000) })} />
-        <StatTile num={ageLabel(o.oldest_due_age_s)} label={t("pages.admin.dfb43f95")} tone={Number(o.oldest_due_age_s) > 300 ? "warn" : undefined} />
+        <StatTile num={num(o.failed || 0)} label={t("admin.failed")} tone={Number(o.failed) > 0 ? "warn" : undefined} />
+        <StatTile num={num(dlq)} label={t("admin.dlq_dead_letters")} tone={dlq > 0 ? "bad" : "good"} />
+        <StatTile num={num(stuck)} label={t("admin.stuck_leases")} tone={stuck > 0 ? "warn" : "good"} sub={t("admin.threshold_v0_s", { v0: num((o.stuck_timeout_ms || 0) / 1000) })} />
+        <StatTile num={ageLabel(o.oldest_due_age_s)} label={t("admin.the_oldest_pending_run")} tone={Number(o.oldest_due_age_s) > 300 ? "warn" : undefined} />
       </div>
       {Number(o.scheduled_future ?? 0) > 0 && Number(o.due_now ?? 0) === 0 ? (
-        <div className="notice info">{t("pages.admin.869bfb93", { scheduled_future: num(o.scheduled_future) })}</div>
+        <div className="notice info">{t("admin.all_scheduled_future_pending_jobs", { scheduled_future: num(o.scheduled_future) })}</div>
       ) : null}
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.01e0296b")}</div>
+        <div className="panel-title">{t("admin.worker_runs_heartbeat")}</div>
         {instances.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.7fe61cfe")}</th><th>{t("pages.admin.c184d0ed")}</th><th>{t("pages.admin.6f78e447")}</th><th>{t("pages.admin.761d3e71")}</th><th>{t("pages.admin.563d20eb")}</th></tr></thead>
+            <thead><tr><th>{t("admin.worker_id")}</th><th>{t("admin.status")}</th><th>{t("admin.last_heartbeat")}</th><th>{t("admin.enabled")}</th><th>{t("admin.refresh")}</th></tr></thead>
             <tbody>{instances.map((r) => (
               <tr key={r.worker_id}>
                 <td dir="ltr" className="small">{r.worker_id}</td>
                 <td><span className={`status ${r.status === "ready" ? "Completed" : "ClosedForJoining"}`}>{r.status}</span></td>
                 <td>{timeAgo(r.heartbeat_at)}</td>
                 <td>{timeAgo(r.started_at)}</td>
-                <td>{r.fresh ? <span className="vbadge ok">{t("pages.admin.063ef768")}</span> : <span className="vbadge no">{t("pages.admin.da39fa0e")}</span>}</td>
+                <td>{r.fresh ? <span className="vbadge ok">{t("admin.fresh")}</span> : <span className="vbadge no">{t("admin.stale")}</span>}</td>
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState title={t("pages.admin.eee61636")} body={t("pages.admin.f11cd6a5")} />}
+        ) : <EmptyState title={t("admin.no_worker_instances_reported")} body={t("admin.if_worker_running_heartbeat_appear")} />}
       </div>
-      {dlq > 0 ? <div className="notice err">{t("pages.admin.a6cb4ad2", { dlq: num(dlq) })}</div> : null}
+      {dlq > 0 ? <div className="notice err">{t("admin.there_dlq_jobs_dlq_manual", { dlq: num(dlq) })}</div> : null}
     </>
   );
 }
 
 function PaymentsScreen() {
   const { data, error } = useFetch(() => api.adminPaymentOps(), [], 30_000);
-  if (error) return <><h1>{t("pages.admin.7ddddcc4")}</h1><Err msg={error} /></>;
-  if (!data) return <><h1>{t("pages.admin.7ddddcc4")}</h1><Spinner /></>;
+  if (error) return <><h1>{t("admin.payments_settlement")}</h1><Err msg={error} /></>;
+  if (!data) return <><h1>{t("admin.payments_settlement")}</h1><Spinner /></>;
   const d = data as Json;
   const prov = d.provider || {};
   const synthetic = String(prov.mode || prov.provider_mode || "").match(/mock|synthetic|demo|internal/i) || String(prov.provider || "").match(/mock/i);
@@ -1148,24 +1148,24 @@ function PaymentsScreen() {
   const resultTone = (rc: string) => rc === "success" ? "Completed" : rc === "permanent_fail" ? "Failed" : rc === "temporary_fail" ? "CompletionWindow" : "ClosedForJoining";
   return (
     <>
-      <h1>{t("pages.admin.7ddddcc4")}</h1>
+      <h1>{t("admin.payments_settlement")}</h1>
       <div className={`notice ${synthetic ? "info" : "err"}`}>
         {synthetic
-          ? <><b>{t("pages.admin.9c91304a")}</b>  {t("pages.admin.896a8001")}</>
-          : <><b>{t("pages.admin.cd6e0062")}</b> {String(prov.provider || "")} · {String(prov.mode || "")}</>}
+          ? <><b>{t("admin.synthetic_provider_mockpay")}</b>  {t("admin.every_amount_here_synthetic_test")}</>
+          : <><b>{t("admin.real_provider_active")}</b> {String(prov.provider || "")} · {String(prov.mode || "")}</>}
       </div>
       <div className="stat-row">
-        <StatTile num={ils(ledger.gross_charged || 0)} label={synthetic ? t("pages.admin.1e261d2b") : t("pages.admin.caea9760")} tone="good" />
-        <StatTile num={ils(ledger.fee_total || 0)} label={t("pages.admin.49d5ee68")} sub={t("pages.admin.371c208b", { v0: ils(ledger.fee_base || 0), v1: ils(ledger.fee_vat || 0) })} />
-        <StatTile num={num(ledger.entries || 0)} label={t("pages.admin.38adb460")} />
-        <StatTile num={num(ledger.refund_entries || 0)} label={t("pages.admin.bb5117ad")} tone={Number(ledger.refund_entries) > 0 ? "warn" : undefined} />
+        <StatTile num={ils(ledger.gross_charged || 0)} label={synthetic ? t("admin.synthetic_gross_collected") : t("admin.gross_collected")} tone="good" />
+        <StatTile num={ils(ledger.fee_total || 0)} label={t("admin.c_ton_fee_base_vat")} sub={t("admin.base_v0_vat_v1", { v0: ils(ledger.fee_base || 0), v1: ils(ledger.fee_vat || 0) })} />
+        <StatTile num={num(ledger.entries || 0)} label={t("admin.ledger_records")} />
+        <StatTile num={num(ledger.refund_entries || 0)} label={t("admin.refunds")} tone={Number(ledger.refund_entries) > 0 ? "warn" : undefined} />
       </div>
       <p className="muted small" style={{ marginTop: -6 }}>{ledger.note}</p>
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.2e197faa")}</div>
+        <div className="panel-title">{t("admin.charge_attempts_type")}</div>
         {byType.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.f45000d5")}</th><th className="num">{t("pages.admin.5bd72dfc")}</th><th className="num">{t("pages.admin.d2804143")}</th><th className="num">{t("pages.admin.71dbccec")}</th><th className="num">{t("pages.admin.efecc3d1")}</th></tr></thead>
+            <thead><tr><th>{t("admin.type")}</th><th className="num">{t("admin.successes")}</th><th className="num">{t("admin.temporary_failure")}</th><th className="num">{t("admin.permanent_failure")}</th><th className="num">{t("admin.unknown")}</th></tr></thead>
             <tbody>{byType.map((r) => (
               <tr key={r.attempt_type}>
                 <td dir="ltr">{r.attempt_type}</td>
@@ -1176,13 +1176,13 @@ function PaymentsScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <p className="muted small">{t("pages.admin.ef7ad58c")}</p>}
+        ) : <p className="muted small">{t("admin.no_charge_attempts_yet")}</p>}
       </div>
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.3e87e79b")}</div>
+        <div className="panel-title">{t("admin.recent_charge_attempts_correlation_ids")}</div>
         {attempts.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.b7364c5d")}</th><th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.628febf8")}</th><th>{t("pages.admin.f45000d5")}</th><th>{t("pages.admin.51faaa1f")}</th><th>{t("pages.admin.decc229d")}</th></tr></thead>
+            <thead><tr><th>{t("admin.when")}</th><th>{t("admin.deal")}</th><th>{t("admin.buyer")}</th><th>{t("admin.type")}</th><th>{t("admin.result")}</th><th>{t("admin.correlation_id")}</th></tr></thead>
             <tbody>{attempts.map((r) => (
               <tr key={r.attempt_id}>
                 <td>{fmtDate(r.created_at)}</td>
@@ -1194,13 +1194,13 @@ function PaymentsScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <p className="muted small">{t("pages.admin.ef7ad58c")}</p>}
+        ) : <p className="muted small">{t("admin.no_charge_attempts_yet")}</p>}
       </div>
       {ledgerRows.length ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.cedc1944")}</div>
+          <div className="panel-title">{t("admin.recent_fee_ledger_records")}</div>
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.b7364c5d")}</th><th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.f45000d5")}</th><th className="num">{t("pages.admin.2bd5f782")}</th><th className="num">{t("pages.admin.704079d2")}</th><th>{t("pages.admin.f25384c3")}</th></tr></thead>
+            <thead><tr><th>{t("admin.when")}</th><th>{t("admin.deal")}</th><th>{t("admin.type")}</th><th className="num">{t("admin.gross")}</th><th className="num">{t("admin.c_ton_fee")}</th><th>{t("admin.correlation")}</th></tr></thead>
             <tbody>{ledgerRows.map((r, i) => (
               <tr key={i}>
                 <td>{fmtDate(r.created_at)}</td>
@@ -1223,8 +1223,8 @@ const NOTIF_STATUS_TONE: Record<string, string> = { sent: "Completed", failed: "
 function NotificationsScreen() {
   const { data, error } = useFetch(() => api.adminNotificationsStatus(), [], 30_000);
   const [filter, setFilter] = useState("all");
-  if (error) return <><h1>{t("pages.admin.a8e71c4c")}</h1><Err msg={error} /></>;
-  if (!data) return <><h1>{t("pages.admin.a8e71c4c")}</h1><Spinner /></>;
+  if (error) return <><h1>{t("admin.notifications")}</h1><Err msg={error} /></>;
+  if (!data) return <><h1>{t("admin.notifications")}</h1><Spinner /></>;
   const d = data as Json;
   const n = d.notifications || {};
   const prov = n.provider || {};
@@ -1232,29 +1232,29 @@ function NotificationsScreen() {
   const events: Json[] = (d.recent_events || []).filter((e: Json) => filter === "all" || e.status === filter);
   return (
     <>
-      <h1>{t("pages.admin.a8e71c4c")}</h1>
+      <h1>{t("admin.notifications")}</h1>
       <div className={`notice ${logOnly ? "info" : "err"}`}>
         {logOnly
-          ? <><b>{t("pages.admin.824b24bc")}</b>  {t("pages.admin.7eafa1ff")}</>
-          : <><b>{t("pages.admin.16888d52")}</b> {String(prov.code)} · {String(prov.mode)}</>}
+          ? <><b>{t("admin.log_only_synthetic")}</b>  {t("admin.notifications_written_log_only_sent")}</>
+          : <><b>{t("admin.real_sending_active")}</b> {String(prov.code)} · {String(prov.mode)}</>}
       </div>
       <div className="stat-row">
-        <StatTile num={num(n.sent || 0)} label={logOnly ? t("pages.admin.e2546fbf") : t("pages.admin.e12b7e72")} tone="good" />
-        <StatTile num={num(n.pending || 0)} label={t("pages.admin.fa311e7d")} tone={Number(n.pending) > 20 ? "warn" : undefined} />
-        <StatTile num={num(n.failed || 0)} label={t("pages.admin.5c4a5721")} tone={Number(n.failed) > 0 ? "bad" : "good"} />
-        <StatTile num={num(n.skipped || 0)} label={t("pages.admin.a9f4c182")} />
-        <StatTile num={ageLabel(n.oldest_pending_age_s)} label={t("pages.admin.35c4d474")} />
+        <StatTile num={num(n.sent || 0)} label={logOnly ? t("admin.processed_log_only") : t("admin.sent")} tone="good" />
+        <StatTile num={num(n.pending || 0)} label={t("admin.pending")} tone={Number(n.pending) > 20 ? "warn" : undefined} />
+        <StatTile num={num(n.failed || 0)} label={t("admin.failed")} tone={Number(n.failed) > 0 ? "bad" : "good"} />
+        <StatTile num={num(n.skipped || 0)} label={t("admin.skipped")} />
+        <StatTile num={ageLabel(n.oldest_pending_age_s)} label={t("admin.oldest_pending")} />
       </div>
       <div className="row" style={{ gap: 6, flexWrap: "wrap", marginBottom: 12 }}>
         {["all", "sent", "pending", "failed", "skipped"].map((f) => (
-          <button key={f} className={`chip-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>{f === "all" ? t("pages.admin.5f8fb8a5") : notificationStatusLabel(f)}</button>
+          <button key={f} className={`chip-btn${filter === f ? " active" : ""}`} onClick={() => setFilter(f)}>{f === "all" ? t("admin.all") : notificationStatusLabel(f)}</button>
         ))}
       </div>
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.ae8bd6b6")}</div>
+        <div className="panel-title">{t("admin.recent_notification_events")}</div>
         {events.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.b7364c5d")}</th><th>{t("pages.admin.0846f8c4")}</th><th>{t("pages.admin.d6dde645")}</th><th>{t("pages.admin.6163da3a")}</th><th>{t("pages.admin.502cdc83")}</th><th>{t("pages.admin.c184d0ed")}</th><th className="num">{t("pages.admin.ec6ec396")}</th><th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.3355456e")}</th></tr></thead>
+            <thead><tr><th>{t("admin.when")}</th><th>{t("admin.event_type")}</th><th>{t("admin.recipient")}</th><th>{t("admin.channel")}</th><th>{t("admin.adapter")}</th><th>{t("admin.status")}</th><th className="num">{t("admin.attempts")}</th><th>{t("admin.deal")}</th><th>{t("admin.last_error")}</th></tr></thead>
             <tbody>{events.map((e) => (
               <tr key={e.notification_id}>
                 <td>{fmtDate(e.created_at)}</td>
@@ -1269,7 +1269,7 @@ function NotificationsScreen() {
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState title={t("pages.admin.49a53f7b")} body={t("pages.admin.6f8bf5ff")} />}
+        ) : <EmptyState title={t("admin.no_notification_events")} body={t("admin.notifications_created_automatically_deal_events")} />}
       </div>
     </>
   );
@@ -1310,7 +1310,7 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
   const [notice, setNotice] = useState("");
   const [sendError, setSendError] = useState("");
 
-  if (error) return <><button className="btn btn-sm btn-ghost" onClick={onBack}>{t("pages.admin.029a348f")}</button><Err msg={error} /></>;
+  if (error) return <><button className="btn btn-sm btn-ghost" onClick={onBack}>{t("admin.to_enquiry_list")}</button><Err msg={error} /></>;
   if (!data) return <Spinner />;
   const c = (data as Json).case || {};
   const messages: Json[] = (data as Json).messages || [];
@@ -1322,10 +1322,10 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
       const r = await api.adminSupportReply(caseId, { body: replyText.trim(), internal });
       setReplyText("");
       setNotice(internal
-        ? t("pages.admin.1a0f25cd")
-        : r.email_delivery?.note_he || t("pages.admin.45fb4191"));
+        ? t("admin.the_internal_note_saved")
+        : r.email_delivery?.note_he || t("admin.the_reply_saved_external_e"));
       reload();
-    } catch (e: any) { setSendError(e.message || t("pages.admin.2ccf39be")); }
+    } catch (e: any) { setSendError(e.message || t("admin.sending_failed")); }
     setBusy(false);
   };
 
@@ -1334,59 +1334,59 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
     try {
       await api.adminSupportCaseUpdate(caseId, resolutionNote ? { status, resolution_note: resolutionNote } : { status });
       reload();
-    } catch (e: any) { setSendError(e.message || t("pages.admin.8a8ab438")); }
+    } catch (e: any) { setSendError(e.message || t("admin.updating_status_failed")); }
     setBusy(false);
   };
 
   return (
     <div data-testid="support-case-detail">
-      <button className="btn btn-sm btn-ghost" onClick={onBack}>{t("pages.admin.029a348f")}</button>
+      <button className="btn btn-sm btn-ghost" onClick={onBack}>{t("admin.to_enquiry_list")}</button>
       <div className="panel" style={{ marginTop: 10 }}>
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-          <h2 style={{ margin: 0 }}>{c.subject || t("pages.admin.bda8cda8")}</h2>
+          <h2 style={{ margin: 0 }}>{c.subject || t("admin.enquiry_2")}</h2>
           <span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "WaitingExternal" ? "TargetReached" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`} data-testid="case-status">
             {tKey(CASE_STATUS_HE[String(c.status)], c.status)}
           </span>
         </div>
         <div className="kv" style={{ marginTop: 10 }}>
-          <span className="k">{t("pages.admin.5b02a330")}</span><span className="v" dir="ltr">{String(c.case_id || "").slice(0, 8)}</span>
-          <span className="k">{t("pages.admin.b593ae97")}</span><span className="v">{tKey(CASE_TYPE_HE[String(c.case_type)], c.case_type)}</span>
-          <span className="k">{t("pages.admin.b691468d")}</span><span className="v">{tKey(CASE_SOURCE_HE[String(c.source)], c.source)}</span>
-          <span className="k">{t("pages.admin.6727cbf0")}</span><span className="v">{tKey(CASE_PRIORITY_HE[String(c.priority)], c.priority)}</span>
-          {c.buyer_ref ? (<><span className="k">{t("pages.admin.ff1d66dd")}</span><span className="v" dir="ltr">{c.buyer_ref}</span></>) : null}
-          {c.deal_title ? (<><span className="k">{t("pages.admin.a559f0b8")}</span><span className="v">{c.deal_title}</span></>) : null}
-          <span className="k">{t("pages.admin.aad7941e")}</span><span className="v">{fmtDate(c.created_at)}</span>
+          <span className="k">{t("admin.enquiry")}</span><span className="v" dir="ltr">{String(c.case_id || "").slice(0, 8)}</span>
+          <span className="k">{t("admin.category")}</span><span className="v">{tKey(CASE_TYPE_HE[String(c.case_type)], c.case_type)}</span>
+          <span className="k">{t("admin.source")}</span><span className="v">{tKey(CASE_SOURCE_HE[String(c.source)], c.source)}</span>
+          <span className="k">{t("admin.priority")}</span><span className="v">{tKey(CASE_PRIORITY_HE[String(c.priority)], c.priority)}</span>
+          {c.buyer_ref ? (<><span className="k">{t("admin.sender_s_e_mail")}</span><span className="v" dir="ltr">{c.buyer_ref}</span></>) : null}
+          {c.deal_title ? (<><span className="k">{t("admin.deal")}</span><span className="v">{c.deal_title}</span></>) : null}
+          <span className="k">{t("admin.opened")}</span><span className="v">{fmtDate(c.created_at)}</span>
         </div>
         <div className="row" style={{ marginTop: 10, gap: 6, flexWrap: "wrap" }}>
           {String(c.status) !== "NeedsAdmin" && !["Resolved", "Closed"].includes(String(c.status)) ? (
-            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>{t("pages.admin.fc0ab5f9")}</button>
+            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>{t("admin.mark_being_handled")}</button>
           ) : null}
           {["Resolved", "Closed"].includes(String(c.status)) ? (
-            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>{t("pages.admin.13efacd6")}</button>
+            <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => setStatus("NeedsAdmin")}>{t("admin.reopen")}</button>
           ) : (
             <button className="btn btn-sm btn-ghost" disabled={busy} onClick={() => {
-              const note = window.prompt(t("pages.admin.6d250842"), t("pages.admin.414e2d04"));
+              const note = window.prompt(t("admin.closing_note_required"), t("admin.handled_sender"));
               if (note && note.trim()) void setStatus("Resolved", note.trim());
-            }}>{t("pages.admin.e7edd64f")}</button>
+            }}>{t("admin.close_enquiry")}</button>
           )}
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.1c96b9bd")}</div>
+        <div className="panel-title">{t("admin.conversation")}</div>
         <div className="case-thread" data-testid="case-thread">
           <div className="case-msg customer">
-            <div className="case-msg-head">{t("pages.admin.6e38d6bd", { created_at: fmtDate(c.created_at) })}</div>
+            <div className="case-msg-head">{t("admin.the_sender_created", { created_at: fmtDate(c.created_at) })}</div>
             <div className="case-msg-body">{c.description || "—"}</div>
           </div>
           {messages.map((m) => (
             <div key={m.message_id} className={`case-msg ${m.sender_type === "Admin" ? "admin" : m.sender_type === "InternalNote" ? "internal" : "customer"}`}>
               <div className="case-msg-head">
-                {m.sender_type === "Admin" ? t("pages.admin.77946a6c") : m.sender_type === "InternalNote" ? t("pages.admin.8d798ff0") : t("pages.admin.b33c4462")}
+                {m.sender_type === "Admin" ? t("admin.the_c_ton_team") : m.sender_type === "InternalNote" ? t("admin.internal_note_sent_sender") : t("admin.the_sender")}
                 {" · "}{fmtDate(m.created_at)}
                 {m.sender_type === "Admin" ? (
                   <span className="case-delivery" data-testid="delivery-state">
-                    {" · "}{String(m.delivery_status) === "Sent" ? t("pages.admin.09acf621") : String(m.delivery_status) === "Queued" ? t("pages.admin.7b7ee136") : t("pages.admin.02775e00")}
+                    {" · "}{String(m.delivery_status) === "Sent" ? t("admin.sent_e_mail") : String(m.delivery_status) === "Queued" ? t("admin.queued_sending") : t("admin.saved_e_mail_sent")}
                   </span>
                 ) : null}
               </div>
@@ -1395,21 +1395,21 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
           ))}
         </div>
         <div className="case-composer">
-          <textarea rows={3} placeholder={t("pages.admin.42050082")} value={replyText} maxLength={4000}
+          <textarea rows={3} placeholder={t("admin.type_reply")} value={replyText} maxLength={4000}
             onChange={(e) => setReplyText(e.target.value)} data-testid="reply-input" />
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
             <label className="check" style={{ margin: 0 }}>
               <input type="checkbox" checked={internal} onChange={(e) => setInternal(e.target.checked)} />
-              <span>{t("pages.admin.8bddd952")}</span>
+              <span>{t("admin.internal_note_only_meant_sender")}</span>
             </label>
             <button className="btn btn-primary" disabled={busy || replyText.trim().length < 2} data-testid="reply-send" onClick={() => { void send(); }}>
-              {busy ? t("pages.admin.ea12faeb") : internal ? t("pages.admin.e9f20adb") : t("pages.admin.bdd19372")}
+              {busy ? t("admin.sending") : internal ? t("admin.save_note") : t("admin.send_reply")}
             </button>
           </div>
           {notice ? <div className="notice info" data-testid="reply-notice">{notice}</div> : null}
           {sendError ? <div className="notice err">{sendError}</div> : null}
           <p className="muted small" style={{ margin: "8px 0 0" }}>
-            {t("pages.admin.1b43fcc8")}</p>
+            {t("admin.external_e_mail_sending_active")}</p>
         </div>
       </div>
     </div>
@@ -1418,21 +1418,21 @@ function SupportCaseDetail({ caseId, onBack }: { caseId: string; onBack: () => v
 
 function SupportScreen() {
   const [openCaseId, setOpenCaseId] = useState<string | null>(null);
-  if (openCaseId) return <><h1>{t("pages.admin.541967e5")}</h1><SupportCaseDetail caseId={openCaseId} onBack={() => setOpenCaseId(null)} /></>;
-  return <JsonStatScreen title={t("pages.admin.541967e5")} fetcher={() => api.adminSupportCases()} render={(d) => {
+  if (openCaseId) return <><h1>{t("admin.support_enquiries_2")}</h1><SupportCaseDetail caseId={openCaseId} onBack={() => setOpenCaseId(null)} /></>;
+  return <JsonStatScreen title={t("admin.support_enquiries_2")} fetcher={() => api.adminSupportCases()} render={(d) => {
     const cases: Json[] = d.cases || d.support_cases || [];
     const summary = d.summary || {};
     return (
       <>
         <div className="stat-row">
-          <StatTile num={num(summary.open_count || 0)} label={t("pages.admin.2f21d68f")} />
-          <StatTile num={num(summary.needs_admin_count || 0)} label={t("pages.admin.538efd70")} tone={Number(summary.needs_admin_count) > 0 ? "warn" : undefined} />
-          <StatTile num={num(summary.urgent_count || 0)} label={t("pages.admin.3c0c93ec")} tone={Number(summary.urgent_count) > 0 ? "bad" : "good"} />
-          <StatTile num={num(summary.older_than_48h_count || 0)} label={t("pages.admin.8c4ff106")} tone={Number(summary.older_than_48h_count) > 0 ? "warn" : undefined} />
+          <StatTile num={num(summary.open_count || 0)} label={t("admin.open_enquiries")} />
+          <StatTile num={num(summary.needs_admin_count || 0)} label={t("admin.with_team")} tone={Number(summary.needs_admin_count) > 0 ? "warn" : undefined} />
+          <StatTile num={num(summary.urgent_count || 0)} label={t("admin.urgent")} tone={Number(summary.urgent_count) > 0 ? "bad" : "good"} />
+          <StatTile num={num(summary.older_than_48h_count || 0)} label={t("admin.pending_over_48_hours")} tone={Number(summary.older_than_48h_count) > 0 ? "warn" : undefined} />
         </div>
         {cases.length ? (
           <div className="table-wrap"><table className="data">
-            <thead><tr><th>{t("pages.admin.550c1f87")}</th><th>{t("pages.admin.b593ae97")}</th><th>{t("pages.admin.b691468d")}</th><th>{t("pages.admin.6727cbf0")}</th><th>{t("pages.admin.c184d0ed")}</th><th>{t("pages.admin.a4ce69e7")}</th><th>{t("pages.admin.b7364c5d")}</th><th /></tr></thead>
+            <thead><tr><th>{t("admin.subject")}</th><th>{t("admin.category")}</th><th>{t("admin.source")}</th><th>{t("admin.priority")}</th><th>{t("admin.status")}</th><th>{t("admin.details")}</th><th>{t("admin.when")}</th><th /></tr></thead>
             <tbody>{cases.map((c, i) => (
               <tr key={c.case_id || i} className="case-row" onClick={() => setOpenCaseId(String(c.case_id))} style={{ cursor: "pointer" }}>
                 <td><b>{c.subject || "—"}</b>{c.buyer_ref ? <div className="muted small" dir="ltr">{c.buyer_ref}</div> : null}</td>
@@ -1442,11 +1442,11 @@ function SupportScreen() {
                 <td><span className={`status ${["Resolved", "Closed"].includes(String(c.status)) ? "Completed" : String(c.status) === "NeedsAdmin" ? "CompletionWindow" : "PendingTarget"}`}>{tKey(CASE_STATUS_HE[String(c.status)], c.status)}</span></td>
                 <td className="small" style={{ maxWidth: 340, whiteSpace: "pre-wrap" }}>{String(c.description || "").slice(0, 220)}</td>
                 <td>{fmtDate(c.created_at)}</td>
-                <td><button className="btn btn-sm btn-ghost" data-testid="case-open" onClick={(e) => { e.stopPropagation(); setOpenCaseId(String(c.case_id)); }}>{t("pages.admin.ff7eafc2")}</button></td>
+                <td><button className="btn btn-sm btn-ghost" data-testid="case-open" onClick={(e) => { e.stopPropagation(); setOpenCaseId(String(c.case_id)); }}>{t("admin.open_2")}</button></td>
               </tr>
             ))}</tbody>
           </table></div>
-        ) : <EmptyState title={t("pages.admin.95e8605f")} />}
+        ) : <EmptyState title={t("admin.no_open_enquiries")} />}
       </>
     );
   }} />;
@@ -1457,12 +1457,12 @@ function AuditScreen() {
   const { data, error } = useFetch(() => api.adminAudit(q), [q]);
   return (
     <>
-      <h1>{t("pages.admin.1a2c1593")}</h1>
-      <input placeholder={t("pages.admin.15aa35e5")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
+      <h1>{t("admin.audit_log")}</h1>
+      <input placeholder={t("admin.search_action_id_correlation")} value={q} onChange={(e) => setQ(e.target.value)} style={{ maxWidth: 320, marginBottom: 14 }} />
       <Err msg={error} />
       {!data ? <Spinner /> : (
         <div className="table-wrap"><table className="data">
-          <thead><tr><th>{t("pages.admin.b7364c5d")}</th><th>{t("pages.admin.a559f0b8")}</th><th>{t("pages.admin.7d1d299a")}</th><th>{t("pages.admin.e94abfe2")}</th><th>{t("pages.admin.e5cb2608")}</th></tr></thead>
+          <thead><tr><th>{t("admin.when")}</th><th>{t("admin.deal")}</th><th>{t("admin.entity")}</th><th>{t("admin.change")}</th><th>{t("admin.action")}</th></tr></thead>
           <tbody>{((data as Json).audit || []).map((a: Json) => (
             <tr key={a.audit_id}>
               <td>{fmtDate(a.created_at)}</td>
@@ -1488,8 +1488,8 @@ function SafetyBadge({ on, label }: { on: boolean; label: string }) {
 
 function SystemScreen() {
   const { data, error, reload } = useFetch(() => api.adminSystemStatus(), [], 20_000);
-  if (error) return <><h1>{t("pages.admin.d1daf51d")}</h1><Err msg={error} /></>;
-  if (!data) return <><h1>{t("pages.admin.d1daf51d")}</h1><Spinner /></>;
+  if (error) return <><h1>{t("admin.system_health")}</h1><Err msg={error} /></>;
+  if (!data) return <><h1>{t("admin.system_health")}</h1><Spinner /></>;
   const s = (data as Json).system_status || {};
   const counts = s.operational_counts || {};
   const storage = s.storage || {};
@@ -1503,21 +1503,21 @@ function SystemScreen() {
   const activeOutbox = Number(counts.active_outbox || 0);
   const health = [
     { label: "Web (readiness)", ok: Boolean(appOk) },
-    { label: t("pages.admin.89b1b67f"), ok: dbOk },
-    { label: t("pages.admin.82917e1e"), ok: Boolean(storage.durable), warn: !storage.durable },
-    { label: t("pages.admin.547ec252"), ok: activeOutbox < 50, warn: activeOutbox >= 50 },
+    { label: t("admin.database_connection"), ok: dbOk },
+    { label: t("admin.storage"), ok: Boolean(storage.durable), warn: !storage.durable },
+    { label: t("admin.job_queue"), ok: activeOutbox < 50, warn: activeOutbox >= 50 },
     { label: "DLQ", ok: dlq === 0, warn: false },
-    { label: t("pages.admin.3a81e711"), ok: true }
+    { label: t("admin.migrations_schema"), ok: true }
   ];
   return (
     <>
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <h1>{t("pages.admin.d1daf51d")}</h1>
-        <button className="btn btn-sm btn-ghost" onClick={reload}>{t("pages.admin.563d20eb")}</button>
+        <h1>{t("admin.system_health")}</h1>
+        <button className="btn btn-sm btn-ghost" onClick={reload}>{t("admin.refresh")}</button>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.4e6d5b33")}</div>
+        <div className="panel-title">{t("admin.safety_mode_synthetic_safety")}</div>
         <div className="safety-row">
           <SafetyBadge on={Boolean(badges.real_money)} label="Real Money" />
           <SafetyBadge on={Boolean(badges.grow)} label="Grow" />
@@ -1525,11 +1525,11 @@ function SystemScreen() {
           <SafetyBadge on={Boolean(badges.real_email)} label="Real Email" />
           <SafetyBadge on={Boolean(badges.real_invoice)} label="Real Invoice" />
         </div>
-        <p className="muted small" style={{ marginTop: 8 }}>{t("pages.admin.d594a34a")}</p>
+        <p className="muted small" style={{ marginTop: 8 }}>{t("admin.every_flag_should_off_stage")}</p>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.admin.1592d69b")}</div>
+        <div className="panel-title">{t("admin.health_console")}</div>
         <div className="health-grid">
           {health.map((h) => (
             <div key={h.label} className="health-item">
@@ -1541,35 +1541,35 @@ function SystemScreen() {
       </div>
 
       <div className="stat-row">
-        <StatTile num={num(activeOutbox)} label={t("pages.admin.30d0148c")} tone={activeOutbox > 50 ? "warn" : undefined} />
+        <StatTile num={num(activeOutbox)} label={t("admin.active_jobs_queue")} tone={activeOutbox > 50 ? "warn" : undefined} />
         <StatTile num={num(dlq)} label="DLQ" tone={dlq > 0 ? "bad" : "good"} />
-        <StatTile num={num(counts.failed_webhooks || 0)} label={t("pages.admin.2c4759aa")} tone={Number(counts.failed_webhooks) > 0 ? "warn" : undefined} />
-        <StatTile num={num(counts.open_support_tickets || 0)} label={t("pages.admin.939f7fef")} />
+        <StatTile num={num(counts.failed_webhooks || 0)} label={t("admin.failed_webhooks")} tone={Number(counts.failed_webhooks) > 0 ? "warn" : undefined} />
+        <StatTile num={num(counts.open_support_tickets || 0)} label={t("admin.open_support_enquiries")} />
       </div>
 
       <div className="panel-grid-2">
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.82917e1e")}</div>
+          <div className="panel-title">{t("admin.storage")}</div>
           <div className="kv">
-            <span className="k">{t("pages.admin.7c71c3ed")}</span><span className="v" dir="ltr">{storage.provider || "—"}</span>
-            <span className="k">{t("pages.admin.502cdc83")}</span><span className="v" dir="ltr">{storage.adapter || "—"}</span>
-            <span className="k">{t("pages.admin.3140e954")}</span><span className="v">{storage.durable ? <span className="vbadge ok">{t("pages.admin.2ba88d49")}</span> : <span className="vbadge no">{t("pages.admin.7d81ea91")}</span>}</span>
-            <span className="k">{t("pages.admin.5d53db43")}</span><span className="v">{storage.multi_instance_safe ? <span className="vbadge ok">{t("pages.admin.2ba88d49")}</span> : <span className="vbadge no">{t("pages.admin.7d81ea91")}</span>}</span>
-            <span className="k">{t("pages.admin.72795064")}</span><span className="v" dir="ltr">{storage.scale_status || "—"}</span>
+            <span className="k">{t("admin.provider")}</span><span className="v" dir="ltr">{storage.provider || "—"}</span>
+            <span className="k">{t("admin.adapter")}</span><span className="v" dir="ltr">{storage.adapter || "—"}</span>
+            <span className="k">{t("admin.durable")}</span><span className="v">{storage.durable ? <span className="vbadge ok">{t("admin.yes")}</span> : <span className="vbadge no">{t("admin.no")}</span>}</span>
+            <span className="k">{t("admin.safe_run_multiple_instances")}</span><span className="v">{storage.multi_instance_safe ? <span className="vbadge ok">{t("admin.yes")}</span> : <span className="vbadge no">{t("admin.no")}</span>}</span>
+            <span className="k">{t("admin.scale_status")}</span><span className="v" dir="ltr">{storage.scale_status || "—"}</span>
           </div>
         </div>
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.96b3bf27")}</div>
+          <div className="panel-title">{t("admin.providers_activation_states")}</div>
           <div className="kv">
-            <span className="k">{t("pages.admin.f3e008d6")}</span><span className="v" dir="ltr">{payment.provider || "—"} · {payment.mode || "—"}</span>
-            <span className="k">{t("pages.admin.a8e71c4c")}</span><span className="v" dir="ltr">{notif.provider || "—"} · {notif.external_delivery ? "external" : "log-only"}</span>
-            <span className="k">{t("pages.admin.28522b1c")}</span><span className="v" dir="ltr">{s.deployment?.mode || "—"}</span>
+            <span className="k">{t("admin.payments")}</span><span className="v" dir="ltr">{payment.provider || "—"} · {payment.mode || "—"}</span>
+            <span className="k">{t("admin.notifications")}</span><span className="v" dir="ltr">{notif.provider || "—"} · {notif.external_delivery ? "external" : "log-only"}</span>
+            <span className="k">{t("admin.deployment_state")}</span><span className="v" dir="ltr">{s.deployment?.mode || "—"}</span>
           </div>
         </div>
       </div>
       {Array.isArray(s.notes) && s.notes.length ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.admin.a582e15f")}</div>
+          <div className="panel-title">{t("admin.system_notes")}</div>
           <ul className="notes-list">{s.notes.map((note: string, i: number) => <li key={i}>{note}</li>)}</ul>
         </div>
       ) : null}
@@ -1601,7 +1601,7 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
   }, [authed]);
 
   if (!authed) return <AdminLogin onDone={() => { setAuthed(true); }} />;
-  if (!verified) return <Spinner label={t("pages.admin.cd0e3788")} />;
+  if (!verified) return <Spinner label={t("admin.verifying_permissions")} />;
 
   const [screenRaw, param] = sub.length ? sub : ["overview"];
   const screen = screenRaw || "overview";
@@ -1611,8 +1611,8 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
 
   return (
     <div className="admin-shell">
-      <nav className="admin-nav" aria-label={t("pages.admin.44089f5e")}>
-        <div className="admin-nav-title"><BrandMark size={26} />  {t("pages.admin.330731fa")}</div>
+      <nav className="admin-nav" aria-label={t("admin.admin_navigation")}>
+        <div className="admin-nav-title"><BrandMark size={26} />  {t("admin.c_ton_admin")}</div>
         {NAV_GROUPS.map((group) => (
           <React.Fragment key={group.label || "root"}>
             {group.label ? <div className="admin-nav-group">{t(group.label)}</div> : null}
@@ -1623,8 +1623,8 @@ export function AdminArea({ sub, navigate }: { sub: string[]; navigate: (h: stri
             ))}
           </React.Fragment>
         ))}
-        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-lock" onClick={() => { lockAdmin(); window.location.hash = "#/"; window.location.reload(); }}>{t("pages.admin.9a40a7cf")}</button>
-        <button style={{ opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("pages.admin.b939061e")}</button>
+        <button style={{ marginTop: "auto", opacity: .7 }} data-testid="admin-lock" onClick={() => { lockAdmin(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.lock_admin")}</button>
+        <button style={{ opacity: .7 }} onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.hash = "#/"; window.location.reload(); }}>{t("admin.sign_out")}</button>
       </nav>
       <main className="admin-main">
         {screen === "overview" ? <Overview navigate={navigate} /> : null}

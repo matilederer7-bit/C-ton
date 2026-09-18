@@ -32,8 +32,8 @@ export type IsraelToUtc = (dateStr: string, timeStr: string) => string | null;
 /** Validate a custom range the way the operator typed it (both days required, from <= to). */
 export function validateCustomRange(from: string, to: string): string | null {
   const ok = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
-  if (!ok(from) || !ok(to)) return t("growth_range.9ee28bab");
-  if (from > to) return t("growth_range.e10e6fd8");
+  if (!ok(from) || !ok(to)) return t("growth_range.choose_start_date_end_date");
+  if (from > to) return t("growth_range.the_start_date_must_before");
   return null;
 }
 
@@ -51,7 +51,7 @@ export function growthRangeParams(range: GrowthRange, israelToUtc: IsraelToUtc):
 
 /** Human label shown next to the numbers (Israel time). */
 export function growthRangeLabel(range: GrowthRange): string {
-  if (range.kind === "all") return t("growth_range.b45e8f7c");
-  if (range.kind === "custom") return t("growth_range.d9ca25c3", { from: range.from, to: range.to });
-  return t("growth_range.55ed876e", { days: range.days });
+  if (range.kind === "all") return t("growth_range.all_time");
+  if (range.kind === "custom") return t("growth_range.from_israel_time", { from: range.from, to: range.to });
+  return t("growth_range.the_last_days_days", { days: range.days });
 }

@@ -29,25 +29,25 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
     traceAuth("AUTH_PASSWORD_REQUEST", "admin step-up");
     try {
       const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error(t("admin_step_up.82681f86"));
+      if (!cfg.configured) throw new Error(t("admin_step_up.signing_available_environment"));
       const token = await supabaseSignIn(cfg, email.trim(), password, "admin");
       traceAuth("AUTH_PASSWORD_SUCCESS", "admin step-up");
       leaveGuestModeInPlace();
       const adoption = await adoptCapabilities(token);
       if (adoption.status !== "ok") {
-        throw new Error(t("admin_step_up.e7fc0c4f"));
+        throw new Error(t("admin_step_up.sign_succeeded_but_loading_account"));
       }
       if (!adoption.caps.admin) {
         // correct password, but this identity holds no Admin capability —
         // it stays OUTSIDE Admin.
-        throw new Error(t("admin_step_up.c8f49c3e"));
+        throw new Error(t("admin_step_up.this_account_administrator_permission"));
       }
       markAdminUnlocked();
       traceAuth("AUTH_SURFACE_GRANTED", "admin step-up unlocked");
       onUnlocked();
     } catch (err: any) {
       traceAuth("AUTH_FLOW_ERROR", "admin step-up");
-      setError(localizedError(err, t("admin_step_up.58344b7d")));
+      setError(localizedError(err, t("admin_step_up.sign_failed_try_again")));
       setPassword("");
       setBusy(false);
     }
@@ -60,29 +60,29 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={48} /></div>
           {/* the page h1: while the step-up is shown it IS the page (the admin
               area replaces it once unlocked). `auth-title` keeps the h2 size. */}
-          <h1 className="auth-title">{t("admin_step_up.8307b69f")}</h1>
+          <h1 className="auth-title">{t("admin_step_up.administrator_sign")}</h1>
           <form onSubmit={submit}>
             {/* P0.6-1 — the email is ALWAYS visible so the user sees exactly
                 WHICH account is being authenticated; prefilled from the
                 canonical session and editable (editing = switching account). */}
             <div className="field">
-              <label>{t("admin_step_up.15dbea0f")}</label>
+              <label>{t("admin_step_up.e_mail")}</label>
               <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email" data-testid="stepup-email" />
-              {knownEmail ? <span className="hint">{t("admin_step_up.0bf0e2e0")}</span> : null}
+              {knownEmail ? <span className="hint">{t("admin_step_up.this_signed_account_edit_sign")}</span> : null}
             </div>
             <div className="field">
-              <label>{t("admin_step_up.0b490b5e")}</label>
+              <label>{t("admin_step_up.password")}</label>
               <input dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password" data-testid="stepup-password" />
             </div>
             {error ? <div className="notice err" data-testid="stepup-error">{error}</div> : null}
             <button className="btn btn-primary btn-block" data-testid="stepup-submit" disabled={busy}>
-              {busy ? t("admin_step_up.2129ee06") : t("admin_step_up.7a3be6a8")}
+              {busy ? t("admin_step_up.one_moment") : t("admin_step_up.sign_admin_console")}
             </button>
           </form>
           <div className="auth-links">
-            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>{t("admin_step_up.065f331f")}</a>
+            <a href="#" onClick={(e) => { e.preventDefault(); onCancel(); }}>{t("admin_step_up.back_site")}</a>
           </div>
         </div>
       </div>

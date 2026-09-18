@@ -269,7 +269,7 @@ export async function supabaseSignIn(cfg: SupabaseCfg, email: string, password: 
   const { res, body } = await authPost(cfg, `/auth/v1/token?grant_type=password`, { email, password });
   if (!res.ok || !body?.access_token) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.8d72d128")));
+    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.sign_failed_try_again")));
     err.status = res.status;
     throw err;
   }
@@ -296,7 +296,7 @@ export async function supabaseSignUp(cfg: SupabaseCfg, email: string, password: 
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.d97465a4")));
+    const err: any = new Error(localizedError({ status: res.status, message: msg }, t("api.registration_failed_try_again")));
     err.status = res.status;
     throw err;
   }
@@ -317,7 +317,7 @@ export async function supabaseResendConfirmation(cfg: SupabaseCfg, email: string
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    throw new Error(localizedError({ status: res.status, message: msg }, t("api.9359c63a")));
+    throw new Error(localizedError({ status: res.status, message: msg }, t("api.sending_verification_request_failed_try")));
   }
 }
 
@@ -329,7 +329,7 @@ export async function supabaseRecoverPassword(cfg: SupabaseCfg, email: string): 
   });
   if (!res.ok) {
     const msg = String(body?.error_description || body?.msg || body?.error || "");
-    throw new Error(localizedError({ status: res.status, message: msg }, t("api.60ad1541")));
+    throw new Error(localizedError({ status: res.status, message: msg }, t("api.the_password_reset_request_failed")));
   }
 }
 

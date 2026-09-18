@@ -18,9 +18,9 @@ export function pct(ratio: unknown): string {
 
 export function dealTypeLabel(type: string): string {
   switch (type) {
-    case "voucher": return t("util.a3a06e68");
-    case "ticket": return t("util.a0d9b485");
-    default: return t("util.80a08f9c");
+    case "voucher": return t("util.voucher");
+    case "ticket": return t("util.ticket");
+    default: return t("util.product");
   }
 }
 
@@ -104,16 +104,16 @@ export function buyerStateStory(state: string, unitsToTarget: number): string {
   switch (state) {
     case "PendingTarget":
       return unitsToTarget > 0
-        ? t("util.4b20d141", { unitsToTarget: num(unitsToTarget) })
-        : t("util.473a7810");
-    case "TargetReached": return t("util.52692205");
-    case "ClosedForJoining": return t("util.2c79a9bc");
-    case "ReadyForCharging": return t("util.d36d4bca");
-    case "Charging": return t("util.f0d33a8d");
-    case "CompletionWindow": return t("util.9e30bde1");
-    case "Completed": return t("util.392370e2");
-    case "Failed": return t("util.352062c3");
-    case "Cancelled": return t("util.8eca7966");
+        ? t("util.unitstotarget_more_units_deal_go", { unitsToTarget: num(unitsToTarget) })
+        : t("util.just_short_target");
+    case "TargetReached": return t("util.the_minimum_reached_deal_going");
+    case "ClosedForJoining": return t("util.the_list_closed_preparing_close");
+    case "ReadyForCharging": return t("util.the_deal_locked_charges_starting");
+    case "Charging": return t("util.the_charges_being_made_now");
+    case "CompletionWindow": return t("util.the_completion_window_open");
+    case "Completed": return t("util.the_deal_completed_successfully");
+    case "Failed": return t("util.the_deal_did_complete_authorizations");
+    case "Cancelled": return t("util.the_deal_cancelled_seller");
     default: return stateLabel(state);
   }
 }
@@ -135,15 +135,15 @@ export function countdownView(deadline: string | null | undefined, now = Date.no
   const target = Date.parse(String(deadline));
   if (!Number.isFinite(target)) return null;
   const ms = target - now;
-  if (ms <= 0) return { text: t("util.db0b280e"), tone: "over", ms };
+  if (ms <= 0) return { text: t("util.ended"), tone: "over", ms };
   const totalMinutes = Math.floor(ms / 60000);
   const days = Math.floor(totalMinutes / (60 * 24));
   const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
   const minutes = totalMinutes % 60;
   let text: string;
-  if (days >= 1) text = t("util.31d6f391", { days: days, hours: hours });
-  else if (hours >= 1) text = t("util.32d8e858", { hours: hours, v1: String(minutes).padStart(2, "0") });
-  else text = t("util.2d295fb0", { minutes: minutes });
+  if (days >= 1) text = t("util.days_d_hours_h", { days: days, hours: hours });
+  else if (hours >= 1) text = t("util.hours_v1_hours", { hours: hours, v1: String(minutes).padStart(2, "0") });
+  else text = t("util.minutes_min", { minutes: minutes });
   const tone: CountdownView["tone"] = ms < 3600_000 ? "danger" : ms < 12 * 3600_000 ? "warn" : "ok";
   return { text, tone, ms };
 }
@@ -152,13 +152,13 @@ export function timeAgo(iso: string, now = Date.now()): string {
   const dt = Date.parse(iso);
   if (!Number.isFinite(dt)) return "";
   const s = Math.max(0, Math.floor((now - dt) / 1000));
-  if (s < 60) return t("util.a26f165a");
+  if (s < 60) return t("util.just_now");
   const m = Math.floor(s / 60);
-  if (m < 60) return t("util.268acc14", { m: m });
+  if (m < 60) return t("util.m_min_ago", { m: m });
   const h = Math.floor(m / 60);
-  if (h < 24) return t("util.7677d5a8", { h: h });
+  if (h < 24) return t("util.h_h_ago", { h: h });
   const d = Math.floor(h / 24);
-  return t("util.660f6189", { d: d });
+  return t("util.d_days_ago", { d: d });
 }
 
 export function fmtDate(iso: string | null | undefined): string {
@@ -172,8 +172,8 @@ export function failReason(deal: { state: string; joined_units?: number; thresho
   if (deal.state !== "Failed") return "";
   const joined = Number(deal.joined_units || 0);
   const threshold = Number(deal.threshold_units || 0);
-  if (joined < threshold) return t("util.c4597d0f");
-  return t("util.aab049b7");
+  if (joined < threshold) return t("util.the_minimum_reached");
+  return t("util.the_charges_did_complete");
 }
 
 export function initialOf(name: string): string {

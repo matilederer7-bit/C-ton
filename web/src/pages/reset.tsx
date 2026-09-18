@@ -24,10 +24,10 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
       <div style={{ maxWidth: 420, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }}>
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
-          <h2>{t("pages.reset.c5b0ff38")}</h2>
+          <h2>{t("reset.the_reset_link_active")}</h2>
           <p className="muted small">
-            {t("pages.reset.a11981dc")}</p>
-          <button className="btn btn-primary" onClick={() => navigate("#/seller")}>{t("pages.reset.ed105b37")}</button>
+            {t("reset.reset_links_valid_short_time")}</p>
+          <button className="btn btn-primary" onClick={() => navigate("#/seller")}>{t("reset.to_sign_screen")}</button>
         </div>
       </div>
     );
@@ -36,12 +36,12 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy || !recovery) return;
-    if (password.length < 8) { setError(t("pages.reset.2da8e039")); return; }
-    if (password !== confirm) { setError(t("pages.reset.b94b6932")); return; }
+    if (password.length < 8) { setError(t("reset.the_password_must_least_8")); return; }
+    if (password !== confirm) { setError(t("reset.the_passwords_do_match")); return; }
     setBusy(true); setError("");
     try {
       const cfg = await api.authConfig();
-      if (!cfg.configured) throw new Error(t("pages.reset.eaec74a0"));
+      if (!cfg.configured) throw new Error(t("reset.password_reset_available_environment"));
       const res = await fetch(`${cfg.supabase_url}/auth/v1/user`, {
         method: "PUT",
         headers: {
@@ -54,7 +54,7 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
         const msg = String(body?.error_description || body?.msg || body?.error || "");
-        throw Object.assign(new Error(msg || t("pages.reset.eb0abd7c")), { status: res.status, message: msg });
+        throw Object.assign(new Error(msg || t("reset.updating_password_failed")), { status: res.status, message: msg });
       }
       // the recovery session is a real session — keep the user signed in
       beginSession(recovery, "seller");
@@ -62,7 +62,7 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
       clearRecoverySession();
       setDone(true);
     } catch (err: any) {
-      setError(localizedError(err, t("pages.reset.3cfee50f")));
+      setError(localizedError(err, t("reset.updating_password_failed_try_requesting")));
       setBusy(false);
     }
   };
@@ -72,9 +72,9 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
       <div style={{ maxWidth: 420, margin: "40px auto" }}>
         <div className="panel" style={{ textAlign: "center" }} data-testid="reset-success">
           <div style={{ fontSize: "2.2rem" }}>✓</div>
-          <h2>{t("pages.reset.a8cdd8dd")}</h2>
-          <p className="muted small">{t("pages.reset.4d2afc35")}</p>
-          <button className="btn btn-primary btn-block" onClick={() => navigate("#/seller")}>{t("pages.reset.05f511fe")}</button>
+          <h2>{t("reset.the_password_updated")}</h2>
+          <p className="muted small">{t("reset.you_signed_continue_sellers_area")}</p>
+          <button className="btn btn-primary btn-block" onClick={() => navigate("#/seller")}>{t("reset.to_sellers_area")}</button>
         </div>
       </div>
     );
@@ -84,18 +84,18 @@ export function ResetPasswordPage({ navigate }: { navigate: (h: string) => void 
     <div style={{ maxWidth: 420, margin: "40px auto" }}>
       <div className="panel">
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={54} /></div>
-        <h2 style={{ textAlign: "center" }}>{t("pages.reset.1321ec67")}</h2>
+        <h2 style={{ textAlign: "center" }}>{t("reset.set_new_password")}</h2>
         <form onSubmit={submit}>
           <div className="field">
-            <label>{t("pages.reset.1ad14c48")}</label>
+            <label>{t("reset.new_password")}</label>
             <input dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" data-testid="reset-password" />
           </div>
           <div className="field">
-            <label>{t("pages.reset.afcf092f")}</label>
+            <label>{t("reset.confirm_password")}</label>
             <input dir="ltr" type="password" required minLength={8} value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" data-testid="reset-confirm" />
           </div>
           {error ? <div className="notice err">{error}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy} data-testid="reset-submit">{busy ? t("pages.reset.21b64278") : t("pages.reset.33f9bbb5")}</button>
+          <button className="btn btn-primary btn-block" disabled={busy} data-testid="reset-submit">{busy ? t("reset.updating") : t("reset.update_password")}</button>
         </form>
       </div>
     </div>

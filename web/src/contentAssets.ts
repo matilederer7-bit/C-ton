@@ -14,8 +14,8 @@ export interface UploadedAsset { asset_id: string; url: string; mime_type?: stri
 function fileToBase64(file: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onerror = () => reject(new Error(t("content_assets.3a9592c6")));
-    reader.onload = () => { const b64 = String(reader.result || "").split(",")[1] || ""; b64 ? resolve(b64) : reject(new Error(t("content_assets.3a9592c6"))); };
+    reader.onerror = () => reject(new Error(t("content_assets.reading_file_failed")));
+    reader.onload = () => { const b64 = String(reader.result || "").split(",")[1] || ""; b64 ? resolve(b64) : reject(new Error(t("content_assets.reading_file_failed"))); };
     reader.readAsDataURL(file);
   });
 }
@@ -28,9 +28,9 @@ export async function uploadImageAsset(file: File, scope: "seller" | "admin"): P
 
 export async function uploadVideoAsset(file: File): Promise<UploadedAsset> {
   const mime = String(file.type || "").toLowerCase();
-  if (mime !== "video/mp4" && mime !== "video/webm") throw new Error(t("content_assets.bb28f1cf"));
-  if (file.size > VIDEO_MAX_BYTES) throw new Error(t("content_assets.98e59cbf"));
-  if (file.size <= 0) throw new Error(t("content_assets.54c5797f"));
+  if (mime !== "video/mp4" && mime !== "video/webm") throw new Error(t("content_assets.that_video_type_supported_mp4"));
+  if (file.size > VIDEO_MAX_BYTES) throw new Error(t("content_assets.the_video_larger_than_10mb"));
+  if (file.size <= 0) throw new Error(t("content_assets.the_file_empty"));
   const base64_data = await fileToBase64(file);
   return await request("/api/admin/content-assets", { method: "POST", body: JSON.stringify({ filename: file.name, mime_type: mime, base64_data }) }, "admin") as UploadedAsset;
 }

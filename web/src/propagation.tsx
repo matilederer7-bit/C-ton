@@ -180,7 +180,7 @@ function usePropagationData(dealId: string, fetchers: PropagationFetchers) {
         setState(next);
         setExpanded(open);
       } catch (e: any) {
-        if (alive) setError(e.message || t("propagation.060eb0d5"));
+        if (alive) setError(e.message || t("propagation.loading_tree_failed"));
       }
     })();
     return () => { alive = false; };
@@ -263,15 +263,15 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
     <>
       <div className="vtree-canvas-wrap" ref={wrapRef}>
         <div className="vtree-canvas-controls">
-          <button onClick={() => zoomAt(1.2)} aria-label={t("propagation.e6ec4e84")}>+</button>
-          <button onClick={() => zoomAt(0.83)} aria-label={t("propagation.bc71906f")}>−</button>
-          <button onClick={fit} aria-label={t("propagation.4337a9af")}>{t("propagation.e3a4d9fa")}</button>
-          {hasSelection ? <button onClick={focusSelected} aria-label={t("propagation.f96d50bd")}>{t("propagation.88974143")}</button> : null}
+          <button onClick={() => zoomAt(1.2)} aria-label={t("propagation.zoom")}>+</button>
+          <button onClick={() => zoomAt(0.83)} aria-label={t("propagation.zoom_out")}>−</button>
+          <button onClick={fit} aria-label={t("propagation.fit_screen")}>{t("propagation.fit")}</button>
+          {hasSelection ? <button onClick={focusSelected} aria-label={t("propagation.centre_selected_branch")}>{t("propagation.to_selected_branch")}</button> : null}
         </div>
         <svg
           className="vtree-canvas"
           role="application"
-          aria-label={t("propagation.aff5e140")}
+          aria-label={t("propagation.the_deal_s_distribution_tree")}
           onPointerDown={(e) => { (e.target as Element).setPointerCapture?.(e.pointerId); drag.current = { x: e.clientX, y: e.clientY, vx: view.x, vy: view.y, moved: false }; }}
           onPointerMove={(e) => {
             if (!drag.current) return;
@@ -295,8 +295,8 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                 return (
                   <g key={n.id} transform={`translate(${n.x - n.w / 2},${n.y})`} className={`prop-node-deal${onPath ? " on-path" : ""}`}>
                     <rect width={n.w} height={n.h} rx={14} />
-                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">{String(n.data.title || t("propagation.4832d404")).slice(0, 20)}</text>
-                    <text x={n.w / 2} y={54} textAnchor="middle" className="t2">{t("propagation.2fb752c2")}</text>
+                    <text x={n.w / 2} y={30} textAnchor="middle" className="t1">{String(n.data.title || t("propagation.the_deal")).slice(0, 20)}</text>
+                    <text x={n.w / 2} y={54} textAnchor="middle" className="t2">{t("propagation.the_distribution_root")}</text>
                   </g>
                 );
               }
@@ -307,13 +307,13 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                     className={`prop-node-source${onPath ? " on-path" : ""}${dimmed ? " dimmed" : ""}`}
                     onClick={(e) => { e.stopPropagation(); if (!drag.current?.moved) setSelectedId(n.id); }}>
                     <rect width={n.w} height={n.h} rx={14} />
-                    <text x={n.w - 14} y={24} textAnchor="end" className="t1">{String(s.label || t("propagation.b691468d")).slice(0, 24)}</text>
-                    <text x={n.w - 14} y={46} textAnchor="end" className="t2">{t("propagation.da2316a2", { direct_joins: num(s.direct_joins) })}</text>
+                    <text x={n.w - 14} y={24} textAnchor="end" className="t1">{String(s.label || t("propagation.source")).slice(0, 24)}</text>
+                    <text x={n.w - 14} y={46} textAnchor="end" className="t2">{t("propagation.direct_joins_joined_directly", { direct_joins: num(s.direct_joins) })}</text>
                     <text x={n.w - 14} y={66} textAnchor="end" className={`t2${Number(s.propagators) > 0 ? " good" : ""}`}>
-                      {Number(s.propagators) > 0 ? t("propagation.05d5c5f5", { propagators: num(s.propagators) }) : t("propagation.7ea0c7f5")}
+                      {Number(s.propagators) > 0 ? t("propagation.propagators_kept_sharing", { propagators: num(s.propagators) }) : t("propagation.nobody_carried")}
                     </text>
-                    <text x={n.w - 14} y={86} textAnchor="end" className="t3">{t("propagation.f2f0ee18", { branch_joins: num(s.branch_joins) })}</text>
-                    <text x={n.w - 14} y={104} textAnchor="end" className="t3">{t("propagation.894ca5cf", { max_depth: num(s.max_depth) })}</text>
+                    <text x={n.w - 14} y={86} textAnchor="end" className="t3">{t("propagation.branch_joins_joined_across_branch", { branch_joins: num(s.branch_joins) })}</text>
+                    <text x={n.w - 14} y={104} textAnchor="end" className="t3">{t("propagation.depth_max_depth_generations", { max_depth: num(s.max_depth) })}</text>
                   </g>
                 );
               }
@@ -326,11 +326,11 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
                   className={`prop-node ${cls}${onPath ? " on-path" : ""}${dimmed ? " dimmed" : ""}`}
                   onClick={(e) => { e.stopPropagation(); if (!drag.current?.moved) setSelectedId(n.id); }}>
                   <rect width={n.w} height={n.h} rx={12} />
-                  <text x={n.w - 10} y={20} textAnchor="end" className="t1">{String(p.display || t("propagation.3cffea29")).slice(0, 14)}</text>
-                  <text x={10} y={20} textAnchor="start" className="t3">{t("propagation.669beca1", { generation: num(p.generation) })}</text>
-                  <text x={n.w - 10} y={40} textAnchor="end" className="t2">{num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.30cd9c3c") : t("propagation.5170f234")}</text>
+                  <text x={n.w - 10} y={20} textAnchor="end" className="t1">{String(p.display || t("propagation.participant")).slice(0, 14)}</text>
+                  <text x={10} y={20} textAnchor="start" className="t3">{t("propagation.generation_generation_2", { generation: num(p.generation) })}</text>
+                  <text x={n.w - 10} y={40} textAnchor="end" className="t2">{num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.unit") : t("propagation.units")}</text>
                   <text x={n.w - 10} y={60} textAnchor="end" className={`t2${kids > 0 ? " good" : " faint"}`}>
-                    {kids > 0 ? t("propagation.cb85309c", { kids: num(kids) }) : t("propagation.4f05bc81")}
+                    {kids > 0 ? t("propagation.brought_kids_2", { kids: num(kids) }) : t("propagation.did_carry")}
                   </text>
                   {kids > 0 ? (
                     <g className="vtree-expand" onClick={(e) => { e.stopPropagation(); void toggle(p); }}>
@@ -343,29 +343,29 @@ function PropagationCanvas({ dealId, dealTitle, data }: {
             })}
           </g>
         </svg>
-        <p className="vtree-canvas-hint">{t("propagation.71667413")}</p>
+        <p className="vtree-canvas-hint">{t("propagation.drag_move_scroll_zoom_tap")}</p>
       </div>
       {selected && selected.kind === "participant" ? (
         <div className="panel" data-testid="tree-node-detail">
-          <div className="panel-title">{t("propagation.317bbd8d", { display: selected.data.display })}</div>
+          <div className="panel-title">{t("propagation.branch_details_display", { display: selected.data.display })}</div>
           <div className="kv">
-            <span className="k">{t("propagation.74b9b182")}</span><span className="v">{num(selected.data.generation)}</span>
-            <span className="k">{t("propagation.6a868b4f")}</span><span className="v">{num(selected.data.direct_units)}</span>
-            <span className="k">{t("propagation.cca9befd")}</span><span className="v">{num(selected.data.direct_children)}</span>
-            <span className="k">{t("propagation.7601e6eb")}</span><span className="v">{num(selected.data.subtree_joins)}</span>
-            <span className="k">{t("propagation.6230e073")}</span><span className="v">{ils(selected.data.subtree_charged_gmv)}</span>
+            <span className="k">{t("propagation.generation")}</span><span className="v">{num(selected.data.generation)}</span>
+            <span className="k">{t("propagation.direct_units")}</span><span className="v">{num(selected.data.direct_units)}</span>
+            <span className="k">{t("propagation.brought_directly")}</span><span className="v">{num(selected.data.direct_children)}</span>
+            <span className="k">{t("propagation.joiners_across_branch")}</span><span className="v">{num(selected.data.subtree_joins)}</span>
+            <span className="k">{t("propagation.charged_branch")}</span><span className="v">{ils(selected.data.subtree_charged_gmv)}</span>
           </div>
         </div>
       ) : selected && selected.kind === "source" ? (
         <div className="panel" data-testid="tree-node-detail">
-          <div className="panel-title">{t("propagation.34f98e72", { label: selected.data.label })}</div>
+          <div className="panel-title">{t("propagation.source_details_label", { label: selected.data.label })}</div>
           <div className="kv">
-            <span className="k">{t("propagation.0616f3b3")}</span><span className="v">{num(selected.data.direct_joins)}</span>
-            <span className="k">{t("propagation.91f11cc1")}</span><span className="v">{num(selected.data.propagators)}</span>
-            <span className="k">{t("propagation.3258ebab")}</span><span className="v">{num(selected.data.branch_joins)}</span>
-            <span className="k">{t("propagation.7eef0fd6")}</span><span className="v">{num(selected.data.branch_units)}</span>
-            <span className="k">{t("propagation.6230e073")}</span><span className="v">{ils(selected.data.charged_gmv)}</span>
-            <span className="k">{t("propagation.038da02c")}</span><span className="v">{t("propagation.b4b5cd9a", { max_depth: num(selected.data.max_depth) })}</span>
+            <span className="k">{t("propagation.joined_directly")}</span><span className="v">{num(selected.data.direct_joins)}</span>
+            <span className="k">{t("propagation.kept_sharing")}</span><span className="v">{num(selected.data.propagators)}</span>
+            <span className="k">{t("propagation.across_branch")}</span><span className="v">{num(selected.data.branch_joins)}</span>
+            <span className="k">{t("propagation.units_branch")}</span><span className="v">{num(selected.data.branch_units)}</span>
+            <span className="k">{t("propagation.charged_branch")}</span><span className="v">{ils(selected.data.charged_gmv)}</span>
+            <span className="k">{t("propagation.depth")}</span><span className="v">{t("propagation.max_depth_generations", { max_depth: num(selected.data.max_depth) })}</span>
           </div>
         </div>
       ) : null}
@@ -418,7 +418,7 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
 
   return (
     <div className="prop-drill" data-testid="prop-drilldown">
-      <nav className="prop-crumbs" aria-label={t("propagation.806660ad")}>
+      <nav className="prop-crumbs" aria-label={t("propagation.path_tree")}>
         {stack.map((crumb, i) => (
           <button key={i} className={`prop-crumb${i === stack.length - 1 ? " current" : ""}`}
             onClick={() => setStack((s) => s.slice(0, i + 1))}>
@@ -427,9 +427,9 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
         ))}
       </nav>
       {stack.length > 1 ? (
-        <button className="btn btn-sm btn-ghost" style={{ marginBottom: 8 }} onClick={() => setStack((s) => s.slice(0, -1))}>{t("propagation.b95be293")}</button>
+        <button className="btn btn-sm btn-ghost" style={{ marginBottom: 8 }} onClick={() => setStack((s) => s.slice(0, -1))}>{t("propagation.back")}</button>
       ) : null}
-      {busy ? <p className="muted small">{t("propagation.ce03a7ae")}</p> : null}
+      {busy ? <p className="muted small">{t("propagation.loading_branch")}</p> : null}
 
       {top.kind === "sources" ? (
         <div className="stack" style={{ gap: 8 }}>
@@ -437,8 +437,8 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
             <button key={String(src.source_key)} className="prop-row source" onClick={() => { void openRoots(src); }}>
               <span className="grow" style={{ textAlign: "start" }}>
                 <b>{src.label}</b>
-                <span className="small block">{t("propagation.source_summary", { joins: num(src.direct_joins), propagators: Number(src.propagators) > 0 ? t("propagation.4d2600ea", { propagators: num(src.propagators) }) : t("propagation.7ea0c7f5") })}</span>
-                <span className="small block muted">{t("propagation.92b144b8", { branch_joins: num(src.branch_joins), max_depth: num(src.max_depth) })}</span>
+                <span className="small block">{t("propagation.source_summary", { joins: num(src.direct_joins), propagators: Number(src.propagators) > 0 ? t("propagation.propagators_carried", { propagators: num(src.propagators) }) : t("propagation.nobody_carried") })}</span>
+                <span className="small block muted">{t("propagation.branch_joins_across_branch_depth", { branch_joins: num(src.branch_joins), max_depth: num(src.max_depth) })}</span>
               </span>
               <span aria-hidden="true">←</span>
             </button>
@@ -451,20 +451,20 @@ function PropagationDrilldown({ dealId, dealTitle, data, fetchers }: {
               <Tx k="propagation.top_parent" vars={{ who: <b>{top.parent.display}</b>, generation: num(top.parent.generation), brought: num(top.parent.direct_children) }} />
             </div>
           ) : null}
-          {rows.length === 0 ? <p className="muted small">{t("propagation.53de946e")}</p> : rows.map((p) => {
+          {rows.length === 0 ? <p className="muted small">{t("propagation.there_participants_branch")}</p> : rows.map((p) => {
             const kids = Number(p.direct_children || 0);
             return (
               <button key={String(p.participant_id)} className={`prop-row${kids > 0 ? "" : " leaf"}`}
                 disabled={kids === 0}
                 onClick={() => { if (kids > 0) void openChildren(p); }}>
                 <span className="grow" style={{ textAlign: "start" }}>
-                  <b>{p.display}</b> <span className="small muted">{t("propagation.18fa2646", { generation: num(p.generation) })}</span>
+                  <b>{p.display}</b> <span className="small muted">{t("propagation.generation_generation", { generation: num(p.generation) })}</span>
                   <span className="small block">
-                    {num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.30cd9c3c") : t("propagation.5170f234")}
-                    {kids > 0 ? t("propagation.25e0fcbb", { kids: num(kids) }) : t("propagation.864d25d5")}
+                    {num(p.direct_units)} {Number(p.direct_units) === 1 ? t("propagation.unit") : t("propagation.units")}
+                    {kids > 0 ? t("propagation.brought_kids", { kids: num(kids) }) : t("propagation.did_carry_2")}
                   </span>
                 </span>
-                {kids > 0 ? <span aria-hidden="true">←</span> : <span className="small muted">{t("propagation.9c018201")}</span>}
+                {kids > 0 ? <span aria-hidden="true">←</span> : <span className="small muted">{t("propagation.a_final_leaf")}</span>}
               </button>
             );
           })}
@@ -489,16 +489,16 @@ export function PropagationTree({ dealId, dealTitle, fetchers }: {
   }, []);
 
   if (data.error) return <div className="notice err">{data.error}</div>;
-  if (!data.state) return <p className="muted small">{t("propagation.dc095659")}</p>;
+  if (!data.state) return <p className="muted small">{t("propagation.loading_distribution_tree")}</p>;
 
   // The feature always EXISTS — an empty dataset gets an honest empty state
   // with the deal root still visible, never a missing feature.
   if (!data.state.sources.length) {
     return (
       <div className="prop-empty" data-testid="prop-empty">
-        <div className="prop-empty-root">{dealTitle || t("propagation.4832d404")}</div>
-        <p className="muted" style={{ margin: "10px 0 0" }}>{t("propagation.2e26ca52")}</p>
-        <p className="muted small" style={{ margin: "4px 0 0" }}>{t("propagation.695192b1")}</p>
+        <div className="prop-empty-root">{dealTitle || t("propagation.the_deal")}</div>
+        <p className="muted" style={{ margin: "10px 0 0" }}>{t("propagation.no_distribution_chain_formed_deal")}</p>
+        <p className="muted small" style={{ margin: "4px 0 0" }}>{t("propagation.everyone_who_joins_gets_personal")}</p>
       </div>
     );
   }

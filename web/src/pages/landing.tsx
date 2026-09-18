@@ -196,7 +196,7 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
           {f.button_label ? <button className="btn btn-primary" onClick={() => follow(navigate, f.button_link || "")}>{f.button_label}</button> : null}
           {block.id === "contact" ? (
             <button className="btn btn-ghost" onClick={() => navigate(authed ? "#/seller/new" : "#/seller?signup=1")}>
-              {authed ? t("pages.landing.46516a5f") : t("pages.landing.ade91333")}
+              {authed ? t("landing.create_new_deal") : t("landing.open_seller_account")}
             </button>
           ) : null}
         </div>
@@ -227,13 +227,13 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
           <div className="landing-actions">
             {authed ? (
               <>
-                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>{t("pages.landing.67520eda")}</button>
-                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller/new")}>{t("pages.landing.46516a5f")}</button>
+                <button className="btn btn-primary btn-lg" onClick={() => navigate("#/seller")}>{t("landing.to_my_dashboard")}</button>
+                <button className="btn btn-ghost btn-lg" onClick={() => navigate("#/seller/new")}>{t("landing.create_new_deal")}</button>
               </>
             ) : (
               <>
-                <button className="btn btn-primary btn-lg" onClick={() => follow(navigate, hero.primary_cta_link || "#/seller")}>{hero.primary_cta_label || t("pages.landing.6e9a0939")}</button>
-                <button className="btn btn-ghost btn-lg" onClick={() => follow(navigate, hero.secondary_cta_link || "#/seller?signup=1")}>{hero.secondary_cta_label || t("pages.landing.ade91333")}</button>
+                <button className="btn btn-primary btn-lg" onClick={() => follow(navigate, hero.primary_cta_link || "#/seller")}>{hero.primary_cta_label || t("landing.seller_sign")}</button>
+                <button className="btn btn-ghost btn-lg" onClick={() => follow(navigate, hero.secondary_cta_link || "#/seller?signup=1")}>{hero.secondary_cta_label || t("landing.open_seller_account")}</button>
               </>
             )}
           </div>

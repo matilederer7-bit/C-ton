@@ -61,10 +61,10 @@ export function BrandLoader({ label, minHeight = 320 }: { label?: string; minHei
     <div className="brand-loader" role="status" aria-live="polite" style={{ minHeight }} data-testid="brand-loader" data-slow={slow ? "1" : "0"}>
       <img className="brand-loader-mark" src={BRAND_MARK_URL} alt="" aria-hidden="true" width={72} height={72} draggable={false} />
       <div className="brand-loader-bar" aria-hidden="true" />
-      <p className="brand-loader-label">{label || t("brand.aa3df4d5")}</p>
+      <p className="brand-loader-label">{label || t("brand.loading")}</p>
       {slow ? (
         <p className="brand-loader-slow" data-testid="brand-loader-slow">
-          {t("brand.fd2571df")}</p>
+          {t("brand.still_loading_server_waking_up")}</p>
       ) : null}
     </div>
   );

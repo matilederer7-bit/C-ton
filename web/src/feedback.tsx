@@ -49,7 +49,7 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
   const [error, setError] = useState("");
 
   if (done) {
-    return <div className="feedback-thanks" data-testid="feedback-thanks">{t("feedback.774917cf")}</div>;
+    return <div className="feedback-thanks" data-testid="feedback-thanks">{t("feedback.thank_feedback_helps_us_improve")}</div>;
   }
 
   const send = async (cat: string) => {
@@ -75,8 +75,8 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
 
   return (
     <div className="feedback-box" data-testid="feedback-prompt" data-surface={surface}>
-      <div className="feedback-q">{t("feedback.e40d1eef")}</div>
-      <div className="feedback-chips" role="group" aria-label={t("feedback.9d06505b")}>
+      <div className="feedback-q">{t("feedback.was_there_anything_wasn_t")}</div>
+      <div className="feedback-chips" role="group" aria-label={t("feedback.what_wasn_t_clear")}>
         {FEEDBACK_CATEGORIES.map((c) => (
           <button type="button" key={c.key} className={`chip${category === c.key ? " active" : ""}`}
             data-testid={`feedback-chip-${c.key}`} aria-pressed={category === c.key}
@@ -88,16 +88,16 @@ export function FeedbackPrompt({ dealId, surface, onDone }: {
       {category ? (
         <div className="feedback-more">
           <input data-testid="feedback-text" value={text} maxLength={FEEDBACK_TEXT_MAX}
-            placeholder={t("feedback.00488dd0")}
+            placeholder={t("feedback.you_add_sentence_optional_personal")}
             onChange={(e) => setText(e.target.value)} />
           <button type="button" className="btn btn-primary btn-sm" data-testid="feedback-send" disabled={busy} onClick={() => send(category)}>
-            {busy ? t("feedback.ea12faeb") : t("feedback.5239bffa")}
+            {busy ? t("feedback.sending") : t("feedback.send")}
           </button>
         </div>
       ) : null}
       <input type="text" className="hp-field" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
       <button type="button" className="feedback-clear" data-testid="feedback-all-clear" disabled={busy} onClick={() => send(FEEDBACK_ALL_CLEAR)}>
-        {t("feedback.5d0fbebc")}</button>
+        {t("feedback.everything_clear")}</button>
       {error ? <div className="notice err" style={{ margin: "8px 0 0" }} data-testid="feedback-error">{error}</div> : null}
     </div>
   );

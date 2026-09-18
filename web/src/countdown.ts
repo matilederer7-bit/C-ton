@@ -51,8 +51,8 @@ export function formatCountdownNumber(value: number): string {
 }
 
 export function countdownAccessibleLabel(parts: CountdownParts): string {
-  if (parts.reached) return t("countdown.7270e065");
-  return t("countdown.d8c08456", { days: parts.days, hours: parts.hours, minutes: parts.minutes, seconds: parts.seconds });
+  if (parts.reached) return t("countdown.joining_ended");
+  return t("countdown.days_days_hours_hours_minutes", { days: parts.days, hours: parts.hours, minutes: parts.minutes, seconds: parts.seconds });
 }
 
 export function sameCountdownParts(a: CountdownParts | null, b: CountdownParts): boolean {

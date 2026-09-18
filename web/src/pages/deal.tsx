@@ -54,7 +54,7 @@ const DELIVERY_NAMES: Record<string, string> = { delivery: "deal.delivery_names.
 // ("איסוף עצמי") and their LOCATION underneath; delivery keeps the seller label.
 function deliveryOptionTitle(o: DeliveryOption): string {
   if (isPickupOptionType(o.option_type)) return tKey(DELIVERY_NAMES[o.option_type], o.label);
-  return o.label || tKey(DELIVERY_NAMES[o.option_type], t("pages.deal.65e1ef42"));
+  return o.label || tKey(DELIVERY_NAMES[o.option_type], t("deal.fulfilment"));
 }
 
 // P0.7 — the pickup location block. Shows ONLY what was configured for THIS
@@ -86,9 +86,9 @@ function PickupLocationLine({ option, showNav }: { option: DeliveryOption; showN
       {text ? (
         <span className="pickup-location-text" data-testid="pickup-location-text">{text}</span>
       ) : navigation ? (
-        <span className="pickup-location-text" data-testid="pickup-location-text">{t("pages.deal.9fc526f4")}</span>
+        <span className="pickup-location-text" data-testid="pickup-location-text">{t("deal.the_pickup_point_marked_map")}</span>
       ) : (
-        <span className="pickup-location-text muted" data-testid="pickup-location-fallback">{t("pages.deal.c01d7cbd")}</span>
+        <span className="pickup-location-text muted" data-testid="pickup-location-fallback">{t("deal.the_seller_published_address_pickup")}</span>
       )}
       {showNav ? <PickupNavActions navigation={navigation} /> : null}
     </div>
@@ -101,13 +101,13 @@ function FulfillmentSummary({ options }: { options: DeliveryOption[] }) {
   if (!options.length) return null;
   return (
     <div className="stack" style={{ gap: 6, marginTop: 10 }} data-testid="fulfillment-summary">
-      <span style={{ fontWeight: 700 }}>{t("pages.deal.bd008360")}</span>
+      <span style={{ fontWeight: 700 }}>{t("deal.how_receive")}</span>
       {/* ROUND 2 (UX-3) — the option name carries itself; the decorative type
           glyph that used to sit before it is gone. */}
       {options.map((o) => (
         <div key={o.option_id} className="delivery-option static">
           <span>{deliveryOptionTitle(o)}</span>
-          <span className="delivery-cost">{o.cost ? ils(o.cost) : t("pages.deal.323814d1")}</span>
+          <span className="delivery-cost">{o.cost ? ils(o.cost) : t("deal.free")}</span>
           <PickupLocationLine option={o} showNav />
         </div>
       ))}
@@ -128,7 +128,7 @@ function Gallery({ images, title, type }: { images: { url: string }[]; title: st
       {images.length > 1 ? (
         <div className="deal-thumbs">
           {images.map((img, i) => (
-            <button key={i} className={`deal-thumb${i === idx ? " active" : ""}`} onClick={() => setIdx(i)} aria-label={t("pages.deal.3b7e60ca", { v0: i + 1 })}>
+            <button key={i} className={`deal-thumb${i === idx ? " active" : ""}`} onClick={() => setIdx(i)} aria-label={t("deal.image_v0", { v0: i + 1 })}>
               <img src={img.url} alt="" loading="lazy" />
             </button>
           ))}
@@ -142,13 +142,13 @@ function ActivityTicker({ activity }: { activity: Json | null }) {
   if (!activity?.recent_joins?.length) return null;
   return (
     <div className="panel">
-      <div className="panel-title"><span className="live-dot" aria-hidden="true" />  {t("pages.deal.b8fd28b9")}</div>
+      <div className="panel-title"><span className="live-dot" aria-hidden="true" />  {t("deal.happening_deal_now")}</div>
       <div className="ticker" aria-live="polite">
         {activity.recent_joins.map((j: Json, i: number) => (
           <div className="ticker-item" key={`${j.at}-${i}`}>
             <span className="ticker-avatar">{initialOf(j.display)}</span>
             <span>
-              <Tx k="deal.ticker.joined" vars={{ who: <b>{j.display}</b>, qty: j.qty > 1 ? <>{t("pages.deal.43fa3ff5")} <b>{t("pages.deal.53ab3dca", { qty: num(j.qty) })}</b></> : t("pages.deal.8d4d7e16") }} />
+              <Tx k="deal.ticker.joined" vars={{ who: <b>{j.display}</b>, qty: j.qty > 1 ? <>{t("deal.with")} <b>{t("deal.qty_units", { qty: num(j.qty) })}</b></> : t("deal.to_deal") }} />
             </span>
             <span className="ticker-time">{timeAgo(j.at)}</span>
           </div>
@@ -186,7 +186,7 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
     try {
       await api.chatPost(dealId, {
         body: body.trim(),
-        display_name: name.trim() || t("pages.deal.3cffea29"),
+        display_name: name.trim() || t("deal.participant"),
         title: chatTitle.trim(),
         ...(replyTo ? { reply_to_message_id: replyTo.message_id } : {})
       });
@@ -208,16 +208,16 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
   };
   return (
     <div className="panel">
-      <div className="panel-title">{t("pages.deal.1c9debf2")}</div>
+      <div className="panel-title">{t("deal.chat")}</div>
       {messages.length === 0 ? (
-        <p className="muted small">{preview ? t("pages.deal.3b4d95a4") : t("pages.deal.05c1e7c3")}</p>
+        <p className="muted small">{preview ? t("deal.chat_opens_buyers_after_publishing") : t("deal.no_messages_yet_first_write")}</p>
       ) : (
         <div className="chat-list">
           {messages.map((m) => (
             <div className="chat-msg" key={m.message_id} data-testid="chat-msg">
               {m.reply_preview ? (
                 <div className="chat-reply-context">
-                  <Tx k="deal.chat.in_reply_to" vars={{ who: <b>{m.reply_preview.display_name || t("pages.deal.3cffea29")}</b>, body: String(m.reply_preview.body || "").slice(0, 120) }} />
+                  <Tx k="deal.chat.in_reply_to" vars={{ who: <b>{m.reply_preview.display_name || t("deal.participant")}</b>, body: String(m.reply_preview.body || "").slice(0, 120) }} />
                 </div>
               ) : null}
               <div className="chat-author">{m.display_name}</div>
@@ -225,16 +225,16 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
               <div style={{ whiteSpace: "pre-wrap" }}>{m.body}</div>
               <div className="chat-actions">
                 <button type="button" className={`chat-action${m.viewer_reaction === "like" ? " active" : ""}`}
-                  aria-pressed={m.viewer_reaction === "like"} aria-label={t("pages.deal.38bf5edd")} onClick={() => react(m, "like")}>
+                  aria-pressed={m.viewer_reaction === "like"} aria-label={t("deal.like")} onClick={() => react(m, "like")}>
                   {t("deal.chat.like", { count: Number(m.likes || 0) > 0 ? num(m.likes) : "" })}
                 </button>
                 <button type="button" className={`chat-action dislike${m.viewer_reaction === "dislike" ? " active" : ""}`}
-                  aria-pressed={m.viewer_reaction === "dislike"} aria-label={t("pages.deal.88cd823a")} onClick={() => react(m, "dislike")}>
+                  aria-pressed={m.viewer_reaction === "dislike"} aria-label={t("deal.dislike")} onClick={() => react(m, "dislike")}>
                   {t("deal.chat.dislike", { count: Number(m.dislikes || 0) > 0 ? num(m.dislikes) : "" })}
                 </button>
                 {canWrite ? (
                   <button type="button" className="chat-action" onClick={() => { setReplyTo(m); composerRef.current?.focus(); }}>
-                    {t("pages.deal.f47c46a0")}</button>
+                    {t("deal.reply")}</button>
                 ) : null}
                 <span className="chat-time" style={{ marginInlineStart: "auto" }}>{timeAgo(m.created_at)}</span>
               </div>
@@ -249,15 +249,15 @@ export function ChatPanel({ dealId, canWrite, preview }: { dealId: string; canWr
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                 <Tx k="deal.chat.replying_to" vars={{ who: <b>{replyTo.display_name}</b>, body: String(replyTo.body || "").slice(0, 60) }} />
               </span>
-              <button type="button" className="chat-action x" aria-label={t("pages.deal.6900b198")} onClick={() => setReplyTo(null)}>✕</button>
+              <button type="button" className="chat-action x" aria-label={t("deal.cancel_reply")} onClick={() => setReplyTo(null)}>✕</button>
             </div>
           ) : null}
           <form className="chat-form" onSubmit={send}>
-            <label>{t("pages.deal.5ab0cbb2")}<input aria-label={t("pages.deal.f2efe40b")} value={chatTitle} onChange={e => setChatTitle(e.target.value)} maxLength={80} /></label>
+            <label>{t("deal.heading_optional")}<input aria-label={t("deal.message_heading")} value={chatTitle} onChange={e => setChatTitle(e.target.value)} maxLength={80} /></label>
             <span className="muted small">{chatTitle.length}/80</span>
-            <label>{t("pages.deal.b135a00a")}<textarea ref={composerRef} rows={5} placeholder={replyTo ? t("pages.deal.b269960a") : t("pages.deal.b47bfe98")} value={body} onChange={e => setBody(e.target.value)} maxLength={500} /></label>
-            <label>{t("pages.deal.6d1cbcb7")}<input value={name} onChange={e => setName(e.target.value)} maxLength={80} /></label>
-            <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()}>{t("pages.deal.5239bffa")}</button>
+            <label>{t("deal.content")}<textarea ref={composerRef} rows={5} placeholder={replyTo ? t("deal.write_reply") : t("deal.write_message")} value={body} onChange={e => setBody(e.target.value)} maxLength={500} /></label>
+            <label>{t("deal.name_optional")}<input value={name} onChange={e => setName(e.target.value)} maxLength={80} /></label>
+            <button className="btn btn-primary btn-sm" disabled={busy || !body.trim()}>{t("deal.send")}</button>
           </form>
         </>
       ) : null}
@@ -329,9 +329,9 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (busy) return;
-    if (name.trim().length < 2) { setError(t("pages.deal.11374f97")); return; }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) { setError(t("pages.deal.574b1fc6")); return; }
-    if (message.trim().length < 3) { setError(t("pages.deal.4462f25e")); return; }
+    if (name.trim().length < 2) { setError(t("deal.enter_name")); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) { setError(t("deal.enter_valid_e_mail_address")); return; }
+    if (message.trim().length < 3) { setError(t("deal.write_seller_few_words")); return; }
     setBusy(true); setError("");
     try {
       const r = await api.dealInquiry(String(deal.deal_id), { name: name.trim(), email: email.trim(), message: message.trim(), website });
@@ -351,40 +351,40 @@ function InquiryModal({ deal, onClose, onSent }: { deal: Json; onClose: () => vo
     return (
       <Modal title="" onClose={onClose}>
         <div className="share-moment" data-testid="inquiry-success">
-          <h3>{t("pages.deal.03ddf051", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</h3>
+          <h3>{t("deal.your_enquiry_sent_seller_through", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</h3>
           <p>
-            {t("pages.deal.791563ba", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
-          <p className="muted small">{t(NOTIFICATIONS_OFF_LINE_KEY).replace(t("pages.deal.42e156ea"), t("pages.deal.a1d7b561"))}</p>
-          <button className="btn btn-primary btn-block" data-testid="inquiry-done" onClick={onClose}>{t("pages.deal.b728721f")}</button>
+            {t("deal.the_seller_been_notified_answer", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
+          <p className="muted small">{t(NOTIFICATIONS_OFF_LINE_KEY).replace(t("deal.the_tracking_link"), t("deal.the_link_deal_page"))}</p>
+          <button className="btn btn-primary btn-block" data-testid="inquiry-done" onClick={onClose}>{t("deal.close")}</button>
         </div>
       </Modal>
     );
   }
   return (
     <Modal
-      title={t("pages.deal.99c4ed72")}
+      title={t("deal.enquiry_seller")}
       onClose={onClose}
       footer={
         <>
           {error ? <div className="notice err" style={{ marginTop: 0 }} data-testid="inquiry-error">{error}</div> : null}
           <button className="btn btn-primary btn-block" form="inquiry-form" data-testid="inquiry-submit" disabled={busy}>
-            {busy ? t("pages.deal.ea12faeb") : t("pages.deal.18a3d8cf")}
+            {busy ? t("deal.sending") : t("deal.send_enquiry")}
           </button>
         </>
       }
     >
       <form id="inquiry-form" onSubmit={submit} noValidate>
         <p className="muted small" style={{ marginTop: 0 }}>
-          {t("pages.deal.c8b17b9b", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
-        <div className="field"><label>{t("pages.deal.8b1aa6b1")} <span className="req" aria-hidden="true">*</span></label><input data-testid="inquiry-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></div>
+          {t("deal.the_enquiry_sent_seller_inside", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })}</p>
+        <div className="field"><label>{t("deal.name")} <span className="req" aria-hidden="true">*</span></label><input data-testid="inquiry-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} /></div>
         <div className="field">
-          <label>{t("pages.deal.15dbea0f")} <span className="req" aria-hidden="true">*</span> <span className="hint">{t("pages.deal.9fad6166")}</span></label>
+          <label>{t("deal.e_mail")} <span className="req" aria-hidden="true">*</span> <span className="hint">{t("deal.to_identify_enquiry_seller_sees")}</span></label>
           <input data-testid="inquiry-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={200} />
         </div>
         <div className="field">
-          <label>{t("pages.deal.5613de8b")} <span className="req" aria-hidden="true">*</span></label>
+          <label>{t("deal.the_message_seller")} <span className="req" aria-hidden="true">*</span></label>
           <textarea data-testid="inquiry-message" rows={4} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)}
-            placeholder={t("pages.deal.cb4bf129", { v0: String(deal.title || "") })} />
+            placeholder={t("deal.a_question_about_v0", { v0: String(deal.title || "") })} />
           <span className="hint">{message.length}/2000</span>
         </div>
         <input type="text" className="hp-field" tabIndex={-1} autoComplete="off" aria-hidden="true" name="website" value={website} onChange={(e) => setWebsite(e.target.value)} />
@@ -416,7 +416,7 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
   }, { intervalMs: PUBLIC_DEAL_POLL.inquiries_ms }, [dealId, refreshKey]);
 
   if (!threads.length) {
-    return stale ? <p className="muted small" data-testid="my-inquiries-stale">{t("pages.deal.48ddf887")}</p> : null;
+    return stale ? <p className="muted small" data-testid="my-inquiries-stale">{t("deal.an_enquiry_saved_browser_longer")}</p> : null;
   }
   const followUp = async (thread: Json) => {
     const threadId = String(thread.thread.thread_id);
@@ -428,14 +428,14 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
       setDrafts((d) => ({ ...d, [threadId]: "" }));
       const fresh = await api.inquiryThread(threadId, thread.token);
       setThreads((prev) => prev.map((x) => (String(x.thread.thread_id) === threadId ? { ...fresh, token: thread.token } : x)));
-      if (r?.duplicate) setError(t("pages.deal.5bc44700"));
+      if (r?.duplicate) setError(t("deal.this_message_already_been_sent"));
     } catch (err: any) { setError(localizedError(err)); }
     setBusy("");
   };
   return (
     <div className="my-inquiries" data-testid="my-inquiries">
-      <div className="section-title" style={{ margin: "14px 0 8px" }}>{t("pages.deal.91d16106")}</div>
-      {stale ? <p className="muted small" data-testid="my-inquiries-stale">{t("pages.deal.3d9ee6e5")}</p> : null}
+      <div className="section-title" style={{ margin: "14px 0 8px" }}>{t("deal.my_enquiries")}</div>
+      {stale ? <p className="muted small" data-testid="my-inquiries-stale">{t("deal.one_enquiry_saved_browser_longer")}</p> : null}
       {threads.map((thread) => {
         const threadId = String(thread.thread.thread_id);
         return (
@@ -447,16 +447,16 @@ function MyInquiries({ dealId, refreshKey }: { dealId: string; refreshKey: numbe
             <div className="inq-thread">
               {(thread.messages as Json[]).map((m) => (
                 <div className={`inq-msg ${String(m.sender_type).toLowerCase()}`} key={m.message_id} data-testid={`my-inquiry-msg-${String(m.sender_type).toLowerCase()}`}>
-                  <div className="inq-msg-meta">{m.sender_type === "Seller" ? String(thread.thread.seller_display || t("pages.deal.e98d9358")) : t("pages.deal.7efa9cf0")} · {timeAgo(m.created_at)}</div>
+                  <div className="inq-msg-meta">{m.sender_type === "Seller" ? String(thread.thread.seller_display || t("deal.the_seller")) : t("deal.me")} · {timeAgo(m.created_at)}</div>
                   <div className="inq-msg-body">{m.body}</div>
                 </div>
               ))}
             </div>
             {thread.thread.status !== "Closed" ? (
               <form className="inq-followup" onSubmit={(e) => { e.preventDefault(); void followUp(thread); }}>
-                <input data-testid="inquiry-followup" placeholder={t("pages.deal.a5324ba1")} maxLength={2000}
+                <input data-testid="inquiry-followup" placeholder={t("deal.a_follow_up_message_seller")} maxLength={2000}
                   value={drafts[threadId] || ""} onChange={(e) => setDrafts((d) => ({ ...d, [threadId]: e.target.value }))} />
-                <button className="btn btn-sm btn-ghost" disabled={busy === threadId || !(drafts[threadId] || "").trim()}>{t("pages.deal.5239bffa")}</button>
+                <button className="btn btn-sm btn-ghost" disabled={busy === threadId || !(drafts[threadId] || "").trim()}>{t("deal.send")}</button>
               </form>
             ) : null}
           </div>
@@ -483,28 +483,28 @@ function SellerContactPanel({ seller, onOpen, dealId, refreshKey, preview }: {
   const about = seller.business_description ? String(seller.business_description) : "";
   return (
     <div className="panel" data-testid="seller-contact-panel">
-      <div className="panel-title">{t("pages.deal.e98d9358")}</div>
+      <div className="panel-title">{t("deal.the_seller")}</div>
       <div className="seller-identity" style={{ marginBottom: 8 }}>
         {seller.image ? <img className="seller-avatar sm" src={String(seller.image)} alt="" data-testid="seller-profile-image" /> : null}
         <div style={{ minWidth: 0 }}>
-          <div className="seller-identity-name" data-testid="seller-display-name">{seller.business_name || t("pages.deal.e98d9358")}</div>
-          {seller.approved ? <span className="trust-badge" data-testid="seller-approved-panel">{t("pages.deal.ab6c964e")}</span> : null}
+          <div className="seller-identity-name" data-testid="seller-display-name">{seller.business_name || t("deal.the_seller")}</div>
+          {seller.approved ? <span className="trust-badge" data-testid="seller-approved-panel">{t("deal.approved_seller")}</span> : null}
         </div>
       </div>
       {about ? <p className="seller-about small" data-testid="seller-about">{about}</p> : null}
       {seller.profile_id && !preview ? (
         <p style={{ margin: "10px 0 0" }}>
-          <a href={`#/public-seller/${seller.profile_id}`} data-testid="seller-profile-link">{t("pages.deal.837ecaa0")}</a>
+          <a href={`#/public-seller/${seller.profile_id}`} data-testid="seller-profile-link">{t("deal.to_seller_profile_more_deals")}</a>
         </p>
       ) : null}
       <div className="row" style={{ flexWrap: "wrap", gap: 8, marginTop: 12 }}>
         <button className="btn btn-primary" data-testid="inquiry-open" onClick={onOpen} disabled={preview}
-          title={preview ? t("pages.deal.8a8b3eb1") : undefined}>{t("pages.deal.99c4ed72")}</button>
+          title={preview ? t("deal.disabled_preview") : undefined}>{t("deal.enquiry_seller")}</button>
       </div>
       <p className="muted small" style={{ margin: "8px 0 0" }}>
         {preview
-          ? t("pages.deal.7479d230", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })
-          : t(INQUIRY_PRIVACY_LINE_KEY, { product: t("buyer_copy.product_name") }) + t("pages.deal.c6fde5b2")}
+          ? t("deal.enquiries_sent_preview_after_publishing", { pRODUCT_NAME_HE: t(PRODUCT_NAME_KEY) })
+          : t(INQUIRY_PRIVACY_LINE_KEY, { product: t("buyer_copy.product_name") }) + t("deal.the_reply_appear_here_deal")}
       </p>
       {preview ? null : <MyInquiries dealId={dealId} refreshKey={refreshKey} />}
     </div>
@@ -574,13 +574,13 @@ function JoinModal(props: {
 
   const validate = (): Record<string, string> => {
     const errs: Record<string, string> = {};
-    if (name.trim().length < 2) errs.name = t("pages.deal.7fcb9eb9");
-    if (!phone.trim()) errs.phone = t("pages.deal.1e004126");
-    else if (!isPlausiblePhone(phone)) errs.phone = t("pages.deal.2f95e65c");
-    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("pages.deal.2d361111");
-    if (needsAddress && !address.trim()) errs.address = t("pages.deal.a2f6a617");
-    if (!disclosure) errs.disclosure = t("pages.deal.9ba5a923");
-    if (!terms) errs.terms = t("pages.deal.299a6393");
+    if (name.trim().length < 2) errs.name = t("deal.enter_full_name");
+    if (!phone.trim()) errs.phone = t("deal.enter_mobile_number");
+    else if (!isPlausiblePhone(phone)) errs.phone = t("deal.enter_valid_phone_number_9");
+    if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("deal.the_e_mail_address_valid");
+    if (needsAddress && !address.trim()) errs.address = t("deal.enter_delivery_address");
+    if (!disclosure) errs.disclosure = t("deal.the_payment_disclosure_must_acknowledged");
+    if (!terms) errs.terms = t("deal.the_terms_must_accepted");
     return errs;
   };
   const focusFirst = (errs: Record<string, string>) => {
@@ -595,7 +595,7 @@ function JoinModal(props: {
     const errs = validate();
     setFieldErrors(errs);
     if (Object.keys(errs).length) {
-      setRefusal({ kind: "fields", message: Object.keys(errs).length === 1 ? String(Object.values(errs)[0]) : t("pages.deal.8d13eae7", { length: num(Object.keys(errs).length) }) });
+      setRefusal({ kind: "fields", message: Object.keys(errs).length === 1 ? String(Object.values(errs)[0]) : t("deal.length_marked_fields_still_need", { length: num(Object.keys(errs).length) }) });
       focusFirst(errs);
       return;
     }
@@ -649,7 +649,7 @@ function JoinModal(props: {
 
   return (
     <Modal
-      title={t("pages.deal.10fe8521")}
+      title={t("deal.confirm_joining_deal")}
       onClose={props.onClose}
       footer={
         <>
@@ -658,26 +658,26 @@ function JoinModal(props: {
               <div>{refusal.message}</div>
               {refusal.kind === "stock" ? (
                 <div className="refusal-next">
-                  <span>{t("pages.deal.fd5ffd08")}</span>
-                  <button type="button" className="btn btn-sm btn-ghost" data-testid="join-refusal-back" onClick={() => { props.onRefused(); }}>{t("pages.deal.1e0db7ed")}</button>
+                  <span>{t("deal.what_now_go_back_page")}</span>
+                  <button type="button" className="btn btn-sm btn-ghost" data-testid="join-refusal-back" onClick={() => { props.onRefused(); }}>{t("deal.to_change_quantity")}</button>
                 </div>
               ) : null}
               {refusal.kind === "state" ? (
                 <div className="refusal-next">
-                  <span>{t("pages.deal.2d0aa0fe")}</span>
-                  <button type="button" className="btn btn-sm btn-ghost" data-testid="join-refusal-refresh" onClick={() => { props.onRefused(); }}>{t("pages.deal.f6e9ac12")}</button>
+                  <span>{t("deal.what_now_state_deal_changed")}</span>
+                  <button type="button" className="btn btn-sm btn-ghost" data-testid="join-refusal-refresh" onClick={() => { props.onRefused(); }}>{t("deal.refresh_status")}</button>
                 </div>
               ) : null}
               {refusal.kind === "network" ? (
-                <div className="refusal-next"><span>{t("pages.deal.b25b277e")}</span></div>
+                <div className="refusal-next"><span>{t("deal.the_details_entered_saved_check")}</span></div>
               ) : null}
               {refusal.kind === "other" ? (
-                <div className="refusal-next"><span>{t("pages.deal.cd11bb9b")} <a href="#/support">{t("pages.deal.fe733394")}</a>.</span></div>
+                <div className="refusal-next"><span>{t("deal.the_details_entered_saved_keeps")} <a href="#/support">{t("deal.contact_support")}</a>.</span></div>
               ) : null}
             </div>
           ) : null}
           <button className="btn btn-join btn-block" form="join-form" data-testid="join-submit" disabled={busy}>
-            {busy ? t("pages.deal.853ef03b") : t("pages.deal.bb59c1cd", { total: ils(total) })}
+            {busy ? t("deal.joining") : t("deal.confirm_joining_total", { total: ils(total) })}
           </button>
           <p className="muted small" style={{ textAlign: "center", margin: "6px 0 0" }} data-testid="join-foot-line">
             {dealCopy.holdNotice} {t(PILOT_MOCK_MONEY_LINE_KEY)}
@@ -688,72 +688,72 @@ function JoinModal(props: {
       <form id="join-form" onSubmit={submit} noValidate>
         <div className="order-summary" style={{ borderTop: "none", marginTop: 0, paddingTop: 0, marginBottom: 12 }}>
           <div className="order-row"><span>{deal.title}</span><span>{num(qty)} × {ils(deal.price_per_unit)}</span></div>
-          {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], delivery.label)}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
+          {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], delivery.label)}</span><span>{delivery.cost ? ils(delivery.cost) : t("deal.free")}</span></div> : null}
           {delivery && isPickupOptionType(delivery.option_type) && pickupLocationText(delivery) ? (
             <div className="order-row"><span className="muted small">{pickupLocationText(delivery)}</span><span /></div>
           ) : null}
-          <div className="order-row total"><span>{t("pages.deal.ce13b5b8")}</span><span>{ils(total)}</span></div>
+          <div className="order-row total"><span>{t("deal.total_authorize")}</span><span>{ils(total)}</span></div>
         </div>
         <p className="join-what-next" data-testid="join-what-next">
-          <b>{t("pages.deal.86dd01b8")}</b>  {t("pages.deal.f7cfd426")} <b>{t("pages.deal.e405663c")}</b>{t("pages.deal.84eb3e55")}</p>
-        <p className="muted small" style={{ margin: "0 0 10px" }}><span className="req" aria-hidden="true">*</span>  {t("pages.deal.3b4e4759")}</p>
-        {field("name", t("pages.deal.cbdaff61"), <input data-testid="join-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} aria-invalid={Boolean(fieldErrors.name)} />, { required: true })}
+          <b>{t("deal.what_happens_when_i_confirm")}</b>  {t("deal.a_card_authorization_amount_placed")} <b>{t("deal.not_charge")}</b>{t("deal.straight_after_get_link_own")}</p>
+        <p className="muted small" style={{ margin: "0 0 10px" }}><span className="req" aria-hidden="true">*</span>  {t("deal.required_field")}</p>
+        {field("name", t("deal.full_name"), <input data-testid="join-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" maxLength={120} aria-invalid={Boolean(fieldErrors.name)} />, { required: true })}
         <div className="field-row">
-          {field("phone", t("pages.deal.8d517465"), <input data-testid="join-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" maxLength={20} aria-invalid={Boolean(fieldErrors.phone)} />, { required: true, hint: t("pages.deal.dd9a94bc") })}
-          {field("email", t("pages.deal.15dbea0f"), <input data-testid="join-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={200} aria-invalid={Boolean(fieldErrors.email)} />, { hint: t("pages.deal.9fbd1f49") })}
+          {field("phone", t("deal.mobile_phone"), <input data-testid="join-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" maxLength={20} aria-invalid={Boolean(fieldErrors.phone)} />, { required: true, hint: t("deal.to_identify_join") })}
+          {field("email", t("deal.e_mail"), <input data-testid="join-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" maxLength={200} aria-invalid={Boolean(fieldErrors.email)} />, { hint: t("deal.optional") })}
         </div>
         {needsAddress ? (
           <div className="field-row">
-            {field("address", t("pages.deal.25bdea44"), <input data-testid="join-address" value={address} onChange={(e) => setAddress(e.target.value)} autoComplete="street-address" maxLength={200} aria-invalid={Boolean(fieldErrors.address)} />, { required: true })}
-            {field("city", t("pages.deal.b2136c90"), <input data-testid="join-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} />)}
+            {field("address", t("deal.delivery_address"), <input data-testid="join-address" value={address} onChange={(e) => setAddress(e.target.value)} autoComplete="street-address" maxLength={200} aria-invalid={Boolean(fieldErrors.address)} />, { required: true })}
+            {field("city", t("deal.city"), <input data-testid="join-city" value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} />)}
           </div>
         ) : null}
-        {field("notes", t("pages.deal.92b0d682"), <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={200} />, { hint: t("pages.deal.9fbd1f49") })}
+        {field("notes", t("deal.notes"), <input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={200} />, { hint: t("deal.optional") })}
 
         {/* P0.3-5 — payment method. The CHOICE is ours; the sensitive entry
             itself belongs to the secured payment provider (PCI boundary):
             these are presentation slots only — no raw card details are ever
             collected, sent or stored by C-ton. */}
-        <div className="field" style={{ marginBottom: 4 }}><label>{t("pages.deal.9c709c1b")} <span className="hint">{t("pages.deal.8ddfdf15")}</span></label></div>
-        <div className="pay-methods" role="tablist" aria-label={t("pages.deal.9c709c1b")}>
+        <div className="field" style={{ marginBottom: 4 }}><label>{t("deal.payment_method")} <span className="hint">{t("deal.for_future_charge_only_deal")}</span></label></div>
+        <div className="pay-methods" role="tablist" aria-label={t("deal.payment_method")}>
           <button type="button" role="tab" aria-selected={payMethod === "credit_card"} data-testid="pay-credit"
             className={`pay-method${payMethod === "credit_card" ? " active" : ""}`} onClick={() => setPayMethod("credit_card")}>
-            {t("pages.deal.c5a87fbf")}</button>
+            {t("deal.credit_card")}</button>
           <button type="button" role="tab" aria-selected={payMethod === "bit"} data-testid="pay-bit"
             className={`pay-method${payMethod === "bit" ? " active" : ""}`} onClick={() => setPayMethod("bit")}>
-            <span className="pay-bit-logo">bit</span>  {t("pages.deal.f5e42079")}</button>
+            <span className="pay-bit-logo">bit</span>  {t("deal.pay_bit")}</button>
         </div>
-        <div className="pay-pilot-note" data-testid="pay-pilot-note">{t("pages.deal.1e2b6b26", { pILOT_MOCK_MONEY_LINE: t(PILOT_MOCK_MONEY_LINE_KEY) })}</div>
+        <div className="pay-pilot-note" data-testid="pay-pilot-note">{t("deal.pilot_mock_money_line_fields", { pILOT_MOCK_MONEY_LINE: t(PILOT_MOCK_MONEY_LINE_KEY) })}</div>
         {payMethod === "credit_card" ? (
           <div className="pay-secure-slot" data-testid="pay-slot-credit">
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>{t("pages.deal.f66b523e")}</label>
-              <input dir="ltr" disabled placeholder="•••• •••• •••• ••••" aria-label={t("pages.deal.1524d20b")} />
+              <label>{t("deal.card_number")}</label>
+              <input dir="ltr" disabled placeholder="•••• •••• •••• ••••" aria-label={t("deal.card_number_entered_secure_payment")} />
             </div>
             <div className="pay-field-row">
-              <div className="field" style={{ marginBottom: 0 }}><label>{t("pages.deal.48f45a5d")}</label><input dir="ltr" disabled placeholder="MM/YY" /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>{t("pages.deal.e6496d6c")}</label><input dir="ltr" disabled placeholder="•••" /></div>
-              <div className="field" style={{ marginBottom: 0 }}><label>{t("pages.deal.267fd66f")}</label><input dir="ltr" disabled placeholder="•••••••••" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>{t("deal.valid")}</label><input dir="ltr" disabled placeholder="MM/YY" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>{t("deal.security_code")}</label><input dir="ltr" disabled placeholder="•••" /></div>
+              <div className="field" style={{ marginBottom: 0 }}><label>{t("deal.id_number")}</label><input dir="ltr" disabled placeholder="•••••••••" /></div>
             </div>
-            <div className="pay-secure-note">{t("pages.deal.5208764f")}</div>
+            <div className="pay-secure-note">{t("deal.card_details_entered_directly_secure")}</div>
           </div>
         ) : (
           <div className="pay-secure-slot" data-testid="pay-slot-bit">
-            <div className="pay-secure-note">{t("pages.deal.20b2af3c")}</div>
+            <div className="pay-secure-note">{t("deal.a_bit_payment_request_sent")}</div>
           </div>
         )}
 
         <div className={`field${fieldErrors.disclosure ? " invalid" : ""}`} id="join-field-disclosure" style={{ marginBottom: 0 }}>
           <label className="check">
             <input data-testid="join-disclosure" type="checkbox" checked={disclosure} onChange={(e) => setDisclosure(e.target.checked)} aria-invalid={Boolean(fieldErrors.disclosure)} />
-            <span><span className="req" aria-hidden="true">* </span>{t("pages.deal.494c01fa")}</span>
+            <span><span className="req" aria-hidden="true">* </span>{t("deal.i_understand_amount_places_card")}</span>
           </label>
           {fieldErrors.disclosure ? <span className="field-error" data-testid="join-error-disclosure" role="alert">{fieldErrors.disclosure}</span> : null}
         </div>
         <div className={`field${fieldErrors.terms ? " invalid" : ""}`} id="join-field-terms" style={{ marginBottom: 0 }}>
           <label className="check">
             <input data-testid="join-terms" type="checkbox" checked={terms} onChange={(e) => setTerms(e.target.checked)} aria-invalid={Boolean(fieldErrors.terms)} />
-            <span><span className="req" aria-hidden="true">* </span>{t("pages.deal.34303cdc")} <a href="/legal/terms" target="_blank" rel="noreferrer">{t("pages.deal.cf369f4f")}</a>  {t("pages.deal.f26be597")}</span>
+            <span><span className="req" aria-hidden="true">* </span>{t("deal.i_read_i_agree")} <a href="/legal/terms" target="_blank" rel="noreferrer">{t("deal.the_terms")}</a>  {t("deal.and_cancellation_policy")}</span>
           </label>
           {fieldErrors.terms ? <span className="field-error" data-testid="join-error-terms" role="alert">{fieldErrors.terms}</span> : null}
         </div>
@@ -790,16 +790,16 @@ function JoinSuccess(props: {
   const total = Number(result?.hold_total ?? qty * Number(deal.price_per_unit));
   const copyTrack = async () => {
     if (!trackUrl) return;
-    if (await copyText(trackUrl)) showToast(t("pages.deal.1c955db8"));
-    else showToast(t("pages.deal.29807e19"));
+    if (await copyText(trackUrl)) showToast(t("deal.the_tracking_link_copied"));
+    else showToast(t("deal.copying_failed_select_link_copy"));
   };
   return (
     <Modal title="" onClose={props.onClose}>
       <div className="share-moment success-moment" data-testid="join-success">
-        <h3>{t("pages.deal.dac610e0")}</h3>
+        <h3>{t("deal.you_joined")}</h3>
         <div className="success-facts" data-testid="join-success-facts">
-          <div><b>{num(qty)}</b> {qty === 1 ? t("pages.deal.30cd9c3c") : t("pages.deal.5170f234")} · <b>{ils(total)}</b></div>
-          <div>{t("pages.deal.15e14a28")} <b>{t("pages.deal.9155a6d7")}</b>{t("pages.deal.3886e231")}</div>
+          <div><b>{num(qty)}</b> {qty === 1 ? t("deal.unit") : t("deal.units")} · <b>{ils(total)}</b></div>
+          <div>{t("deal.only_authorization_placed")} <b>{t("deal.no_charge_made")}</b>{t("deal.the_charge_made_only_deal")}</div>
           <div className="muted small">{t(PILOT_MOCK_MONEY_LINE_KEY)}</div>
         </div>
         <div className="success-progress" data-testid="join-success-progress" data-to-target={toTarget}>
@@ -807,24 +807,24 @@ function JoinSuccess(props: {
           <p style={{ margin: "8px 0 0", fontWeight: 700 }}>
             {toTarget > 0
               ? <Tx k="deal.units_to_target" vars={{ units: <b>{num(toTarget)}</b>, deadline: formatIsraelDateTime(deal.deadline) }} />
-              : <>{t("pages.deal.bea161e5", { deadline: formatIsraelDateTime(deal.deadline) })}</>}
+              : <>{t("deal.the_target_reached_deal_going", { deadline: formatIsraelDateTime(deal.deadline) })}</>}
           </p>
         </div>
         {trackHash ? (
           <div className="success-track" data-testid="join-success-track">
             <a className="btn btn-primary btn-block" data-testid="join-success-track-link" href={trackHash}>
-              {t("pages.deal.e564bd0f")}</a>
-            <button type="button" className="btn btn-ghost btn-block btn-sm" data-testid="join-success-copy-track" onClick={copyTrack}>{t("pages.deal.e96fdefa")}</button>
+              {t("deal.to_my_personal_tracking_screen")}</a>
+            <button type="button" className="btn btn-ghost btn-block btn-sm" data-testid="join-success-copy-track" onClick={copyTrack}>{t("deal.copy_tracking_link")}</button>
             <p className="muted small" style={{ margin: "6px 0 0" }} data-testid="join-success-notif">{notifLine}</p>
           </div>
         ) : null}
         <div className="success-share" data-testid="join-success-share">
           <p style={{ fontWeight: 800, margin: "0 0 8px" }}>{dealCopy.shareTitle}</p>
-          <p className="muted small" style={{ marginTop: 0 }}>{t("pages.deal.0eda93e8")}</p>
+          <p className="muted small" style={{ marginTop: 0 }}>{t("deal.this_personal_link_everyone_who")}</p>
           <ShareActions layout="loop" dealId={deal.deal_id} title={deal.title} price={Number(deal.price_per_unit)} code={shareCode} onNotify={showToast} />
         </div>
         <FeedbackPrompt dealId={String(deal.deal_id)} surface="join_success" />
-        <button type="button" className="linklike" data-testid="join-success-ask-seller" onClick={props.onAskSeller}>{t("pages.deal.35505d54")}</button>
+        <button type="button" className="linklike" data-testid="join-success-ask-seller" onClick={props.onAskSeller}>{t("deal.i_question_seller")}</button>
       </div>
       <Toast msg={toast} />
     </Modal>
@@ -856,7 +856,7 @@ function StickyJoinBar({ anchor, enabled, price, label, onJoin }: {
   return (
     <>
       <div className={`sticky-cta${show ? " show" : ""}`} data-testid="sticky-cta" data-show={show ? "1" : "0"} aria-hidden={!show}>
-        <div className="sticky-cta-price"><b>{ils(price)}</b><span>{t("pages.deal.34008a98")}</span></div>
+        <div className="sticky-cta-price"><b>{ils(price)}</b><span>{t("deal.per_unit_authorization_only")}</span></div>
         <button type="button" className="btn btn-join" data-testid="join-open-sticky" tabIndex={show ? 0 : -1} onClick={onJoin}>{label}</button>
       </div>
       <div className="sticky-cta-spacer" aria-hidden="true" />
@@ -871,44 +871,44 @@ function closedStory(args: { state: string; soldOut: boolean; timeUp: boolean; d
   const deadlinePassed = timeUp || (Date.parse(String(args.deadline)) <= Date.now());
   const reached = args.joined >= args.threshold;
   if (soldOut) return {
-    key: "sold_out", title: t("pages.deal.ef49c6ad"),
-    body: t("pages.deal.c43cb022"), ask: true, refresh: false
+    key: "sold_out", title: t("deal.stock_run_out_every_unit"),
+    body: t("deal.joining_possible_right_now_ask"), ask: true, refresh: false
   };
   if (OPEN_STATES.includes(state) && deadlinePassed) return {
-    key: "awaiting_decision", title: t("pages.deal.3d7283b6"),
+    key: "awaiting_decision", title: t("deal.the_joining_period_ended_awaiting"),
     body: reached
-      ? t("pages.deal.ca960a08")
-      : t("pages.deal.29d212d0"),
+      ? t("deal.the_group_reached_target_deal")
+      : t("deal.if_group_reached_target_deal"),
     ask: true, refresh: true
   };
   if (state === "ClosedForJoining" && !deadlinePassed) return {
-    key: "paused", title: t("pages.deal.b8f2d588"),
-    body: t("pages.deal.531af336"), ask: true, refresh: true
+    key: "paused", title: t("deal.joining_paused_now"),
+    body: t("deal.the_seller_paused_joining_may"), ask: true, refresh: true
   };
   if (["ClosedForJoining", "ReadyForCharging", "Charging"].includes(state)) return {
-    key: "closing", title: t("pages.deal.dad557c1"),
-    body: t("pages.deal.c287d890"), ask: true, refresh: false
+    key: "closing", title: t("deal.joining_closed_deal_heading_close"),
+    body: t("deal.the_participants_charged_updated_personal"), ask: true, refresh: false
   };
   if (state === "CompletionWindow") return {
-    key: "completion_window", title: t("pages.deal.86eb860a"),
-    body: t("pages.deal.00b78503"), ask: true, refresh: false
+    key: "completion_window", title: t("deal.the_deal_completion_window"),
+    body: t("deal.some_charges_did_go_through"), ask: true, refresh: false
   };
   if (state === "Completed") return {
-    key: "completed", title: t("pages.deal.392370e2"),
-    body: t("pages.deal.4cd931cd"), ask: true, refresh: false
+    key: "completed", title: t("deal.the_deal_completed_successfully"),
+    body: t("deal.the_participants_charged_joined_details"), ask: true, refresh: false
   };
   if (state === "Failed") return {
-    key: "failed", title: t("pages.deal.9c1399a1"),
+    key: "failed", title: t("deal.the_deal_did_go_ahead"),
     body: reached
-      ? t("pages.deal.4bf531d6")
-      : t("pages.deal.71c8a904"),
+      ? t("deal.the_charges_did_complete_charge")
+      : t("deal.the_group_did_reach_target"),
     ask: true, refresh: false
   };
   if (state === "Cancelled") return {
-    key: "cancelled", title: t("pages.deal.8eca7966"),
-    body: t("pages.deal.452b2c33"), ask: true, refresh: false
+    key: "cancelled", title: t("deal.the_deal_cancelled_seller"),
+    body: t("deal.no_charge_made_ask_seller"), ask: true, refresh: false
   };
-  return { key: "closed", title: buyerStateStory(state, 0), body: t("pages.deal.f27f8885"), ask: true, refresh: false };
+  return { key: "closed", title: buyerStateStory(state, 0), body: t("deal.the_deal_cannot_joined_current"), ask: true, refresh: false };
 }
 
 // P0.7 polish — `preview` = the seller-authorized BUYER PREVIEW of the seller's
@@ -956,7 +956,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
         // link). Both mean "this link does not lead to a deal", never a server fault.
         const kind = status === 404 || status === 400 ? "gone" : !status ? "network" : status === 429 || status >= 500 ? "busy" : "other";
         setErrorKind(kind);
-        setError(kind === "gone" ? t("pages.deal.7c02e6d9") : String(e?.message || localizedError(e)));
+        setError(kind === "gone" ? t("deal.the_deal_available") : String(e?.message || localizedError(e)));
       });
     if (!preview) {
       // real public traffic only — a seller previewing never counts as a view or a share visit
@@ -1007,24 +1007,24 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     return (
       <EmptyState
         level={1}
-        title={preview ? t("pages.deal.b5dd662e") : network ? t("pages.deal.a13bd624") : busy ? t("pages.deal.7d12208b") : t("pages.deal.7c02e6d9")}
+        title={preview ? t("deal.the_preview_cannot_shown") : network ? t("deal.connection_problem") : busy ? t("deal.busy_moment_try_again_shortly") : t("deal.the_deal_available")}
         body={preview
-          ? t("pages.deal.f4255096")
+          ? t("deal.the_deal_found_does_belong")
           : network
-            ? t("pages.deal.47c26a3d")
+            ? t("deal.we_could_load_deal_check")
             : busy
-              ? t("pages.deal.74492ea9")
-              : t("pages.deal.4196dc09")}
+              ? t("deal.the_server_did_answer_time")
+              : t("deal.the_deal_may_ended_been")}
         action={
           <div className="row" style={{ justifyContent: "center" }}>
-            {network || busy ? <button className="btn btn-primary" data-testid="deal-retry" onClick={() => window.location.reload()}>{t("pages.deal.8c634e7d")}</button> : null}
-            <a className="btn btn-ghost" href={preview ? "#/seller" : "#/"}>{preview ? t("pages.deal.3c54e652") : t("pages.deal.6e616914")}</a>
-            {!preview && !network && !busy ? <a className="btn btn-ghost" href="#/support">{t("pages.deal.3bc1abed")}</a> : null}
+            {network || busy ? <button className="btn btn-primary" data-testid="deal-retry" onClick={() => window.location.reload()}>{t("deal.try_again")}</button> : null}
+            <a className="btn btn-ghost" href={preview ? "#/seller" : "#/"}>{preview ? t("deal.to_seller_dashboard") : t("deal.to_home_page")}</a>
+            {!preview && !network && !busy ? <a className="btn btn-ghost" href="#/support">{t("deal.support")}</a> : null}
           </div>
         } />
     );
   }
-  if (!payload) return <BrandLoader label={t("pages.deal.7441b7d8")} minHeight={420} />;
+  if (!payload) return <BrandLoader label={t("deal.loading_deal")} minHeight={420} />;
 
   const deal = payload.deal;
   const seller = payload.seller || {};
@@ -1049,14 +1049,14 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
   const deadlineText = formatIsraelDateTime(deal.deadline);
 
   const ctaText = !isOpen
-    ? (soldOut ? t("pages.deal.8d502c50") : buyerStateStory(state, unitsToTarget))
+    ? (soldOut ? t("deal.stock_run_out_sale_ended") : buyerStateStory(state, unitsToTarget))
     : state === "TargetReached"
-      ? t("pages.deal.58e07d5d")
-      : unitsToTarget > 0 ? t("pages.deal.0ad923bd", { unitsToTarget: num(unitsToTarget) }) : t("pages.deal.f3c36936");
-  const startJoin = () => { if (preview) return; if (!quantityValid) { const input = document.querySelector<HTMLInputElement>('[data-testid="join-qty"]'); input?.scrollIntoView({ block: "center" }); input?.focus({ preventScroll: true }); showToast(t("pages.deal.d765cff4")); return; } if (!receiptReady) { showToast(t("pages.deal.e4ff018d")); return; } sendFunnelEvent(dealId, "join_started"); setJoining(true); };
+      ? t("deal.join_last_units")
+      : unitsToTarget > 0 ? t("deal.join_now_unitstotarget_go", { unitsToTarget: num(unitsToTarget) }) : t("deal.join_deal");
+  const startJoin = () => { if (preview) return; if (!quantityValid) { const input = document.querySelector<HTMLInputElement>('[data-testid="join-qty"]'); input?.scrollIntoView({ block: "center" }); input?.focus({ preventScroll: true }); showToast(t("deal.enter_valid_quantity_before_joining")); return; } if (!receiptReady) { showToast(t("deal.waiting_redemption_details_load_try")); return; } sendFunnelEvent(dealId, "join_started"); setJoining(true); };
   const startInquiry = () => { if (preview) return; sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); };
   const story = isOpen ? null : closedStory({ state, soldOut, timeUp, deadline: String(deal.deadline), joined, threshold: Number(deal.threshold_units) });
-  const pillLabel = story?.key === "awaiting_decision" ? t("pages.deal.ff57711d") : story?.key === "paused" ? t("pages.deal.b8f2d588") : buyerStateStory(state, unitsToTarget);
+  const pillLabel = story?.key === "awaiting_decision" ? t("deal.joining_ended_awaiting_outcome") : story?.key === "paused" ? t("deal.joining_paused_now") : buyerStateStory(state, unitsToTarget);
 
   // Mobile-first: one column in EXACTLY the decision order a phone buyer
   // needs — identity, image, price, progress, deadline, quantity, delivery,
@@ -1065,9 +1065,9 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
     <>
       {preview ? (
         <div className="notice info preview-banner" data-testid="preview-banner" role="status">
-          <Tx k="deal.preview_notice" vars={{ badge: <b>{t("pages.deal.abf9d0c8")}</b>, draft: rawState === "Draft" ? t("pages.deal.292e049c") : "" }} />
+          <Tx k="deal.preview_notice" vars={{ badge: <b>{t("deal.seller_preview")}</b>, draft: rawState === "Draft" ? t("deal.after_publishing") : "" }} />
           {t("deal.preview_disabled_note")}{" "}
-          <a href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.deal.e0f743d7")}</a>
+          <a href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("deal.back_managing_deal")}</a>
         </div>
       ) : null}
       <div className="deal-page">
@@ -1076,7 +1076,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
           <div className={`panel${celebrated ? " celebrate" : ""}`}>
             <div className="row" style={{ justifyContent: "space-between" }}>
               <StatusPill state={state} label={pillLabel} />
-              <span className="staging-flag" title={t(PILOT_MOCK_MONEY_LINE_KEY)}>{t("pages.deal.bbf6c512")}</span>
+              <span className="staging-flag" title={t(PILOT_MOCK_MONEY_LINE_KEY)}>{t("deal.demonstration_environment")}</span>
             </div>
             <h1 className="deal-title" style={{ marginTop: 10, marginBottom: 0 }}>{deal.title}</h1>
             {deal.description_short ? (
@@ -1086,12 +1086,12 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             {seller.business_name ? (
               <div className="deal-seller-line" data-testid="deal-seller-line">
                 <span>{seller.business_name}</span>
-                {seller.approved ? <span className="trust-badge" data-testid="seller-approved" title={t("pages.deal.76c0c3c6")}>{t("pages.deal.ab6c964e")}</span> : null}
-                {preview ? null : <button type="button" className="linklike" data-testid="inquiry-open-top" onClick={startInquiry}>{t("pages.deal.5783968f")}</button>}
+                {seller.approved ? <span className="trust-badge" data-testid="seller-approved" title={t("deal.the_seller_approved_publish_siton")}>{t("deal.approved_seller")}</span> : null}
+                {preview ? null : <button type="button" className="linklike" data-testid="inquiry-open-top" onClick={startInquiry}>{t("deal.a_question_seller")}</button>}
               </div>
             ) : null}
             {isOpen && !preview ? <div className="deal-early-action" data-testid="deal-early-action">
-              <p><Tx k="deal.price_and_target" vars={{ price: <b>{t("pages.deal.d215517a", { price_per_unit: ils(deal.price_per_unit) })}</b>, target: num(deal.threshold_units) }} /></p>
+              <p><Tx k="deal.price_and_target" vars={{ price: <b>{t("deal.price_per_unit_per_unit", { price_per_unit: ils(deal.price_per_unit) })}</b>, target: num(deal.threshold_units) }} /></p>
               <button type="button" className="btn btn-join btn-block" data-testid="join-open-summary" onClick={startJoin}>{ctaText}</button>
               <p className="muted small">{dealCopy.afterTap}</p>
             </div> : null}
@@ -1110,30 +1110,30 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
             {/* LAUNCH POLISH (P6) — say WHICH price this is: the group price, per unit */}
             <div className="deal-price-hero" style={{ marginTop: 0 }} data-testid="deal-price">
               <span className="price">{ils(deal.price_per_unit)}</span>
-              <span className="price-unit">{t("pages.deal.e6a512a2", { deal_type: dealTypeLabel(deal.deal_type) })}</span>
+              <span className="price-unit">{t("deal.group_price_per_unit_deal", { deal_type: dealTypeLabel(deal.deal_type) })}</span>
             </div>
             {/* LAUNCH MODE — the saving is the whole point: show it when the seller gave a regular price */}
             {hasSaving ? (
               <div className="deal-saving" data-testid="deal-saving">
-                <span className="price-was-wrap"><span className="price-was-label">{t("pages.deal.36bb7801")}</span> <span className="price-was" dir="ltr">{ils(listPrice)}</span></span>
-                <span className="saving-badge">{t("pages.deal.db9d65f1", { savingPct: savingPct })}</span>
-                <span className="saving-amount" data-testid="deal-saving-amount">{t("pages.deal.1fe373e6", { price_per_unit: ils(listPrice - Number(deal.price_per_unit)) })}</span>
+                <span className="price-was-wrap"><span className="price-was-label">{t("deal.list_price")}</span> <span className="price-was" dir="ltr">{ils(listPrice)}</span></span>
+                <span className="saving-badge">{t("deal.saving_savingpct_off_list_price", { savingPct: savingPct })}</span>
+                <span className="saving-amount" data-testid="deal-saving-amount">{t("deal.saving_price_per_unit_per", { price_per_unit: ils(listPrice - Number(deal.price_per_unit)) })}</span>
               </div>
             ) : null}
             <p className="deal-why" data-testid="deal-why">{dealCopy.whyGroupPrice}</p>
             <div className="deal-facts" data-testid="deal-needed" data-units-to-target={unitsToTarget}>
-              <div className="fact"><span className="fact-n">{num(deal.threshold_units)}</span><span className="fact-l">{t("pages.deal.24cf6de0")}</span></div>
-              <div className="fact"><span className="fact-n">{num(joined)}</span><span className="fact-l">{t("pages.deal.bc120267")}</span></div>
-              <div className={`fact${unitsToTarget > 0 ? " hot" : " ok"}`}><span className="fact-n">{unitsToTarget > 0 ? num(unitsToTarget) : "✓"}</span><span className="fact-l">{unitsToTarget > 0 ? t("pages.deal.1a3fe2e1") : t("pages.deal.a8a90c96")}</span></div>
+              <div className="fact"><span className="fact-n">{num(deal.threshold_units)}</span><span className="fact-l">{t("deal.units_target")}</span></div>
+              <div className="fact"><span className="fact-n">{num(joined)}</span><span className="fact-l">{t("deal.already_joined")}</span></div>
+              <div className={`fact${unitsToTarget > 0 ? " hot" : " ok"}`}><span className="fact-n">{unitsToTarget > 0 ? num(unitsToTarget) : "✓"}</span><span className="fact-l">{unitsToTarget > 0 ? t("deal.still_short") : t("deal.the_target_reached")}</span></div>
             </div>
             <div style={{ margin: "12px 0 4px" }}>
               <GroupMeter large joined={joined} threshold={Number(deal.threshold_units)} max={Number(deal.max_units)} showFlag />
             </div>
             {OPEN_STATES.includes(state) ? (
               <div className="deal-countdown-block" data-testid="deal-countdown">
-                <span className="deal-countdown-label">{timeUp ? t("pages.deal.7270e065") : t("pages.deal.4b6c2e39")}</span>
+                <span className="deal-countdown-label">{timeUp ? t("deal.joining_ended") : t("deal.joining_ends")}</span>
                 <LiveCountdown deadline={deal.deadline} onZero={() => setTimeUp(true)} />
-                {deadlineText ? <span className="deal-deadline-abs" data-testid="deal-deadline-abs">{t("pages.deal.b29e99f4", { deadlineText: deadlineText })}</span> : null}
+                {deadlineText ? <span className="deal-deadline-abs" data-testid="deal-deadline-abs">{t("deal.until_deadlinetext", { deadlineText: deadlineText })}</span> : null}
               </div>
             ) : null}
             <p className="deal-facts-line muted small" data-testid="deal-facts-line">
@@ -1143,14 +1143,14 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
 
           {isOpen ? (
             <div className="panel">
-              <div className="panel-title">{t("pages.deal.51870bc7")}</div>
+              <div className="panel-title">{t("deal.my_order")}</div>
               <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
-                <span style={{ fontWeight: 700 }}>{t("pages.deal.24b6980b")}</span>
-                <QtyInput value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} onValidityChange={setQuantityValid} testId="join-qty" ariaLabel={t("pages.deal.a36bebfc")} />
+                <span style={{ fontWeight: 700 }}>{t("deal.number_units")}</span>
+                <QtyInput value={Math.min(qty, maxQty)} max={maxQty} onChange={setQty} onValidityChange={setQuantityValid} testId="join-qty" ariaLabel={t("deal.number_units_join")} />
               </div>
               {deliveryOptions.length > 0 ? (
                 <div className="stack" style={{ gap: 8, marginBottom: 4 }} data-testid="delivery-options">
-                  <span style={{ fontWeight: 700 }}>{t("pages.deal.bd008360")}</span>
+                  <span style={{ fontWeight: 700 }}>{t("deal.how_receive")}</span>
                   {deliveryOptions.map((o) => (
                     <React.Fragment key={o.option_id}>
                       {/* ROUND 2 (UX-4) — ONE canonical Siton selection card.
@@ -1162,7 +1162,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                         <input type="radio" name="delivery" checked={o.option_id === deliveryId} onChange={() => setDeliveryId(o.option_id)} />
                         <span className="choice-ind choice-dot" aria-hidden="true" />
                         <span className="choice-body"><span className="choice-title">{deliveryOptionTitle(o)}</span>{o.estimate_text ? <span className="choice-sub muted small" data-testid="delivery-estimate">{o.estimate_text}</span> : null}</span>
-                        <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : t("pages.deal.323814d1")}</span>
+                        <span className="delivery-cost choice-meta">{o.cost ? ils(o.cost) : t("deal.free")}</span>
                       </label>
                       {/* P0.7 — where exactly the buyer picks up (same renderer as the closed-state summary) */}
                       <PickupLocationLine option={o} showNav={o.option_id === deliveryId} />
@@ -1171,22 +1171,22 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
                 </div>
               ) : null}
               <div className="order-summary">
-                <div className="order-row"><span>{t("pages.deal.86b1b870")}</span><span>{ils(deal.price_per_unit)}</span></div>
-                <div className="order-row"><span>{t("pages.deal.d4e2d05b")}</span><span>× {num(Math.min(qty, maxQty))}</span></div>
-                {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], t("pages.deal.65e1ef42"))}</span><span>{delivery.cost ? ils(delivery.cost) : t("pages.deal.323814d1")}</span></div> : null}
-                <div className="order-row total"><span>{t("pages.deal.ce13b5b8")}</span><span>{ils(total)}</span></div>
+                <div className="order-row"><span>{t("deal.price_per_unit")}</span><span>{ils(deal.price_per_unit)}</span></div>
+                <div className="order-row"><span>{t("deal.quantity")}</span><span>× {num(Math.min(qty, maxQty))}</span></div>
+                {delivery ? <div className="order-row"><span>{tKey(DELIVERY_NAMES[delivery.option_type], t("deal.fulfilment"))}</span><span>{delivery.cost ? ils(delivery.cost) : t("deal.free")}</span></div> : null}
+                <div className="order-row total"><span>{t("deal.total_authorize")}</span><span>{ils(total)}</span></div>
               </div>
               <div className="order-note" style={{ margin: "12px 0" }}>
-                <b>{t("pages.deal.7747ccda")}</b>  {t("pages.deal.7bab532a")}</div>
+                <b>{t("deal.you_paying_now")}</b>  {t("deal.the_amount_places_card_authorization")}</div>
               <button className="btn btn-join btn-block" data-testid="join-open" disabled={preview} ref={setCtaEl}
-                title={preview ? t("pages.deal.ffc97542") : undefined}
+                title={preview ? t("deal.joining_disabled_preview") : undefined}
                 onClick={startJoin}>
-                {preview ? t("pages.deal.b5b52fb7") : ctaText}
+                {preview ? t("deal.join_disabled_preview") : ctaText}
               </button>
               <p className="after-tap muted small" data-testid="after-tap">{dealCopy.afterTap}</p>
               <p className="pilot-line" data-testid="pilot-line">{t(PILOT_MOCK_MONEY_LINE_KEY)}</p>
               {preview ? null : (
-                <button type="button" className="btn btn-ghost btn-sm btn-block" data-testid="inquiry-open-cta" onClick={startInquiry}>{t("pages.deal.e55b737c")}</button>
+                <button type="button" className="btn btn-ghost btn-sm btn-block" data-testid="inquiry-open-cta" onClick={startInquiry}>{t("deal.have_question_before_joining_ask")}</button>
               )}
             </div>
           ) : (
@@ -1194,8 +1194,8 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               <p style={{ fontWeight: 800, marginBottom: 4, fontSize: "1.05rem" }}>{story?.title}</p>
               <p className="muted small" style={{ marginBottom: 0 }}>{story?.body}</p>
               <div className="row" style={{ marginTop: 12, gap: 8 }}>
-                {story?.refresh ? <button type="button" className="btn btn-primary btn-sm" data-testid="closed-refresh" onClick={() => window.location.reload()}>{t("pages.deal.f6e9ac12")}</button> : null}
-                {story?.ask && !preview ? <button type="button" className="btn btn-ghost btn-sm" data-testid="closed-ask-seller" onClick={startInquiry}>{t("pages.deal.5783968f")}</button> : null}
+                {story?.refresh ? <button type="button" className="btn btn-primary btn-sm" data-testid="closed-refresh" onClick={() => window.location.reload()}>{t("deal.refresh_status")}</button> : null}
+                {story?.ask && !preview ? <button type="button" className="btn btn-ghost btn-sm" data-testid="closed-ask-seller" onClick={startInquiry}>{t("deal.a_question_seller")}</button> : null}
               </div>
               <FulfillmentSummary options={deliveryOptions} />
             </div>
@@ -1206,9 +1206,9 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
               ABOVE "איך זה עובד", where a buyer who just understood the group
               rule is most likely to pass the deal on. */}
           <div className="panel share-panel" data-testid="share-invite">
-            <div className="panel-title">{t("pages.deal.9a684982")}</div>
+            <div className="panel-title">{t("deal.know_someone_would_interest")}</div>
             {preview ? (
-              <p className="muted small" style={{ margin: 0 }} data-testid="share-preview-note">{t("pages.deal.c2ce3295")}</p>
+              <p className="muted small" style={{ margin: 0 }} data-testid="share-preview-note">{t("deal.the_share_buttons_appear_here")}</p>
             ) : (
               <ShareActions compact dealId={dealId} title={deal.title} price={Number(deal.price_per_unit)} code={currentRef()} onNotify={showToast} />
             )}
@@ -1231,20 +1231,20 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
         {/* secondary content */}
         <div className="deal-area-rest">
           <div className="panel">
-            <div className="panel-title">{t("pages.deal.a1b194f2")}</div>
-            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || deal.description_short || payload.deal?.fulfillment_copy?.what_you_get || t("pages.deal.dfe8aa50")}</p>
+            <div className="panel-title">{t("deal.more_information")}</div>
+            <p style={{ whiteSpace: "pre-wrap", marginBottom: 0 }}>{deal.description || deal.description_short || payload.deal?.fulfillment_copy?.what_you_get || t("deal.the_product_details_appear_here")}</p>
             {deal.voucher_terms ? (
               <div className="kv" style={{ marginTop: 12 }}>
-                <span className="k">{t("pages.deal.e459323d")}</span><span className="v">{ils(deal.voucher_terms.face_value_amount)}</span>
-                <span className="k">{t("pages.deal.03baa387")}</span><span className="v">{fmtDate(deal.voucher_terms.valid_until)}</span>
-                {deal.voucher_terms.redemption_location ? (<><span className="k">{t("pages.deal.a458744a")}</span><span className="v">{deal.voucher_terms.redemption_location}</span></>) : null}
+                <span className="k">{t("deal.voucher_value")}</span><span className="v">{ils(deal.voucher_terms.face_value_amount)}</span>
+                <span className="k">{t("deal.valid_until")}</span><span className="v">{fmtDate(deal.voucher_terms.valid_until)}</span>
+                {deal.voucher_terms.redemption_location ? (<><span className="k">{t("deal.redemption")}</span><span className="v">{deal.voucher_terms.redemption_location}</span></>) : null}
               </div>
             ) : null}
             {deal.ticket_terms ? (
               <div className="kv" style={{ marginTop: 12 }}>
-                <span className="k">{t("pages.deal.2266a5aa")}</span><span className="v">{deal.ticket_terms.event_name}</span>
-                <span className="k">{t("pages.deal.b7364c5d")}</span><span className="v">{fmtDate(deal.ticket_terms.event_starts_at)}</span>
-                {deal.ticket_terms.venue_name ? (<><span className="k">{t("pages.deal.d11aea1f")}</span><span className="v">{deal.ticket_terms.venue_name}</span></>) : null}
+                <span className="k">{t("deal.event")}</span><span className="v">{deal.ticket_terms.event_name}</span>
+                <span className="k">{t("deal.when")}</span><span className="v">{fmtDate(deal.ticket_terms.event_starts_at)}</span>
+                {deal.ticket_terms.venue_name ? (<><span className="k">{t("deal.where")}</span><span className="v">{deal.ticket_terms.venue_name}</span></>) : null}
               </div>
             ) : null}
           </div>
@@ -1253,8 +1253,8 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
           <SellerContactPanel seller={seller} onOpen={() => { if (!preview) { sendFunnelEvent(dealId, "inquiry_started", { once_key: sessionId() }); setInquiryOpen(true); } }} dealId={dealId} refreshKey={inquiryRefresh} preview={preview} />
           {preview ? null : (
             <div className="panel" style={{ textAlign: "center" }}>
-              <p style={{ fontWeight: 700, marginBottom: 8 }}>{t("pages.deal.418a40a0")}</p>
-              <a className="btn btn-ghost" href="#/seller/new">{t("pages.deal.24f65b11")}</a>
+              <p style={{ fontWeight: 700, marginBottom: 8 }}>{t("deal.have_something_sell_group")}</p>
+              <a className="btn btn-ghost" href="#/seller/new">{t("deal.open_deal_own")}</a>
             </div>
           )}
         </div>
@@ -1262,7 +1262,7 @@ export function DealPage({ dealId, navigate, preview = false, openInquiry = fals
 
       {isOpen && !preview ? (
         <StickyJoinBar anchor={ctaEl} enabled={!joining && !joinResult && !inquiryOpen} price={Number(deal.price_per_unit)}
-          label={unitsToTarget > 0 ? t("pages.deal.3ee3db10", { unitsToTarget: num(unitsToTarget) }) : t("pages.deal.f3c36936")} onJoin={startJoin} />
+          label={unitsToTarget > 0 ? t("deal.join_unitstotarget_go", { unitsToTarget: num(unitsToTarget) }) : t("deal.join_deal")} onJoin={startJoin} />
       ) : null}
 
       {inquiryOpen && !preview ? (

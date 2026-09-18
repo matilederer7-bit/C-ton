@@ -57,14 +57,14 @@ export function LinkMetricTiles({ metrics, compact }: { metrics: Json; compact?:
   const m = metrics || {};
   return (
     <div className="stat-row" style={{ marginBottom: compact ? 0 : 12 }} data-testid="link-metric-tiles">
-      <StatTile num={num(m.entries)} label={t("pages.distribution.4173c16c")} />
-      <StatTile num={num(m.unique_visitors)} label={t("pages.distribution.bc172b78")} />
-      <StatTile num={num(m.joins)} label={t("pages.distribution.f8e3bd11")} sub={t("pages.distribution.89ebc796")} />
-      <StatTile num={num(m.joined_units)} label={t("pages.distribution.a4bbf059")} />
-      <StatTile num={num(m.charged_units)} label={t("pages.distribution.3ceb7529")} tone="good" />
-      <StatTile num={ils(m.attributed_gross)} label={t("pages.distribution.c81a2f62")} tone="good" />
-      <StatTile num={pct(m.conversion_entry_to_join)} label={t("pages.distribution.70407427")} />
-      <StatTile num={pct(m.conversion_entry_to_final_charge)} label={t("pages.distribution.e7f306f1")} />
+      <StatTile num={num(m.entries)} label={t("distribution.visits")} />
+      <StatTile num={num(m.unique_visitors)} label={t("distribution.unique_visitors")} />
+      <StatTile num={num(m.joins)} label={t("distribution.joins")} sub={t("distribution.a_buyer_s_commitment_sale")} />
+      <StatTile num={num(m.joined_units)} label={t("distribution.units_joined")} />
+      <StatTile num={num(m.charged_units)} label={t("distribution.units_finally_charged")} tone="good" />
+      <StatTile num={ils(m.attributed_gross)} label={t("distribution.attributed_gross_actually_collected")} tone="good" />
+      <StatTile num={pct(m.conversion_entry_to_join)} label={t("distribution.conversion_visit_join")} />
+      <StatTile num={pct(m.conversion_entry_to_final_charge)} label={t("distribution.conversion_visit_final_charge")} />
     </div>
   );
 }
@@ -88,23 +88,23 @@ export function LinkTimeChart({ series, range, onRange, metric, onMetric }: {
   return (
     <div className="panel" data-testid="link-time-chart">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.distribution.c200b2ff")}</div>
-        <div className="row" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={t("pages.distribution.26c7f2ad")}>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.over_time")}</div>
+        <div className="row" style={{ gap: 6, flexWrap: "wrap" }} role="group" aria-label={t("distribution.time_range")}>
           {RANGES.map((r) => (
             <button key={r.key} type="button" className={`chip${range === r.key ? " active" : ""}`} data-testid={`range-${r.key}`} onClick={() => onRange(r.key)}>{t(r.label)}</button>
           ))}
         </div>
       </div>
-      <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "10px 0" }} role="group" aria-label={t("pages.distribution.e702a626")}>
+      <div className="row" style={{ gap: 6, flexWrap: "wrap", margin: "10px 0" }} role="group" aria-label={t("distribution.metric")}>
         {METRICS.map((m) => (
           <button key={m.key} type="button" className={`chip${metric === m.key ? " active" : ""}`} data-testid={`metric-${m.key}`} onClick={() => onMetric(m.key)}>{t(m.label)}</button>
         ))}
       </div>
       <div className="chart-box">
-        <div className="chart-title">{t("distribution.chart_title", { metric: t(def.label), bucket: series?.bucket === "hour" ? t("pages.distribution.0b04b3f7") : t("pages.distribution.7c368c6b"), total: def.money ? ils(total) : num(total) })}</div>
+        <div className="chart-title">{t("distribution.chart_title", { metric: t(def.label), bucket: series?.bucket === "hour" ? t("distribution.by_hour") : t("distribution.by_day"), total: def.money ? ils(total) : num(total) })}</div>
         {points.length ? (
           <BarChart points={points} color={def.key === "charged_units" || def.key === "attributed_gross" ? "var(--success)" : "var(--brand)"} height={90} formatValue={def.money ? (v) => ils(v) : undefined} />
-        ) : <p className="muted small chart-empty">{t("pages.distribution.6c378795")}</p>}
+        ) : <p className="muted small chart-empty">{t("distribution.there_data_selected_range_yet")}</p>}
       </div>
     </div>
   );
@@ -113,7 +113,7 @@ export function LinkTimeChart({ series, range, onRange, metric, onMetric }: {
 export function DistributionDisclaimer({ text }: { text?: string }) {
   return (
     <p className="muted small" data-testid="distribution-disclaimer" style={{ marginTop: 10 }}>
-      {text || t("pages.distribution.75427438")}
+      {text || t("distribution.the_figures_shown_measurement_attribution")}
     </p>
   );
 }
@@ -128,8 +128,8 @@ async function nativeOrCopy(url: string, title: string, notify: (m: string) => v
   if (nav?.share) {
     try { await nav.share({ title, url }); return; } catch { /* user dismissed — fall back to copy */ }
   }
-  if (await copyText(url)) notify(t("pages.distribution.4aa70f6f"));
-  else notify(t("pages.distribution.29807e19"));
+  if (await copyText(url)) notify(t("distribution.link_copied"));
+  else notify(t("distribution.copying_failed_select_link_copy"));
 }
 
 // ── seller: panel inside the deal screen ────────────────────────────────────
@@ -169,19 +169,19 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
     e.preventDefault();
     if (busy) return;
     const internalName = name.trim();
-    if (!internalName) { setFormError(t("pages.distribution.03e9b98f")); return; }
+    if (!internalName) { setFormError(t("distribution.give_link_internal_name")); return; }
     setBusy(true); setFormError("");
     try {
       await api.createDistributionLink(dealId, { internal_name: internalName, channel: channel.trim() || undefined });
       setName(""); setChannel(""); setCreating(false);
-      showToast(t("pages.distribution.9f152979"));
+      showToast(t("distribution.the_link_created_copy_share"));
       await load();
     } catch (err: any) {
       const code = String(err?.body?.code || err?.body?.error || "");
       setFormError(
-        code === "distribution_link_deal_not_open" ? t("pages.distribution.b3175714")
-          : err?.status === 409 ? t("pages.distribution.8a2115e0")
-            : String(err?.message || t("pages.distribution.72f18984"))
+        code === "distribution_link_deal_not_open" ? t("distribution.links_only_created_deal_published")
+          : err?.status === 409 ? t("distribution.a_link_name_already_exists")
+            : String(err?.message || t("distribution.creating_link_failed"))
       );
     }
     setBusy(false);
@@ -192,11 +192,11 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
       await api.updateDistributionLink(dealId, String(link.link_id), body);
       showToast(okMsg);
       await load();
-    } catch (err: any) { showToast(err?.status === 409 ? t("pages.distribution.bd943572") : String(err?.message || t("pages.distribution.b2c36342"))); }
+    } catch (err: any) { showToast(err?.status === 409 ? t("distribution.a_link_name_already_exists_2") : String(err?.message || t("distribution.the_update_failed"))); }
   };
 
-  if (error) return <div className="panel"><div className="panel-title">{t("pages.distribution.88c12402")}</div><p className="muted small">{error}</p></div>;
-  if (!payload) return <div className="panel"><div className="panel-title">{t("pages.distribution.88c12402")}</div><BrandLoader label={t("pages.distribution.65e20f68")} minHeight={120} /></div>;
+  if (error) return <div className="panel"><div className="panel-title">{t("distribution.distribution_measurement")}</div><p className="muted small">{error}</p></div>;
+  if (!payload) return <div className="panel"><div className="panel-title">{t("distribution.distribution_measurement")}</div><BrandLoader label={t("distribution.loading_distribution_links")} minHeight={120} /></div>;
 
   const totals = payload.totals || {};
   const hasLinks = links.length > 0;
@@ -204,20 +204,20 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
   return (
     <div className="panel" data-testid="distribution-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.distribution.210e2a62")}</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.distribution_measurement_links_deal")}</div>
         {hasLinks && dealOpen ? (
-          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-create-open" onClick={() => setCreating((v) => !v)}>{t("pages.distribution.d37e8982")}</button>
+          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-create-open" onClick={() => setCreating((v) => !v)}>{t("distribution.new_distribution_link")}</button>
         ) : null}
       </div>
       <p className="muted small" style={{ marginTop: 6 }}>
-        {t("pages.distribution.301d97a9", { v0: String(payload.attribution_rule?.description_he || t("pages.distribution.cc649e07")) })}
+        {t("distribution.attribution_rule_v0", { v0: String(payload.attribution_rule?.description_he || t("distribution.the_last_link_buyer_came")) })}
       </p>
 
       {!hasLinks && !creating ? (
         <EmptyState
-          title={t("pages.distribution.21fafc7c")}
-          body={dealOpen ? t("pages.distribution.6155cebc") : t("pages.distribution.03325a77")}
-          action={dealOpen ? <button type="button" className="btn btn-primary" data-testid="distribution-create-first" onClick={() => setCreating(true)}>{t("pages.distribution.81ea77b1")}</button> : undefined}
+          title={t("distribution.you_haven_t_created_any")}
+          body={dealOpen ? t("distribution.create_link_every_channel_whatsapp") : t("distribution.new_links_only_created_while")}
+          action={dealOpen ? <button type="button" className="btn btn-primary" data-testid="distribution-create-first" onClick={() => setCreating(true)}>{t("distribution.create_first_link")}</button> : undefined}
         />
       ) : null}
 
@@ -225,19 +225,19 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
         <form onSubmit={create} className="panel" style={{ marginTop: 12 }} data-testid="distribution-create-form">
           <div className="field-row">
             <div className="field">
-              <label htmlFor="dist-link-name">{t("pages.distribution.851bcb48")} <span className="hint">{t("pages.distribution.d810728a")}</span></label>
-              <input id="dist-link-name" data-testid="distribution-link-name" value={name} maxLength={80} placeholder={t("pages.distribution.632ed52e")} onChange={(e) => setName(e.target.value)} />
+              <label htmlFor="dist-link-name">{t("distribution.internal_name")} <span className="hint">{t("distribution.only_see")}</span></label>
+              <input id="dist-link-name" data-testid="distribution-link-name" value={name} maxLength={80} placeholder={t("distribution.for_example_whatsapp_group_influencer")} onChange={(e) => setName(e.target.value)} />
             </div>
             <div className="field">
-              <label htmlFor="dist-link-channel">{t("pages.distribution.25b5eb11")} <span className="hint">{t("pages.distribution.2127163b")}</span></label>
+              <label htmlFor="dist-link-channel">{t("distribution.channel_source")} <span className="hint">{t("distribution.optional")}</span></label>
               <input id="dist-link-channel" data-testid="distribution-link-channel" list="dist-channel-options" value={channel} maxLength={40} placeholder="whatsapp, facebook, newsletter…" onChange={(e) => setChannel(e.target.value)} />
               <datalist id="dist-channel-options">{CHANNEL_SUGGESTIONS.map((c) => <option key={c} value={c}>{tKey(CHANNEL_LABELS[c], c)}</option>)}</datalist>
             </div>
           </div>
           {formError ? <p className="field-error">{formError}</p> : null}
           <div className="row" style={{ gap: 8 }}>
-            <button type="submit" className="btn btn-primary" data-testid="distribution-create-submit" disabled={busy}>{busy ? t("pages.distribution.20a07b21") : t("pages.distribution.561aa793")}</button>
-            <button type="button" className="btn btn-ghost" onClick={() => { setCreating(false); setFormError(""); }}>{t("pages.distribution.a7c55a8d")}</button>
+            <button type="submit" className="btn btn-primary" data-testid="distribution-create-submit" disabled={busy}>{busy ? t("distribution.creating") : t("distribution.create_link")}</button>
+            <button type="button" className="btn btn-ghost" onClick={() => { setCreating(false); setFormError(""); }}>{t("distribution.cancel")}</button>
           </div>
         </form>
       ) : null}
@@ -245,24 +245,24 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
       {hasLinks ? (
         <>
           <div className="stat-row" style={{ margin: "12px 0 8px" }} data-testid="distribution-totals">
-            <StatTile num={num(totals.entries)} label={t("pages.distribution.08db92ad")} />
-            <StatTile num={num(totals.joins)} label={t("pages.distribution.f8e3bd11")} />
-            <StatTile num={num(totals.charged_units)} label={t("pages.distribution.3ceb7529")} tone="good" />
-            <StatTile num={ils(totals.attributed_gross)} label={t("pages.distribution.da753a1a")} tone="good" />
+            <StatTile num={num(totals.entries)} label={t("distribution.visits_all_links")} />
+            <StatTile num={num(totals.joins)} label={t("distribution.joins")} />
+            <StatTile num={num(totals.charged_units)} label={t("distribution.units_finally_charged")} tone="good" />
+            <StatTile num={ils(totals.attributed_gross)} label={t("distribution.attributed_gross")} tone="good" />
           </div>
           <div className="table-wrap">
             <table className="data" data-testid="distribution-links-table">
               <thead>
                 <tr>
-                  <th>{t("pages.distribution.8b1aa6b1")}</th>
-                  <th>{t("pages.distribution.6163da3a")}</th>
-                  <th>{t("pages.distribution.c184d0ed")}</th>
-                  <th className="num clickable" onClick={() => toggleSort("entries")}>{t("pages.distribution.79560ec3", { v0: sortMark("entries") })}</th>
-                  <th className="num clickable" onClick={() => toggleSort("joins")}>{t("pages.distribution.4bf935ea", { v0: sortMark("joins") })}</th>
-                  <th className="num clickable" onClick={() => toggleSort("joined_units")}>{t("pages.distribution.72f87bcf", { v0: sortMark("joined_units") })}</th>
-                  <th className="num clickable" onClick={() => toggleSort("charged_units")}>{t("pages.distribution.3459e9c9", { v0: sortMark("charged_units") })}</th>
-                  <th className="num clickable" onClick={() => toggleSort("attributed_gross")}>{t("pages.distribution.db68d3df", { v0: sortMark("attributed_gross") })}</th>
-                  <th className="num clickable" onClick={() => toggleSort("conversion_entry_to_join")}>{t("pages.distribution.47f8993f", { v0: sortMark("conversion_entry_to_join") })}</th>
+                  <th>{t("distribution.name")}</th>
+                  <th>{t("distribution.channel")}</th>
+                  <th>{t("distribution.status")}</th>
+                  <th className="num clickable" onClick={() => toggleSort("entries")}>{t("distribution.visits_v0", { v0: sortMark("entries") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("joins")}>{t("distribution.joins_v0", { v0: sortMark("joins") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("joined_units")}>{t("distribution.units_v0", { v0: sortMark("joined_units") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("charged_units")}>{t("distribution.finally_charged_v0", { v0: sortMark("charged_units") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("attributed_gross")}>{t("distribution.attributed_gross_v0", { v0: sortMark("attributed_gross") })}</th>
+                  <th className="num clickable" onClick={() => toggleSort("conversion_entry_to_join")}>{t("distribution.conversion_v0", { v0: sortMark("conversion_entry_to_join") })}</th>
                   <th />
                 </tr>
               </thead>
@@ -275,21 +275,21 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
                     <tr key={String(link.link_id)} data-testid="distribution-link-row">
                       <td>
                         {renaming && renaming.id === link.link_id ? (
-                          <form onSubmit={async (e) => { e.preventDefault(); const value = String(renaming?.value || "").trim(); setRenaming(null); if (value && value !== link.internal_name) await patch(link, { internal_name: value }, t("pages.distribution.cb4bbdfc")); }} className="row" style={{ gap: 6 }}>
+                          <form onSubmit={async (e) => { e.preventDefault(); const value = String(renaming?.value || "").trim(); setRenaming(null); if (value && value !== link.internal_name) await patch(link, { internal_name: value }, t("distribution.the_name_updated")); }} className="row" style={{ gap: 6 }}>
                             <input autoFocus value={renaming.value} maxLength={80} onChange={(e) => setRenaming({ id: String(link.link_id), value: e.target.value })} data-testid="distribution-rename-input" />
-                            <button type="submit" className="btn btn-sm btn-primary">{t("pages.distribution.e6932339")}</button>
-                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenaming(null)}>{t("pages.distribution.a7c55a8d")}</button>
+                            <button type="submit" className="btn btn-sm btn-primary">{t("distribution.save")}</button>
+                            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setRenaming(null)}>{t("distribution.cancel")}</button>
                           </form>
                         ) : (
                           <>
                             <b>{link.internal_name}</b>
                             <div className="muted small" dir="ltr" style={{ textAlign: "end" }}>{url}</div>
-                            {link.external_access?.enabled ? <span className="channel-chip">{t("pages.distribution.74e5ec85")}</span> : null}
+                            {link.external_access?.enabled ? <span className="channel-chip">{t("distribution.external_access")}</span> : null}
                           </>
                         )}
                       </td>
                       <td>{channelLabel(link.channel)}</td>
-                      <td><span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("pages.distribution.dc93098c") : t("pages.distribution.91181c78")}</span></td>
+                      <td><span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("distribution.disabled") : t("distribution.active")}</span></td>
                       <td className="num">{num(m.entries)}</td>
                       <td className="num">{num(m.joins)}</td>
                       <td className="num">{num(m.joined_units)}</td>
@@ -298,12 +298,12 @@ export function DistributionPanel({ dealId, dealTitle, dealOpen, navigate }: { d
                       <td className="num">{pct(m.conversion_entry_to_join)}</td>
                       <td>
                         <div className="row" style={{ gap: 4, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-copy" onClick={async () => { if (await copyText(url)) showToast(t("pages.distribution.4aa70f6f")); else showToast(t("pages.distribution.f4e443b7")); }}>{t("pages.distribution.57210c1c")}</button>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-share" onClick={() => nativeOrCopy(url, dealTitle, showToast)}>{t("pages.distribution.6d33c292")}</button>
-                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => shareViaWhatsApp(url, dealTitle)}>{t("pages.distribution.39b36186")}</button>
-                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-rename" onClick={() => setRenaming({ id: String(link.link_id), value: String(link.internal_name) })}>{t("pages.distribution.022436d7")}</button>
-                          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-open-dashboard" onClick={() => navigate(`#/seller/deal/${dealId}/distribution/${link.link_id}`)}>{t("pages.distribution.cf6d81fb")}</button>
-                          <button type="button" className={`btn btn-sm ${disabled ? "btn-ghost" : "btn-danger-ghost"}`} data-testid="distribution-toggle" onClick={() => patch(link, { status: disabled ? "active" : "disabled" }, disabled ? t("pages.distribution.300e9a12") : t("pages.distribution.3a56089d"))}>{disabled ? t("pages.distribution.3fd88909") : t("pages.distribution.e98b6315")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-copy" onClick={async () => { if (await copyText(url)) showToast(t("distribution.link_copied")); else showToast(t("distribution.copying_failed")); }}>{t("distribution.copy")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-share" onClick={() => nativeOrCopy(url, dealTitle, showToast)}>{t("distribution.share")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" onClick={() => shareViaWhatsApp(url, dealTitle)}>{t("distribution.whatsapp")}</button>
+                          <button type="button" className="btn btn-sm btn-ghost" data-testid="distribution-rename" onClick={() => setRenaming({ id: String(link.link_id), value: String(link.internal_name) })}>{t("distribution.rename")}</button>
+                          <button type="button" className="btn btn-sm btn-primary" data-testid="distribution-open-dashboard" onClick={() => navigate(`#/seller/deal/${dealId}/distribution/${link.link_id}`)}>{t("distribution.performance")}</button>
+                          <button type="button" className={`btn btn-sm ${disabled ? "btn-ghost" : "btn-danger-ghost"}`} data-testid="distribution-toggle" onClick={() => patch(link, { status: disabled ? "active" : "disabled" }, disabled ? t("distribution.the_link_re_enabled") : t("distribution.the_link_disabled_history_kept"))}>{disabled ? t("distribution.enable") : t("distribution.disable")}</button>
                         </div>
                       </td>
                     </tr>
@@ -330,57 +330,57 @@ function ExternalAccessPanel({ dealId, link, loginPath, onChanged, notify }: { d
 
   const act = async (action: "enable" | "disable" | "reset_password") => {
     if (busy) return;
-    if (action === "disable" && !window.confirm(t("pages.distribution.07d824a8"))) return;
-    if (action === "reset_password" && !window.confirm(t("pages.distribution.ea274530"))) return;
+    if (action === "disable" && !window.confirm(t("distribution.revoke_external_access_link_measurement"))) return;
+    if (action === "reset_password" && !window.confirm(t("distribution.reset_password_current_password_stop"))) return;
     setBusy(true);
     try {
       const res = await api.distributionExternalAccess(dealId, String(link.link_id), action);
       setCredentials(res.credentials || null);
-      notify(action === "enable" ? t("pages.distribution.85a60d7f") : action === "disable" ? t("pages.distribution.95e3aa1d") : t("pages.distribution.1d71ab25"));
+      notify(action === "enable" ? t("distribution.external_access_enabled") : action === "disable" ? t("distribution.external_access_revoked") : t("distribution.the_password_reset"));
       await onChanged();
-    } catch (err: any) { notify(String(err?.message || t("pages.distribution.d11a2bcd"))); }
+    } catch (err: any) { notify(String(err?.message || t("distribution.the_action_failed"))); }
     setBusy(false);
   };
 
   return (
     <div className="panel" data-testid="external-access-panel">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.distribution.b3f6864b")}</div>
-        <span className={`status ${access.enabled ? "TargetReached" : "ClosedForJoining"}`} data-testid="external-access-status">{access.enabled ? t("pages.distribution.bf556864") : t("pages.distribution.ccd3fbcc")}</span>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("distribution.external_access_link_dashboard")}</div>
+        <span className={`status ${access.enabled ? "TargetReached" : "ClosedForJoining"}`} data-testid="external-access-status">{access.enabled ? t("distribution.on") : t("distribution.off")}</span>
       </div>
       <p className="muted small" style={{ marginTop: 6 }}>
-        {t("pages.distribution.ce36953c")}</p>
+        {t("distribution.you_let_outside_person_someone")}</p>
       {access.enabled ? (
         <div className="kv" style={{ margin: "10px 0" }}>
-          <span className="k">{t("pages.distribution.65784d97")}</span><span className="v" dir="ltr" data-testid="external-access-username">{access.username}</span>
-          <span className="k">{t("pages.distribution.1c26c5de")}</span><span className="v" dir="ltr">{loginUrl}</span>
-          <span className="k">{t("pages.distribution.dd323867")}</span><span className="v">{fmtDate(access.created_at)}</span>
-          <span className="k">{t("pages.distribution.15fdbec4")}</span><span className="v">{access.last_login_at ? fmtDate(access.last_login_at) : t("pages.distribution.daabfdd4")}</span>
+          <span className="k">{t("distribution.username")}</span><span className="v" dir="ltr" data-testid="external-access-username">{access.username}</span>
+          <span className="k">{t("distribution.sign_address")}</span><span className="v" dir="ltr">{loginUrl}</span>
+          <span className="k">{t("distribution.created")}</span><span className="v">{fmtDate(access.created_at)}</span>
+          <span className="k">{t("distribution.last_sign")}</span><span className="v">{access.last_login_at ? fmtDate(access.last_login_at) : t("distribution.has_signed_yet")}</span>
         </div>
       ) : null}
       {credentials ? (
         <div className="panel" style={{ margin: "10px 0", borderColor: "var(--brand)" }} data-testid="external-access-credentials">
-          <b>{t("pages.distribution.2f27b2c9")}</b>
+          <b>{t("distribution.the_credentials_shown_once_only")}</b>
           <div className="kv" style={{ marginTop: 8 }}>
-            <span className="k">{t("pages.distribution.daab1ad0")}</span><span className="v" dir="ltr">{absoluteLoginUrl(String(credentials.login_path || loginPath))}</span>
-            <span className="k">{t("pages.distribution.65784d97")}</span><span className="v" dir="ltr">{credentials.username}</span>
-            <span className="k">{t("pages.distribution.0b490b5e")}</span><span className="v" dir="ltr" data-testid="external-access-password">{credentials.password}</span>
+            <span className="k">{t("distribution.address")}</span><span className="v" dir="ltr">{absoluteLoginUrl(String(credentials.login_path || loginPath))}</span>
+            <span className="k">{t("distribution.username")}</span><span className="v" dir="ltr">{credentials.username}</span>
+            <span className="k">{t("distribution.password")}</span><span className="v" dir="ltr" data-testid="external-access-password">{credentials.password}</span>
           </div>
           <div className="row" style={{ gap: 8, marginTop: 10 }}>
-            <button type="button" className="btn btn-sm btn-primary" onClick={async () => { const text = t("pages.distribution.06e302c5", { loginPath: absoluteLoginUrl(String(credentials.login_path || loginPath)), username: credentials.username, password: credentials.password }); if (await copyText(text)) notify(t("pages.distribution.85143d9f")); }}>{t("pages.distribution.d3720bdc")}</button>
-            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCredentials(null)}>{t("pages.distribution.cf56e937")}</button>
+            <button type="button" className="btn btn-sm btn-primary" onClick={async () => { const text = t("distribution.sign_link_dashboard_loginpath_username", { loginPath: absoluteLoginUrl(String(credentials.login_path || loginPath)), username: credentials.username, password: credentials.password }); if (await copyText(text)) notify(t("distribution.the_credentials_copied")); }}>{t("distribution.copy_credentials")}</button>
+            <button type="button" className="btn btn-sm btn-ghost" onClick={() => setCredentials(null)}>{t("distribution.hide")}</button>
           </div>
         </div>
       ) : null}
       <div className="row" style={{ gap: 8, flexWrap: "wrap", marginTop: 8 }}>
         {access.enabled ? (
           <>
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-copy-url" onClick={async () => { if (await copyText(loginUrl)) notify(t("pages.distribution.a55d4bc9")); }}>{t("pages.distribution.384abc1f")}</button>
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-reset" disabled={busy} onClick={() => act("reset_password")}>{t("pages.distribution.9e3cd21b")}</button>
-            <button type="button" className="btn btn-sm btn-danger-ghost" data-testid="external-access-disable" disabled={busy} onClick={() => act("disable")}>{t("pages.distribution.74bf1116")}</button>
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-copy-url" onClick={async () => { if (await copyText(loginUrl)) notify(t("distribution.the_sign_address_copied")); }}>{t("distribution.copy_sign_address")}</button>
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="external-access-reset" disabled={busy} onClick={() => act("reset_password")}>{t("distribution.reset_password")}</button>
+            <button type="button" className="btn btn-sm btn-danger-ghost" data-testid="external-access-disable" disabled={busy} onClick={() => act("disable")}>{t("distribution.revoke_access")}</button>
           </>
         ) : (
-          <button type="button" className="btn btn-sm btn-primary" data-testid="external-access-enable" disabled={busy} onClick={() => act("enable")}>{t("pages.distribution.17e10da4")}</button>
+          <button type="button" className="btn btn-sm btn-primary" data-testid="external-access-enable" disabled={busy} onClick={() => act("enable")}>{t("distribution.enable_access_create_credentials")}</button>
         )}
       </div>
     </div>
@@ -397,9 +397,9 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
   const load = () => api.sellerDistributionLink(dealId, linkId, range).then((p) => { setPayload(p); setError(""); }).catch((e) => setError(e.message));
   useEffect(() => { load(); const id = setInterval(load, 30_000); return () => clearInterval(id); }, [dealId, linkId, range]);
 
-  const back = <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.distribution.fbd4509a")}</a>;
-  if (error) return <>{back}<EmptyState title={t("pages.distribution.13c05699")} body={error} /></>;
-  if (!payload) return <>{back}<BrandLoader label={t("pages.distribution.0243ec76")} minHeight={320} /></>;
+  const back = <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("distribution.to_deal")}</a>;
+  if (error) return <>{back}<EmptyState title={t("distribution.the_link_dashboard_cannot_loaded")} body={error} /></>;
+  if (!payload) return <>{back}<BrandLoader label={t("distribution.loading_link_dashboard")} minHeight={320} /></>;
 
   const link = payload.link || {};
   const url = absoluteLinkUrl(String(link.share_url || ""));
@@ -412,18 +412,18 @@ export function SellerLinkDashboardPage({ dealId, linkId, navigate }: { dealId: 
           <div>
             <div className="muted small">{payload.deal?.title}</div>
             <h2 style={{ margin: "2px 0 0" }} data-testid="seller-link-dashboard-name">{link.internal_name}</h2>
-            <div className="muted small">{t("pages.distribution.8ce9a707", { channel: channelLabel(link.channel), created_at: fmtDate(link.created_at) })}</div>
+            <div className="muted small">{t("distribution.channel_channel_created_created", { channel: channelLabel(link.channel), created_at: fmtDate(link.created_at) })}</div>
           </div>
-          <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("pages.distribution.dc93098c") : t("pages.distribution.91181c78")}</span>
+          <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`}>{disabled ? t("distribution.disabled") : t("distribution.active")}</span>
         </div>
         <div className="row" style={{ gap: 8, flexWrap: "wrap", margin: "10px 0" }}>
           <span className="muted small" dir="ltr">{url}</span>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={async () => { if (await copyText(url)) showToast(t("pages.distribution.4aa70f6f")); }}>{t("pages.distribution.57210c1c")}</button>
-          <button type="button" className="btn btn-sm btn-ghost" onClick={() => nativeOrCopy(url, String(payload.deal?.title || ""), showToast)}>{t("pages.distribution.6d33c292")}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={async () => { if (await copyText(url)) showToast(t("distribution.link_copied")); }}>{t("distribution.copy")}</button>
+          <button type="button" className="btn btn-sm btn-ghost" onClick={() => nativeOrCopy(url, String(payload.deal?.title || ""), showToast)}>{t("distribution.share")}</button>
         </div>
-        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.3c743f5c")}</div>
+        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.total_since_link_created")}</div>
         <LinkMetricTiles metrics={link.metrics} />
-        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
+        <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.in_selected_range_label", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
         <LinkMetricTiles metrics={payload.window} compact />
         <DistributionDisclaimer text={payload.disclaimer_he} />
       </div>
@@ -456,7 +456,7 @@ export function LinkViewerPage() {
     if (!session) return;
     api.linkViewerDashboard(range, selected).then((d) => { setDashboard(d); setError(""); }).catch((e) => {
       if (e?.status === 401) { setSession(null); setDashboard(null); return; }
-      setError(String(e?.message || t("pages.distribution.71f28ff8")));
+      setError(String(e?.message || t("distribution.the_data_cannot_loaded")));
     });
   };
   useEffect(() => { loadDashboard(); const id = setInterval(loadDashboard, 60_000); return () => clearInterval(id); }, [session, range, selected]);
@@ -471,7 +471,7 @@ export function LinkViewerPage() {
       setPassword("");
     } catch (err: any) {
       const status = Number(err?.status || 0);
-      setLoginError(status === 429 ? t("pages.distribution.b0901dd7") : status === 403 ? t("pages.distribution.ce34cbc6") : status === 503 ? t("pages.distribution.d06c39e8") : t("pages.distribution.557289fc"));
+      setLoginError(status === 429 ? t("distribution.too_many_attempts_try_again") : status === 403 ? t("distribution.access_dashboard_revoked") : status === 503 ? t("distribution.signing_available_right_now") : t("distribution.wrong_username_password"));
     }
     setBusy(false);
   };
@@ -481,24 +481,24 @@ export function LinkViewerPage() {
     setSession(null); setDashboard(null);
   };
 
-  if (session === undefined) return <BrandLoader label={t("pages.distribution.aefda595")} minHeight={240} />;
+  if (session === undefined) return <BrandLoader label={t("distribution.checking_sign")} minHeight={240} />;
 
   if (!session) {
     return (
       <div className="panel" style={{ maxWidth: 440, margin: "24px auto" }} data-testid="link-viewer-login">
-        <div className="panel-title">{t("pages.distribution.aeb7ae4b")}</div>
-        <p className="muted small">{t("pages.distribution.f9e75a47")}</p>
+        <div className="panel-title">{t("distribution.sign_link_dashboard")}</div>
+        <p className="muted small">{t("distribution.the_deal_s_owner_gave")}</p>
         <form onSubmit={login}>
           <div className="field">
-            <label htmlFor="lv-user">{t("pages.distribution.65784d97")}</label>
+            <label htmlFor="lv-user">{t("distribution.username")}</label>
             <input id="lv-user" data-testid="link-viewer-username" dir="ltr" autoComplete="username" value={username} onChange={(e) => setUsername(e.target.value)} />
           </div>
           <div className="field">
-            <label htmlFor="lv-pass">{t("pages.distribution.0b490b5e")}</label>
+            <label htmlFor="lv-pass">{t("distribution.password")}</label>
             <input id="lv-pass" data-testid="link-viewer-password" dir="ltr" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
           </div>
           {loginError ? <p className="field-error" data-testid="link-viewer-login-error">{loginError}</p> : null}
-          <button type="submit" className="btn btn-primary btn-block" data-testid="link-viewer-login-submit" disabled={busy || !username.trim() || !password}>{busy ? t("pages.distribution.bcefb976") : t("pages.distribution.2f6783cd")}</button>
+          <button type="submit" className="btn btn-primary btn-block" data-testid="link-viewer-login-submit" disabled={busy || !username.trim() || !password}>{busy ? t("distribution.signing") : t("distribution.sign")}</button>
         </form>
         <DistributionDisclaimer />
       </div>
@@ -514,11 +514,11 @@ export function LinkViewerPage() {
         <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
           <div>
             <div className="muted small">{dashboard?.deal?.title || links[0]?.deal_title || ""}</div>
-            <h2 style={{ margin: "2px 0 0" }} data-testid="link-viewer-link-name">{link.link_name || links[0]?.link_name || t("pages.distribution.05f9c194")}</h2>
+            <h2 style={{ margin: "2px 0 0" }} data-testid="link-viewer-link-name">{link.link_name || links[0]?.link_name || t("distribution.your_link")}</h2>
           </div>
           <div className="row" style={{ gap: 8, alignItems: "center" }}>
-            {dashboard ? <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`} data-testid="link-viewer-status">{disabled ? t("pages.distribution.dc93098c") : t("pages.distribution.91181c78")}</span> : null}
-            <button type="button" className="btn btn-sm btn-ghost" data-testid="link-viewer-logout" onClick={logout}>{t("pages.distribution.b939061e")}</button>
+            {dashboard ? <span className={`status ${disabled ? "Cancelled" : "TargetReached"}`} data-testid="link-viewer-status">{disabled ? t("distribution.disabled") : t("distribution.active")}</span> : null}
+            <button type="button" className="btn btn-sm btn-ghost" data-testid="link-viewer-logout" onClick={logout}>{t("distribution.sign_out")}</button>
           </div>
         </div>
         {links.length > 1 ? (
@@ -531,13 +531,13 @@ export function LinkViewerPage() {
         {error ? <p className="field-error">{error}</p> : null}
         {dashboard ? (
           <>
-            <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("pages.distribution.3c743f5c")}</div>
+            <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("distribution.total_since_link_created")}</div>
             <LinkMetricTiles metrics={dashboard.totals} />
-            <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("pages.distribution.5149a792", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
+            <div className="section-title" style={{ margin: "6px 0 8px" }}>{t("distribution.in_selected_range_label", { label: tKey(RANGES.find((r) => r.key === range)?.label) })}</div>
             <LinkMetricTiles metrics={dashboard.window} compact />
             <DistributionDisclaimer text={dashboard.disclaimer_he} />
           </>
-        ) : <BrandLoader label={t("pages.distribution.9de74bc0")} minHeight={160} />}
+        ) : <BrandLoader label={t("distribution.loading_metrics")} minHeight={160} />}
       </div>
       {dashboard ? <LinkTimeChart series={dashboard.series} range={range} onRange={setRange} metric={metric} onMetric={setMetric} /> : null}
     </div>

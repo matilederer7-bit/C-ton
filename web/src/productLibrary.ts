@@ -86,9 +86,9 @@ export function deliveryEstimateText(option: { estimated_min_business_days?: num
   if (option?.estimate_text) return String(option.estimate_text);
   const min = option?.estimated_min_business_days == null ? null : Number(option.estimated_min_business_days);
   const max = option?.estimated_max_business_days == null ? null : Number(option.estimated_max_business_days);
-  if (min !== null && max !== null) return min === max ? t("product_library.c38e3c70", { min: min }) : t("product_library.cf2c18a6", { min: min, max: max });
-  if (max !== null) return t("product_library.8a329f70", { max: max });
-  if (min !== null) return t("product_library.f0e1fb1c", { min: min });
+  if (min !== null && max !== null) return min === max ? t("product_library.min_business_days_deal_completing", { min: min }) : t("product_library.min_max_business_days_deal", { min: min, max: max });
+  if (max !== null) return t("product_library.up_max_business_days_deal", { max: max });
+  if (min !== null) return t("product_library.at_least_min_business_days", { min: min });
   return null;
 }
 
@@ -104,7 +104,7 @@ export function validateEstimateRange(minText: string, maxText: string): string 
   };
   const min = parse(minText);
   const max = parse(maxText);
-  if (Number.isNaN(min) || Number.isNaN(max)) return t("product_library.ee1a7309");
-  if (min !== null && max !== null && max < min) return t("product_library.489f10a9");
+  if (Number.isNaN(min) || Number.isNaN(max)) return t("product_library.the_business_day_range_must");
+  if (min !== null && max !== null && max < min) return t("product_library.the_maximum_must_least_minimum");
   return null;
 }

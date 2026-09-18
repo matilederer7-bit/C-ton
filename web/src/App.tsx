@@ -113,7 +113,7 @@ function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: strin
   if (isGuestMode()) {
     return (
       <button className="owner-exit" data-testid="owner-exit-guest" onClick={exitGuestMode}>
-        {t("app.bac1df6f")}</button>
+        {t("app.back_my_account")}</button>
     );
   }
   const caps = readOwnerCaps();
@@ -123,10 +123,10 @@ function OwnerModeSwitch({ page, navigate }: { page: string; navigate: (h: strin
   // Admin is entered only through the hidden two-tap edge gate + password
   // step-up. The visible modes stay אורח / מוכר.
   return (
-    <div className="owner-switch" role="group" aria-label={t("app.b0679f05")} data-testid="owner-switch">
-      <span className="owner-switch-label">{t("app.7b82d3aa")}</span>
-      <button data-testid="owner-mode-guest" onClick={enterGuestMode}>{t("app.0cd9a48c")}</button>
-      <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>{t("app.abed6512")}</button>
+    <div className="owner-switch" role="group" aria-label={t("app.view_mode")} data-testid="owner-switch">
+      <span className="owner-switch-label">{t("app.view")}</span>
+      <button data-testid="owner-mode-guest" onClick={enterGuestMode}>{t("app.guest")}</button>
+      <button data-testid="owner-mode-seller" className={mode === "seller" ? "active" : ""} onClick={() => navigate("#/seller")}>{t("app.seller")}</button>
     </div>
   );
 }
@@ -199,8 +199,8 @@ function AppTree({ locale }: { locale: Locale }) {
     <div className="app">
       {preview || previewDenied ? (
         <div className="cms-preview-banner" role="status" data-testid="cms-preview-banner" data-preview={preview ? "1" : "0"}>
-          <span>{preview ? t("app.f8126c57") : t("app.2a61049c")}</span>
-          <button type="button" className="btn btn-sm btn-ghost" data-testid="cms-preview-exit" onClick={exitCmsPreview}>{t("app.22a46b4d")}</button>
+          <span>{preview ? t("app.draft_preview_only_see_version") : t("app.the_preview_requires_administrator_sign")}</span>
+          <button type="button" className="btn btn-sm btn-ghost" data-testid="cms-preview-exit" onClick={exitCmsPreview}>{t("app.exit_preview")}</button>
         </div>
       ) : null}
       <AdminHotspot onActivate={() => { navigate("#/admin"); }} />
@@ -210,15 +210,15 @@ function AppTree({ locale }: { locale: Locale }) {
             <BrandMark />
             <span>
               <BrandWordmark />
-              <div className="brand-sub">{t("app.ccc41545")}</div>
+              <div className="brand-sub">{t("app.buying_together_paying_less")}</div>
             </span>
           </a>
           {isLinkViewer ? null : (
-          <nav className="nav-links" aria-label={t("app.6fcedac7")}>
+          <nav className="nav-links" aria-label={t("app.main_navigation")}>
             {mallEnabled ? (
-              <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>{t("app.2e2623e0")}</a>
+              <a className={`nav-link${page === "" ? " active" : ""}`} href="#/" onClick={(e) => { e.preventDefault(); navigate("#/"); }}>{t("app.deals")}</a>
             ) : null}
-            <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("app.de22b547")}</a>
+            <a className={`nav-link${page === "seller" ? " active" : ""}`} href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("app.sellers_area")}</a>
             <OwnerModeSwitch page={page} navigate={navigate} />
           </nav>
           )}

@@ -50,10 +50,10 @@ function SellerLogin({ onDone, initialMode }: { onDone: () => void; initialMode?
   return (
     <AuthPanel
       surface="seller"
-      title={t("pages.seller.de22b547")}
-      subtitle={t("pages.seller.fc5730bd")}
+      title={t("seller.sellers_area")}
+      subtitle={t("seller.one_account_all_c_ton")}
       initialMode={initialMode}
-      signupLabel={t("pages.seller.ade91333")}
+      signupLabel={t("seller.open_seller_account")}
       onDone={onDone}
     />
   );
@@ -78,11 +78,11 @@ function SellerBindingNotice({ navigate }: { navigate: (h: string) => void }) {
   return (
     <div style={{ maxWidth: 420, margin: "24px auto -24px" }}>
       <div className="notice err" data-testid="seller-binding-notice" data-binding={hint}>
-        <b>{t("pages.seller.97d0c2ce")}</b>
+        <b>{t("seller.the_sign_succeeded_but_account")}</b>
         <div className="small" style={{ marginTop: 4 }}>{t(copyKey)}</div>
         <div className="row" style={{ marginTop: 8, gap: 8 }}>
-          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>{t("pages.seller.ed673442")}</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("pages.seller.b939061e")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/support")}>{t("seller.support_contact")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("seller.sign_out")}</button>
         </div>
       </div>
     </div>
@@ -124,15 +124,15 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
   const stage = journeyStageOf(deal);
   const state = String(deal?.state || "");
   const terminal = ["Completed", "Failed", "Cancelled"].includes(state);
-  const outcome = state === "Completed" ? t("pages.seller.608cc753")
-    : state === "Failed" ? t("pages.seller.8de92fba")
-    : state === "Cancelled" ? t("pages.seller.5ec9d4f8")
+  const outcome = state === "Completed" ? t("seller.completed_successfully_ready_fulfil")
+    : state === "Failed" ? t("seller.target_reached_authorizations_released_nobody")
+    : state === "Cancelled" ? t("seller.cancelled_nobody_charged")
     : "";
   return (
     <section className="journey" data-testid="seller-journey" data-stage={stage} aria-label={title}>
       <div className="journey-head">
         <h3>{title}</h3>
-        <span className="small">{t("pages.seller.64398ed9")}</span>
+        <span className="small">{t("seller.demonstration_environment_real_charges")}</span>
       </div>
       <ol className="journey-steps">
         {JOURNEY_STEPS.map((s, i) => {
@@ -148,7 +148,7 @@ function SellerJourney({ deal, title }: { deal: Json | null; title: string }) {
         })}
       </ol>
       <div className="journey-foot">
-        <span><b>{t("pages.seller.a54c7156")}</b>  {t("pages.seller.3be82d92")}</span>
+        <span><b>{t("seller.what_siton_does")}</b>  {t("seller.it_counts_joins_holds_card")}</span>
       </div>
     </section>
   );
@@ -181,7 +181,7 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
   const cd = countdownView(countdownUntil);
   const open = () => navigate(`#/seller/deal/${deal.deal_id}`);
 
-  const primaryLabel = state === "Draft" ? t("pages.seller.301ce047") : closed ? t("pages.seller.b5146e0d") : t("pages.seller.9e66bf49");
+  const primaryLabel = state === "Draft" ? t("seller.continue_editing") : closed ? t("seller.view_summary") : t("seller.managing_deal");
 
   return (
     <div className={`sd-card${urgent ? " urgent" : ""}`}>
@@ -195,22 +195,22 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
           </div>
         </div>
         <div className={`sd-money${state === "Failed" ? " lost" : potential <= 0 ? " zero" : ""}`}>
-          {potential <= 0 && !charged ? t("pages.seller.100a3a11") : ils(showMoney)}
-          {closed && charged > 0 ? <span className="small muted">  {t("pages.seller.e2fca018")}</span> : null}
+          {potential <= 0 && !charged ? t("seller.x_0_orders_yet") : ils(showMoney)}
+          {closed && charged > 0 ? <span className="small muted">  {t("seller.actually_collected")}</span> : null}
         </div>
         {state !== "Draft" ? (
           <div className="sd-quants">
-            <span className="q-charged">{t("pages.seller.b6931559", { v0: num(money.charged_units || 0) })}</span>
+            <span className="q-charged">{t("seller.charged_successfully_v0", { v0: num(money.charged_units || 0) })}</span>
             <span className={`q-pending${inWindow ? " risk" : ""}`}>
-              {inWindow ? t("pages.seller.b7ff8304") : t("pages.seller.7e5634ef")}: {num(pending)}
+              {inWindow ? t("seller.at_risk") : t("seller.pending")}: {num(pending)}
             </span>
-            <span className="q-none">{t("pages.seller.f7e53075", { v0: num(money.dropped_units || 0) })}</span>
+            <span className="q-none">{t("seller.not_charged_v0", { v0: num(money.dropped_units || 0) })}</span>
           </div>
         ) : null}
         {countdownUntil && cd && cd.tone !== "over" ? (
           <div className="row" style={{ justifyContent: "space-between" }}>
-            <Countdown until={countdownUntil} label={inWindow ? t("pages.seller.9f4d5c3c") : t("pages.seller.6df16603")} />
-            {inWindow && cd.tone === "danger" ? <span style={{ color: "var(--pomegranate)", fontWeight: 800 }}>{t("pages.seller.bc02f566", { pending: num(pending) })}</span> : null}
+            <Countdown until={countdownUntil} label={inWindow ? t("seller.completion_window") : t("seller.to_closing")} />
+            {inWindow && cd.tone === "danger" ? <span style={{ color: "var(--pomegranate)", fontWeight: 800 }}>{t("seller.ending_soon_pending_pending", { pending: num(pending) })}</span> : null}
           </div>
         ) : null}
         {state === "Failed" ? <div className="sd-fail-reason">{failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units })}</div> : null}
@@ -219,21 +219,21 @@ function SellerDealCard({ deal, navigate, showToast }: { deal: Json; navigate: (
         <button className="btn btn-sm btn-primary" onClick={open}>{primaryLabel}</button>
         {isOpen ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
-            if (await copyText(absoluteShareUrl(deal.deal_id, null))) showToast(t("pages.seller.4aa70f6f"));
-          }}>{t("pages.seller.473c5168")}</button>
+            if (await copyText(absoluteShareUrl(deal.deal_id, null))) showToast(t("seller.link_copied"));
+          }}>{t("seller.copy_link")}</button>
         ) : null}
         {closed && state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
-          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
+          <button className="btn btn-sm btn-ghost" data-testid="card-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("seller.orders_hand_over")}</button>
         ) : null}
         {closed ? (
           <button className="btn btn-sm btn-ghost" onClick={async () => {
             try {
               const r = await api.duplicateDeal(deal.deal_id);
               const newId = r?.deal?.deal_id || r?.deal_id;
-              showToast(t("pages.seller.f3330202"));
+              showToast(t("seller.a_new_draft_created_check"));
               if (newId) navigate(`#/seller/deal/${newId}`);
-            } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
-          }}>{t("pages.seller.7c392046")}</button>
+            } catch (e: any) { showToast(e.message || t("seller.duplicating_failed")); }
+          }}>{t("seller.create_similar_deal")}</button>
         ) : null}
       </div>
     </div>
@@ -258,22 +258,22 @@ function SellerArchiveRow({ deal, navigate, showToast }: { deal: Json; navigate:
         onKeyDown={(e) => { if (e.key === "Enter") open(); }}>
         <span className="sd-archive-title">{deal.title}</span>
         <StatusPill state={state} />
-        <span className="sd-archive-money">{state === "Completed" ? ils(charged) : state === "Failed" ? failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units }) : t("pages.seller.06d451f3")}</span>
+        <span className="sd-archive-money">{state === "Completed" ? ils(charged) : state === "Failed" ? failReason({ state, joined_units: deal.metrics?.joined_units, threshold_units: deal.threshold_units }) : t("seller.cancelled")}</span>
         <span className="sd-archive-when muted small">{fmtDate(deal.last_update_at || deal.created_at)}</span>
       </div>
       <div className="sd-archive-actions">
-        <button className="btn btn-sm btn-ghost" data-testid="archive-open" onClick={open}>{t("pages.seller.b5146e0d")}</button>
+        <button className="btn btn-sm btn-ghost" data-testid="archive-open" onClick={open}>{t("seller.view_summary")}</button>
         {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
-          <button className="btn btn-sm btn-ghost" data-testid="archive-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
+          <button className="btn btn-sm btn-ghost" data-testid="archive-fulfillment-open" onClick={() => navigate(`#/seller/deal/${deal.deal_id}/fulfillment`)}>{t("seller.orders_hand_over")}</button>
         ) : null}
         <button className="btn btn-sm btn-ghost" data-testid="archive-duplicate" onClick={async () => {
           try {
             const r = await api.duplicateDeal(deal.deal_id);
             const newId = r?.deal?.deal_id || r?.deal_id;
-            showToast(t("pages.seller.f3330202"));
+            showToast(t("seller.a_new_draft_created_check"));
             if (newId) navigate(`#/seller/deal/${newId}`);
-          } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
-        }}>{t("pages.seller.7c392046")}</button>
+          } catch (e: any) { showToast(e.message || t("seller.duplicating_failed")); }
+        }}>{t("seller.create_similar_deal")}</button>
       </div>
     </div>
   );
@@ -351,7 +351,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     };
   }, [deals]);
 
-  if (!surface && !error) return <BrandLoader label={t("pages.seller.2e3a15b9")} minHeight={420} />;
+  if (!surface && !error) return <BrandLoader label={t("seller.loading_dashboard")} minHeight={420} />;
 
   const stale = now - updatedAt > 60_000;
   const profile = surface?.seller_profile || {};
@@ -362,20 +362,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
     <>
       <div className="dash-head">
         <div>
-          <h1>{profile.business_name || profile.display_name || t("pages.seller.a987fe9c")}</h1>
-          <span className="dash-updated">{t("pages.seller.a2efee99", { v0: Math.max(0, Math.round((now - updatedAt) / 1000)) })}</span>
-          {stale ? <span className="stale-badge" style={{ marginInlineStart: 8 }}>{t("pages.seller.258c6384")}</span> : null}
+          <h1>{profile.business_name || profile.display_name || t("seller.my_seller")}</h1>
+          <span className="dash-updated">{t("seller.updates_automatically_updated_v0_seconds", { v0: Math.max(0, Math.round((now - updatedAt) / 1000)) })}</span>
+          {stale ? <span className="stale-badge" style={{ marginInlineStart: 8 }}>{t("seller.the_figures_may_current_refresh")}</span> : null}
         </div>
         <div className="row" style={{ marginInlineStart: "auto" }}>
-          <button className="btn btn-sm btn-ghost" onClick={load} aria-label={t("pages.seller.563d20eb")}>{t("pages.seller.e870e411")}</button>
-          <a className="btn btn-sm btn-ghost" href="#/seller/receipts">{t("pages.seller.f71c1812")}</a>
-          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>{t("pages.seller.d23f05c6")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={load} aria-label={t("seller.refresh")}>{t("seller.refresh_2")}</button>
+          <a className="btn btn-sm btn-ghost" href="#/seller/receipts">{t("seller.redeeming_purchases")}</a>
+          <button className="btn btn-sm btn-ghost" onClick={() => navigate("#/seller/profile")}>{t("seller.business_profile")}</button>
           {/* 071 — Product Library: reusable products the seller creates deals from */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>{t("pages.seller.a971b04f")}</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-product-library" onClick={() => navigate("#/seller/products")}>{t("seller.the_product_library")}</button>
           {/* LAUNCH SPRINT 3 — the counter action: no need to find the deal first */}
-          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller.2d843402")}</button>
-          <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{t("pages.seller.46516a5f")}</button>
-          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("pages.seller.b939061e")}</button>
+          <button className="btn btn-sm btn-ghost" data-testid="dash-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("seller.pickup_scan")}</button>
+          <button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{t("seller.create_new_deal")}</button>
+          <button className="btn btn-sm btn-ghost" onClick={() => { clearAuthSession(); clearOwnerSession(); window.location.reload(); }}>{t("seller.sign_out")}</button>
         </div>
       </div>
 
@@ -387,7 +387,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       ) : null}
       {String(profile.verification_status || "") === "rejected" ? (
         <div className="notice err" data-testid="seller-rejected">
-          <b>{copy.rejected_title}</b> {copy.rejected_body} <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>{t("pages.seller.ed673442")}</a>.
+          <b>{copy.rejected_title}</b> {copy.rejected_body} <a href="#/support" onClick={(e) => { e.preventDefault(); navigate("#/support"); }}>{t("seller.support_contact")}</a>.
         </div>
       ) : null}
       {/* LAUNCH POLISH (P3) — a seller who never published sees the whole path once, compactly */}
@@ -395,9 +395,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {bizStatuses && (!bizStatuses.profile_complete || !bizStatuses.settlement_ready) ? (
         <div className="notice info" style={{ display: "flex", gap: 12, alignItems: "center", justifyContent: "space-between", flexWrap: "wrap" }}>
           <span>
-            <b>{copy.profile_incomplete_title}</b> — {!bizStatuses.profile_complete ? t("pages.seller.a3fa705d") : t("pages.seller.2bedcbf6")}.
+            <b>{copy.profile_incomplete_title}</b> — {!bizStatuses.profile_complete ? t("seller.the_business_contact_details_missing") : t("seller.the_bank_account_details_receiving")}.
           </span>
-          <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>{t("pages.seller.bbeffa00")}</button>
+          <button className="btn btn-sm btn-primary" onClick={() => navigate("#/seller/profile")}>{t("seller.complete_profile")}</button>
         </div>
       ) : null}
 
@@ -406,10 +406,10 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {/* P0.4-2A — global seller KPI strip (canonical analytics; potential vs charged vs net) */}
       {analytics ? <KpiStrip analytics={analytics} /> : (
         <div className="stat-row">
-          <StatTile num={num(surface?.totals?.live_deals || 0)} label={t("pages.seller.9f6ee4a8")} />
-          <StatTile num={ils(totalPotential)} label={t("pages.seller.93079b29")} />
-          <StatTile num={ils(totalCharged)} label={t("pages.seller.e2fca018")} tone="good" />
-          <StatTile num={num(surface?.totals?.completed_deals || 0)} label={t("pages.seller.8a0c3e3e")} />
+          <StatTile num={num(surface?.totals?.live_deals || 0)} label={t("seller.live_deals")} />
+          <StatTile num={ils(totalPotential)} label={t("seller.active_deal_volume_authorizations")} />
+          <StatTile num={ils(totalCharged)} label={t("seller.actually_collected")} tone="good" />
+          <StatTile num={num(surface?.totals?.completed_deals || 0)} label={t("seller.completed")} />
         </div>
       )}
 
@@ -421,20 +421,20 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
 
       {urgentDeals.length ? (
         <>
-          <div className="section-title">{t("pages.seller.7f729c04")} <span className="count">({urgentDeals.length})</span></div>
+          <div className="section-title">{t("seller.needs_attention_now")} <span className="count">({urgentDeals.length})</span></div>
           <div className="sd-grid">
             {urgentDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
           </div>
         </>
       ) : null}
 
-      <div className="section-title">{t("pages.seller.6146baa5")} <span className="count">({activeDeals.length})</span></div>
+      <div className="section-title">{t("seller.my_deals")} <span className="count">({activeDeals.length})</span></div>
       {deals.length === 0 ? (
         <EmptyState title={copy.empty_title}
           body={copy.empty_body}
           action={<button className="btn btn-primary" onClick={() => navigate("#/seller/new")}>{copy.empty_cta}</button>} />
       ) : activeDeals.length === 0 && urgentDeals.length === 0 ? (
-        <p className="muted" data-testid="seller-no-active-deals">{t("pages.seller.48069ccb")}</p>
+        <p className="muted" data-testid="seller-no-active-deals">{t("seller.there_active_deals_right_now")}</p>
       ) : (
         <div className="sd-grid">
           {activeDeals.map((d) => <SellerDealCard key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
@@ -445,7 +445,7 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
       {archivedDeals.length ? (
         <details className="sd-archive" data-testid="seller-archive">
           <summary data-testid="seller-archive-toggle">
-            {t("pages.seller.395c84a0")} <span className="count" data-testid="seller-archive-count">({archivedDeals.length})</span>
+            {t("seller.archive_finished_deals")} <span className="count" data-testid="seller-archive-count">({archivedDeals.length})</span>
           </summary>
           <div className="sd-archive-list">
             {archivedDeals.map((d) => <SellerArchiveRow key={d.deal_id} deal={d} navigate={navigate} showToast={showToast} />)}
@@ -459,13 +459,13 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
           <MoneyPanel analytics={analytics} />
           <div className="panel analytics-filters" data-testid="analytics-filters">
             <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-              <span style={{ fontWeight: 700 }}>{t("pages.seller.c57fb733")}</span>
-              {([["7d", t("pages.seller.986f9ad7")], ["30d", t("pages.seller.39409dc0")], ["all", t("pages.seller.4157f6dc")]] as const).map(([value, label]) => (
+              <span style={{ fontWeight: 700 }}>{t("seller.period")}</span>
+              {([["7d", t("seller.x_7_days")], ["30d", t("seller.x_30_days")], ["all", t("seller.all_time")]] as const).map(([value, label]) => (
                 <button key={value} className={`btn btn-sm ${aPeriod === value ? "btn-primary" : "btn-ghost"}`} onClick={() => setAPeriod(value)}>{label}</button>
               ))}
-              <span style={{ fontWeight: 700, marginInlineStart: 12 }}>{t("pages.seller.f09f8462")}</span>
+              <span style={{ fontWeight: 700, marginInlineStart: 12 }}>{t("seller.deal")}</span>
               <select value={aDeal} onChange={(e) => setADeal(e.target.value)} style={{ maxWidth: 240 }}>
-                <option value="">{t("pages.seller.dd3b0aad")}</option>
+                <option value="">{t("seller.all_deals")}</option>
                 {deals.map((d) => <option key={d.deal_id} value={d.deal_id}>{d.title}</option>)}
               </select>
             </div>
@@ -476,9 +476,9 @@ function SellerDashboard({ navigate }: { navigate: (h: string) => void }) {
           <ActivityPanel items={analytics.recent_activity || []} />
         </>
       ) : analyticsError ? (
-        <div className="notice err">{t("pages.seller.d4f1f5a1", { analyticsError: analyticsError })}</div>
+        <div className="notice err">{t("seller.loading_analytics_failed_analyticserror", { analyticsError: analyticsError })}</div>
       ) : (
-        <div className="panel"><p className="muted small" style={{ margin: 0 }}>{t("pages.seller.83eb0a24")}</p></div>
+        <div className="panel"><p className="muted small" style={{ margin: 0 }}>{t("seller.loading_analytics")}</p></div>
       )}
       <Toast msg={toast} />
     </>
@@ -501,7 +501,7 @@ function DeadlinePicker(props: {
   const longHorizon = iso ? classifyDeadlineMs(Date.parse(iso)).long_horizon : false;
   return (
     <div className="field">
-      <label>{t("pages.seller.635da720")} <span className="req">*</span> <span className="hint">{t("pages.seller.e948f439")}</span></label>
+      <label>{t("seller.joining_deadline")} <span className="req">*</span> <span className="hint">{t("seller.israel_time")}</span></label>
       <div className="deadline-row">
         <input id={`f-${prefix}-date`} dir="ltr" type="date" value={props.date} min={todayIsrael} max={maxIsrael}
           className={props.error ? "invalid" : ""} onChange={(e) => props.onDate(e.target.value)} />
@@ -512,7 +512,7 @@ function DeadlinePicker(props: {
       {iso && !props.error ? (
         <span className="deadline-confirm">✓ {formatIsraelDateTime(iso)}</span>
       ) : null}
-      <span className="hint">{t("pages.seller.82e4bae3")}</span>
+      <span className="hint">{t("seller.at_least_two_hours_publishing")}</span>
       {longHorizon && !props.error ? <LongHorizonWarning /> : null}
     </div>
   );
@@ -525,14 +525,14 @@ function DeadlinePicker(props: {
 function LongHorizonWarning() {
   return (
     <div className="notice warn" data-testid="long-horizon-warning">
-      <strong>{t("pages.seller.1bc016de")}</strong>  {t("pages.seller.a9e471be")}</div>
+      <strong>{t("seller.note")}</strong>  {t("seller.this_deal_set_up_long")}</div>
   );
 }
 
 function validateDeadline(date: string, time: string): { iso: string | null; error: string } {
-  if (!date || !time) return { iso: null, error: t("pages.seller.c3970bb1") };
+  if (!date || !time) return { iso: null, error: t("seller.choose_date_time_deadline") };
   const iso = israelPartsToUtcIso(date, time);
-  if (!iso) return { iso: null, error: t("pages.seller.9be52a5e") };
+  if (!iso) return { iso: null, error: t("seller.choose_valid_date_time") };
   const policy = classifyDeadlineMs(Date.parse(iso));
   if (!policy.ok) return { iso, error: CODE_MESSAGE_KEYS[policy.code] ? t(CODE_MESSAGE_KEYS[policy.code]!) : policy.code };
   return { iso, error: "" };
@@ -610,16 +610,16 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
     return (
       <div className="row" style={{ gap: 8, marginTop: -4, marginBottom: 10, flexWrap: "wrap" }}>
         <span className="small" style={{ fontWeight: 700, color: "var(--accent-cyan)" }} data-testid="geo-captured">
-          {t("pages.seller.466cf517", { v0: row.latitude.toFixed(4), v1: row.longitude.toFixed(4) })}</span>
-        <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">{t("pages.seller.f5a83bf4")}</a>
-        <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>{t("pages.seller.246870c8")}</button>
+          {t("seller.location_captured_v0_v1", { v0: row.latitude.toFixed(4), v1: row.longitude.toFixed(4) })}</span>
+        <a className="btn btn-sm btn-ghost" href={mapUrl} target="_blank" rel="noreferrer">{t("seller.show_map")}</a>
+        <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-remove" onClick={() => onSet(null, null)}>{t("seller.remove_location")}</button>
       </div>
     );
   }
 
   const copy = outcome && outcome.kind !== "success" ? GEO_OUTCOME_COPY[outcome.kind] : null;
   const failureTestId = outcome && outcome.kind !== "success" ? GEO_OUTCOME_TEST_ID[outcome.kind] : "";
-  const pendingLabel = attempt?.n === 2 ? t("pages.seller.1894cd9e") : t("pages.seller.36b55ff6");
+  const pendingLabel = attempt?.n === 2 ? t("seller.trying_again_high_accuracy_mode") : t("seller.requesting_access_location");
 
   return (
     <div className="stack" style={{ gap: 6, marginTop: -4, marginBottom: 10 }}>
@@ -627,13 +627,13 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
         <button type="button" className="btn btn-sm btn-ghost" disabled={pending} data-testid="use-my-location"
           data-geo-pending={pending ? "1" : "0"} data-geo-attempt={attempt ? String(attempt.n) : ""}
           onClick={() => { void capture(); }}>
-          {pending ? pendingLabel : t("pages.seller.5a282971")}
+          {pending ? pendingLabel : t("seller.use_my_location")}
         </button>
         <button type="button" className="btn btn-sm btn-ghost" style={{ opacity: .7 }} data-testid="geo-manual-toggle"
           onClick={() => setShowManual((v) => !v)}>
-          {t("pages.seller.d1de5699")}</button>
+          {t("seller.enter_coordinates_manually")}</button>
       </div>
-      <span className="hint">{t("pages.seller.161bb396")}</span>
+      <span className="hint">{t("seller.optional_gives_buyers_navigation_button")}</span>
 
       {copy && outcome ? (
         <div className={`notice ${copy.denial ? "err" : "info"}`} data-testid={failureTestId} data-geo-kind={outcome.kind} style={{ marginTop: 2 }}>
@@ -645,7 +645,7 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
           {copy.retryable ? (
             <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} disabled={pending}
               data-testid={copy.denial ? "geo-recheck" : "geo-retry"} onClick={() => { void capture(); }}>
-              {copy.denial ? t("pages.seller.a2c489d6") : t("pages.seller.fc2297f3")}
+              {copy.denial ? t("seller.check_again") : t("seller.try_again")}
             </button>
           ) : null}
           <code className="small" dir="ltr" data-testid="geo-diag"
@@ -658,14 +658,14 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
       {showManual ? (
         <div className="row" style={{ gap: 8, alignItems: "flex-end", flexWrap: "wrap" }} data-testid="geo-manual">
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
-            <label>{t("pages.seller.e180aaa8")}</label>
+            <label>{t("seller.latitude_lat")}</label>
             <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lat" value={mLat} onChange={(e) => setMLat(e.target.value)} placeholder="32.0668" />
           </div>
           <div className="field" style={{ marginBottom: 0, flex: "1 1 110px" }}>
-            <label>{t("pages.seller.3baff3a8")}</label>
+            <label>{t("seller.longitude_lng")}</label>
             <input dir="ltr" inputMode="decimal" data-testid="geo-manual-lng" value={mLng} onChange={(e) => setMLng(e.target.value)} placeholder="34.7647" />
           </div>
-          <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-manual-apply" onClick={applyManual}>{t("pages.seller.e6932339")}</button>
+          <button type="button" className="btn btn-sm btn-ghost" data-testid="geo-manual-apply" onClick={applyManual}>{t("seller.save")}</button>
         </div>
       ) : null}
       {manualError ? <span className="field-error" data-testid="geo-manual-error">{manualError}</span> : null}
@@ -685,12 +685,12 @@ function DeliveryEstimateInputs({ row, index, onChange, error }: { row: Delivery
   const preview = estimateTextFor(row);
   return (
     <div className="field" style={{ marginBottom: 8 }} data-testid={`delivery-estimate-${index}`}>
-      <label>{t("pages.seller.7115a7f8")} <span className="hint">{t("pages.seller.1a374048")}</span></label>
+      <label>{t("seller.estimated_delivery_time")} <span className="hint">{t("seller.business_days_deal_completing_optional")}</span></label>
       <div className="row" style={{ alignItems: "center", gap: 8 }}>
-        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_min} aria-label={t("pages.seller.8a7a1302")} data-testid={`delivery-est-min-${index}`} onChange={(e) => onChange(e.target.value, row.est_max)} />
-        <span>{t("pages.seller.344c1d0e")}</span>
-        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_max} aria-label={t("pages.seller.4b28237d")} data-testid={`delivery-est-max-${index}`} onChange={(e) => onChange(row.est_min, e.target.value)} />
-        {preview ? <span className="muted small">{t("pages.seller.93be3d39", { preview: preview })}</span> : null}
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_min} aria-label={t("seller.minimum_business_days")} data-testid={`delivery-est-min-${index}`} onChange={(e) => onChange(e.target.value, row.est_max)} />
+        <span>{t("seller.until")}</span>
+        <input dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 100 }} value={row.est_max} aria-label={t("seller.maximum_business_days")} data-testid={`delivery-est-max-${index}`} onChange={(e) => onChange(row.est_min, e.target.value)} />
+        {preview ? <span className="muted small">{t("seller.shown_buyers_preview", { preview: preview })}</span> : null}
       </div>
       <FieldError msg={error} />
     </div>
@@ -760,7 +760,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
     api.sellerProduct(productId).then((r) => {
       if (!alive) return;
       const p = r.product as Json;
-      if (String(p.status) !== "active") { setProductError(t("pages.seller.9be5799b")); return; }
+      if (String(p.status) !== "active") { setProductError(t("seller.the_product_archived_restore_product")); return; }
       setProduct(p);
       const type = String(p.product_type || "physical_product") as WizardDealType;
       setDealType(type);
@@ -785,7 +785,7 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       const min = d.estimated_min_business_days == null ? "" : String(d.estimated_min_business_days);
       const max = d.estimated_max_business_days == null ? "" : String(d.estimated_max_business_days);
       setDelivery((rows) => rows.map((row) => ({ ...row, est_min: row.est_min || min, est_max: row.est_max || max })));
-    }).catch((e) => { if (alive) setProductError(e.message || t("pages.seller.3116ae3f")); });
+    }).catch((e) => { if (alive) setProductError(e.message || t("seller.the_product_cannot_loaded")); });
     return () => { alive = false; };
   }, [productId]);
   const productImages: Json[] = product?.images || [];
@@ -802,40 +802,40 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
   const validateStep = (s: number): Record<string, string> => {
     const errs: Record<string, string> = {};
     if (s === 0) {
-      if (productId && !product) errs.product = productError || t("pages.seller.871a7a85");
-      if (!product && !title.trim()) errs.title = t("pages.seller.bd4a8380");
-      if (!product && !shortDesc.trim()) errs.short = t("pages.seller.30c78602");
-      if (!(priceNum > 0)) errs.price = t("pages.seller.ffac3007");
-      if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = t("pages.seller.e5e1b021");
-      if (images.length === 0 && productImages.length === 0) errs.images = t("pages.seller.885cafa8");
+      if (productId && !product) errs.product = productError || t("seller.waiting_product_load");
+      if (!product && !title.trim()) errs.title = t("seller.enter_name_deal");
+      if (!product && !shortDesc.trim()) errs.short = t("seller.enter_short_description_sentence_sells");
+      if (!(priceNum > 0)) errs.price = t("seller.enter_price_per_unit");
+      if (listPrice.trim() && !(Number(listPrice) > priceNum)) errs.listPrice = t("seller.the_list_price_must_higher");
+      if (images.length === 0 && productImages.length === 0) errs.images = t("seller.upload_least_one_image");
     }
     if (s === 1) {
-      if (!isPositiveIntegerText(minUnits)) errs.min = t("pages.seller.9e2a133c");
-      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = t("pages.seller.28254e08");
+      if (!isPositiveIntegerText(minUnits)) errs.min = t("seller.enter_minimum_quantity");
+      if (!isPositiveIntegerText(maxUnits) || !(maxNum >= minNum)) errs.max = t("seller.the_maximum_quantity_must_least");
     }
     if (s === 2) {
-      if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = t("pages.seller.15bb7786");
+      if (dealType === "physical_product" && !delivery.some((d) => d.label.trim())) errs.delivery = t("seller.add_least_one_delivery_option");
       if (dealType === "voucher") {
-        if (!(Number(voucherFaceValue) > 0)) errs.voucherFace = t("pages.seller.5b94bfb4");
-        if (!voucherValidUntil || new Date(`${voucherValidUntil}T23:59:59`).getTime() <= Date.now()) errs.voucherValid = t("pages.seller.f40ecf80");
-        if (!redemptionLocation.trim()) errs.voucherLocation = t("pages.seller.5e121497");
-        if (!redemptionInstructions.trim()) errs.voucherInstructions = t("pages.seller.c164cc8c");
-        if (!voucherTerms.trim()) errs.voucherTerms = t("pages.seller.6e3adf78");
+        if (!(Number(voucherFaceValue) > 0)) errs.voucherFace = t("seller.enter_voucher_value");
+        if (!voucherValidUntil || new Date(`${voucherValidUntil}T23:59:59`).getTime() <= Date.now()) errs.voucherValid = t("seller.choose_future_validity_date_voucher");
+        if (!redemptionLocation.trim()) errs.voucherLocation = t("seller.enter_redemption_place");
+        if (!redemptionInstructions.trim()) errs.voucherInstructions = t("seller.enter_redemption_instructions");
+        if (!voucherTerms.trim()) errs.voucherTerms = t("seller.enter_voucher_terms");
       }
       if (dealType === "ticket") {
-        if (!eventName.trim()) errs.eventName = t("pages.seller.018096b9");
-        if (!eventStartsAt || new Date(eventStartsAt).getTime() <= Date.now()) errs.eventStart = t("pages.seller.99eb5d8e");
-        if (!venueName.trim()) errs.venueName = t("pages.seller.c2e0fc70");
-        if (!venueCity.trim()) errs.venueCity = t("pages.seller.93669fa2");
-        if (!entryInstructions.trim()) errs.entry = t("pages.seller.069b556b");
-        if (eventEndsAt && new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()) errs.eventEnd = t("pages.seller.cce60aad");
+        if (!eventName.trim()) errs.eventName = t("seller.enter_event_name");
+        if (!eventStartsAt || new Date(eventStartsAt).getTime() <= Date.now()) errs.eventStart = t("seller.choose_future_date_event");
+        if (!venueName.trim()) errs.venueName = t("seller.enter_event_venue");
+        if (!venueCity.trim()) errs.venueCity = t("seller.enter_city");
+        if (!entryInstructions.trim()) errs.entry = t("seller.enter_entry_instructions");
+        if (eventEndsAt && new Date(eventEndsAt).getTime() <= new Date(eventStartsAt).getTime()) errs.eventEnd = t("seller.the_deadline_must_after_start");
       }
     }
     // P0.7 — self-pickup / distribution point must carry a usable location
     if (s === 2 && dealType === "physical_product" && !errs.delivery) {
       const configured = delivery.filter((d) => d.label.trim());
       if (configured.some((d) => !hasUsablePickupLocation(d))) {
-        errs.delivery = t("pages.seller.09cec36d");
+        errs.delivery = t("seller.pickup_distribution_point_needs_address");
       }
     }
     if (s === 2 && dealType === "physical_product") {
@@ -843,12 +843,12 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         if (!d.label.trim()) return;
         const estError = validateEstimateRange(d.est_min, d.est_max);
         if (estError) errs[`delivery-estimate-${i}`] = estError;
-        else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = t("pages.seller.796cf56c");
+        else if (product && (!d.est_min.trim() || !d.est_max.trim())) errs[`delivery-estimate-${i}`] = t("seller.a_deal_created_product_needs");
       });
     }
-    if (s === 2 && receiptMethodsOf(receipt).includes("instructions") && !receipt.instructions.trim()) errs.receipt = t("pages.seller.c164cc8c");
+    if (s === 2 && receiptMethodsOf(receipt).includes("instructions") && !receipt.instructions.trim()) errs.receipt = t("seller.enter_redemption_instructions");
     if (s === 2 && receiptMethodsOf(receipt).includes("digital_link")) {
-      try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = t("pages.seller.4d12fcee"); } catch { errs.receipt = t("pages.seller.4d12fcee"); }
+      try { const u = new URL(receipt.url); if (u.protocol !== "https:" || u.username || u.password) errs.receipt = t("seller.enter_valid_https_link"); } catch { errs.receipt = t("seller.enter_valid_https_link"); }
     }
     if (s === 3 && deadlineCheck.error) errs.deadline = deadlineCheck.error;
     return errs;
@@ -931,11 +931,11 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         ...typeSpecific
       });
       const dealId = created?.deal?.deal_id || created?.deal_id;
-      if (!dealId) throw new Error(t("pages.seller.384d637e"));
+      if (!dealId) throw new Error(t("seller.creating_deal_failed_try_again"));
       try {
         await productRequest(`/api/seller/deals/${dealId}/receipt`, { method: "PUT", body: JSON.stringify(receipt) }, "seller");
       } catch {
-        setError(t("pages.seller.71fa638d"));
+        setError(t("seller.the_draft_saved_but_redemption"));
         setTimeout(() => navigate(`#/seller/deal/${dealId}`), 2200);
         return;
       }
@@ -943,16 +943,16 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       // and the deal screen's image manager offers a retry.
       for (let i = 0; i < images.length; i += 1) {
         const img = images[i]!;
-        setUploadStatus(t("pages.seller.d6f41988", { v0: i + 1, length: images.length }));
+        setUploadStatus(t("seller.uploading_image_v0_length", { v0: i + 1, length: images.length }));
         try {
           await uploadDealImage(dealId, img, {
             isPrimary: i === 0,
             sortOrder: i,
-            onProgress: (pct) => setUploadStatus(t("pages.seller.03eebbe5", { v0: i + 1, length: images.length, pct: pct }))
+            onProgress: (pct) => setUploadStatus(t("seller.uploading_image_v0_length_pct", { v0: i + 1, length: images.length, pct: pct }))
           });
         } catch (imgErr: any) {
           setUploadStatus("");
-          setError(t("pages.seller.dd5c0ca6", { name: img.name }));
+          setError(t("seller.the_draft_saved_but_uploading", { name: img.name }));
           setTimeout(() => navigate(`#/seller/deal/${dealId}`), 2200);
           return;
         }
@@ -962,16 +962,16 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
       navigate(`#/seller/deal/${dealId}`);
     } catch (err: any) {
       setUploadStatus("");
-      setError(err.message || t("pages.seller.b12046d2"));
+      setError(err.message || t("seller.saving_failed_try_again"));
       setBusy(false);
     }
   };
 
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("seller.to_dashboard")}</a>
       <div className="panel">
-        <h2>{t("pages.seller.293ad2e4")}</h2>
+        <h2>{t("seller.create_group_deal")}</h2>
         <div className="wizard-steps">
           {WIZARD_STEPS.map((s, i) => (
             <div key={s} className={`wizard-step${i === step ? " active" : i < step ? " done" : ""}`}>{i + 1}. {t(s)}</div>
@@ -979,63 +979,63 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
         </div>
 
         {step === 0 && productId ? (
-          productError ? <div className="notice err" data-testid="wizard-product-error">{productError} <a href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("pages.seller.820d7c7e")}</a></div>
-          : !product ? <div className="notice info">{t("pages.seller.28eb5686")}</div>
+          productError ? <div className="notice err" data-testid="wizard-product-error">{productError} <a href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("seller.to_product_library")}</a></div>
+          : !product ? <div className="notice info">{t("seller.loading_product")}</div>
           : (
             <div className="notice info product-locked-summary" data-testid="wizard-product-summary">
-              <Tx k="seller.product_summary" vars={{ name: <b>{t("pages.seller.3641471e", { name: product.name })}</b>, type: dealTypeLabel(String(product.product_type)), revision: num(product.revision || 1) }} />
+              <Tx k="seller.product_summary" vars={{ name: <b>{t("seller.a_deal_product_name", { name: product.name })}</b>, type: dealTypeLabel(String(product.product_type)), revision: num(product.revision || 1) }} />
               <div className="small muted" style={{ marginTop: 4 }}>{product.short_description}</div>
-              <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.09090ea9")} <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>{t("pages.seller.6a6d03cd")}</a></div>
-              {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{t("pages.seller.5da5b83f", { length: num(productImages.length) })}</div> : null}
+              <div className="small muted" style={{ marginTop: 4 }}>{t("seller.the_name_description_type_come")} <a href={`#/seller/products/${product.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${product.product_id}`); }}>{t("seller.to_product")}</a></div>
+              {productImages.length ? <div className="small muted" style={{ marginTop: 4 }}>{t("seller.the_product_s_length_images", { length: num(productImages.length) })}</div> : null}
             </div>
           )
         ) : null}
         {step === 0 ? (
           <>
             {!productId ? <div className="field">
-              <label htmlFor="deal-type">{t("pages.seller.15527b30")}</label>
+              <label htmlFor="deal-type">{t("seller.deal_type")}</label>
               <select id="deal-type" data-testid="deal-type" value={dealType} onChange={(e) => setDealType(e.target.value as WizardDealType)}>
-                <option value="physical_product">{t("pages.seller.8479bde7")}</option>
-                <option value="voucher">{t("pages.seller.a3a06e68")}</option>
-                <option value="ticket">{t("pages.seller.d83a090b")}</option>
+                <option value="physical_product">{t("seller.physical_product")}</option>
+                <option value="voucher">{t("seller.voucher")}</option>
+                <option value="ticket">{t("seller.event_ticket")}</option>
               </select>
-              <span className="hint">{t("pages.seller.64f78aee")}</span>
+              <span className="hint">{t("seller.the_next_step_asks_only")}</span>
             </div> : null}
             {!productId ? <><div className="field">
-              <label htmlFor="f-title">{t("pages.seller.60af138e")} <span className="req">*</span></label>
+              <label htmlFor="f-title">{t("seller.deal_name")} <span className="req">*</span></label>
               <input {...attention(errors, "title")} data-testid="deal-title" value={title}
-                onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder={t("pages.seller.759b4106")} />
+                onChange={(e) => setTitle(e.target.value)} maxLength={200} placeholder={t("seller.for_example_5_kg_pack")} />
               <FieldError msg={errors.title} />
             </div>
             <div className="field">
-              <label htmlFor="f-short">{t("pages.seller.5b561b20")} <span className="req">*</span> <span className="hint">{t("pages.seller.8953c4c0")}</span></label>
+              <label htmlFor="f-short">{t("seller.short_description")} <span className="req">*</span> <span className="hint">{t("seller.the_sentence_sells_appears_top")}</span></label>
               <input {...attention(errors, "short")} data-testid="deal-short" value={shortDesc}
-                onChange={(e) => setShortDesc(e.target.value)} maxLength={200} placeholder={t("pages.seller.44d2dd2e")} />
+                onChange={(e) => setShortDesc(e.target.value)} maxLength={200} placeholder={t("seller.for_example_olives_half_price")} />
               <FieldError msg={errors.short} />
             </div>
             <div className="field">
-              <label htmlFor="f-long">{t("pages.seller.4dc3b47c")} <span className="hint">{t("pages.seller.f9756409")}</span></label>
+              <label htmlFor="f-long">{t("seller.full_description")} <span className="hint">{t("seller.optional_everything_matters_buyers_appears")}</span></label>
               <textarea {...attention(errors, "long")} data-testid="deal-long" rows={6} value={longDesc} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000}
-                placeholder={t("pages.seller.b8e0d0d6")} />
+                placeholder={t("seller.what_exactly_get_how_arrives")} />
             </div></> : null}
             <div className="field">
-              <label htmlFor="f-price">{t("pages.seller.1221db3b")} <span className="req">*</span></label>
+              <label htmlFor="f-price">{t("seller.price_per_unit")} <span className="req">*</span></label>
               <input {...attention(errors, "price")} data-testid="deal-price" dir="ltr" type="number" min={1} step="0.5"
                 value={price} onChange={(e) => setPrice(e.target.value)} />
               <FieldError msg={errors.price} />
-              <span className="hint">{t("pages.seller.f2dd6f53")}</span>
+              <span className="hint">{t("seller.the_price_locked_after_publishing")}</span>
             </div>
             <div className="field">
-              <label htmlFor="f-listPrice">{t("pages.seller.19041a71")} <span className="hint">{t("pages.seller.3fef0872")}</span></label>
+              <label htmlFor="f-listPrice">{t("seller.list_price_per_unit")} <span className="hint">{t("seller.optional_list_price_outside_group")}</span></label>
               <input {...attention(errors, "listPrice")} data-testid="deal-list-price" dir="ltr" type="number" min={1} step="0.5"
                 value={listPrice} onChange={(e) => setListPrice(e.target.value)} placeholder={priceNum > 0 ? String(Math.round(priceNum * 1.3)) : ""} />
               <FieldError msg={errors.listPrice} />
               {listPrice.trim() && Number(listPrice) > priceNum && priceNum > 0
-                ? <span className="hint">{t("pages.seller.73d7e4f0", { v0: Math.round((1 - priceNum / Number(listPrice)) * 100) })}</span>
+                ? <span className="hint">{t("seller.shown_buyers_saving_v0_off", { v0: Math.round((1 - priceNum / Number(listPrice)) * 100) })}</span>
                 : null}
             </div>
             <div {...attentionBlock(errors, "images", "field")}>
-              <label>{t("seller.images_label")} {productImages.length ? <span className="hint">{t("pages.seller.b70f7ace", { length: num(productImages.length) })}</span> : <span className="req">*</span>}</label>
+              <label>{t("seller.images_label")} {productImages.length ? <span className="hint">{t("seller.optional_length_images_come_product", { length: num(productImages.length) })}</span> : <span className="req">*</span>}</label>
               <LocalImageManager images={images} onChange={setImages} />
               <FieldError msg={errors.images} />
             </div>
@@ -1046,22 +1046,22 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
           <>
             <div className="field-row">
               <div className="field">
-                <label htmlFor="f-min">{t("pages.seller.00fc351e")} <span className="req">*</span></label>
+                <label htmlFor="f-min">{t("seller.minimum_quantity")} <span className="req">*</span></label>
                 <input {...attention(errors, "min")} data-testid="deal-min" {...QUANTITY_INPUT_ATTRS}
                   value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
                 <FieldError msg={errors.min} />
-                <span className="hint">{t("pages.seller.c1dd88d3")}</span>
+                <span className="hint">{t("seller.the_target_group_needs_reach")}</span>
               </div>
               <div className="field">
-                <label htmlFor="f-max">{t("pages.seller.d15ff67f")} <span className="req">*</span></label>
+                <label htmlFor="f-max">{t("seller.maximum_quantity_stock")} <span className="req">*</span></label>
                 <input {...attention(errors, "max")} data-testid="deal-max" {...QUANTITY_INPUT_ATTRS}
                   value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
                 <FieldError msg={errors.max} />
-                <span className="hint">{t("pages.seller.5922c962")}</span>
+                <span className="hint">{t("seller.when_reached_sale_closes")}</span>
               </div>
             </div>
             <div className="notice info">
-              <Tx k="seller.final_success_threshold" vars={{ rule: <b>{t("pages.seller.ac0e625a")}</b>, units: num(threshold) }} />
+              <Tx k="seller.final_success_threshold" vars={{ rule: <b>{t("seller.x_90_minimum")}</b>, units: num(threshold) }} />
             </div>
           </>
         ) : null}
@@ -1070,111 +1070,111 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
           <>
             <ReceiptFields value={receipt} onChange={setReceipt} attention={Boolean(errors.receipt)} /><FieldError msg={errors.receipt} />
             {dealType === "physical_product" ? <>
-            <div {...attentionBlock(errors, "delivery", "notice info attention-block")} data-testid="delivery-required-notice">{t("pages.seller.7bec7427")}</div>
+            <div {...attentionBlock(errors, "delivery", "notice info attention-block")} data-testid="delivery-required-notice">{t("seller.choose_least_one_delivery_option")}</div>
             <FieldError msg={errors.delivery} />
             {delivery.map((d, i) => (
               <React.Fragment key={i}>
                 <div className="row" style={{ marginBottom: 10, alignItems: "flex-end" }}>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 130px" }}>
-                    <label>{t("pages.seller.f45000d5")}</label>
+                    <label>{t("seller.type")}</label>
                     <select value={d.option_type} onChange={(e) => {
                       const t = e.target.value;
                       setDelivery(delivery.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                     }}>
-                      <option value="pickup">{t("pages.seller.ffe01f8e")}</option>
-                      <option value="delivery">{t("pages.seller.ee0500fa")}</option>
-                      <option value="distribution_point">{t("pages.seller.821c337a")}</option>
+                      <option value="pickup">{t("seller.pickup")}</option>
+                      <option value="delivery">{t("seller.delivery")}</option>
+                      <option value="distribution_point">{t("seller.distribution_point")}</option>
                     </select>
                   </div>
                   <div className="field grow" style={{ marginBottom: 0, flex: "2 1 180px" }}>
-                    <label>{isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.927492f8")}</label>
-                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("pages.seller.a76219f5") : t("pages.seller.b79cf051")} />
+                    <label>{isPickupOptionType(d.option_type) ? t("seller.pickup_address_location") : t("seller.description")}</label>
+                    <input data-testid={`delivery-label-${i}`} value={d.label} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("seller.for_example_12_herzl_st") : t("seller.for_example_courier_delivery_door")} />
                   </div>
                   <div className="field" style={{ marginBottom: 0, flex: "1 1 100px" }}>
-                    <label>{t("pages.seller.b9f1a67a")}</label>
+                    <label>{t("seller.cost")}</label>
                     <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setDelivery(delivery.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                   </div>
-                  {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label={t("pages.seller.a99e68e9")}>✕</button> : null}
+                  {delivery.length > 1 ? <button className="x" onClick={() => setDelivery(delivery.filter((_, j) => j !== i))} aria-label={t("seller.remove")}>✕</button> : null}
                 </div>
                 <LocationCapture row={d} onSet={(lat, lng) => setDelivery(delivery.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
                 <DeliveryEstimateInputs row={d} index={i} error={errors[`delivery-estimate-${i}`]} onChange={(min, max) => setDelivery(delivery.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
               </React.Fragment>
             ))}
-            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>{t("pages.seller.18231b14")}</button> : null}
+            {delivery.length < 5 ? <button className="btn btn-sm btn-ghost" onClick={() => setDelivery([...delivery, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: productEstDefaults.min, est_max: productEstDefaults.max }])}>{t("seller.add_option")}</button> : null}
             </> : null}
 
             {dealType === "voucher" ? <>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-voucherFace">{t("pages.seller.67c8a2b8")} <span className="req">*</span></label>
+                  <label htmlFor="f-voucherFace">{t("seller.the_voucher_s_face_value")} <span className="req">*</span></label>
                   <input {...attention(errors, "voucherFace")} data-testid="voucher-face-value" dir="ltr" type="number" min={1} step="0.5" value={voucherFaceValue} onChange={(e) => setVoucherFaceValue(e.target.value)} />
                   <FieldError msg={errors.voucherFace} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-voucherValid">{t("pages.seller.03baa387")} <span className="req">*</span></label>
+                  <label htmlFor="f-voucherValid">{t("seller.valid_until")} <span className="req">*</span></label>
                   <input {...attention(errors, "voucherValid")} data-testid="voucher-valid-until" dir="ltr" type="date" value={voucherValidUntil} onChange={(e) => setVoucherValidUntil(e.target.value)} />
                   <FieldError msg={errors.voucherValid} />
                 </div>
               </div>
               <div className="field">
-                <label htmlFor="f-voucherLocation">{t("pages.seller.2461095e")} <span className="req">*</span></label>
-                <input {...attention(errors, "voucherLocation")} data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder={t("pages.seller.6a4d214a")} />
+                <label htmlFor="f-voucherLocation">{t("seller.redemption_place")} <span className="req">*</span></label>
+                <input {...attention(errors, "voucherLocation")} data-testid="voucher-location" value={redemptionLocation} onChange={(e) => setRedemptionLocation(e.target.value)} maxLength={500} placeholder={t("seller.at_business_s_branches_website")} />
                 <FieldError msg={errors.voucherLocation} />
               </div>
               <div className="field">
-                <label htmlFor="f-voucherInstructions">{t("pages.seller.119fefce")} <span className="req">*</span></label>
-                <textarea {...attention(errors, "voucherInstructions")} data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder={t("pages.seller.2fd79d66")} />
+                <label htmlFor="f-voucherInstructions">{t("seller.redemption_instructions")} <span className="req">*</span></label>
+                <textarea {...attention(errors, "voucherInstructions")} data-testid="voucher-instructions" rows={3} value={redemptionInstructions} onChange={(e) => setRedemptionInstructions(e.target.value)} maxLength={1000} placeholder={t("seller.how_code_shown_redeemed")} />
                 <FieldError msg={errors.voucherInstructions} />
               </div>
               <div className="field">
-                <label htmlFor="f-voucherTerms">{t("pages.seller.c6d02b8f")} <span className="req">*</span></label>
-                <textarea {...attention(errors, "voucherTerms")} data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder={t("pages.seller.16eb2cd4")} />
+                <label htmlFor="f-voucherTerms">{t("seller.voucher_terms")} <span className="req">*</span></label>
+                <textarea {...attention(errors, "voucherTerms")} data-testid="voucher-terms" rows={3} value={voucherTerms} onChange={(e) => setVoucherTerms(e.target.value)} maxLength={2000} placeholder={t("seller.limits_combining_offers_redemption_policy")} />
                 <FieldError msg={errors.voucherTerms} />
               </div>
-              <div className="notice info">{t("pages.seller.38c11cf9")}</div>
+              <div className="notice info">{t("seller.the_voucher_code_issued_automatically")}</div>
             </> : null}
 
             {dealType === "ticket" ? <>
               <div className="field">
-                <label htmlFor="f-eventName">{t("pages.seller.1acb417f")} <span className="req">*</span></label>
+                <label htmlFor="f-eventName">{t("seller.event_name")} <span className="req">*</span></label>
                 <input {...attention(errors, "eventName")} data-testid="ticket-event-name" value={eventName} onChange={(e) => setEventName(e.target.value)} maxLength={200} />
                 <FieldError msg={errors.eventName} />
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-eventStart">{t("pages.seller.2ac887ba")} <span className="req">*</span></label>
+                  <label htmlFor="f-eventStart">{t("seller.starts")} <span className="req">*</span></label>
                   <input {...attention(errors, "eventStart")} data-testid="ticket-start" dir="ltr" type="datetime-local" value={eventStartsAt} onChange={(e) => setEventStartsAt(e.target.value)} />
                   <FieldError msg={errors.eventStart} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-eventEnd">{t("pages.seller.341ea200")} <span className="hint">{t("pages.seller.9fbd1f49")}</span></label>
+                  <label htmlFor="f-eventEnd">{t("seller.ends")} <span className="hint">{t("seller.optional")}</span></label>
                   <input {...attention(errors, "eventEnd")} dir="ltr" type="datetime-local" value={eventEndsAt} onChange={(e) => setEventEndsAt(e.target.value)} />
                   <FieldError msg={errors.eventEnd} />
                 </div>
               </div>
               <div className="field-row">
                 <div className="field">
-                  <label htmlFor="f-venueName">{t("pages.seller.acc2a875")} <span className="req">*</span></label>
+                  <label htmlFor="f-venueName">{t("seller.event_venue")} <span className="req">*</span></label>
                   <input {...attention(errors, "venueName")} data-testid="ticket-venue" value={venueName} onChange={(e) => setVenueName(e.target.value)} maxLength={200} />
                   <FieldError msg={errors.venueName} />
                 </div>
                 <div className="field">
-                  <label htmlFor="f-venueCity">{t("pages.seller.b2136c90")} <span className="req">*</span></label>
+                  <label htmlFor="f-venueCity">{t("seller.city")} <span className="req">*</span></label>
                   <input {...attention(errors, "venueCity")} data-testid="ticket-city" value={venueCity} onChange={(e) => setVenueCity(e.target.value)} maxLength={100} />
                   <FieldError msg={errors.venueCity} />
                 </div>
               </div>
-              <div className="field"><label>{t("pages.seller.daab1ad0")}</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
+              <div className="field"><label>{t("seller.address")}</label><input value={venueAddress} onChange={(e) => setVenueAddress(e.target.value)} maxLength={300} /></div>
               <div className="field">
-                <label htmlFor="f-entry">{t("pages.seller.21a635a8")} <span className="req">*</span></label>
+                <label htmlFor="f-entry">{t("seller.entry_instructions")} <span className="req">*</span></label>
                 <textarea {...attention(errors, "entry")} data-testid="ticket-entry" rows={3} value={entryInstructions} onChange={(e) => setEntryInstructions(e.target.value)} maxLength={1000} />
                 <FieldError msg={errors.entry} />
               </div>
               <div className="field-row">
-                <div className="field"><label>{t("pages.seller.250987a7")}</label><select value={ticketType} onChange={(e) => setTicketType(e.target.value)}><option value="general_admission">{t("pages.seller.eb69ad58")}</option><option value="vip">VIP</option><option value="reserved_external">{t("pages.seller.bb5d694c")}</option><option value="other">{t("pages.seller.cdf4bce0")}</option></select></div>
-                <div className="field"><label>{t("pages.seller.aa0eed57")}</label><select value={seatMode} onChange={(e) => setSeatMode(e.target.value)}><option value="general_admission">{t("pages.seller.25b87c02")}</option><option value="external_seating">{t("pages.seller.af7ea7c5")}</option></select></div>
+                <div className="field"><label>{t("seller.ticket_type")}</label><select value={ticketType} onChange={(e) => setTicketType(e.target.value)}><option value="general_admission">{t("seller.general_admission")}</option><option value="vip">VIP</option><option value="reserved_external">{t("seller.a_reserved_seat_external_system")}</option><option value="other">{t("seller.other")}</option></select></div>
+                <div className="field"><label>{t("seller.seating")}</label><select value={seatMode} onChange={(e) => setSeatMode(e.target.value)}><option value="general_admission">{t("seller.no_reserved_seat")}</option><option value="external_seating">{t("seller.seating_external_system")}</option></select></div>
               </div>
-              <label className="check"><input type="checkbox" checked={transferAllowed} onChange={(e) => setTransferAllowed(e.target.checked)} /><span>{t("pages.seller.9379be58")}</span></label>
+              <label className="check"><input type="checkbox" checked={transferAllowed} onChange={(e) => setTransferAllowed(e.target.checked)} /><span>{t("seller.the_ticket_transferred_someone_else")}</span></label>
             </> : null}
           </>
         ) : null}
@@ -1187,56 +1187,56 @@ function CreateWizard({ navigate, productId }: { navigate: (h: string) => void; 
               error={errors.deadline || (deadlineDate && deadlineTime ? deadlineCheck.error : "")}
             />
             <div className="notice info">
-              {t("pages.seller.c52f270e")} <b>{t("pages.seller.28ff46c8")}</b>  {t("pages.seller.731c82d6")} <b>{t("pages.seller.de207bdc")}</b>  {t("pages.seller.6b118527")}</div>
+              {t("seller.completion_window_charge_failures")} <b>{t("seller.x_24_hours")}</b>  {t("seller.the_system_default_c_ton")} <b>{t("seller.x_8_vat")}</b>  {t("seller.from_amount_actually_collected_only")}</div>
           </>
         ) : null}
 
         {step === 4 ? (
           <>
-            <h3>{t("pages.seller.1d1e2551")}</h3>
+            <h3>{t("seller.deal_summary")}</h3>
             {images.length ? (
               <div className="img-strip">
                 {images.map((img, i) => (
                   <span key={img.id} className={`img-strip-thumb${i === 0 ? " primary" : ""}`}>
                     <img src={img.previewUrl} alt={img.name} />
-                    {i === 0 ? <em>{t("pages.seller.7e35e511")}</em> : null}
+                    {i === 0 ? <em>{t("seller.main")}</em> : null}
                   </span>
                 ))}
               </div>
             ) : null}
             <div className="kv" style={{ marginBottom: 14 }}>
-              <span className="k">{t("pages.seller.f45000d5")}</span><span className="v">{dealTypeLabel(dealType)}</span>
-              <span className="k">{t("pages.seller.8b1aa6b1")}</span><span className="v">{title}</span>
-              <span className="k">{t("pages.seller.5b561b20")}</span><span className="v" style={{ fontWeight: 500 }}>{shortDesc}</span>
-              <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(priceNum)}</span>
-              <span className="k">{t("pages.seller.7a683618")}</span><span className="v">{t("pages.seller.90977ff5", { minNum: num(minNum) })}</span>
-              <span className="k">{t("pages.seller.174f88b7")}</span><span className="v">{t("pages.seller.3df77830", { maxNum: num(maxNum) })}</span>
-              <span className="k">{t("pages.seller.99772d1d")}</span><span className="v">{t("pages.seller.43c9de56", { threshold: num(threshold) })}</span>
-              <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{deadlineCheck.iso ? formatIsraelDateTime(deadlineCheck.iso) : "—"}</span>
-              {product ? <><span className="k">{t("pages.seller.80a08f9c")}</span><span className="v">{t("pages.seller.e4690311", { name: product.name, v1: num(product.revision || 1) })}</span></> : null}
-              {dealType === "physical_product" ? <><span className="k">{t("pages.seller.65e1ef42")}</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => `${d.label}${estimateTextFor(d) ? ` (${estimateTextFor(d)})` : ""}`).join(" · ")}</span></> : null}
+              <span className="k">{t("seller.type")}</span><span className="v">{dealTypeLabel(dealType)}</span>
+              <span className="k">{t("seller.name")}</span><span className="v">{title}</span>
+              <span className="k">{t("seller.short_description")}</span><span className="v" style={{ fontWeight: 500 }}>{shortDesc}</span>
+              <span className="k">{t("seller.price_per_unit_2")}</span><span className="v">{ils(priceNum)}</span>
+              <span className="k">{t("seller.minimum")}</span><span className="v">{t("seller.minnum_units", { minNum: num(minNum) })}</span>
+              <span className="k">{t("seller.maximum_stock")}</span><span className="v">{t("seller.maxnum_units", { maxNum: num(maxNum) })}</span>
+              <span className="k">{t("seller.success_threshold_90")}</span><span className="v">{t("seller.threshold_charged_units", { threshold: num(threshold) })}</span>
+              <span className="k">{t("seller.deadline")}</span><span className="v">{deadlineCheck.iso ? formatIsraelDateTime(deadlineCheck.iso) : "—"}</span>
+              {product ? <><span className="k">{t("seller.product")}</span><span className="v">{t("seller.name_revision_v1", { name: product.name, v1: num(product.revision || 1) })}</span></> : null}
+              {dealType === "physical_product" ? <><span className="k">{t("seller.fulfilment")}</span><span className="v">{delivery.filter((d) => d.label.trim()).map((d) => `${d.label}${estimateTextFor(d) ? ` (${estimateTextFor(d)})` : ""}`).join(" · ")}</span></> : null}
               {dealType === "voucher" ? <>
-                <span className="k">{t("pages.seller.0e87de71")}</span><span className="v">{ils(Number(voucherFaceValue))}</span>
-                <span className="k">{t("pages.seller.a458744a")}</span><span className="v">{redemptionLocation}</span>
+                <span className="k">{t("seller.voucher_value")}</span><span className="v">{ils(Number(voucherFaceValue))}</span>
+                <span className="k">{t("seller.redemption")}</span><span className="v">{redemptionLocation}</span>
               </> : null}
               {dealType === "ticket" ? <>
-                <span className="k">{t("pages.seller.2266a5aa")}</span><span className="v">{eventName}</span>
-                <span className="k">{t("pages.seller.98b93265")}</span><span className="v">{venueName} · {venueCity}</span>
+                <span className="k">{t("seller.event")}</span><span className="v">{eventName}</span>
+                <span className="k">{t("seller.place")}</span><span className="v">{venueName} · {venueCity}</span>
               </> : null}
-              <span className="k">{t("pages.seller.704079d2")}</span><span className="v">{t("pages.seller.c85d104e")}</span>
+              <span className="k">{t("seller.c_ton_fee")}</span><span className="v">{t("seller.x_8_vat_what_actually_collected")}</span>
             </div>
             <div className="notice info">
-              {t("pages.seller.ebc366b3")}</div>
+              {t("seller.the_deal_saved_draft_nothing")}</div>
           </>
         ) : null}
 
         {error ? <div className="notice err">{error}</div> : null}
         {uploadStatus ? <div className="notice info">{uploadStatus}</div> : null}
         <div className="wizard-nav">
-          {step > 0 ? <button className="btn btn-ghost" onClick={() => { setErrors({}); setStep(step - 1); }}>{t("pages.seller.b95be293")}</button> : <span />}
+          {step > 0 ? <button className="btn btn-ghost" onClick={() => { setErrors({}); setStep(step - 1); }}>{t("seller.back_2")}</button> : <span />}
           {step < 4
-            ? <button data-testid="wizard-next" className="btn btn-primary" onClick={continueStep}>{t("pages.seller.855e71aa")}</button>
-            : <button data-testid="wizard-save" className="btn btn-primary btn-lg" disabled={busy} onClick={save}>{busy ? (uploadStatus || t("pages.seller.cafc2ef5")) : t("pages.seller.4a3f2fc8")}</button>}
+            ? <button data-testid="wizard-next" className="btn btn-primary" onClick={continueStep}>{t("seller.continue")}</button>
+            : <button data-testid="wizard-save" className="btn btn-primary btn-lg" disabled={busy} onClick={save}>{busy ? (uploadStatus || t("seller.saving")) : t("seller.save_go_deal")}</button>}
         </div>
       </div>
     </div>
@@ -1251,22 +1251,22 @@ function whatHappensNow(deal: Json, chargedUnits: number): string {
   switch (state) {
     case "PendingTarget":
       return joined >= threshold
-        ? t("pages.seller.71990144")
-        : t("pages.seller.878c78de", { joined: num(Math.max(0, threshold - joined)) });
-    case "TargetReached": return t("pages.seller.f33fc388");
+        ? t("seller.if_ended_now_deal_would")
+        : t("seller.if_deadline_arrived_now_deal", { joined: num(Math.max(0, threshold - joined)) });
+    case "TargetReached": return t("seller.the_minimum_reached_deadline_early");
     case "ClosedForJoining":
       return String(deal.close_reason || "") === "manual"
-        ? t("pages.seller.3b8245e4")
-        : t("pages.seller.9245d452");
-    case "ReadyForCharging": return t("pages.seller.fc44028b");
-    case "Charging": return t("pages.seller.29f27a69");
+        ? t("seller.joining_paused_request_buyer_charged")
+        : t("seller.the_list_closed_system_preparing");
+    case "ReadyForCharging": return t("seller.the_deal_locked_charges_start");
+    case "Charging": return t("seller.the_charges_being_made_now");
     case "CompletionWindow":
       return chargedUnits >= threshold
-        ? t("pages.seller.9df1dec3")
-        : t("pages.seller.36ff9884", { threshold: num(threshold), chargedUnits: num(chargedUnits) });
-    case "Completed": return t("pages.seller.ad918e06");
-    case "Failed": return t("pages.seller.15795239");
-    case "Cancelled": return t("pages.seller.981bdf9f");
+        ? t("seller.the_90_threshold_already_been")
+        : t("seller.if_completion_window_ended_now", { threshold: num(threshold), chargedUnits: num(chargedUnits) });
+    case "Completed": return t("seller.the_deal_completed_start_fulfilling");
+    case "Failed": return t("seller.the_deal_did_complete_every");
+    case "Cancelled": return t("seller.the_deal_cancelled_authorizations_released");
     default: return "";
   }
 }
@@ -1306,20 +1306,20 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
   // (same rule as the create wizard) instead of only on submit.
   const validateEdit = (): Record<string, string> => {
     const errs: Record<string, string> = {};
-    if (!title.trim()) errs.title = t("pages.seller.bd4a8380");
-    if (!(Number(price) > 0)) errs.price = t("pages.seller.ffac3007");
-    if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = t("pages.seller.e5e1b021");
-    if (!isPositiveIntegerText(minUnits)) errs.min = t("pages.seller.9e2a133c");
-    if (!isPositiveIntegerText(maxUnits) || !(Number(maxUnits) >= Number(minUnits))) errs.max = t("pages.seller.28254e08");
+    if (!title.trim()) errs.title = t("seller.enter_name_deal");
+    if (!(Number(price) > 0)) errs.price = t("seller.enter_price_per_unit");
+    if (listPrice.trim() && !(Number(listPrice) > Number(price))) errs.listPrice = t("seller.the_list_price_must_higher");
+    if (!isPositiveIntegerText(minUnits)) errs.min = t("seller.enter_minimum_quantity");
+    if (!isPositiveIntegerText(maxUnits) || !(Number(maxUnits) >= Number(minUnits))) errs.max = t("seller.the_maximum_quantity_must_least");
     const dl = validateDeadline(deadlineDate, deadlineTime);
     if (dl.error) errs.editDeadline = dl.error;
     if (dealType === "voucher") {
-      if (!(Number(vFace) > 0)) errs.vFace = t("pages.seller.5b94bfb4");
-      if (!vValid) errs.vValid = t("pages.seller.dd778626");
+      if (!(Number(vFace) > 0)) errs.vFace = t("seller.enter_voucher_value");
+      if (!vValid) errs.vValid = t("seller.choose_validity_period_voucher");
     }
     if (dealType === "ticket") {
-      if (!tEventName.trim()) errs.tEventName = t("pages.seller.018096b9");
-      if (!tStart) errs.tStart = t("pages.seller.d1343da5");
+      if (!tEventName.trim()) errs.tEventName = t("seller.enter_event_name");
+      if (!tStart) errs.tStart = t("seller.choose_date_event");
     }
     return errs;
   };
@@ -1373,11 +1373,11 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
           }
         } : {})
       });
-      showToast(t("pages.seller.3624971b"));
+      showToast(t("seller.the_draft_saved"));
       setOpen(false);
       onSaved();
     } catch (e: any) {
-      showToast(e.message || t("pages.seller.1072e99d"));
+      showToast(e.message || t("seller.saving_failed"));
     }
     setBusy(false);
   };
@@ -1386,47 +1386,47 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
     return (
       <div className="panel">
         <div className="row" style={{ justifyContent: "space-between" }}>
-          <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.d84405f7")}</div>
-          <button className="btn btn-sm btn-ghost" data-testid="draft-edit-open" onClick={() => setOpen(true)}>{t("pages.seller.eae2c936")}</button>
+          <div className="panel-title" style={{ marginBottom: 0 }}>{t("seller.deal_details")}</div>
+          <button className="btn btn-sm btn-ghost" data-testid="draft-edit-open" onClick={() => setOpen(true)}>{t("seller.edit_details")}</button>
         </div>
       </div>
     );
   }
   return (
     <div className="panel">
-      <div className="panel-title">{t("pages.seller.54eefa0a")}</div>
+      <div className="panel-title">{t("seller.edit_deal_details")}</div>
       <div className="field">
-        <label htmlFor="f-title">{t("pages.seller.60af138e")} <span className="req">*</span></label>
+        <label htmlFor="f-title">{t("seller.deal_name")} <span className="req">*</span></label>
         <input {...attention(errors, "title")} value={title} disabled={Boolean(deal.product_id)} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
-        {deal.product_id ? <span className="hint" data-testid="draft-product-locked">{t("pages.seller.d74c331a")}</span> : null}
+        {deal.product_id ? <span className="hint" data-testid="draft-product-locked">{t("seller.the_name_description_come_product")}</span> : null}
         <FieldError msg={errors.title} />
       </div>
       <div className="field">
-        <label>{t("pages.seller.5b561b20")} <span className="hint">{t("pages.seller.4a4852ff")}</span></label>
+        <label>{t("seller.short_description")} <span className="hint">{t("seller.up_200_characters")}</span></label>
         <input value={shortDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setShortDesc(e.target.value)} maxLength={200} />
       </div>
       <div className="field">
-        <label>{t("pages.seller.4dc3b47c")}</label>
+        <label>{t("seller.full_description")}</label>
         <textarea rows={6} value={longDesc} disabled={Boolean(deal.product_id)} onChange={(e) => setLongDesc(e.target.value)} maxLength={4000} />
       </div>
       <div className="field-row">
         <div className="field">
-          <label htmlFor="f-price">{t("pages.seller.1221db3b")} <span className="req">*</span></label>
+          <label htmlFor="f-price">{t("seller.price_per_unit")} <span className="req">*</span></label>
           <input {...attention(errors, "price")} dir="ltr" type="number" min={1} step="0.5" value={price} onChange={(e) => setPrice(e.target.value)} />
           <FieldError msg={errors.price} />
         </div>
         <div className="field">
-          <label htmlFor="f-listPrice">{t("pages.seller.46ed2219")} <span className="hint">{t("pages.seller.9fbd1f49")}</span></label>
+          <label htmlFor="f-listPrice">{t("seller.list_price")} <span className="hint">{t("seller.optional")}</span></label>
           <input {...attention(errors, "listPrice")} dir="ltr" type="number" min={1} step="0.5" value={listPrice} onChange={(e) => setListPrice(e.target.value)} />
           <FieldError msg={errors.listPrice} />
         </div>
         <div className="field">
-          <label htmlFor="f-min">{t("pages.seller.00fc351e")} <span className="req">*</span></label>
+          <label htmlFor="f-min">{t("seller.minimum_quantity")} <span className="req">*</span></label>
           <input {...attention(errors, "min")} {...QUANTITY_INPUT_ATTRS} value={minUnits} onChange={(e) => setMinUnits(e.target.value)} />
           <FieldError msg={errors.min} />
         </div>
         <div className="field">
-          <label htmlFor="f-max">{t("pages.seller.174f88b7")} <span className="req">*</span></label>
+          <label htmlFor="f-max">{t("seller.maximum_stock")} <span className="req">*</span></label>
           <input {...attention(errors, "max")} {...QUANTITY_INPUT_ATTRS} value={maxUnits} onChange={(e) => setMaxUnits(e.target.value)} />
           <FieldError msg={errors.max} />
         </div>
@@ -1434,49 +1434,49 @@ function DraftEditPanel({ deal, onSaved, showToast }: { deal: Json; onSaved: () 
       <DeadlinePicker idPrefix="edit-deadline" date={deadlineDate} time={deadlineTime} onDate={setDeadlineDate} onTime={setDeadlineTime} error={errors.editDeadline} />
       {dealType === "voucher" ? (
         <>
-          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("pages.seller.58bb1b80")}</div>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("seller.voucher_details")}</div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="f-vFace">{t("pages.seller.5fd3a061")} <span className="req">*</span></label>
+              <label htmlFor="f-vFace">{t("seller.face_value")} <span className="req">*</span></label>
               <input {...attention(errors, "vFace")} dir="ltr" type="number" min={1} value={vFace} onChange={(e) => setVFace(e.target.value)} />
               <FieldError msg={errors.vFace} />
             </div>
             <div className="field">
-              <label htmlFor="f-vValid">{t("pages.seller.03baa387")} <span className="req">*</span></label>
+              <label htmlFor="f-vValid">{t("seller.valid_until")} <span className="req">*</span></label>
               <input {...attention(errors, "vValid")} dir="ltr" type="date" value={vValid} onChange={(e) => setVValid(e.target.value)} />
               <FieldError msg={errors.vValid} />
             </div>
           </div>
-          <div className="field"><label>{t("pages.seller.2461095e")}</label><input value={vLocation} onChange={(e) => setVLocation(e.target.value)} maxLength={500} /></div>
-          <div className="field"><label>{t("pages.seller.119fefce")}</label><textarea rows={2} value={vInstructions} onChange={(e) => setVInstructions(e.target.value)} maxLength={1000} /></div>
-          <div className="field"><label>{t("pages.seller.c6d02b8f")}</label><textarea rows={2} value={vTerms} onChange={(e) => setVTerms(e.target.value)} maxLength={2000} /></div>
+          <div className="field"><label>{t("seller.redemption_place")}</label><input value={vLocation} onChange={(e) => setVLocation(e.target.value)} maxLength={500} /></div>
+          <div className="field"><label>{t("seller.redemption_instructions")}</label><textarea rows={2} value={vInstructions} onChange={(e) => setVInstructions(e.target.value)} maxLength={1000} /></div>
+          <div className="field"><label>{t("seller.voucher_terms")}</label><textarea rows={2} value={vTerms} onChange={(e) => setVTerms(e.target.value)} maxLength={2000} /></div>
         </>
       ) : null}
       {dealType === "ticket" ? (
         <>
-          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("pages.seller.10124253")}</div>
+          <div className="section-title" style={{ margin: "12px 0 8px" }}>{t("seller.event_details")}</div>
           <div className="field-row">
             <div className="field">
-              <label htmlFor="f-tEventName">{t("pages.seller.1acb417f")} <span className="req">*</span></label>
+              <label htmlFor="f-tEventName">{t("seller.event_name")} <span className="req">*</span></label>
               <input {...attention(errors, "tEventName")} value={tEventName} onChange={(e) => setTEventName(e.target.value)} maxLength={200} />
               <FieldError msg={errors.tEventName} />
             </div>
             <div className="field">
-              <label htmlFor="f-tStart">{t("pages.seller.2ac887ba")} <span className="req">*</span></label>
+              <label htmlFor="f-tStart">{t("seller.starts")} <span className="req">*</span></label>
               <input {...attention(errors, "tStart")} dir="ltr" type="datetime-local" value={tStart} onChange={(e) => setTStart(e.target.value)} />
               <FieldError msg={errors.tStart} />
             </div>
           </div>
           <div className="field-row">
-            <div className="field"><label>{t("pages.seller.acc2a875")}</label><input value={tVenue} onChange={(e) => setTVenue(e.target.value)} maxLength={200} /></div>
-            <div className="field"><label>{t("pages.seller.b2136c90")}</label><input value={tCity} onChange={(e) => setTCity(e.target.value)} maxLength={100} /></div>
+            <div className="field"><label>{t("seller.event_venue")}</label><input value={tVenue} onChange={(e) => setTVenue(e.target.value)} maxLength={200} /></div>
+            <div className="field"><label>{t("seller.city")}</label><input value={tCity} onChange={(e) => setTCity(e.target.value)} maxLength={100} /></div>
           </div>
-          <div className="field"><label>{t("pages.seller.21a635a8")}</label><textarea rows={2} value={tEntry} onChange={(e) => setTEntry(e.target.value)} maxLength={1000} /></div>
+          <div className="field"><label>{t("seller.entry_instructions")}</label><textarea rows={2} value={tEntry} onChange={(e) => setTEntry(e.target.value)} maxLength={1000} /></div>
         </>
       ) : null}
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn btn-ghost" onClick={() => setOpen(false)}>{t("pages.seller.a7c55a8d")}</button>
-        <button className="btn btn-primary" data-testid="draft-edit-save" disabled={busy} onClick={save}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.b95cbc6b")}</button>
+        <button className="btn btn-ghost" onClick={() => setOpen(false)}>{t("seller.cancel")}</button>
+        <button className="btn btn-primary" data-testid="draft-edit-save" disabled={busy} onClick={save}>{busy ? t("seller.saving") : t("seller.save_changes")}</button>
       </div>
     </div>
   );
@@ -1509,15 +1509,15 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   const dealType = String(deal.deal_type || "physical_product");
   const validateDelivery = () => {
     const errors: Record<string, string> = {};
-    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = t("pages.seller.d3eda730");
+    if (!rows.some(row => row.label.trim())) errors[rows.length ? "delivery-label-0" : "delivery-options"] = t("seller.at_least_one_delivery_option");
     else if (String(deal.state) !== "Draft") rows.forEach((row, index) => {
-      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = t("pages.seller.349188e4");
+      if (row.label.trim() && !hasUsablePickupLocation(row)) errors[`delivery-label-${index}`] = t("seller.pickup_distribution_point_needs_address_2");
     });
     rows.forEach((row, index) => {
       if (!row.label.trim()) return;
       const estError = validateEstimateRange(row.est_min, row.est_max);
       if (estError) errors[`delivery-estimate-${index}`] = estError;
-      else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = t("pages.seller.c593f532");
+      else if (deal.product_id && (!row.est_min.trim() || !row.est_max.trim())) errors[`delivery-estimate-${index}`] = t("seller.a_deal_created_product_needs_2");
     });
     return errors;
   };
@@ -1529,9 +1529,9 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
   if (dealType !== "physical_product") {
     return (
       <div className="panel" data-testid="delivery-section">
-        <div className="panel-title">{t("pages.seller.92d04751")}</div>
+        <div className="panel-title">{t("seller.delivery_shipping")}</div>
         <p className="muted small" style={{ marginBottom: 0 }}>
-          {dealType === "voucher" ? t("pages.seller.2a4b3ca6") : t("pages.seller.e113bcac")}
+          {dealType === "voucher" ? t("seller.a_voucher_deal_redemption_digital") : t("seller.a_ticket_deal_entry_ticket")}
         </p>
       </div>
     );
@@ -1568,29 +1568,29 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
           ...deliveryEstimatePayload(r)
         }))
       });
-      showToast(t("pages.seller.34f9ca70"));
+      showToast(t("seller.the_delivery_options_saved"));
       setEditing(false);
       onSaved();
-    } catch (e: any) { setError(e.message || t("pages.seller.1072e99d")); }
+    } catch (e: any) { setError(e.message || t("seller.saving_failed")); }
     setBusy(false);
   };
 
   return (
     <div className="panel" data-testid="delivery-section">
       <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-        <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.92d04751")}</div>
+        <div className="panel-title" style={{ marginBottom: 0 }}>{t("seller.delivery_shipping")}</div>
         {editable && !editing ? (
-          <button className="btn btn-sm btn-ghost" data-testid="delivery-edit-open" onClick={beginEdit}>{t("pages.seller.39fe2593")}</button>
+          <button className="btn btn-sm btn-ghost" data-testid="delivery-edit-open" onClick={beginEdit}>{t("seller.edit")}</button>
         ) : null}
       </div>
 
       {!editable ? (
         <p className="muted small" style={{ margin: "8px 0 0" }} data-testid="delivery-locked-note">
           {lockReason === "buyer_reliance"
-            ? t("pages.seller.0950115b")
+            ? t("seller.this_detail_cannot_changed_once")
             : lockReason === "deal_state"
-              ? t("pages.seller.cb7b64cc")
-              : t("pages.seller.af0a635c")}
+              ? t("seller.this_detail_cannot_changed_deal")
+              : t("seller.this_detail_cannot_changed_once_2")}
         </p>
       ) : null}
 
@@ -1610,19 +1610,19 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
                           <span className={`small ${pickupPrecision(o) === "exact" ? "muted" : "pickup-precision-warn"}`} data-testid={`pickup-precision-${pickupPrecision(o)}`}> · {PICKUP_PRECISION_COPY[pickupPrecision(o)]}</span>
                         </span>
                       ) : (
-                        <span className="pickup-missing" data-testid="pickup-location-missing">  {t("pages.seller.aa25a611")}</span>
+                        <span className="pickup-missing" data-testid="pickup-location-missing">  {t("seller.a_pickup_address_location_missing")}</span>
                       )
                     ) : null}
                   </span>
-                  <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : t("pages.seller.323814d1")}</span>
+                  <span className="delivery-cost">{Number(o.cost) ? ils(o.cost) : t("seller.free")}</span>
                   {deliveryEstimateText(o) ? <span className="muted small" data-testid="seller-delivery-estimate">{deliveryEstimateText(o)}</span> : null}
-                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">{t("pages.seller.f5a83bf4")}</a> : null}
+                  {nav ? <a className="btn btn-sm btn-ghost" href={nav} target="_blank" rel="noreferrer">{t("seller.show_map")}</a> : null}
                 </div>
               );
             })}
           </div>
         ) : (
-          <p className="muted small" style={{ margin: "8px 0 0" }}>{t("pages.seller.94b49198")}</p>
+          <p className="muted small" style={{ margin: "8px 0 0" }}>{t("seller.no_delivery_options_been_set")}</p>
         )
       ) : (
         <div className="stack" style={{ gap: 4, marginTop: 10 }}>
@@ -1630,26 +1630,26 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
             <React.Fragment key={i}>
               <div className="row" style={{ marginBottom: 6, alignItems: "flex-end" }}>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 120px" }}>
-                  <label>{t("pages.seller.f45000d5")}</label>
+                  <label>{t("seller.type")}</label>
                   <select value={d.option_type} onChange={(e) => {
                     const t = e.target.value;
                     setRows(rows.map((x, j) => j === i ? { ...x, option_type: t, ...(t === "delivery" ? { latitude: null, longitude: null } : {}) } : x));
                   }}>
-                    <option value="pickup">{t("pages.seller.ffe01f8e")}</option>
-                    <option value="delivery">{t("pages.seller.ee0500fa")}</option>
-                    <option value="distribution_point">{t("pages.seller.821c337a")}</option>
+                    <option value="pickup">{t("seller.pickup")}</option>
+                    <option value="delivery">{t("seller.delivery")}</option>
+                    <option value="distribution_point">{t("seller.distribution_point")}</option>
                   </select>
                 </div>
                 <div className="field grow" style={{ marginBottom: 0, flex: "2 1 160px" }}>
-                  <label>{isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.927492f8")}</label>
-                  <input {...attention(fieldErrors, `delivery-label-${i}`)} aria-label={isPickupOptionType(d.option_type) ? t("pages.seller.f45eda46") : t("pages.seller.235e9e55")} value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("pages.seller.a76219f5") : t("pages.seller.b79cf051")} />
+                  <label>{isPickupOptionType(d.option_type) ? t("seller.pickup_address_location") : t("seller.description")}</label>
+                  <input {...attention(fieldErrors, `delivery-label-${i}`)} aria-label={isPickupOptionType(d.option_type) ? t("seller.pickup_address_location") : t("seller.delivery_description")} value={d.label} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, label: e.target.value } : x))} placeholder={isPickupOptionType(d.option_type) ? t("seller.for_example_12_herzl_st") : t("seller.for_example_courier_delivery_door")} />
                   <FieldError msg={fieldErrors[`delivery-label-${i}`]} />
                 </div>
                 <div className="field" style={{ marginBottom: 0, flex: "1 1 90px" }}>
-                  <label>{t("pages.seller.b9f1a67a")}</label>
+                  <label>{t("seller.cost")}</label>
                   <input dir="ltr" type="number" min={0} value={d.cost} onChange={(e) => setRows(rows.map((x, j) => j === i ? { ...x, cost: e.target.value } : x))} />
                 </div>
-                {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={t("pages.seller.a99e68e9")}>✕</button> : null}
+                {rows.length > 1 ? <button className="x" onClick={() => setRows(rows.filter((_, j) => j !== i))} aria-label={t("seller.remove")}>✕</button> : null}
               </div>
               <LocationCapture row={d} onSet={(lat, lng) => setRows(rows.map((x, j) => j === i ? { ...x, latitude: lat, longitude: lng } : x))} />
               <DeliveryEstimateInputs row={d} index={i} error={fieldErrors[`delivery-estimate-${i}`]} onChange={(min, max) => setRows(rows.map((x, j) => j === i ? { ...x, est_min: min, est_max: max } : x))} />
@@ -1658,13 +1658,13 @@ function DeliverySection({ deal, options, editable, lockReason, onSaved, showToa
           {rows.length < 5 ? (
             <button {...attention(fieldErrors, "delivery-options", "btn btn-sm btn-ghost")} style={{ alignSelf: "flex-start" }}
               onClick={() => setRows([...rows, { option_type: "delivery", label: "", cost: "0", latitude: null, longitude: null, est_min: "", est_max: "" }])}>
-              {t("pages.seller.18231b14")}</button>
+              {t("seller.add_option")}</button>
           ) : null}
           <FieldError msg={fieldErrors["delivery-options"]} />
           {error ? <div className="notice err">{error}</div> : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>{t("pages.seller.a7c55a8d")}</button>
-            <button className="btn btn-primary" data-testid="delivery-save" disabled={busy} onClick={save}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.c0a0c3af")}</button>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>{t("seller.cancel")}</button>
+            <button className="btn btn-primary" data-testid="delivery-save" disabled={busy} onClick={save}>{busy ? t("seller.saving") : t("seller.save_delivery_options")}</button>
           </div>
         </div>
       )}
@@ -1680,10 +1680,10 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
   if (deal.product_id) {
     return (
       <div className="panel" data-testid="product-link-panel" data-product-id={String(deal.product_id)}>
-        <div className="panel-title">{t("pages.seller.c118a172")}</div>
+        <div className="panel-title">{t("seller.the_product_library_2")}</div>
         <p className="muted small" style={{ margin: 0 }}>
           {t("seller.deal_from_product_prefix")} <a href={`#/seller/products/${deal.product_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/products/${deal.product_id}`); }}><b>{snapshot?.name || deal.title}</b></a>
-          {snapshot?.product_revision ? <> {t("pages.seller.0828f33e", { product_revision: num(snapshot.product_revision) })}</> : null}{t("seller.deal_from_product_suffix")}
+          {snapshot?.product_revision ? <> {t("seller.revision_product_revision", { product_revision: num(snapshot.product_revision) })}</> : null}{t("seller.deal_from_product_suffix")}
         </p>
       </div>
     );
@@ -1694,17 +1694,17 @@ function ProductLinkPanel({ deal, isDraft, onChanged, showToast, navigate }: { d
     setBusy(true);
     try {
       const r = await api.promoteDealToProduct(String(deal.deal_id));
-      showToast(t("pages.seller.8523c5aa"));
+      showToast(t("seller.the_draft_saved_product_library"));
       onChanged();
       if (r?.product?.product_id) navigate(`#/seller/products/${r.product.product_id}`);
-    } catch (e: any) { showToast(e.message || t("pages.seller.8f55e6cc")); }
+    } catch (e: any) { showToast(e.message || t("seller.saving_product_failed")); }
     setBusy(false);
   };
   return (
     <div className="panel" data-testid="product-link-panel" data-product-id="">
-      <div className="panel-title">{t("pages.seller.d709638d")}</div>
-      <p className="muted small">{t("pages.seller.48c3b1c6")}</p>
-      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? t("pages.seller.cafc2ef5") : t("pages.seller.cecc223d")}</button>
+      <div className="panel-title">{t("seller.save_product_library")}</div>
+      <p className="muted small">{t("seller.save_draft_s_details_images")}</p>
+      <button className="btn btn-sm btn-ghost" data-testid="deal-promote-product" disabled={busy} onClick={() => void promote()}>{busy ? t("seller.saving") : t("seller.save_product")}</button>
     </div>
   );
 }
@@ -1716,18 +1716,18 @@ function TypeTermsPanel({ deal }: { deal: Json }) {
     const v = deal.voucher_terms;
     return (
       <div className="panel" data-testid="type-terms">
-        <div className="panel-title">{t("pages.seller.58bb1b80")}</div>
+        <div className="panel-title">{t("seller.voucher_details")}</div>
         <div className="kv">
-          <span className="k">{t("pages.seller.f2e0e0d5")}</span><span className="v">{ils(v.face_value_amount)}</span>
-          <span className="k">{t("pages.seller.03baa387")}</span><span className="v">{fmtDate(v.valid_until)}</span>
-          <span className="k">{t("pages.seller.2461095e")}</span><span className="v">{v.redemption_location || "—"}</span>
-          <span className="k">{t("pages.seller.119fefce")}</span><span className="v" style={{ fontWeight: 500 }}>{v.redemption_instructions || "—"}</span>
-          <span className="k">{t("pages.seller.ffc8ecdb")}</span><span className="v" style={{ fontWeight: 500 }}>{v.terms || "—"}</span>
+          <span className="k">{t("seller.face_value_2")}</span><span className="v">{ils(v.face_value_amount)}</span>
+          <span className="k">{t("seller.valid_until")}</span><span className="v">{fmtDate(v.valid_until)}</span>
+          <span className="k">{t("seller.redemption_place")}</span><span className="v">{v.redemption_location || "—"}</span>
+          <span className="k">{t("seller.redemption_instructions")}</span><span className="v" style={{ fontWeight: 500 }}>{v.redemption_instructions || "—"}</span>
+          <span className="k">{t("seller.terms")}</span><span className="v" style={{ fontWeight: 500 }}>{v.terms || "—"}</span>
         </div>
         {String(deal.state) === "Draft" ? (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.08a364d3")}</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("seller.the_voucher_details_edited_while")}</p>
         ) : (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.d737d321")}</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("seller.the_voucher_terms_cannot_changed")}</p>
         )}
       </div>
     );
@@ -1736,20 +1736,20 @@ function TypeTermsPanel({ deal }: { deal: Json }) {
     const t = deal.ticket_terms;
     return (
       <div className="panel" data-testid="type-terms">
-        <div className="panel-title">{t("pages.seller.10124253")}</div>
+        <div className="panel-title">{t("seller.event_details")}</div>
         <div className="kv">
-          <span className="k">{t("pages.seller.2266a5aa")}</span><span className="v">{t.event_name || "—"}</span>
-          <span className="k">{t("pages.seller.a7ee0f16")}</span><span className="v">{fmtDate(t.event_starts_at)}</span>
-          {t.event_ends_at ? (<><span className="k">{t("pages.seller.fdd5f329")}</span><span className="v">{fmtDate(t.event_ends_at)}</span></>) : null}
-          <span className="k">{t("pages.seller.98b93265")}</span><span className="v">{[t.venue_name, t.venue_city].filter(Boolean).join(" · ") || "—"}</span>
-          {t.venue_address ? (<><span className="k">{t("pages.seller.daab1ad0")}</span><span className="v">{t.venue_address}</span></>) : null}
-          <span className="k">{t("pages.seller.21a635a8")}</span><span className="v" style={{ fontWeight: 500 }}>{t.entry_instructions || "—"}</span>
-          <span className="k">{t("pages.seller.e7c036d1")}</span><span className="v">{t.transfer_allowed ? t("pages.seller.e6ec5958") : t("pages.seller.2d189b2d")}</span>
+          <span className="k">{t("seller.event")}</span><span className="v">{t.event_name || "—"}</span>
+          <span className="k">{t("seller.starts_2")}</span><span className="v">{fmtDate(t.event_starts_at)}</span>
+          {t.event_ends_at ? (<><span className="k">{t("seller.ends_2")}</span><span className="v">{fmtDate(t.event_ends_at)}</span></>) : null}
+          <span className="k">{t("seller.place")}</span><span className="v">{[t.venue_name, t.venue_city].filter(Boolean).join(" · ") || "—"}</span>
+          {t.venue_address ? (<><span className="k">{t("seller.address")}</span><span className="v">{t.venue_address}</span></>) : null}
+          <span className="k">{t("seller.entry_instructions")}</span><span className="v" style={{ fontWeight: 500 }}>{t.entry_instructions || "—"}</span>
+          <span className="k">{t("seller.ticket_transfer")}</span><span className="v">{t.transfer_allowed ? t("seller.allowed") : t("seller.not_allowed")}</span>
         </div>
         {String(deal.state) === "Draft" ? (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.8c42cc7b")}</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("seller.the_event_details_edited_while")}</p>
         ) : (
-          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("pages.seller.644299d7")}</p>
+          <p className="muted small" style={{ margin: "10px 0 0" }}>{t("seller.the_event_details_cannot_changed")}</p>
         )}
       </div>
     );
@@ -1765,9 +1765,9 @@ function SellerViralTreePage({ dealId, navigate }: { dealId: string; navigate: (
   }, [dealId]);
   return (
     <>
-      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("pages.seller.fbd4509a")}</a>
+      <a className="back" href={`#/seller/deal/${dealId}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${dealId}`); }}>{t("seller.to_deal")}</a>
       <div className="panel">
-        <div className="panel-title">{t("pages.seller.bc3483ce", { v0: title || t("pages.seller.7b647458") })}</div>
+        <div className="panel-title">{t("seller.distribution_tree_v0", { v0: title || t("seller.my_deal") })}</div>
         <PropagationTree
           dealId={dealId}
           dealTitle={title}
@@ -1796,18 +1796,18 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
   const isPhysical = String(deal.deal_type || "physical_product") === "physical_product";
 
   const checks: { label: string; ok: boolean; blocker: string | null }[] = [
-    { label: t("pages.seller.53d47efb"), ok: Boolean(String(deal.title || "").trim()) && Number(deal.price_per_unit) > 0, blocker: t("pages.seller.f26141df") },
-    { label: t("pages.seller.b641d617"), ok: Number(deal.min_units) >= 1 && Number(deal.max_units) >= Number(deal.min_units), blocker: t("pages.seller.02f0f3c1") },
+    { label: t("seller.name_price"), ok: Boolean(String(deal.title || "").trim()) && Number(deal.price_per_unit) > 0, blocker: t("seller.the_deal_missing_name_price") },
+    { label: t("seller.target_quantities"), ok: Number(deal.min_units) >= 1 && Number(deal.max_units) >= Number(deal.min_units), blocker: t("seller.fill_both_minimum_maximum_quantity") },
     {
-      label: t("pages.seller.b34edb91"),
+      label: t("seller.a_future_deadline"),
       ok: Number.isFinite(deadlineMs) && deadlineMs - Date.now() > 30 * 60_000,
-      blocker: t("pages.seller.763b1846")
+      blocker: t("seller.the_deadline_passed_too_close")
     },
-    { label: t("pages.seller.ccfc5019"), ok: images.length > 0, blocker: t("pages.seller.885cafa8") },
-    ...(isPhysical ? [{ label: t("pages.seller.b4b0fa50"), ok: deliveryOptions.length > 0, blocker: t("pages.seller.15bb7786") }] : []),
+    { label: t("seller.main_image"), ok: images.length > 0, blocker: t("seller.upload_least_one_image") },
+    ...(isPhysical ? [{ label: t("seller.delivery_option"), ok: deliveryOptions.length > 0, blocker: t("seller.add_least_one_delivery_option") }] : []),
     // P0.7 — the same pickup rule the server enforces at publish
     ...(isPhysical && deliveryOptions.some((o) => isPickupOptionType(o.option_type))
-      ? [{ label: t("pages.seller.8fbf7755"), ok: deliveryOptions.every((o) => hasUsablePickupLocation(o)), blocker: t("pages.seller.b6abab97") }]
+      ? [{ label: t("seller.pickup_location"), ok: deliveryOptions.every((o) => hasUsablePickupLocation(o)), blocker: t("seller.pickup_distribution_point_missing_address") }]
       : [])
   ];
   const blockers = checks.filter((c) => !c.ok).map((c) => c.blocker!).filter(Boolean);
@@ -1815,40 +1815,40 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
 
   const publish = async () => {
     if (busy) return;
-    if (!ack1 || !ack2) { setAttentionRequested(true); setError(t("pages.seller.8c777a58")); focusField(!ack1 ? "publish-terms" : "publish-threshold"); return; }
+    if (!ack1 || !ack2) { setAttentionRequested(true); setError(t("seller.both_conditions_must_accepted_before")); focusField(!ack1 ? "publish-terms" : "publish-threshold"); return; }
     setBusy(true); setError("");
     try {
       await api.publishDeal(String(deal.deal_id));
       props.onPublished();
     } catch (e: any) {
-      setError(e.message || t("pages.seller.f7ab0532"));
+      setError(e.message || t("seller.publishing_failed_try_again"));
       setBusy(false);
     }
   };
 
   return (
     <Modal
-      title={t("pages.seller.4292fa9a")}
+      title={t("seller.publish_deal")}
       onClose={props.onClose}
       footer={
         <>
           {error ? <div className="notice err" style={{ marginTop: 0 }}>{error}</div> : null}
           {!ready ? (
             <div className="notice err" style={{ marginTop: 0 }}>
-              <b>{t("pages.seller.23bfb0b6")}</b>
+              <b>{t("seller.not_ready_publish_yet")}</b>
               <ul style={{ margin: "6px 0 0", paddingInlineStart: 18 }}>
                 {blockers.map((b) => <li key={b}>{b}</li>)}
               </ul>
             </div>
           ) : null}
           <button className="btn btn-join btn-block" data-testid="publish-confirm" disabled={busy || !ready} onClick={publish}>
-            {busy ? t("pages.seller.59a5e646") : t("pages.seller.4292fa9a")}
+            {busy ? t("seller.publishing") : t("seller.publish_deal")}
           </button>
         </>
       }
     >
       <p className="muted small" style={{ marginTop: 0 }}>
-        {t("pages.seller.f8a5318c")}</p>
+        {t("seller.just_before_deal_goes_live")}</p>
       <div className="publish-checklist">
         {checks.map((c) => (
           <div key={c.label} className={`publish-check${c.ok ? " ok" : " missing"}`}>
@@ -1857,22 +1857,22 @@ function PublishModal(props: { deal: Json; onClose: () => void; onPublished: () 
         ))}
       </div>
       <div className="kv" style={{ margin: "14px 0" }}>
-        <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(deal.price_per_unit)}</span>
+        <span className="k">{t("seller.price_per_unit_2")}</span><span className="v">{ils(deal.price_per_unit)}</span>
         {Number(deal.list_price_per_unit) > Number(deal.price_per_unit) ? <>
-          <span className="k">{t("pages.seller.89b17d40")}</span><span className="v">{t("pages.seller.df2f5454", { list_price_per_unit: ils(deal.list_price_per_unit), v1: Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100) })}</span>
+          <span className="k">{t("seller.list_price_shown_saving")}</span><span className="v">{t("seller.list_price_per_unit_saving", { list_price_per_unit: ils(deal.list_price_per_unit), v1: Math.round((1 - Number(deal.price_per_unit) / Number(deal.list_price_per_unit)) * 100) })}</span>
         </> : null}
-        <span className="k">{t("pages.seller.ebab85ea")}</span><span className="v">{t("pages.seller.8e654f1b", { min_units: num(deal.min_units) })}</span>
-        <span className="k">{t("pages.seller.99772d1d")}</span><span className="v">{t("pages.seller.43c9de56", { threshold: num(threshold) })}</span>
-        <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
+        <span className="k">{t("seller.target_minimum")}</span><span className="v">{t("seller.min_units_units", { min_units: num(deal.min_units) })}</span>
+        <span className="k">{t("seller.success_threshold_90")}</span><span className="v">{t("seller.threshold_charged_units", { threshold: num(threshold) })}</span>
+        <span className="k">{t("seller.deadline")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
       </div>
       <div className="publish-warning">
         <label className="check">
           <input {...attention(consentErrors, "publish-terms")} data-testid="publish-lock-terms" type="checkbox" checked={ack1} onChange={(e) => { setAck1(e.target.checked); setError(""); }} />
-          <span>{t("pages.seller.2b0ee95a")} <b>{t("pages.seller.c759db5a")}</b>  {t("pages.seller.eca09517")}</span>
+          <span>{t("seller.i_read_understood_after_publishing")} <b>{t("seller.cannot_changed")}</b>  {t("seller.price_quantities_deadline_fees")}</span>
         </label>
         <label className="check" style={{ marginBottom: 0 }}>
           <input {...attention(consentErrors, "publish-threshold")} data-testid="publish-lock-threshold" type="checkbox" checked={ack2} onChange={(e) => { setAck2(e.target.checked); setError(""); }} />
-          <span>{t("pages.seller.3e778c74", { threshold: num(threshold) })}</span>
+          <span>{t("seller.i_confirm_terms_final_including", { threshold: num(threshold) })}</span>
         </label>
       </div>
     </Modal>
@@ -1903,8 +1903,8 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
     return () => clearInterval(id);
   }, [dealId]);
 
-  if (error) return <EmptyState title={t("pages.seller.c9018512")} body={error} />;
-  if (!payload?.deal) return <BrandLoader label={t("pages.seller.7441b7d8")} minHeight={420} />;
+  if (error) return <EmptyState title={t("seller.the_deal_cannot_loaded")} body={error} />;
+  if (!payload?.deal) return <BrandLoader label={t("seller.loading_deal")} minHeight={420} />;
 
   const deal = payload.deal;
   // delivery options come as a sibling collection on this endpoint
@@ -1938,28 +1938,28 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
     setReopening(true);
     try {
       await api.reopenJoining(dealId);
-      showToast(t("pages.seller.2b1e3fe9"));
+      showToast(t("seller.joining_been_reopened"));
       await load();
-    } catch (e: any) { showToast(e.message || t("pages.seller.e29ad510")); }
+    } catch (e: any) { showToast(e.message || t("seller.reopening_failed")); }
     setReopening(false);
   };
 
   return (
     <>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("seller.to_dashboard")}</a>
 
       {paused ? (
         <div className="paused-banner" data-testid="paused-banner">
           <div>
-            <b>{t("pages.seller.aace8d77")}</b>
+            <b>{t("seller.joining_paused")}</b>
             <div className="small">
               {t("seller.paused_joining_note")}{" "}
-              {canReopen ? t("pages.seller.8b11cf63") : t("pages.seller.030050bc")}
+              {canReopen ? t("seller.it_reopened_long_deadline_passed") : t("seller.the_deadline_passed_stock_run")}
             </div>
           </div>
           {canReopen ? (
             <button className="btn btn-primary" data-testid="reopen-joining" disabled={reopening} onClick={reopen}>
-              {reopening ? t("pages.seller.78a04145") : t("pages.seller.3da2364c")}
+              {reopening ? t("seller.opening") : t("seller.reopen_joining")}
             </button>
           ) : null}
         </div>
@@ -1969,15 +1969,15 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       {isDraft ? (
         <div className="draft-banner" data-testid="draft-banner">
           <div>
-            <b>{t("pages.seller.67233903")}</b>
-            <div className="small">{t("pages.seller.9ac7771e")}</div>
+            <b>{t("seller.draft_deal_published_yet")}</b>
+            <div className="small">{t("seller.buyers_cannot_see_when_everything")}</div>
           </div>
-          <button className="btn btn-join" data-testid="publish-open" onClick={() => setPublishing(true)}>{t("pages.seller.4292fa9a")}</button>
+          <button className="btn btn-join" data-testid="publish-open" onClick={() => setPublishing(true)}>{t("seller.publish_deal")}</button>
         </div>
       ) : null}
 
       {/* LAUNCH POLISH (P3) — where this deal is on the path, in one glance */}
-      <SellerJourney deal={deal} title={t("pages.seller.28e09562")} />
+      <SellerJourney deal={deal} title={t("seller.how_does_deal_work")} />
 
       {/* constant header: name, image, big colored status */}
       <div className="panel">
@@ -1996,12 +1996,12 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
             own labeled block, never fused into the status sentence. */}
         {inWindow || state === "Charging" ? (
           <div className="seller-countdown-block">
-            <span className="lbl">{t("pages.seller.0ae99ff5")}</span>
+            <span className="lbl">{t("seller.the_completion_window_ends")}</span>
             <LiveCountdown deadline={deal.completion_window_until} compact />
           </div>
         ) : isOpen ? (
           <div className="seller-countdown-block" data-testid="seller-countdown">
-            <span className="lbl">{t("pages.seller.4b6c2e39")}</span>
+            <span className="lbl">{t("seller.joining_ends")}</span>
             <LiveCountdown deadline={deal.deadline} compact />
           </div>
         ) : null}
@@ -2014,25 +2014,25 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
         {!isDraft ? (
           <div className="sd-quants" style={{ fontSize: "1rem", marginTop: 12 }}>
-            <span className="q-charged">{t("pages.seller.4c6059cd", { chargedUnits: num(chargedUnits) })}</span>
-            <span className={`q-pending${inWindow ? " risk" : ""}`}>{inWindow ? t("pages.seller.887ef470") : t("pages.seller.7e5634ef")}: {num(pendingUnits)}</span>
-            <span className="q-none">{t("pages.seller.4e617e29", { droppedUnits: num(droppedUnits) })}</span>
+            <span className="q-charged">{t("seller.charged_successfully_chargedunits", { chargedUnits: num(chargedUnits) })}</span>
+            <span className={`q-pending${inWindow ? " risk" : ""}`}>{inWindow ? t("seller.awaiting_final_approval") : t("seller.pending")}: {num(pendingUnits)}</span>
+            <span className="q-none">{t("seller.not_charged_droppedunits", { droppedUnits: num(droppedUnits) })}</span>
           </div>
         ) : null}
         {inWindow && pendingRows.length ? (
           <p className="small" style={{ color: "var(--saffron)", marginTop: 6 }}>
-            {t("pages.seller.2a66192f", { length: num(pendingRows.length) })}</p>
+            {t("seller.a_message_sent_length_buyers", { length: num(pendingRows.length) })}</p>
         ) : null}
 
         {!isDraft ? (
           <div className="notice info" style={{ marginTop: 14 }}>
-            <b>{t("pages.seller.dd50f275")}</b> {whatHappensNow(deal, chargedUnits)}
+            <b>{t("seller.what_happens_now")}</b> {whatHappensNow(deal, chargedUnits)}
           </div>
         ) : (
           <div className="kv" style={{ marginTop: 14 }}>
-            <span className="k">{t("pages.seller.86b1b870")}</span><span className="v">{ils(deal.price_per_unit)}</span>
-            <span className="k">{t("pages.seller.ebab85ea")}</span><span className="v">{t("pages.seller.8e654f1b", { min_units: num(deal.min_units) })}</span>
-            <span className="k">{t("pages.seller.1d5bf5b3")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
+            <span className="k">{t("seller.price_per_unit_2")}</span><span className="v">{ils(deal.price_per_unit)}</span>
+            <span className="k">{t("seller.target_minimum")}</span><span className="v">{t("seller.min_units_units", { min_units: num(deal.min_units) })}</span>
+            <span className="k">{t("seller.deadline")}</span><span className="v">{formatIsraelDateTime(deal.deadline) || "—"}</span>
           </div>
         )}
 
@@ -2040,36 +2040,36 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {isOpen ? (
             <>
               <button className="btn btn-primary" onClick={async () => {
-                if (await copyText(absoluteShareUrl(dealId, null))) showToast(t("pages.seller.4aa70f6f"));
-              }}>{t("pages.seller.6311b463")}</button>
-              <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">{t("pages.seller.a7e3f458")}</a>
-              <button className="btn btn-ghost" data-testid="pause-joining-open" onClick={() => setConfirmClose(true)}>{t("pages.seller.6f86d5ed")}</button>
+                if (await copyText(absoluteShareUrl(dealId, null))) showToast(t("seller.link_copied"));
+              }}>{t("seller.share_link")}</button>
+              <a className="btn btn-ghost" href={`#/deal/${dealId}`} target="_blank">{t("seller.view_public_page")}</a>
+              <button className="btn btn-ghost" data-testid="pause-joining-open" onClick={() => setConfirmClose(true)}>{t("seller.pause_joining")}</button>
             </>
           ) : isDraft ? (
-            <a className="btn btn-ghost" data-testid="draft-preview-open" href={`#/seller/deal/${dealId}/preview`} target="_blank">{t("pages.seller.3a6faba4")}</a>
+            <a className="btn btn-ghost" data-testid="draft-preview-open" href={`#/seller/deal/${dealId}/preview`} target="_blank">{t("seller.preview_buyer")}</a>
           ) : closed ? (
             <>
               {/* LAUNCH SPRINT 3 — a completed physical deal is now an operational
                   handoff queue: the list + the counter scanner come first */}
               {state === "Completed" && String(deal.deal_type || "physical_product") === "physical_product" ? (
                 <>
-                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
-                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("pages.seller.2d843402")}</button>
+                  <button className="btn btn-primary" data-testid="deal-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("seller.orders_hand_over")}</button>
+                  <button className="btn btn-ghost" data-testid="deal-pickup-scan" onClick={() => navigate("#/seller/pickup")}>{t("seller.pickup_scan")}</button>
                 </>
               ) : null}
               <button className="btn btn-ghost" onClick={async () => {
                 try {
                   const r = await api.duplicateDeal(dealId);
                   const newId = r?.deal?.deal_id || r?.deal_id;
-                  if (newId) { showToast(t("pages.seller.6d1c666b")); navigate(`#/seller/deal/${newId}`); }
-                } catch (e: any) { showToast(e.message || t("pages.seller.96a449fa")); }
-              }}>{t("pages.seller.7c392046")}</button>
+                  if (newId) { showToast(t("seller.a_draft_created_dates_must")); navigate(`#/seller/deal/${newId}`); }
+                } catch (e: any) { showToast(e.message || t("seller.duplicating_failed")); }
+              }}>{t("seller.create_similar_deal")}</button>
             </>
           ) : (
-            <span className="muted small">{t("pages.seller.31b95e34")}</span>
+            <span className="muted small">{t("seller.the_deal_locked_viewing_only")}</span>
           )}
           {deletable ? (
-            <button className="btn btn-ghost btn-danger-ghost" data-testid="deal-delete-open" onClick={() => setConfirmDelete(true)}>{t("pages.seller.c19c0198")}</button>
+            <button className="btn btn-ghost btn-danger-ghost" data-testid="deal-delete-open" onClick={() => setConfirmDelete(true)}>{t("seller.delete_deal_2")}</button>
           ) : null}
           {/* LAUNCH POLISH (P2) — visible, not prominent: ghost + last in the row.
               Offered for every non-terminal, pre-charging state; the SERVER
@@ -2079,7 +2079,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {(isDraft || isOpen || paused) && !closed ? (
             <button className="btn btn-sm btn-ghost btn-danger-ghost" data-testid="deal-cancel-open" style={{ marginInlineStart: "auto" }}
               onClick={() => { cancelIntentKey.current = crypto.randomUUID(); setCancelRefusal(""); setConfirmCancel(true); }}>
-              {t("pages.seller.2b0debce")}</button>
+              {t("seller.cancel_deal")}</button>
           ) : null}
         </div>
       </div>
@@ -2101,9 +2101,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {isDraft ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.seller.e6f926b3")}</div>
+          <div className="panel-title">{t("seller.the_deal_s_images")}</div>
           <p className="muted small" style={{ marginTop: 0 }}>
-            {t("pages.seller.4d0b00dd")}</p>
+            {t("seller.adding_deleting_only_possible_draft")}</p>
           <DraftImageManager
             dealId={dealId}
             images={(deal.images || []) as ServerImage[]}
@@ -2112,7 +2112,7 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         </div>
       ) : isOpen ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.seller.0ab0564d")}</div>
+          <div className="panel-title">{t("seller.image_order_main_image")}</div>
           <DraftImageManager
             dealId={dealId}
             images={(deal.images || []) as ServerImage[]}
@@ -2124,22 +2124,22 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
 
       {closed && state === "Completed" ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.seller.a28c4cdb")}</div>
+          <div className="panel-title">{t("seller.money_based_charges_actually_made")}</div>
           <div className="stat-row" style={{ marginBottom: 0 }}>
-            <StatTile num={ils(gross)} label={t("pages.seller.caea9760")} tone="good" />
-            <StatTile num={ils(fee)} label={t("pages.seller.74cd385f")} />
-            <StatTile num={ils(Math.round((gross - fee * 1.18) * 100) / 100)} label={t("pages.seller.1453c245")} sub={t("pages.seller.25027f2a")} />
-            <StatTile num={num(chargedUnits)} label={t("pages.seller.c2156ef5")} />
+            <StatTile num={ils(gross)} label={t("seller.gross_collected")} tone="good" />
+            <StatTile num={ils(fee)} label={t("seller.c_ton_fee_8")} />
+            <StatTile num={ils(Math.round((gross - fee * 1.18) * 100) / 100)} label={t("seller.estimated_net_seller")} sub={t("seller.expected_transfer_within_3_7")} />
+            <StatTile num={num(chargedUnits)} label={t("seller.charged_units")} />
           </div>
         </div>
       ) : null}
 
       {closed || inWindow || state === "Charging" ? (
         <div className="panel">
-          <div className="panel-title">{t("seller.buyers_panel_title", { suffix: state === "Completed" ? t("pages.seller.2a906eb3") : "" })}</div>
+          <div className="panel-title">{t("seller.buyers_panel_title", { suffix: state === "Completed" ? t("seller.finally_charged") : "" })}</div>
           <div className="table-wrap">
             <table className="data">
-              <thead><tr><th>{t("pages.seller.628febf8")}</th><th>{t("pages.seller.737232c2")}</th><th className="num">{t("pages.seller.d4e2d05b")}</th><th>{t("pages.seller.bd008360")}</th><th>{t("pages.seller.e2325f60")}</th></tr></thead>
+              <thead><tr><th>{t("seller.buyer")}</th><th>{t("seller.phone")}</th><th className="num">{t("seller.quantity")}</th><th>{t("seller.how_receive")}</th><th>{t("seller.payment_state")}</th></tr></thead>
               <tbody>
                 {(state === "Completed" ? chargedRows : participants).slice(0, 100).map((p) => (
                   <tr key={p.participant_id}>
@@ -2156,9 +2156,9 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           {state === "Completed" ? (
             <div className="row" style={{ marginTop: 10 }}>
               {String(deal.deal_type || "physical_product") === "physical_product" ? (
-                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("pages.seller.1ac278ad")}</button>
+                <button className="btn btn-sm btn-primary" data-testid="buyers-fulfillment-open" onClick={() => navigate(`#/seller/deal/${dealId}/fulfillment`)}>{t("seller.orders_hand_over")}</button>
               ) : null}
-              <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">{t("pages.seller.f71ebef9")}</a>
+              <a className="btn btn-sm btn-ghost" href={`/api/seller/deals/${dealId}/export.xlsx`} target="_blank">{t("seller.download_delivery_list_excel")}</a>
             </div>
           ) : null}
         </div>
@@ -2171,25 +2171,25 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
       {!isDraft ? (
         <div className="panel">
           <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap" }}>
-            <div className="panel-title" style={{ marginBottom: 0 }}>{t("pages.seller.ff73b9c2")}</div>
+            <div className="panel-title" style={{ marginBottom: 0 }}>{t("seller.viral_distribution_deal")}</div>
             <button className="btn btn-sm btn-primary" data-testid="open-viral-tree" onClick={() => navigate(`#/seller/deal/${dealId}/viral`)}>
-              {t("pages.seller.c559769a")}</button>
+              {t("seller.open_viral_tree")}</button>
           </div>
           {vm ? (
             <>
               <div className="stat-row" style={{ marginBottom: 10 }}>
-                <StatTile num={num((vm.viral as Json)?.attributed_participants || 0)} label={t("pages.seller.7fa4e58d")} />
-                <StatTile num={num((vm.viral as Json)?.attributed_charged_units || 0)} label={t("pages.seller.7a2638c1")} tone="good" />
-                <StatTile num={ils((vm.viral as Json)?.attributed_charged_gmv || 0)} label={t("pages.seller.49c7de88")} />
-                <StatTile num={num((vm.viral as Json)?.max_generation || 0)} label={t("pages.seller.150d9538")} />
-                <StatTile num={num((vm.viral as Json)?.sharing_participants || 0)} label={t("pages.seller.398a032a")} />
+                <StatTile num={num((vm.viral as Json)?.attributed_participants || 0)} label={t("seller.joins_through_sharing")} />
+                <StatTile num={num((vm.viral as Json)?.attributed_charged_units || 0)} label={t("seller.units_charged_distribution")} tone="good" />
+                <StatTile num={ils((vm.viral as Json)?.attributed_charged_gmv || 0)} label={t("seller.charged_gross_distribution")} />
+                <StatTile num={num((vm.viral as Json)?.max_generation || 0)} label={t("seller.chain_depth_generations")} />
+                <StatTile num={num((vm.viral as Json)?.sharing_participants || 0)} label={t("seller.participants_who_brought_friends")} />
               </div>
               {(vm.top_sharers as Json[])?.length ? (
                 <>
-                  <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("pages.seller.eebe7a0c")}</div>
+                  <div className="section-title" style={{ margin: "10px 0 8px" }}>{t("seller.top_personal_distributors")}</div>
                   <div className="table-wrap">
                     <table className="data">
-                      <thead><tr><th>{t("pages.seller.3cffea29")}</th><th className="num">{t("pages.seller.31a483d1")}</th><th className="num">{t("pages.seller.3258ebab")}</th><th className="num">{t("pages.seller.c2156ef5")}</th><th className="num">{t("pages.seller.038da02c")}</th></tr></thead>
+                      <thead><tr><th>{t("seller.participant")}</th><th className="num">{t("seller.brought_directly")}</th><th className="num">{t("seller.across_branch")}</th><th className="num">{t("seller.charged_units")}</th><th className="num">{t("seller.depth")}</th></tr></thead>
                       <tbody>
                         {(vm.top_sharers as Json[]).slice(0, 8).map((s) => (
                           <tr key={s.participant_id}>
@@ -2204,10 +2204,10 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                     </table>
                   </div>
                 </>
-              ) : <p className="muted small">{t("pages.seller.4e6ecd3b")}</p>}
-              {viral?.stale ? <p className="muted small" style={{ marginTop: 8 }}>{t("pages.seller.60959a72", { computed_at: fmtDate(viral.computed_at) })}</p> : null}
+              ) : <p className="muted small">{t("seller.no_share_brought_join_yet")}</p>}
+              {viral?.stale ? <p className="muted small" style={{ marginTop: 8 }}>{t("seller.the_figures_computed_background_updated", { computed_at: fmtDate(viral.computed_at) })}</p> : null}
             </>
-          ) : <p className="muted small">{t("pages.seller.1273a41a")}</p>}
+          ) : <p className="muted small">{t("seller.the_distribution_figures_computed_after")}</p>}
         </div>
       ) : null}
 
@@ -2215,37 +2215,37 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
         <PublishModal
           deal={deal}
           onClose={() => setPublishing(false)}
-          onPublished={() => { setPublishing(false); showToast(t("pages.seller.b8815a93")); load(); }}
+          onPublished={() => { setPublishing(false); showToast(t("seller.the_deal_published_now_share")); load(); }}
         />
       ) : null}
 
       {confirmClose ? (
-        <Modal title={t("pages.seller.363e90f4")} onClose={() => setConfirmClose(false)}>
-          <p>{t("pages.seller.29ec3a1c")}</p>
-          <p className="muted small">{t("pages.seller.32ddc0d8")}</p>
+        <Modal title={t("seller.pause_joining_deal")} onClose={() => setConfirmClose(false)}>
+          <p>{t("seller.new_buyers_able_join_existing")}</p>
+          <p className="muted small">{t("seller.joining_reopened_long_deadline_passed")}</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" onClick={() => setConfirmClose(false)}>{t("pages.seller.a7c55a8d")}</button>
+            <button className="btn btn-ghost" onClick={() => setConfirmClose(false)}>{t("seller.cancel")}</button>
             <button className="btn btn-danger" data-testid="pause-joining-confirm" onClick={async () => {
-              try { await api.closeJoining(dealId); setConfirmClose(false); showToast(t("pages.seller.47df058b")); load(); }
-              catch (e: any) { showToast(e.message || t("pages.seller.a6af8e7a")); setConfirmClose(false); }
-            }}>{t("pages.seller.bdc8e100")}</button>
+              try { await api.closeJoining(dealId); setConfirmClose(false); showToast(t("seller.joining_been_paused")); load(); }
+              catch (e: any) { showToast(e.message || t("seller.pausing_failed")); setConfirmClose(false); }
+            }}>{t("seller.pause_now")}</button>
           </div>
         </Modal>
       ) : null}
 
       {confirmDelete ? (
-        <Modal title={t("pages.seller.c19c0198")} onClose={() => setConfirmDelete(false)}>
-          <p><b>{t("pages.seller.6d8d1136")}</b>  {t("pages.seller.17c2ea6f")}</p>
-          <p className="muted small">{t("pages.seller.be20cbeb")}</p>
+        <Modal title={t("seller.delete_deal_2")} onClose={() => setConfirmDelete(false)}>
+          <p><b>{t("seller.delete_deal")}</b>  {t("seller.this_action_cannot_undone")}</p>
+          <p className="muted small">{t("seller.deletion_only_possible_while_deal")}</p>
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t("pages.seller.a7c55a8d")}</button>
+            <button className="btn btn-ghost" onClick={() => setConfirmDelete(false)}>{t("seller.cancel")}</button>
             <button className="btn btn-danger" data-testid="deal-delete-confirm" onClick={async () => {
               try {
                 await api.deleteDeal(dealId);
-                showToast(t("pages.seller.360733e0"));
+                showToast(t("seller.the_deal_deleted"));
                 navigate("#/seller");
-              } catch (e: any) { showToast(e.message || t("pages.seller.3456899c")); setConfirmDelete(false); }
-            }}>{t("pages.seller.1d260ac0")}</button>
+              } catch (e: any) { showToast(e.message || t("seller.the_deletion_failed")); setConfirmDelete(false); }
+            }}>{t("seller.delete_permanently")}</button>
           </div>
         </Modal>
       ) : null}
@@ -2256,32 +2256,32 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
           canonical rules guarantee (nobody is charged in the pilot; frames are
           released when a deal ends without success). */}
       {confirmCancel ? (
-        <Modal title={t("pages.seller.25089153")} onClose={() => { if (!cancelling) setConfirmCancel(false); }}>
+        <Modal title={t("seller.cancel_deal_permanently")} onClose={() => { if (!cancelling) setConfirmCancel(false); }}>
           <div className="cancel-compare" data-testid="cancel-vs-pause">
             <div className="is-cancel">
-              <b>{t("pages.seller.a7c55a8d")}</b>
-              {t("pages.seller.ed907a6e")}</div>
+              <b>{t("seller.cancel")}</b>
+              {t("seller.final_deal_closes_cannot_reopened")}</div>
             <div className="is-pause">
-              <b>{t("pages.seller.d0b94d4b")}</b>
-              {t("pages.seller.448f0c21")}</div>
+              <b>{t("seller.pause_alternative")}</b>
+              {t("seller.temporary_only_stops_new_joins")}</div>
           </div>
           <p className="muted small">
             {t("seller.cancel_server_decides")}
-            {!isDraft ? t("pages.seller.a9016d29") : "."}
+            {!isDraft ? t("seller.a_deal_already_published_may") : "."}
           </p>
           {cancelRefusal ? (
             <div className="notice err" data-testid="cancel-refused">
-              <b>{t("pages.seller.580282d6")}</b>
+              <b>{t("seller.the_cancellation_refused_server")}</b>
               <div className="small" style={{ marginTop: 4 }}>{cancelRefusal}</div>
               {isOpen ? (
                 <button className="btn btn-sm btn-ghost" style={{ marginTop: 8 }} data-testid="cancel-refused-pause"
                   onClick={() => { setConfirmCancel(false); setConfirmClose(true); }}>
-                  {t("pages.seller.3d599fc2")}</button>
+                  {t("seller.pause_joining_instead")}</button>
               ) : null}
             </div>
           ) : null}
           <div className="row" style={{ justifyContent: "flex-end" }}>
-            <button className="btn btn-ghost" disabled={cancelling} onClick={() => setConfirmCancel(false)}>{t("pages.seller.10a2352b")}</button>
+            <button className="btn btn-ghost" disabled={cancelling} onClick={() => setConfirmCancel(false)}>{t("seller.back")}</button>
             {!cancelRefusal ? (
               <button className="btn btn-danger" data-testid="deal-cancel-confirm" disabled={cancelling} onClick={async () => {
                 if (cancelling) return;
@@ -2289,20 +2289,20 @@ function SellerDealScreen({ dealId, navigate }: { dealId: string; navigate: (h: 
                 try {
                   await api.cancelDeal(dealId, cancelIntentKey.current);
                   setConfirmCancel(false);
-                  showToast(t("pages.seller.a89c4afb"));
+                  showToast(t("seller.the_deal_cancelled"));
                   await load(); // refresh the seller state immediately after success
                 } catch (e: any) {
                   const code = String(e?.body?.code || e?.body?.error || "");
                   setCancelRefusal(
                     code === "STATE_CONFLICT" && !isDraft
-                      ? t("pages.seller.568f7471")
+                      ? t("seller.a_deal_already_published_cannot")
                       : code === "STATE_CONFLICT"
-                        ? t("pages.seller.750eb0cb")
-                        : String(e?.message || t("pages.seller.98264ec2"))
+                        ? t("seller.the_deal_state_changed_meantime")
+                        : String(e?.message || t("seller.the_cancellation_failed_try_again"))
                   );
                 }
                 setCancelling(false);
-              }}>{cancelling ? t("pages.seller.49adf6f9") : t("pages.seller.63a8a6c5")}</button>
+              }}>{cancelling ? t("seller.cancelling") : t("seller.cancel_deal_permanently_2")}</button>
             ) : null}
           </div>
         </Modal>
@@ -2363,8 +2363,8 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
     api.sellerBusinessProfile().then(adopt).catch((e) => setError(e.message));
   }, []);
 
-  if (error && !payload) return <EmptyState title={t("pages.seller.1ae5cb39")} body={error} />;
-  if (!payload) return <BrandLoader label={t("pages.seller.17227955")} minHeight={420} />;
+  if (error && !payload) return <EmptyState title={t("seller.the_business_profile_cannot_loaded")} body={error} />;
+  if (!payload) return <BrandLoader label={t("seller.loading_business_profile")} minHeight={420} />;
 
   const statuses = payload.statuses || {};
   const last4 = payload.business_profile?.bank_account_last4 || "";
@@ -2377,75 +2377,75 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
     try {
       const r = await api.saveSellerBusinessProfile({ ...form, bank_account_number: bankNumber });
       adopt(r);
-      showToast(t("pages.seller.99775b6c"));
-    } catch (e: any) { setError(e.message || t("pages.seller.1072e99d")); }
+      showToast(t("seller.the_business_profile_saved"));
+    } catch (e: any) { setError(e.message || t("seller.saving_failed")); }
     setBusy(false);
   };
 
   return (
     <div style={{ maxWidth: 680, margin: "0 auto" }}>
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller.227cf122")}</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("seller.to_dashboard")}</a>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.seller.eca3bcbf")}</div>
+        <div className="panel-title">{t("seller.business_account_state")}</div>
         <div className="kv">
-          <span className="k">{t("pages.seller.64278e79")}</span>
-          <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText={t("pages.seller.8a0c3e3e")} missingText={t("pages.seller.8b2bb096")} /></span>
-          <span className="k">{t("pages.seller.f3fa4276")}</span>
-          <span className="v"><span className="status ClosedForJoining">{tKey(VERIFICATION_LABELS[String(statuses.verification_status)], statuses.verification_status || t("pages.seller.51a7047c"))}</span></span>
-          <span className="k">{t("pages.seller.23f4a225")}</span>
-          <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText={t("pages.seller.0d74c234")} missingText={t("pages.seller.47b4be61")} /></span>
-          <span className="k">{t("pages.seller.b8a4eea9")}</span>
-          <span className="v"><span className="status ClosedForJoining">{tKey(GROW_LABELS[String(statuses.grow_onboarding)], t("pages.seller.9a11e343"))}</span></span>
+          <span className="k">{t("seller.business_details")}</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.profile_complete)} okText={t("seller.completed")} missingText={t("seller.details_missing")} /></span>
+          <span className="k">{t("seller.business_verification")}</span>
+          <span className="v"><span className="status ClosedForJoining">{tKey(VERIFICATION_LABELS[String(statuses.verification_status)], statuses.verification_status || t("seller.under_review"))}</span></span>
+          <span className="k">{t("seller.settlement_details")}</span>
+          <span className="v"><StatusBadge ok={Boolean(statuses.settlement_ready)} okText={t("seller.ready")} missingText={t("seller.bank_details_missing")} /></span>
+          <span className="k">{t("seller.connection_payment_provider")}</span>
+          <span className="v"><span className="status ClosedForJoining">{tKey(GROW_LABELS[String(statuses.grow_onboarding)], t("seller.not_started"))}</span></span>
         </div>
         <p className="muted small" style={{ marginBottom: 0, marginTop: 10 }}>
-          {t("pages.seller.92e7564a")}</p>
+          {t("seller.verifying_business_connecting_payment_provider")}</p>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.seller.64278e79")}</div>
+        <div className="panel-title">{t("seller.business_details")}</div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.06ea2f1a")} <span className="req">*</span></label><input value={form.business_name || ""} onChange={set("business_name")} maxLength={200} /></div>
-          <div className="field"><label>{t("pages.seller.40ad1c01")}</label><input value={form.legal_name || ""} onChange={set("legal_name")} maxLength={200} /></div>
+          <div className="field"><label>{t("seller.business_name")} <span className="req">*</span></label><input value={form.business_name || ""} onChange={set("business_name")} maxLength={200} /></div>
+          <div className="field"><label>{t("seller.registered_legal_name")}</label><input value={form.legal_name || ""} onChange={set("legal_name")} maxLength={200} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.8f0d7d8e")} <span className="req">*</span></label><input dir="ltr" inputMode="numeric" value={form.business_id_number || ""} onChange={set("business_id_number")} maxLength={20} /></div>
+          <div className="field"><label>{t("seller.company_dealer_number")} <span className="req">*</span></label><input dir="ltr" inputMode="numeric" value={form.business_id_number || ""} onChange={set("business_id_number")} maxLength={20} /></div>
           <div className="field">
-            <label>{t("pages.seller.e5d83e77")}</label>
+            <label>{t("seller.legal_form")}</label>
             <select value={form.entity_type || ""} onChange={set("entity_type")}>
-              <option value="">{t("pages.seller.116d3c56")}</option>
+              <option value="">{t("seller.choose")}</option>
               {ENTITY_TYPES.map((opt) => <option key={opt.value} value={opt.value}>{t(opt.label)}</option>)}
             </select>
           </div>
         </div>
-        <div className="field"><label>{t("pages.seller.37c9d0a0")}</label><input value={form.business_address || ""} onChange={set("business_address")} maxLength={200} /></div>
+        <div className="field"><label>{t("seller.business_address")}</label><input value={form.business_address || ""} onChange={set("business_address")} maxLength={200} /></div>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.seller.2f5996d9")}</div>
+        <div className="panel-title">{t("seller.contact_settlement")}</div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.29470368")} <span className="req">*</span></label><input value={form.contact_name || ""} onChange={set("contact_name")} maxLength={120} /></div>
-          <div className="field"><label>{t("pages.seller.737232c2")}</label><input dir="ltr" inputMode="tel" value={form.contact_phone || ""} onChange={set("contact_phone")} maxLength={30} /></div>
+          <div className="field"><label>{t("seller.contact_name")} <span className="req">*</span></label><input value={form.contact_name || ""} onChange={set("contact_name")} maxLength={120} /></div>
+          <div className="field"><label>{t("seller.phone")}</label><input dir="ltr" inputMode="tel" value={form.contact_phone || ""} onChange={set("contact_phone")} maxLength={30} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.ad57e6f7")}</label><input dir="ltr" inputMode="email" value={form.contact_email || ""} onChange={set("contact_email")} maxLength={200} /></div>
-          <div className="field"><label>{t("pages.seller.bde6a124")}</label><input dir="ltr" inputMode="email" value={form.finance_email || ""} onChange={set("finance_email")} maxLength={200} /></div>
+          <div className="field"><label>{t("seller.contact_e_mail")}</label><input dir="ltr" inputMode="email" value={form.contact_email || ""} onChange={set("contact_email")} maxLength={200} /></div>
+          <div className="field"><label>{t("seller.e_mail_invoices_finance")}</label><input dir="ltr" inputMode="email" value={form.finance_email || ""} onChange={set("finance_email")} maxLength={200} /></div>
         </div>
       </div>
 
       <div className="panel">
-        <div className="panel-title">{t("pages.seller.ff7b2afb")}</div>
+        <div className="panel-title">{t("seller.a_bank_account_receive_funds")}</div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.2b583092")}</label><input value={form.bank_account_holder || ""} onChange={set("bank_account_holder")} maxLength={120} /></div>
-          <div className="field"><label>{t("pages.seller.b4e346d4")}</label><input value={form.bank_name || ""} onChange={set("bank_name")} maxLength={100} /></div>
+          <div className="field"><label>{t("seller.account_holder_s_name")}</label><input value={form.bank_account_holder || ""} onChange={set("bank_account_holder")} maxLength={120} /></div>
+          <div className="field"><label>{t("seller.bank")}</label><input value={form.bank_name || ""} onChange={set("bank_name")} maxLength={100} /></div>
         </div>
         <div className="field-row">
-          <div className="field"><label>{t("pages.seller.bd17dd80")}</label><input dir="ltr" inputMode="numeric" value={form.bank_branch || ""} onChange={set("bank_branch")} maxLength={10} /></div>
+          <div className="field"><label>{t("seller.branch")}</label><input dir="ltr" inputMode="numeric" value={form.bank_branch || ""} onChange={set("bank_branch")} maxLength={10} /></div>
           <div className="field">
-            <label>{t("pages.seller.f8e2aa25")}</label>
+            <label>{t("seller.account_number")}</label>
             <input dir="ltr" inputMode="numeric" autoComplete="off" value={bankNumber} onChange={(e) => setBankNumber(e.target.value)}
-              placeholder={last4 ? t("pages.seller.0cffe7d2", { last4: last4 }) : ""} maxLength={30} />
-            <span className="hint">{last4 ? t("pages.seller.d2350b58") : t("pages.seller.674f96b3")}</span>
+              placeholder={last4 ? t("seller.saved_ending_last4", { last4: last4 }) : ""} maxLength={30} />
+            <span className="hint">{last4 ? t("seller.the_full_number_stored_encrypted") : t("seller.the_full_number_stored_server")}</span>
           </div>
         </div>
       </div>
@@ -2453,7 +2453,7 @@ function BusinessProfilePage({ navigate }: { navigate: (h: string) => void }) {
       {error ? <div className="notice err">{error}</div> : null}
       <div className="row" style={{ justifyContent: "flex-end", marginBottom: 24 }}>
         <button className="btn btn-primary btn-lg" data-testid="business-profile-save" disabled={busy} onClick={save}>
-          {busy ? t("pages.seller.cafc2ef5") : t("pages.seller.5cc296da")}
+          {busy ? t("seller.saving") : t("seller.save_business_profile")}
         </button>
       </div>
       <Toast msg={toast} />

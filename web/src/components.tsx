@@ -27,7 +27,7 @@ export function ProductImg({ src, alt, fallbackText }: { src: string; alt: strin
     return (
       <div className="img-fallback">
         <img src={BRAND_MARK_URL} alt="" aria-hidden="true" />
-        <span>{fallbackText || t("components.57fdfcf3")}</span>
+        <span>{fallbackText || t("components.the_image_available")}</span>
       </div>
     );
   }
@@ -62,23 +62,23 @@ export function GroupMeter(props: {
         aria-valuemin={0}
         aria-valuemax={max}
         aria-valuenow={joined}
-        aria-label={t("components.300534d5", { joined: num(joined), threshold: num(threshold) })}
+        aria-label={t("components.joined_threshold_unit_target_joined", { joined: num(joined), threshold: num(threshold) })}
         style={{ marginTop: props.showFlag ? 26 : 0 }}
       >
         <div className="gm-fill" style={{ width: `${capacityPct}%`, background: progressColor(targetRatio) }} />
         {props.showFlag !== false && flagPct > 3 && flagPct < 99 ? (
           <>
             <div className="gm-flag" style={{ insetInlineStart: `${flagPct}%` }} />
-            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>{t("components.35a6ebe9", { threshold: num(threshold) })}</div>
+            <div className="gm-flag-label" style={{ insetInlineStart: `${flagPct}%` }}>{t("components.target_threshold", { threshold: num(threshold) })}</div>
           </>
         ) : null}
       </div>
       <div className="gm-meta">
         <span>
-          <span className="gm-count">{num(joined)}</span>  {t("components.08d9ec9c")}</span>
+          <span className="gm-count">{num(joined)}</span>  {t("components.units_joined")}</span>
         {reached
-          ? <span className="gm-reached">{t("components.ff5b6f0b")}</span>
-          : <span>{t("components.b429a0f3")} <span className="gm-count">{num(Math.max(0, threshold - joined))}</span>  {t("components.42349f09")}</span>}
+          ? <span className="gm-reached">{t("components.minimum_reached")}</span>
+          : <span>{t("components.more")} <span className="gm-count">{num(Math.max(0, threshold - joined))}</span>  {t("components.to_target")}</span>}
       </div>
     </div>
   );
@@ -92,7 +92,7 @@ export function Countdown(props: { until: string | null | undefined; label?: str
   }, []);
   const view = countdownView(props.until);
   if (!view) return null;
-  if (view.tone === "over") return <span className="countdown danger">{props.overText || t("components.db0b280e")}</span>;
+  if (view.tone === "over") return <span className="countdown danger">{props.overText || t("components.ended")}</span>;
   return (
     <span className={`countdown ${view.tone}`}>
       {props.label ? <span className="countdown-label">{props.label}</span> : null}
@@ -117,7 +117,7 @@ export function QtyInput(props: { value: number; min?: number; max: number; onCh
   // keep the field in step with an external correction (e.g. stock shrank under the buyer)
   useEffect(() => { setText((prev) => (parseQuantityInput(prev, min, props.max).value === props.value ? prev : String(props.value))); }, [props.value, min, props.max]);
   const testId = props.testId || "qty-input";
-  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? t("components.2ef87f8f") : null);
+  const problem = touched && text !== "" && parsed.error ? parsed.error : (touched && text === "" ? t("components.enter_quantity") : null);
   return (
     <div className="qty-input-wrap">
       <input
@@ -125,7 +125,7 @@ export function QtyInput(props: { value: number; min?: number; max: number; onCh
         id={props.id}
         className={problem ? "qty-input invalid needs-attention" : "qty-input"}
         data-testid={testId}
-        aria-label={props.ariaLabel || t("components.24b6980b")}
+        aria-label={props.ariaLabel || t("components.number_units")}
         aria-invalid={problem ? "true" : undefined}
         value={text}
         onChange={(e) => {
@@ -169,7 +169,7 @@ export function Modal(props: {
       <div className="modal" role="dialog" aria-modal="true" aria-label={props.title} ref={ref} style={props.wide ? { maxWidth: 760 } : undefined}>
         <div className="modal-head">
           <h3>{props.title}</h3>
-          <button className="x" onClick={props.onClose} aria-label={t("components.b728721f")}>✕</button>
+          <button className="x" onClick={props.onClose} aria-label={t("components.close")}>✕</button>
         </div>
         <div className="modal-body">{props.children}</div>
         {props.footer ? <div className="modal-foot">{props.footer}</div> : null}
@@ -226,31 +226,31 @@ export function ShareActions(props: {
   price?: number | null;
 }) {
   const url = useMemo(() => absoluteShareUrl(props.dealId, props.code || null), [props.dealId, props.code]);
-  const shareTitle = t("components.6aaa9b03", { title: props.title });
+  const shareTitle = t("components.title_group_buying_c_ton", { title: props.title });
   const messageText = props.price != null && Number(props.price) > 0
-    ? t("components.1913b8c6", { title: props.title, price: ils(props.price) })
+    ? t("components.title_group_price_price_per", { title: props.title, price: ils(props.price) })
     : shareTitle;
   const canNative = typeof navigator !== "undefined" && Boolean((navigator as any).share);
   const loop = props.layout === "loop";
   const track = (channel: string) => sendFunnelEvent(props.dealId, "share_button_click", { share_channel: channel });
   const copy = async () => {
     track("copy");
-    if (await copyText(url)) props.onNotify?.(t("components.4aa70f6f"));
-    else props.onNotify?.(t("components.29807e19"));
+    if (await copyText(url)) props.onNotify?.(t("components.link_copied"));
+    else props.onNotify?.(t("components.copying_failed_select_link_copy"));
   };
   const whatsappHref = `https://wa.me/?text=${encodeURIComponent(`${messageText}\n${url}`)}`;
 
   const nets: { key: string; label: string; icon: React.ReactNode; href?: string; onClick?: () => void }[] = [
-    ...(loop ? [] : [{ key: "whatsapp", label: t("components.271a7bd9"), icon: <WhatsAppIcon />, href: whatsappHref }]),
-    { key: "facebook", label: t("components.508b3d84"), icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
-    { key: "x", label: t("components.1ac9cd21"), icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
-    { key: "telegram", label: t("components.492ffd81"), icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    ...(loop ? [] : [{ key: "whatsapp", label: t("components.share_whatsapp"), icon: <WhatsAppIcon />, href: whatsappHref }]),
+    { key: "facebook", label: t("components.share_facebook"), icon: <FacebookIcon />, href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
+    { key: "x", label: t("components.share_x"), icon: <XIcon />, href: `https://twitter.com/intent/tweet?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
+    { key: "telegram", label: t("components.share_telegram"), icon: <TelegramIcon />, href: `https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(shareTitle)}` },
     {
-      key: "instagram", label: t("components.b67091f0"), icon: <InstagramIcon />,
+      key: "instagram", label: t("components.share_instagram"), icon: <InstagramIcon />,
       onClick: async () => {
         track("instagram");
-        if (await copyText(url)) props.onNotify?.(t("components.bcbc4723"));
-        else props.onNotify?.(t("components.cea7275c"));
+        if (await copyText(url)) props.onNotify?.(t("components.link_copied_paste_into_instagram"));
+        else props.onNotify?.(t("components.copying_failed_copy_link_hand"));
       }
     }
   ];
@@ -260,22 +260,22 @@ export function ShareActions(props: {
       {loop ? (
         <a className="btn btn-share-lead btn-block" data-testid="share-whatsapp" href={whatsappHref} target="_blank" rel="noopener noreferrer"
           onClick={() => track("whatsapp")}>
-          <WhatsAppIcon />  {t("components.271a7bd9")}</a>
+          <WhatsAppIcon />  {t("components.share_whatsapp")}</a>
       ) : null}
       <div className={`share-primary-row${canNative ? "" : " single"}`}>
         {canNative ? (
-          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label={t("components.32033594")} title={t("components.32033594")} data-testid="share-native" onClick={async () => {
+          <button className={props.compact ? "share-ico-btn" : `btn ${loop ? "btn-ghost" : "btn-primary"}`} aria-label={t("components.share")} title={t("components.share")} data-testid="share-native" onClick={async () => {
             track("native");
             try { await (navigator as any).share({ title: shareTitle, text: messageText, url }); } catch { /* user cancelled */ }
           }}>
-            <NativeShareIcon />{props.compact ? null : t("components.558f7a32")}
+            <NativeShareIcon />{props.compact ? null : t("components.share_2")}
           </button>
         ) : null}
-        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label={t("components.473c5168")} title={t("components.473c5168")}>
-          <CopyLinkIcon />{props.compact ? null : t("components.934b4cf9")}
+        <button className={props.compact ? "share-ico-btn" : "btn btn-ghost"} onClick={copy} data-testid="share-copy" aria-label={t("components.copy_link")} title={t("components.copy_link")}>
+          <CopyLinkIcon />{props.compact ? null : t("components.copy_link_2")}
         </button>
       </div>
-      <div className="share-networks share-icons" role="group" aria-label={t("components.4f8d233f")}>
+      <div className="share-networks share-icons" role="group" aria-label={t("components.share_social")}>
         {/* P0.4-3 — key classes are PREFIXED: the bare "x" key collided with
             the global .x utility button (36px) and visibly shrank the X icon */}
         {nets.map((n) => n.href ? (

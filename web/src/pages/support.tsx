@@ -54,12 +54,12 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
     e.preventDefault();
     if (busy) return;
     const errs: Record<string, string> = {};
-    if (name.trim().length < 2) errs.name = t("pages.support.11374f97");
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("pages.support.574b1fc6");
-    if (message.trim().length < 10) errs.message = t("pages.support.6b6aec4c");
+    if (name.trim().length < 2) errs.name = t("support.enter_name");
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.trim())) errs.email = t("support.enter_valid_e_mail_address");
+    if (message.trim().length < 10) errs.message = t("support.write_us_few_words_about");
     const scope = DEAL_SCOPE.get(category) || "none";
     if (scope === "required" && !UUID_ANYWHERE.test(deal.trim())) {
-      errs.deal = t("pages.support.3288f056");
+      errs.deal = t("support.paste_link_deal_so_pass");
     }
     setFieldErrors(errs);
     if (Object.keys(errs).length) return;
@@ -71,7 +71,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         ...(scope === "none" ? {} : { deal_ref: deal.trim() || undefined })
       });
       setSentToSeller(Boolean(r.thread_id));
-      setSentCase(String(r.case_id || t("pages.support.e955d14f")));
+      setSentCase(String(r.case_id || t("support.received")));
     } catch (err: any) {
       setError(localizedError(err));
       setBusy(false);
@@ -86,9 +86,9 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           <p className="muted">{copy.sent_body}</p>
           {sentToSeller ? (
             <p className="muted small" data-testid="support-sent-to-seller">
-              {t("pages.support.e8c2a09f")}</p>
+              {t("support.the_enquiry_attached_deal_named")}</p>
           ) : null}
-          <a className="btn btn-primary" href="#/">{t("pages.support.9fa52cda")}</a>
+          <a className="btn btn-primary" href="#/">{t("support.back_home_page")}</a>
         </div>
       </div>
     );
@@ -101,27 +101,27 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         <h1>{copy.title}</h1>
         <p className="muted small">
           {copy.intro}
-          {supportEmail ? <>  {t("pages.support.af6fe8a8")}<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
+          {supportEmail ? <>  {t("support.you_also_write_us")}<a href={`mailto:${supportEmail}`} dir="ltr">{supportEmail}</a>.</> : null}
         </p>
         <form onSubmit={submit} noValidate>
           <div className="field">
-            <label>{t("pages.support.8b1aa6b1")} <span className="req">*</span></label>
+            <label>{t("support.name")} <span className="req">*</span></label>
             <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
             {fieldErrors.name ? <span className="field-error">{fieldErrors.name}</span> : null}
           </div>
           <div className="field-row">
             <div className="field">
-              <label>{t("pages.support.15dbea0f")} <span className="req">*</span></label>
+              <label>{t("support.e_mail")} <span className="req">*</span></label>
               <input dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
               {fieldErrors.email ? <span className="field-error">{fieldErrors.email}</span> : null}
             </div>
             <div className="field">
-              <label>{t("pages.support.737232c2")} <span className="hint">{t("pages.support.9fbd1f49")}</span></label>
+              <label>{t("support.phone")} <span className="hint">{t("support.optional")}</span></label>
               <input dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
             </div>
           </div>
           <div className="field">
-            <label>{t("pages.support.6f1fefdc")}</label>
+            <label>{t("support.enquiry_subject")}</label>
             <select value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{t(c.label)}</option>)}
             </select>
@@ -129,17 +129,17 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
           {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
             <div className="field" data-testid="support-deal-field">
               <label>
-                {t("support.deal_link_label")} {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("pages.support.9fbd1f49")}</span>}
+                {t("support.deal_link_label")} {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("support.optional")}</span>}
               </label>
               <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
                 placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />
               <span className="hint">
-                {t("pages.support.4184e405")}</span>
+                {t("support.paste_deal_s_link_deal")}</span>
               {fieldErrors.deal ? <span className="field-error">{fieldErrors.deal}</span> : null}
             </div>
           ) : null}
           <div className="field">
-            <label>{t("pages.support.99707260")} <span className="req">*</span></label>
+            <label>{t("support.the_enquiry")} <span className="req">*</span></label>
             <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
             {fieldErrors.message ? <span className="field-error">{fieldErrors.message}</span> : null}
           </div>
@@ -149,7 +149,7 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
             aria-hidden="true" name="website"
             style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clipPath: "inset(50%)", border: 0, opacity: 0 }} />
           {error ? <div className="notice err">{error}</div> : null}
-          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? t("pages.support.ea12faeb") : t("pages.support.18a3d8cf")}</button>
+          <button className="btn btn-primary btn-block" disabled={busy}>{busy ? t("support.sending") : t("support.send_enquiry")}</button>
         </form>
       </div>
     </div>

@@ -405,7 +405,7 @@ export function parseManualCoordinates(latRaw: string, lngRaw: string): { ok: tr
   const lat = Number(String(latRaw).trim());
   const lng = Number(String(lngRaw).trim());
   if (!String(latRaw).trim() || !String(lngRaw).trim() || !validCoordinate(lat, lng)) {
-    return { ok: false, error: t("geo.8f49138f") };
+    return { ok: false, error: t("geo.invalid_coordinates_latitude_up_90") };
   }
   return { ok: true, latitude: lat, longitude: lng };
 }

@@ -35,13 +35,13 @@ export function parseQuantityInput(raw: unknown, min: number, max: number): Quan
   const digits = quantityDigits(raw);
   if (!digits) return { digits, value: null, error: null };
   if (!/^[0-9]+$/.test(digits) || !Number.isSafeInteger(Number(digits))) {
-    return { digits, value: null, error: t("quantity_input.8dead351") };
+    return { digits, value: null, error: t("quantity_input.enter_whole_number_only") };
   }
   const n = Number(digits);
   if (!Number.isInteger(n) || n < lo) {
-    return { digits, value: null, error: lo === 1 ? t("quantity_input.d43a7e20") : t("quantity_input.4d61574d", { lo: lo }) };
+    return { digits, value: null, error: lo === 1 ? t("quantity_input.the_quantity_must_least_one") : t("quantity_input.the_quantity_must_least_lo", { lo: lo }) };
   }
-  if (n > hi) return { digits, value: null, error: t("quantity_input.cf80acfb", { hi: hi }) };
+  if (n > hi) return { digits, value: null, error: t("quantity_input.up_hi_units_ordered", { hi: hi }) };
   return { digits, value: n, error: null };
 }
 

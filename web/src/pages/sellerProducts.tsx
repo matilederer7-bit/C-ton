@@ -78,21 +78,21 @@ export function productToForm(product: Json): ProductFormValue {
 
 export function validateProductForm(f: ProductFormValue): Record<string, string> {
   const errs: Record<string, string> = {};
-  if (!f.name.trim()) errs.name = t("pages.seller_products.e3c27321");
-  if (!f.short_description.trim()) errs.short_description = t("pages.seller_products.23b82d6a");
+  if (!f.name.trim()) errs.name = t("seller_products.enter_name_product");
+  if (!f.short_description.trim()) errs.short_description = t("seller_products.enter_short_description_sentence_sells");
   const est = validateEstimateRange(f.est_min, f.est_max);
   if (est) errs.est = est;
-  if (f.product_type === "physical_product" && f.weight_grams.trim() && !(Number(f.weight_grams) > 0)) errs.weight_grams = t("pages.seller_products.206c5cba");
+  if (f.product_type === "physical_product" && f.weight_grams.trim() && !(Number(f.weight_grams) > 0)) errs.weight_grams = t("seller_products.the_weight_must_positive_number");
   if (f.product_type === "voucher") {
-    if (!f.redemption_location.trim()) errs.redemption_location = t("pages.seller_products.5e121497");
-    if (!f.redemption_instructions.trim()) errs.redemption_instructions = t("pages.seller_products.c164cc8c");
+    if (!f.redemption_location.trim()) errs.redemption_location = t("seller_products.enter_redemption_place");
+    if (!f.redemption_instructions.trim()) errs.redemption_instructions = t("seller_products.enter_redemption_instructions");
   }
   if (f.product_type === "ticket") {
-    if (!f.event_name.trim()) errs.event_name = t("pages.seller_products.018096b9");
-    if (!f.event_starts_at) errs.event_starts_at = t("pages.seller_products.d1343da5");
-    if (!f.venue_name.trim()) errs.venue_name = t("pages.seller_products.c2e0fc70");
-    if (!f.entry_instructions.trim()) errs.entry_instructions = t("pages.seller_products.069b556b");
-    if (f.event_ends_at && f.event_starts_at && new Date(f.event_ends_at).getTime() <= new Date(f.event_starts_at).getTime()) errs.event_ends_at = t("pages.seller_products.cce60aad");
+    if (!f.event_name.trim()) errs.event_name = t("seller_products.enter_event_name");
+    if (!f.event_starts_at) errs.event_starts_at = t("seller_products.choose_date_event");
+    if (!f.venue_name.trim()) errs.venue_name = t("seller_products.enter_event_venue");
+    if (!f.entry_instructions.trim()) errs.entry_instructions = t("seller_products.enter_entry_instructions");
+    if (f.event_ends_at && f.event_starts_at && new Date(f.event_ends_at).getTime() <= new Date(f.event_starts_at).getTime()) errs.event_ends_at = t("seller_products.the_deadline_must_after_start");
   }
   return errs;
 }
@@ -138,84 +138,84 @@ function ProductForm({ initial, lockType, busy, onSubmit, submitLabel }: {
   return (
     <div className="stack" style={{ gap: 4 }} data-testid="product-form">
       <div className="field">
-        <label htmlFor="product-type">{t("pages.seller_products.419b01c2")}</label>
+        <label htmlFor="product-type">{t("seller_products.product_type")}</label>
         <select id="product-type" data-testid="product-type" value={f.product_type} disabled={lockType || busy} onChange={(e) => set({ product_type: e.target.value as ProductType })}>
-          <option value="physical_product">{t("pages.seller_products.8479bde7")}</option>
-          <option value="voucher">{t("pages.seller_products.a3a06e68")}</option>
-          <option value="ticket">{t("pages.seller_products.d83a090b")}</option>
+          <option value="physical_product">{t("seller_products.physical_product")}</option>
+          <option value="voucher">{t("seller_products.voucher")}</option>
+          <option value="ticket">{t("seller_products.event_ticket")}</option>
         </select>
-        <span className="hint">{lockType ? t("pages.seller_products.92cfdada") : t("pages.seller_products.c4081c7b")}</span>
+        <span className="hint">{lockType ? t("seller_products.the_product_type_set_creation") : t("seller_products.every_deal_created_product_type")}</span>
       </div>
       <div className="field">
-        <label htmlFor="f-name">{t("pages.seller_products.adedbbfc")} <span className="req">*</span></label>
-        <input {...attention(errors, "name")} data-testid="product-name" value={f.name} maxLength={200} disabled={busy} onChange={(e) => set({ name: e.target.value })} placeholder={t("pages.seller_products.759b4106")} />
+        <label htmlFor="f-name">{t("seller_products.product_name")} <span className="req">*</span></label>
+        <input {...attention(errors, "name")} data-testid="product-name" value={f.name} maxLength={200} disabled={busy} onChange={(e) => set({ name: e.target.value })} placeholder={t("seller_products.for_example_5_kg_pack")} />
         <FieldError msg={errors.name} />
       </div>
       <div className="field">
-        <label htmlFor="f-short_description">{t("pages.seller_products.5b561b20")} <span className="req">*</span> <span className="hint">{t("pages.seller_products.4a4852ff")}</span></label>
+        <label htmlFor="f-short_description">{t("seller_products.short_description")} <span className="req">*</span> <span className="hint">{t("seller_products.up_200_characters")}</span></label>
         <input {...attention(errors, "short_description")} data-testid="product-short" value={f.short_description} maxLength={200} disabled={busy} onChange={(e) => set({ short_description: e.target.value })} />
         <FieldError msg={errors.short_description} />
       </div>
       <div className="field">
-        <label htmlFor="f-long_description">{t("pages.seller_products.4dc3b47c")} <span className="hint">{t("pages.seller_products.9fbd1f49")}</span></label>
+        <label htmlFor="f-long_description">{t("seller_products.full_description")} <span className="hint">{t("seller_products.optional")}</span></label>
         <textarea id="f-long_description" data-testid="product-long" rows={5} value={f.long_description} maxLength={4000} disabled={busy} onChange={(e) => set({ long_description: e.target.value })} />
       </div>
       <div className="field">
-        <label htmlFor="f-category">{t("pages.seller_products.b593ae97")} <span className="hint">{t("pages.seller_products.e810ed27")}</span></label>
-        <input id="f-category" data-testid="product-category" value={f.category} maxLength={160} disabled={busy} onChange={(e) => set({ category: e.target.value })} placeholder={t("pages.seller_products.8afd2149")} />
+        <label htmlFor="f-category">{t("seller_products.category")} <span className="hint">{t("seller_products.for_searching_library")}</span></label>
+        <input id="f-category" data-testid="product-category" value={f.category} maxLength={160} disabled={busy} onChange={(e) => set({ category: e.target.value })} placeholder={t("seller_products.for_example_food_electronics_leisure")} />
       </div>
 
       {f.product_type === "physical_product" ? (
         <>
           <div className="field-row">
-            <div className="field"><label htmlFor="f-weight_grams">{t("pages.seller_products.b6d187de")}</label><input {...attention(errors, "weight_grams")} dir="ltr" type="number" min={1} value={f.weight_grams} disabled={busy} onChange={(e) => set({ weight_grams: e.target.value })} /><FieldError msg={errors.weight_grams} /></div>
-            <div className="field"><label htmlFor="f-dimensions">{t("pages.seller_products.3c066d8a")}</label><input id="f-dimensions" value={f.dimensions} maxLength={160} disabled={busy} onChange={(e) => set({ dimensions: e.target.value })} /></div>
+            <div className="field"><label htmlFor="f-weight_grams">{t("seller_products.weight_grams")}</label><input {...attention(errors, "weight_grams")} dir="ltr" type="number" min={1} value={f.weight_grams} disabled={busy} onChange={(e) => set({ weight_grams: e.target.value })} /><FieldError msg={errors.weight_grams} /></div>
+            <div className="field"><label htmlFor="f-dimensions">{t("seller_products.dimensions")}</label><input id="f-dimensions" value={f.dimensions} maxLength={160} disabled={busy} onChange={(e) => set({ dimensions: e.target.value })} /></div>
           </div>
           <div className="field-row">
-            <div className="field"><label htmlFor="f-color">{t("pages.seller_products.be49d01c")}</label><input id="f-color" value={f.color} maxLength={120} disabled={busy} onChange={(e) => set({ color: e.target.value })} /></div>
-            <div className="field"><label htmlFor="f-size">{t("pages.seller_products.a4617429")}</label><input id="f-size" value={f.size} maxLength={120} disabled={busy} onChange={(e) => set({ size: e.target.value })} /></div>
+            <div className="field"><label htmlFor="f-color">{t("seller_products.colour")}</label><input id="f-color" value={f.color} maxLength={120} disabled={busy} onChange={(e) => set({ color: e.target.value })} /></div>
+            <div className="field"><label htmlFor="f-size">{t("seller_products.size")}</label><input id="f-size" value={f.size} maxLength={120} disabled={busy} onChange={(e) => set({ size: e.target.value })} /></div>
           </div>
-          <div className="field"><label htmlFor="f-stock_note">{t("pages.seller_products.28456b54")} <span className="hint">{t("pages.seller_products.a3dfbd00")}</span></label><input id="f-stock_note" value={f.stock_note} maxLength={300} disabled={busy} onChange={(e) => set({ stock_note: e.target.value })} /></div>
+          <div className="field"><label htmlFor="f-stock_note">{t("seller_products.stock_note")} <span className="hint">{t("seller_products.internal")}</span></label><input id="f-stock_note" value={f.stock_note} maxLength={300} disabled={busy} onChange={(e) => set({ stock_note: e.target.value })} /></div>
         </>
       ) : null}
 
       {f.product_type === "voucher" ? (
         <>
-          <div className="field"><label htmlFor="f-redemption_location">{t("pages.seller_products.2461095e")} <span className="req">*</span></label><input {...attention(errors, "redemption_location")} data-testid="product-voucher-location" value={f.redemption_location} maxLength={500} disabled={busy} onChange={(e) => set({ redemption_location: e.target.value })} /><FieldError msg={errors.redemption_location} /></div>
-          <div className="field"><label htmlFor="f-redemption_instructions">{t("pages.seller_products.119fefce")} <span className="req">*</span></label><textarea {...attention(errors, "redemption_instructions")} data-testid="product-voucher-instructions" rows={3} value={f.redemption_instructions} maxLength={1000} disabled={busy} onChange={(e) => set({ redemption_instructions: e.target.value })} /><FieldError msg={errors.redemption_instructions} /></div>
-          <div className="field"><label htmlFor="f-usage_restrictions">{t("pages.seller_products.c6d02b8f")}</label><textarea id="f-usage_restrictions" rows={3} value={f.usage_restrictions} maxLength={2000} disabled={busy} onChange={(e) => set({ usage_restrictions: e.target.value })} /></div>
-          <div className="field"><label htmlFor="f-valid_until">{t("pages.seller_products.03baa387")} <span className="hint">{t("pages.seller_products.ccaa8b7e")}</span></label><input id="f-valid_until" dir="ltr" type="date" value={f.valid_until} disabled={busy} onChange={(e) => set({ valid_until: e.target.value })} /></div>
+          <div className="field"><label htmlFor="f-redemption_location">{t("seller_products.redemption_place")} <span className="req">*</span></label><input {...attention(errors, "redemption_location")} data-testid="product-voucher-location" value={f.redemption_location} maxLength={500} disabled={busy} onChange={(e) => set({ redemption_location: e.target.value })} /><FieldError msg={errors.redemption_location} /></div>
+          <div className="field"><label htmlFor="f-redemption_instructions">{t("seller_products.redemption_instructions")} <span className="req">*</span></label><textarea {...attention(errors, "redemption_instructions")} data-testid="product-voucher-instructions" rows={3} value={f.redemption_instructions} maxLength={1000} disabled={busy} onChange={(e) => set({ redemption_instructions: e.target.value })} /><FieldError msg={errors.redemption_instructions} /></div>
+          <div className="field"><label htmlFor="f-usage_restrictions">{t("seller_products.voucher_terms")}</label><textarea id="f-usage_restrictions" rows={3} value={f.usage_restrictions} maxLength={2000} disabled={busy} onChange={(e) => set({ usage_restrictions: e.target.value })} /></div>
+          <div className="field"><label htmlFor="f-valid_until">{t("seller_products.valid_until")} <span className="hint">{t("seller_products.the_default_deals")}</span></label><input id="f-valid_until" dir="ltr" type="date" value={f.valid_until} disabled={busy} onChange={(e) => set({ valid_until: e.target.value })} /></div>
         </>
       ) : null}
 
       {f.product_type === "ticket" ? (
         <>
-          <div className="field"><label htmlFor="f-event_name">{t("pages.seller_products.1acb417f")} <span className="req">*</span></label><input {...attention(errors, "event_name")} data-testid="product-ticket-event" value={f.event_name} maxLength={200} disabled={busy} onChange={(e) => set({ event_name: e.target.value })} /><FieldError msg={errors.event_name} /></div>
+          <div className="field"><label htmlFor="f-event_name">{t("seller_products.event_name")} <span className="req">*</span></label><input {...attention(errors, "event_name")} data-testid="product-ticket-event" value={f.event_name} maxLength={200} disabled={busy} onChange={(e) => set({ event_name: e.target.value })} /><FieldError msg={errors.event_name} /></div>
           <div className="field-row">
-            <div className="field"><label htmlFor="f-event_starts_at">{t("pages.seller_products.2ac887ba")} <span className="req">*</span></label><input {...attention(errors, "event_starts_at")} dir="ltr" type="datetime-local" value={f.event_starts_at} disabled={busy} onChange={(e) => set({ event_starts_at: e.target.value })} /><FieldError msg={errors.event_starts_at} /></div>
-            <div className="field"><label htmlFor="f-event_ends_at">{t("pages.seller_products.341ea200")}</label><input {...attention(errors, "event_ends_at")} dir="ltr" type="datetime-local" value={f.event_ends_at} disabled={busy} onChange={(e) => set({ event_ends_at: e.target.value })} /><FieldError msg={errors.event_ends_at} /></div>
+            <div className="field"><label htmlFor="f-event_starts_at">{t("seller_products.starts")} <span className="req">*</span></label><input {...attention(errors, "event_starts_at")} dir="ltr" type="datetime-local" value={f.event_starts_at} disabled={busy} onChange={(e) => set({ event_starts_at: e.target.value })} /><FieldError msg={errors.event_starts_at} /></div>
+            <div className="field"><label htmlFor="f-event_ends_at">{t("seller_products.ends")}</label><input {...attention(errors, "event_ends_at")} dir="ltr" type="datetime-local" value={f.event_ends_at} disabled={busy} onChange={(e) => set({ event_ends_at: e.target.value })} /><FieldError msg={errors.event_ends_at} /></div>
           </div>
           <div className="field-row">
-            <div className="field"><label htmlFor="f-venue_name">{t("pages.seller_products.acc2a875")} <span className="req">*</span></label><input {...attention(errors, "venue_name")} value={f.venue_name} maxLength={200} disabled={busy} onChange={(e) => set({ venue_name: e.target.value })} /><FieldError msg={errors.venue_name} /></div>
-            <div className="field"><label htmlFor="f-venue_city">{t("pages.seller_products.b2136c90")}</label><input id="f-venue_city" value={f.venue_city} maxLength={100} disabled={busy} onChange={(e) => set({ venue_city: e.target.value })} /></div>
+            <div className="field"><label htmlFor="f-venue_name">{t("seller_products.event_venue")} <span className="req">*</span></label><input {...attention(errors, "venue_name")} value={f.venue_name} maxLength={200} disabled={busy} onChange={(e) => set({ venue_name: e.target.value })} /><FieldError msg={errors.venue_name} /></div>
+            <div className="field"><label htmlFor="f-venue_city">{t("seller_products.city")}</label><input id="f-venue_city" value={f.venue_city} maxLength={100} disabled={busy} onChange={(e) => set({ venue_city: e.target.value })} /></div>
           </div>
-          <div className="field"><label htmlFor="f-venue_address">{t("pages.seller_products.daab1ad0")}</label><input id="f-venue_address" value={f.venue_address} maxLength={300} disabled={busy} onChange={(e) => set({ venue_address: e.target.value })} /></div>
-          <div className="field"><label htmlFor="f-entry_instructions">{t("pages.seller_products.21a635a8")} <span className="req">*</span></label><textarea {...attention(errors, "entry_instructions")} rows={3} value={f.entry_instructions} maxLength={1000} disabled={busy} onChange={(e) => set({ entry_instructions: e.target.value })} /><FieldError msg={errors.entry_instructions} /></div>
+          <div className="field"><label htmlFor="f-venue_address">{t("seller_products.address")}</label><input id="f-venue_address" value={f.venue_address} maxLength={300} disabled={busy} onChange={(e) => set({ venue_address: e.target.value })} /></div>
+          <div className="field"><label htmlFor="f-entry_instructions">{t("seller_products.entry_instructions")} <span className="req">*</span></label><textarea {...attention(errors, "entry_instructions")} rows={3} value={f.entry_instructions} maxLength={1000} disabled={busy} onChange={(e) => set({ entry_instructions: e.target.value })} /><FieldError msg={errors.entry_instructions} /></div>
         </>
       ) : null}
 
       <div className="field">
-        <label>{t("pages.seller_products.7115a7f8")} <span className="hint">{t("pages.seller_products.28b1adb1")}</span></label>
+        <label>{t("seller_products.estimated_delivery_time")} <span className="hint">{t("seller_products.business_days_deal_completing_default")}</span></label>
         <div className="row" style={{ alignItems: "center", gap: 8 }}>
-          <input {...attention(errors, "est")} data-testid="product-est-min" dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 110 }} value={f.est_min} disabled={busy} onChange={(e) => set({ est_min: e.target.value })} aria-label={t("pages.seller_products.8a7a1302")} />
-          <span>{t("pages.seller_products.344c1d0e")}</span>
-          <input data-testid="product-est-max" dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 110 }} value={f.est_max} disabled={busy} onChange={(e) => set({ est_max: e.target.value })} aria-label={t("pages.seller_products.4b28237d")} />
+          <input {...attention(errors, "est")} data-testid="product-est-min" dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 110 }} value={f.est_min} disabled={busy} onChange={(e) => set({ est_min: e.target.value })} aria-label={t("seller_products.minimum_business_days")} />
+          <span>{t("seller_products.until")}</span>
+          <input data-testid="product-est-max" dir="ltr" type="number" min={0} max={365} style={{ maxWidth: 110 }} value={f.est_max} disabled={busy} onChange={(e) => set({ est_max: e.target.value })} aria-label={t("seller_products.maximum_business_days")} />
         </div>
         <FieldError msg={errors.est} />
       </div>
 
       <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="btn btn-primary" data-testid="product-save" disabled={busy} onClick={() => void submit()}>{busy ? t("pages.seller_products.cafc2ef5") : submitLabel}</button>
+        <button className="btn btn-primary" data-testid="product-save" disabled={busy} onClick={() => void submit()}>{busy ? t("seller_products.saving") : submitLabel}</button>
       </div>
     </div>
   );
@@ -238,56 +238,56 @@ export function SellerProductLibraryPage({ navigate }: { navigate: (h: string) =
     const next = String(row.status) === "archived" ? "active" : "archived";
     try {
       await api.updateProduct(String(row.product_id), { status: next });
-      showToast(next === "archived" ? t("pages.seller_products.792f4ea1") : t("pages.seller_products.5157e559"));
+      showToast(next === "archived" ? t("seller_products.the_product_archived") : t("seller_products.the_product_restored_library"));
       await load();
-    } catch (e: any) { showToast(e.message || t("pages.seller_products.d11a2bcd")); }
+    } catch (e: any) { showToast(e.message || t("seller_products.the_action_failed")); }
   };
 
-  if (error) return <EmptyState title={t("pages.seller_products.ae947af7")} body={error} />;
-  if (!rows) return <BrandLoader label={t("pages.seller_products.585bb1d3")} minHeight={320} />;
+  if (error) return <EmptyState title={t("seller_products.the_product_library_cannot_loaded")} body={error} />;
+  if (!rows) return <BrandLoader label={t("seller_products.loading_product_library")} minHeight={320} />;
 
   return (
     <div data-testid="product-library">
-      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("pages.seller_products.227cf122")}</a>
+      <a className="back" href="#/seller" onClick={(e) => { e.preventDefault(); navigate("#/seller"); }}>{t("seller_products.to_dashboard")}</a>
       <div className="dash-head">
         <div>
-          <h1>{t("pages.seller_products.4e0999e0")}</h1>
-          <span className="dash-updated">{t("pages.seller_products.ad7dbf35")}</span>
+          <h1>{t("seller_products.my_product_library")}</h1>
+          <span className="dash-updated">{t("seller_products.one_product_many_deals_deal")}</span>
         </div>
         <div className="row" style={{ marginInlineStart: "auto" }}>
-          <button className="btn btn-primary" data-testid="product-new" onClick={() => navigate("#/seller/products/new")}>{t("pages.seller_products.f1aa5e5e")}</button>
+          <button className="btn btn-primary" data-testid="product-new" onClick={() => navigate("#/seller/products/new")}>{t("seller_products.new_product_2")}</button>
         </div>
       </div>
 
       <div className="panel product-library-controls" data-testid="product-library-controls">
         <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <input data-testid="product-search" style={{ flex: "2 1 220px" }} value={filters.query || ""} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder={t("pages.seller_products.19ff751e")} aria-label={t("pages.seller_products.dbecfc28")} />
-          <select data-testid="product-status-filter" style={{ flex: "1 1 130px" }} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} aria-label={t("pages.seller_products.c184d0ed")}>
-            <option value="active">{t("pages.seller_products.17127579")}</option>
-            <option value="archived">{t("pages.seller_products.e61abceb")}</option>
-            <option value="all">{t("pages.seller_products.d0940366")}</option>
+          <input data-testid="product-search" style={{ flex: "2 1 220px" }} value={filters.query || ""} onChange={(e) => setFilters({ ...filters, query: e.target.value })} placeholder={t("seller_products.search_name_category")} aria-label={t("seller_products.find_product")} />
+          <select data-testid="product-status-filter" style={{ flex: "1 1 130px" }} value={filters.status} onChange={(e) => setFilters({ ...filters, status: e.target.value })} aria-label={t("seller_products.status")}>
+            <option value="active">{t("seller_products.active")}</option>
+            <option value="archived">{t("seller_products.archived")}</option>
+            <option value="all">{t("seller_products.all")}</option>
           </select>
-          <select data-testid="product-type-filter" style={{ flex: "1 1 130px" }} value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })} aria-label={t("pages.seller_products.f45000d5")}>
-            <option value="">{t("pages.seller_products.49c19a2a")}</option>
-            <option value="physical_product">{t("pages.seller_products.8479bde7")}</option>
-            <option value="voucher">{t("pages.seller_products.a3a06e68")}</option>
-            <option value="ticket">{t("pages.seller_products.d83a090b")}</option>
+          <select data-testid="product-type-filter" style={{ flex: "1 1 130px" }} value={filters.type} onChange={(e) => setFilters({ ...filters, type: e.target.value })} aria-label={t("seller_products.type")}>
+            <option value="">{t("seller_products.all_types")}</option>
+            <option value="physical_product">{t("seller_products.physical_product")}</option>
+            <option value="voucher">{t("seller_products.voucher")}</option>
+            <option value="ticket">{t("seller_products.event_ticket")}</option>
           </select>
-          <select data-testid="product-sort" style={{ flex: "1 1 130px" }} value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })} aria-label={t("pages.seller_products.1df7e5cb")}>
-            <option value="updated">{t("pages.seller_products.58093ce9")}</option>
-            <option value="deals">{t("pages.seller_products.dc0608b0")}</option>
-            <option value="name">{t("pages.seller_products.51e36e5e")}</option>
+          <select data-testid="product-sort" style={{ flex: "1 1 130px" }} value={filters.sort} onChange={(e) => setFilters({ ...filters, sort: e.target.value })} aria-label={t("seller_products.sort")}>
+            <option value="updated">{t("seller_products.last_updated")}</option>
+            <option value="deals">{t("seller_products.most_deals")}</option>
+            <option value="name">{t("seller_products.by_name")}</option>
           </select>
         </div>
       </div>
 
       {emptyKind === "library-empty" ? (
-        <EmptyState title={t("pages.seller_products.2da27f1c")} body={t("pages.seller_products.7ee5f93a")}
-          action={<button className="btn btn-primary" onClick={() => navigate("#/seller/products/new")}>{t("pages.seller_products.f1aa5e5e")}</button>} />
+        <EmptyState title={t("seller_products.no_products_library_yet")} body={t("seller_products.add_one_product_create_deals")}
+          action={<button className="btn btn-primary" onClick={() => navigate("#/seller/products/new")}>{t("seller_products.new_product_2")}</button>} />
       ) : emptyKind === "search-empty" ? (
-        <EmptyState title={t("pages.seller_products.8daabb8b")} body={t("pages.seller_products.523fd23f")} action={<button className="btn btn-ghost" onClick={() => setFilters({ ...filters, query: "" })}>{t("pages.seller_products.642ebf84")}</button>} />
+        <EmptyState title={t("seller_products.no_products_found_search")} body={t("seller_products.try_another_word_clear_search")} action={<button className="btn btn-ghost" onClick={() => setFilters({ ...filters, query: "" })}>{t("seller_products.clear_search")}</button>} />
       ) : emptyKind === "filter-empty" ? (
-        <EmptyState title={t("pages.seller_products.e4581610")} body={t("pages.seller_products.9f9450d2")} action={<button className="btn btn-ghost" onClick={() => setFilters({ query: filters.query, status: "all", type: "", sort: filters.sort })}>{t("pages.seller_products.35683f55")}</button>} />
+        <EmptyState title={t("seller_products.no_products_match_filter")} body={t("seller_products.change_status_product_type")} action={<button className="btn btn-ghost" onClick={() => setFilters({ query: filters.query, status: "all", type: "", sort: filters.sort })}>{t("seller_products.show_all")}</button>} />
       ) : (
         <div className="sd-grid" data-testid="product-grid">
           {visible.map((p: any) => (
@@ -299,21 +299,21 @@ export function SellerProductLibraryPage({ navigate }: { navigate: (h: string) =
                   <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                     <span className="muted small">{PRODUCT_TYPE_LABELS[String(p.product_type)] || dealTypeLabel(String(p.product_type))}</span>
                     {p.category ? <span className="muted small">· {p.category}</span> : null}
-                    {String(p.status) === "archived" ? <span className="stale-badge">{t("pages.seller_products.e61abceb")}</span> : null}
+                    {String(p.status) === "archived" ? <span className="stale-badge">{t("seller_products.archived")}</span> : null}
                   </div>
                 </div>
               </div>
               <div className="kv" style={{ margin: "10px 0" }}>
-                <span className="k">{t("pages.seller_products.29f91e47")}</span><span className="v">{num(p.deals_count || 0)}</span>
-                <span className="k">{t("pages.seller_products.d977983d")}</span><span className="v">{num(p.revision || 1)}</span>
-                <span className="k">{t("pages.seller_products.9c743519")}</span><span className="v">{fmtDate(p.updated_at)}</span>
+                <span className="k">{t("seller_products.deals_product")}</span><span className="v">{num(p.deals_count || 0)}</span>
+                <span className="k">{t("seller_products.revision")}</span><span className="v">{num(p.revision || 1)}</span>
+                <span className="k">{t("seller_products.updated")}</span><span className="v">{fmtDate(p.updated_at)}</span>
               </div>
               <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
                 {String(p.status) === "archived"
-                  ? <button className="btn btn-sm btn-primary" data-testid="product-restore-and-create" onClick={() => void toggleArchive(p).then(() => navigate(`#/seller/new?product=${p.product_id}`))}>{t("pages.seller_products.a3b85188")}</button>
-                  : <button className="btn btn-sm btn-primary" data-testid="product-create-deal" onClick={() => navigate(`#/seller/new?product=${p.product_id}`)}>{t("pages.seller_products.5d9396f1")}</button>}
-                <button className="btn btn-sm btn-ghost" data-testid="product-open" onClick={() => navigate(`#/seller/products/${p.product_id}`)}>{t("pages.seller_products.146735c0")}</button>
-                <button className="btn btn-sm btn-ghost" data-testid="product-archive-toggle" onClick={() => void toggleArchive(p)}>{String(p.status) === "archived" ? t("pages.seller_products.ad349c23") : t("pages.seller_products.ba71513b")}</button>
+                  ? <button className="btn btn-sm btn-primary" data-testid="product-restore-and-create" onClick={() => void toggleArchive(p).then(() => navigate(`#/seller/new?product=${p.product_id}`))}>{t("seller_products.restore_create_deal")}</button>
+                  : <button className="btn btn-sm btn-primary" data-testid="product-create-deal" onClick={() => navigate(`#/seller/new?product=${p.product_id}`)}>{t("seller_products.create_deal_product")}</button>}
+                <button className="btn btn-sm btn-ghost" data-testid="product-open" onClick={() => navigate(`#/seller/products/${p.product_id}`)}>{t("seller_products.details_editing")}</button>
+                <button className="btn btn-sm btn-ghost" data-testid="product-archive-toggle" onClick={() => void toggleArchive(p)}>{String(p.status) === "archived" ? t("seller_products.restore") : t("seller_products.archive")}</button>
               </div>
             </div>
           ))}
@@ -333,18 +333,18 @@ export function SellerProductCreatePage({ navigate }: { navigate: (h: string) =>
     try {
       const r = await api.createProduct(payload);
       const id = r?.product?.product_id;
-      if (!id) throw new Error(t("pages.seller_products.8af22d59"));
+      if (!id) throw new Error(t("seller_products.creating_product_failed_try_again"));
       navigate(`#/seller/products/${id}`);
-    } catch (e: any) { setError(e.message || t("pages.seller_products.1072e99d")); setBusy(false); }
+    } catch (e: any) { setError(e.message || t("seller_products.saving_failed")); setBusy(false); }
   };
   return (
     <div style={{ maxWidth: 640, margin: "0 auto" }}>
-      <a className="back" href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("pages.seller_products.ddf57f31")}</a>
+      <a className="back" href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("seller_products.to_product_library_2")}</a>
       <div className="panel">
-        <h2>{t("pages.seller_products.31a0866a")}</h2>
-        <p className="muted small">{t("pages.seller_products.2be62828")}</p>
+        <h2>{t("seller_products.new_product")}</h2>
+        <p className="muted small">{t("seller_products.the_product_fixed_description_price")}</p>
         {error ? <div className="notice err">{error}</div> : null}
-        <ProductForm initial={EMPTY_FORM} lockType={false} busy={busy} submitLabel={t("pages.seller_products.c50ebb26")} onSubmit={submit} />
+        <ProductForm initial={EMPTY_FORM} lockType={false} busy={busy} submitLabel={t("seller_products.save_product")} onSubmit={submit} />
       </div>
     </div>
   );
@@ -361,8 +361,8 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
   const load = () => api.sellerProduct(productId).then((r) => { setProduct(r.product); setError(""); }).catch((e) => setError(e.message));
   useEffect(() => { load(); }, [productId]);
 
-  if (error) return <EmptyState title={t("pages.seller_products.3116ae3f")} body={error} action={<button className="btn btn-ghost" onClick={() => navigate("#/seller/products")}>{t("pages.seller_products.820d7c7e")}</button>} />;
-  if (!product) return <BrandLoader label={t("pages.seller_products.28eb5686")} minHeight={320} />;
+  if (error) return <EmptyState title={t("seller_products.the_product_cannot_loaded")} body={error} action={<button className="btn btn-ghost" onClick={() => navigate("#/seller/products")}>{t("seller_products.to_product_library")}</button>} />;
+  if (!product) return <BrandLoader label={t("seller_products.loading_product")} minHeight={320} />;
 
   const revision = Number(product.revision || 1);
   const deals: Json[] = product.deals || [];
@@ -373,25 +373,25 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
     setBusy(true);
     try {
       await api.updateProduct(productId, payload);
-      showToast(t("pages.seller_products.821e82d0"));
+      showToast(t("seller_products.the_product_updated_new_revision"));
       setEditing(false);
       await load();
-    } catch (e: any) { showToast(e.message || t("pages.seller_products.1072e99d")); }
+    } catch (e: any) { showToast(e.message || t("seller_products.saving_failed")); }
     setBusy(false);
   };
   const toggleArchive = async () => {
     setBusy(true);
     try {
       await api.updateProduct(productId, { status: archived ? "active" : "archived" });
-      showToast(archived ? t("pages.seller_products.5157e559") : t("pages.seller_products.792f4ea1"));
+      showToast(archived ? t("seller_products.the_product_restored_library") : t("seller_products.the_product_archived"));
       await load();
-    } catch (e: any) { showToast(e.message || t("pages.seller_products.d11a2bcd")); }
+    } catch (e: any) { showToast(e.message || t("seller_products.the_action_failed")); }
     setBusy(false);
   };
 
   return (
     <div data-testid="product-detail">
-      <a className="back" href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("pages.seller_products.ddf57f31")}</a>
+      <a className="back" href="#/seller/products" onClick={(e) => { e.preventDefault(); navigate("#/seller/products"); }}>{t("seller_products.to_product_library_2")}</a>
       <div className="panel">
         <div className="sd-top product-detail-header">
           <div className="sd-thumb">{product.images?.[0]?.url ? <img src={product.images[0].url} alt="" /> : <span className="sd-thumb-type">{dealTypeLabel(String(product.product_type || "physical_product"))}</span>}</div>
@@ -400,55 +400,55 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
             <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
               <span className="muted small">{PRODUCT_TYPE_LABELS[String(product.product_type)] || dealTypeLabel(String(product.product_type))}</span>
               {product.category ? <span className="muted small">· {product.category}</span> : null}
-              <span className="muted small">{t("pages.seller_products.aefbf0df", { revision: num(revision) })}</span>
-              {archived ? <span className="stale-badge">{t("pages.seller_products.e61abceb")}</span> : null}
+              <span className="muted small">{t("seller_products.revision_revision", { revision: num(revision) })}</span>
+              {archived ? <span className="stale-badge">{t("seller_products.archived")}</span> : null}
             </div>
           </div>
         </div>
         {product.short_description ? <p style={{ marginTop: 12, fontWeight: 600 }}>{product.short_description}</p> : null}
         {product.long_description ? <p className="muted" style={{ whiteSpace: "pre-wrap" }}>{product.long_description}</p> : null}
         {est.estimated_min_business_days != null || est.estimated_max_business_days != null ? (
-          <p className="muted small">{t("pages.seller_products.7553e405", { v0: est.estimated_min_business_days ?? "?", v1: est.estimated_max_business_days ?? "?" })}</p>
+          <p className="muted small">{t("seller_products.estimated_delivery_time_default_v0", { v0: est.estimated_min_business_days ?? "?", v1: est.estimated_max_business_days ?? "?" })}</p>
         ) : null}
         <div className="row" style={{ gap: 6, flexWrap: "wrap", marginTop: 8 }}>
           {archived
-            ? <button className="btn btn-primary" data-testid="product-restore-and-create" disabled={busy} onClick={() => void toggleArchive().then(() => navigate(`#/seller/new?product=${productId}`))}>{t("pages.seller_products.a3b85188")}</button>
-            : <button className="btn btn-primary" data-testid="product-create-deal" disabled={busy} onClick={() => navigate(`#/seller/new?product=${productId}`)}>{t("pages.seller_products.5d9396f1")}</button>}
-          {!editing ? <button className="btn btn-ghost" data-testid="product-edit-open" disabled={busy} onClick={() => setEditing(true)}>{t("pages.seller_products.ead9c5fd")}</button> : null}
-          <button className="btn btn-ghost" data-testid="product-archive-toggle" disabled={busy} onClick={() => void toggleArchive()}>{archived ? t("pages.seller_products.5ae1346c") : t("pages.seller_products.ed0727e5")}</button>
+            ? <button className="btn btn-primary" data-testid="product-restore-and-create" disabled={busy} onClick={() => void toggleArchive().then(() => navigate(`#/seller/new?product=${productId}`))}>{t("seller_products.restore_create_deal")}</button>
+            : <button className="btn btn-primary" data-testid="product-create-deal" disabled={busy} onClick={() => navigate(`#/seller/new?product=${productId}`)}>{t("seller_products.create_deal_product")}</button>}
+          {!editing ? <button className="btn btn-ghost" data-testid="product-edit-open" disabled={busy} onClick={() => setEditing(true)}>{t("seller_products.edit_product")}</button> : null}
+          <button className="btn btn-ghost" data-testid="product-archive-toggle" disabled={busy} onClick={() => void toggleArchive()}>{archived ? t("seller_products.restore_archive") : t("seller_products.move_archive")}</button>
         </div>
       </div>
 
       {editing ? (
         <div className="panel" data-testid="product-edit-panel">
-          <div className="panel-title">{t("pages.seller_products.ead9c5fd")}</div>
-          <div className="notice info">{t("pages.seller_products.5c8b6a50")}</div>
-          <ProductForm initial={productToForm(product)} lockType busy={busy} submitLabel={t("pages.seller_products.71e2798e")} onSubmit={save} />
+          <div className="panel-title">{t("seller_products.edit_product")}</div>
+          <div className="notice info">{t("seller_products.every_save_creates_new_revision")}</div>
+          <ProductForm initial={productToForm(product)} lockType busy={busy} submitLabel={t("seller_products.save_new_revision")} onSubmit={save} />
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 6 }}>
-            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>{t("pages.seller_products.a7c55a8d")}</button>
+            <button className="btn btn-ghost" disabled={busy} onClick={() => setEditing(false)}>{t("seller_products.cancel")}</button>
           </div>
         </div>
       ) : null}
 
       {product.images?.length ? (
         <div className="panel">
-          <div className="panel-title">{t("pages.seller_products.24b1b3af")}</div>
+          <div className="panel-title">{t("seller_products.the_product_s_images")}</div>
           <div className="img-strip">
             {product.images.map((img: Json) => (
-              <span key={img.product_image_id} className={`img-strip-thumb${img.is_primary ? " primary" : ""}`}><img src={img.url} alt="" />{img.is_primary ? <em>{t("pages.seller_products.7e35e511")}</em> : null}</span>
+              <span key={img.product_image_id} className={`img-strip-thumb${img.is_primary ? " primary" : ""}`}><img src={img.url} alt="" />{img.is_primary ? <em>{t("seller_products.main")}</em> : null}</span>
             ))}
           </div>
-          <p className="muted small" style={{ marginBottom: 0 }}>{t("pages.seller_products.b007845f")}</p>
+          <p className="muted small" style={{ marginBottom: 0 }}>{t("seller_products.the_images_copied_into_every")}</p>
         </div>
       ) : (
-        <div className="panel"><div className="panel-title">{t("pages.seller_products.24b1b3af")}</div><p className="muted small" style={{ margin: 0 }}>{t("pages.seller_products.f4cae880")}</p></div>
+        <div className="panel"><div className="panel-title">{t("seller_products.the_product_s_images")}</div><p className="muted small" style={{ margin: 0 }}>{t("seller_products.the_product_images_yet_they")}</p></div>
       )}
 
       <div className="panel" data-testid="product-deal-history">
-        <div className="panel-title">{t("pages.seller_products.29f91e47")} <span className="count">({deals.length})</span></div>
+        <div className="panel-title">{t("seller_products.deals_product")} <span className="count">({deals.length})</span></div>
         {deals.length === 0 ? (
-          <EmptyState title={t("pages.seller_products.53a1f9a0")} body={t("pages.seller_products.d8941c5a")}
-            action={!archived ? <button className="btn btn-primary" onClick={() => navigate(`#/seller/new?product=${productId}`)}>{t("pages.seller_products.5d9396f1")}</button> : undefined} />
+          <EmptyState title={t("seller_products.no_deals_been_created_product")} body={t("seller_products.create_first_deal_price_quantities")}
+            action={!archived ? <button className="btn btn-primary" onClick={() => navigate(`#/seller/new?product=${productId}`)}>{t("seller_products.create_deal_product")}</button> : undefined} />
         ) : (
           <div className="stack" style={{ gap: 8 }}>
             {deals.map((d) => {
@@ -457,8 +457,8 @@ export function SellerProductPage({ productId, navigate }: { productId: string; 
                 <div className="delivery-view-row product-history-row" key={String(d.deal_id)} data-testid="product-history-row" data-snapshot-status={rev.isCurrent ? "current" : rev.isHistorical ? "historical" : "unknown"}>
                   <span className="grow">
                     <a href={`#/seller/deal/${d.deal_id}`} onClick={(e) => { e.preventDefault(); navigate(`#/seller/deal/${d.deal_id}`); }}><b>{d.title}</b></a>
-                    <span className="muted small"> {t("pages.seller_products.cacb7ae6", { price_per_unit: ils(d.price_per_unit), min_units: num(d.min_units), max_units: num(d.max_units), created_at: fmtDate(d.created_at) })}</span>
-                    {rev.isHistorical ? <span className="muted small" data-testid="product-history-historical"> {t("pages.seller_products.90dc86cb", { snapshotRevision: rev.snapshotRevision ?? "", revision: revision })}</span> : null}
+                    <span className="muted small"> {t("seller_products.price_per_unit_min_units", { price_per_unit: ils(d.price_per_unit), min_units: num(d.min_units), max_units: num(d.max_units), created_at: fmtDate(d.created_at) })}</span>
+                    {rev.isHistorical ? <span className="muted small" data-testid="product-history-historical"> {t("seller_products.the_deal_published_revision_snapshotrevision", { snapshotRevision: rev.snapshotRevision ?? "", revision: revision })}</span> : null}
                   </span>
                   <StatusPill state={String(d.state)} />
                 </div>
