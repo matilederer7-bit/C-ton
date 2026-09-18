@@ -942,3 +942,65 @@ export const LEGAL_PAGE_ORDER: LegalPageSlug[] = [
   "demo",
   "payments"
 ];
+
+// ── ENGLISH LEGAL DOCUMENTS ────────────────────────────────────────────────
+//
+// These are contracts. A machine translation of a contract is not a contract,
+// and Siton does not get to change what a document MEANS by rendering it in
+// another language. So there is a structure for an English legal document —
+// and, until the owner supplies an approved translation, nothing in it.
+//
+// The consequence is stated out loud rather than hidden: an English-speaking
+// visitor is shown the Hebrew document together with a notice saying the
+// Hebrew version is the binding one and that an approved English translation
+// is pending. That is the §1.4 rule — fall back, declare the fallback, report
+// it — and it is why `OWNER_TRANSLATION_REQUIRED` is a value in the code and
+// not a comment.
+
+/** What the product knows about a legal document in a non-Hebrew locale. */
+export type LegalTranslationStatus = "approved" | "OWNER_TRANSLATION_REQUIRED";
+
+/**
+ * Approved English legal documents, by slug. Add a page here ONLY with an
+ * owner-approved translation; the navigation label is chrome and is translated
+ * through the ordinary dictionary, never from here.
+ */
+export const LEGAL_PAGES_EN: Partial<Record<LegalPageSlug, LegalPage>> = {
+  // Intentionally empty: no English legal text has been approved by the owner.
+};
+
+/** The nav-chip label key for each legal document (chrome, not contract text). */
+export const LEGAL_NAV_LABEL_KEYS: Record<LegalPageSlug, string> = {
+  terms: "legal.nav.terms",
+  privacy: "legal.nav.privacy",
+  refunds: "legal.nav.refunds",
+  sellers: "legal.nav.sellers",
+  affiliates: "legal.nav.affiliates",
+  demo: "legal.nav.demo",
+  payments: "legal.nav.payments"
+};
+
+export type ResolvedLegalPage = {
+  page: LegalPage;
+  /** The language the BODY is actually written in. */
+  bodyLocale: "he" | "en";
+  translation: LegalTranslationStatus;
+};
+
+/**
+ * The legal document to render for `locale`, and an honest statement of which
+ * language its body is really in.
+ */
+export function resolveLegalPage(slug: LegalPageSlug, locale: "he" | "en"): ResolvedLegalPage {
+  if (locale === "en") {
+    const approved = LEGAL_PAGES_EN[slug];
+    if (approved) return { page: approved, bodyLocale: "en", translation: "approved" };
+    return { page: LEGAL_PAGES[slug], bodyLocale: "he", translation: "OWNER_TRANSLATION_REQUIRED" };
+  }
+  return { page: LEGAL_PAGES[slug], bodyLocale: "he", translation: "approved" };
+}
+
+/** Every legal document still waiting for an owner-approved English version. */
+export function legalTranslationsRequired(): LegalPageSlug[] {
+  return LEGAL_PAGE_ORDER.filter((slug) => !LEGAL_PAGES_EN[slug]);
+}

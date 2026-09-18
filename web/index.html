@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="he" dir="rtl">
+<html lang="he" dir="rtl" data-locale="he">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
@@ -10,6 +10,31 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Assistant:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <!-- Language before the first paint.
+         The document ships as Hebrew (the product default). If — and only if —
+         the visitor has previously CHOSEN a language, this reflects that choice
+         onto <html> before anything renders, so an English visitor never sees a
+         frame of RTL layout while the bundle loads. The operating system and
+         navigator.language are deliberately not consulted: Hebrew stays the
+         default until the visitor says otherwise. -->
+    <script>
+      (function () {
+        try {
+          var stored = null;
+          try { stored = window.localStorage.getItem("siton.locale"); } catch (e) {}
+          if (stored !== "he" && stored !== "en") {
+            var m = document.cookie.match(/(?:^|;\s*)siton_lang=(he|en)\b/);
+            stored = m ? m[1] : null;
+          }
+          if (stored !== "he" && stored !== "en") return;
+          var el = document.documentElement;
+          el.setAttribute("lang", stored);
+          el.setAttribute("dir", stored === "he" ? "rtl" : "ltr");
+          el.setAttribute("data-locale", stored);
+          if (stored === "en") document.title = "C-ton — group buying";
+        } catch (e) {}
+      })();
+    </script>
     <style>
       /* pre-hydration paint: the C-ton graphite ground, never a white flash */
       html { background: #17181b; }
@@ -31,10 +56,19 @@
         <div>
           <img src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="64" height="64" />
           <div class="boot-bar" aria-hidden="true"></div>
-          <div>C-ton נטען…</div>
+          <div id="boot-text">C-ton נטען…</div>
         </div>
       </div>
     </div>
+    <!-- The boot line is the only copy in the shell; it follows the language
+         the head script already resolved onto <html>. -->
+    <script>
+      (function () {
+        if (document.documentElement.getAttribute("data-locale") !== "en") return;
+        var boot = document.getElementById("boot-text");
+        if (boot) boot.textContent = "Loading C-ton…";
+      })();
+    </script>
     <script type="module" src="./src/main.tsx"></script>
   </body>
 </html>

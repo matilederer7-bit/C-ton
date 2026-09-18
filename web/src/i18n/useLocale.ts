@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getLocale, setLocale, subscribeLocale, type Locale } from "./locale";
+import { getLocale, setLocale, subscribeLocale, type Locale } from "./locale.js";
 
 /**
  * Subscribe a component to the active locale.

@@ -12,7 +12,7 @@
 // templates (src/content/cmsTemplates → src/site_content.ts) under Node ESM
 // resolution, which requires the extension. Vite resolves it to the .ts source.
 import { getPreviewMeta } from "./previewMeta.js";
-import { t } from "./i18n/index.js";
+import { t } from "./i18n/translate.js";
 
 export const PRODUCT_NAME_KEY = "buyer_copy.product_name";
 

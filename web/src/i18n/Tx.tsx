@@ -1,6 +1,6 @@
 import React from "react";
-import { getLocale } from "./locale";
-import { splitTemplate, templateIn } from "./translate";
+import { getLocale } from "./locale.js";
+import { splitTemplate, templateIn } from "./translate.js";
 
 /**
  * A translated sentence that contains MARKUP or React nodes.

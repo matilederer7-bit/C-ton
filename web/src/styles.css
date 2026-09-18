@@ -1620,3 +1620,61 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
   .sd-archive-when { display: none; }
   .sd-archive-actions { width: 100%; }
 }
+
+/* ── LANGUAGE SWITCH ────────────────────────────────────────────────────────
+   עברית | English, in the site header on every surface. Two real buttons, so
+   it is one tap on a phone and one Tab-stop each for a keyboard. The pair sits
+   at the inline END of the topbar — the visual left in Hebrew, the visual right
+   in English — because it is written with logical properties and follows the
+   document direction by itself.
+
+   The nav takes `margin-inline-start: auto`, so the switch simply follows it;
+   when the nav is absent (the external link dashboard) the switch claims that
+   auto margin instead and still lands at the end. */
+.lang-switch {
+  display: inline-flex; align-items: stretch; flex: none;
+  border: 1px solid var(--line); border-radius: var(--radius-sm);
+  overflow: hidden; background: var(--surface);
+}
+.nav-links + .lang-switch { margin-inline-start: 0; }
+.topbar-inner > .lang-switch:first-of-type:not(.nav-links + .lang-switch) { margin-inline-start: auto; }
+.lang-btn {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  color: var(--ink-faint); font: inherit; font-size: .82rem; font-weight: 600;
+  padding: 6px 10px; line-height: 1.2; white-space: nowrap;
+  /* each label is written in its own language: isolate it so a Hebrew label
+     inside an LTR document (and the reverse) cannot reorder its neighbours */
+  unicode-bidi: isolate;
+}
+.lang-btn + .lang-btn { border-inline-start: 1px solid var(--line); }
+.lang-btn:hover { color: var(--ink); background: var(--surface-2, rgba(255,255,255,.04)); }
+.lang-btn.active { color: var(--ink); background: rgba(236, 102, 8, .16); }
+.lang-btn:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+@media (max-width: 420px) {
+  /* the wordmark sub-line is what gives on a narrow phone, never the switch */
+  .lang-btn { padding: 6px 8px; font-size: .78rem; }
+}
+
+/* ── DIRECTION ──────────────────────────────────────────────────────────────
+   The stylesheet is written in LOGICAL properties throughout (inline-start /
+   inline-end / text-align: start), so English gets its LTR layout from the
+   document's `dir` attribute alone — there is no second stylesheet and no
+   per-language fork. What needs saying explicitly is only the handful of
+   places where a value is physically anchored or semantically directional. */
+
+/* The hidden admin hotspot was pinned to the PHYSICAL left, which is the inline
+   END of an RTL document — the same side the topbar reserves 38px for. In LTR
+   that reserve moves to the right while the hotspot stayed left, so it would
+   have sat under the wordmark. Anchoring it logically keeps the hotspot and the
+   reserved column on the same side in both directions. */
+.admin-dot { inset-inline-end: 0; left: auto; right: auto; }
+
+/* A chevron/arrow that means "forward" points the way the text runs. Glyphs
+   that are typed as characters (←, →) cannot flip themselves, so the ones that
+   carry direction are marked and mirrored here; a glyph that means something
+   absolute (↻ refresh, ✓, ✕) is never touched. */
+[dir="ltr"] .dir-flip { display: inline-block; transform: scaleX(-1); }
+
+/* Numbers, money, codes, phone numbers, e-mail addresses and URLs are already
+   isolated LTR runs in the Hebrew layout; in English they are simply normal
+   text, and `unicode-bidi: isolate` remains correct for both. */

@@ -214,7 +214,8 @@ import {
   sellerOrderProjection,
   SELLER_NOT_READY_COPY
 } from "./physical_fulfillment.js";
-import { LEGAL_PAGE_ORDER, LEGAL_PAGES, type LegalPageSlug } from "./legal_pages.js";
+import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGE_ORDER, LEGAL_PAGES, resolveLegalPage, type LegalPageSlug } from "./legal_pages.js";
+import { htmlAttrs, localeFromRequest, ogLocale, ts, type Locale } from "./server_i18n.js";
 import { isBuyerVerificationRequired, buyerVerificationPolicySummary } from "./buyer_verification_policy.js";
 import { buildSupabaseVerifier } from "./supabase_auth.js";
 import { resolveSupabaseCapabilities, bearerToken } from "./actor_resolver.js";
@@ -414,35 +415,58 @@ function contentPageHasBody(section: any): boolean {
   return String(body || "").replace(/^# [^\n]+\r?\n/, "").trim().length > 0;
 }
 
-async function renderLegalHtmlPage(slug: LegalPageSlug, override?: { title: string; body: string }, aboutHasBody = false) {
-  const page = { ...LEGAL_PAGES[slug], ...override };
+async function renderLegalHtmlPage(
+  slug: LegalPageSlug,
+  override?: { title: string; body: string },
+  aboutHasBody = false,
+  locale: Locale = "he"
+) {
+  // The document BODY is a contract. When no owner-approved English version
+  // exists, the Hebrew one is served with a notice saying so — the shell is
+  // translated, the contract is not invented (see src/legal_pages.ts).
+  const resolved = resolveLegalPage(slug, locale);
+  const page = { ...resolved.page, ...override };
+  const bodyLocale = override ? "he" : resolved.bodyLocale;
   // Same emptiness rule as the React footer (web/src/siteContent.ts#contentPageHasBody):
   // a #/content link whose page has no body is not a link, it is a dead end.
-  const aboutLink = aboutHasBody ? '<a href="/preview/#/content/about">אודות</a>' : "";
+  const aboutLink = aboutHasBody
+    ? `<a href="/preview/#/content/about">${escapeHtml(ts(locale, "cms.defaults.footer.link_about"))}</a>`
+    : "";
   let stylesheet = "";
   if (previewDir) {
     const index = await readFile(join(previewDir, "index.html"), "utf8");
     stylesheet = index.match(/href="(\/preview\/assets\/[^"<>]+\.css)"/)?.[1] || "";
   }
   const chips = LEGAL_HTML_NAV.map((key) =>
-    `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(LEGAL_PAGES[key].navLabel)}</a>`).join("");
-  const fallbackCss = "<style>img{max-width:100%}body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}</style>";
-  return `<!doctype html><html lang="he" dir="rtl"><head>
+    `<a class="chip${key === slug ? " active" : ""}" href="/legal/${key}"${key === slug ? ' aria-current="page"' : ""}>${escapeHtml(ts(locale, LEGAL_NAV_LABEL_KEYS[key]))}</a>`).join("");
+  const fallbackCss = "<style>img{max-width:100%}body{background:#17181b;color:#f0f0f0;font-family:Arial,sans-serif;line-height:1.7;margin:0}a{color:#ff8a25}.container{max-width:1000px;margin:auto;padding:20px 16px}.panel{padding:24px}.nav-links,.legal-nav,.topbar-inner{display:flex;gap:12px;flex-wrap:wrap;align-items:center}.topbar-inner{padding:12px 16px}.brand{color:inherit;text-decoration:none}.footer{padding:24px 16px;text-align:center}.footer a{margin:0 8px}.lang-switch a{margin:0 6px;font-size:.85rem}</style>";
+  // The no-JS shell needs its own language switch: it is a server-rendered
+  // page, so the choice travels as ?lang= and is persisted by the app when the
+  // visitor returns to it.
+  const langSwitch = (["he", "en"] as const).map((code) =>
+    `<a class="lang-btn${code === locale ? " active" : ""}" lang="${code}" hreflang="${code}" href="/legal/${slug}?lang=${code}"${code === locale ? ' aria-current="true"' : ""} data-testid="language-switch-${code}">${code === "he" ? "עברית" : "English"}</a>`).join("");
+  const pendingNotice = resolved.translation === "OWNER_TRANSLATION_REQUIRED" && !override
+    ? `<div class="notice info" data-testid="legal-translation-pending" data-translation="OWNER_TRANSLATION_REQUIRED">${escapeHtml(ts(locale, "legal.shell.translation_pending"))}</div>`
+    : "";
+  return `<!doctype html><html ${htmlAttrs(locale)}><head>
     <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="theme-color" content="#17181b">
     <title>C-ton | ${escapeHtml(page.title)}</title>
     <link rel="icon" href="/preview/brand/c-ton-mark-180.png">
+    <link rel="alternate" hreflang="he" href="/legal/${slug}?lang=he">
+    <link rel="alternate" hreflang="en" href="/legal/${slug}?lang=en">
     ${stylesheet ? '<link rel="stylesheet" href="' + escapeHtml(stylesheet) + '">' : fallbackCss}
   </head><body><div class="app">
     <header class="topbar"><div class="topbar-inner">
-      <a class="brand" href="/preview/"><img class="brand-mark-img" src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="38" height="38"><span><img class="brand-word-img" src="/preview/brand/c-ton-wordmark.png" alt="C-ton" width="85" height="22"><div class="brand-sub">קונים ביחד · משלמים פחות</div></span></a>
-      <nav class="nav-links" aria-label="ניווט ראשי"><a class="nav-link" href="/preview/#/seller">אזור המוכרים</a></nav>
+      <a class="brand" href="/preview/"><img class="brand-mark-img" src="/preview/brand/c-ton-mark-180.png" alt="" aria-hidden="true" width="38" height="38"><span><img class="brand-word-img" src="/preview/brand/c-ton-wordmark.png" alt="C-ton" width="85" height="22"><div class="brand-sub">${escapeHtml(ts(locale, "app.buying_together_paying_less"))}</div></span></a>
+      <nav class="nav-links" aria-label="${escapeHtml(ts(locale, "app.main_navigation"))}"><a class="nav-link" href="/preview/#/seller">${escapeHtml(ts(locale, "app.sellers_area"))}</a></nav>
+      <div class="lang-switch" role="group" aria-label="${escapeHtml(ts(locale, "i18n.switch_label"))}" data-testid="language-switch">${langSwitch}</div>
     </div></header>
     <main class="container">
-      <nav class="legal-nav" aria-label="מסמכים משפטיים">${chips}</nav>
-      <article class="panel content-doc" data-section="legal_${slug}"><div class="notice info">גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.</div><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
+      <nav class="legal-nav" aria-label="${escapeHtml(ts(locale, "legal.shell.nav_label"))}">${chips}</nav>
+      <article class="panel content-doc" data-section="legal_${slug}" lang="${bodyLocale}" dir="${bodyLocale === "he" ? "rtl" : "ltr"}"><div class="notice info">${escapeHtml(ts(locale, "legal.shell.version_notice"))}</div>${pendingNotice}<h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
     </main>
-    <footer class="footer"><div><a href="/preview/#/support">תמיכה ויצירת קשר</a>${aboutLink}<a href="/legal/terms">תקנון ותנאי שימוש</a><a href="/legal/privacy">פרטיות</a><a href="/legal/refunds">מדיניות ביטולים והחזרים</a></div><div style="margin-top:8px">C-ton — פלטפורמת קניות קבוצתיות · סביבת הדגמה (ללא חיובים אמיתיים)</div></footer>
+    <footer class="footer"><div><a href="/preview/#/support">${escapeHtml(ts(locale, "cms.defaults.footer.link_support"))}</a>${aboutLink}<a href="/legal/terms">${escapeHtml(ts(locale, "cms.defaults.footer.link_terms"))}</a><a href="/legal/privacy">${escapeHtml(ts(locale, "cms.defaults.footer.link_privacy"))}</a><a href="/legal/refunds">${escapeHtml(ts(locale, "cms.defaults.footer.link_refunds"))}</a></div><div style="margin-top:8px">${escapeHtml(ts(locale, "cms.defaults.footer.text"))}</div></footer>
   </div></body></html>`;
 }
 
@@ -2170,6 +2194,10 @@ export function registerFrontendExperience(
   // browsers into the SPA deal page, preserving the personal ?ref= code.
   app.get("/d/:dealId", async (req: any, reply: any) => {
     const dealId = String(req.params?.dealId || "").trim().toLowerCase();
+    // The share page is a crawler surface: it carries the language the visitor
+    // chose (cookie) so a link shared from the English UI opens in English,
+    // while a crawler with no cookie gets the Hebrew default.
+    const shareLocale = localeFromRequest(req);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(dealId)) {
       return reply.redirect("/preview/", 302);
     }
@@ -2213,13 +2241,13 @@ export function registerFrontendExperience(
     const safeUrl = escapeHtml(`${origin}/d/${dealId}`);
     const safeSpa = escapeHtml(spaPath);
     const html = `<!doctype html>
-<html lang="he" dir="rtl">
+<html ${htmlAttrs(shareLocale)}>
 <head>
 <meta charset="utf-8">
 <title>${safeTitle}</title>
 <meta name="description" content="${safeDescription}">
 <meta property="og:site_name" content="C-ton">
-<meta property="og:locale" content="he_IL">
+<meta property="og:locale" content="${ogLocale(shareLocale)}">
 <meta property="og:type" content="website">
 <meta property="og:title" content="${safeTitle}">
 <meta property="og:description" content="${safeDescription}">
@@ -2233,7 +2261,7 @@ export function registerFrontendExperience(
 <script>window.location.replace(${JSON.stringify(spaPath)});</script>
 <style>body{background:#17181b;color:#eef0f4;font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0}</style>
 </head>
-<body><p><a style="color:#ff8a2e" href="${safeSpa}">מעבירים אתכם לעסקה…</a></p></body>
+<body><p><a style="color:#ff8a2e" href="${safeSpa}">${escapeHtml(ts(shareLocale, "deal.share.redirecting"))}</a></p></body>
 </html>`;
     return reply
       .header("cache-control", "public, max-age=300")
@@ -6217,18 +6245,21 @@ export function registerFrontendExperience(
   // Pure informational HTML: the browser redirect is NEVER financial truth —
   // authorization is confirmed only by the server-side status lookup
   // (callback-triggered or /api/payments/status). No data is read or written.
-  for (const [path, title, message] of [
-    ["/pay/return", "התשלום נקלט", "אישור התשלום נבדק מול ספק הסליקה. ניתן לחזור לאפליקציה — ההצטרפות תושלם רק לאחר אימות מלא בצד השרת."],
-    ["/pay/cancel", "התשלום בוטל", "תהליך התשלום הופסק ולא בוצע חיוב. ניתן לחזור לאפליקציה ולנסות שוב."]
+  for (const [path, titleKey, messageKey] of [
+    ["/pay/return", "pay.return.title", "pay.return.body"],
+    ["/pay/cancel", "pay.cancel.title", "pay.cancel.body"]
   ] as const) {
-    app.get(path, async (_req: FastifyRequest, reply: FastifyReply) => {
+    app.get(path, async (req: FastifyRequest, reply: FastifyReply) => {
       reply.header("cache-control", "no-store");
+      const locale = localeFromRequest(req as any);
+      const title = escapeHtml(ts(locale, titleKey));
+      const message = escapeHtml(ts(locale, messageKey));
       return reply.type("text/html; charset=utf-8").send(
-        `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>` +
+        `<!doctype html><html ${htmlAttrs(locale)}><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${title}</title></head>` +
         `<body style="font-family:system-ui,sans-serif;background:#eef0f3;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center">` +
         `<main style="background:#fff;border-radius:12px;padding:32px;max-width:420px;text-align:center;box-shadow:0 2px 12px rgba(0,0,0,.08)">` +
         `<h1 style="font-size:1.25rem;margin:0 0 12px">${title}</h1><p style="margin:0;color:#444">${message}</p>` +
-        `<p style="margin:16px 0 0"><a href="/app" style="color:#ec6608">חזרה לסיטון</a></p></main></body></html>`
+        `<p style="margin:16px 0 0"><a href="/app" style="color:#ec6608">${escapeHtml(ts(locale, "pay.back_to_siton"))}</a></p></main></body></html>`
       );
     });
   }
@@ -12311,9 +12342,20 @@ export function registerFrontendExperience(
     if (!Object.prototype.hasOwnProperty.call(LEGAL_PAGES, slug)) {
       return reply.code(404).send({ ok: false, error: "legal page not found" });
     }
+    const locale = localeFromRequest(req);
     const content = await deps.withTx(c => readContent(c));
-    const value = content["legal_" + slug]!.value;
-    return reply.type("text/html; charset=utf-8").send(await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }, contentPageHasBody(content["about"])));
+    const section = content["legal_" + slug]!;
+    // An owner-published CMS override is the document; it is stored in Hebrew
+    // unless an English version was written for it, so ask for the language
+    // being shown and let the per-field fallback answer honestly.
+    const value = locale === "en" ? section.value_en : section.value;
+    const hasBody = String(value.body || "").replace(/^# [^\n]+\r?\n/, "").trim().length > 0;
+    return reply
+      .header("vary", "cookie")
+      .type("text/html; charset=utf-8")
+      .send(hasBody
+        ? await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }, contentPageHasBody(content["about"]), locale)
+        : await renderLegalHtmlPage(slug, undefined, contentPageHasBody(content["about"]), locale));
   });
   app.get("/app", sendShell);
   app.get("/app/", sendShell);

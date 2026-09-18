@@ -8,16 +8,16 @@
 // Hebrew value — explicitly, and recorded, so the gap is reportable instead
 // of silently pretending to be translated.
 
-import { DEFAULT_LOCALE, getLocale, type Locale } from "./locale";
-import { HE } from "./dictionaries/he";
-import { EN } from "./dictionaries/en";
+import { DEFAULT_LOCALE, getLocale, type Locale } from "./locale.js";
+import { HE } from "./dictionaries/he.js";
+import { EN } from "./dictionaries/en.js";
 
 export type Dictionary = Record<string, string>;
 
 const DICTIONARIES: Record<Locale, Dictionary> = { he: HE, en: EN };
 
 export function dictionaryFor(locale: Locale): Dictionary {
-  return DICTIONARIES[locale] || DICTIONARIES[DEFAULT_LOCALE];
+  return DICTIONARIES[locale] ?? DICTIONARIES[DEFAULT_LOCALE];
 }
 
 /** Keys asked for at runtime that no dictionary could answer. */
@@ -49,7 +49,7 @@ export function interpolate(template: string, vars?: TranslationVars): string {
 export function translateIn(locale: Locale, key: string, vars?: TranslationVars): string {
   const own = dictionaryFor(locale)[key];
   if (typeof own === "string") return interpolate(own, vars);
-  const base = DICTIONARIES[DEFAULT_LOCALE][key];
+  const base = dictionaryFor(DEFAULT_LOCALE)[key];
   if (typeof base === "string") {
     if (locale !== DEFAULT_LOCALE) fallbackKeys.add(key);
     return interpolate(base, vars);
@@ -65,7 +65,7 @@ export function translateIn(locale: Locale, key: string, vars?: TranslationVars)
 export function templateIn(locale: Locale, key: string): string {
   const own = dictionaryFor(locale)[key];
   if (typeof own === "string") return own;
-  const base = DICTIONARIES[DEFAULT_LOCALE][key];
+  const base = dictionaryFor(DEFAULT_LOCALE)[key];
   if (typeof base === "string") {
     if (locale !== DEFAULT_LOCALE) fallbackKeys.add(key);
     return base;
@@ -80,9 +80,11 @@ export function splitTemplate(template: string): { text: string; name?: string }
   let last = 0;
   for (const match of template.matchAll(/\{(\w+)\}/g)) {
     const at = match.index ?? 0;
+    const whole = match[0];
+    const name = match[1];
     if (at > last) out.push({ text: template.slice(last, at) });
-    out.push({ text: match[0], name: match[1] });
-    last = at + match[0].length;
+    out.push(name === undefined ? { text: whole } : { text: whole, name });
+    last = at + whole.length;
   }
   if (last < template.length) out.push({ text: template.slice(last) });
   return out;

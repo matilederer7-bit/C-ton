@@ -1,7 +1,7 @@
 import React from "react";
-import { LOCALES, type Locale } from "./locale";
-import { useLocale } from "./useLocale";
-import { t } from "./translate";
+import { LOCALES, type Locale } from "./locale.js";
+import { useLocale } from "./useLocale.js";
+import { t } from "./translate.js";
 
 /**
  * The language switch: עברית | English.

@@ -8,16 +8,16 @@
 // web/src/content/cmsTemplates.ts. Rows written before the block model (flat
 // { title, sub, ... }) are converted deterministically on read and the next
 // write stores the block shape.
-import { LEGAL_PAGES } from "./legal_pages.js";
+import { LEGAL_NAV_LABEL_KEYS, LEGAL_PAGES } from "./legal_pages.js";
 import {
-  PAGE_CONTRACTS, legalPageContract, validatePage, normalizePage, projectLegacy, assetRefs, CmsValidationError,
+  PAGE_CONTRACTS, legalPageContract, validatePage, normalizePage, projectLegacy, missingEnglishContent, assetRefs, CmsValidationError,
   type PageContract, type PageContent
 } from "../web/src/content/cmsTemplates.js";
 import { failure, type Db } from "./receipt_trust.js";
 
 export const CONTENT_SECTIONS: Record<string, PageContract> = {
   ...PAGE_CONTRACTS,
-  ...Object.fromEntries(Object.entries(LEGAL_PAGES).map(([key, page]) => [`legal_${key}`, legalPageContract(page.navLabel, { title: page.title, body: page.body })]))
+  ...Object.fromEntries(Object.entries(LEGAL_PAGES).map(([key, page]) => [`legal_${key}`, legalPageContract(LEGAL_NAV_LABEL_KEYS[key as keyof typeof LEGAL_NAV_LABEL_KEYS], { title: page.title, body: page.body })]))
 };
 
 export function contractOf(key: string): PageContract {
@@ -51,6 +51,10 @@ export type SectionState = {
   draft_updated_at: string | null; draft_updated_by: string | null; published_at: string | null;
   /** compatibility: the flat legacy projection of the PUBLISHED page (the pre-block `value` shape the server-rendered legal route and older clients read) */
   value: Record<string, string>;
+  /** the same projection read in English — each field falls back to the Hebrew one when no English value was written */
+  value_en: Record<string, string>;
+  /** Siton-owned content values on this page that have NO English version and are therefore served as Hebrew */
+  missing_english: string[];
 };
 
 export async function readContent(c: Db): Promise<Record<string, SectionState>> {
@@ -62,7 +66,10 @@ export async function readContent(c: Db): Promise<Record<string, SectionState>> 
     const state: SectionState = {
       label: contract.label, description: contract.description,
       contract: { locked: contract.locked, addable: contract.addable, maxBlocks: contract.maxBlocks },
-      published, draft, value: projectLegacy(published, contract),
+      published, draft,
+      value: projectLegacy(published, contract),
+      value_en: projectLegacy(published, contract, "en"),
+      missing_english: missingEnglishContent(published),
       revision: row?.revision || 0, updated_at: row?.updated_at || null, updated_by: row?.updated_by || null,
       draft_updated_at: row?.draft_updated_at || null, draft_updated_by: row?.draft_updated_by || null, published_at: row?.published_at || null
     };
@@ -74,6 +81,12 @@ export async function readContent(c: Db): Promise<Record<string, SectionState>> 
 export function publicContent(sections: Record<string, SectionState>, mode: "published" | "preview" = "published") {
   return Object.fromEntries(Object.entries(sections).map(([key, s]) => {
     const page = mode === "preview" ? (s.draft || s.published) : s.published;
-    return [key, { ...projectLegacy(page, CONTENT_SECTIONS[key]!), blocks: page.blocks.filter(b => b.enabled) }];
+    // The blocks carry BOTH languages (fields/fields_en); the client resolves
+    // them for the language it is showing, so one response serves either.
+    return [key, {
+      ...projectLegacy(page, CONTENT_SECTIONS[key]!),
+      value_en: projectLegacy(page, CONTENT_SECTIONS[key]!, "en"),
+      blocks: page.blocks.filter(b => b.enabled)
+    }];
   }));
 }
