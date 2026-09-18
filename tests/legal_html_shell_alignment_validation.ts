@@ -47,6 +47,11 @@ try {
       for (const pattern of REQUIRED_SHELL) assert.match(res.body, pattern, `${slug} is missing ${pattern}`);
       assert.match(res.body, /<html lang="he" dir="rtl">/, `${slug} is RTL Hebrew`);
       assert.match(res.body, /<h1>[^<]+<\/h1>/, `${slug} has a document title`);
+      // ...and exactly one. The body's own "# " headings must render as h2,
+      // the way the in-app ContentPage renderer maps every level: /legal/refunds
+      // and /legal/payments were minting a second and third h1 from CMS copy.
+      assert.equal((res.body.match(/<h1[\s>]/g) || []).length, 1,
+        `${slug} must have exactly one top-level heading`);
     }
   });
 

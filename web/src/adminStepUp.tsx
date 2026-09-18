@@ -57,7 +57,9 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
       <div style={{ maxWidth: 380, margin: "60px auto" }}>
         <div className="panel" data-testid="admin-stepup">
           <div style={{ display: "flex", justifyContent: "center", marginBottom: 12 }}><BrandMark size={48} /></div>
-          <h2 style={{ textAlign: "center" }}>כניסת מנהל</h2>
+          {/* the page h1: while the step-up is shown it IS the page (the admin
+              area replaces it once unlocked). `auth-title` keeps the h2 size. */}
+          <h1 className="auth-title">כניסת מנהל</h1>
           <form onSubmit={submit}>
             {/* P0.6-1 — the email is ALWAYS visible so the user sees exactly
                 WHICH account is being authenticated; prefilled from the
