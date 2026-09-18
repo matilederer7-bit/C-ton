@@ -88,7 +88,11 @@ export function assertProductionRuntimeGuards(role: RuntimeRole, env: NodeJS.Pro
       failures.push("PAYMENT_ENVIRONMENT=sandbox with PAYMENT_PROVIDER=grow requires the official sandbox.meshulam.co.il base URL");
     }
     if (paymentEnvironment === "live" && growHost !== "secure.meshulam.co.il") {
-      failures.push("PAYMENT_ENVIRONMENT=live with PAYMENT_PROVIDER=grow requires the official secure.meshulam.co.il base URL");
+      failures.push(
+        growHost === "sandbox.meshulam.co.il"
+          ? "PAYMENT_ENVIRONMENT=live with PAYMENT_PROVIDER=grow cannot use the sandbox.meshulam.co.il base URL; live requires the official secure.meshulam.co.il base URL"
+          : "PAYMENT_ENVIRONMENT=live with PAYMENT_PROVIDER=grow requires the official secure.meshulam.co.il base URL"
+      );
     }
     for (const name of ["GROW_SUCCESS_URL", "GROW_CANCEL_URL", "GROW_NOTIFY_URL"]) {
       const value = String(env[name] || "").trim();
