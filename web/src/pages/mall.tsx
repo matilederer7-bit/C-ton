@@ -131,7 +131,9 @@ export function Mall({ navigate }: { navigate: (hash: string) => void }) {
         {liveDeals > 0 ? (
           <div className="hero-live">
             <span className="live-dot" aria-hidden="true" />
-            {t("mall.live_summary", { deals: num(liveDeals), units: num(liveUnits) })}
+            {t("mall.live_summary_deals", { deals: num(liveDeals) })}
+            {" \u00B7 "}
+            {t("mall.live_summary_units", { units: num(liveUnits) })}
           </div>
         ) : null}
       </section>

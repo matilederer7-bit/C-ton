@@ -96,7 +96,14 @@ function scan() {
     ts.forEachChild(sf, (n) => { visit(n); });
   }
 
-  const orphans = Object.keys(he).filter((k) => !usedKeys.has(k));
+  // A `<key>#one` singular is never written at a call site: the translator
+  // selects it from the base key when the count is 1. It is referenced exactly
+  // when its base is, and reporting 13 of them as dead copy would be wrong.
+  const orphans = Object.keys(he).filter((k) => {
+    if (usedKeys.has(k)) return false;
+    if (k.endsWith("#one")) return !usedKeys.has(k.slice(0, -"#one".length));
+    return true;
+  });
   return { unresolved, forgotten, orphans, keys: Object.keys(he).length, used: usedKeys.size };
 }
 

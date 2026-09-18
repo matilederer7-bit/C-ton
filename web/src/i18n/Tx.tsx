@@ -15,7 +15,14 @@ import { splitTemplate, templateIn } from "./translate.js";
  *   <Tx k="deal.units_to_target" vars={{ units: <b>{num(left)}</b>, deadline }} />
  */
 export function Tx({ k, vars }: { k: string; vars?: Record<string, React.ReactNode> }) {
-  const template = templateIn(getLocale(), k);
+  // Only the plain string/number vars can decide a plural; a React node cannot
+  // be a count. Passing them through lets <Tx> pick the same singular form t()
+  // would (see PLURAL_ONE_SUFFIX in translate.ts).
+  const counts: Record<string, string | number> = {};
+  for (const [name, value] of Object.entries(vars || {})) {
+    if (typeof value === "string" || typeof value === "number") counts[name] = value;
+  }
+  const template = templateIn(getLocale(), k, counts);
   const parts = splitTemplate(template);
   return (
     <>

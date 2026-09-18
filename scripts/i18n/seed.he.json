@@ -443,7 +443,6 @@
   "legal.shell.nav_label": "מסמכים משפטיים",
   "legal.shell.translation_pending": "למסמך זה עדיין אין תרגום אנגלי מאושר. הנוסח העברי שלהלן הוא הנוסח המחייב.",
   "legal.shell.version_notice": "גרסה 0.9. מיועד לדמו, MVP ופיילוט מבוקר. דורש בדיקה ואישור עורך דין לפני שימוש מסחרי.",
-  "mall.live_summary": "{deals} עסקאות פתוחות עכשיו · {units} יחידות כבר הצטרפו",
   "mall.only_open_filter": "פתוחות להצטרפות",
   "mall.type_filters.label": "הכל",
   "mall.type_filters.label_2": "מוצרים",
@@ -581,5 +580,13 @@
   "util.israel_time_suffix": "{text} (שעון ישראל)",
   "util.seller_initial_fallback": "מ",
   "vtree.direct_joiners": "{count} מצטרפים ישירים",
-  "vtree.node_units": "{units} יח׳ · {status}"
+  "vtree.node_units": "{units} יח׳ · {status}",
+  "seller_pickup.order_summary#one": "יחידה אחת של {product} — {buyer}",
+  "vtree.node_units#one": "יח׳ אחת · {status}",
+  "seller.final_success_threshold#one": "סף ההצלחה הסופי הוא {rule} (יחידה אחת שנטענת בפועל) — נקבע אוטומטית ואינו ניתן לשינוי.",
+  "content_admin.missing_english_count#one": "שדה אחד בעמוד הזה עדיין ללא גרסה אנגלית — הוא יוצג בעברית.",
+  "mall.live_summary_deals": "{deals} עסקאות פתוחות עכשיו",
+  "mall.live_summary_deals#one": "עסקה אחת פתוחה עכשיו",
+  "mall.live_summary_units": "{units} יחידות כבר הצטרפו",
+  "mall.live_summary_units#one": "יחידה אחת כבר הצטרפה"
 }

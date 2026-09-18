@@ -1869,5 +1869,12 @@
   "vtree.to_selected_branch": "◎ לענף הנבחר",
   "vtree.viral_distribution_tree": "עץ הפצה ויראלי",
   "vtree.zoom": "הגדלה",
-  "vtree.zoom_out": "הקטנה"
+  "vtree.zoom_out": "הקטנה",
+  "deal.qty_units#one": "יחידה אחת",
+  "pickup_card.qty_units#one": "יחידה אחת",
+  "seller_pickup.qty_units#one": "יחידה אחת",
+  "seller_pickup.qty_units_2#one": "יחידה אחת",
+  "seller_pickup.confirm_handover_qty_units#one": "אישור מסירה — יחידה אחת",
+  "seller_pickup.confirming_handover_marks_all_qty#one": "אישור המסירה מסמן את היחידה כנמסרה.",
+  "seller_pickup.green_qty_units#one": "{green} · יחידה אחת"
 }

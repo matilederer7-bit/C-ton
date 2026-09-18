@@ -41,12 +41,64 @@ export function interpolate(template: string, vars?: TranslationVars): string {
   });
 }
 
+// ── PLURAL AGREEMENT (red team §2.15) ──────────────────────────────────────
+// A key that interpolates a count into a hard-coded plural reads wrong at one:
+// `{qty} units` rendered "1 units", and the Hebrew `{qty} יחידות` rendered
+// "1 יחידות", on every pickup card where a buyer joined with a single unit.
+//
+// A key may therefore declare a singular form under `<key>#one`. It is chosen
+// when the call passes EXACTLY ONE numeric variable and that variable is 1.
+// "Exactly one" is the whole rule: a sentence carrying two independent counts
+// has two independent plural decisions and no single variant can express both,
+// so such a key must be split into two keys instead. The i18n contract test
+// enforces that — adding `#one` to a two-count key fails the build rather than
+// silently pluralising the wrong noun.
+//
+// Hebrew and English both use it. Hebrew is not "the language without plurals":
+// it needs the singular here for exactly the same reason English does.
+const PLURAL_ONE_SUFFIX = "#one";
+
+// Call sites pass counts through `num()`, which returns a LOCALE-FORMATTED
+// STRING ("1", "1,234") — so a count variable is rarely a JavaScript number by
+// the time it reaches here, and testing `typeof value === "number"` would have
+// made this whole mechanism dead code. Group separators are stripped before
+// parsing. Only keys that actually declare a `#one` variant are affected, so a
+// numeric-looking string that is not a count (an id, a phone number) can change
+// nothing unless someone adds a singular form to that key.
+const COUNT_SEPARATORS = /[\s,\u00A0\u202F\u2009]/g;
+
+function asCount(value: string | number): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  const text = String(value).replace(COUNT_SEPARATORS, "");
+  if (!/^-?\d+(\.\d+)?$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function pluralKeyFor(locale: Locale, key: string, vars?: TranslationVars): string {
+  if (!vars) return key;
+  let count: number | null = null;
+  for (const value of Object.values(vars)) {
+    const parsed = asCount(value);
+    if (parsed === null) continue;
+    if (count !== null) return key; // two counts: not decidable from one variant
+    count = parsed;
+  }
+  if (count !== 1) return key;
+  const singular = `${key}${PLURAL_ONE_SUFFIX}`;
+  return typeof dictionaryFor(locale)[singular] === "string"
+    || typeof dictionaryFor(DEFAULT_LOCALE)[singular] === "string"
+    ? singular
+    : key;
+}
+
 /**
  * Resolve `key` in `locale`, falling back to Hebrew and finally to the key
  * itself. The key is never rendered silently — an unresolved key is recorded
  * and the i18n gate fails the build on it.
  */
 export function translateIn(locale: Locale, key: string, vars?: TranslationVars): string {
+  key = pluralKeyFor(locale, key, vars);
   const own = dictionaryFor(locale)[key];
   if (typeof own === "string") return interpolate(own, vars);
   const base = dictionaryFor(DEFAULT_LOCALE)[key];
@@ -62,7 +114,8 @@ export function translateIn(locale: Locale, key: string, vars?: TranslationVars)
  * The template for `key`, WITHOUT interpolation — the raw string with its
  * `{placeholders}` intact. `Tx` uses it to substitute React nodes.
  */
-export function templateIn(locale: Locale, key: string): string {
+export function templateIn(locale: Locale, key: string, vars?: TranslationVars): string {
+  key = pluralKeyFor(locale, key, vars);
   const own = dictionaryFor(locale)[key];
   if (typeof own === "string") return own;
   const base = dictionaryFor(DEFAULT_LOCALE)[key];

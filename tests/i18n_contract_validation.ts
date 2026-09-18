@@ -145,7 +145,8 @@ run("13: no English value still speaks Hebrew", () => {
 
 run("2: keys are hierarchical, lower-case and stable", () => {
   for (const key of Object.keys(HE)) {
-    assert.match(key, /^[a-z][a-z0-9_]*(\.[a-z0-9_]+(\[\d+\])?)+$/,
+    // `#one` is the singular variant of the key before it, not a new namespace.
+    assert.match(key, /^[a-z][a-z0-9_]*(\.[a-z0-9_]+(\[\d+\])?)+(#one)?$/,
       `${key} is not a lower-case dotted key`);
     assert.ok(key.includes("."), `${key} has no namespace`);
   }
@@ -320,6 +321,93 @@ run("CMS: a stored page with no English at all still renders, in Hebrew", () => 
   const page = normalizePage({ blocks: [{ id: "about", type: "about", enabled: true, fields: { title: "אודות", body: "גוף" } }] }, contractFor("about"));
   const english = localizedBlock(page.blocks[0]!, "en");
   assert.equal(english.fields.title, "אודות");
+});
+
+// ── PLURAL AGREEMENT (red team §2.15) ──────────────────────────────────────
+// `{qty} units` rendered "1 units" on the pickup card whenever a buyer joined
+// with a single unit, and the Hebrew `{qty} יחידות` rendered "1 יחידות" — the
+// same defect, in both languages. A key may now declare a singular under
+// `<key>#one`, chosen when the call passes exactly one count and it is 1.
+
+const PLURAL_SUFFIX = "#one";
+const pluralKeys = Object.keys(HE).filter((key) => key.endsWith(PLURAL_SUFFIX));
+
+run("every singular variant has a plural base, in both languages", () => {
+  assert.ok(pluralKeys.length >= 12, `expected the singular forms, saw ${pluralKeys.length}`);
+  for (const key of pluralKeys) {
+    const base = key.slice(0, -PLURAL_SUFFIX.length);
+    assert.ok(typeof HE[base] === "string", `${key} has no Hebrew base`);
+    assert.ok(typeof EN[base] === "string", `${key} has no English base`);
+    assert.ok(typeof EN[key] === "string", `${key} has no English singular — an English user would be shown Hebrew`);
+  }
+});
+
+run("a singular variant carries a subset of its base's placeholders", () => {
+  const names = (value: string) => new Set([...String(value).matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
+  for (const key of pluralKeys) {
+    const base = key.slice(0, -PLURAL_SUFFIX.length);
+    for (const [label, dict] of [["he", HE], ["en", EN]] as const) {
+      const baseNames = names(dict[base]!);
+      for (const name of names(dict[key]!)) {
+        assert.ok(baseNames.has(name),
+          `${label} ${key} interpolates {${name}}, which its plural form does not — the singular would render a placeholder`);
+      }
+    }
+    // The count itself is what the variant replaces with a word, so the
+    // singular must NOT still interpolate it.
+    assert.deepEqual([...names(EN[key]!)].filter((n) => ["qty", "count", "units", "deals", "n"].includes(n)), [],
+      `${key} still interpolates its own count — that is what the singular exists to remove`);
+  }
+});
+
+run("a sentence with two counts is split, never given one singular variant", () => {
+  // One variant cannot express two independent plural decisions. Such a key
+  // must become two keys the call site joins.
+  const countNames = ["qty", "count", "units", "deals", "n"];
+  for (const key of pluralKeys) {
+    const base = key.slice(0, -PLURAL_SUFFIX.length);
+    for (const [label, dict] of [["he", HE], ["en", EN]] as const) {
+      const counts = [...String(dict[base]!).matchAll(/\{(\w+)\}/g)]
+        .map((m) => m[1]!).filter((n) => countNames.includes(n));
+      assert.ok(counts.length <= 1,
+        `${label} ${base} carries ${counts.length} counts (${counts.join(", ")}) and cannot be pluralised by one variant — split it into two keys`);
+    }
+  }
+});
+
+run("no English copy interpolates a count straight into a hard-coded plural", () => {
+  // The scan that found the defect, kept as a gate so it cannot come back.
+  const offenders: string[] = [];
+  for (const [key, value] of Object.entries(EN)) {
+    if (key.endsWith(PLURAL_SUFFIX)) continue;
+    if (!/\{(count|n|units|qty|deals)\}\s+[a-z]+s\b/.test(String(value))) continue;
+    if (typeof EN[`${key}${PLURAL_SUFFIX}`] !== "string") offenders.push(`${key} = ${value}`);
+  }
+  assert.deepEqual(offenders, [],
+    `these render "1 units" at a quantity of one and declare no singular:\n  ${offenders.join("\n  ")}`);
+});
+
+run("the singular is actually chosen at one, and only at one, in both languages", () => {
+  for (const locale of ["he", "en"] as const) {
+    const one = translateIn(locale, "pickup_card.qty_units", { qty: "1" });
+    const many = translateIn(locale, "pickup_card.qty_units", { qty: "2" });
+    const grouped = translateIn(locale, "pickup_card.qty_units", { qty: "1,234" });
+    assert.notEqual(one, many, `${locale}: one and many must not render the same sentence`);
+    // The invariant is the NOUN, not the numeral: "1 unit" is the idiomatic
+    // English singular, while Hebrew says "יחידה אחת" and drops the numeral.
+    // Asserting "the singular must not restate the count" would be a rule
+    // borrowed from Hebrew and wrong for English.
+    assert.doesNotMatch(one, locale === "en" ? /\bunits\b/ : /יחידות/,
+      `${locale}: the singular still uses the plural noun: ${one}`);
+    assert.match(many, locale === "en" ? /\bunits\b/ : /יחידות/,
+      `${locale}: the plural must keep the plural noun: ${many}`);
+    assert.match(many, /2/, `${locale}: the plural keeps its count`);
+    assert.match(grouped, /1,234/, `${locale}: a grouped thousands separator is not mistaken for one`);
+    // Two counts in one call cannot decide a singular.
+    assert.equal(translateIn(locale, "seller_pickup.order_summary", { qty: "1", product: "X", buyer: "Y" }),
+      translateIn(locale, "seller_pickup.order_summary#one", { product: "X", buyer: "Y" }),
+      `${locale}: the order summary picks its singular from the one count it has`);
+  }
 });
 
 console.log(`I18N_CONTRACT passed=${passed} failed=${failed}`);
