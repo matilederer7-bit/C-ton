@@ -728,8 +728,8 @@ function JoinModal(props: {
         {payMethod === "credit_card" ? (
           <div className="pay-secure-slot" data-testid="pay-slot-credit">
             <div className="field" style={{ marginBottom: 0 }}>
-              <label>{t("deal.card_number")}</label>
-              <input dir="ltr" disabled placeholder="•••• •••• •••• ••••" aria-label={t("deal.card_number_entered_secure_payment")} />
+              <label>{t("deal.payment_card_field_label")}</label>
+              <input dir="ltr" disabled placeholder="•••• •••• •••• ••••" aria-label={t("deal.payment_card_field_hint")} />
             </div>
             <div className="pay-field-row">
               <div className="field" style={{ marginBottom: 0 }}><label>{t("deal.valid")}</label><input dir="ltr" disabled placeholder="MM/YY" /></div>

@@ -139,6 +139,9 @@ async function switchTo(page: BrowserPage, locale: "he" | "en") {
 
 async function main() {
   if (!chromiumPath()) {
+    // A missing browser is an ENVIRONMENT fact locally and a broken gate in CI:
+    // a bilingual product that is never opened is not verified.
+    if (process.env.CI) throw new Error("no Chromium available — the i18n browser gate cannot be skipped in CI");
     console.log("I18N_BROWSER SKIP — no Chromium available in this environment");
     return;
   }

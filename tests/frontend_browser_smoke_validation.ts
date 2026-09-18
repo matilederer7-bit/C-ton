@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { chromiumPath } from "./helpers/browser_cdp.js";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { cp, mkdir, readFile, rm } from "node:fs/promises";
@@ -14,10 +15,9 @@ const __dirname = dirname(__filename);
 const repoRoot = join(__dirname, "..", "..");
 const frontendSource = join(repoRoot, "frontend");
 const frontendTarget = join(repoRoot, ".tmp_test_dist", "frontend");
-const browserCandidates = process.platform === "win32"
-  ? ["C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"]
-  : ["/usr/bin/google-chrome", "/usr/bin/google-chrome-stable", "/usr/bin/chromium", "/usr/bin/chromium-browser"];
-const edgePath = browserCandidates.find((candidate) => existsSync(candidate)) || browserCandidates[0]!;
+// The browser is wherever this machine keeps it: a CI runner ships Chrome,
+// this container ships Playwright's Chromium. One resolver for every suite.
+const edgePath = chromiumPath() || "";
 const compiledAppPath = join(__dirname, "..", "src", "app.js");
 const smokePort = 3310;
 const cdpPort = 3311;
@@ -134,6 +134,9 @@ async function openCdpPage(path: string) {
   const browser = spawn(edgePath, [
     "--headless=new",
     "--disable-gpu",
+    // containerised runners have no user namespace and a tiny /dev/shm
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
     "--disable-breakpad",
     "--disable-crash-reporter",
     "--no-first-run",

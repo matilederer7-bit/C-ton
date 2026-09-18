@@ -73,6 +73,12 @@ jobs:
           node scripts/distributor_attribution_only_gate.cjs --self-test 2>&1 | tee .ci-artifacts/distributor-attribution-gate.log
           node scripts/distributor_attribution_only_gate.cjs 2>&1 | tee -a .ci-artifacts/distributor-attribution-gate.log
 
+      # Every t() key resolves, no Hebrew sentence is hard-coded into the
+      # shipped UI, and the generated dictionaries match their checked-in
+      # sources. A forgotten system string cannot reach English any other way.
+      - name: Bilingual (i18n) gate
+        run: npm run gate:i18n 2>&1 | tee .ci-artifacts/i18n-gate.log
+
       - name: Payment and raw-card compliance scan
         run: npm run scan:payment 2>&1 | tee .ci-artifacts/payment-scan.log
 
@@ -148,6 +154,17 @@ jobs:
 
       - name: End-to-end tests
         run: npm run test:e2e 2>&1 | tee .ci-artifacts/test-e2e.log
+
+      # Visual evidence of the bilingual surfaces, kept per run: the same
+      # screens in Hebrew and in English, desktop and phone.
+      - name: Upload bilingual screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: i18n-screens-${{ github.run_id }}
+          path: .ci-artifacts/i18n-screens
+          if-no-files-found: ignore
+          retention-days: 14
 
       # The ten explicit group steps above already execute the complete TypeScript
       # test inventory on pull requests. Re-running test:all here simply spawns the

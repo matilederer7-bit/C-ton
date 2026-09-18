@@ -111,7 +111,7 @@ try {
     const runtime = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
     assert.match(runtime, /const aboutLink = aboutHasBody\s*\n?\s*\?/,
       "the About link must be conditional, never hard-coded");
-    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body! \}, contentPageHasBody\(content\["about"\]\), locale\)/,
+    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body!, bodyLocale \}, contentPageHasBody\(content\["about"\]\), locale\)/,
       "and the condition must be the live CMS content, read per request");
     assert.match(runtime, /const locale = localeFromRequest\(req\);/,
       "and the document is rendered in the language the visitor chose");
