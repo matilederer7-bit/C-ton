@@ -16,7 +16,7 @@ import {
   PRODUCT_TYPE_LABELS, applyProductLibraryFilters, productDealRevisionStatus, productLibraryEmptyKind, validateEstimateRange,
   type ProductLibraryFilters
 } from "../productLibrary";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 import { attention, focusField } from "../fieldAttention";
 
 type ProductType = "physical_product" | "voucher" | "ticket";

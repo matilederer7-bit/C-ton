@@ -12,7 +12,8 @@ import { AuthPanel } from "../auth";
 import {
   BrandLoader, Countdown, EmptyState, GroupMeter, Modal, StatusPill, StatTile, Toast, copyText, useToast
 } from "../components";
-import { t, tKey, Tx } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
+import { Tx } from "../i18n/Tx.js";
 import { LiveCountdown } from "../livecountdown";
 import {
   GEO_OUTCOME_COPY, GEO_OUTCOME_TEST_ID, browserGeoDeps, geoDiagnosticLine, parseManualCoordinates, recordGeoTrace,
@@ -637,10 +638,10 @@ function LocationCapture({ row, onSet }: { row: DeliveryDraft; onSet: (lat: numb
 
       {copy && outcome ? (
         <div className={`notice ${copy.denial ? "err" : "info"}`} data-testid={failureTestId} data-geo-kind={outcome.kind} style={{ marginTop: 2 }}>
-          <b>{copy.title}</b>
+          <b>{t(copy.title)}</b>
           <div className="small" style={{ marginTop: 4 }}>
-            {copy.note ? <div>{copy.note}</div> : null}
-            {copy.steps.map((step, i) => <div key={i}>{i + 1}. {step}</div>)}
+            {copy.note ? <div>{t(copy.note)}</div> : null}
+            {copy.steps.map((step, i) => <div key={i}>{i + 1}. {t(step)}</div>)}
           </div>
           {copy.retryable ? (
             <button type="button" className="btn btn-sm btn-ghost" style={{ marginTop: 6 }} disabled={pending}

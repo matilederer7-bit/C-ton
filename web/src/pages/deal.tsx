@@ -4,7 +4,8 @@ import { api, Json } from "../api";
 import {
   BrandLoader, EmptyState, GroupMeter, Modal, ProductImg, ShareActions, StatusPill, QtyInput, Toast, copyText, useToast
 } from "../components";
-import { t, tKey, Tx } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
+import { Tx } from "../i18n/Tx.js";
 import { LiveCountdown } from "../livecountdown";
 // P0.7C — bounded read polling: immediate, never overlapping, paused when hidden,
 // back-off on 429/errors, stopped on terminal states; dedicated server read budget.

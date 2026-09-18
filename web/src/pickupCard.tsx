@@ -6,7 +6,7 @@ import { Json } from "./api";
 import { QrCode } from "./qrcode";
 import { formatIsraelDateTime, num } from "./util";
 import { PICKUP_SHOW_TO_SELLER_LINE_KEY, PICKUP_SCREENSHOT_LINE_KEY, PICKUP_DELIVERY_LINE_KEY } from "./buyerCopy";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── LAUNCH SPRINT 3 — buyer pickup credential card (tracking page) ──────────
 // Everything shown derives from tracking.pickup (server-authoritative):

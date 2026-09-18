@@ -109,10 +109,12 @@ try {
   await run("the legal footer drops the About link while the About page has no body", async () => {
     const res = await app.inject({ method: "GET", url: "/legal/terms" });
     const runtime = readFileSync(join(process.cwd(), "src", "frontend_runtime.ts"), "utf8");
-    assert.match(runtime, /const aboutLink = aboutHasBody \?/,
+    assert.match(runtime, /const aboutLink = aboutHasBody\s*\n?\s*\?/,
       "the About link must be conditional, never hard-coded");
-    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body! \}, contentPageHasBody\(content\["about"\]\)\)/,
+    assert.match(runtime, /renderLegalHtmlPage\(slug, \{ title: value\.title!, body: value\.body! \}, contentPageHasBody\(content\["about"\]\), locale\)/,
       "and the condition must be the live CMS content, read per request");
+    assert.match(runtime, /const locale = localeFromRequest\(req\);/,
+      "and the document is rendered in the language the visitor chose");
     // and the served page agrees with the RULE as the content stands right now —
     // this deliberately does not freeze About as empty: the day the owner writes
     // the copy, the link simply returns and this assertion still holds.

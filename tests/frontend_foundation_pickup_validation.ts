@@ -7,6 +7,7 @@
 //    always offers typed entry + search, the camera is requested only on a tap,
 //    no seller contact on the tracking page, hash-only navigation, camera=(self)
 import assert from "node:assert/strict";
+import { assertRendersCopy, en, he } from "./helpers/i18n_copy.js";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,12 +43,20 @@ await run("client and server normalise the same inputs to the same digits (typed
 });
 
 await run("every scanner outcome has product Hebrew and a stable test id; camera errors map to named outcomes", () => {
-  for (const [k, copy] of Object.entries(SCAN_OUTCOME_COPY)) {
-    assert.ok(String(copy).length > 8, k);
-    assert.match(String(copy), /[֐-׿]/, `${k} must be Hebrew`);
+  // The table holds translation KEYS; the sentences themselves are in the
+  // dictionary and must exist in BOTH languages — a scanner that fails
+  // silently in English is as broken as one that fails silently in Hebrew.
+  for (const [k, key] of Object.entries(SCAN_OUTCOME_COPY)) {
+    assert.ok(he(key).length > 8, k);
+    assert.match(he(key), /[֐-׿]/, `${k} must be Hebrew`);
+    assert.ok(en(key).length > 8, `${k} must have English`);
     assert.match((SCAN_OUTCOME_TEST_ID as any)[k], /^pickup-scan-[a-z-]+$/);
   }
-  for (const outcome of ["permission_denied", "camera_unavailable", "unsupported"]) assert.match(SCAN_OUTCOME_COPY[outcome as keyof typeof SCAN_OUTCOME_COPY], /הקליד|הקלידו/, `${outcome} names the typed-code fallback`);
+  for (const outcome of ["permission_denied", "camera_unavailable", "unsupported"]) {
+    const key = SCAN_OUTCOME_COPY[outcome as keyof typeof SCAN_OUTCOME_COPY];
+    assert.match(he(key), /הקליד|הקלידו/, `${outcome} names the typed-code fallback`);
+    assert.match(en(key), /type the code/i, `${outcome} names the typed-code fallback (en)`);
+  }
   assert.equal(classifyCameraError({ name: "NotAllowedError" }), "permission_denied");
   assert.equal(classifyCameraError({ name: "NotFoundError" }), "camera_unavailable");
   assert.equal(classifyCameraError({ name: "NotReadableError" }), "camera_unavailable");
@@ -113,7 +122,7 @@ await run("buyer copy per state exists, is Hebrew, and never promises what the s
 await run("React source pins — buyer card renders only from tracking.pickup; full-screen mode; no seller contact; hash-only links", () => {
   const card = read("web/src/pickupCard.tsx");
   const track = read("web/src/pages/track.tsx");
-  assert.match(track, /<BuyerEntitlement participantId=\{participantId\} token=\{token\} pickup=\{t\.pickup\} \/>/, "the entitlement view receives the authenticated participant and server pickup payload");
+  assert.match(track, /<BuyerEntitlement participantId=\{participantId\} token=\{token\} pickup=\{tr\.pickup\} \/>/, "the entitlement view receives the authenticated participant and server pickup payload");
   const receipt = read("web/src/receiptContent.tsx");
   assert.match(receipt, /!data\.configured && pickup\?\.applicable \? <PickupCard pickup=\{pickup\} \/>/, "legacy physical deals retain the canonical pickup card; configured methods use entitlement details");
   assert.match(card, /if \(!pickup \|\| !pickup\.applicable\) return null;/);
@@ -125,7 +134,10 @@ await run("React source pins — buyer card renders only from tracking.pickup; f
   assert.doesNotMatch(card, /mailto:|support_email|support_phone|wa\.me|tel:/, "no seller contact on the buyer card");
   assert.doesNotMatch(card, /ערבות|מובטח|ביטוח|דירוג|⭐/);
   assert.match(card, /dir="ltr"/, "codes are LTR isolates");
-  assert.match(read("web/src/buyerCopy.ts"), /PICKUP_SHOW_TO_SELLER_LINE = "הציגו את הקוד למוכר בעת האיסוף\."/);
+  // The buyer-facing pickup lines live in the dictionary; both languages must
+  // say the same thing about what the code is and is not.
+  assert.equal(he("buyer_copy.pickup_show_to_seller_line"), "הציגו את הקוד למוכר בעת האיסוף.");
+  assert.equal(en("buyer_copy.pickup_show_to_seller_line"), "Show the code to the seller at pickup.");
 });
 
 await run("React source pins — seller scanner: camera only on tap, typed + search always present, quantity in the CTA, explicit confirmation copy, already/blocked states", () => {
@@ -140,13 +152,20 @@ await run("React source pins — seller scanner: camera only on tap, typed + sea
   assert.match(page, /data-testid="pickup-code-input"/);
   assert.match(page, /inputMode="numeric"/);
   assert.match(page, /data-testid="pickup-search-input"/);
-  assert.match(page, /אישור מסירה — \{num\(qty\)\} יחידות/, "the primary CTA names the quantity");
-  assert.match(page, /אתם מוסרים עכשיו <b>\{num\(qty\)\} יחידות<\/b> של <b>\{order\.product_title\}<\/b> ל<b>\{order\.buyer_name \|\| "הקונה"\}<\/b>\./);
-  assert.match(page, /אישור המסירה מסמן את כל \{num\(qty\)\} היחידות כנמסרו\./);
+  assertRendersCopy(page, "אישור מסירה — {qty} יחידות", "the primary CTA names the quantity");
+  // One translation unit, with the quantity, the product and the buyer as
+  // named placeholders a translator can reorder.
+  assert.equal(he("seller_pickup.handing_over_now"), "אתם מוסרים עכשיו {qty} של {product} ל{buyer}.");
+  assert.equal(en("seller_pickup.handing_over_now"), "You are handing over {qty} of {product} to {buyer}.");
+  assert.match(page, /<Tx k="seller_pickup\.handing_over_now"/);
+  assert.match(page, /t\("seller_pickup\.confirming_handover_marks_all_qty", \{ qty: num\(qty\) \}\)/);
   assert.match(page, /data-testid="handoff-confirm-back"/);
   assert.match(page, /intentKey\.current = crypto\.randomUUID\(\)/, "one confirmation = one idempotency key");
   assert.match(page, /if \(busy\) return;/, "double taps never stack requests");
-  assert.match(page, /green: "מוכן למסירה"/); assert.match(page, /amber: "כבר נמסר"/); assert.match(page, /red: "אין למסור את ההזמנה"/);
+  for (const [tone, hebrew] of [["green", "מוכן למסירה"], ["amber", "כבר נמסר"], ["red", "אין למסור את ההזמנה"]] as const) {
+    const key = assertRendersCopy(page, hebrew, `${tone} verdict`);
+    assert.match(page, new RegExp(`${tone}: "${key.replace(/\./g, "\\.")}"`), `${tone} verdict key`);
+  }
   assert.match(page, /data-state=\{tone\}/, "state is carried as data, not colour alone");
   assert.match(read("web/src/pages/seller.tsx"), /sub\[0\] === "pickup"/);
   assert.match(read("web/src/pages/seller.tsx"), /sub\[2\] === "fulfillment"/);

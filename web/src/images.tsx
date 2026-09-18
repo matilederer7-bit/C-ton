@@ -12,7 +12,7 @@
 // no reordering needed just to pick a primary.
 import { useEffect, useRef, useState } from "react";
 import { getSellerToken } from "./api";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 export const IMAGE_SOURCE_MAX_BYTES = 50 * 1024 * 1024; // accepted INPUT cap
 export const IMAGE_UPLOAD_TARGET_BYTES = 4 * 1024 * 1024; // optimized artifact cap

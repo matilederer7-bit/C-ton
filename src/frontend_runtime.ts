@@ -417,16 +417,17 @@ function contentPageHasBody(section: any): boolean {
 
 async function renderLegalHtmlPage(
   slug: LegalPageSlug,
-  override?: { title: string; body: string },
+  override?: { title: string; body: string; bodyLocale?: "he" | "en" },
   aboutHasBody = false,
   locale: Locale = "he"
 ) {
   // The document BODY is a contract. When no owner-approved English version
-  // exists, the Hebrew one is served with a notice saying so — the shell is
-  // translated, the contract is not invented (see src/legal_pages.ts).
+  // exists — whether that is the built-in document or the CMS override the
+  // owner published — the Hebrew one is served WITH a notice saying so. The
+  // shell is translated; the contract is never invented (see legal_pages.ts).
   const resolved = resolveLegalPage(slug, locale);
   const page = { ...resolved.page, ...override };
-  const bodyLocale = override ? "he" : resolved.bodyLocale;
+  const bodyLocale = override ? (override.bodyLocale ?? "he") : resolved.bodyLocale;
   // Same emptiness rule as the React footer (web/src/siteContent.ts#contentPageHasBody):
   // a #/content link whose page has no body is not a link, it is a dead end.
   const aboutLink = aboutHasBody
@@ -445,7 +446,9 @@ async function renderLegalHtmlPage(
   // visitor returns to it.
   const langSwitch = (["he", "en"] as const).map((code) =>
     `<a class="lang-btn${code === locale ? " active" : ""}" lang="${code}" hreflang="${code}" href="/legal/${slug}?lang=${code}"${code === locale ? ' aria-current="true"' : ""} data-testid="language-switch-${code}">${code === "he" ? "עברית" : "English"}</a>`).join("");
-  const pendingNotice = resolved.translation === "OWNER_TRANSLATION_REQUIRED" && !override
+  // The notice is driven by what is ACTUALLY on the page: an English request
+  // whose body came back in Hebrew is a declared fallback, whatever produced it.
+  const pendingNotice = locale === "en" && bodyLocale === "he"
     ? `<div class="notice info" data-testid="legal-translation-pending" data-translation="OWNER_TRANSLATION_REQUIRED">${escapeHtml(ts(locale, "legal.shell.translation_pending"))}</div>`
     : "";
   return `<!doctype html><html ${htmlAttrs(locale)}><head>
@@ -464,7 +467,12 @@ async function renderLegalHtmlPage(
     </div></header>
     <main class="container">
       <nav class="legal-nav" aria-label="${escapeHtml(ts(locale, "legal.shell.nav_label"))}">${chips}</nav>
-      <article class="panel content-doc" data-section="legal_${slug}" lang="${bodyLocale}" dir="${bodyLocale === "he" ? "rtl" : "ltr"}"><div class="notice info">${escapeHtml(ts(locale, "legal.shell.version_notice"))}</div>${pendingNotice}<h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
+      <!-- The notices are the SHELL speaking, in the page's language; the
+           article below is the document, in the language it was written in.
+           They must not share a direction, or English notices come out
+           right-aligned with their full stops on the wrong side. -->
+      <div class="legal-notices"><div class="notice info">${escapeHtml(ts(locale, "legal.shell.version_notice"))}</div>${pendingNotice}</div>
+      <article class="panel content-doc" data-section="legal_${slug}" lang="${bodyLocale}" dir="${bodyLocale === "he" ? "rtl" : "ltr"}"><h1>${escapeHtml(page.title)}</h1>${renderLegalMarkdown(page.body.replace(/^# [^\n]+\r?\n/, ""))}</article>
     </main>
     <footer class="footer"><div><a href="/preview/#/support">${escapeHtml(ts(locale, "cms.defaults.footer.link_support"))}</a>${aboutLink}<a href="/legal/terms">${escapeHtml(ts(locale, "cms.defaults.footer.link_terms"))}</a><a href="/legal/privacy">${escapeHtml(ts(locale, "cms.defaults.footer.link_privacy"))}</a><a href="/legal/refunds">${escapeHtml(ts(locale, "cms.defaults.footer.link_refunds"))}</a></div><div style="margin-top:8px">${escapeHtml(ts(locale, "cms.defaults.footer.text"))}</div></footer>
   </div></body></html>`;
@@ -12350,11 +12358,16 @@ export function registerFrontendExperience(
     // being shown and let the per-field fallback answer honestly.
     const value = locale === "en" ? section.value_en : section.value;
     const hasBody = String(value.body || "").replace(/^# [^\n]+\r?\n/, "").trim().length > 0;
+    // Did the English read actually produce ENGLISH, or did every field fall
+    // back to the Hebrew one? `value_en` is the per-field fallback projection,
+    // so an identical body means nothing English was written for it.
+    const bodyLocale: "he" | "en" =
+      locale === "en" && value.body !== section.value.body ? "en" : "he";
     return reply
       .header("vary", "cookie")
       .type("text/html; charset=utf-8")
       .send(hasBody
-        ? await renderLegalHtmlPage(slug, { title: value.title!, body: value.body! }, contentPageHasBody(content["about"]), locale)
+        ? await renderLegalHtmlPage(slug, { title: value.title!, body: value.body!, bodyLocale }, contentPageHasBody(content["about"]), locale)
         : await renderLegalHtmlPage(slug, undefined, contentPageHasBody(content["about"]), locale));
   });
   app.get("/app", sendShell);

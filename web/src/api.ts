@@ -13,7 +13,7 @@ import { publicWebOrigin } from "./mobileUrls";
 
 import { localizedError } from "./he";
 import { beginSession, ensureFreshSession, endSession, surfaceAccessToken, type AuthSessionPayload } from "./session";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 export type Json = Record<string, any>;
 

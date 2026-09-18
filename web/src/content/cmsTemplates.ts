@@ -24,6 +24,17 @@ import { SELLER_AREA_EN } from "./seller.en.js";
 import { translateIn } from "../i18n/translate.js";
 
 export type FieldKind = "text" | "multiline" | "image" | "video" | "link" | "select";
+
+/**
+ * The field kinds that have an English sibling at all.
+ *
+ * A `select` is a STRUCTURAL choice (which medium, which side the image sits
+ * on) and a `link` is a TARGET — both are the same in every language, and a
+ * blank English `select` is not "untranslated", it is invalid. Only the field
+ * kinds that carry words, plus the media a locale may legitimately swap, are
+ * mirrored into `fields_en`.
+ */
+export const ENGLISH_FIELD_KINDS: ReadonlySet<FieldKind> = new Set<FieldKind>(["text", "multiline", "image", "video"]);
 export interface FieldDef {
   label: string;
   kind: FieldKind;
@@ -250,9 +261,9 @@ const HERO_DEFAULT = (): Block => ({
   },
   fields_en: {
     title: LANDING_EN.hero.title, subtitle: LANDING_EN.hero.sub, body: LANDING_EN.hero.note,
-    media_kind: "", image: "", video: "", video_poster: "",
-    primary_cta_label: en("cms.defaults.home.seller_login"), primary_cta_link: "",
-    secondary_cta_label: en("cms.defaults.home.seller_signup"), secondary_cta_link: "",
+    image: "", video: "", video_poster: "",
+    primary_cta_label: en("cms.defaults.home.seller_login"),
+    secondary_cta_label: en("cms.defaults.home.seller_signup"),
     buyer_entry_title: LANDING_EN.buyerEntry.title, buyer_entry_body: LANDING_EN.buyerEntry.body
   }
 });
@@ -286,8 +297,8 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
         { title: LANDING_HE.forBuyers.title, body: LANDING_HE.forBuyers.body, cta_label: "", cta_link: "" },
         { title: LANDING_HE.forSellers.title, body: LANDING_HE.forSellers.body, cta_label: he("cms.defaults.home.seller_signup"), cta_link: "#/seller?signup=1" }
       ], items_en: [
-        { title: LANDING_EN.forBuyers.title, body: LANDING_EN.forBuyers.body, cta_label: "", cta_link: "" },
-        { title: LANDING_EN.forSellers.title, body: LANDING_EN.forSellers.body, cta_label: en("cms.defaults.home.seller_signup"), cta_link: "" }
+        { title: LANDING_EN.forBuyers.title, body: LANDING_EN.forBuyers.body, cta_label: "" },
+        { title: LANDING_EN.forSellers.title, body: LANDING_EN.forSellers.body, cta_label: en("cms.defaults.home.seller_signup") }
       ] },
       { id: "trust", type: "text", enabled: true,
         fields: { title: LANDING_HE.trust.title, body: LANDING_HE.trust.body },
@@ -300,7 +311,7 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
         fields_en: { title: LANDING_EN.faq.title }, items_en: LANDING_EN.faq.items.map(i => ({ q: i.q, a: i.a })) },
       { id: "contact", type: "cta", enabled: true,
         fields: { title: he("cms.defaults.home.contact_title"), body: he("cms.defaults.home.contact_body"), button_label: he("cms.defaults.footer.link_support"), button_link: "#/support" },
-        fields_en: { title: en("cms.defaults.home.contact_title"), body: en("cms.defaults.home.contact_body"), button_label: en("cms.defaults.footer.link_support"), button_link: "" } }
+        fields_en: { title: en("cms.defaults.home.contact_title"), body: en("cms.defaults.home.contact_body"), button_label: en("cms.defaults.footer.link_support") } }
     ]
   },
   about: {
@@ -319,7 +330,7 @@ export const PAGE_CONTRACTS: Record<string, PageContract> = {
     legacy: { text: ["footer", "text"] },
     defaults: () => [{ id: "footer", type: "footer", enabled: true,
       fields: { text: he(FOOTER_DEFAULT_TEXT_KEY) }, items: FOOTER_DEFAULT_LINKS.map(l => ({ label: he(l.labelKey), link: l.link })),
-      fields_en: { text: en(FOOTER_DEFAULT_TEXT_KEY) }, items_en: FOOTER_DEFAULT_LINKS.map(l => ({ label: en(l.labelKey), link: "" })) }]
+      fields_en: { text: en(FOOTER_DEFAULT_TEXT_KEY) }, items_en: FOOTER_DEFAULT_LINKS.map(l => ({ label: en(l.labelKey) })) }]
   },
   // ── Product pages: fixed composition, editable wording ────────────────────
   // The deal, tracking, seller and support screens are product surfaces, not
@@ -452,7 +463,9 @@ function normalizeBlock(raw: unknown, contract: PageContract, expectedType?: Tem
     const rawEn = raw.fields_en;
     // English is optional per field: an empty value means "not translated yet"
     // and must stay empty so the renderer can fall back and report it.
-    block.fields_en = Object.fromEntries(Object.entries(t.fields).map(([k, f]) => [k, typeof rawEn[k] === "string" ? cleanString(rawEn[k], { ...f, default: "" }) : ""]));
+    block.fields_en = Object.fromEntries(Object.entries(t.fields)
+      .filter(([, f]) => ENGLISH_FIELD_KINDS.has(f.kind))
+      .map(([k, f]) => [k, typeof rawEn[k] === "string" ? cleanString(rawEn[k], { ...f, default: "" }) : ""]));
   }
   if (t.items) {
     const list = Array.isArray(raw.items) ? raw.items : [];
@@ -460,7 +473,9 @@ function normalizeBlock(raw: unknown, contract: PageContract, expectedType?: Tem
       .filter(item => Object.entries(t.items!.fields).every(([k, f]) => !f.required || item[k]!.trim()));
     if (Array.isArray(raw.items_en)) {
       block.items_en = raw.items_en.filter(isRecord).slice(0, block.items.length)
-        .map(item => Object.fromEntries(Object.entries(t.items!.fields).map(([k, f]) => [k, typeof item[k] === "string" ? cleanString(item[k], { ...f, default: "" }) : ""])));
+        .map(item => Object.fromEntries(Object.entries(t.items!.fields)
+          .filter(([, f]) => ENGLISH_FIELD_KINDS.has(f.kind))
+          .map(([k, f]) => [k, typeof item[k] === "string" ? cleanString(item[k], { ...f, default: "" }) : ""])));
     }
   }
   return block;
@@ -542,9 +557,12 @@ export function validatePage(raw: unknown, contract: PageContract): PageContent 
     if (item.fields_en !== undefined) {
       const rawEn = item.fields_en;
       if (!isRecord(rawEn)) fail("invalid_block_fields", `${path}.fields_en`);
-      if (Object.keys(rawEn).some(k => !has(t.fields, k))) fail("invalid_content_field", `${path}.fields_en`);
+      if (Object.keys(rawEn).some(k => !has(t.fields, k) || !ENGLISH_FIELD_KINDS.has(t.fields[k]!.kind))) fail("invalid_content_field", `${path}.fields_en`);
       const fieldsEn: Record<string, string> = {};
-      for (const [k, def] of Object.entries(t.fields)) fieldsEn[k] = validateField(rawEn[k], { ...def, required: false, default: "" }, `${path}.fields_en.${k}`, false);
+      for (const [k, def] of Object.entries(t.fields)) {
+        if (!ENGLISH_FIELD_KINDS.has(def.kind)) continue;
+        fieldsEn[k] = validateField(rawEn[k], { ...def, required: false, default: "" }, `${path}.fields_en.${k}`, false);
+      }
       block.fields_en = fieldsEn;
     }
     if (t.items) {
@@ -561,12 +579,18 @@ export function validatePage(raw: unknown, contract: PageContract): PageContent 
       if (item.items_en !== undefined) {
         const rawItemsEn = item.items_en;
         if (!Array.isArray(rawItemsEn)) fail("invalid_block_items", `${path}.items_en`);
-        if (rawItemsEn.length > block.items.length) fail("too_many_items", `${path}.items_en`);
-        block.items_en = rawItemsEn.map((raw, i) => {
+        // The English list is a per-index SIBLING of the Hebrew one, not
+        // content of its own. When the Hebrew list shrinks — an admin deletes
+        // a how-it-works step — the English entries past the end describe
+        // items that no longer exist, so they are dropped rather than made a
+        // reason to refuse the whole page.
+        block.items_en = rawItemsEn.slice(0, block.items!.length).map((raw, i) => {
           const ipath = `${path}.items_en[${i}]`;
           if (!isRecord(raw)) fail("invalid_item", ipath);
-          if (Object.keys(raw).some(k => !has(t.items!.fields, k))) fail("invalid_content_field", ipath);
-          return Object.fromEntries(Object.entries(t.items!.fields).map(([k, def]) => [k, validateField(raw[k], { ...def, required: false, default: "" }, `${ipath}.${k}`, false)]));
+          if (Object.keys(raw).some(k => !has(t.items!.fields, k) || !ENGLISH_FIELD_KINDS.has(t.items!.fields[k]!.kind))) fail("invalid_content_field", ipath);
+          return Object.fromEntries(Object.entries(t.items!.fields)
+            .filter(([, def]) => ENGLISH_FIELD_KINDS.has(def.kind))
+            .map(([k, def]) => [k, validateField(raw[k], { ...def, required: false, default: "" }, `${ipath}.${k}`, false)]));
         });
       }
     } else if (item.items !== undefined || item.items_en !== undefined) fail("invalid_block_items", path);
@@ -668,13 +692,13 @@ export function missingEnglishContent(page: PageContent): string[] {
     const t = TEMPLATES[block.type];
     if (!t) continue;
     for (const [k, def] of Object.entries(t.fields)) {
-      if (def.kind === "image" || def.kind === "video" || def.kind === "select" || def.kind === "link") continue;
+      if (def.kind !== "text" && def.kind !== "multiline") continue;
       if (!String(block.fields[k] ?? "").trim()) continue; // nothing to translate
       if (!String(block.fields_en?.[k] ?? "").trim()) out.push(`${block.id}.${k}`);
     }
     (block.items ?? []).forEach((item, i) => {
       for (const [k, def] of Object.entries(t.items?.fields ?? {})) {
-        if (def.kind === "image" || def.kind === "video" || def.kind === "select" || def.kind === "link") continue;
+        if (def.kind !== "text" && def.kind !== "multiline") continue;
         if (!String(item[k] ?? "").trim()) continue;
         if (!String(block.items_en?.[i]?.[k] ?? "").trim()) out.push(`${block.id}.items[${i}].${k}`);
       }

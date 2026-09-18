@@ -12,7 +12,7 @@ import { resolveDealCopy, resolveTrackCopy } from "../productCopy";
 import { useSiteContent } from "../siteContent";
 import { FeedbackPrompt } from "../feedback";
 import { PickupCard } from "../pickupCard";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 // מסך המעקב של הקונה — מקור האמת היחיד מרגע ההצטרפות ועד ההכרעה.
 // LAUNCH POLISH 2 (P4/P5/P6/P7/P8): the page answers, in order — what is my

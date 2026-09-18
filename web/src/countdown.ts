@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 // P0.7 — canonical countdown arithmetic for the public deal page. Pure and
 // dependency-free so it is provable without a browser:
 //   • four units (days / hours / minutes / seconds), label ABOVE, number BELOW
@@ -10,6 +10,7 @@ import { t } from "./i18n";
 
 export type CountdownUnitKey = "days" | "hours" | "minutes" | "seconds";
 
+/** Unit cells for the countdown. `label` is a TRANSLATION KEY (module-level constant). */
 export const COUNTDOWN_UNITS: ReadonlyArray<{ key: CountdownUnitKey; label: string }> = [
   { key: "days", label: "countdown.countdown_units.label" },
   { key: "hours", label: "countdown.countdown_units.label_2" },

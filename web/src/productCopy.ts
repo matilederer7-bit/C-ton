@@ -10,7 +10,8 @@
 // an empty, partial or unavailable CMS payload always resolves to the
 // canonical Hebrew defaults of the page contract — a content edit can never
 // blank a sentence the flow depends on.
-import { PAGE_CONTRACTS, contractFor, normalizePage, type Block, type PageContent } from "./content/cmsTemplates.js";
+import { PAGE_CONTRACTS, contractFor, localizedPage, normalizePage, type Block, type PageContent } from "./content/cmsTemplates.js";
+import { getLocale } from "./i18n/locale.js";
 
 type Json = Record<string, any>;
 
@@ -29,9 +30,13 @@ function items(page: PageContent, key: string, blockId: string): Record<string, 
   if (Array.isArray(list) && list.length) return list;
   return defaultsOf(key).find((b) => b.id === blockId)?.items || [];
 }
-/** The stored page for a key, normalized against its contract (never partial). */
+/**
+ * The stored page for a key, normalized against its contract (never partial)
+ * and read in the ACTIVE language — these are the recurring product sentences
+ * a buyer reads on every deal, so they follow the language like the rest.
+ */
 export function productPage(content: Json | null | undefined, key: string): PageContent {
-  return normalizePage(content?.[key], contractFor(key));
+  return localizedPage(normalizePage(content?.[key], contractFor(key)), getLocale());
 }
 
 export interface DealCopy {

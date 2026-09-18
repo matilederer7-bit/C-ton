@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { BRAND_MARK_URL, BRAND_NAME } from "./config";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── C-ton brand primitives ──────────────────────────────────────────────────
 // The owner-supplied logo asset is the single source of visual identity.

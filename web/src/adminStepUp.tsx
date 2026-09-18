@@ -5,7 +5,7 @@ import { markAdminUnlocked } from "./adminGate";
 import { localizedError } from "./he";
 import { BrandMark } from "./brand";
 import { beginAuthAttempt, traceAuth } from "./authTrace";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── Admin password step-up (P0.5-1) ─────────────────────────────────────────
 // Shown after the hidden two-tap entry, and for ANY #/admin navigation while
@@ -66,14 +66,14 @@ export function AdminStepUp({ onUnlocked, onCancel }: { onUnlocked: () => void; 
                 WHICH account is being authenticated; prefilled from the
                 canonical session and editable (editing = switching account). */}
             <div className="field">
-              <label>{t("admin_step_up.e_mail")}</label>
-              <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
+              <label htmlFor="stepup-email">{t("admin_step_up.e_mail")}</label>
+              <input id="stepup-email" dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)}
                 autoComplete="email" data-testid="stepup-email" />
               {knownEmail ? <span className="hint">{t("admin_step_up.this_signed_account_edit_sign")}</span> : null}
             </div>
             <div className="field">
-              <label>{t("admin_step_up.password")}</label>
-              <input dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
+              <label htmlFor="stepup-password">{t("admin_step_up.password")}</label>
+              <input id="stepup-password" dir="ltr" type="password" required autoFocus value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete="current-password" data-testid="stepup-password" />
             </div>
             {error ? <div className="notice err" data-testid="stepup-error">{error}</div> : null}

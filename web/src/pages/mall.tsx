@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { GroupMeter, SkeletonCards, EmptyState, StatusPill, Countdown } from "../components";
 import { countdownView, dealTypeLabel, ils, num } from "../util";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 type MallDeal = {
   deal_id: string;

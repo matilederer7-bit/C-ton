@@ -13,7 +13,7 @@ import { api, Json } from "../api";
 import { BrandLoader, EmptyState, StatTile, Toast, copyText, useToast } from "../components";
 import { fmtDate, ils, num, pct } from "../util";
 import { BarChart } from "./sellerCommand";
-import { t, tKey } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
 
 type Range = "24h" | "7d" | "30d" | "all";
 const RANGES: Array<{ key: Range; label: string }> = [

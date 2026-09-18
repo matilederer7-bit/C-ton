@@ -1,3 +1,4 @@
+import { assertRendersCopy } from "./helpers/i18n_copy.js";
 // P0.6A — pickup geolocation strategy: deterministic proof of the bounded
 // explicit-click flow behind "📍 השתמש במיקום שלי" (web/src/geo.ts).
 //
@@ -20,6 +21,7 @@
 //   • app.ts header keeps geolocation=(self) (the page may ask; nothing else)
 
 import assert from "node:assert/strict";
+import { en, he } from "./helpers/i18n_copy.js";
 import { readFile } from "node:fs/promises";
 import {
   GEO_ATTEMPT_PLAN,
@@ -174,9 +176,9 @@ await run("PERMISSION_DENIED while the site is GRANTED → os_denied (OS locatio
   assert.equal(out.kind, "os_denied");
   assert.equal(f.calls.length, 1);
   assert.equal(out.permission, "granted");
-  assert.match(GEO_OUTCOME_COPY.os_denied.steps.join("\n"), /Windows/);
-  assert.match(GEO_OUTCOME_COPY.os_denied.steps.join("\n"), /macOS/);
-  assert.match(GEO_OUTCOME_COPY.os_denied.title, /המכשיר חוסם/);
+  assert.match(GEO_OUTCOME_COPY.os_denied.steps.map(he).join("\n"), /Windows/);
+  assert.match(GEO_OUTCOME_COPY.os_denied.steps.map(he).join("\n"), /macOS/);
+  assert.match(he(GEO_OUTCOME_COPY.os_denied.title), /המכשיר חוסם/);
   assert.equal(GEO_OUTCOME_COPY.os_denied.denial, true);
 });
 
@@ -218,7 +220,7 @@ await run("two POSITION_UNAVAILABLE failures → unavailable, exactly 2 calls, n
   assert.equal(out.kind, "unavailable");
   assert.equal(f.calls.length, 2);
   assert.equal(out.attempts.length, 2);
-  assert.match(GEO_OUTCOME_COPY.unavailable.steps.join("\n"), /Windows/);
+  assert.match(GEO_OUTCOME_COPY.unavailable.steps.map(he).join("\n"), /Windows/);
   assert.equal(GEO_OUTCOME_COPY.unavailable.denial, false);
   assert.equal(GEO_OUTCOME_COPY.unavailable.retryable, true);
 });
@@ -244,7 +246,7 @@ await run("geolocation API missing → unsupported, no calls, manual fallback co
   assert.equal(out.supported, false);
   assert.equal(f.calls.length, 0);
   assert.equal(GEO_OUTCOME_COPY.unsupported.retryable, false);
-  assert.match(GEO_OUTCOME_COPY.unsupported.steps.join("\n"), /ידנית/);
+  assert.match(GEO_OUTCOME_COPY.unsupported.steps.map(he).join("\n"), /ידנית/);
 });
 
 await run("Permissions API missing → the request still runs and succeeds", async () => {
@@ -372,11 +374,15 @@ await run("manual fallback parser: accepts valid, rejects out-of-range / empty /
 await run("every failure kind has copy + a stable test id, and the copy always points to the manual fallback or recheck", () => {
   for (const kind of Object.keys(GEO_OUTCOME_TEST_ID) as Array<keyof typeof GEO_OUTCOME_TEST_ID>) {
     const copy = GEO_OUTCOME_COPY[kind];
-    assert.ok(copy.title.length > 5, `${kind} title`);
+    assert.ok(he(copy.title).length > 5, `${kind} title`);
     assert.ok(copy.steps.length >= 1, `${kind} steps`);
     assert.match(GEO_OUTCOME_TEST_ID[kind], /^geo-/);
-    const text = `${copy.title}\n${copy.note}\n${copy.steps.join("\n")}`;
+    const text = `${he(copy.title)}\n${copy.note ? he(copy.note) : ""}\n${copy.steps.map(he).join("\n")}`;
     assert.ok(/ידנית|בדיקה מחדש/.test(text), `${kind} copy offers manual fallback or recheck`);
+    // The same guidance must survive into English: a location failure that
+    // says nothing about the way out is a dead end in either language.
+    const english = `${en(copy.title)}\n${copy.note ? en(copy.note) : ""}\n${copy.steps.map(en).join("\n")}`;
+    assert.ok(/manually|Check again|try again/i.test(english), `${kind} English copy offers manual fallback or recheck`);
   }
 });
 
@@ -394,14 +400,14 @@ await run("seller.tsx LocationCapture delegates to requestPickupLocation(browser
 await run("seller.tsx exposes explicit-click, pending (attempt-aware), every failure state, recheck/retry, diagnostics and manual fallback", () => {
   assert.match(sellerTsx, /data-testid="use-my-location"/);
   assert.match(sellerTsx, /data-geo-attempt=/);
-  assert.match(sellerTsx, /מנסים שוב במצב מדויק/);
+  assertRendersCopy(sellerTsx, "מנסים שוב במצב מדויק");
   assert.match(sellerTsx, /GEO_OUTCOME_TEST_ID\[outcome\.kind\]/);
   assert.match(sellerTsx, /data-testid=\{copy\.denial \? "geo-recheck" : "geo-retry"\}/);
   assert.match(sellerTsx, /data-testid="geo-diag"/);
   assert.match(sellerTsx, /data-testid="geo-manual-apply"/);
   assert.match(sellerTsx, /data-testid="geo-manual-lat"/);
   assert.match(sellerTsx, /setShowManual\(true\); \/\/ manual fallback is first-class/);
-  assert.match(sellerTsx, /הכתובת בשדה התיאור מספיקה תמיד/);
+  assertRendersCopy(sellerTsx, "הכתובת בשדה התיאור מספיקה תמיד");
   assert.match(sellerTsx, /if \(inFlight\.current\) return;/, "clicks never stack requests");
 });
 

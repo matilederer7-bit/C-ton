@@ -4,7 +4,7 @@ import { QrCode } from "./qrcode";
 import { PickupCard } from "./pickupCard";
 import { uploadImageAsset } from "./contentAssets";
 import { pageOf, useSiteContentState } from "./siteContent";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 export { useSiteContent, useSiteContentState } from "./siteContent";
 export { ContentAdmin } from "./pages/contentAdmin";
 import { ChoiceCard, StatusPill } from "./components";

@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 // SPRINT 4 (A8) — the admin virality time range, as the UI expresses it.
 //
 // Presets are day counts; the custom range is entered as ISRAEL-LOCAL calendar

@@ -4,7 +4,7 @@ import { localizedError } from "../he";
 import { getPreviewMeta } from "../previewMeta";
 import { resolveSupportCopy } from "../productCopy";
 import { useSiteContent } from "../siteContent";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 // ── Public Support / Contact center (P0.2-S) ────────────────────────────────
 // The form creates a canonical support case the Admin Support screen sees —
@@ -105,33 +105,33 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
         </p>
         <form onSubmit={submit} noValidate>
           <div className="field">
-            <label>{t("support.name")} <span className="req">*</span></label>
-            <input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
+            <label htmlFor="support-name">{t("support.name")} <span className="req">*</span></label>
+            <input id="support-name" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" className={fieldErrors.name ? "invalid" : ""} />
             {fieldErrors.name ? <span className="field-error">{fieldErrors.name}</span> : null}
           </div>
           <div className="field-row">
             <div className="field">
-              <label>{t("support.e_mail")} <span className="req">*</span></label>
-              <input dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
+              <label htmlFor="support-email">{t("support.e_mail")} <span className="req">*</span></label>
+              <input id="support-email" dir="ltr" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" className={fieldErrors.email ? "invalid" : ""} />
               {fieldErrors.email ? <span className="field-error">{fieldErrors.email}</span> : null}
             </div>
             <div className="field">
-              <label>{t("support.phone")} <span className="hint">{t("support.optional")}</span></label>
-              <input dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
+              <label htmlFor="support-phone">{t("support.phone")} <span className="hint">{t("support.optional")}</span></label>
+              <input id="support-phone" dir="ltr" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
             </div>
           </div>
           <div className="field">
-            <label>{t("support.enquiry_subject")}</label>
-            <select value={category} onChange={(e) => setCategory(e.target.value)}>
+            <label htmlFor="support-category">{t("support.enquiry_subject")}</label>
+            <select id="support-category" value={category} onChange={(e) => setCategory(e.target.value)}>
               {CATEGORIES.map((c) => <option key={c.key} value={c.key}>{t(c.label)}</option>)}
             </select>
           </div>
           {(DEAL_SCOPE.get(category) || "none") !== "none" ? (
             <div className="field" data-testid="support-deal-field">
-              <label>
+              <label htmlFor="support-deal-ref">
                 {t("support.deal_link_label")} {DEAL_SCOPE.get(category) === "required" ? <span className="req">*</span> : <span className="hint">{t("support.optional")}</span>}
               </label>
-              <input dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
+              <input id="support-deal-ref" dir="ltr" value={deal} onChange={(e) => setDeal(e.target.value)} data-testid="support-deal-ref"
                 placeholder="https://…/d/…" className={fieldErrors.deal ? "invalid" : ""} />
               <span className="hint">
                 {t("support.paste_deal_s_link_deal")}</span>
@@ -139,8 +139,8 @@ export function SupportPage({ dealRef = "" }: { dealRef?: string } = {}) {
             </div>
           ) : null}
           <div className="field">
-            <label>{t("support.the_enquiry")} <span className="req">*</span></label>
-            <textarea rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
+            <label htmlFor="support-message">{t("support.the_enquiry")} <span className="req">*</span></label>
+            <textarea id="support-message" rows={5} maxLength={2000} value={message} onChange={(e) => setMessage(e.target.value)} className={fieldErrors.message ? "invalid" : ""} />
             {fieldErrors.message ? <span className="field-error">{fieldErrors.message}</span> : null}
           </div>
           {/* honeypot — visually hidden WITHOUT offscreen positioning (an

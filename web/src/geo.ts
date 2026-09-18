@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 // ── P0.6A — explicit-click pickup geolocation strategy ──────────────────────
 // Pure, deterministic and dependency-injected so the exact browser flow can be
 // proven without a browser (tests/frontend_foundation_geolocation_strategy_validation.ts).

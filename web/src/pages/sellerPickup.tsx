@@ -4,7 +4,8 @@ import { BrandLoader, EmptyState, Modal, Toast, useToast } from "../components";
 import { formatIsraelDateTime, num } from "../util";
 import { SCAN_OUTCOME_COPY, SCAN_OUTCOME_TEST_ID, formatPickupDigits, formatPickupTyping, normalizePickupInput, type ScanOutcome } from "../pickupCode";
 import { cameraSupported, startPickupScanner, type ScannerHandle } from "../pickupScan";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
+import { Tx } from "../i18n/Tx.js";
 
 // ── LAUNCH SPRINT 3 — seller pickup handoff ─────────────────────────────────
 // Counter flow (docs/PHYSICAL_FULFILLMENT_PICKUP.md §5/§6/§10):
@@ -123,7 +124,14 @@ export function HandoffResultCard({ order, mockMoney, onConfirmed, onReset }: { 
             </div>
           }>
           <p className="handoff-confirm-line" data-testid="handoff-confirm-line">
-            {t("seller_pickup.you_handing_over_now")} <b>{t("seller_pickup.qty_units", { qty: num(qty) })}</b>  {t("seller_pickup.of")} <b>{order.product_title}</b>  {t("seller_pickup.to")}<b>{order.buyer_name || t("seller_pickup.the_buyer")}</b>.
+            {/* ONE sentence, one key: the quantity, the product and the buyer
+                move to wherever the target language needs them. Splitting it
+                into four fragments would freeze Hebrew word order. */}
+            <Tx k="seller_pickup.handing_over_now" vars={{
+              qty: <b>{t("seller_pickup.qty_units", { qty: num(qty) })}</b>,
+              product: <b>{order.product_title}</b>,
+              buyer: <b>{order.buyer_name || t("seller_pickup.the_buyer")}</b>
+            }} />
           </p>
           {qty > 1 ? <p className="muted small">{t("seller_pickup.confirming_handover_marks_all_qty", { qty: num(qty) })}</p> : null}
           {refusal ? <div className="notice err" data-testid="handoff-refused">{refusal}</div> : null}
@@ -263,7 +271,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
             {outcome === "idle" || outcome === "stopped" ? <div className="handoff-scan-overlay">{t("seller_pickup.the_camera_off")}</div> : null}
           </div>
           <p className="small" data-testid={SCAN_OUTCOME_TEST_ID[outcome]} data-outcome={outcome} style={{ margin: "10px 0 6px" }}>
-            {SCAN_OUTCOME_COPY[outcome]}
+            {t(SCAN_OUTCOME_COPY[outcome])}
             {outcome === "not_our_code" && outcomeDetail ? <span className="muted"> {t("seller_pickup.read_v0", { v0: outcomeDetail.slice(0, 40) })}</span> : null}
           </p>
           <div className="row" style={{ gap: 8 }}>
@@ -274,7 +282,7 @@ export function SellerPickupPage({ navigate, initialCode }: { navigate: (h: stri
             )}
             <button type="button" className="btn btn-ghost" data-testid="pickup-switch-type" onClick={() => { stopCamera(); setTab("type"); }}>{t(SELLER_PICKUP_COPY.tabType)}</button>
           </div>
-          {!support.ok ? <p className="muted small" style={{ marginTop: 8 }}>{SCAN_OUTCOME_COPY[support.outcome || "unsupported"]}</p> : null}
+          {!support.ok ? <p className="muted small" style={{ marginTop: 8 }}>{t(SCAN_OUTCOME_COPY[support.outcome || "unsupported"])}</p> : null}
         </div>
       ) : null}
 

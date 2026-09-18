@@ -5,7 +5,7 @@ import { BRAND_MARK_URL } from "./config";
 import { CopyLinkIcon, FacebookIcon, InstagramIcon, NativeShareIcon, TelegramIcon, WhatsAppIcon, XIcon } from "./shareIcons";
 import { QUANTITY_INPUT_ATTRS, parseQuantityInput } from "./quantityInput";
 import { containDialogFocus } from "./dialogFocus";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 export { BrandLoader } from "./brand";
 

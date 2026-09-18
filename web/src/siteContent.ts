@@ -8,7 +8,8 @@
 // admin request is refused the tab silently shows the published content.
 import { useEffect, useState } from "react";
 import { productRequest as request, type Json } from "./api";
-import { contractFor, normalizePage, type PageContent } from "./content/cmsTemplates";
+import { contractFor, localizedPage, normalizePage, type PageContent } from "./content/cmsTemplates";
+import { getLocale } from "./i18n/index.js";
 
 const PREVIEW_KEY = "siton_cms_preview_v1";
 export const CMS_PREVIEW_EVENT = "siton-cms-preview";
@@ -61,8 +62,21 @@ export function useSiteContentState(): SiteContentState {
 }
 export function useSiteContent(): Json { return useSiteContentState().content; }
 
-/** The renderable page for a key — always safe, always complete (defaults fill the gaps). */
+/**
+ * The renderable page for a key — always safe, always complete (defaults fill
+ * the gaps) and read in the ACTIVE language.
+ *
+ * Localizing here rather than at each call site is deliberate: every public
+ * renderer (landing, the document pages, the footer, the product copy, the
+ * FAQ) goes through `pageOf`, so none of them can forget. A field with no
+ * English value falls back to the Hebrew one, per `localizedValue`.
+ */
 export function pageOf(content: Json | null | undefined, key: string): PageContent {
+  return localizedPage(normalizePage(content?.[key], contractFor(key)), getLocale());
+}
+
+/** The page exactly as STORED, both languages intact — for the content editor. */
+export function rawPageOf(content: Json | null | undefined, key: string): PageContent {
   return normalizePage(content?.[key], contractFor(key));
 }
 

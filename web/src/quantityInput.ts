@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 // SPRINT 4 (A9) — quantities are TYPED, never stepped.
 //
 // Owner rule: "In quantities I do not want arrows. I want pure number typing."

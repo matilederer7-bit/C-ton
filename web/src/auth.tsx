@@ -5,7 +5,7 @@ import { readSession } from "./session";
 import { localizedError } from "./he";
 import { BrandMark } from "./brand";
 import { beginAuthAttempt, traceAuth } from "./authTrace";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── The ONE truthful auth panel (P0.3-1) ────────────────────────────────────
 // SIGN IN, SIGN UP and VERIFY are three separate experiences that never mix:
@@ -174,13 +174,13 @@ export function AuthPanel(props: {
         ) : null}
         <form onSubmit={submit}>
           <div className="field">
-            <label>{t("auth.e_mail")}</label>
-            <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+            <label htmlFor="auth-email">{t("auth.e_mail")}</label>
+            <input id="auth-email" dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
           </div>
           {mode !== "recover" ? (
             <div className="field">
-              <label>{t("auth.password")}</label>
-              <input dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
+              <label htmlFor="auth-password">{t("auth.password")}</label>
+              <input id="auth-password" dir="ltr" type="password" required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)}
                 autoComplete={mode === "signup" ? "new-password" : "current-password"} />
             </div>
           ) : (

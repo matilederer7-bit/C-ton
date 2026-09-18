@@ -3,7 +3,7 @@
 // signature, size, MIME and ownership; this is only the transport.
 import { productRequest as request } from "./api";
 import { optimizeImageFile } from "./images";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 export const VIDEO_MAX_BYTES = 10 * 1024 * 1024;
 export const VIDEO_ACCEPT = "video/mp4,video/webm";

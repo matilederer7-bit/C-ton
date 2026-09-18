@@ -13,10 +13,10 @@ import { BRAND_LOGO_URL } from "../config";
 import { IMAGE_ACCEPT, VIDEO_ACCEPT, uploadImageAsset, uploadVideoAsset } from "../contentAssets";
 import { SITE_CONTENT_UPDATED_EVENT } from "../siteContent";
 import {
-  TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, newBlockId, normalizePage, validatePage,
-  type Block, type FieldDef, type PageContent, type PageContract, type TemplateId
+  TEMPLATES, contractFor, validationErrorKey, emptyBlock, emptyItem, missingEnglishContent, newBlockId, normalizePage, validatePage,
+  type Block, type ContentLocale, type FieldDef, type PageContent, type PageContract, type TemplateId
 } from "../content/cmsTemplates";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 type Section = {
   label: string; description: string; contract: PageContract;
@@ -127,6 +127,14 @@ export function ContentAdmin() {
   const discard = async () => { if (!window.confirm(t("content_admin.discard_draft_go_back_content"))) return; await mutate(`/api/admin/site-content/${key}/discard`, "POST", {}, t("content_admin.the_draft_discarded_published_content")); };
 
   const addable = contract?.addable || [];
+  // WHICH LANGUAGE OF THE CONTENT is being edited. This is not the admin's own
+  // UI language (that follows the site-wide switch): Hebrew is the canonical
+  // content and English is the optional sibling stored beside it.
+  const [contentLocale, setContentLocale] = useState<ContentLocale>("he");
+  // Which Siton-owned values on the page being edited have no English version
+  // and would therefore be served as Hebrew. Computed from what is on screen,
+  // so it updates as the owner fills them in.
+  const missingEnglish = useMemo(() => (working ? missingEnglishContent(working) : []), [working]);
   const canAdd = working && contract && working.blocks.length < contract.maxBlocks && addable.length > 0;
   const addBlock = () => { if (!working || !addType || !addable.includes(addType)) return; const block = emptyBlock(addType, newBlockId(addType, working.blocks)); update(p => ({ blocks: [...p.blocks, block] })); setAddType(""); };
   const lockedIds = useMemo(() => new Set((contract?.locked || []).map(l => l.id)), [contract]);
@@ -136,12 +144,12 @@ export function ContentAdmin() {
     <h1>{t("content_admin.site_content")}</h1>
     <p className="muted">{t("content_admin.the_design_fixed_here_edit")}</p>
     <div className="cms-pages" role="tablist" aria-label={t("content_admin.choose_page")}>
-      {Object.entries(sections).map(([k, s]) => <button key={k} type="button" role="tab" aria-selected={k === key} className={`chip${k === key ? " active" : ""}`} data-testid={`cms-page-${k}`} disabled={busy} onClick={() => choosePage(k)}>{s.label}{s.draft ? t("content_admin.draft") : ""}</button>)}
+      {Object.entries(sections).map(([k, s]) => <button key={k} type="button" role="tab" aria-selected={k === key} className={`chip${k === key ? " active" : ""}`} data-testid={`cms-page-${k}`} disabled={busy} onClick={() => choosePage(k)}>{t(s.label)}{s.draft ? t("content_admin.draft") : ""}</button>)}
     </div>
     {section && working && contract ? <>
       <section className="panel cms-status" data-testid="cms-status" data-dirty={dirty ? "1" : "0"} data-has-draft={section.draft ? "1" : "0"}>
         <div className="cms-status-text">
-          <b>{section.label}</b> <span className="muted small">{section.description}</span>
+          <b>{t(section.label)}</b> <span className="muted small">{t(section.description)}</span>
           <div className="small muted">{section.published_at || section.updated_at ? t("content_admin.published_updated", { updated_at: when(section.published_at || section.updated_at) }) : t("content_admin.the_site_s_original_content")}{section.draft ? t("content_admin.draft_saved_draft_updated", { draft_updated_at: when(section.draft_updated_at) }) : ""}{dirty ? t("content_admin.there_unsaved_changes") : ""}</div>
         </div>
         <div className="cms-actions">
@@ -151,11 +159,33 @@ export function ContentAdmin() {
           {section.draft || dirty ? <button type="button" className="btn btn-danger-ghost btn-sm" data-testid="cms-discard" disabled={busy} onClick={() => dirty && !section.draft ? (setWorking(section.published), setDirty(false)) : void discard()}>{t("content_admin.discard_draft")}</button> : null}
         </div>
       </section>
+      <section className="panel cms-content-locale" data-testid="cms-content-locale" data-locale={contentLocale}>
+        <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 10 }}>
+          <div>
+            <b>{t("content_admin.content_language")}</b>
+            <div className="muted small">{t("content_admin.content_language_help")}</div>
+          </div>
+          <div className="row" role="group" aria-label={t("content_admin.content_language")}>
+            {(["he", "en"] as const).map((code) => (
+              <button key={code} type="button" className={`chip${contentLocale === code ? " active" : ""}`}
+                data-testid={`cms-content-locale-${code}`} aria-pressed={contentLocale === code}
+                disabled={busy} onClick={() => setContentLocale(code)}>
+                {code === "he" ? t("content_admin.content_language_he") : t("content_admin.content_language_en")}
+              </button>
+            ))}
+          </div>
+        </div>
+        {contentLocale === "en" && missingEnglish.length ? (
+          <div className="notice info" data-testid="cms-missing-english" data-count={missingEnglish.length}>
+            {t("content_admin.missing_english_count", { count: missingEnglish.length })}
+          </div>
+        ) : null}
+      </section>
       {inlinePreview && IN_EDITOR_PREVIEW.has(key) ? <CopyPreview page={working} /> : null}
       <div className="stack cms-blocks">
         {working.blocks.map((block, index) => {
           const locked = lockedIds.has(block.id);
-          return <BlockCard key={block.id} block={block} index={index} locked={locked} busy={busy}
+          return <BlockCard key={block.id} block={block} index={index} locked={locked} busy={busy} contentLocale={contentLocale}
             canUp={!locked && index > firstFree} canDown={!locked && index < working.blocks.length - 1}
             onChange={next => update(p => ({ blocks: p.blocks.map(b => b.id === block.id ? next : b) }))}
             onMove={dir => update(p => ({ blocks: move(p.blocks, index, index + dir) }))}
@@ -215,19 +245,28 @@ function CopyPreview({ page }: { page: PageContent }) {
   </section>;
 }
 
-function BlockCard({ block, index, locked, busy, canUp, canDown, onChange, onMove, onRemove, onMessage }: {
-  block: Block; index: number; locked: boolean; busy: boolean; canUp: boolean; canDown: boolean;
+function BlockCard({ block, index, locked, busy, contentLocale, canUp, canDown, onChange, onMove, onRemove, onMessage }: {
+  block: Block; index: number; locked: boolean; busy: boolean; contentLocale: ContentLocale; canUp: boolean; canDown: boolean;
   onChange: (b: Block) => void; onMove: (dir: -1 | 1) => void; onRemove: () => void; onMessage: (text: string) => void;
 }) {
   const tpl = TEMPLATES[block.type];
   const [open, setOpen] = useState(true);
-  const setField = (name: string, value: string) => onChange({ ...block, fields: { ...block.fields, [name]: value } });
-  const items = block.items || [];
-  const setItems = (next: Record<string, string>[]) => onChange({ ...block, items: next });
+  // Hebrew is the canonical content and is always stored in `fields`; English
+  // is the optional sibling in `fields_en`. The editor writes to whichever one
+  // the content-language toggle selects, so the two never mix.
+  const english = contentLocale === "en";
+  const fields = english ? (block.fields_en ?? {}) : block.fields;
+  const items = (english ? block.items_en ?? [] : block.items) || [];
+  const setField = (name: string, value: string) => onChange(english
+    ? { ...block, fields_en: { ...(block.fields_en ?? {}), [name]: value } }
+    : { ...block, fields: { ...block.fields, [name]: value } });
+  const setItems = (next: Record<string, string>[]) => onChange(english
+    ? { ...block, items_en: next }
+    : { ...block, items: next });
   return <section className={`panel cms-block${block.enabled ? "" : " cms-block-off"}`} data-testid={`cms-block-${block.id}`} data-block-type={block.type} data-enabled={block.enabled ? "1" : "0"} data-position={index}>
     <div className="cms-block-head">
       <button type="button" className="cms-block-toggle" aria-expanded={open} onClick={() => setOpen(o => !o)}>{open ? "▾" : "▸"}</button>
-      <div className="cms-block-title"><b>{tpl.name}</b>{locked ? <span className="chip cms-chip">{t("content_admin.fixed")}</span> : null}{!block.enabled ? <span className="chip cms-chip">{t("content_admin.hidden")}</span> : null}</div>
+      <div className="cms-block-title"><b>{t(tpl.name)}</b>{locked ? <span className="chip cms-chip">{t("content_admin.fixed")}</span> : null}{!block.enabled ? <span className="chip cms-chip">{t("content_admin.hidden")}</span> : null}</div>
       <div className="cms-block-tools">
         {!locked ? <label className="cms-switch"><input type="checkbox" data-testid={`cms-block-enabled-${block.id}`} checked={block.enabled} disabled={busy} onChange={e => onChange({ ...block, enabled: e.target.checked })} />  {t("content_admin.live_site")}</label> : null}
         <button type="button" className="btn btn-ghost btn-sm" aria-label={t("content_admin.move_up")} data-testid={`cms-block-up-${block.id}`} disabled={busy || !canUp} onClick={() => onMove(-1)}>▲</button>
@@ -235,13 +274,17 @@ function BlockCard({ block, index, locked, busy, canUp, canDown, onChange, onMov
         {!locked ? <button type="button" className="btn btn-danger-ghost btn-sm" data-testid={`cms-block-remove-${block.id}`} disabled={busy} onClick={onRemove}>{t("content_admin.remove")}</button> : null}
       </div>
     </div>
-    {open ? <div className="cms-fields">
+    {open ? <div className="cms-fields" lang={english ? "en" : "he"} dir={english ? "ltr" : "rtl"}>
       {Object.entries(tpl.fields).map(([name, def]) => {
+        // `showWhen` is a STRUCTURAL choice (which medium, which side) and is
+        // held only on the canonical Hebrew side; the English view follows it.
         if (def.showWhen && block.fields[def.showWhen.field] !== def.showWhen.value) return null;
-        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={block.fields[name] ?? ""} busy={busy} onChange={v => setField(name, v)} onMessage={onMessage} />;
+        const fallback = english ? block.fields[name] ?? "" : "";
+        return <Field key={name} id={`cms-field-${block.id}-${name}`} def={def} value={fields[name] ?? ""}
+          fallback={fallback} busy={busy} onChange={v => setField(name, v)} onMessage={onMessage} />;
       })}
       {tpl.items ? <div className="cms-items" data-testid={`cms-items-${block.id}`}>
-        <div className="cms-items-head"><b>{tpl.items.label}</b> <span className="muted small">({items.length}/{tpl.items.max})</span></div>
+        <div className="cms-items-head"><b>{t(tpl.items.label)}</b> <span className="muted small">({items.length}/{tpl.items.max})</span></div>
         {items.map((item, i) => <div className="cms-item" key={i} data-testid={`cms-item-${block.id}-${i}`}>
           <div className="cms-item-tools">
             <span className="muted small">{i + 1}</span>
@@ -249,17 +292,24 @@ function BlockCard({ block, index, locked, busy, canUp, canDown, onChange, onMov
             <button type="button" className="btn btn-ghost btn-sm" aria-label={t("content_admin.move_down")} data-testid={`cms-item-down-${block.id}-${i}`} disabled={busy || i === items.length - 1} onClick={() => setItems(move(items, i, i + 1))}>▼</button>
             <button type="button" className="btn btn-danger-ghost btn-sm" data-testid={`cms-item-remove-${block.id}-${i}`} disabled={busy || items.length <= tpl.items!.min} onClick={() => setItems(items.filter((_, j) => j !== i))}>{t("content_admin.delete")}</button>
           </div>
-          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def} value={item[name] ?? ""} busy={busy} onChange={v => setItems(items.map((it, j) => j === i ? { ...it, [name]: v } : it))} onMessage={onMessage} />)}
+          {Object.entries(tpl.items!.fields).map(([name, def]) => <Field key={name} id={`cms-item-${block.id}-${i}-${name}`} def={def} value={item[name] ?? ""}
+            fallback={english ? block.items?.[i]?.[name] ?? "" : ""} busy={busy} onChange={v => setItems(items.map((it, j) => j === i ? { ...it, [name]: v } : it))} onMessage={onMessage} />)}
         </div>)}
-        <button type="button" className="btn btn-ghost btn-sm" data-testid={`cms-item-add-${block.id}`} disabled={busy || items.length >= tpl.items.max} onClick={() => setItems([...items, emptyItem(block.type)])}>+ {tpl.items.addLabel}</button>
+        <button type="button" className="btn btn-ghost btn-sm" data-testid={`cms-item-add-${block.id}`} disabled={busy || items.length >= tpl.items.max} onClick={() => setItems([...items, emptyItem(block.type)])}>+ {t(tpl.items.addLabel)}</button>
       </div> : null}
     </div> : null}
   </section>;
 }
 
-function Field({ id, def, value, busy, onChange, onMessage }: { id: string; def: FieldDef; value: string; busy: boolean; onChange: (v: string) => void; onMessage: (text: string) => void }) {
+function Field({ id, def, value, fallback = "", busy, onChange, onMessage }: { id: string; def: FieldDef; value: string; fallback?: string; busy: boolean; onChange: (v: string) => void; onMessage: (text: string) => void }) {
   const [uploading, setUploading] = useState(false);
-  const label = <span>{def.label}{def.required ? " *" : ""}{def.hint ? <span className="hint"> · {def.hint}</span> : null}</span>;
+  // An English field left empty is not broken — it is a DECLARED fallback to
+  // the Hebrew value. Say so in the editor, with the text that will actually
+  // be shown, so nobody has to guess what an empty box means.
+  const fallbackNote = !value.trim() && fallback.trim()
+    ? <span className="hint" data-testid={`${id}-fallback`}> · {t("content_admin.falls_back_to_hebrew", { text: fallback.slice(0, 60) })}</span>
+    : null;
+  const label = <span>{t(def.label)}{def.required ? " *" : ""}{def.hint ? <span className="hint"> · {t(def.hint)}</span> : null}{fallbackNote}</span>;
   if (def.kind === "image" || def.kind === "video") {
     const isVideo = def.kind === "video";
     const pick = async (file: File | undefined) => {
@@ -282,7 +332,7 @@ function Field({ id, def, value, busy, onChange, onMessage }: { id: string; def:
   }
   if (def.kind === "select") {
     return <div className="field"><label htmlFor={id}>{label}</label>
-      <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}</select></div>;
+      <select id={id} data-testid={id} value={value} disabled={busy} onChange={e => onChange(e.target.value)}>{(def.options || []).map(o => <option key={o.value} value={o.value}>{t(o.label)}</option>)}</select></div>;
   }
   if (def.kind === "multiline") {
     return <div className="field"><label htmlFor={id}>{label}</label>

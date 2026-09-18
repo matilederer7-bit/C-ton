@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { api, Json } from "../api";
 import { BrandLoader, EmptyState, Toast, useToast } from "../components";
 import { num, timeAgo } from "../util";
-import { t, tKey, Tx } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
+import { Tx } from "../i18n/Tx.js";
 
 // ── P0.7 — seller command center: customer inquiries ("פניות מלקוחות") ──────
 // The authoritative conversation lives in the product. The dashboard panel,

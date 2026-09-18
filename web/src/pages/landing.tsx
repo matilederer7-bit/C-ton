@@ -1,14 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { getSellerToken } from "../api";
 import { BRAND_LOGO_URL } from "../config";
-import { LANDING_HE } from "../content/landing.he";
+import { LANDING_HE } from "../content/landing.he.js";
+import { LANDING_EN } from "../content/landing.en.js";
+import { getLocale } from "../i18n/locale.js";
 import { getPreviewMeta } from "../previewMeta";
 // ROUND 2 (UX-7B / UX-7A) — one hero medium, one FAQ source of truth.
 import { readViewerMotionConditions, resolveHeroMedium, type HeroMedium } from "../heroMedium";
 import { resolveFaqItems } from "../faqContent";
 import { pageOf, useSiteContent } from "../siteContent";
 import { type Block, enabledBlocks } from "../content/cmsTemplates";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 // ── C-ton public landing (seller-first root; Mall stays hidden) ─────────────
 // SITE CMS — the page is the ordered block list of the PUBLISHED `home` page
@@ -107,6 +109,17 @@ function useMallEnabled(): boolean {
   return enabled;
 }
 
+/**
+ * The canonical landing CONTENT for the active language.
+ *
+ * These are the fallbacks used when a CMS block is absent — and they have to
+ * follow the language like everything else, otherwise the English landing
+ * quietly renders Hebrew copy wherever the CMS has not been filled in.
+ */
+function landingDefaults(): typeof LANDING_HE {
+  return getLocale() === "en" ? (LANDING_EN as typeof LANDING_HE) : LANDING_HE;
+}
+
 /** CMS links are validated (internal hash route, same-origin path or https); hash routes stay in-app. */
 function follow(navigate: (h: string) => void, link: string) {
   if (!link) return;
@@ -170,11 +183,11 @@ function LandingBlock({ block, navigate, authed }: { block: Block; navigate: (h:
   if (block.type === "faq") {
     // ROUND 2 (UX-7A) — the resolver keeps the canonical FAQ as the fallback,
     // so a corrupt or empty persisted collection can never blank the section.
-    const faqItems = resolveFaqItems({ items }, LANDING_HE.faq.items);
+    const faqItems = resolveFaqItems({ items }, landingDefaults().faq.items);
     if (!faqItems.length) return null;
     return (
       <section className="landing-section" id={block.id} data-testid={testId} data-block-type="faq">
-        <h2>{f.title || LANDING_HE.faq.title}</h2>
+        <h2>{f.title || landingDefaults().faq.title}</h2>
         <div className="landing-faq" data-testid="landing-faq" data-faq-count={faqItems.length}>
           {faqItems.map((item, i) => (
             <details className="landing-faq-item" key={`${i}-${item.q}`}>
@@ -213,7 +226,9 @@ export function Landing({ navigate }: { navigate: (h: string) => void }) {
   const page = pageOf(content, "home");
   const blocks = enabledBlocks(page);
   const hero = (blocks.find((b) => b.id === "hero") || page.blocks[0])!.fields;
-  const c = LANDING_HE;
+  // The built-in default follows the ACTIVE language too: a CMS block that is
+  // missing must not drag the whole hero back into Hebrew.
+  const c = landingDefaults();
   // ROUND 2 (UX-7B) — ONE medium for the hero, never both.
   const heroMedium = useHeroMedium(hero, BRAND_LOGO_URL);
   return (

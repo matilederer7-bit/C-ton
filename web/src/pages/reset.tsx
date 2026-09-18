@@ -5,7 +5,7 @@ import { adoptCapabilities } from "../ownerMode";
 import { clearRecoverySession, readRecoverySession } from "../authRedirect";
 import { localizedError } from "../he";
 import { BrandMark } from "../brand";
-import { t } from "../i18n";
+import { t } from "../i18n/index.js";
 
 // ── Canonical password-reset screen (P0.3-11) ───────────────────────────────
 // Reached from the REAL Supabase recovery link (fragment captured at boot).

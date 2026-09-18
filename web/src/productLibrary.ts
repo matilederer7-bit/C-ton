@@ -1,4 +1,4 @@
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 // Product catalog (072) — pure, DOM-free rules for the seller Product Library
 // so filtering, sorting, empty states and revision history are unit-testable
 // (tests/product_catalog_validation.ts) and never diverge from the screen.

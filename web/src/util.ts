@@ -1,7 +1,7 @@
 // Locale-aware formatting + canonical state views for the Siton product
 // surfaces. Money, counts and dates follow the ACTIVE locale; the currency
 // itself is always ILS, in both languages, because the money is the same money.
-import { getLocale, intlTagOf, t } from "./i18n";
+import { getLocale, intlTagOf, t } from "./i18n/index.js";
 
 export function ils(value: unknown): string {
   const n = Number(value || 0);

@@ -11,7 +11,7 @@ import { PropagationTree } from "../propagation";
 import { buyerStateLabel, fmtDate, ils, israelPartsToUtcIso, moneyStateLabel, notificationStatusLabel, num, pct, stateLabel, timeAgo } from "../util";
 // SHELF REINTEGRATION (PR #7 residual slice) — the admin virality time range.
 import { DEFAULT_GROWTH_RANGE, GROWTH_RANGE_PRESETS, growthRangeLabel, growthRangeParams, validateCustomRange, type GrowthRange } from "../growthRange";
-import { t, tKey } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
 
 // ── login (the shared truthful auth panel + server-side admin verification) ─
 function AdminLogin({ onDone }: { onDone: () => void }) {

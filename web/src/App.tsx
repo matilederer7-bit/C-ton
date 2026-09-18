@@ -1,6 +1,6 @@
 import { PublicSellerPage, ContentPage } from "./receiptContent";
 import { captureCmsPreviewFlag, contentPageHasBody, exitCmsPreview, pageOf, useSiteContentState } from "./siteContent";
-import { blockOf, localizedItems, localizedValue, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT_KEY } from "./content/cmsTemplates";
+import { blockOf, FOOTER_DEFAULT_LINKS, FOOTER_DEFAULT_TEXT_KEY } from "./content/cmsTemplates";
 import React, { useEffect, useState } from "react";
 import { Mall } from "./pages/mall";
 import { Landing } from "./pages/landing";
@@ -18,7 +18,7 @@ import { getPreviewMeta } from "./previewMeta";
 // position of the history entry they return to; a NEW entry starts at the top.
 import { installScrollRestoration } from "./scrollRestoration";
 import { captureAuthRedirect } from "./authRedirect";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // Supabase auth-email redirects (recovery/confirmation) land in the hash —
 // capture them BEFORE any routing or ref-capture touches the URL.
@@ -37,10 +37,10 @@ import { AdminStepUp } from "./adminStepUp";
 // ── Language ───────────────────────────────────────────────────────────────
 // Hebrew is the default and is NEVER overridden by the operating system: the
 // locale comes from the visitor's own stored choice or from nothing at all.
-import { bootLocale } from "./i18n/locale";
-import { useLocale } from "./i18n/useLocale";
-import { LanguageSwitch } from "./i18n/LanguageSwitch";
-import type { Locale } from "./i18n/locale";
+import { bootLocale } from "./i18n/locale.js";
+import { useLocale } from "./i18n/useLocale.js";
+import { LanguageSwitch } from "./i18n/LanguageSwitch.js";
+import type { Locale } from "./i18n/locale.js";
 
 // Read the stored language choice and reflect it on <html lang/dir> BEFORE the
 // first paint, so the document never renders one language inside the other's
@@ -173,9 +173,9 @@ function AppTree({ locale }: { locale: Locale }) {
   const footer = blockOf(pageOf(content, "footer"), "footer");
   // A footer link to an empty document page is a dead end the visitor pays for
   // with a click. Drop it until the page has a body (see contentPageHasBody).
-  // The footer is read in the ACTIVE language: a CMS block with an English
-  // value shows it, and one without falls back to the Hebrew it was written in.
-  const footerLinks = (footer ? localizedItems(footer, locale) : FOOTER_DEFAULT_LINKS.map((l) => ({ label: t(l.labelKey), link: l.link })))
+  // `pageOf` already read the page in the active language, so the block here
+  // carries resolved values; only the built-in default needs translating.
+  const footerLinks = (footer?.items ?? FOOTER_DEFAULT_LINKS.map((l) => ({ label: t(l.labelKey), link: l.link })))
     .filter((l) => {
       const match = /^#\/content\/(.+)$/.exec(String(l.link || ""));
       return match ? contentPageHasBody(content, match[1]!) : true;
@@ -268,7 +268,7 @@ function AppTree({ locale }: { locale: Locale }) {
             ))}
           </div>
           <div style={{ marginTop: 8, whiteSpace: "pre-wrap" }}>
-            {footer ? localizedValue(footer, "text", locale) : t(FOOTER_DEFAULT_TEXT_KEY)}
+            {footer?.fields.text ?? t(FOOTER_DEFAULT_TEXT_KEY)}
           </div>
         </footer>
       ) : null}

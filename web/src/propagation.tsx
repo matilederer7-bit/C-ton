@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Json } from "./api";
 import { ils, num } from "./util";
-import { t, Tx } from "./i18n";
+import { t } from "./i18n/index.js";
+import { Tx } from "./i18n/Tx.js";
 
 // ── TRUE VIRAL PROPAGATION TREE (P0.5-2) ────────────────────────────────────
 // A visual map of HOW THE DEAL SPREAD FROM PERSON TO PERSON:

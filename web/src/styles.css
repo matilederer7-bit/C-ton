@@ -1678,3 +1678,10 @@ input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
 /* Numbers, money, codes, phone numbers, e-mail addresses and URLs are already
    isolated LTR runs in the Hebrew layout; in English they are simply normal
    text, and `unicode-bidi: isolate` remains correct for both. */
+
+/* The legal shell's own notices sit OUTSIDE the document article, because the
+   article carries the document's language and direction (a Hebrew contract
+   inside an English page). Sharing a direction would right-align the English
+   notices and push their full stops to the wrong side. */
+.legal-notices { max-width: var(--max); margin: 0 auto 12px; display: grid; gap: 10px; }
+.legal-notices .notice { margin: 0; }

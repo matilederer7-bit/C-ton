@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { api } from "./api";
 import { localizedError } from "./he";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── LAUNCH POLISH 2 (P6) — the smallest useful buyer feedback surface ──────
 // ONE question ("היה משהו שלא היה ברור?"), a fixed category list, an optional

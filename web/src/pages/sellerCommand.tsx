@@ -1,7 +1,7 @@
 import React from "react";
 import { Json } from "../api";
 import { ils, num } from "../util";
-import { t, tKey } from "../i18n";
+import { t, tKey } from "../i18n/index.js";
 
 // ── Seller Command Center panels (P0.4-2) ───────────────────────────────────
 // Every figure comes from the canonical /api/seller/analytics payload — no

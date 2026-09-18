@@ -7,7 +7,7 @@
 // Every map below holds a TRANSLATION KEY, not copy: these are module-level
 // constants, so storing resolved text would freeze the language chosen at
 // import time and survive every later language switch.
-import { getLocale, t } from "./i18n";
+import { getLocale, t } from "./i18n/index.js";
 
 export interface ApiErrorLike {
   status?: number;

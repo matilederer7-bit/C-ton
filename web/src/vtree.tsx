@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { api, Json } from "./api";
 import { ils, num } from "./util";
-import { t } from "./i18n";
+import { t } from "./i18n/index.js";
 
 // ── Viral tree WORKSPACE (P0.3-7) — petition-style unified family tree ──────
 // One hierarchy on a draggable/zoomable SVG surface: the deal is the trunk at
