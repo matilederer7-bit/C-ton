@@ -22,13 +22,32 @@ The canonical HTTP route only creates `payment_authorization_bindings` after a s
 
 ### Fix in this branch
 
+- Grow authorization is accepted only for a server-priced deal + buyer context; an unbound browser-supplied amount cannot start a Grow authorization.
+- A stable 8–160 character idempotency key is mandatory for Grow authorization.
+- Siton derives a durable correlation identity from deal + buyer + that key and reserves it in `payment_authorization_bindings` **before** provider I/O.
+- Migration 073 adds nullable `provider_payment_url` so the first successful hosted-flow response can be replayed without a second `createPaymentProcess`.
+- sequential and concurrent exact replays dispatch at most one provider CREATE;
+- reusing the same identity with a different money intent fails closed;
 - transport loss after create dispatch => `UNKNOWN`, non-retryable;
 - 408/409/425/429/5xx after create dispatch => `UNKNOWN`, non-retryable;
 - incomplete nominal-success response => `UNKNOWN`, non-retryable;
 - explicit provider rejection remains a declared permanent failure;
-- user-facing/provider-layer text no longer promises reconciliation and says automatic retry is blocked pending provider/operator review.
+- if the process dies after dispatch but before the successful response is durably finalized, the reservation remains unresolved and blocks blind replay;
+- user-facing/provider-layer text no longer promises reconciliation when Siton lacks a durable provider reference.
 
-This is intentionally fail-closed. A future durable authorization-intent/recovery design may improve recovery, but it must be based on Grow’s actual correlation/idempotency contract rather than fabricated identifiers.
+This is intentionally fail-closed. Recovery from a CREATE whose provider response is completely lost still requires provider/operator evidence; Siton never invents a process reference or repeats the external side effect.
+
+## Finding P0-A2 — authorization endpoint allowed Grow I/O before durable dedupe
+
+### Evidence
+
+The HTTP handler previously invoked `paymentProvider.authorize()` first and only then called `createBinding()`. Although `payment_authorization_bindings.correlation_id` is unique, that uniqueness happened **after** the external call. Two concurrent requests with the same logical intent could therefore both reach Grow and only deduplicate once the provider side effect had already happened.
+
+The same route also allowed a Grow authorization without `deal_id`; in that path `amount_minor` could originate from the request body instead of Siton's server-side deal calculation.
+
+### Closure
+
+Both paths are now closed by the pre-dispatch reservation described above. The regression suite proves missing identity fails before I/O, exact replay is side-effect-free, concurrent replay dispatches once, and a payload mismatch cannot reuse the identity.
 
 ## Finding P0-B — Grow LIVE transport was not pinned to the official host
 
