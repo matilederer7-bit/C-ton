@@ -1,4 +1,5 @@
 import { assertRequiredTables } from "./schema_contract.js";
+import { readMoneyAmount, MONEY_EPSILON } from "./money_input.js";
 import { pickupOptionsMissingLocation } from "./pickup_location.js";
 import Fastify from "fastify";
 import { pool } from "./db.js";
@@ -5955,12 +5956,13 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
     err.code = "description_short_too_long";
     throw err;
   }
-  const priceRaw = Number(body.price_per_unit);
-  if (!Number.isFinite(priceRaw) || priceRaw <= 0) {
-    const err: any = new Error("price_per_unit must be a positive number");
-    err.statusCode = 400;
-    throw err;
-  }
+  // Read the price AS numeric(12,2) WILL STORE IT. A raw "> 0" check passed
+  // 0.001, which the column then rounded to 0.00 — the very value the next
+  // line refuses — and the deal published at a price of zero.
+  const priceRaw = readMoneyAmount(body.price_per_unit, {
+    field: "price_per_unit",
+    min: MONEY_EPSILON
+  });
   // LAUNCH MODE — optional regular ("normal") price; when given it must be
   // ABOVE the group price, otherwise the shown saving would be a lie.
   const listPrice = readListPricePerUnit(body.list_price_per_unit, priceRaw);
@@ -5976,7 +5978,10 @@ app.post("/deals", SELLER_AUTHORITY_ROUTE, async (req: any) => {
             ? String(option.option_type)
             : "pickup",
           label: String(option?.label || "").trim().slice(0, 160),
-          cost: Math.max(0, Number(option?.cost || 0)),
+          // Math.max(0, Number("abc")) is NaN, and numeric accepts 'NaN'
+          // verbatim: the deal published with a NaN delivery cost and the fee
+          // engine turned the poisoned total into a zero fee.
+          cost: readMoneyAmount(option?.cost ?? 0, { field: "delivery_cost", min: 0 }),
           sort_order: Number.isFinite(Number(option?.sort_order)) ? Number(option.sort_order) : index,
           ...normalizeDeliveryCoordinates(option),
           ...normalizeDeliveryEstimate(option)
@@ -6232,7 +6237,9 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
     if (description.length > DESCRIPTION_LONG_MAX) throw Object.assign(new Error(`description must be ${DESCRIPTION_LONG_MAX} characters or fewer`), { statusCode: 400, code: "description_too_long" });
     const descriptionShort = hasOwn("description_short") ? String(body.description_short || "").trim() : String(current.description_short || "");
     if (descriptionShort.length > DESCRIPTION_SHORT_MAX) throw Object.assign(new Error(`description_short must be ${DESCRIPTION_SHORT_MAX} characters or fewer`), { statusCode: 400, code: "description_short_too_long" });
-    const price = hasOwn("price_per_unit") ? Number(body.price_per_unit) : Number(current.price_per_unit);
+    const price = hasOwn("price_per_unit")
+      ? readMoneyAmount(body.price_per_unit, { field: "price_per_unit", min: MONEY_EPSILON })
+      : Number(current.price_per_unit);
     if (!Number.isFinite(price) || price <= 0) throw Object.assign(new Error("price_per_unit must be a positive number"), { statusCode: 400, code: "price_invalid" });
     // LAUNCH MODE — regular price is re-validated against the (possibly new) group price
     const listPrice = hasOwn("list_price_per_unit")
@@ -6268,7 +6275,7 @@ app.patch("/api/seller/deals/:dealId/draft", async (req: any) => {
       const options = body.delivery_options.map((option: any, index: number) => ({
         option_type: ["delivery", "pickup", "distribution_point"].includes(String(option?.option_type || "")) ? String(option.option_type) : "pickup",
         label: String(option?.label || "").trim().slice(0, 160),
-        cost: Number(option?.cost || 0),
+        cost: readMoneyAmount(option?.cost ?? 0, { field: "delivery_cost", min: 0 }),
         sort_order: Number.isInteger(Number(option?.sort_order)) ? Number(option.sort_order) : index,
         ...normalizeDeliveryCoordinates(option),
         ...normalizeDeliveryEstimate(option)
@@ -6427,9 +6434,17 @@ function normalizeDeliveryCoordinates(option: any): { latitude: number | null; l
 // a now-invalid stored anchor is dropped (null) rather than blocking the edit.
 function readListPricePerUnit(raw: unknown, groupPrice: number, opts: { tolerateInvalid?: boolean } = {}): number | null {
   if (raw === undefined || raw === null || String(raw).trim() === "") return null;
-  const value = Number(raw);
-  const valid = Number.isFinite(value) && value > 0 && value > groupPrice;
-  if (valid) return Math.round(value * 100) / 100;
+  // Both sides are compared as numeric(12,2) will hold them: a "regular" price
+  // of 50.001 against a group price of 50 rounded to 50.00 vs 50.00 and
+  // advertised a saving of zero.
+  let stored: number | null = null;
+  try {
+    stored = readMoneyAmount(raw, { field: "list_price_per_unit", min: MONEY_EPSILON });
+  } catch {
+    stored = null;
+  }
+  const storedGroupPrice = Math.round(Number(groupPrice) * 100) / 100;
+  if (stored !== null && stored > storedGroupPrice) return stored;
   if (opts.tolerateInvalid) return null;
   throw Object.assign(new Error("list_price_per_unit must be a number above price_per_unit"), { statusCode: 400, code: "list_price_invalid" });
 }

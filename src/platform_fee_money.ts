@@ -28,13 +28,31 @@ export function roundMoney(value: number) {
   return Math.round((Number(value) || 0) * 100) / 100;
 }
 
+// RED TEAM FIX (Phase 2 §2.7) — fail closed on an amount that is not a number.
+// `roundMoney` maps NaN and Infinity to 0 through `Number(value) || 0`, so a
+// poisoned total (a NaN delivery cost reached the column and made every sum
+// NaN) used to come out of this engine as a perfectly well-formed snapshot of
+// ZERO: no fee for Siton, no charge for the buyer, and no error anywhere. An
+// amount the system cannot compute must stop the settlement, never silently
+// bill nothing.
+function requireFiniteAmount(value: unknown, field: string): number {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) {
+    throw Object.assign(
+      new Error(`platform_fee_money_non_finite_amount field=${field} value=${String(value)}`),
+      { code: "platform_fee_money_non_finite_amount", field }
+    );
+  }
+  return amount;
+}
+
 export function calculatePlatformFeeMoney(args: {
   grossAmount: number;
   vatAmount?: number;
   sign?: 1 | -1;
 }): PlatformFeeMoneySnapshot {
-  const grossAmount = roundMoney(Number(args.grossAmount || 0));
-  const vatAmount = roundMoney(Math.max(0, Number(args.vatAmount || 0)));
+  const grossAmount = roundMoney(requireFiniteAmount(args.grossAmount ?? 0, "grossAmount"));
+  const vatAmount = roundMoney(Math.max(0, requireFiniteAmount(args.vatAmount ?? 0, "vatAmount")));
   const feeBaseAmount = roundMoney(Math.max(0, grossAmount - vatAmount));
   const platformFeeBaseAmount = roundMoney(feeBaseAmount * SITON_PLATFORM_FEE_RATE);
   const platformFeeVatAmount = roundMoney(platformFeeBaseAmount * SITON_PLATFORM_FEE_VAT_RATE);
