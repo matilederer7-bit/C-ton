@@ -66,7 +66,8 @@ const MIGRATIONS = [
   ["069", "069_site_content_drafts_media.sql"],
   ["070", "070_seller_distribution_links.sql"],
   ["071", "071_long_horizon_authorization_renewal.sql"],
-  ["072", "072_product_catalog_and_fulfillment_estimates.sql"]
+  ["072", "072_product_catalog_and_fulfillment_estimates.sql"],
+  ["073", "073_payment_authorization_create_idempotency.sql"]
 ].map(([id, filename], position) => ({ id, filename, position: position + 1 }));
 
 module.exports = { MIGRATIONS_DIR, MIGRATIONS };
